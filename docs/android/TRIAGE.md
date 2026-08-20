@@ -117,7 +117,7 @@ channel question in the issue template exists to capture.
 > **Description:**
 > `The Android build itself fails: toolchain, Gradle, fat-AAR, mozconfig`
 
-**Means:** LibreWolf for Android does not build, or builds wrong, from source. The
+**Means:** Redoubt does not build, or builds wrong, from source. The
 Rust/NDK toolchain, the mozconfig, the fat-AAR step across the three ABIs, the Fenix
 Gradle stage, patch application on the Android target, reproducibility mismatches.
 Reporters here are almost always packagers or contributors, not users.
@@ -297,7 +297,7 @@ labels without an error.
 
 ```yaml
 name: Android bug report
-about: Something is wrong in LibreWolf for Android
+about: Something is wrong in Redoubt
 title: "[Android] "
 labels:
   - Android
@@ -306,7 +306,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting. LibreWolf for Android has **no crash reporter** — we
+        Thanks for reporting. Redoubt has **no crash reporter** — we
         removed the telemetry and crash-reporting stack — so what you write here is
         genuinely all we get. The device and version fields below are what let us
         tell your report apart from the other thirty filed today.
@@ -395,7 +395,7 @@ body:
     attributes:
       label: Have you changed anything in about:config?
       description: >-
-        LibreWolf for Android ships about:config on release builds. Changed prefs
+        Redoubt ships about:config on release builds. Changed prefs
         are shown first and marked as modified.
       options:
         - "No, everything is at its default"
@@ -482,7 +482,7 @@ body:
             contact path instead — see the top of this form.)
           required: true
         - label: >-
-            I understand that LibreWolf for Android has a weaker process sandbox
+            I understand that Redoubt has a weaker process sandbox
             than LibreWolf on desktop, that this is documented and deliberate, and
             that my report is about something else.
           required: false
@@ -588,7 +588,7 @@ anywhere but offline: CI publishes unsigned artifacts and hashes, and a maintain
 signs by hand. That is not compatible with Play, so this is not something we plan to
 revisit.
 
-LibreWolf for Android is available from our own F-Droid repository, from Accrescent,
+Redoubt is available from our own F-Droid repository, from Accrescent,
 and as a direct APK that works with Obtainium. All three carry the same signing
 fingerprint, which is published on the download page.
 
@@ -611,7 +611,7 @@ does not: isolated processes, the app zygote, and per-site process isolation
 (fission.webContentIsolationStrategy), which Android Firefox ships disabled. That
 recovers most of the gap and we do not claim it recovers all of it.
 
-Our position, in full: LibreWolf for Android ships the same privacy configuration and
+Our position, in full: Redoubt ships the same privacy configuration and
 the same Gecko-level security patches as LibreWolf desktop, on a platform whose
 process containment is weaker — and we publish exactly where. See PARITY.md for the
 row-by-row version.
@@ -655,7 +655,7 @@ Gecko rather than in anything LibreWolf changes, and it needs to go to Mozilla:
 
   https://bugzilla.mozilla.org/enter_bug.cgi?product=Fenix
 
-One caveat worth knowing: LibreWolf for Android tracks Firefox ESR, so we are usually
+One caveat worth knowing: Redoubt tracks Firefox ESR, so we are usually
 behind the Firefox release you compared against. If the version numbers differ a lot,
 the bug may already be fixed upstream and simply not have reached our branch yet.
 
@@ -668,7 +668,7 @@ Bugzilla bug in a comment so anyone who finds this issue can follow it.
 ```
 Thanks for the report, but we cannot act on this one: that build is not ours.
 
-We publish LibreWolf for Android through our own F-Droid repository, Accrescent, and
+We publish Redoubt through our own F-Droid repository, Accrescent, and
 a direct APK download. Anything else — a mirror, a repackage, a modified APK — is
 built and signed by someone we do not control, so we cannot tell whether the problem
 is in our source or in their build, and we cannot verify what is actually in the
@@ -826,7 +826,7 @@ both will arrive misdiagnosed:
 
 ### 3.5 "Needs a build to reproduce" when nobody can build
 
-Assume **no reporter can build LibreWolf for Android.** It is a multi-hour Gecko
+Assume **no reporter can build Redoubt.** It is a multi-hour Gecko
 build with an Android NDK toolchain and a fat-AAR step across three ABIs. Asking a
 reporter to bisect, apply a patch, or test a dev build is asking them to leave, and
 they will.
@@ -1012,7 +1012,7 @@ Path: `.forgejo/issue_template/android-bug.md`
 ```markdown
 ---
 name: Android bug report
-about: Something is wrong in LibreWolf for Android
+about: Something is wrong in Redoubt
 title: "[Android] "
 labels:
   - Android
@@ -1020,7 +1020,7 @@ labels:
 ---
 
 <!--
-  LibreWolf for Android has NO crash reporter, so what you write here is all we get.
+  Redoubt has NO crash reporter, so what you write here is all we get.
   Please do not delete the fields below — an issue without device, Android version
   and install source cannot be told apart from the others filed today.
 
@@ -1076,6 +1076,6 @@ labels:
 
 - [ ] I searched existing issues, including closed ones.
 - [ ] This is not a security vulnerability.
-- [ ] I know LibreWolf for Android has a weaker process sandbox than desktop, that
+- [ ] I know Redoubt has a weaker process sandbox than desktop, that
       this is documented and deliberate, and my report is about something else.
 ```

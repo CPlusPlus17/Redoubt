@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# scripts/android-smoke.sh -- the LibreWolf for Android smoke-test harness.
+# scripts/android-smoke.sh -- the Redoubt smoke-test harness.
 #
 # Owner: LW-M2-07.  Documentation: docs/android/SMOKE.md -- read it before
 # changing anything here, especially before adding a check.
@@ -71,7 +71,7 @@ VIDEOEOF
 cat > "$DRIVER" <<'PYDRIVEREOF'
 #!/usr/bin/env python3
 # ---------------------------------------------------------------------------
-# The LibreWolf for Android smoke harness.  Unpacked from
+# The Redoubt smoke harness.  Unpacked from
 # scripts/android-smoke.sh; do not edit this copy, edit the script.
 # ---------------------------------------------------------------------------
 import argparse, base64, json, os, re, shutil, signal, socket, ssl, struct
@@ -1713,7 +1713,7 @@ NOT_IMPLEMENTED = {
 # --------------------------------------------------------------------------
 def main(argv):
     ap = argparse.ArgumentParser(prog="android-smoke.sh", add_help=True,
-                                 description="LibreWolf for Android smoke-test harness "
+                                 description="Redoubt smoke-test harness "
                                              "(see docs/android/SMOKE.md)")
     ap.add_argument("--emulator", action="store_true",
                     help="boot a headless x86_64 emulator with packet capture and use it")

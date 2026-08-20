@@ -1,8 +1,13 @@
-# LibreWolf for Android
+# Redoubt
 
-Planning and execution material for building an Android version of LibreWolf at
-full parity with desktop: Gecko compiled from source, one shared patch set, the
-same privacy configuration.
+An Android browser that compiles Gecko from source and applies LibreWolf's patch
+set and privacy configuration, sharing both with the desktop build rather than
+patching a prebuilt Fennec.
+
+**Redoubt is a fork. It is not the LibreWolf project and is not endorsed by it.**
+The privacy configuration is LibreWolf's work and the MPL grants their code, not
+their name — read [`IDENTITY.md`](IDENTITY.md) before touching anything that names
+the project.
 
 This directory is the work plan and the record of what has been done against it.
 

@@ -1,4 +1,4 @@
-# Hardening flags: LibreWolf desktop vs LibreWolf for Android
+# Hardening flags: LibreWolf desktop vs Redoubt
 
 **Owner: LW-M5-03.** One question: does the Android build get every hardening
 option the desktop build gets, and is there hardening we should add that neither
@@ -574,7 +574,7 @@ and §7's check `d` is how you confirm which state you are in.
 
 1. **There is no process sandbox.** `MOZ_SANDBOX` is `1` in the desktop
    `config.status` and does not appear at all in any of the four Android ones —
-   both halves measured **(M)**. LibreWolf for Android runs content in Android's
+   both halves measured **(M)**. Redoubt runs content in Android's
    app sandbox and nothing else; desktop LibreWolf has seccomp-bpf plus namespace
    isolation. This is the largest security difference between the two products,
    it is not closable with a build flag (§4.9), and the download page must say so

@@ -1,4 +1,4 @@
-# Release track — LibreWolf for Android
+# Release track — Redoubt
 
 **Task:** LW-M0-07 · **Status:** decided, pending maintainer sign-off (see the last
 section) · **Written:** 2026-08-15 against the stock Firefox 153.0.4 tree and the
@@ -8,7 +8,7 @@ Mozilla release calendar as of that date.
 
 ## Decision
 
-**LibreWolf for Android tracks Firefox ESR. LibreWolf desktop stays on Firefox
+**Redoubt tracks Firefox ESR. LibreWolf desktop stays on Firefox
 release.** The Android track starts at **esr153** (`version.android` = `153.0esr`,
 `release.android` = `1`) and follows the ESR series — dot releases as they ship,
 one major rebase a year when Mozilla cuts the next ESR.
@@ -213,7 +213,7 @@ release has carried it. The next scheduled ESR 153 point release is 153.1 on
 2026-08-18 — 14 days after the release-channel fix, and whether it carries this
 CVE at all depends on whether the bug is in Gecko or in the Kotlin layer.
 
-**LibreWolf for Android on ESR inherits this gap and must close it by hand.** That
+**Redoubt on ESR inherits this gap and must close it by hand.** That
 is a standing obligation, not a one-off: someone reads every "Firefox for Android"
 MFSA and decides per advisory whether to backport into our tree.
 
@@ -226,7 +226,7 @@ survivable by this team. One advisory stream to watch is.
 Not a number we cannot hit. The honest statement:
 
 > A Gecko security fix that Mozilla ships out of band to Firefox release reaches
-> LibreWolf for Android when it reaches Firefox ESR — historically the same day
+> Redoubt when it reaches Firefox ESR — historically the same day
 > for roughly half of them, and a median of 14 days (worst observed 21 days) for
 > the rest. LibreWolf's own turnaround on top of that is <N> days from the ESR
 > tarball to a published APK. Android-only advisories with no ESR counterpart are
@@ -244,7 +244,7 @@ The roadmap claims Tor Browser as a co-maintainer of the same base. Checked:
 - **Tor Browser Stable 15.0 is built on Firefox ESR 140 — desktop *and* Android.**
   Tor Browser 15.0.11 (2026-04-28) shipped with GeckoView bumped to `140.10.1esr`,
   i.e. Tor Browser for Android is built from the ESR branch's `mobile/android`.
-  That is precisely the configuration LibreWolf for Android would be.
+  That is precisely the configuration Redoubt would be.
 - **Tor Browser Stable 16.0 will be based on Firefox ESR 153**, expected mid-Q3
   2026; alpha 16.0a9 (2026-07) already runs on esr153. There is no 15.5 — they go
   straight from ESR 140 to ESR 153.
@@ -439,10 +439,10 @@ being agreed to. Nothing here is binding until it is filled in.
 
 **By signing, the maintainer agrees to all of:**
 
-1. **The track.** LibreWolf for Android tracks Firefox ESR, starting at esr153;
+1. **The track.** Redoubt tracks Firefox ESR, starting at esr153;
    LibreWolf desktop stays on Firefox release. One Android major rebase a year,
    ~26 dot rebases a year (§2).
-2. **The published latency.** LibreWolf for Android will be behind LibreWolf
+2. **The published latency.** Redoubt will be behind LibreWolf
    desktop on out-of-band Gecko security fixes by a median of 14 days and up to
    21 days, and LW-M7-05 will publish that rather than a number we cannot hit
    (§3a, §3-final).

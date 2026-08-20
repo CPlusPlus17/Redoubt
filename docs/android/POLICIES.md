@@ -237,7 +237,7 @@ default is `isTelemetryEnabled`, i.e. **true**. No Gecko pref touches it.
 the real one).** The Kotlin change is a default flip of
 `pref_key_experimentation_v2` to `false`.
 
-**P2** — until that Kotlin change lands, LibreWolf for Android enrols in Mozilla
+**P2** — until that Kotlin change lands, Redoubt enrols in Mozilla
 experiments by default while the desktop policy forbids it. This is the largest
 single behavioural divergence in this document. Owner: M4.
 
@@ -360,7 +360,7 @@ This is the one row where Android's default actively disagrees with LibreWolf.
 The `!defined(MOZ_WIDGET_ANDROID)` in that guard is explicit: **Android takes the
 `#else`, so EME is `true` by default.** Neither `common.cfg` nor `desktop.cfg`
 sets `media.eme.enabled` — desktop LibreWolf gets it from this policy alone. So
-without an `android.cfg` entry, LibreWolf for Android would ship DRM enabled
+without an `android.cfg` entry, Redoubt would ship DRM enabled
 while LibreWolf desktop ships it disabled.
 
 Android does have an extra approval layer —
@@ -519,7 +519,7 @@ The available answers, and why the obvious one is wrong:
 depend on the autoconfig spike: even if LW-M3-08 succeeds and locking becomes
 available, locking would still be the wrong answer here.
 
-**P7** — until that Kotlin default lands, LibreWolf for Android browses plain
+**P7** — until that Kotlin default lands, Redoubt browses plain
 HTTP by default while LibreWolf desktop does not. Owner: M4, and it should be
 early in M4.
 

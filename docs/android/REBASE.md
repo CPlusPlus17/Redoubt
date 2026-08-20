@@ -1,4 +1,4 @@
-# Rebasing LibreWolf for Android onto a new Firefox ESR
+# Rebasing Redoubt onto a new Firefox ESR
 
 **Owner: LW-M7-01.** This file is the procedure for moving the Android track from
 one Firefox ESR version to the next — normally a dot release (`153.0esr` →
@@ -864,7 +864,7 @@ In the pull request, state:
 - the eight gate outputs;
 - `./mach build` status and the `librewolf.webgl.prompt` header check.
 
-Do not soften the parity wording. LibreWolf for Android has a weaker process
+Do not soften the parity wording. Redoubt has a weaker process
 sandbox than LibreWolf desktop, ESR is a median of 14 days (worst observed 21)
 behind release on out-of-band Gecko fixes, and there is no Firefox for Android ESR
 channel at all. Those stay stated.

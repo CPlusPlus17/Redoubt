@@ -1,4 +1,4 @@
-# Roadmap — LibreWolf for Android
+# Roadmap — Redoubt
 
 Strategy, decided 2026-08-14: **build Gecko from source and port everything, one
 shared patch set with desktop.** Timeline is explicitly not the constraint.
@@ -58,7 +58,7 @@ it for now"), so Android not having it is not a parity loss for our users.
 
 The agreed public wording, which LW-M5-06 must not soften:
 
-> LibreWolf for Android ships the same privacy configuration and the same
+> Redoubt ships the same privacy configuration and the same
 > Gecko-level security patches as LibreWolf desktop, on a platform whose process
 > containment is weaker — and we publish exactly where.
 
@@ -75,7 +75,7 @@ the Android build is "Firefox but locked down":
   already in the generated manifest — and stock Fenix does not use them.
 
 Between them that is the single cheapest security win on the board, and it makes
-LibreWolf for Android meaningfully harder to attack than the browser it is built
+Redoubt meaningfully harder to attack than the browser it is built
 from.
 
 ---

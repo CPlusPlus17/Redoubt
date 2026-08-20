@@ -1,4 +1,4 @@
-# Working agreement — LibreWolf for Android
+# Working agreement — Redoubt
 
 Read this before touching a task. It is short on purpose; everything in it exists
 because getting it wrong costs someone a day.
@@ -294,6 +294,6 @@ from commit messages and issues.
   shows up in the M5 parity matrix.
 - Do not put a signing key, keystore passphrase, or any key material in CI, in a
   container image, or in any repo. See LW-M6-01.
-- Do not soften the parity wording. LibreWolf for Android will have a weaker
+- Do not soften the parity wording. Redoubt will have a weaker
   process sandbox than LibreWolf desktop, and the plan is to say so on the download
   page.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Validator and query tool for the LibreWolf for Android task board.
+Validator and query tool for the Redoubt task board.
 
     python3 docs/android/board.py --check          # graph + ownership integrity
     python3 docs/android/board.py --waves          # parallel wave assignment

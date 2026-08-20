@@ -270,7 +270,7 @@ build". That is not a finished feature behind a flag. See §9.
 
 This is the question that decides the answer, so it gets the most space.
 
-LibreWolf for Android will ship containment stock Fenix does not: LW-M5-02
+Redoubt will ship containment stock Fenix does not: LW-M5-02
 turns on `isolatedProcess` + the app zygote, LW-M5-01 raises
 `fission.webContentIsolationStrategy`. Desktop LibreWolf's Linux content
 sandbox is `security.sandbox.content.level = 6`
@@ -465,14 +465,14 @@ configuration. Publishing a claim that is defensible in one dimension and wrong
 in another is how a parity statement loses credibility. Precise version, safe to
 publish:
 
-> LibreWolf for Android has **no Gecko process sandbox**. `MOZ_SANDBOX` is not
+> Redoubt has **no Gecko process sandbox**. `MOZ_SANDBOX` is not
 > compiled on Android (upstream default; `toolkit/moz.configure:4018-4029`), so
 > the seccomp-bpf filter, syscall policy and file broker that protect LibreWolf
 > desktop's content, media, GPU, network and utility processes on Linux do not
 > exist in the Android build, and every `security.sandbox.*` preference there is
 > inert.
 >
-> In their place LibreWolf for Android uses the containment the operating system
+> In their place Redoubt uses the containment the operating system
 > provides, which stock Firefox for Android does not enable: content processes
 > run as `android:isolatedProcess`, each with its own ephemeral UID in Android's
 > `isolated_app` SELinux domain — no network, no device access, no system

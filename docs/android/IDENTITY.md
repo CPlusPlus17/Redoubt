@@ -39,14 +39,35 @@ The practical objection matters more than the legal one. A user installing
 would judge its security posture on that basis. They would be wrong, and the
 mistake would be ours.
 
-## Placeholders in the board
+## The name
 
-These are greppable on purpose. When the name is chosen, it is one pass of `sed`.
+The project is called **Redoubt**. Chosen 2026-08-20, after checking seven
+candidates against the browser, security-software and general software
+namespaces; six collided and this one did not. A redoubt is a small isolated
+fortification, which is close enough to what the process model is trying to be.
 
-    <PROJECT>          the product name shown to users
+It is deliberately not a near-miss of LibreWolf, and not of IronFox or Mull
+either — see "the space is occupied" below.
+
+The forge is <https://github.com/CPlusPlus17/Redoubt>.
+
+Two placeholders are still open, and remain greppable on purpose:
+
     <PROJECT_ID>       the Android applicationId, e.g. tld.example.browser
     <PROJECT_DOMAIN>   the site that hosts downloads and the parity statement
-    <PROJECT_FORGE>    where the code and issues live
+
+## The space is occupied
+
+`IronFox` (<https://github.com/ironfox-oss/IronFox>) is the active community
+successor to Divested's Mull: a privacy-hardened Firefox for Android, shipped on
+F-Droid, maintained. Iceraven and Fennec are also live.
+
+This is not a reason to stop, but it does mean Redoubt has to be able to say what
+it does that they do not. The honest answer is the build model: Redoubt compiles
+Gecko from source with LibreWolf's patch set and pref configuration shared with
+the desktop build, rather than patching a prebuilt Fennec. That is a real
+difference and it is also the expensive one. LW-M7-03 owns saying it accurately
+and without overclaiming.
 
 **`<PROJECT_ID>` is one-way.** A changed applicationId is a different app to
 Android: no upgrade path, no data migration, every user reinstalls by hand. It is
