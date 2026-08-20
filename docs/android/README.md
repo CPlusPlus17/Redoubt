@@ -28,7 +28,8 @@ the UI still says "Firefox" (LW-M4-12), and nothing is signed or distributed.
 
 | file | what it is |
 |---|---|
-| [`IDENTITY.md`](IDENTITY.md) | **read first** — this is a fork, not the LibreWolf project, and what that constrains |
+| [`HANDOVER.md`](HANDOVER.md) | **start here** — current state, open blockers, how work has actually failed here |
+| [`IDENTITY.md`](IDENTITY.md) | this is a fork, not the LibreWolf project, and what that constrains |
 | [`ROADMAP.md`](ROADMAP.md) | the shape: strategy, milestones, what we can and cannot promise |
 | [`AGENTS.md`](AGENTS.md) | the rules: how to claim a task, ownership, the five landmines |
 | [`tasks.yaml`](tasks.yaml) | the board: every task with dependencies, acceptance criteria, verify commands |
