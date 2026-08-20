@@ -1,0 +1,72 @@
+# LW-M1-09: common half of the old patches/xmas.patch.
+#
+# This is the half that puts the lw/ directory into the build. moz.build gets
+# DIRS += ["lw"] so the tree is traversed at all, and lw/moz.build declares the
+# three files librewolf-patches.py copies into lw/ from the settings submodule:
+#
+#   librewolf.cfg                     FINAL_TARGET_FILES
+#   distribution/policies.json        FINAL_TARGET_FILES.distribution
+#   defaults/pref/local-settings.js   FINAL_TARGET_FILES.defaults.pref
+#
+# Both hunks are build-system files that every target reads: the root moz.build
+# is the entry point of the whole tree, and FINAL_TARGET_FILES is a plain
+# mozbuild install rule with no platform guard. Nothing here is desktop-only.
+# The desktop packaging manifest hunk that used to sit in the same patch file is
+# now patches/xmas-desktop.patch (assets/patches/desktop.txt).
+#
+# CAVEAT - READ THIS BEFORE ASSUMING PREFS WORK ON ANDROID (from LW-M1-01;
+# inherited by LW-M3-02 and LW-M3-03):
+#
+#   Getting lw/ traversed is NECESSARY BUT NOT SUFFICIENT on Android.
+#   FINAL_TARGET_FILES alone does not get librewolf.cfg into the APK. GeckoView
+#   packages from mobile/android/, so until an Android packaging half exists
+#   there is NO librewolf.cfg on Android, and therefore NO autoconfig channel
+#   at all - which is the channel landmine L2 in docs/android/AGENTS.md depends
+#   on for lockPref(). Without it there is nothing that can beat Fenix's
+#   runtime Pref.commit(), and every LibreWolf pref Fenix touches is lost.
+#
+#   So a successful apply of this patch on Android does NOT mean "prefs now
+#   work on Android". It means the directory is in the build. The Android
+#   packaging half is still owed - LW-M1-09 did not solve it, and it is tracked
+#   as an M4 successor in docs/android/PATCH-SCOPE.md (the `xmas` straddler
+#   row). Do not close the L2 question on the strength of this patch applying.
+#
+# The apply position is unconstrained: no other patch in any list touches
+# moz.build or lw/moz.build. The old code applied xmas.patch after the whole
+# patch list; this half now runs from common.txt, i.e. earlier, which is safe
+# for exactly that reason. The desktop half kept the old trailing position.
+#
+# NOTE ON FUZZ: the moz.build hunk's leading context does not match pristine
+# 153.0.4 - upstream added SPHINX_TREES["ai-agent-tools"] between the jsloader
+# line and the include(). It has always applied with fuzz, and the hunk text
+# below is byte-identical to the one in the pre-split xmas.patch so that it
+# still lands in exactly the same place. Do not "fix" the context: doing so
+# changes nothing about the result and loses the equivalence proof.
+#
+diff --git a/lw/moz.build b/lw/moz.build
+index e69de29..8589aac 100644
+--- a/lw/moz.build
++++ b/lw/moz.build
+@@ -0,0 +1,12 @@
++FINAL_TARGET_FILES += [
++  "librewolf.cfg",
++]
++
++FINAL_TARGET_FILES.distribution += [
++  "policies.json",
++]
++
++# local-settings does not yet end up being pacakged.
++FINAL_TARGET_FILES.defaults.pref += [
++  "local-settings.js",
++]
+diff --git a/moz.build b/moz.build
+index 4b7fabd..734eee8 100644
+--- a/moz.build
++++ b/moz.build
+@@ -244,3 +244,5 @@ SPHINX_TREES["content-security"] = "docs/content-security"
+ SPHINX_TREES["jsloader"] = "docs/jsloader"
+ 
+ include("build/templates.mozbuild")
++
++DIRS += ["lw"]

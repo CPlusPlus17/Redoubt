@@ -1,0 +1,2961 @@
+# LibreWolf for Android — task board
+#
+# Source of truth for the port. Human narrative lives in ROADMAP.md; the working
+# agreement for agents lives in AGENTS.md. Validate this file with:
+#
+#     python3 docs/android/board.py --check
+#
+# Schema (every field required unless marked optional):
+#   id           LW-M<milestone>-<nn>, stable forever, never renumbered
+#   title        imperative, <= 70 chars
+#   milestone    M0..M7
+#   depends_on   task ids that must be DONE before this one starts
+#   owns         paths in THIS repo (or the settings submodule) the task may write.
+#                Two tasks in the same wave must never share an owned path.
+#   shared_edit  append-only, line-oriented files (the patch lists) that several
+#                tasks legitimately touch at once. Exempt from collision checking.
+#                Rule: only ever add or change the line for YOUR OWN patch.
+#                (optional, default [])
+#   tree_paths   files inside the extracted Firefox tree that this task's patches
+#                touch. Also collision-checked — two patches editing the same tree
+#                file must be ordered, not parallel.  (optional, default [])
+#   reads        paths the task needs to read but must not modify (optional)
+#   what         2-5 sentences. Names concrete files, functions, line numbers.
+#   acceptance   machine-checkable criteria, all must hold
+#   verify       one shell command, or "manual: <what a human must do>"
+#   effort_h     rough range in hours for one competent agent/engineer
+#   skills       python|make|c++|js|kotlin|gradle|rust|shell|android|design|docs|ops
+#   agent_safe   yes = a fresh agent with no prior context can do it from this file
+#   isolation    none | worktree  (worktree when the task mutates the source tree)
+#   risk         one line: what goes wrong if this is done carelessly
+#
+# NOTE ON THE settings SUBMODULE
+#   settings/ is a git submodule (<PROJECT_FORGE>/settings). Tasks that own
+#   paths under settings/ produce a PR in THAT repo plus a submodule bump here.
+#   They are marked with `submodule: settings`.
+
+meta:
+  project: LibreWolf for Android
+  strategy: full parity — Gecko built from source, one shared patch set with desktop
+  decided: 2026-08-14
+  track: esr153 for Android while desktop stays on release (see LW-M0-07)
+  forge: codeberg.org (no GitHub mirror; upstream is read-only from
+    github.com/mozilla-firefox/firefox)
+  patch_scope_snapshot: 22 common / 23 desktop / 8 straddlers of 53 patch files
+    (heuristic — LW-M1-01 produces the authoritative split)
+
+tasks:
+
+  # ---------------------------------------------------------------- M0
+  # Foundations. Everything here is agent-safe, needs no Gecko build, and
+  # (apart from the stated deps) runs in parallel. This is the widest wave.
+
+  - id: LW-M0-01
+    title: Add a TARGETS variable to the Makefile and thread it to the patcher
+    milestone: M0
+    depends_on: []
+    owns: [Makefile]
+    reads: [scripts/librewolf-patches.py]
+    what: |
+      Makefile:136-140 builds $(lw_source_dir) by calling
+      `python3 scripts/librewolf-patches.py $(version) $(release)` with no notion
+      of a platform. Add `TARGETS ?= desktop` and pass `--targets=$(TARGETS)`.
+      Add the variable to the $(lw_source_dir) prerequisite list so changing it
+      forces a re-extract. Do not change patcher behaviour in this task — only
+      the plumbing, so `make dir` with no TARGETS is byte-identical to today.
+    acceptance:
+      - "`make dir` with no arguments produces the same tree as before this change"
+      - "`make -n dir TARGETS=desktop,android` shows the patcher invoked with --targets=desktop,android (the runtime half is gated on LW-M0-02, which adds the flag to the patcher)"
+      - "the TARGETS value participates in the $(lw_source_dir) prerequisites — directly or via a TARGETS-derived stamp — so changing it forces a re-extract"
+    verify: "make -n dir TARGETS=desktop,android | grep -- '--targets=desktop,android'"
+    effort_h: "1-2"
+    skills: [make]
+    agent_safe: yes
+    isolation: none
+    risk: Silently changing the default target breaks every existing desktop builder.
+
+  - id: LW-M0-02
+    title: Split patches.txt into common/desktop/android lists
+    milestone: M0
+    depends_on: [LW-M0-01, LW-M0-05]
+    owns:
+      - assets/patches/common.txt
+      - assets/patches/desktop.txt
+      - assets/patches/android.txt
+      - assets/patches.txt
+      - scripts/librewolf-patches.py
+      - Makefile
+    what: |
+      Add `--targets` to scripts/librewolf-patches.py (optparse block at :22-25).
+      LW-M0-01 left a conditional in the Makefile that suppresses the flag when
+      TARGETS is the default, precisely because the patcher rejects it today —
+      once this task lands, that conditional can be removed and the flag passed
+      unconditionally. Do that, and delete the comment that explains it.
+      Replace the single read of ../assets/patches.txt at :115-117 with: always
+      apply common.txt, then apply desktop.txt and/or android.txt per --targets.
+      Keep assets/patches.txt as a generated compatibility shim (common+desktop
+      concatenated) until LW-M7-01 retires it. Seed the three lists from the
+      current 51 entries using the heuristic in PATCH-SCOPE.md; LW-M1-01 corrects
+      it. The separately-applied patches at :121 (xmas) and :145 (pref-pane) stay
+      where they are for now — LW-M1-09 and LW-M1-10 move them.
+
+      Two pre-existing defects found by LW-M0-04 land in your lap because you own
+      this file. `--no-execute` is NOT side-effect-free today: the version.txt
+      rewrite (`:224-226` after the M0-04 change) runs unconditionally and really
+      writes `browser/config/version.txt`, and `open('../assets/patches.txt')` is
+      read relative to cwd even though `enter_srcdir()` did not chdir under -n. Fix
+      both — a dry run that mutates the tree makes this task's own verify command
+      impossible to write. Also gate the `srcdir + '/configure.py'` existence check
+      at the bottom of the script on `no_execute`.
+
+      Finally, in the Makefile (which you now own): add `assets/l10n-pin.txt` to the
+      `$(lw_source_dir)` prerequisite list so bumping the pin re-triggers patching,
+      and drop the `ifneq ($(TARGETS),desktop)` conditional around `patcher_cmd`
+      that LW-M0-01 left as a bridge.
+
+      Also stale in your file: the comment at librewolf-patches.py:124-127 still
+      cites ".rej-only detection" as a live reason for keeping the OpenAI deletions
+      in Python. LW-M0-11 fixed that detector. The size argument still stands —
+      only the detector claim is outdated. Correct the comment, keep the code.
+
+      Two more Makefile items, both found by LW-M0-07. First, a pre-existing bug:
+      `ff_source_tarball` is assigned TWICE (once with `$(FF_BETA_SUFFIX)`, once
+      without); the second assignment wins, so FF_BETA_SUFFIX has no effect on the
+      tarball name and `make test-beta` cannot work. Second, `targets_stamp` is
+      version-agnostic and its recipe does `rm -f librewolf-targets-*`, so now that
+      Android pins its own version, every TARGETS switch re-extracts a tree that
+      was already correct — about 10GB of churn. TRACK.md has a two-line fix; it
+      renames the stamp, so it must land with a note that the first `make dir`
+      after it re-extracts once.
+
+      (Non-issue, recorded so nobody re-investigates: assets/mozconfig and
+      assets/mozconfig.new look like duplicates but mozconfig is a SYMLINK to
+      mozconfig.new. The patcher copies mozconfig.new and the Makefile lists
+      assets/mozconfig as the prerequisite; make follows the link, so this is
+      correct as-is. Leave it alone.)
+    acceptance:
+      - "common.txt + desktop.txt == the current patches.txt set (as a set, order preserved within each)"
+      - "`make dir` (default targets) applies exactly the same patches in the same order as before"
+      - "--targets=android applies common.txt + android.txt and no browser/-only patch"
+      - "patcher exits non-zero on an unknown target name"
+      - "`--no-execute` writes nothing to disk and works from any cwd"
+      - "assets/l10n-pin.txt is a prerequisite of $(lw_source_dir)"
+    verify: "cd /tmp && python3 $OLDPWD/scripts/librewolf-patches.py --no-execute --targets=android 153.0.4 1 | grep -c 'patch -p1'"
+    effort_h: "3-5"
+    skills: [python, shell]
+    agent_safe: yes
+    isolation: none
+    risk: Order within the common list is load-bearing — see AGENTS.md "patch ordering".
+
+  - id: LW-M0-03
+    title: Write assets/mozconfig.android carrying the desktop hardening flags
+    milestone: M0
+    depends_on: []
+    owns: [assets/mozconfig.android]
+    reads: [assets/mozconfig, assets/mozconfig.new]
+    what: |
+      assets/mozconfig.new is the desktop config. Produce the Android equivalent:
+      `ac_add_options --enable-application=mobile/android`, `--target=aarch64-linux-android`,
+      Android NDK/SDK paths, and every hardening flag the desktop config carries —
+      --enable-hardening, --enable-stl-hardening, --enable-replace-malloc,
+      --enable-jemalloc, and the -ftrivial-auto-var-init=zero -fwrapv CFLAGS. Also
+      set --enable-appservices-in-tree (needed by LW-M2-05) and the LibreWolf
+      branding/official-build options the desktop config uses. Document every flag
+      you had to DROP and why, as comments in the file — that list is the input to
+      LW-M5-03.
+    acceptance:
+      - "file exists and every hardening option present in assets/mozconfig.new is either present or commented with a reason"
+      - "no reference to browser/ or desktop-only branding paths"
+      - "--enable-appservices-in-tree present"
+    verify: "python3 docs/android/board.py --diff-mozconfig"
+    effort_h: "3-6"
+    skills: [shell, android]
+    agent_safe: yes
+    isolation: none
+    risk: A silently dropped hardening flag is the exact parity loss this project exists to avoid.
+
+  - id: LW-M0-04
+    title: Pin the l10n fetch to a commit and verify its hash
+    milestone: M0
+    depends_on: []
+    owns: [scripts/librewolf-patches.py, assets/l10n-pin.txt]
+    what: |
+      scripts/librewolf-patches.py:161-165 downloads
+      codeload.github.com/mozilla-l10n/firefox-l10n/zip/refs/heads/main — an
+      unpinned, unverified moving target fetched into every release build. Replace
+      the ref with a commit sha read from a new assets/l10n-pin.txt, and verify the
+      downloaded zip against a sha256 recorded in the same file. Fail the build on
+      mismatch. This fixes desktop too and should land on desktop first.
+    acceptance:
+      - "no refs/heads/ URL remains in the script"
+      - "a corrupted download makes the patcher exit non-zero"
+      - "assets/l10n-pin.txt records both the commit sha and the archive sha256"
+    verify: "! grep -r 'refs/heads/main' scripts/librewolf-patches.py"
+    effort_h: "2-4"
+    skills: [python, shell]
+    agent_safe: yes
+    isolation: none
+    risk: A wrong pin breaks localisation silently — en-US still works, everything else regresses.
+
+  - id: LW-M0-05
+    title: Move the out-of-patch OpenAI deletions into the patch set
+    milestone: M0
+    depends_on: [LW-M0-04]
+    owns: [scripts/librewolf-patches.py, patches/remove-openai.patch]
+    reads: [patches/remove-openai.patch]
+    what: |
+      scripts/librewolf-patches.py:97-98 runs two `rm -rf` against
+      toolkit/components/ml/ outside any patch, so `make check-patchfail` cannot
+      see them and an upstream rename fails open (files silently stay). Fold both
+      deletions into patches/remove-openai.patch (which already exists and covers
+      the rest), or, if a patch cannot express a directory deletion cleanly, keep
+      the rm but make it assert the paths existed. Landmine L4 in AGENTS.md.
+    acceptance:
+      - "the two bare `rm -vf`/`rm -vrf` calls at :97-98 are gone or now fail loudly on a missing path"
+      - "a fresh `make dir` still leaves no toolkit/components/ml/vendor/openai"
+      - "`make check-patchfail` covers the deletion"
+    verify: "! grep -n 'rm -vrf toolkit/components/ml/vendor/openai' scripts/librewolf-patches.py"
+    effort_h: "1-3"
+    skills: [python]
+    agent_safe: yes
+    isolation: none
+    risk: Deleting more than upstream ships breaks the ml component's moz.build.
+
+  - id: LW-M0-11
+    title: Make check-patchfail respect patch's exit code
+    milestone: M0
+    depends_on: [LW-M0-05]
+    owns: [scripts/check-patchfail.sh, patches/remove-openai.patch]
+    what: |
+      FOUND BY LW-M0-05, WITH A WORKING COUNTER-DEMO. check-patchfail.sh:32-47
+      discards `patch`'s exit code entirely and detects failure only by
+      `grep -n 'rej$'` on the output. When a hunk's target file is missing, patch
+      prints "Skipping patch. / 1 out of 1 hunk ignored", writes NO .rej file, and
+      exits 1 — and check-patchfail reports success. stderr is not captured into
+      patch.tmp either. Any pure-deletion or pure-addition patch is therefore
+      silently fail-open, which is landmine L4's shape in the tool that is supposed
+      to catch L4. Make the exit code authoritative, capture stderr, and keep the
+      .rej scan as a second signal rather than the only one.
+
+      While in the area: remove-openai.patch misses two NIGHTLY_BUILD-guarded
+      references to vendor/openai/dist/openai-dev.mjs (jar.mn:43,
+      license.html:1535). Harmless on release, breaks packaging on a nightly-channel
+      build after the rm. Fix or document. Note jar.mn currently applies with
+      fuzz 2 — pre-existing, do not paper over it.
+    acceptance:
+      - "a patch whose target file is missing makes check-patchfail report failure"
+      - "patch's stderr appears in the output it scans"
+      - "the existing .rej detection still fires (do not replace one narrow signal with another)"
+      - "a run against the pristine 153.0.4 tree still reports success"
+    verify: "./scripts/check-patchfail.sh"
+    effort_h: "2-4"
+    skills: [shell]
+    agent_safe: yes
+    isolation: worktree
+    risk: This tool is the safety net for every other patch task; while it fails open, every green result it gives is unreliable.
+
+  - id: LW-M0-12
+    title: Add container-engine indirection and Android image targets
+    milestone: M0
+    depends_on: [LW-M0-02, LW-M0-06]
+    owns: [Makefile]
+    what: |
+      FOUND BY LW-M0-06. The docker-build-image / docker-run-build-job /
+      docker-remove-image targets call `docker` directly, and docker is not
+      installed on every maintainer machine — podman is what LW-M0-06 actually
+      built the Android image with. Add a `CONTAINER_ENGINE ?= docker` indirection
+      so podman works without editing the Makefile, and add the Android
+      counterparts (android-build-image, android-run-build-job,
+      android-remove-image) pointing at assets/Dockerfile.android.
+
+      Note docker-build-image pipes the Dockerfile on stdin with no build context;
+      assets/Dockerfile.android COPYs nothing, so it works either way. Keep that
+      property or state that you changed it.
+    acceptance:
+      - "`make docker-build-image CONTAINER_ENGINE=podman` works"
+      - "the default with no CONTAINER_ENGINE set is unchanged for existing docker users"
+      - "the android image targets build assets/Dockerfile.android"
+    verify: "make -n android-build-image CONTAINER_ENGINE=podman"
+    effort_h: "1-2"
+    skills: [make, ops]
+    agent_safe: yes
+    isolation: none
+    risk: Low, but leaving it undone means every podman-using maintainer edits the Makefile locally and eventually commits it.
+
+  - id: LW-M0-14
+    title: Derive ff_source_dir from the tarball, not from the version string
+    milestone: M0
+    depends_on: [LW-M0-02, LW-M0-07, LW-M0-11, LW-M0-12]
+    owns: [Makefile, scripts/check-patchfail.sh]
+    what: |
+      BLOCKER, found by LW-M0-09 and independently confirmed: `make dir
+      TARGETS=android` cannot succeed. The ESR tarball
+      firefox-153.0esr.source.tar.xz extracts to `firefox-153.0/`, but the Makefile
+      computes `ff_source_dir := firefox-$(version)` = `firefox-153.0esr`, so the
+      recipe runs `mv firefox-153.0esr librewolf-153.0esr-1` and fails — AFTER a
+      766MB download and a ~10GB extract.
+
+      Derive the extracted directory from the tarball itself rather than assuming
+      it matches the version string, or strip the `esr` suffix. Deriving is better:
+      it also survives whatever Mozilla does next.
+
+      DO NOT USE `tar tf | head -1`. An earlier version of this task said the
+      tarball's first member is `firefox-153.0/CLOBBER`. It is not — the first
+      member is `./`, on both the ESR and the release tarball, so
+      `tar tf | head -1 | cut -d/ -f1` yields `.` and that value is used as an
+      `rm -rf` operand. Strip a leading `./` and explicitly reject "", "." and ".."
+      before using the result. Do the derivation in the RECIPE shell, not with
+      `$(shell ...)`: a parse-time call runs on every `make help` and `make -n`,
+      and on a fresh checkout it runs before the tarball exists and evaluates to
+      empty.
+      scripts/check-patchfail.sh:50 has the identical assumption
+      (`cd firefox-$(cat ../version)`) — fix both, and note LW-M1-11 will also touch
+      that file.
+
+      Keep the desktop path byte-identical: for a release tarball the derived name
+      already equals firefox-$(version).
+    acceptance:
+      - "`make dir TARGETS=android` gets past the mv and into the patcher"
+      - "`make -n dir` for desktop is unchanged"
+      - "check-patchfail works against an esr tarball"
+      - "the directory name is derived or normalised, not special-cased for the string 'esr'"
+    verify: "make -n dir TARGETS=android"
+    effort_h: "2-4"
+    skills: [make, shell]
+    agent_safe: yes
+    isolation: none
+    risk: Every Android CI run and every Android build is red until this lands, and the failure costs a 766MB download each time.
+
+  - id: LW-M0-15
+    title: Add the four missing host toolchains to the Android image
+    milestone: M0
+    depends_on: [LW-M0-06, LW-M2-01]
+    owns: [assets/Dockerfile.android]
+    what: |
+      FOUND BY LW-M2-01, which got a green build only by installing these by hand.
+      The image has the Android toolchains right but omits four host tools that are
+      hard configure stops, so a fresh container cannot build without manual setup.
+      All four go in $MOZBUILD_STATE_PATH, where bootstrap_path()
+      (bootstrap.configure:301-306) finds them even with --enable-bootstrap at its
+      default:
+        1. clang — symlink $MOZBUILD_STATE_PATH/clang to the NDK's
+           prebuilt/linux-x86_64 (toolchain.configure:760 is
+           bootstrap_search_path("clang/bin")). Without it configure picks
+           /usr/bin/gcc and dies on a CPU mismatch. NDK clang 21.0.0 then serves
+           target, host, assembler and wasm.
+        2. Node.js 22.16.0 — required by node.configure. The jammy package is
+           12.22.9 and NODE_MIN_VERSION is 12.22.12, so the distro package is
+           unusable, not merely old.
+        3. cbindgen 0.29.4 — `cargo install --root $MOZBUILD_STATE_PATH/cbindgen`
+           plus a symlink so the binary sits at cbindgen/cbindgen.
+        4. WASI sysroot + wasm32 compiler-rt — RLBox is on by default for all
+           little-endian targets (toolkit/moz.configure:2829-2833), so
+           aarch64-android needs it. Fetch Mozilla's own artifacts
+           (`mach artifact toolchain --from-build sysroot-wasm32-wasi` and
+           `wasm32-wasi-compiler-rt-21`) and copy the builtins into the NDK as
+           lib/clang/21/lib/wasm32-unknown-wasi/libclang_rt.builtins.a — note the
+           rename from the artifact's flat libclang_rt.builtins-wasm32.a.
+
+      DO NOT take configure's suggestion of --without-wasm-sandboxed-libraries.
+      LW-M2-01 explicitly refused it: turning off RLBox to make configure quiet is
+      a silent parity loss, and it is exactly the failure this project exists to
+      avoid.
+
+      Do NOT add python3.10-venv. `python3 -m venv` is broken in the image
+      (ensurepip missing on jammy) and it does not matter — mach uses the vendored
+      third_party/python/virtualenv.
+    acceptance:
+      - "a fresh container from the rebuilt image reaches `./mach build` with no manual toolchain setup"
+      - "RLBox stays enabled — --without-wasm-sandboxed-libraries appears nowhere"
+      - "`python3 docs/android/board.py --diff-mozconfig` still passes"
+    verify: "podman build -f assets/Dockerfile.android -t librewolf-android-build ."
+    effort_h: "3-6"
+    skills: [ops, android, shell]
+    agent_safe: yes
+    isolation: none
+    risk: Leaving these out means every builder and the CI job rediscovers four configure stops by hand.
+
+  - id: LW-M0-16
+    title: Add nasm to the Android image and correct the BUILD.md claim
+    milestone: M0
+    depends_on: [LW-M0-15, LW-M2-03]
+    owns: [assets/Dockerfile.android, docs/android/BUILD.md]
+    what: |
+      FOUND BY THE SKEPTICAL VERIFICATION OF LW-M2-03, and confirmed independently:
+      `make android-aar` cannot run from a clean checkout. The x86_64 ABI needs
+      nasm; `grep -ci nasm assets/Dockerfile.android` is 0, and the built image has
+      neither nasm on PATH nor $MOZBUILD_STATE_PATH/nasm. The three-ABI fat AAR was
+      only produced with an ad-hoc `librewolf-android-build-nasm` image made by
+      podman commit on this host — it exists in NO repo file, so nobody else can
+      reproduce the deliverable.
+
+      Worse, the requirement is currently recorded only in a comment inside
+      scripts/android-fat-aar.sh, while docs/android/BUILD.md:415 still states
+      "**No `nasm`/`yasm`** is needed: they are x86-only" as an unqualified bullet —
+      in the very section that hands off to the image owner with "Suggested layers".
+      That was true for the aarch64-only build and is false for the fat AAR.
+      Whoever maintains the image will read BUILD.md, not another task's script.
+
+      Add nasm to assets/Dockerfile.android following the established pattern
+      (pinned, with the tree file:line the pin came from), rebuild, and correct
+      BUILD.md. Then DELETE the ad-hoc image so nobody depends on it again.
+    acceptance:
+      - "assets/Dockerfile.android installs nasm, pinned, with a source comment"
+      - "the rebuilt librewolf-android-build image passes scripts/android-fat-aar.sh's x86_64 preflight"
+      - "BUILD.md no longer claims nasm is unnecessary, and says which ABI needs it"
+      - "no ad-hoc podman-commit image is required to reproduce make android-aar"
+    verify: "podman run --rm librewolf-android-build bash -lc 'command -v nasm'"
+    effort_h: "1-3"
+    skills: [ops, android]
+    agent_safe: yes
+    isolation: none
+    risk: The headline M2 deliverable is currently reproducible only on one machine, and the doc actively misleads whoever would fix it.
+
+  - id: LW-M0-13
+    title: Teach enable-patch and disable-patch the split lists
+    milestone: M0
+    depends_on: [LW-M0-02]
+    owns: [scripts/enable-patch.sh, scripts/disable-patch.sh]
+    what: |
+      FOUND BY LW-M0-02. Both scripts edit only assets/patches.txt, which after the
+      split is a generated compatibility shim that no longer drives any build. So a
+      maintainer who runs `enable-patch.sh` gets a patch that silently never reaches
+      a build — fail-open, exactly landmine L4's shape. LW-M0-02 added a non-fatal
+      drift warning in the patcher that surfaces it; this task fixes it. The scripts
+      must ask which list a patch belongs to (or infer it and say what it inferred),
+      edit that list, and regenerate the shim. Note they currently `sort` the shim,
+      which is why LW-M0-02's drift check compares sets rather than sequences.
+    acceptance:
+      - "enable-patch.sh adds to the correct target list and the patch actually applies on the next build"
+      - "disable-patch.sh removes from whichever list holds the patch"
+      - "the shim stays consistent, and the patcher's drift warning stays silent after either script runs"
+    verify: "./scripts/enable-patch.sh --help && ! python3 scripts/librewolf-patches.py --no-execute 153.0.4 1 2>&1 | grep -qi 'out of sync'"
+    effort_h: "2-3"
+    skills: [shell]
+    agent_safe: yes
+    isolation: none
+    risk: A maintainer trusting these scripts ships a build missing the patch they just enabled, with no error anywhere.
+
+  - id: LW-M0-06
+    title: Build a pinned Android toolchain image (assets/Dockerfile.android)
+    milestone: M0
+    depends_on: []
+    owns: [assets/Dockerfile.android]
+    reads: [assets/Dockerfile]
+    what: |
+      Mirror assets/Dockerfile for Android: JDK, Android SDK + build-tools, NDK,
+      Rust with the four Android targets (aarch64/armv7/x86_64/i686-linux-android),
+      and the mach bootstrap deps. Pin every version explicitly and record the
+      tree file:line each pin came from, so the next rebase can re-check.
+
+      READ THE PINS FROM (verified — mobile/android/gradle.py holds NO version
+      constants, it is a 52-line gradle invocation helper):
+      python/mozboot/mozboot/android.py, python/mozboot/mozboot/android-packages.txt,
+      build/moz.configure/android-sdk.configure, build/moz.configure/android-ndk.configure,
+      gradle/libs.versions.toml, mobile/android/android-components/.config.yml, and
+      taskcluster/kinds/toolchain/rust.yml (linux64-rust-android is the version
+      Mozilla's Android builds actually use — Cargo.toml's floor is only a floor).
+
+      Two traps: the JDK must physically live at $MOZBUILD_STATE_PATH/jdk/... because
+      java.configure:29-34 ignores JAVA_HOME; and the `emulator` SDK package is NOT
+      optional despite looking test-only, because android-sdk.configure:376 runs
+      check_android_tools("emulator") unconditionally for mobile/android and dies
+      without it.
+    acceptance:
+      - "every pinned version is traceable to a tree file:line recorded in a comment"
+      - "`rustup target list --installed` shows all four Android targets, verified by running it inside the built image"
+      - "sdkmanager --licenses runs non-interactively — the build never blocks on a prompt"
+      - "the NDK revision is asserted after download, not merely requested"
+    verify: "podman build -f assets/Dockerfile.android -t librewolf-android-build ."
+    note: >-
+      Full network hermeticity is deliberately NOT required here — the house style
+      in assets/Dockerfile hits Ubuntu archives, sh.rustup.rs and codeberg. A
+      hermetic image is a separate piece of work if it is ever wanted.
+    effort_h: "4-8"
+    skills: [ops, android, shell]
+    agent_safe: yes
+    isolation: none
+    risk: An NDK mismatch produces a tree that configures fine and fails deep in the link.
+
+  - id: LW-M0-07
+    title: Decide and document the Android release track (esr153)
+    milestone: M0
+    depends_on: [LW-M0-01]
+    owns: [docs/android/TRACK.md, version.android, release.android, Makefile]
+    reads: [version, release]
+    what: |
+      DONE — see TRACK.md for the evidence. Decision upheld (Android on esr153,
+      desktop on release) but three of the four figures this task originally
+      carried were wrong: the current tarball is release 153.0.4, NOT esr153
+      (`MOZ_ESR` is unset per init.configure:1151), so adoption costs a second
+      source tree rather than nothing; ESR ships ~26 dots a year, not ~12; and the
+      real argument is hard rebases falling 26/yr to 1/yr. Recorded costs: median
+      14-day / max 21-day security lag, and NO Firefox for Android ESR exists, so
+      Android-only advisories must be watched and backported by hand.
+    acceptance:
+      - "TRACK.md states the decision, the yearly rebase cost of each option, and the reversal cost"
+      - "version.android/release.android exist and are read by the android make targets"
+      - "the desktop version/release files are untouched"
+    verify: "manual: maintainer sign-off recorded in TRACK.md"
+    effort_h: "2-4"
+    skills: [docs, make]
+    agent_safe: yes
+    isolation: none
+    risk: Coupling Android to the desktop version file forces a lockstep rebase cadence nobody has staff for.
+
+  - id: LW-M0-08
+    title: Write a file-level patch-scope linter
+    milestone: M0
+    depends_on: [LW-M0-02]
+    owns: [scripts/lint-patch-scope.py]
+    reads: [assets/patches/common.txt, assets/patches/desktop.txt, assets/patches/android.txt]
+    what: |
+      Parse the `--- a/x +++ b/x` headers of every patch and assert that patches in
+      common.txt touch no desktop-only file, desktop.txt touches no mobile/ file,
+      and android.txt touches no browser/ file. The rule must be FILE-level, not
+      prefix-level: ui-patches/neterror.patch looks like pure toolkit/ but edits
+      toolkit/themes/shared/desktop-jar.inc.mn. Conversely devtools/ must be
+      ALLOWED in common — devtools/moz.build:11-16 ships server/ and shared/ on
+      Android. Ship the allow/deny lists as data at the top of the file with a
+      comment per entry.
+    acceptance:
+      - "linter flags a common patch that touches browser/ or *desktop*.inc.mn"
+      - "linter does NOT flag a common patch that touches devtools/server/"
+      - "exits 0 on the current tree once LW-M1-01 has landed, non-zero before"
+    verify: "python3 scripts/lint-patch-scope.py"
+    effort_h: "3-5"
+    skills: [python]
+    agent_safe: yes
+    isolation: none
+    risk: A prefix-based rule passes on neterror.patch and lets desktop-only code into the Android build.
+
+  - id: LW-M0-09
+    title: Add the android-test CI workflow skeleton
+    milestone: M0
+    depends_on: [LW-M0-01, LW-M0-06]
+    owns: [.forgejo/workflows/android-test.yaml]
+    reads: [.forgejo/workflows/source-test.yaml, .forgejo/workflows/source-release.yaml]
+    what: |
+      Copy the shape of source-test.yaml onto Android: run on the epsilon runner,
+      run `make dir TARGETS=android` (NOT `common,android` — `common` is not a
+      target and the patcher rejects it), then the scope and order checks. Do NOT
+      attempt a Gecko build in this task — the job must stay under the runner's
+      timeout. LW-M2-08 adds the real build job once caching exists.
+
+      Two steps must be ADVISORY, not blocking, or the job is red on day one for
+      reasons unrelated to Android: lint-patch-scope.py is specified to exit
+      non-zero until LW-M1-01 reclassifies, and check-patchfail.sh is target-blind
+      until LW-M1-11 (note LW-M1-11 depends on THIS task, so it cannot be a
+      prerequisite). `make dir TARGETS=android` is the real gate — the patcher
+      exits 1 on the first failing patch on its own.
+    acceptance:
+      - "workflow runs on push and PR"
+      - "`make dir TARGETS=android` is the blocking gate and fails the job when a patch fails"
+      - "steps that are known-red until a later task are advisory, with a comment naming the task that makes them blocking"
+      - "no signing secrets referenced"
+    verify: "manual: open a PR and confirm the job runs on the epsilon runner"
+    effort_h: "2-4"
+    skills: [ops, shell]
+    agent_safe: yes
+    isolation: none
+    risk: A build step here blows the runner budget and the job gets disabled instead of fixed.
+
+  - id: LW-M0-10
+    title: Create patches/android/ and its README
+    milestone: M0
+    depends_on: [LW-M0-02]
+    owns: [patches/android/README.md, patches/android/.gitkeep]
+    what: |
+      All Android-only patches live in patches/android/. Write the README that
+      states the naming convention (one concern per patch, kebab-case, no version
+      in the name), that every patch must carry a header comment naming the
+      upstream file and why LibreWolf diverges, and that a patch which also needs
+      to touch shared Gecko code belongs in common/ instead with the Android half
+      gated at runtime, not duplicated.
+    acceptance:
+      - "directory exists and is referenced by assets/patches/android.txt"
+      - "README states naming, header-comment, and no-duplication rules"
+    verify: "test -f patches/android/README.md"
+    effort_h: "1"
+    skills: [docs]
+    agent_safe: yes
+    isolation: none
+    risk: Without a stated convention the Android patch dir turns into the desktop one's mess twice as fast.
+
+  # ---------------------------------------------------------------- M1
+  # Patch-set surgery. LW-M1-01 gates everything; the eight straddler tasks are
+  # then fully parallel because each owns disjoint patch files.
+
+  - id: LW-M1-01
+    title: Produce the authoritative common/desktop/android patch split
+    milestone: M1
+    depends_on: [LW-M0-02, LW-M0-08]
+    owns:
+      - assets/patches/common.txt
+      - assets/patches/desktop.txt
+      - assets/patches/android.txt
+      - docs/android/PATCH-SCOPE.md
+    reads: [patches/]
+    what: |
+      The snapshot in PATCH-SCOPE.md (22 common / 23 desktop / 8 straddlers) comes
+      from a path heuristic and is a starting point, not an answer. Open every one
+      of the 53 patch files and classify it by what it actually does, not by which
+      directory it edits. Record a one-line justification per patch in
+      PATCH-SCOPE.md and mark each row reviewed. Straddlers stay unassigned here —
+      they are handed to LW-M1-02..09.
+    acceptance:
+      - "all 53 patches classified, every row carries a justification and a reviewer"
+      - "scripts/lint-patch-scope.py exits 0"
+      - "counts in PATCH-SCOPE.md match the three .txt files"
+    verify: "python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check-scope && python3 docs/android/board.py --check"
+    effort_h: "6-10"
+    skills: [python, c++, js]
+    agent_safe: yes
+    isolation: none
+    risk: A patch misfiled as common lands desktop assumptions in the Android build and shows up as a runtime crash months later.
+
+  - id: LW-M1-02
+    title: Split disable-data-reporting-at-compile-time into common and desktop
+    milestone: M1
+    depends_on: [LW-M1-01]
+    owns:
+      - patches/disable-data-reporting-at-compile-time.patch
+      - patches/disable-data-reporting-common.patch
+      - patches/disable-data-reporting-desktop.patch
+      - patches/android/disable-data-reporting-android.patch
+    shared_edit: [assets/patches/common.txt, assets/patches/desktop.txt,
+                  assets/patches/android.txt, assets/patches.txt]
+    tree_paths:
+      - browser/moz.configure
+      - browser/components/tabbrowser/content/tabbrowser.js
+      - python/mach/mach/telemetry.py
+      - python/sites/mach.txt
+      - toolkit/components/glean/src/init/mod.rs
+      - toolkit/components/telemetry/core/Telemetry.cpp
+      - toolkit/library/rust/gkrust-features.mozbuild
+    what: |
+      The common half (mach telemetry, Glean init, Telemetry.cpp, the gkrust
+      feature list) is exactly what Android needs; the browser/moz.configure and
+      tabbrowser.js hunks are desktop-only. Split into two patches that apply
+      cleanly in sequence and produce a byte-identical desktop tree. Note that
+      browser/moz.configure carries the MOZ_DATA_REPORTING off switch — find the
+      mobile/android equivalent and record whether it needs the same treatment
+      (input to LW-M4-01).
+    acceptance:
+      - "desktop tree after both patches is byte-identical to the tree after the original patch"
+      - "common patch applies to a tree with mobile/android as the only front end"
+      - "a note in the common patch header points at the mobile/android data-reporting switch"
+    verify: "./scripts/check-patchfail.sh"
+    effort_h: "2-4"
+    skills: [c++, rust, python]
+    agent_safe: yes
+    isolation: worktree
+    risk: Dropping a gkrust feature hunk silently re-enables Glean in the Rust build.
+
+  - id: LW-M1-03
+    title: Split eme-permission into common and desktop
+    milestone: M1
+    depends_on: [LW-M1-01]
+    owns:
+      - patches/eme-permission.patch
+      - patches/eme-permission-common.patch
+      - patches/eme-permission-desktop.patch
+    shared_edit: [assets/patches/common.txt, assets/patches/desktop.txt,
+                  assets/patches/android.txt, assets/patches.txt]
+    tree_paths:
+      - dom/media/eme/MediaKeySystemAccessManager.cpp
+      - browser/components/permissions/ContentPermissionPrompt.sys.mjs
+      - browser/modules/EMEPermissionPrompt.sys.mjs
+    what: |
+      MediaKeySystemAccessManager.cpp is the enforcement point and is common; the
+      two browser/ files are the desktop prompt UI. Split them.
+
+      RESOLVED BY LW-M1-03, and the premise this task was written on was WRONG.
+      "Android has no equivalent surface yet" is false: Fenix has implemented this
+      exact permission type end to end all along — GeckoViewPermission.sys.mjs:119-219
+      is type-agnostic and forwards any perm.type to the embedder (the structural
+      difference from webgl-permission, whose observers exist only under browser/),
+      GeckoSession.java carries PERMISSION_MEDIA_KEY_SYSTEM_ACCESS across JNI, and
+      Fenix has both a doorhanger and a settings entry (PhoneFeature.kt:38,
+      SitePermissionsRules.kt:92-94, default ASK_TO_ALLOW). No Android patch needed.
+
+      The one deliberate silent deny is Clear Key, and it is identical on both
+      platforms — the pref is read as
+      Preferences::GetBool("librewolf.eme.gmp-clearkey.enabled", false), so the
+      built-in fallback already equals LibreWolf's default. That is exactly why
+      webgl-permission needed an Android patch and this does not: webgl's shared
+      default was the permissive-looking true.
+
+      The real remaining gap is narrower: there is no Android surface for the
+      LibreWolf-specific Clear Key denial (desktop's learn-more link to
+      librewolf.eme.warning.infoURL). That is a UI follow-up, not a scope question.
+    acceptance:
+      - "desktop tree byte-identical after the two patches"
+      - "common patch applies with no browser/ present"
+      - "chosen Android behaviour recorded in the common patch header"
+    verify: "./scripts/check-patchfail.sh"
+    effort_h: "2-4"
+    skills: [c++, js]
+    agent_safe: yes
+    isolation: worktree
+    risk: Enforcement without any user-visible signal reads as a broken video player.
+
+  - id: LW-M1-04
+    title: Split moz-official into common and desktop
+    milestone: M1
+    depends_on: [LW-M1-01]
+    owns:
+      - patches/moz-official.patch
+      - patches/moz-official-common.patch
+      - patches/moz-official-desktop.patch
+    shared_edit: [assets/patches/common.txt, assets/patches/desktop.txt,
+                  assets/patches/android.txt, assets/patches.txt]
+    tree_paths:
+      - dom/media/gmp/ChromiumCDMAdapter.cpp
+      - media/gmp-clearkey/0.1/gmp-clearkey.cpp
+      - browser/base/content/browser-init.js
+      - browser/base/content/browser-main.js
+      - browser/base/jar.mn
+    what: |
+      The two media/ files (clearkey, CDM adapter) are common and matter on
+      Android; the three browser/base files are desktop chrome. Split, keeping the
+      desktop tree identical. Check whether mobile/android has its own equivalent
+      of the browser-init hunk — if it does, that becomes an android patch, and if
+      it does not, say so in the header rather than leaving it ambiguous.
+    acceptance:
+      - "desktop tree byte-identical after the two patches"
+      - "common patch applies with no browser/ present"
+      - "header records whether an Android equivalent of the browser-init hunk is needed"
+    verify: "./scripts/check-patchfail.sh"
+    effort_h: "2-3"
+    skills: [c++, js]
+    agent_safe: yes
+    isolation: worktree
+    risk: The clearkey hunks interact with librewolf.eme.gmp-clearkey.enabled — losing them changes DRM behaviour.
+
+  - id: LW-M1-05
+    title: Split msix into common and desktop
+    milestone: M1
+    depends_on: [LW-M1-01]
+    owns:
+      - patches/msix.patch
+      - patches/msix-common.patch
+      - patches/msix-desktop.patch
+    shared_edit: [assets/patches/common.txt, assets/patches/desktop.txt,
+                  assets/patches/android.txt, assets/patches.txt]
+    tree_paths:
+      - python/mozbuild/mozbuild/mach_commands.py
+      - python/mozbuild/mozbuild/repackaging/msix.py
+      - browser/installer/windows/msix/AppxManifest.xml.in
+    what: |
+      msix.patch looks like the most obviously desktop-only patch in the tree and
+      is not: it edits python/mozbuild/mozbuild/mach_commands.py, a file the
+      Android build traverses. Either split out the mach_commands hunk as common,
+      or confirm the hunk is inert for Android and mark the whole patch desktop
+      with that finding written in PATCH-SCOPE.md. Do not guess — read the hunk
+      and check whether the code path is reachable from `mach build` on Android.
+    acceptance:
+      - "a written finding: either the split exists, or the hunk is proven inert with the reasoning recorded"
+      - "desktop tree byte-identical either way"
+    verify: "./scripts/check-patchfail.sh"
+    effort_h: "1-3"
+    skills: [python]
+    agent_safe: yes
+    isolation: worktree
+    risk: This is the straddler most likely to be dismissed on sight; dismissing it wrongly breaks `mach` on Android.
+
+  - id: LW-M1-06
+    title: Split remove-pingsender into common and desktop
+    milestone: M1
+    depends_on: [LW-M1-01]
+    owns:
+      - patches/remove-pingsender.patch
+      - patches/remove-pingsender-common.patch
+      - patches/remove-pingsender-desktop.patch
+    shared_edit: [assets/patches/common.txt, assets/patches/desktop.txt,
+                  assets/patches/android.txt, assets/patches.txt]
+    tree_paths:
+      - toolkit/components/telemetry/moz.build
+      - toolkit/components/telemetry/app/TelemetrySend.sys.mjs
+      - python/mozbuild/mozbuild/artifacts.py
+      - browser/installer/package-manifest.in
+      - browser/installer/windows/nsis/shared.nsh
+      - browser/app/macbuild/Contents/MacOS-files.in
+    what: |
+      The toolkit/ and python/ hunks are common; the three packaging files are
+      desktop installers. Split them. The Android packaging equivalent
+      (mobile/android's package manifest / Gradle assets) may also need pingsender
+      excluded — check and file it as an android patch under patches/android/ if
+      so.
+    acceptance:
+      - "desktop tree byte-identical after the two patches"
+      - "common patch applies with no browser/ present"
+      - "a stated answer on whether Android packaging ships pingsender"
+    verify: "./scripts/check-patchfail.sh"
+    effort_h: "2-4"
+    skills: [js, python]
+    agent_safe: yes
+    isolation: worktree
+    risk: Removing the moz.build entry without the send-path hunk leaves a build referencing a binary that no longer exists.
+
+  - id: LW-M1-07
+    title: Split ui-patches/neterror into common and desktop
+    milestone: M1
+    depends_on: [LW-M1-01]
+    owns:
+      - patches/ui-patches/neterror.patch
+      - patches/ui-patches/neterror-common.patch
+      - patches/ui-patches/neterror-desktop.patch
+      - patches/android/neterror-jar.patch
+    shared_edit: [assets/patches/common.txt, assets/patches/desktop.txt,
+                  assets/patches/android.txt, assets/patches.txt]
+    tree_paths:
+      - toolkit/content/errors/net-error-illustrations.mjs
+      - toolkit/content/net-error-card.mjs
+      - toolkit/themes/shared/aboutNetError.css
+      - toolkit/themes/shared/illustrations/warning.svg
+      - toolkit/themes/shared/desktop-jar.inc.mn
+    what: |
+      This is the patch that breaks prefix-based scope rules: everything is under
+      toolkit/ but toolkit/themes/shared/desktop-jar.inc.mn is desktop-only. Split
+      the jar manifest hunk into the desktop patch and find the Android jar
+      manifest that must carry the same additions (mobile/android/themes or the
+      geckoview jar.mn) so the illustration and CSS actually ship on Android.
+    acceptance:
+      - "desktop tree byte-identical after the two patches"
+      - "common patch touches no *desktop*.inc.mn"
+      - "the Android jar manifest entry exists, or a written finding says none is needed"
+    verify: "python3 scripts/lint-patch-scope.py"
+    effort_h: "2-4"
+    skills: [js, shell]
+    agent_safe: yes
+    isolation: worktree
+    risk: Shipping the .mjs without the jar entry gives a blank error page on Android with no console error.
+
+  - id: LW-M1-08
+    title: Split webgl-permission into common and desktop — the L1 landmine
+    milestone: M1
+    depends_on: [LW-M1-01]
+    owns:
+      - patches/webgl-permission.patch
+      - patches/webgl-permission-common.patch
+      - patches/webgl-permission-desktop.patch
+      - patches/android/webgl-prompt-default.patch
+    shared_edit: [assets/patches/common.txt, assets/patches/desktop.txt,
+                  assets/patches/android.txt, assets/patches.txt]
+    tree_paths:
+      - dom/canvas/ClientWebGLContext.cpp
+      - dom/ipc/BrowserParent.cpp
+      - dom/ipc/BrowserParent.h
+      - dom/ipc/PBrowser.ipdl
+      - modules/libpref/init/StaticPrefList.yaml
+      - modules/libpref/moz.build
+      - browser/modules/WebGLPermissionPromptHelper.sys.mjs
+      - browser/modules/ObserverForwarder.sys.mjs
+      - browser/base/content/popup-notifications.inc.xhtml
+      - browser/themes/shared/jar.inc.mn
+      - browser/themes/shared/notification-icons.css
+    what: |
+      Landmine L1, read AGENTS.md before starting. Applying the common half to
+      Android compiles librewolf.webgl.prompt defaulting to true;
+      IsWebGLAllowed_impl then fails closed, RecvShowWebGLPermissionPrompt
+      early-returns because GeckoView has no XUL <browser>, and the only observers
+      that would answer live in the browser/ half. Result: ALL WebGL dies silently
+      and a smoke test of "installs and browses" still passes. The split must ship
+      `lockPref("librewolf.webgl.prompt", false)` for Android in the SAME commit,
+      or set the StaticPrefList default per-platform.
+    acceptance:
+      - "desktop tree byte-identical after the two patches"
+      - "on Android, a WebGL page renders — verified against a real canvas, not just absence of a console error"
+      - "librewolf.webgl.prompt is false on Android by default and the mechanism is in this commit, not a later one"
+    verify: "manual: load webglreport.com on the Android build and confirm a live context"
+    effort_h: "4-8"
+    skills: [c++, kotlin, js]
+    agent_safe: yes
+    isolation: worktree
+    risk: The failure mode is silent and passes the obvious gate — this is the single most likely way to ship a broken build.
+
+  - id: LW-M1-09
+    title: Split xmas and fold it into the target-aware patch lists
+    milestone: M1
+    depends_on: [LW-M1-01, LW-M1-06]
+    owns:
+      - patches/xmas.patch
+      - scripts/librewolf-patches.py
+    shared_edit: [assets/patches/common.txt, assets/patches/desktop.txt,
+                  assets/patches/android.txt, assets/patches.txt]
+    tree_paths: [moz.build, lw/moz.build, browser/installer/package-manifest.in]
+    what: |
+      xmas.patch is applied separately at scripts/librewolf-patches.py:121 with the
+      comment that not all builders use this repo the same way. Its moz.build and
+      lw/moz.build hunks are common (they are what puts lw/ into the build); the
+      package-manifest.in hunk is desktop. Split it, move the common half into
+      common.txt so it is no longer special-cased, and keep the desktop half in
+      desktop.txt. Preserve the existing apply order relative to its neighbours.
+    acceptance:
+      - "no separate patch() call for xmas remains in librewolf-patches.py"
+      - "desktop tree byte-identical to before"
+      - "lw/ is present in the Android tree's build"
+    verify: "! grep -n \"patch('../patches/xmas.patch')\" scripts/librewolf-patches.py"
+    effort_h: "2-4"
+    skills: [python, shell]
+    agent_safe: yes
+    isolation: worktree
+    risk: lw/moz.build is how librewolf.cfg reaches the package — get this wrong and prefs vanish on both platforms.
+
+  - id: LW-M1-12
+    title: Reconcile the shim and delete the split monoliths
+    milestone: M1
+    depends_on: [LW-M1-02, LW-M1-03, LW-M1-04, LW-M1-05, LW-M1-06, LW-M1-07, LW-M1-08, LW-M1-09]
+    owns:
+      - assets/patches.txt
+      - assets/patches/common.txt
+      - assets/patches/desktop.txt
+      - assets/patches/android.txt
+      - docs/android/PATCH-SCOPE.md
+      - patches/android/README.md
+      - patches/disable-data-reporting-at-compile-time.patch
+      - patches/eme-permission.patch
+      - patches/moz-official.patch
+      - patches/msix.patch
+      - patches/remove-pingsender.patch
+      - patches/ui-patches/neterror.patch
+      - patches/webgl-permission.patch
+    what: |
+      CENTRAL CLEANUP, needed because all eight straddler splits hit the same
+      problem and none of them can fix it alone. Each split leaves its monolithic
+      patch file on disk, because check-patchfail.sh and fuzzfail.sh read only the
+      generated assets/patches.txt shim — deleting the monolith before the shim is
+      regenerated makes their own verify fail on a missing `-i` target. So after a
+      split lands, check-patchfail is still exercising the MONOLITH, not the two
+      halves, and librewolf-patches.py prints its out-of-sync warning.
+
+      Do it once, after all eight land: regenerate the shim with
+      `sed -e 's/#.*//' -e 's/[[:space:]]*$//' assets/patches/common.txt assets/patches/desktop.txt | grep . > assets/patches.txt`
+      (the exact command check_compat_shim() prints), delete the eight monoliths,
+      and reconcile PATCH-SCOPE.md's counts and its live-list table — every split
+      moves one entry from desktop into common and adds a file, so both the
+      `N common / N desktop-only / N straddlers = N` line and the per-list table
+      need recomputing. `board.py --check-scope` enforces that they agree.
+
+      While in PATCH-SCOPE.md, fix one justification LW-M1-06 disproved: the
+      LW-M1-06 row says pingsender/moz.build "still appends
+      pingsender_unix_common.cpp to UNIFIED_SOURCES outside that guard", implying
+      compiled code on Android. Textually true but nothing compiles — with
+      GeckoProgram skipped there is no linkable in that context and no
+      FINAL_LIBRARY, so emitter.py:1038-1042 returns before emitting any source.
+      The classification (common) is right; the mechanism is that the directory
+      stops being traversed. Fix the reason, keep the verdict.
+
+      Also correct the LW-M1-07 row, which LW-M1-07 disproved. It claims the
+      common half "yields a broken image reference" on Android. It does — but
+      upstream already does the same: unpatched net-error-illustrations.mjs points
+      at security-error.svg and no-connection.svg, packaged only by
+      desktop-jar.inc.mn:148,151. The patch swaps one desktop-only-packaged
+      illustration for another, so it is NOT a new Android regression and NOT
+      L1-shaped (L1 changes behaviour; this changes nothing reachable — the whole
+      component is gated on security.certerrors.felt-privacy-v1, set only in
+      browser/app/profile/firefox.js:2965, and Fenix answers every load error with
+      its own ErrorPages document anyway).
+
+      Record the trap-within-the-trap while you are there, because it will bite the
+      next person who adds a mobile jar entry: it must go in
+      toolkit/themes/mobile/global/jar.mn and NEVER in
+      shared/minimal-toolkit.jar.inc.mn — desktop-jar.inc.mn:10 includes the latter,
+      so an entry there lands in the desktop jar too and breaks byte-identity.
+
+      Finally, assets/patches/android.txt's header still says "DELIBERATELY EMPTY".
+      It is not — several Android patches now live there.
+
+      COUNT CHANGES you must fold in, beyond the per-split arithmetic:
+      LW-M1-05 resolved msix to a plain desktop-only patch, NOT a straddler, so the
+      straddler count drops by one independently of any split. The desktop.txt
+      header's "Seven entries edit both shared Gecko code and browser/" is wrong on
+      two counts now. And LW-M1-09 folded xmas into the lists, so only
+      pref-pane-small is still applied from its own call site — board.py now
+      derives that set from librewolf-patches.py rather than hardcoding it, but the
+      prose in PATCH-SCOPE.md still describes the old two-patch situation.
+    acceptance:
+      - "assets/patches.txt equals common+desktop and librewolf-patches.py prints no out-of-sync warning"
+      - "no monolithic straddler patch file remains on disk"
+      - "check-patchfail exercises the split halves, not the monoliths — verified by checking the applied list"
+      - "`python3 docs/android/board.py --check-scope` exits 0"
+    verify: "python3 docs/android/board.py --check-scope && ./scripts/check-patchfail.sh"
+    effort_h: "2-3"
+    skills: [shell, docs]
+    agent_safe: yes
+    isolation: none
+    risk: Until this lands, every green check-patchfail is testing the pre-split monoliths and proves nothing about the halves that actually ship.
+
+  - id: LW-M1-16
+    title: Restore make fixfuzz and stop mutating the user's global git config
+    milestone: M1
+    depends_on: [LW-M1-11, LW-M1-15]
+    owns: [scripts/fuzzfail.sh, scripts/git-patchtree.sh]
+    what: |
+      TWO THINGS, and the first is a REGRESSION we caused.
+
+      (1) `make fixfuzz` now regenerates NOTHING. LW-M1-15 made git-patchtree.sh
+      refuse a bare invocation (exit 2), and fuzzfail.sh:304-312 calls it inside a
+      subshell with `|| exit 1`, so all 23 fuzzy patches come back under "patches
+      that need a human, not a fuzz rebuild". Reproduced end to end against a real
+      803MB tarball replica: EXIT=1, zero .nofuzz written. The two files are owned
+      by different tasks, which is exactly why it slipped — this task owns BOTH so
+      it can land as a pair. Teach fuzzfail.sh git-patchtree.sh's new interface.
+
+      Note the board's own verify for LW-M1-15 (`make -n fixfuzz`) CANNOT see this,
+      because -n does not execute. Any verify you write here must actually run the
+      regeneration against at least one genuinely fuzzy patch and confirm a
+      .nofuzz appears.
+
+      (2) PRE-EXISTING, and it damages the user's environment outside the repo:
+      fuzzfail.sh runs `git config --global commit.gpgsign false` before the
+      regeneration and `git config --global commit.gpgsign true` after
+      (HEAD:scripts/fuzzfail.sh:32,34 — this predates all Android work). Three
+      faults: a repo script must never write the user's GLOBAL config; it restores
+      a HARDCODED `true` rather than the user's prior value, so anyone who had it
+      unset or false gets commit signing silently switched on for every repo they
+      own; and an interrupt between the two leaves signing globally OFF.
+      Use `git -c commit.gpgsign=false ...` on the individual commands, or set
+      GIT_CONFIG_GLOBAL for the subshell, or a repo-local config. Never a global
+      write.
+
+      While here: `make clean` and .gitignore both miss the `tmpdir92.*` prefix
+      that LW-M1-11's mktemp scratch dirs use, so an interrupted run leaves
+      multi-GB directories that show up as untracked for everyone. One was found
+      holding 4.6GB. You do not own the Makefile or .gitignore — report what they
+      need.
+    acceptance:
+      - "`make fixfuzz` regenerates a .nofuzz for at least one genuinely fuzzy patch, proven by running it"
+      - "no script writes the user's global git config under any code path, including error paths"
+      - "an interrupted run leaves the user's git config exactly as it found it"
+      - "./scripts/check-patchfail.sh still exits 0"
+    verify: "! grep -rn 'config --global' scripts/ && ./scripts/check-patchfail.sh"
+    effort_h: "2-4"
+    skills: [shell]
+    agent_safe: yes
+    isolation: none
+    risk: Right now make fixfuzz silently does nothing, and running it can flip a global git setting the user never chose.
+
+  - id: LW-M1-15
+    title: Make git-patchtree safe to run and Android-aware
+    milestone: M1
+    depends_on: [LW-M1-11]
+    owns: [scripts/git-patchtree.sh]
+    what: |
+      FOUND BY LW-M1-11, which had to refuse to regenerate rather than write a wrong
+      .nofuzz. git-patchtree.sh hardcodes `firefox-$(cat version)` in the repo root
+      — the SAME directory `make dir` uses and other people read — and `rm -rf`s it.
+      Three consequences: `make fixfuzz` destroys a tree someone may be building in;
+      two fuzzfail runs collide there; and because it always rebuilds against the
+      desktop tarball and the desktop `version` file, it cannot produce a correct
+      .nofuzz for an Android patch at all.
+
+      Give it a private scratch directory with a cleanup trap (check-patchfail.sh
+      and fuzzfail.sh now both use `mktemp -d` under the repo root — follow that
+      pattern, and note /tmp here is a 31GB tmpfs while the extract is 4.7GB, which
+      is why they do not use $TMPDIR). Then teach it the target/version split so an
+      Android patch regenerates against the ESR tarball, per LW-M0-07's model.
+
+      Once this lands, remove fuzzfail.sh's refusal-to-regenerate guard — but that
+      file belongs to LW-M1-11, so coordinate rather than editing it.
+    acceptance:
+      - "running it never touches firefox-$(cat version) in the repo root"
+      - "two concurrent runs both succeed"
+      - "an android patch regenerates against the ESR tarball and version.android"
+      - "`make fixfuzz` still works for desktop exactly as before"
+    verify: "make -n fixfuzz && ./scripts/check-patchfail.sh"
+    effort_h: "2-4"
+    skills: [shell]
+    agent_safe: yes
+    isolation: none
+    risk: Today `make fixfuzz` can delete a 4.7GB tree someone else is mid-build on, with no warning.
+
+  - id: LW-M1-14
+    title: Fix the malformed hunk headers in always-fetch-latest-toolchain
+    milestone: M1
+    depends_on: []
+    owns: [patches/always-fetch-latest-toolchain-artifact.patch]
+    what: |
+      FOUND BY LW-M1-10, verified twice. Both hunks in this patch declare line
+      counts that do not match their bodies:
+        @@ -9,8 +9,9 @@     declares old=8  new=9   body is old=9  new=10
+        @@ -452,28 +452,30 @@ declares old=28 new=30  body is old=15 new=17
+      GNU patch tolerates it (it works from the body), so `make check-patchfail` is
+      green and nobody has noticed. `git apply --check` fails hard:
+      "patch fragment without header at :16", exit 128.
+
+      That matters because it silently rules out every git-based tool on the patch
+      set — including scripts/git-patchtree.sh, which is already in this repo — and
+      because any strict diff parser that trusts hunk headers will mis-read the
+      file. LW-M1-10's parser had to work around it by using ---/+++ adjacency.
+
+      Regenerate the headers from the actual bodies. Do not re-diff against a
+      different tree; the content is correct, only the counts are wrong. This is a
+      DESKTOP fix as much as an Android one.
+    acceptance:
+      - "`git apply --check` succeeds against a tree containing the target file"
+      - "GNU patch still applies it identically — same resulting file bytes"
+      - "`./scripts/check-patchfail.sh` still exits 0"
+      - "no other patch in the set has the same defect (check them all while you are here)"
+    verify: "./scripts/check-patchfail.sh"
+    effort_h: "1-2"
+    skills: [shell]
+    agent_safe: yes
+    isolation: none
+    risk: Low to fix, but while it stands no git-based patch tooling can be used on this repo at all.
+
+  - id: LW-M1-13
+    title: Stop applying the desktop pref-pane on Android builds
+    milestone: M1
+    depends_on: [LW-M1-10, LW-M1-12]
+    owns: [scripts/librewolf-patches.py, assets/patches/desktop.txt, assets/patches.txt]
+    what: |
+      LIVE SCOPE BUG, found by LW-M1-10 and confirmed:
+      `python3 scripts/librewolf-patches.py --no-execute --targets=android` applies
+      patches/pref-pane/pref-pane-small.patch, which touches FIVE browser/ files
+      (preferences/{jar.mn,preferences.js,preferences.xhtml,main.js} and
+      browser/themes/shared/jar.inc.mn). It is applied from its own call site rather
+      than from a list, so neither lint-patch-scope.py nor the target selection
+      can see it — the same invisibility as landmine L4, in the one patch still
+      outside the list mechanism.
+
+      Worse, the flag that was supposed to control it is dead: `-P` /
+      `--no-settings-pane` is parsed into `options.settings_pane` at
+      librewolf-patches.py:39 and NEVER READ anywhere in the script.
+
+      The four pref-pane file copies that follow it (category-librewolf.svg,
+      librewolf.css, librewolf.inc.xhtml, librewolf.js into browser/) are
+      unconditional too, and are L4-class out-of-patch mutations.
+
+      Move pref-pane-small into desktop.txt like every other patch, move the four
+      copies behind the same target check, and either wire up `--no-settings-pane`
+      or delete it. Note LW-M1-10's checker models this patch as OUT_OF_LIST_TAIL
+      and it shares four files with six list patches, so moving it changes the apply
+      sequence — run check-patch-order.py after, and update its model.
+    acceptance:
+      - "`--targets=android` applies no browser/-only patch and performs no browser/ file copy"
+      - "the desktop apply sequence is unchanged — same patches, same order"
+      - "-P/--no-settings-pane either works or is gone"
+      - "scripts/check-patch-order.py exits 0 and no longer needs an OUT_OF_LIST_TAIL for this patch"
+    verify: "! python3 scripts/librewolf-patches.py --no-execute --targets=android 153.0esr 1 | grep -E '^\\*\\*\\* -> patch .*browser/|cp .*themes/browser'"
+    effort_h: "2-3"
+    skills: [python, shell]
+    agent_safe: yes
+    isolation: none
+    risk: An Android build currently carries five desktop chrome files it cannot use, invisible to every scope check we have.
+
+  - id: LW-M1-10
+    title: Encode the patch-ordering constraints as a test
+    milestone: M1
+    depends_on: [LW-M1-01]
+    owns: [scripts/check-patch-order.py]
+    reads: [assets/patches/common.txt]
+    what: |
+      Four pairs share a file and only apply in one order:
+      autoconfig-setEnv before profile-directory (prefcalls.js);
+      firefox-in-ua before moz-configure (toolkit/moz.configure);
+      fpp-canvas-fix before webgl-permission-common (ClientWebGLContext.cpp);
+      mozilla_dirs before xdg-dir (nsXREDirProvider.cpp). Derive the constraints
+      from the patch headers rather than hardcoding a list, then assert the order
+      satisfies them.
+
+      CRITICAL, from LW-M1-01: since the review, mozilla_dirs/xdg-dir is a
+      CROSS-LIST pair — mozilla_dirs is common, xdg-dir is desktop. The constraint
+      still holds because common.txt applies first, but a checker that compares
+      positions only within a single list will not see the pair at all and will
+      pass a genuinely broken ordering. Model the real apply sequence
+      (common, then the target lists in order), not per-file position.
+      scripts/enable-patch.sh already does this via applies_before() — read it.
+
+      The workflow already calls this script when it exists (LW-M0-09 pre-wired it,
+      blocking), so no cross-owner edit is needed.
+    acceptance:
+      - "test fails when any of the four pairs is swapped"
+      - "test catches the cross-list mozilla_dirs/xdg-dir pair, verified by swapping it"
+      - "test derives pairs from patch contents, so a new shared-file pair is caught automatically"
+    verify: "python3 scripts/check-patch-order.py"
+    effort_h: "3-5"
+    skills: [python]
+    agent_safe: yes
+    isolation: none
+    risk: Re-ordering during the split is easy and the resulting failure is a confusing mid-patch reject, not a clear error.
+
+  - id: LW-M1-11
+    title: Extend check-patchfail to the android target
+    milestone: M1
+    depends_on: [LW-M1-01, LW-M0-09, LW-M0-11]
+    owns: [scripts/check-patchfail.sh, scripts/fuzzfail.sh]
+    what: |
+      scripts/check-patchfail.sh walks assets/patches.txt. Teach it to take a
+      target and walk the right list(s), so `check-patchfail --targets=android`
+      reports Android-relevant rejects only. Same for fuzzfail.sh. Keep the
+      no-argument behaviour identical for desktop builders.
+
+      ALSO FIX THE CONCURRENCY BUG, found the hard way during the M1 wave:
+      check-patchfail.sh hardcodes `tmpdir92` and `rm -rf`s it on start, so two
+      concurrent runs destroy each other's tree — one agent had to run the script
+      from a private workspace to avoid corrupting another's. Use a unique
+      directory (mktemp -d, or include $$) and clean it up on exit including on
+      failure. Same for fuzzfail.sh if it shares the pattern.
+
+      TWO THINGS FROM LW-M0-11, both load-bearing. (1) fuzzfail.sh:22-30 still has
+      the L5 blind spot check-patchfail just lost — .rej-only detection, stderr
+      uncaptured. Carry the same fix across: exit status authoritative, `2>&1`,
+      `< /dev/null`. (2) check-patchfail now forwards `"$@"` verbatim to `patch`, so
+      you MUST shift your own `--targets=...` argument off before the loop or patch
+      will choke on it.
+    acceptance:
+      - "`./scripts/check-patchfail.sh` with no args behaves exactly as before"
+      - "`--targets=android` reports on common+android only"
+      - "exit code is non-zero when any patch in the selected set fails"
+    verify: "./scripts/check-patchfail.sh && ./scripts/check-patchfail.sh --targets=android --use-desktop-tarball"
+    effort_h: "2-3"
+    skills: [shell]
+    agent_safe: yes
+    isolation: none
+    risk: Changing default behaviour breaks the desktop rebase workflow maintainers run weekly.
+
+  # ---------------------------------------------------------------- M2
+  # Build bring-up. Mostly serial — this is the critical path.
+
+  - id: LW-M2-01
+    title: Get an unpatched arm64 GeckoView build green
+    milestone: M2
+    depends_on: [LW-M0-03, LW-M0-06]
+    owns: [docs/android/BUILD.md]
+    what: |
+      Before any LibreWolf patch, prove the toolchain: extract the stock Firefox
+      tarball, use assets/mozconfig.android, and get `./mach build` to completion
+      for aarch64-linux-android inside the LW-M0-06 image. Record every deviation
+      you needed (env vars, extra packages, mach bootstrap steps) in BUILD.md.
+      This is the baseline every later failure is bisected against.
+    acceptance:
+      - "`./mach build` completes on a stock 153 tree"
+      - "BUILD.md reproduces the result from a clean image in one documented sequence"
+      - "build wall-clock and peak RAM recorded"
+    verify: "manual: follow docs/android/BUILD.md on a clean machine and reach a completed build"
+    effort_h: "8-16"
+    skills: [android, shell, ops]
+    agent_safe: yes
+    isolation: worktree
+    risk: Skipping the unpatched baseline means every later error is ambiguous between our patches and the toolchain.
+
+  - id: LW-M2-02
+    title: Build the common patch set on Android
+    milestone: M2
+    depends_on: [LW-M2-01, LW-M1-01]
+    owns: [patches/android/build-fixes.patch]
+    what: |
+      Run `make dir TARGETS=common,android` and build. Every compile error is
+      either a patch that was misclassified (send it back to LW-M1-01) or a real
+      Android incompatibility that needs an android patch. Do not fix errors by
+      dropping patches from common.txt without recording the reason — a dropped
+      common patch is a parity loss and must be listed in the M5 parity matrix.
+    acceptance:
+      - "build completes with the full common patch set applied"
+      - "every patch dropped or amended is listed with a reason in PATCH-SCOPE.md"
+      - "no patch is disabled silently"
+    verify: "manual: build log shows the full common list applied and mach exiting 0"
+    effort_h: "16-40"
+    skills: [c++, rust, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: The tempting fix for every error is to drop the patch; that quietly dismantles the parity goal.
+
+  - id: LW-M2-03
+    title: Produce a fat AAR from the three ABI builds
+    milestone: M2
+    depends_on: [LW-M2-02]
+    owns: [scripts/android-fat-aar.sh, Makefile]
+    what: |
+      Build aarch64, armv7 and x86_64 (and decide on x86 — probably drop it) and
+      merge them into a single AAR using the tree's own fat-AAR support
+      (mobile/android/gradle, MOZ_ANDROID_FAT_AAR_ARCHITECTURES). Wrap it in a
+      script and a `make android-aar` target. Record the per-ABI and merged build
+      times — this number sets the CI budget in LW-M2-08.
+    acceptance:
+      - "one AAR contains all shipped ABIs"
+      - "`make android-aar` reproduces it from a clean tree"
+      - "a written decision on whether x86 (32-bit) ships"
+    verify: "unzip -l geckoview-*.aar | grep -c 'jni/.*/libxul.so'"
+    effort_h: "8-16"
+    skills: [android, gradle, make]
+    agent_safe: yes
+    isolation: worktree
+    risk: Per-ABI builds triple wall-clock; getting this wrong makes every later iteration painfully slow.
+
+  - id: LW-M2-04
+    title: Build an installable APK from the Fenix Gradle stage
+    milestone: M2
+    depends_on: [LW-M2-03]
+    owns: [scripts/android-apk.sh, Makefile]
+    what: |
+      Feed the fat AAR into the in-tree mobile/android/fenix Gradle build and
+      produce a debug-signed APK that installs and loads a page. Keep the app id
+      and branding stock at this stage — LW-M4-07 changes them, and changing them
+      now makes the first failure ambiguous.
+
+      Add `--enable-android-subproject=fenix` to assets/mozconfig.android HERE, not
+      earlier: mobile/android/moz.configure:85-100 shows it changes what the build
+      produces, and LW-M0-03 deliberately left it off so M0-M1 stay a GeckoView-only
+      build. You own that edit for this task.
+    acceptance:
+      - "APK installs on a device or emulator and loads https://<PROJECT_DOMAIN>"
+      - "`make android-apk` produces it end to end"
+      - "the APK's GeckoView is our build, verified via about:buildconfig"
+    verify: "manual: adb install the APK, open about:buildconfig, confirm our mozconfig options"
+    effort_h: "8-16"
+    skills: [gradle, kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Confirming "it opened" without checking about:buildconfig can validate a prebuilt GeckoView by accident.
+
+  - id: LW-M2-05
+    title: Enable --enable-appservices-in-tree and verify the search dumps
+    milestone: M2
+    depends_on: [LW-M2-02]
+    owns: [assets/mozconfig.android, patches/android/appservices.patch]
+    what: |
+      Mobile search configuration is not read from services/settings/dumps the way
+      desktop reads it — it comes from
+      third_party/application-services/components/remote_settings/dumps/. Building
+      application-services, nimbus-fml and uniffi from source is what makes those
+      dumps ours to control, which LW-M4-06 depends on. Get the in-tree build
+      working and confirm the dumps land in the APK.
+    acceptance:
+      - "build completes with --enable-appservices-in-tree"
+      - "no prebuilt application-services artifact is downloaded during the build"
+      - "the remote_settings dumps present in the APK come from the in-tree path"
+    verify: "manual: build log shows application-services compiled, not fetched"
+    effort_h: "6-12"
+    skills: [rust, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Without this the search config is Mozilla's and LW-M4-06 has nothing to modify.
+
+  - id: LW-M2-06
+    title: Add android-dir/build/package Makefile targets
+    milestone: M2
+    depends_on: [LW-M2-04]
+    owns: [Makefile, assets/Dockerfile.android]
+    what: |
+      Mirror the desktop dir/build/package targets for Android:
+      `android-dir` (extract + patch with TARGETS=common,android),
+      `android-build` (mach build for the configured ABIs),
+      `android-package` (fat AAR + Gradle + unsigned APK), plus
+      `android-clean`. Keep them independent of the desktop targets so a machine
+      can build one without the other.
+
+      THREE THINGS FROM LW-M0-12, which stubbed android-run-build-job because it
+      cannot work yet. (1) This host — and any Fedora/RHEL builder — runs SELinux
+      Enforcing, so a podman `-v $(pwd):/output` mount is denied write access
+      without a `:z` (shared) or `:Z` (private, relabels exclusively) suffix. The
+      desktop docker-run-build-job deliberately was NOT changed, to keep existing
+      docker users byte-identical; the Android run-job needs the label. (2) The
+      artifact shape differs — desktop ends in `cp -v ./*.xz`, Android produces a
+      GeckoView AAR plus an unsigned APK under obj-*/gradle/. (3) The image's
+      /source is a clone of upstream codeberg, so these targets must land upstream
+      before the run-job can see them.
+
+      You also own assets/Dockerfile.android for this task, to fix two stale
+      comments in it: :245 documents the run command as
+      `make build-android package-android`, which contradicts the target names
+      here, and :243 says assets/mozconfig.android does not exist yet. It does.
+    acceptance:
+      - "each target runs standalone from a clean checkout"
+      - "desktop targets are unchanged"
+      - "`make help` documents the new targets"
+      - "android-run-build-job works under SELinux Enforcing, and the label choice is explained"
+      - "the Dockerfile's documented target names match the ones you implement"
+    verify: "make -n android-package"
+    effort_h: "3-5"
+    skills: [make]
+    agent_safe: yes
+    isolation: none
+    risk: Entangling the android and desktop target graphs makes both slower and each break the other.
+
+  - id: LW-M2-07
+    title: Build the automated smoke-test harness
+    milestone: M2
+    depends_on: [LW-M2-04]
+    owns: [scripts/android-smoke.sh, docs/android/SMOKE.md]
+    what: |
+      A scripted gate that installs the APK on an emulator and checks more than
+      "it launched": page load, WebGL context creation (the L1 canary), a WebRTC
+      getUserMedia probe, video playback, extension install, and a dump of ~30
+      security-relevant prefs read back from about:config. Every M2+ task runs
+      this before claiming done.
+    acceptance:
+      - "one command, exits non-zero on any failed check"
+      - "includes a live WebGL check that fails if librewolf.webgl.prompt regresses"
+      - "prints the pref dump as a diffable file"
+    verify: "./scripts/android-smoke.sh --emulator"
+    effort_h: "8-16"
+    skills: [shell, android, kotlin]
+    agent_safe: yes
+    isolation: none
+    risk: A weak smoke test is worse than none — it certifies broken builds as good.
+
+  - id: LW-M2-09
+    title: Make the Fenix unit suite runnable in the build container
+    milestone: M2
+    depends_on: [LW-M2-07, LW-M2-08]
+    owns: [assets/Dockerfile.android, docs/android/BUILD.md]
+    what: |
+      AGENTS.md now requires `./mach gradle fenix:testDebugUnitTest` to pass for any
+      Kotlin-layer change, and it cannot cleanly: **libmegazord.so is absent from the
+      container**, so ~90 tests fail with UnsatisfiedLinkError / NoClassDefFoundError
+      regardless of what the patch under test does.
+
+      Measured across two independent runs: LW-M4-10's baseline was 5434 tests /
+      121 failed; after LW-M4-14's fix it is 5418 / 92. The 29-test delta is the
+      real signal (31 fixed, minus 16 deleted, plus fork-ordering noise) and the
+      remaining 92 are environmental. Every Kotlin task so far has had to hand-wave
+      that residue, and the next one will have to re-derive the same explanation.
+
+      Fix it properly: either build/ship the megazord native library in the image so
+      the appservices-backed tests run, or maintain a documented expected-failure
+      allowlist that the harness subtracts, so a task's report can state a clean
+      pass/fail. An allowlist is acceptable but must be a checked-in list with the
+      reason per entry, not a number in a comment — a count drifts silently.
+
+      Until this lands, "the unit tests pass" means "no NEW failures beyond the
+      documented residue", and every task has to prove that by differencing against a
+      baseline it ran itself. That is expensive and error-prone, which is why this
+      exists.
+    acceptance:
+      - "`./mach gradle fenix:testDebugUnitTest` reports a clean result, or a documented allowlist makes it one"
+      - "the allowlist, if used, is checked in with a per-entry reason"
+      - "BUILD.md tells a maintainer how to run the suite and what a clean result looks like"
+    verify: "manual: run the suite in the container and compare against the documented baseline"
+    effort_h: "4-8"
+    skills: [gradle, android, ops]
+    agent_safe: yes
+    isolation: none
+    risk: A required gate that cannot return a clean answer trains people to ignore it — the exact failure mode the ratchet in --check-policies exists to avoid.
+
+  - id: LW-M2-08
+    title: Add caching and the real build job to CI
+    milestone: M2
+    depends_on: [LW-M2-03, LW-M0-09, LW-M0-16, LW-M2-06]
+    owns: [.forgejo/workflows/android-test.yaml, assets/Dockerfile.android]
+    what: |
+      Add sccache (or the tree's ccache support) and artifact caching so an
+      incremental Android build fits the runner budget, then extend
+      android-test.yaml with a real build job.
+
+      MEASURED BY LW-M2-01 on a stock single-ABI aarch64 build, 32-core/62GB host
+      that was NOT idle: `./mach build -j16` = 21m56s, objdir 21GB, disk 25.6GB
+      read / 53.0GB written. **Peak container memory 37.97GB, peak anonymous
+      30.88GB.** Memory is the binding constraint, not CPU — efficiency was only
+      42%. Size the runner on RAM, and note LW-M2-03's three-ABI fat AAR multiplies
+      this. The build is also NOT hermetic: mach runs Gradle
+      (config/baseconfig.mk:46,57-59), which downloads Gradle 9.5.1 and the whole
+      Maven graph, so the Gradle cache needs its own caching story.
+    acceptance:
+      - "warm CI build completes inside the runner timeout, with the measured number recorded"
+      - "cache is keyed on the mozconfig and toolchain versions, not just the branch"
+      - "a cache miss degrades to a slow build, never to a wrong one"
+    verify: "manual: two consecutive CI runs, second one warm, times recorded in the PR"
+    effort_h: "6-12"
+    skills: [ops, shell]
+    agent_safe: yes
+    isolation: none
+    risk: A stale cache keyed too loosely ships artifacts built from the wrong toolchain.
+
+  # ---------------------------------------------------------------- M3
+  # Pref delivery. This is where LibreWolf's identity actually reaches Android,
+  # and the part with no desktop precedent to copy.
+
+  - id: LW-M3-01
+    title: Split librewolf.cfg into common/desktop/android
+    milestone: M3
+    depends_on: [LW-M1-01]
+    submodule: settings
+    owns:
+      - settings/librewolf.cfg
+      - settings/common.cfg
+      - settings/desktop.cfg
+      - settings/android.cfg
+    what: |
+      settings/librewolf.cfg is 763 lines: 178 defaultPref, 60 lockPref, 26 bare
+      pref, 2 clearPref, 1 setEnv, and 12 librewolf.* prefs. Split it three ways.
+      Known desktop-only sections: lines 73-79 (sanitize-on-shutdown —
+      Sanitizer.sys.mjs is desktop-only) and lines 253-254
+      (privacy.window.maxInnerWidth/Height). NOTE the stated reason for the latter
+      was wrong in mechanism, though the conclusion held: they are NOT read only by
+      desktop code — they are StaticPrefs read in core DOM at
+      nsContentUtils.cpp:3036-3047, and one caller of
+      CalcRoundedWindowSizeForResistingFingerprinting is shared toolkit
+      (nsWindowWatcher.cpp:2446, reachable from window.open() with an explicit
+      size). They stay desktop because the cap never binds on a phone and
+      LibreWolf's value is LOOSER than Gecko's 1400x900 default, so Android keeps
+      the tighter Mozilla cap. Moving them back to common is safe if anyone
+      disagrees. Note
+      that privacy.resistFingerprinting.letterboxing at :255 ships FALSE on
+      desktop, so it is not a parity item; do not list it as one. Every moved pref
+      needs a one-line reason.
+    acceptance:
+      - "common.cfg + desktop.cfg reproduces today's librewolf.cfg semantically (same effective prefs on desktop)"
+      - "every pref in desktop.cfg has a stated reason it cannot apply on Android"
+      - "counts recorded and matching: 178 defaultPref, 60 lockPref, 12 librewolf.* prefs"
+    verify: "python3 docs/android/board.py --check-cfg-split && python3 docs/android/board.py --check"
+    effort_h: "8-14"
+    skills: [js, python]
+    agent_safe: yes
+    isolation: none
+    risk: A desktop pref moved to common is inert; a common pref moved to desktop is a silent privacy regression on Android.
+
+  - id: LW-M3-08
+    title: Spike — make autoconfig itself work on Android
+    milestone: M3
+    depends_on: [LW-M1-09, LW-M2-04]
+    owns: [docs/android/AUTOCONFIG-SPIKE.md, patches/android/autoconfig-resource-fallback.patch]
+    what: |
+      RUN THIS BEFORE LW-M3-02 BUILDS ANYTHING. If it succeeds, LW-M3-02 and
+      LW-M3-03 shrink to almost nothing and landmine L2 largely dissolves.
+
+      The plan assumed autoconfig is unreachable on Android. Tracing it exactly
+      (LW-M1-09 found the packaging half, the rest verified against the tree) the
+      blocker is ONE code path, not the mechanism:
+        - nsReadConfig.cpp:170 loads prefcalls.js with isBinDir=FALSE, which uses
+          `resource://gre/defaults/autoconfig/` — a resource: URI that resolves
+          inside the APK. It already works, and
+          mobile/android/installer/package-manifest.in:136 already packages
+          `@BINPATH@/defaults/autoconfig/prefcalls.js`.
+        - nsReadConfig.cpp:192 loads the actual .cfg with isBinDir=TRUE, which goes
+          through NS_GetSpecialDirectory(NS_GRE_DIR) at :261. That is the dead end:
+          nsXREDirProvider.cpp:390-395 returns nothing for NS_GRE_DIR under
+          MOZ_WIDGET_ANDROID, commented "internal files are inside the APK, a zip
+          file, so this folder doesn't really make sense."
+
+      So the .cfg cannot be found, but everything else already works. Try making
+      the isBinDir path fall back to `resource://gre/` when NS_GRE_DIR is
+      unavailable, and package librewolf.cfg + local-settings.js into the Android
+      manifest (note it is an explicit file list with no root wildcard, so each
+      file must be named — PdfJsDefaultPrefs.js proves the defaults/pref channel
+      works that way).
+
+      WHY THIS MATTERS SO MUCH — and it is now stronger than when this task was
+      written. LW-M3-01 established that `MOZ_DEFAULT_PREFS` CANNOT LOCK AT ALL:
+      the parser at modules/libpref/parser/src/lib.rs:14,297-321 accepts only
+      `pref`, `user_pref` and `sticky_pref`, with no `locked_pref` token. So the
+      fallback plan cannot express the 38 `lockPref`s in common.cfg, and landmine
+      L2's own prescribed mitigation is unavailable through that channel.
+
+      Autoconfig's `lockPref` calls `Preferences::Lock` directly. If the .cfg is
+      evaluated natively, locking works, Android ships the SAME file as desktop
+      rather than a compiled derivative, and the 26 bare `pref()` calls keep their
+      real user-branch semantics instead of being silently downgraded to defaults.
+      If this spike succeeds it is not an optimisation — it is the difference
+      between parity and approximation.
+
+      Time-box it. If it does not work, say why precisely and hand LW-M3-02 the
+      reason — a failed spike with a clear diagnosis is a good outcome here.
+    acceptance:
+      - "a definitive answer on whether librewolf.cfg can be evaluated natively on Android"
+      - "if yes: a pref set only by the .cfg is observable in about:config on a real build"
+      - "if yes: a lockPref'd pref demonstrably survives the Fenix settings screen that would otherwise overwrite it"
+      - "if no: the exact failing call and why, written up for LW-M3-02"
+    verify: "manual: pref dump from a running build, before and after opening settings"
+    effort_h: "6-12"
+    skills: [c++, android, js]
+    agent_safe: yes
+    isolation: worktree
+    risk: Skipping this spike means building a whole cfg compiler and lock generator that may be unnecessary.
+
+  - id: LW-M3-02
+    title: Land the autoconfig channel on Android
+    milestone: M3
+    depends_on: [LW-M3-01, LW-M3-08]
+    owns:
+      - patches/android/autoconfig-resource-fallback.patch
+      - assets/patches/android.txt
+      - docs/android/PATCH-SCOPE.md
+      - docs/android/AUTOCONFIG-SPIKE.md
+      - scripts/check-patch-order.py
+    reads: [settings/common.cfg, settings/android.cfg]
+    what: |
+      REWRITTEN AFTER LW-M3-08 SUCCEEDED. This task was "write a compiler that
+      turns librewolf.cfg into MOZ_DEFAULT_PREFS lines". That is no longer the
+      plan, and building it would have been ~20 hours spent on the wrong thing.
+
+      The spike proved autoconfig itself works on Android. Land it:
+        1. patches/android/autoconfig-resource-fallback.patch — currently ON DISK
+           but in NO list (declared pending in PATCH-SCOPE.md). It makes
+           nsReadConfig's isBinDir lookup fall back to `resource://gre/` when
+           NS_GRE_DIR is empty, which is the single dead end on Android
+           (nsXREDirProvider.cpp:390-395 returns nothing there by design).
+        2. Package librewolf.cfg and local-settings.js BY NAME in
+           mobile/android/installer/package-manifest.in. It is an explicit file
+           list with no root wildcard — PdfJsDefaultPrefs.js at :113 is the
+           precedent, and prefcalls.js at :136 already ships.
+        3. Declare the new ordering constraint in scripts/check-patch-order.py:
+           xmas-common before autoconfig-resource-fallback, both touching
+           lw/moz.build. The spike's verification confirmed check-patch-order
+           flags this pair and demands it be declared.
+        4. Remove the pending declaration from PATCH-SCOPE.md and fix its counts.
+
+      TWO CORRECTIONS the spike's own artefacts still carry, fix them as you land:
+      the patch comment claims isBinDir decides skipFirstLine — it does not
+      (nsReadConfig.cpp:343 feeds `isEncoded` to that argument; isBinDir feeds
+      isPrivileged only), and AUTOCONFIG-SPIKE.md section 12 says the patch is in
+      android.txt when section 8 correctly says it is not.
+
+      Until this lands, both check-patchfail runs pass VACUOUSLY with respect to
+      that patch — nothing applies it, so a rebase would not notice it breaking.
+    acceptance:
+      - "the autoconfig patch is in assets/patches/android.txt, not merely on disk — both check-patchfail runs must actually apply it"
+      - "librewolf.cfg and local-settings.js are packaged by name in the Android manifest"
+      - "the xmas-common -> autoconfig-resource-fallback ordering constraint is declared in check-patch-order.py"
+      - "a pref set only by librewolf.cfg is observable in about:config on a fresh profile of a RUNNING build"
+      - "PATCH-SCOPE.md no longer lists the patch as pending and its counts agree with the lists"
+    verify: "python3 docs/android/board.py --check-scope && python3 scripts/check-patch-order.py && ./scripts/check-patchfail.sh --targets=android --use-desktop-tarball"
+    effort_h: "8-14"
+    skills: [python, js]
+    agent_safe: yes
+    isolation: none
+    risk: Silently skipping a construct it cannot parse drops prefs with no error — fail loud, always.
+
+  - id: LW-M3-03
+    title: Decide what remains of the MOZ_DEFAULT_PREFS channel
+    milestone: M3
+    depends_on: [LW-M3-02, LW-M2-04]
+    owns: [patches/android/pref-delivery.patch]
+    tree_paths:
+      - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoRuntimeSettings.java
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+    what: |
+      GeckoLoader.java:83-103 reads MOZ_DEFAULT_PREFS at startup, BEFORE the
+      profile and before Fenix's own runtime Pref.commit() calls. Ordering matters
+      and every earlier draft of this plan had it backwards: defaultPref survives
+      startup, but anything Fenix writes at runtime overwrites a defaultPref — so
+      lockPref is mandatory for those. Wire the LW-M3-02 startup artifact into the
+      GeckoRuntimeSettings construction and confirm with a pref dump.
+    acceptance:
+      - "prefs from common.cfg are observable in about:config on first run, before any UI interaction"
+      - "a pref Fenix sets at runtime is demonstrated to override an unlocked defaultPref (documents the need for LW-M3-04)"
+      - "startup time regression measured and under 50ms"
+    verify: "./scripts/android-smoke.sh --pref-dump | diff - docs/android/expected-prefs.txt"
+    effort_h: "6-12"
+    skills: [kotlin, java, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Getting the ordering backwards produces a build where prefs look right at startup and drift the moment the user opens settings.
+
+  - id: LW-M3-09
+    title: Fix the bare pref() calls that ResetUserPrefs wipes on Android
+    milestone: M3
+    depends_on: [LW-M3-02]
+    submodule: settings
+    owns: [settings/common.cfg, settings/android.cfg, docs/android/parity/bare-prefs.md]
+    what: |
+      FOUND BY LW-M3-08, and it is landmine L2b. Autoconfig now works on Android,
+      but `GeckoView:ResetUserPrefs` fires at startup AFTER autoconfig has run and
+      clears the USER branch — and a bare `pref()` in a .cfg writes the user branch,
+      not the default one (prefcalls.js:12-18).
+
+      Measured on the running build: only 16 of 25 bare `pref()` calls persisted.
+      The clearest casualty is `browser.contentblocking.category`, which reads
+      `standard` in about:config despite `pref(..., "strict")` at common.cfg:117 —
+      i.e. Android silently gets Fenix's tracking-protection default instead of
+      LibreWolf's. On desktop the same line works, so this is a genuine
+      platform-specific privacy regression that no build error reveals.
+
+      We ship 24 bare `pref()` calls in common.cfg. For each, decide: promote to
+      `defaultPref` (survives, but is then overridable by the user, which for some
+      of these is the intent), promote to `lockPref` (survives and beats Fenix, but
+      over-locking makes visible settings toggles dead — see LW-M3-04's must-not-lock
+      allowlist), or leave as `pref()` because being user-branch and resettable is
+      genuinely what is wanted. Record the reason per pref.
+
+      DESKTOP MUST NOT CHANGE. A bare `pref()` promoted to `defaultPref` changes
+      desktop semantics too — the value stops being written to the user branch on
+      every startup. Where the desktop behaviour is load-bearing, the promotion
+      belongs in android.cfg with the bare `pref()` kept in common.cfg, not a
+      blanket rewrite. `board.py --check-cfg-split` enforces the conservation
+      counts, so it will catch a careless bulk edit.
+
+      TWO THINGS THE VERIFICATION FOUND, both to fix before this is done.
+      (1) docs/android/parity/bare-prefs.md claims a "controlled A/B, one variable"
+      but the two APKs were not built from the same base — the recurring
+      "a run labelled measured that was a different run than described" failure.
+      Re-measure properly or restate the claim to match what was actually done.
+      (2) The declared verify is VACUOUS, proven by execution:
+      `board.py --check-cfg-split && android-smoke.sh --pref-dump` passes whether or
+      not the fix works, because --pref-dump prints prefs without asserting any. The
+      verify must assert the VALUE — browser.contentblocking.category must read
+      LibreWolf's value on a running Android build, not merely appear in a dump.
+
+      Note LW-M3-10 now owns the reason none of this reaches a device yet: the
+      patcher copies common+desktop to every target, so android.cfg is not shipped.
+      This task's fix is correct and currently inert; do not let that hide a
+      measurement failure.
+    acceptance:
+      - "every one of the 24 bare pref() calls has a stated disposition and reason"
+      - "the 9 measured casualties are fixed, verified on a running build not by reading"
+      - "browser.contentblocking.category reads LibreWolf's value in about:config on Android"
+      - "desktop's effective prefs are unchanged — proven, not asserted"
+      - "python3 docs/android/board.py --check-cfg-split exits 0"
+    verify: "python3 docs/android/board.py --check-cfg-split && ./scripts/android-smoke.sh --pref-dump"
+    effort_h: "6-10"
+    skills: [js, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Android currently ships Fenix's tracking-protection default while the config says strict, and nothing warns.
+
+  - id: LW-M3-10
+    title: Ship the common+android cfg composition, not the desktop one
+    milestone: M3
+    depends_on: [LW-M3-02, LW-M3-09]
+    owns: [scripts/librewolf-patches.py]
+    what: |
+      LIVE GAP, and it undercuts most of M3's value. `scripts/librewolf-patches.py:376`
+      does `cp -v ../../settings/librewolf.cfg .` UNCONDITIONALLY, and
+      settings/librewolf.cfg is by construction `common.cfg + desktop.cfg`. So the
+      autoconfig channel LW-M3-02 landed works perfectly — and delivers the DESKTOP
+      composition to Android.
+
+      Two consequences, both currently shipping:
+        - everything in settings/android.cfg is absent. That includes LW-M3-09's
+          L2b fixes (the lockPref overrides that stop ResetUserPrefs wiping
+          browser.contentblocking.category) and LW-M3-06's policy translations
+          (media.eme.enabled false, network.lna.block_trackers true). The Android
+          build has none of them.
+        - desktop-only prefs ARE shipped. The M3-02 verification observed
+          `privacy.resistFingerprinting.letterboxing` present in about:config on
+          Android, which is one of the prefs LW-M3-01 moved to desktop.cfg
+          precisely because it is meaningless there.
+
+      Compose per target: `common + desktop` for desktop (byte-identical to today's
+      settings/librewolf.cfg — prove it), `common + android` for android. Note the
+      fragments are concatenated and evaluated IN ORDER, so android.cfg's overrides
+      must come after common.cfg's; that ordering is the whole mechanism by which
+      the L2b fix works, and board.py --check-cfg-split rule C is written around it.
+
+      Watch the first line: common.cfg starts with the sacrificial `null;` that
+      autoconfig's skipFirstLine eats. Whatever you concatenate must keep exactly
+      one of those at the top and none in the middle — --check-cfg-split rule E
+      checks the fragments for this, but not your generated output.
+    acceptance:
+      - "the desktop tree's lw/librewolf.cfg is byte-identical to today's settings/librewolf.cfg"
+      - "the android tree's is common.cfg + android.cfg, in that order"
+      - "on a running Android build, a pref set only in android.cfg is observable in about:config"
+      - "letterboxing and the other desktop-only prefs are ABSENT from the android build"
+      - "python3 docs/android/board.py --check-cfg-split exits 0"
+    verify: "python3 docs/android/board.py --check-cfg-split && ./scripts/android-smoke.sh --pref-dump"
+    effort_h: "3-6"
+    skills: [python, js, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Every Android-specific pref decision made in M3 is currently absent from the build, and the desktop-only ones are present.
+
+  - id: LW-M3-04
+    title: Generate the must-lock pref list from the Fenix sources
+    milestone: M3
+    depends_on: [LW-M3-03]
+    owns: [scripts/gen-android-locks.py, docs/android/must-not-lock.txt]
+    tree_paths:
+      - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoRuntimeSettings.java
+      - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/ContentBlocking.java
+    what: |
+      Any pref Fenix writes at runtime must be locked or our value is transient.
+      Glob GeckoRuntimeSettings.java AND ContentBlocking.java for Pref<> field
+      declarations — around 50 hits including cookie behaviour, query stripping and
+      tracking protection — plus the three SafeBrowsingProvider child trees. Emit
+      the lock list. Maintain a must-not-lock allowlist for prefs the settings
+      fragment legitimately exposes to the user; locking those makes visible
+      toggles do nothing.
+    acceptance:
+      - "generated list covers both Java files and the SafeBrowsingProvider trees"
+      - "every entry on the must-not-lock allowlist names the settings UI that owns it"
+      - "regenerating on an unchanged tree produces no diff"
+    verify: "python3 scripts/gen-android-locks.py --check"
+    effort_h: "6-10"
+    skills: [python, kotlin]
+    agent_safe: yes
+    isolation: none
+    risk: Over-locking breaks visible settings toggles; under-locking silently loses the pref on first settings open.
+
+  - id: LW-M3-05
+    title: Add a runtime pref-audit test with an expected-prefs baseline
+    milestone: M3
+    depends_on: [LW-M3-04, LW-M2-07]
+    owns: [docs/android/expected-prefs.txt, scripts/android-pref-audit.sh]
+    what: |
+      Launch the app, exercise the settings UI (open every screen, toggle nothing),
+      then dump the effective values of every pref we ship and diff against a
+      checked-in baseline. This is the regression net for the whole M3 milestone
+      and the thing that catches a Mozilla change quietly reverting one of our
+      values on rebase. Run it in CI.
+    acceptance:
+      - "test fails when any shipped pref differs from the baseline"
+      - "baseline is generated by a documented command, not hand-written"
+      - "runs in CI on every PR"
+    verify: "./scripts/android-pref-audit.sh"
+    effort_h: "5-8"
+    skills: [shell, android, kotlin]
+    agent_safe: yes
+    isolation: none
+    risk: Without this, a rebase can revert a privacy pref and nothing notices until a user reports it.
+
+  - id: LW-M3-06
+    title: Map policies.json entries to Android equivalents
+    milestone: M3
+    depends_on: [LW-M3-01]
+    owns: [docs/android/POLICIES.md, settings/android.cfg]
+    submodule: settings
+    reads: [settings/distribution/policies.json]
+    what: |
+      The policy engine does not exist on Android. Go through policies.json entry
+      by entry — DisableTelemetry, DisableFirefoxStudies, HttpsOnlyMode,
+      EncryptedMediaExtensions, the uBO ExtensionSettings preinstall — and for each
+      state the Android mechanism: an equivalent pref, a Kotlin-layer change, or
+      "no equivalent, here is the residual gap". The gaps feed the M5 parity matrix.
+    acceptance:
+      - "every policies.json key has a row with its Android mechanism or a stated gap"
+      - "prefs that cover a policy are present in android.cfg"
+      - "the uBO preinstall row points at LW-M3-07"
+    verify: "python3 docs/android/board.py --check-policies && python3 docs/android/board.py --check-cfg-split"
+    effort_h: "4-6"
+    skills: [js, docs]
+    agent_safe: yes
+    isolation: none
+    risk: Assuming a policy has an Android analogue without checking leaves a hole labelled "done".
+
+  - id: LW-M3-07
+    title: Preinstall uBlock Origin on Android
+    milestone: M3
+    depends_on: [LW-M3-06, LW-M2-04]
+    owns: [patches/android/ubo-preinstall.patch]
+    reads: [assets/uBOAssets.json, patches/custom-ubo-assets-bootstrap-location.patch]
+    what: |
+      Desktop preinstalls uBO via the ExtensionSettings policy. Android has no
+      policy engine, so this is a Kotlin/addons-provider change: ship the XPI as an
+      asset and install it on first run, or point the addon collection at ours.
+      The librewolf.uBO.assetsBootstrapLocation pref from
+      custom-ubo-assets-bootstrap-location.patch must keep working — check whether
+      that patch is in common.txt and whether its code path is reachable on
+      Android.
+    acceptance:
+      - "uBO is present and enabled on first launch with no network fetch from Mozilla's collection"
+      - "librewolf.uBO.assetsBootstrapLocation is honoured on Android"
+      - "the user can uninstall it (we preinstall, we do not force)"
+    verify: "./scripts/android-smoke.sh --check-ubo"
+    effort_h: "8-14"
+    skills: [kotlin, android, js]
+    agent_safe: yes
+    isolation: worktree
+    risk: Pinning to Mozilla's addon collection reintroduces exactly the remote dependency we removed elsewhere.
+
+  # ---------------------------------------------------------------- M4
+  # De-Mozilla-ing the Kotlin layer. Highly parallel — each task owns its own
+  # patch file and a disjoint set of Fenix subsystems.
+
+  - id: LW-M4-01
+    title: Remove Glean telemetry from the Fenix layer
+    milestone: M4
+    depends_on: [LW-M2-04]
+    owns: [patches/android/no-glean.patch]
+    what: |
+      Gecko-level telemetry is already handled by the common
+      disable-data-reporting patch, but Fenix has its own Glean integration in the
+      Kotlin layer with its own upload path. Remove or neuter it. Prefer removing
+      the dependency outright over setting an "enabled=false" flag — a flag is one
+      upstream default flip away from shipping data. Verify with a network capture,
+      not by reading code.
+    acceptance:
+      - "no outbound connection to incoming.telemetry.mozilla.org in a 10-minute capture covering first run and settings"
+      - "the Glean dependency is absent from the APK, or its upload path is provably unreachable"
+      - "build has no dead references to removed classes"
+    verify: "./scripts/android-smoke.sh --network-capture | grep -c telemetry.mozilla.org"
+    effort_h: "8-16"
+    skills: [kotlin, gradle, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: A disabled-by-flag Glean is one upstream default change away from shipping data from a privacy browser.
+
+  - id: LW-M4-02
+    title: Remove the Adjust install-attribution SDK
+    milestone: M4
+    depends_on: [LW-M2-04]
+    owns: [patches/android/no-adjust.patch]
+    what: |
+      Fenix ships Adjust for install attribution. Remove the dependency and every
+      call site, including the install-referrer receiver. This is a proprietary
+      third-party SDK in a privacy browser and the removal must be complete, not
+      configuration-gated.
+    acceptance:
+      - "no Adjust classes in the APK (verified by dexdump, not by grep on sources)"
+      - "no INSTALL_REFERRER receiver in the merged manifest"
+      - "build green with no stubs left behind"
+    verify: "./scripts/android-smoke.sh --check-no-adjust"
+    effort_h: "4-8"
+    skills: [kotlin, gradle]
+    agent_safe: yes
+    isolation: worktree
+    risk: Grepping sources misses transitively-included classes; check the built APK.
+
+  - id: LW-M4-03
+    title: Disable Nimbus experiments and the experimenter endpoint
+    milestone: M4
+    depends_on: [LW-M2-05]
+    owns: [patches/android/no-nimbus.patch]
+    tree_paths: [mobile/android/fenix/app/nimbus.fml.yaml]
+    what: |
+      Nimbus is the remote-config channel that decides feature flags at runtime,
+      including the fission.webContentIsolationStrategy default that LW-M5-01
+      fixes. Disable the remote fetch entirely and make the FML defaults the only
+      source. Do not merely point it at a dead URL — a browser that periodically
+      calls an experiment server is a fingerprinting surface even when the response
+      is empty.
+    acceptance:
+      - "no request to any experimenter/nimbus endpoint in a 10-minute capture"
+      - "FML-generated defaults still compile and are the effective values"
+      - "no remote-settings collection for experiments is synced"
+    verify: "./scripts/android-smoke.sh --network-capture | grep -c experimenter"
+    effort_h: "6-12"
+    skills: [kotlin, rust, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Leaving the fetch alive but empty preserves a periodic beacon and an upstream-controlled config channel.
+
+  - id: LW-M4-13
+    title: Finish the Nimbus removal — test casualty and the second client
+    milestone: M4
+    depends_on: [LW-M4-03, LW-M2-04]
+    owns: [patches/android/no-nimbus.patch, patches/android/no-nimbus-toolkit.patch]
+    what: |
+      Corrective task from the skeptical verification of LW-M4-03, which proved the
+      effective fission isolationStrategy is 2 on all four channels by building the
+      tree's own nimbus-fml generator from vendored sources. Two real gaps remain.
+
+      (1) TEST CASUALTY, unreported by the implementing task.
+      mobile/android/fenix/app/src/test/java/org/mozilla/fenix/nimbus/NimbusSystemTest.kt
+      imports `org.mozilla.fenix.experiments.maybeFetchExperiments` and has five
+      tests asserting exactly the fetch behaviour the patch removes. They will not
+      compile. Either update them to assert the new behaviour (better — a test that
+      pins "we do not fetch experiments" is worth having) or remove them with a
+      stated reason. Do not leave a build that cannot run its own unit tests.
+
+      (2) THERE IS A SECOND EXPERIMENT CLIENT and the patch does not touch it.
+      docs/android/POLICIES.md section 6 already flags it: `toolkit/components/nimbus`
+      is added unconditionally at toolkit/components/moz.build:147, so the Gecko/JS
+      Nimbus (ExperimentAPI.sys.mjs and friends) is built on Android too. The patch
+      addressed only the Kotlin/FML client. Determine whether the JS side can fetch
+      or sync anything on Android — note LW-M1-01 deliberately kept
+      `app.shield.optoutstudies.enabled` in common.cfg BECAUSE
+      toolkit/components/nimbus reads it — and close it if so, in
+      patches/android/no-nimbus-toolkit.patch.
+
+      Prove the no-network claim by capture, not by reading: acceptance line 1 of
+      LW-M4-03 ("no request to any experimenter/nimbus endpoint in a 10-minute
+      capture") is still unmet by measurement. An APK now exists (LW-M2-04), so
+      this is finally testable.
+    acceptance:
+      - "the Fenix unit test suite compiles and NimbusSystemTest either passes or is gone with a reason"
+      - "a 10-minute capture from first run shows no experimenter/nimbus request — observed, not inferred"
+      - "a stated, evidenced answer on whether toolkit/components/nimbus can reach the network on Android"
+      - "the effective fission isolationStrategy is unchanged from 2 by this task, or the change is justified"
+    verify: "./scripts/check-patchfail.sh --targets=android --use-desktop-tarball"
+    effort_h: "4-8"
+    skills: [kotlin, js, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: A half-removed Nimbus leaves a second live experiment channel while the docs claim experiments are off.
+
+  - id: LW-M4-04
+    title: Remove the Socorro crash reporter and its upload path
+    milestone: M4
+    depends_on: [LW-M2-04]
+    owns: [patches/android/no-crashreporter.patch]
+    what: |
+      Remove the Mozilla crash-reporting integration in the Kotlin layer and
+      confirm the Gecko-side reporter is off in the Android build. Decide and
+      document whether LibreWolf offers any crash reporting at all — the honest
+      default is none, with a documented manual logcat route for bug reports.
+
+      ORDERING WORK THIS TASK MUST FINISH, and it is currently the only thing
+      keeping `scripts/check-patch-order.py` red. no-crashreporter.patch shares
+      files with three patches that are already an ORDERED chain
+      (no-adjust -> no-glean -> no-gms), so its position in that chain is a real
+      question, not a formality. Read your own hunks against theirs and either add
+      CONSTRAINTS rows fixing your position, or REVIEWED_ORDER_FREE rows with the
+      reason the regions cannot collide. The checker prints the row to paste.
+      Do not resolve it by deleting a row.
+
+      Two of your other pairs are already classified as order-free: against
+      about-config (:120-127 vs your :7-25 and :71-84) and isolated-process
+      (:131-139 vs the same) — three disjoint regions of GeckoProvider.kt. Those
+      were done for you so the rest of the batch had a clean baseline; the
+      build.gradle ones were not, because they are not obviously disjoint.
+    acceptance:
+      - "no crash upload to crash-reports.mozilla.com under an induced crash"
+      - "the decision on LibreWolf-side crash reporting is written down"
+      - "a crash still produces something a user can attach to a bug report"
+    verify: "manual: induce a content crash, capture network, confirm no upload"
+    effort_h: "4-8"
+    skills: [kotlin, c++, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Removing all diagnostics makes user bug reports unactionable; removing only the upload is the balance.
+
+  - id: LW-M4-05
+    title: Strip Play Integrity, Firebase and push messaging
+    milestone: M4
+    depends_on: [LW-M2-04]
+    owns: [patches/android/no-gms.patch]
+    what: |
+      Fenix links Google Play services for Play Integrity (used by the addon
+      collection and account attestation), Firebase Cloud Messaging (used by
+      Firefox Sync push) and location services. Remove them so the APK has zero GMS
+      dependencies — this is also a hard requirement for F-Droid inclusion
+      (LW-M6-03). Sync push degrades to polling or is disabled; state which.
+    acceptance:
+      - "no com.google.android.gms references in the built APK"
+      - "app functions on a device with no Play services installed"
+      - "the Sync push degradation is documented and the UI does not promise push"
+    verify: "./scripts/android-smoke.sh --check-no-gms"
+    effort_h: "8-16"
+    skills: [kotlin, gradle, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: A leftover GMS dependency disqualifies the build from F-Droid and breaks on de-Googled devices.
+
+  - id: LW-M4-06
+    title: Ship the LibreWolf search configuration on Android
+    milestone: M4
+    depends_on: [LW-M2-05, LW-M3-03]
+    owns: [patches/android/search-config.patch, assets/search-config-v2.android.json]
+    reads: [assets/search-config-v2.json, assets/search-config-icons.json]
+    what: |
+      librewolf-patches.py:107-112 replaces desktop's search-config-v2.json and
+      icons and adds Mojeek. Android reads its search config from
+      third_party/application-services/components/remote_settings/dumps/ instead,
+      which LW-M2-05 made buildable from source. Produce the Android equivalent:
+      same engine set, same default, Mojeek present, no Mozilla search partner
+      codes.
+    acceptance:
+      - "the engine list on Android matches desktop's, including Mojeek"
+      - "the default engine matches desktop's"
+      - "no partner/attribution code in any search URL, verified from a real query"
+    verify: "./scripts/android-smoke.sh --check-search"
+    effort_h: "8-14"
+    skills: [json, rust, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Android silently falling back to Mozilla's dump ships partner codes from a privacy browser.
+
+  - id: LW-M4-07
+    title: Apply <PROJECT> branding and choose the applicationId
+    milestone: M4
+    depends_on: [LW-M2-04]
+    owns: [patches/android/branding.patch, themes/android/]
+    reads: [themes/browser, patches/pref-pane/category-librewolf.svg]
+    what: |
+      App name, launcher icons (adaptive, all densities), splash, the in-app about
+      screen, and the applicationId. The brand colour is #00acff, from
+      patches/pref-pane/category-librewolf.svg. The applicationId is a
+      one-way decision — it is the identity users' installs are tied to and cannot
+      be changed later without breaking every upgrade path. Recommend
+      <PROJECT_ID> or similar and get maintainer sign-off IN THIS TASK.
+    acceptance:
+      - "applicationId decided, signed off, and recorded in docs/android/TRACK.md"
+      - "no Firefox or Mozilla trademark in the app name, icon, or store listing"
+      - "icons render correctly on API 26+ adaptive and legacy launchers"
+    verify: "manual: install and inspect the launcher icon, app name, and about screen"
+    effort_h: "8-16"
+    skills: [design, kotlin, gradle]
+    agent_safe: no
+    isolation: worktree
+    risk: The applicationId cannot be changed after the first public release without abandoning every existing install.
+
+  - id: LW-M4-08
+    title: Apply the remote-settings blocker to the Android build
+    milestone: M4
+    depends_on: [LW-M3-03]
+    owns: [patches/android/rs-blocker-android.patch]
+    reads: [patches/rs-blocker.patch]
+    what: |
+      Desktop's rs-blocker.patch plus librewolf.services.settings.allowedCollections
+      and allowedCollectionsFromDump restrict which remote-settings collections
+      sync. Confirm whether rs-blocker.patch is in common.txt and whether its code
+      path is live on Android — Android has additional collections (the
+      application-services ones) that desktop does not. Extend the allowlist to
+      cover exactly the collections Android needs and no more.
+
+      MEASURED BY THE BATCH-7 COMBINED CAPTURE, and it makes this task bigger than
+      written. A first-run capture of an APK with all 13 android patches applied
+      still shows **3 Remote Settings hosts, 14 events, with real TLS**:
+      firefox.settings.services.mozilla.com, firefox-settings-attachments.cdn.mozilla.net
+      and content-signature-2.cdn.mozilla.net. They are the single largest remaining
+      component of the "zero outbound requests on first run" claim.
+
+      THE REASON THE EXISTING PATCH DOES NOT COVER IT: rs-blocker.patch touches only
+      services/settings/*.mjs (RemoteSettings.worker.mjs, RemoteSettingsClient.sys.mjs,
+      RemoteSettingsWorker.sys.mjs, SharedUtils.sys.mjs, Utils.sys.mjs) plus
+      SearchEngineSelector.sys.mjs — the JS stack. **Fenix uses the RUST
+      RemoteSettingsService**, which that patch never reaches. So
+      librewolf.services.settings.allowedCollections (common.cfg:698) is inert on
+      Android for the collections Fenix actually syncs, and the desktop mechanism
+      does not transfer. Plan for a Rust-side change, not an allowlist tweak.
+    acceptance:
+      - "a network capture shows only allowlisted collections syncing"
+      - "the two librewolf.services.settings.* prefs have Android-correct values"
+      - "blocking a needed collection is caught by the smoke test, not by users"
+    verify: "./scripts/android-smoke.sh --network-capture | grep firefox.settings.services.mozilla.com"
+    effort_h: "4-8"
+    skills: [js, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Over-blocking breaks search config and addon blocklists; under-blocking leaves the telemetry-adjacent channels open.
+
+  - id: LW-M4-09
+    title: Enable about:config on release builds
+    milestone: M4
+    depends_on: [LW-M2-04]
+    owns: [patches/android/about-config.patch]
+    what: |
+      VERIFIED: GeckoProvider.kt:123 reads
+      `.aboutConfigEnabled(Config.channel.isBeta || Config.channel.isNightlyOrDebug)`,
+      so about:config is off on release. LibreWolf users expect it on. Remove the
+      channel gate. Keep the existing warning interstitial — the goal is access,
+      not the removal of the safety copy.
+
+      NOT DONE: the declared verify stays RED, reproduced independently —
+      `./scripts/android-smoke.sh --check-aboutconfig` exits 1 against a
+      release-configured APK. Either the patch does not achieve what it claims on a
+      release build, or the check is wrong about what it is looking for. Settle
+      which by opening about:config on a running release build by hand first, then
+      make the automated check agree with that observation — in that order, so the
+      check is not fitted to a broken build.
+    acceptance:
+      - "about:config reachable on a release-configured build"
+      - "the warning interstitial still appears"
+      - "editing a pref there persists across restart"
+    verify: "./scripts/android-smoke.sh --check-aboutconfig"
+    effort_h: "2-4"
+    skills: [kotlin]
+    agent_safe: yes
+    isolation: worktree
+    risk: Low — but it interacts with LW-M3-04 locks, which make some prefs visibly uneditable.
+
+  - id: LW-M4-10
+    title: Strip onboarding, promos and first-run network calls
+    milestone: M4
+    depends_on: [LW-M2-04]
+    owns: [patches/android/no-onboarding.patch]
+    what: |
+      Fenix first-run includes onboarding cards, a default-browser prompt, a Mozilla
+      account pitch, and pocket/sponsored content on the home screen. Remove them.
+      The bar is a first run that makes zero network requests until the user types
+      a URL — verify with a capture, not by clicking through.
+    acceptance:
+      - "zero outbound requests between install and the user's first navigation"
+      - "no sponsored tiles or Pocket content on the home screen"
+      - "no Mozilla account promotion in the first-run flow"
+    verify: "./scripts/android-smoke.sh --first-run-capture"
+    effort_h: "6-12"
+    skills: [kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: A single leftover call on first run is the most quotable failure a privacy browser can have.
+
+  - id: LW-M4-14
+    title: Fix the 31 Fenix unit tests that no-onboarding.patch breaks
+    milestone: M4
+    depends_on: [LW-M4-10]
+    owns: [patches/android/no-onboarding.patch]
+    what: |
+      BLOCKER found by the skeptical verification of LW-M4-10, and measured rather
+      than inferred: `./mach gradle fenix:testDebugUnitTest` over the six affected
+      classes gives 188 tests completed, **31 failed**. Attribution is exact — the
+      verifier reverse-applied ONLY no-onboarding.patch, leaving the five sibling
+      M4 patches in place, and the same command gave BUILD SUCCESSFUL with 0
+      failures; then re-applied it and confirmed all 8 touched files round-trip to
+      identical md5s.
+
+      The implementing report does not mention unit tests at all. This is the
+      second time this exact casualty class has shipped: LW-M4-03 broke five tests
+      in NimbusSystemTest and did not notice, which is why LW-M4-13 exists. The
+      lesson clearly has not stuck, so the fix here is not just the 31 tests —
+      add the unit-test run to the definition of done for any Kotlin-layer patch,
+      and say in docs/android/AGENTS.md that "the build compiles" excludes tests
+      unless you ran them.
+
+      Fix the tests to assert the NEW behaviour where that is meaningful (a test
+      pinning "no onboarding cards are shown" is worth having), and delete with a
+      stated reason only where the behaviour is genuinely gone.
+    acceptance:
+      - "`./mach gradle fenix:testDebugUnitTest` passes for the six affected classes with the full M4 patch set applied"
+      - "the attribution is re-checked by reverse-applying this patch alone, as the verifier did"
+      - "AGENTS.md's definition of done names the unit-test run explicitly"
+    verify: "manual: ./mach gradle fenix:testDebugUnitTest in a tree with the android patch set applied"
+    effort_h: "3-6"
+    skills: [kotlin, gradle]
+    agent_safe: yes
+    isolation: worktree
+    risk: A patch set whose own unit tests fail cannot be rebased with confidence — the tests are the only thing that would catch an upstream behaviour change.
+
+  - id: LW-M4-15
+    title: Build and prove the toolkit Nimbus patch, or drop it
+    milestone: M4
+    depends_on: [LW-M4-13]
+    owns: [patches/android/no-nimbus-toolkit.patch]
+    what: |
+      FOUND BY THE SKEPTICAL VERIFICATION OF LW-M4-13, from the APK itself: the JS
+      patch was never built or run. The verifier unzipped `assets/omni.ja` out of
+      the measurement APK and found `chrome/toolkit/res/nimbus/ExperimentAPI.sys.mjs`
+      still in its UNPATCHED form, and the agent's own source tree carries zero
+      LibreWolf markers in that file. So every probe that was said to exercise the
+      second experiment client actually exercised stock code.
+
+      The patch is supported only by static evidence (it applies clean, `node --check`
+      passes). That is not nothing, but it is not what the task claimed.
+
+      Either build an APK that genuinely contains it and re-run the probes, or drop
+      the patch and record that the Gecko/JS Nimbus client is unaddressed — which is
+      a legitimate outcome if it turns out it cannot reach the network on Android,
+      but it must be demonstrated, not assumed. Note LW-M1-01 deliberately kept
+      `app.shield.optoutstudies.enabled` in common.cfg BECAUSE toolkit/components/nimbus
+      reads it, so "it is inert on Android" is not the default assumption.
+
+      Also persist the evidence: the verifier found only the STOCK side of the
+      decisive per-collection `adb run-as` differential survived on disk; the patched
+      side rests on the agent's word alone.
+    acceptance:
+      - "omni.ja in the built APK contains the patched ExperimentAPI.sys.mjs — verified by unzipping it"
+      - "the no-network probes are re-run against THAT build, not a stock one"
+      - "both sides of the per-collection differential are persisted as artefacts"
+    verify: "manual: unzip assets/omni.ja from the APK and grep the patched marker in ExperimentAPI.sys.mjs"
+    effort_h: "3-6"
+    skills: [js, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: The second experiment client is currently documented as closed and is not.
+
+  - id: LW-M4-16
+    title: Remove the two residual GMS strings so --check-no-gms passes
+    milestone: M4
+    depends_on: [LW-M4-05]
+    owns: [patches/android/no-gms.patch]
+    what: |
+      LW-M4-05's own verify does not pass, and the implementing agent honestly did
+      not claim it did: `./scripts/android-smoke.sh --check-no-gms --apk <apk>` exits
+      1 with "2 distinct GMS strings ... and 0 apk entries". Acceptance line 1 ("no
+      com.google.android.gms references in the built APK") is literally unmet.
+
+      Note the gate was NOT softened to accommodate this — scripts/android-smoke.sh
+      predates the task's work window by hours and still requires total==0. That is
+      the right outcome: the harness held.
+
+      Identify the two survivors, determine whether they are live code paths or
+      inert strings (a class name in a manifest attribute, a ProGuard rule, a
+      resource), and either remove them or — if they are provably unreachable —
+      make the check's contract explicit about what it counts and why those two are
+      acceptable. Do NOT simply relax the threshold to 2; a gate that moves to meet
+      the code is not a gate.
+
+      This matters beyond tidiness: zero GMS is a hard requirement for F-Droid
+      inclusion (LW-M6-03).
+
+      STILL OPEN, and the proposed fix must NOT be applied as offered. The
+      skeptical verification produced a CONCRETE FALSE PASS from it:
+      /home/mgysin/lw-m4-16/android-smoke-no-gms.diff introduces `_DEX_INSN_WIDTH`,
+      a linear-sweep disassembler whose opcode width table is wrong, so the reader
+      scan desynchronises and can report a clean APK that is not. It also gates the
+      scan on dex files whose STRING TABLE contains a GMS literal — 1 of 36 dexes on
+      the combined APK.
+
+      That is precisely the failure this task's brief warned against: a gate that
+      moves to meet the code is not a gate. The honest options remain (a) remove the
+      two survivors, or (b) keep them and have the check name them individually with
+      the reason each is unreachable. A hand-rolled dex disassembler is neither, and
+      it converts a currently-honest red into a possibly-dishonest green.
+
+      SECOND ATTEMPT ALSO FELL SHORT, in a more interesting way. Route (a) was
+      correctly established as unavailable — the two survivors are the static-field
+      VALUES of GMS_ACTION_PICK_IMAGES / GMS_EXTRA_PICK_IMAGES_MAX on
+      androidx.activity's ActivityResultContracts$PickVisualMedia, and a complete
+      dexdump of all 36 dexes (63,646 class records, verified against the per-dex
+      header counts) shows zero const-string materialising either literal, zero
+      sget/sput on either field, and no Lcom/google/android/gms/ descriptor
+      anywhere. They are genuinely inert in the shipped version.
+
+      But the proposed ALLOWLIST was broken with a real artefact. The verifier built
+      an APK from androidx.activity 1.8.2 — the version where getGmsPicker is LIVE
+      code that hands off to the Play Services photo picker — and that live path
+      references NO gms descriptor at all; the two allowlisted strings are its only
+      trace. So the unmodified gate correctly FAILS that APK while the proposed
+      allowlist PASSES it. A dependency downgrade, or upstream reinstating the
+      fallback, silently turns GMS back on with the gate green. A positive control
+      (an unrelated GMS literal in a second dex) does fail correctly, so the
+      allowlist is not vacuous — its blind spot is exactly one case, and it is the
+      historically real one.
+
+      HARDENING THE ALLOWLIST NEEDS: also assert the declaring class exposes no
+      getGmsPicker/isGmsPickerAvailable member, or pin the androidx.activity
+      version so a downgrade is itself a build failure. Either makes the exemption
+      safe; naming the strings alone does not.
+
+      AND NOTE THE ARTEFACT PROBLEM, now LW-M6-07: the "release build is provably
+      zero-GMS" conclusion came from an APK that does not boot. R8 stripped the JNA
+      field names Nimbus needs, so the gate was green because the classes were
+      deleted. Re-derive any release-build GMS claim on a build that actually runs.
+    acceptance:
+      - "./scripts/android-smoke.sh --check-no-gms exits 0 against a freshly built APK"
+      - "if any string is kept, the check documents precisely why it is unreachable"
+      - "the threshold is not relaxed to make a failing build pass"
+    verify: "./scripts/android-smoke.sh --check-no-gms --apk <path-to-built-apk>"
+    effort_h: "2-4"
+    skills: [kotlin, gradle, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: F-Droid inclusion requires zero GMS; shipping with two survivors means discovering this at submission.
+
+  - id: LW-M4-11
+    title: Disable search suggestions and the top-sites contile feed
+    milestone: M4
+    depends_on: [LW-M4-06]
+    owns: [patches/android/no-suggest.patch]
+    what: |
+      Android defaults differ from desktop: search suggestions and the Contile
+      sponsored top-sites feed are on. Match desktop's posture — suggestions off by
+      default, contile removed entirely rather than switched off, since a switched
+      off remote feed is still a code path an upstream default can revive.
+    acceptance:
+      - "typing in the URL bar produces no network request before Enter"
+      - "no contile/sponsored tile request in any capture"
+      - "the suggestion setting is still user-toggleable"
+    verify: "./scripts/android-smoke.sh --check-no-suggest"
+    effort_h: "3-6"
+    skills: [kotlin]
+    agent_safe: yes
+    isolation: worktree
+    risk: Search suggestions leak every keystroke; this is the highest-traffic leak in a stock Fenix.
+
+  - id: LW-M4-12
+    title: Localise the Fenix UI and strip Firefox branding from its strings
+    milestone: M4
+    depends_on: [LW-M2-04]
+    owns: [patches/android/l10n-strings.patch, docs/android/L10N-ANDROID.md]
+    reads: [l10n/, assets/l10n-pin.txt]
+    what: |
+      FOUND BY LW-M0-03 — a parity gap nobody owned. `--with-l10n-base` works on
+      Android but covers almost nothing: mobile/android/locales/en-US holds only
+      two .ftl files. The entire Fenix UI is localised through
+      mobile/android/fenix/l10n.toml with `basepath = "."`, synced from
+      mozilla-l10n/android-l10n into in-tree values-*/strings.xml. So the repo's
+      l10n/ overrides and the pin from LW-M0-04 have ZERO effect on Fenix strings,
+      and the shipped UI will say "Firefox" throughout. Desktop solves this with
+      the appstrings.properties sed at librewolf-patches.py and the l10n/ overlay;
+      Android needs its own mechanism. Decide it, build it, and pin the
+      android-l10n source the same way LW-M0-04 pinned firefox-l10n.
+    acceptance:
+      - "no user-visible 'Firefox' or 'Mozilla' string in the Fenix UI on a built APK, verified from the running app not from grep"
+      - "the android-l10n source is pinned and hash-verified, like assets/l10n-pin.txt"
+      - "at least three non-en-US locales render correctly"
+      - "L10N-ANDROID.md documents the mechanism and how to re-sync on rebase"
+    verify: "./scripts/android-smoke.sh --check-strings"
+    effort_h: "8-16"
+    skills: [android, python, docs]
+    agent_safe: yes
+    isolation: worktree
+    risk: Shipping Mozilla's strings verbatim puts their trademark in our UI and is the most visible possible sign the port is a reskin.
+
+  # ---------------------------------------------------------------- M5
+  # Security parity. The point of the whole project.
+
+  - id: LW-M5-01
+    title: Lock fission.webContentIsolationStrategy to isolate-high-value
+    milestone: M5
+    depends_on: [LW-M3-04, LW-M4-03]
+    owns: [patches/android/fission-isolation.patch, settings/android.cfg]
+    submodule: settings
+    tree_paths:
+      - mobile/android/fenix/app/nimbus.fml.yaml
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+    what: |
+      VERIFIED AGAINST THE 153.0.4 TREE. Gecko's own default is
+      fission.webContentIsolationStrategy = 1 (StaticPrefList.yaml:6660-6662).
+      Fenix overwrites it with 0 (ISOLATE_NOTHING) on release: the FML default at
+      nimbus.fml.yaml:521-529 is 0, raised to 2 only for the nightly and developer
+      channels (:530-535), and Core.kt:207-208 applies the FML value
+      UNCONDITIONALLY. The `shouldUseNimbus` flag (default false), whose
+      description promises that StaticPrefList applies when it is off, is only
+      honoured at GeckoProvider.kt:137 and only gates `.fissionEnabled()` — never
+      the isolation strategy. Fix both call sites, not just the pref: a locked
+      pref that Core.kt overwrites at runtime is landmine L2 all over again.
+      Measure RAM and startup on a low-end device before choosing 1 over 2.
+    acceptance:
+      - "the effective value is 1 or 2 at runtime (justify which), verified in about:config after settings has been opened"
+      - "Core.kt:207-208 can no longer lower it — verified by exercising the path, not by reading it"
+      - "RAM and startup cost measured on a 4GB device and recorded"
+      - "the shouldUseNimbus/isolationStrategy inconsistency is reported upstream as a bug, with the bug link recorded here"
+    verify: "./scripts/android-smoke.sh --pref-dump | grep 'fission.webContentIsolationStrategy'"
+    effort_h: "4-8"
+    skills: [kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Process-per-site on a memory-constrained device can OOM-kill tabs; measure before shipping.
+
+  - id: LW-M5-02
+    title: Enable isolatedProcess and the app zygote
+    milestone: M5
+    depends_on: [LW-M2-04]
+    owns: [patches/android/isolated-process.patch]
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+    what: |
+      VERIFIED AGAINST THE 153.0.4 TREE — and it is easier than the plan first
+      assumed. GeckoProvider.kt:134-135 ALREADY calls .isolatedProcessEnabled()
+      and .appZygoteProcessEnabled(); no new call sites are needed. They read
+      Settings.isIsolatedProcessEnabled / isAppZygoteEnabled
+      (Settings.kt:980-992), which default to the FML feature
+      `isolated-content-processes` — and both of its variables default to FALSE
+      (nimbus.fml.yaml:1040-1052). The only UI exposing them is
+      SecretSettingsFragment.kt:410,416, the hidden debug menu. So this task is
+      flipping two defaults and making them stick, not adding plumbing. Check
+      whether the app zygote has a minimum API level before defaulting it on.
+    acceptance:
+      - "content processes run under isolated uids on a stock install, verified with `adb shell ps -A -Z`"
+      - "the app zygote process is present, or its absence is explained by an API-level floor"
+      - "the values survive a Nimbus fetch — they are not merely set once at first run"
+      - "no functional regression in the smoke test, and startup cost measured"
+    verify: "adb shell ps -A -Z | grep -c isolated"
+    effort_h: "4-8"
+    skills: [kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: isolatedProcess restricts what content processes may do; some GeckoView features break subtly under it.
+
+  - id: LW-M5-03
+    title: Close the hardening-flag gap between the two mozconfigs
+    milestone: M5
+    depends_on: [LW-M2-02, LW-M0-03, LW-M2-05]
+    owns: [assets/mozconfig.android, docs/android/parity/hardening-flags.md]
+    what: |
+      LW-M0-03 recorded every hardening flag that had to be dropped for Android to
+      build. Go through that list one by one: re-attempt each flag now that the
+      build works, and for the ones that genuinely cannot apply, write the reason
+      into parity/hardening-flags.md.
+
+      GOOD NEWS FROM LW-M2-01, which built green with the mozconfig UNMODIFIED —
+      nothing was dropped, so this task starts from full parity rather than from a
+      deficit. Its two UNVERIFIED notes are now both resolved favourably:
+      -fstack-clash-protection IS applied on aarch64 (NDK clang is 21.0.0, above
+      the 18.1.0 floor), and STL hardening resolves to the stronger
+      _LIBCPP_HARDENING_MODE_EXTENSIVE rather than the _LIBCPP_ENABLE_ASSERTIONS
+      fallback. MOZ_REPLACE_MALLOC, MOZ_REPLACE_MALLOC_STATIC, MOZ_MEMORY and
+      MOZ_RUST_SIMD are all confirmed set in the built config. Your job is now to
+      look for hardening we could ADD, and to confirm RLBox stays on.
+    acceptance:
+      - "every dropped flag is either restored or has a stated technical reason"
+      - "the build is green with the final flag set"
+      - "parity/hardening-flags.md lists the residual gaps with no hedging"
+    verify: "python3 docs/android/board.py --diff-mozconfig --strict"
+    effort_h: "6-12"
+    skills: [c++, android, shell]
+    agent_safe: yes
+    isolation: worktree
+    risk: >-
+      A "doesn't build" is often "needs one more flag" — accepting the first
+      failure understates what is achievable.
+
+  - id: LW-M5-04
+    title: Validate RFP and fingerprinting protection on Android
+    milestone: M5
+    depends_on: [LW-M3-05]
+    owns: [docs/android/RFP-ANDROID.md, scripts/android-rfp-check.sh]
+    what: |
+      RFP behaves differently on Android: screen dimensions, device pixel ratio,
+      touch capability, sensor APIs and the UA string all differ from desktop, and
+      the desktop-tuned values in librewolf.cfg may not produce a coherent Android
+      fingerprint. Run the standard fingerprinting probes, compare against desktop
+      LibreWolf and against Tor Browser for Android, and document where our Android
+      fingerprint stands. Note letterboxing is NOT a gap — desktop ships it false.
+    acceptance:
+      - "a written comparison against desktop LibreWolf and Tor Browser Android"
+      - "any Android-specific RFP pref adjustment landed in android.cfg with a reason"
+      - "a repeatable script, not a one-off manual session"
+    verify: "./scripts/android-rfp-check.sh"
+    effort_h: "8-16"
+    skills: [js, android, docs]
+    agent_safe: yes
+    isolation: none
+    risk: Copying desktop RFP values unexamined can make Android users MORE identifiable, not less.
+
+  - id: LW-M5-05
+    title: Verify HTTPS-only, DoH and OCSP behaviour matches desktop
+    milestone: M5
+    depends_on: [LW-M3-05]
+    owns: [docs/android/parity/network-posture.md, scripts/android-network-check.sh]
+    what: |
+      HttpsOnlyMode is a policy on desktop and a pref on Android (see LW-M3-06).
+      Verify the whole network-posture set actually takes effect on Android:
+      HTTPS-only enforcement including the interstitial, DoH provider and fallback
+      behaviour, OCSP hard-fail, and TLS version floor. Each one gets a live test
+      against a server that exercises it, not a pref read.
+    acceptance:
+      - "each of the four behaviours has a live test with a recorded result"
+      - "any divergence from desktop is either fixed or listed in parity/network-posture.md"
+      - "the tests run from one script"
+    verify: "./scripts/android-network-check.sh"
+    effort_h: "6-10"
+    skills: [js, android, shell]
+    agent_safe: yes
+    isolation: none
+    risk: A pref that is set but not honoured reads as done in a pref dump and fails in the field.
+
+  - id: LW-M5-06
+    title: Write the security parity matrix and the public wording
+    milestone: M5
+    depends_on: [LW-M5-01, LW-M5-02, LW-M5-03, LW-M5-04, LW-M5-05, LW-M3-06]
+    owns: [docs/android/PARITY.md]
+    reads:
+      - docs/android/parity/hardening-flags.md
+      - docs/android/parity/network-posture.md
+      - docs/android/RFP-ANDROID.md
+      - docs/android/POLICIES.md
+      - docs/android/PATCH-SCOPE.md
+    what: |
+      One table: every desktop security and privacy property, its Android status
+      (equivalent / partial / absent), and the mechanism. The irreducible gaps as
+      currently understood are the Gecko content-process sandbox (MOZ_SANDBOX is
+      off, toolkit.mozbuild:37 never traverses security/sandbox, every
+      security.sandbox.* pref is inert) and the loss of the desktop signing key
+      identity. The agreed public wording is: "LibreWolf for Android ships the same
+      privacy configuration and the same Gecko-level security patches as LibreWolf
+      desktop, on a platform whose process containment is weaker — and we publish
+      exactly where." Do not soften it.
+    acceptance:
+      - "every row has a mechanism or an explicit gap, no blanks and no 'partial' without detail"
+      - "the sandbox gap is stated plainly, not buried"
+      - "maintainer sign-off on the public wording"
+    verify: "manual: maintainer review, recorded in the PR"
+    effort_h: "4-8"
+    skills: [docs]
+    agent_safe: yes
+    isolation: none
+    risk: Overclaiming parity is the reputational failure mode this project must not have.
+
+  - id: LW-M5-07
+    title: Spike — is any Gecko content sandbox reachable on Android?
+    milestone: M5
+    depends_on: [LW-M2-02]
+    owns: [docs/android/SANDBOX-SPIKE.md]
+    what: |
+      Time-boxed research, not an implementation. toolkit.mozbuild:37 never
+      traverses security/sandbox on Android and MOZ_SANDBOX is off, so all
+      security.sandbox.* prefs are inert. Establish whether that is a policy
+      decision or a technical impossibility: what does Chrome on Android do, what
+      does seccomp-bpf allow under Android's own sandbox, has Mozilla an open bug,
+      and what would it cost. Deliver a recommendation, including "not worth it".
+    acceptance:
+      - "a written answer with references to the upstream code and bugs"
+      - "an explicit recommendation and a cost estimate if pursued"
+      - "time-boxed to the stated effort — do not let this become an implementation"
+    verify: "manual: maintainer reads and accepts the recommendation"
+    effort_h: "8-16"
+    skills: [c++, android, docs]
+    agent_safe: yes
+    isolation: none
+    risk: This is the most interesting problem on the board and the easiest place to lose a month.
+
+  # ---------------------------------------------------------------- M6
+  # Release engineering. Key custody tasks are deliberately not agent-safe.
+
+  - id: LW-M6-01
+    title: Generate the Android signing key and write the custody policy
+    milestone: M6
+    depends_on: [LW-M4-07]
+    owns: [docs/android/SIGNING.md]
+    what: |
+      Generate the release keystore offline, on hardware, with at least two
+      maintainers present. The key must NEVER exist in CI, in a container image, or
+      in any repository — signing happens on a maintainer machine as a separate
+      step after CI produces an unsigned APK. Document custody, backup (offline,
+      geographically separated), the rotation story, and what happens if the key is
+      lost. Android has no key-recovery mechanism outside Play App Signing, which
+      we are not using.
+    acceptance:
+      - "keystore exists offline with a documented custody chain and at least two holders"
+      - "no key material or passphrase in any repo, CI secret, or image"
+      - "SIGNING.md states the loss and rotation procedure"
+    verify: "manual: two-maintainer ceremony, recorded"
+    effort_h: "4-8"
+    skills: [ops]
+    agent_safe: no
+    isolation: none
+    risk: Losing this key strands every installed user with no upgrade path — the same failure as changing the applicationId.
+
+  - id: LW-M6-07
+    title: Make the R8-minified release build actually boot
+    milestone: M6
+    depends_on: [LW-M2-04]
+    owns: [patches/android/r8-keep-rules.patch, scripts/android-apk.sh]
+    what: |
+      RELEASE BLOCKER, found incidentally by the skeptical verification of LW-M4-16
+      and confirmed independently from the crash logcat. **The R8-minified release
+      build crashes on launch.** Twice, reproducibly:
+
+        FATAL EXCEPTION: main
+        java.lang.Error: Structure.getFieldOrder() on class
+        org.mozilla.experiments.nimbus.internal.RustBuffer$ByValue does not provide
+        enough names [0] ([]) to match declared fields [3] ([capacity, data, len])
+          at com.sun.jna.Structure.getFields(r8-map-id-7758...:144)
+
+      JNA derives a native struct's layout by REFLECTING over field names. R8's
+      minification renames them, so getFieldOrder() returns an empty list and every
+      uniffi/Nimbus call through JNA dies before the browser starts. The
+      `r8-map-id-` frames prove it is the minified build; the debug build is fine.
+
+      WHY NOBODY NOTICED, and this is the part worth internalising: every APK the
+      project has built and tested is `fenix:assembleDebug`
+      (scripts/android-apk.sh:694,844 — `assembleRelease` appears nowhere in that
+      file), and the two release APKs that do exist were built with
+      `-PdisableOptimization`, i.e. with R8 turned off. So the configuration we
+      would actually SHIP has never been booted, and the smoke harness has never
+      run against it.
+
+      Worse, it produced a confidently wrong conclusion elsewhere: LW-M4-16
+      reported the release artefact "provably zero-GMS" because --check-no-gms
+      exits 0 on it. It does — because R8 deleted the classes. The gate is green on
+      that artefact for exactly the reason it cannot ship.
+
+      FIX: add the JNA/uniffi keep rules (`-keepclassmembers class * extends
+      com.sun.jna.Structure { <fields>; }` and whatever the Nimbus/appservices
+      generated bindings need — check what Mozilla's own release config keeps),
+      then boot it. Teach scripts/android-apk.sh to build a release variant so this
+      is testable at all, and make the smoke harness run against the RELEASE APK
+      before any signing work (LW-M6-01) begins.
+    acceptance:
+      - "an R8-minified release APK launches and loads a page — observed, not inferred"
+      - "./scripts/android-smoke.sh passes against the RELEASE apk, not only the debug one"
+      - "scripts/android-apk.sh can build a release variant without -PdisableOptimization"
+      - "any --check-no-gms result is re-derived on a booting release build, since the previous one was an artefact of R8 deletion"
+    verify: "./scripts/android-smoke.sh --emulator --apk <release-apk>"
+    effort_h: "6-12"
+    skills: [kotlin, gradle, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: The shipping configuration has never been booted; every measurement so far describes a build we would not release.
+
+  - id: LW-M6-02
+    title: Make the Android build reproducible and verify it
+    milestone: M6
+    depends_on: [LW-M2-08]
+    owns: [scripts/android-verify-repro.sh, docs/android/REPRODUCIBLE.md]
+    what: |
+      Two independent builds of the same source must produce identical unsigned
+      APKs. Eliminate the usual sources of nondeterminism: build timestamps, paths,
+      Gradle ordering, zip entry order and NDK/toolchain drift. This is a hard
+      requirement for F-Droid's reproducible-builds channel and it is the only
+      thing that lets a third party check we ship what we publish.
+    acceptance:
+      - "two builds on different machines produce byte-identical unsigned APKs"
+      - "a documented command a third party can run to verify a published release"
+      - "any residual nondeterminism is listed with the reason"
+    verify: "./scripts/android-verify-repro.sh"
+    effort_h: "12-24"
+    skills: [ops, gradle, shell]
+    agent_safe: yes
+    isolation: none
+    risk: Reproducibility is far cheaper to build in now than to retrofit after the first release.
+
+  - id: LW-M6-03
+    title: Set up the <PROJECT> F-Droid repository
+    milestone: M6
+    depends_on: [LW-M6-01, LW-M6-02, LW-M4-05]
+    owns: [docs/android/DISTRIBUTION.md]
+    what: |
+      Run our own F-Droid repo rather than going through f-droid.org's main repo —
+      it avoids their build-server signing model and lets us keep our own key.
+      Requires zero GMS (LW-M4-05) and reproducibility (LW-M6-02). Publish the repo
+      URL and its fingerprint and document how a user verifies both.
+    acceptance:
+      - "repo index is signed and installable from a clean F-Droid client"
+      - "the repo fingerprint is published in at least two independent places"
+      - "an update from an older version installs cleanly"
+    verify: "manual: add the repo to F-Droid on a clean device and install"
+    effort_h: "8-16"
+    skills: [ops, android]
+    agent_safe: no
+    isolation: none
+    risk: A repo signed with a key that later changes forces every user to reinstall manually.
+
+  - id: LW-M6-04
+    title: Publish to Accrescent and provide direct APK plus Obtainium metadata
+    milestone: M6
+    depends_on: [LW-M6-01, LW-M6-03]
+    owns: [docs/android/DISTRIBUTION.md]
+    what: |
+      Accrescent requires signature scheme v3 and its own review process; direct
+      APK downloads need a stable URL and a published hash; Obtainium needs a
+      predictable release-asset naming scheme on the Codeberg releases page. Set up
+      all three so users are not funnelled into a single channel. Note the Play
+      Store is out of scope — its signing model conflicts with LW-M6-01.
+    acceptance:
+      - "APKs are signed with v2 and v3, verified by apksigner"
+      - "Obtainium resolves the Codeberg release and offers the update"
+      - "each channel's fingerprint is documented and identical"
+    verify: "apksigner verify --verbose --print-certs librewolf-*.apk"
+    effort_h: "8-16"
+    skills: [ops, android]
+    agent_safe: no
+    isolation: none
+    risk: Different signing per channel means a user cannot switch channels without uninstalling.
+
+  - id: LW-M6-05
+    title: Build the Android release pipeline
+    milestone: M6
+    depends_on: [LW-M6-02, LW-M2-08]
+    owns: [.forgejo/workflows/android-release.yaml]
+    reads: [.forgejo/workflows/source-release.yaml]
+    what: |
+      CI builds and publishes UNSIGNED artifacts plus their hashes; a maintainer
+      signs offline and uploads the signed APK. Mirror source-release.yaml's shape,
+      including the "only publish signed releases" discipline from commit 71177a3.
+      The pipeline must make the unsigned/signed boundary structurally obvious so
+      nobody can accidentally publish an unsigned build.
+    acceptance:
+      - "no signing key referenced anywhere in the workflow"
+      - "unsigned artifacts carry published sha256 sums"
+      - "publishing a release without a signature is blocked, not merely discouraged"
+    verify: "! grep -riE 'keystore|storepass|keypass' .forgejo/workflows/android-release.yaml"
+    effort_h: "6-12"
+    skills: [ops, shell]
+    agent_safe: yes
+    isolation: none
+    risk: One convenience commit putting the key in CI undoes the entire custody model in LW-M6-01.
+
+  - id: LW-M6-06
+    title: Implement in-app update checking without an app store
+    milestone: M6
+    depends_on: [LW-M6-04]
+    owns: [patches/android/update-check.patch, docs/android/DISTRIBUTION.md]
+    what: |
+      Users installing the direct APK have no store to update them. Provide a
+      version check against a signed, static endpoint on <PROJECT_DOMAIN> that tells
+      the user a new version exists and links to the download — do not build a
+      silent self-updater, and do not add a phone-home that runs without consent.
+      Make the check opt-in or clearly disclosed, and never send anything beyond
+      the current version.
+    acceptance:
+      - "the check sends no identifier beyond the version string"
+      - "it is disclosed in the UI and can be turned off"
+      - "F-Droid and Accrescent installs do not double-notify"
+    verify: "./scripts/android-smoke.sh --check-update-privacy"
+    effort_h: "8-16"
+    skills: [kotlin, ops]
+    agent_safe: yes
+    isolation: worktree
+    risk: An always-on update ping is a periodic beacon with an IP address attached — exactly what users came here to avoid.
+
+  # ---------------------------------------------------------------- M7
+  # Launch and sustain. Mostly docs and process; all parallel.
+
+  - id: LW-M7-01
+    title: Write the esr153 rebase runbook and retire the compat shim
+    milestone: M7
+    depends_on: [LW-M1-11, LW-M0-07, LW-M1-12, LW-M1-13]
+    owns: [docs/android/REBASE.md, assets/patches.txt]
+    what: |
+      The rebase runbook for an ESR dot release: fetch and verify the tarball,
+      run check-patchfail for both targets, fix rejects, run the pref audit and
+      smoke test, build, sign, publish. Include the "what changed upstream that
+      could silently revert one of our prefs" check — that is the failure mode a
+      rebase actually produces. Also retire the assets/patches.txt compatibility
+      shim from LW-M0-02 once all downstream builders have moved.
+    acceptance:
+      - "a new maintainer can complete a dot-release rebase from the runbook alone"
+      - "the runbook names the pref-audit and smoke-test gates explicitly"
+      - "the shim is removed and no builder references it"
+    verify: "manual: a maintainer who did not write it completes one rebase using only the runbook"
+    effort_h: "6-10"
+    skills: [docs, shell]
+    agent_safe: yes
+    isolation: none
+    risk: An undocumented rebase makes the whole project bus-factor-1, which is the exact criticism levelled at the alternatives.
+
+  - id: LW-M7-02
+    title: Publish the Android pages on <PROJECT_DOMAIN>
+    milestone: M7
+    depends_on: [LW-M5-06, LW-M6-04]
+    owns: [docs/android/WEBSITE.md]
+    what: |
+      Download page with every channel and its fingerprint, the security parity
+      statement from LW-M5-06 verbatim (not a marketing rewrite of it), an install
+      guide per channel, and the "how to verify what you downloaded" instructions.
+      The parity statement being on the download page rather than buried in docs is
+      the whole point.
+    acceptance:
+      - "the parity wording appears on the download page itself"
+      - "every channel lists its fingerprint and verification command"
+      - "no claim on the page contradicts PARITY.md"
+    verify: "manual: maintainer review against PARITY.md"
+    effort_h: "6-12"
+    skills: [docs, design]
+    agent_safe: yes
+    isolation: none
+    risk: A download page that overclaims undoes the honesty the parity matrix was written to preserve.
+
+  - id: LW-M7-03
+    title: State the project's relationship to LibreWolf and IronFox honestly
+    milestone: M7
+    depends_on: [LW-M7-02]
+    owns: [docs/android/POSITIONING.md]
+    what: |
+      RE-SCOPED. This task used to say "Update the FAQ and close out issue 2169",
+      which assumed we are the LibreWolf project. We are not — this is an
+      independent fork (see docs/android/IDENTITY.md). We cannot edit their FAQ or
+      close their issues, and should not imply otherwise.
+
+      The real task is the harder one: say clearly what this project is and is not.
+      Three relationships need stating without spin:
+
+      1. **To LibreWolf.** We ship their privacy configuration
+         (settings/librewolf.cfg and the patch set, MPL-2.0) on Android. We are not
+         them, they have not endorsed this, and users must not be able to mistake
+         one for the other. Credit the work plainly — the config IS the product,
+         and pretending otherwise would be both dishonest and ungrateful.
+      2. **To IronFox.** They occupy this space already and LibreWolf's own FAQ
+         points Android users there. Say what differs — honestly, including where
+         IronFox is ahead. A comparison that only flatters us reads as marketing
+         and ages badly.
+      3. **To Firefox.** Standard downstream disclosure: not affiliated with or
+         endorsed by Mozilla, and no Mozilla trademarks in the UI (LW-M4-12).
+
+      Also record what happened with the upstream bug reports
+      (docs/android/UPSTREAM-REPORTS.md) — if LibreWolf took them, say so and
+      thank them; if not, the defects are still worth documenting as things this
+      fork fixed.
+    acceptance:
+      - "a reader can tell in one sentence that this is not the LibreWolf project"
+      - "the IronFox comparison names at least one thing IronFox does better"
+      - "attribution to LibreWolf is prominent, not buried in a licence footer"
+      - "no claim on the page contradicts docs/android/PARITY.md"
+    verify: "manual: maintainer review against PARITY.md and IDENTITY.md"
+    effort_h: "3-5"
+    skills: [docs]
+    agent_safe: yes
+    isolation: none
+    risk: A fork that blurs its relationship to the project it forked loses the trust that made the config worth shipping.
+
+  - id: LW-M7-04
+    title: Set up Android issue triage on <PROJECT_FORGE>/issues
+    milestone: M7
+    depends_on: []
+    owns: [docs/android/TRIAGE.md]
+    what: |
+      Labels, an issue template that asks for device, Android version, APK source
+      and channel, and a triage rotation. Do this BEFORE launch — the first week of
+      reports is when the process is most needed and least likely to get written.
+      Match the tracker's existing house style: the live labels on
+      <PROJECT_FORGE>/issues are space-separated and capitalised (`Linux`,
+      `Build Flatpak`, `Status Upstream`, `Needed Info`), NOT kebab-case. Compose
+      with the existing ones rather than duplicating them — `Needed Info` already
+      means "closing in ten days without details", which is why a complete but
+      unreproduced Android report needs a different bucket or it auto-dies.
+    acceptance:
+      - "labels follow the tracker's existing naming style and the Android issue template is live"
+      - "the template asks for device, OS version, APK source and channel"
+      - "a named triage owner for the launch window"
+    verify: "manual: file a test issue and confirm the template"
+    effort_h: "2-4"
+    skills: [ops, docs]
+    agent_safe: yes
+    isolation: none
+    risk: Launching without triage buries real security reports in duplicate build questions.
+
+  - id: LW-M7-05
+    title: Extend the security disclosure process to Android
+    milestone: M7
+    depends_on: [LW-M5-06]
+    owns: [docs/android/SECURITY.md]
+    what: |
+      Android adds failure modes desktop does not have: APK signature issues,
+      distribution-channel compromise, and a device-specific attack surface. Extend
+      the existing disclosure process to cover them, and state the response SLA for
+      a Gecko security release given the ESR track — users need to know how fast a
+      critical fix reaches them on Android.
+    acceptance:
+      - "the process covers signature and channel compromise"
+      - "a stated turnaround target for critical Gecko security releases on Android"
+      - "a contact path that does not require a Codeberg account"
+    verify: "manual: maintainer review"
+    effort_h: "3-5"
+    skills: [docs, ops]
+    agent_safe: yes
+    isolation: none
+    risk: Choosing ESR means a slower critical-fix path than desktop; not saying so is the problem, not the delay.
+
+  - id: LW-M7-07
+    title: Correct REBASE.md and finish retiring the compat shim
+    milestone: M7
+    depends_on: [LW-M7-01]
+    owns:
+      - docs/android/REBASE.md
+      - scripts/librewolf-patches.py
+      - scripts/enable-patch.sh
+      - scripts/disable-patch.sh
+    what: |
+      Corrective task from the skeptical verification of LW-M7-01. Three defects,
+      all fixed:
+
+      (1) REBASE.md:578-582 taught a workaround for a trap in board.py
+      --check-policies, and explained it wrongly — it claimed `.` (0x2E) sorts
+      before `/` (0x2F), under a heading saying the claim had been confirmed by
+      running it. pathlib.Path compares part tuples, so `/` is never compared as a
+      character; executed, firefox-153.0 wins over firefox-153.0.4, the exact
+      inverse. The ROOT CAUSE was fixed instead of the doc: --check-policies now
+      errors when more than one firefox-* tree exists, honours LW_TREE, and prints
+      the tree it read. The workaround was deleted rather than corrected.
+
+      (2) Appendix A's one-block quick reference contradicted section 6d's naming
+      rule, so a maintainer following the copy-paste path walked into the trap 6d
+      existed to prevent. Every command block must be runnable standalone — 6c also
+      consumed a /tmp file only 6b produced.
+
+      (3) The shim was half-retired: assets/patches.txt was deleted but
+      librewolf-patches.py still called check_compat_shim() and warned on every
+      invocation, and enable-patch.sh/disable-patch.sh recreated the file
+      unconditionally with no existence guard.
+
+      Follow-ups outside this task's ownership, now also done: the standing
+      "regenerate the shim" instruction in assets/patches/common.txt and the dead
+      shim-drift block in scripts/check-patchfail.sh were removed separately.
+    acceptance:
+      - "no command block in REBASE.md depends on a workaround for a bug that is now fixed"
+      - "every REBASE.md command block runs standalone as written"
+      - "the patcher emits no shim warning and the helpers do not recreate assets/patches.txt"
+      - "an enable/disable round trip leaves the three lists byte-identical and creates no shim"
+    verify: "! python3 scripts/librewolf-patches.py -n 153.0esr 1 --targets=android 2>&1 | grep -qi 'shim' && test ! -e assets/patches.txt"
+    effort_h: "3-5"
+    skills: [docs, python, shell]
+    agent_safe: yes
+    isolation: none
+    risk: A runbook that teaches a workaround for a fixed bug is worse than no runbook — it survives the fix and misleads.
+
+  - id: LW-M7-06
+    title: Run a closed beta before the public release
+    milestone: M7
+    depends_on: [LW-M6-04, LW-M2-07, LW-M3-05]
+    owns: [docs/android/BETA.md]
+    what: |
+      Ship to a small group across a deliberate device spread — low-RAM devices
+      especially, since LW-M5-01's isolation strategy is the most likely source of
+      OOM reports. Define entry criteria (smoke test and pref audit green,
+      reproducible build verified), what feedback is collected, and the exit
+      criteria for going public.
+    acceptance:
+      - "entry and exit criteria written before the beta starts"
+      - "at least one 4GB-or-less device and one Android 10-or-older device covered"
+      - "a written go/no-go decision at the end"
+    verify: "manual: go/no-go recorded in BETA.md"
+    effort_h: "4-8"
+    skills: [ops, docs]
+    agent_safe: no
+    isolation: none
+    risk: The memory cost of fission plus isolatedProcess is invisible on a flagship and decisive on a budget phone.

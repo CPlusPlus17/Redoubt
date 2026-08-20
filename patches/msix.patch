@@ -4,6 +4,80 @@
 # Description:   Allows us to build a msix for the Microsoft Store
 # Last Updated:  2025-05-27
 # License:       MPL 2.0
+#
+# ---------------------------------------------------------------------------
+# SCOPE: DESKTOP-ONLY. There is NO common half. Settled by LW-M1-05 against the
+# pristine firefox-153.0.4 tree. Please do not re-open this without new
+# evidence; the reasons it keeps looking like a straddler are listed below.
+#
+# Why it looks common: it edits two files under python/mozbuild/ that exist on
+# disk in an Android tree and that mach is capable of importing. The seed
+# classification concluded from that alone that the mach_commands.py hunk must
+# be common. Import is not enough. What actually happens:
+#
+#  1. python/mozbuild/mozbuild/repackaging/msix.py is never imported by an
+#     Android build. Its only non-test importer anywhere in the tree is
+#     mach_commands.py, at two FUNCTION-LOCAL import statements - :3336 inside
+#     repackage_msix() and :3458 inside repackage_sign_msix(). The module is
+#     therefore loaded only once `mach repackage msix` / `mach repackage
+#     sign-msix` is already executing. (The third importer is its own unit
+#     test, python/mozbuild/mozbuild/repackaging/test/test_msix.py.)
+#
+#  2. All three msix.py hunks (get_embedded_version, the displayname fallback,
+#     the "distribution" special case) sit inside function bodies. Re-parsing
+#     the file with every function body replaced by `pass` - i.e. keeping only
+#     what runs at import time, decorator expressions included - yields an AST
+#     that is IDENTICAL before and after this patch. The module has no
+#     import-time behaviour change at all, even for a hypothetical importer.
+#
+#  3. The same import-time-AST comparison on mach_commands.py leaves exactly
+#     ONE difference in the whole file: the constant "Mozilla" -> None in the
+#     @CommandArgument("--vendor", ...) decorator attached to repackage_msix
+#     (@SubCommand("repackage", "msix")). mach's CommandArgument.__init__
+#     (python/mach/mach/decorators.py:268-276) only stores (args, kwargs) in a
+#     tuple, and __call__ appends that tuple to func._mach_command.arguments;
+#     nothing evaluates `default` at decoration time. The value reaches
+#     ArgumentParser.add_argument() when the `repackage msix` subparser is
+#     built, and its only reader is `vendor = vendor or second` inside
+#     repackage_msix() in msix.py - see 1.
+#
+#  4. The second mach_commands.py hunk (displayname=identity_name ->
+#     identity=identity_name) is a statement in the body of the repackage_msix
+#     command function. It runs only when that command runs.
+#
+#  5. mach loads command modules lazily, per invoked command
+#     (build/mach_initialize.py:483-495 -> mach/command_util.py:500-513, over
+#     MACH_COMMANDS). `mach build` maps to
+#     python/mozbuild/mozbuild/build_commands.py and does not load
+#     mach_commands.py at all. `mach run` and `mach package` do map to
+#     mach_commands.py, but loading is all they do. No LibreWolf target ever
+#     runs `mach repackage` (Makefile:356-371 uses bootstrap / build /
+#     package-multi-locale / run), and MSIX is Microsoft Store packaging with
+#     no Android analogue - the APK/AAB comes out of Gradle.
+#
+# So applying this patch on Android would change nothing observable, and not
+# applying it simply leaves those two files at upstream. Nor is there a
+# surviving Android *requirement* hiding in a desktop *implementation* here
+# (contrast the rows in docs/android/PATCH-SCOPE.md that do have one), so no
+# patches/android/ counterpart is needed either.
+#
+# MATCHED PAIR - do not separate the two python/ hunks if this patch is ever
+# reworked. mach_commands.py switches the call to identity=identity_name, and
+# msix.py supplies the `displayname = displayname or first` fallback that makes
+# that call correct. repackage_msix() already accepts an identity= kwarg
+# upstream (repackaging/msix.py:333-351), so the two halves apply cleanly on
+# their own and would silently produce a wrong DisplayName if separated.
+#
+# Known, pre-existing and unrelated to scope: the get_embedded_version rewrite
+# expects LibreWolf's "<version>-<release>" form, so it fails
+# python/mozbuild/mozbuild/repackaging/test/test_msix.py under `mach
+# python-test`. That is equally true on desktop today.
+#
+# Stale comment to ignore: scripts/lint-patch-scope.py's AppxManifest* deny
+# rule still says msix.patch's python/mozbuild hunks "ARE common - see
+# LW-M1-05". That sentence is the pre-review seed reading; this header is the
+# answer to it.
+# ---------------------------------------------------------------------------
 
 diff --git a/browser/installer/windows/msix/AppxManifest.xml.in b/browser/installer/windows/msix/AppxManifest.xml.in
 index b81a73518a..3e58515c5d 100644

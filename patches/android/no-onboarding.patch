@@ -1,0 +1,1724 @@
+# LibreWolf no-onboarding.patch  (Android)
+# Owner: LW-M4-10 ("Strip onboarding, promos and first-run network calls")
+#
+# Upstream files touched
+# ----------------------
+# Seven under mobile/android/fenix/app/src/main/java/org/mozilla/fenix/ :
+#   FeatureFlags.kt
+#   utils/Settings.kt
+#   onboarding/continuous/ContinuousOnboardingFeature.kt
+#   termsofuse/store/TermsOfUsePromptRepository.kt
+#   home/pocket/ContentRecommendationsFeatureHelper.kt
+#   home/PocketMiddleware.kt
+#   reviewprompt/ReviewPromptMiddleware.kt
+# and one under mobile/android/android-components/components/browser/icons/ :
+#   src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
+#
+# Six more under mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ -- the
+# unit tests of six of the eight classes above, added by LW-M4-14 because the first
+# version of this patch broke 31 tests in them without noticing (see "UNIT TESTS"
+# below) :
+#   utils/SettingsTest.kt
+#   onboarding/continuous/ContinuousOnboardingFeatureTest.kt
+#   termsofuse/store/TermsOfUsePromptRepositoryTest.kt
+#   home/pocket/ContentRecommendationsFeatureHelperTest.kt
+#   home/PocketMiddlewareTest.kt
+#   reviewprompt/ReviewPromptMiddlewareTest.kt
+#
+# FeatureFlags.kt has no test of its own (the constant is covered through
+# SettingsTest, see below) and android-components' BrowserIconsTest.kt needed no
+# change: it never referenced either preparer, and the preparers' own tests still
+# exercise the classes, which this patch leaves in the tree and merely stops
+# constructing. Measured, not assumed: `mach gradle browser-icons:testDebugUnitTest`
+# is green with the patch applied.
+#
+# None of the fourteen is touched by any other patch in any list. In particular this
+# patch deliberately does NOT touch:
+#   * mobile/android/fenix/app/nimbus.fml.yaml    - LW-M4-03's tree_paths. Every
+#     switch below is a Kotlin constant instead, which is also the stronger
+#     choice: an FML default can be raised again by an experiment, by a Fenix
+#     settings write, or by an upstream default flip. A compiled constant cannot.
+#   * HomeActivity.kt   - LW-M4-03 (no-nimbus.patch)
+#   * GeckoProvider.kt  - LW-M5-02 (isolated-process.patch)
+#   * components/Core.kt and FenixApplication.kt - the two files LW-M4-01 (Glean)
+#     and LW-M4-11 (suggest/contile) are most likely to want. Nothing here needs
+#     either, which is why the BrowserIcons change below is made in
+#     android-components rather than at Fenix's call site.
+#
+#
+# How the list of things to remove was derived
+# --------------------------------------------
+# The bar for this task is not "no telemetry", it is ZERO outbound requests
+# between install and the user's first navigation. So nothing here was decided by
+# reading code. A stock APK was installed on a factory-fresh emulator whose
+# virtual NIC was recording (`emulator -tcpdump`, a capture BELOW the guest that
+# an app cannot proxy around or opt out of), the home screen was launched, and the
+# VM idled with no navigation:
+#
+#   ./scripts/android-smoke.sh --emulator --first-run-capture --capture-seconds 90
+#
+# Unpatched result: 47 outbound events once the harness's OS-noise allowlist (DHCP,
+# mDNS, NTP, the emulator's own DNS) is removed, corroborated by the kernel's
+# per-uid byte counters for the app (rx +5,702,294 / tx +145,138). Eight
+# hostnames. Each was then attributed by ABLATION, not by inspection, because two
+# plausible attributions turned out to be wrong -- see "two wrong answers" below.
+#
+#
+# 1. The stories carousel and the sponsored stories  (merino + MARS)
+# -----------------------------------------------------------------
+# PocketMiddleware reacts to AppLifecycleAction.StartAction by scheduling two
+# WorkManager periodic jobs, and a periodic job runs its first pass immediately --
+# which is why a feature whose configured frequency is "every 4 hours" is a
+# FIRST-RUN leak. The two jobs fetch:
+#   merino.services.mozilla.com/api/v1/curated-recommendations
+#       (service/pocket ContentRecommendationEndpointRaw.kt:20)
+#   the MARS ad server, for sponsored stories ("spocs")
+#       (service/pocket MarsSpocsEndpointRaw.kt:27-28). Note the host in a capture
+#       depends on the build type: MarsSpocsEndpointRaw.kt:157,164-169 picks
+#       MARS_ENDPOINT_STAGING_BASE_URL when BuildConfig.DEBUG, so a debug build
+#       hits ads.allizom.org and a release build hits ads.mozilla.org. Same code
+#       path, two hostnames; do not read the absence of one as the absence of both.
+#
+# The obvious switch is Settings.showPocketRecommendationsFeature /
+# showPocketSponsoredStories (Settings.kt:207-212,235-240). Both are declared with
+# lazyFeatureFlagBooleanPreference, and FeatureFlagPreference.kt:115-120 returns a
+# DummyProperty when the featureFlag argument is false -- a property that reads
+# false and DISCARDS writes. So flipping their shared featureFlag,
+# ContentRecommendationsFeatureHelper, does more than change a default: it makes
+# the two prefs unwritable, which is the "removed, not switched off" shape this
+# project asks for. It costs nothing in usability, because
+# settings/HomeSettingsFragment.kt:111-121 already gates the VISIBILITY of both
+# toggles on the same helper -- the switches disappear instead of becoming two
+# dead switches a user can flip with no effect. (Verified in the built dex: the
+# argument to both setVisible() calls comes straight from the now-constant helper.)
+#
+# That alone is not enough, and this is the trap. There is a second path into the
+# same fetch:
+#
+#   SettingsBackedPocketSettings.showPocketRecommendationsFeature
+#       = settings.showPocketRecommendationsFeature || settings.privateModeAndStoriesEntryPointEnabled
+#
+# privateModeAndStoriesEntryPointEnabled is a plain booleanPreference whose default
+# comes from the private-mode-and-stories-entry-point FML feature: `default: false`,
+# but `channel: developer -> enabled: true` and `channel: nightly -> enabled: true`
+# (nimbus.fml.yaml:1194-1207). The debug variant maps to the FML channel
+# "developer" (fenix/app/build.gradle:441-447), so on exactly the build the smoke
+# harness can drive, that OR-arm is TRUE and the recommendations refresh would
+# still have been scheduled with both prefs false. Hence SettingsBackedPocketSettings
+# is overridden to false as well, and the two startPeriodic*Refresh() calls are
+# deleted outright rather than left behind an `if`.
+#
+# Checked in the built APK afterwards, across all 36 classes*.dex: zero invokes of
+# PocketStoriesService.startPeriodicContentRecommendationsRefresh anywhere, and
+# exactly ONE remaining invoke of startPeriodicSponsoredContentsRefresh --
+# HomeSettingsFragment.setupPreferences$lambda$6$0, the OnPreferenceChangeListener
+# of the checkbox that the same commit makes invisible.
+#
+#
+# 2. The two default top-site tiles fetch their favicons from Mozilla  (BrowserIcons)
+# ----------------------------------------------------------------------------------
+# This is the one nobody would have found by reading the task title, and it is the
+# reason this patch reaches into android-components.
+#
+# BrowserIcons' first "preparer" injects an icon URL that the site never declared.
+# Upstream picks one of two, on Settings.enableMerinoManifest (FML default true):
+#   MerinoManifestIconPreparer - an 886 kB bundled snapshot of Mozilla's Merino
+#     manifest (service/merino-manifest/src/main/assets/manifest/manifest.json)
+#     whose icon URLs all live on prod-images.merino.prod.webservices.mozgcp.net;
+#   TippyTopIconPreparer - browser/icons/src/main/assets/mozac.browser.icons/
+#     icons-top200.json, 234 entries pointing at google.com, www.gstatic.com,
+#     lh[3-6].googleusercontent.com, abs.twimg.com, cdn.shopify.com and friends.
+#
+# Fenix seeds two default top-site tiles on first run from
+# fenix/app/src/main/res/raw/initial_shortcuts.json -- google.com and
+# wikipedia.org (plus five JP-region entries). Both are in both lists. So merely
+# DRAWING the first-run home screen fetches two favicons from Mozilla's CDN,
+# before the user has typed anything.
+#
+# Removing both preparers is not a preference for one source over the other; it is
+# the difference between a source and none. With request.resources empty, load()
+# in BrowserIcons.kt returns null without consulting a single loader and
+# DefaultIconGenerator draws a local letter tile. A site's real favicon still
+# loads the moment the user visits it, from the site itself: the icons@mozac.org
+# web extension reports the page's own <link rel="icon"> resources, and
+# MemoryIconPreparer / DiskIconPreparer replay what has already been fetched.
+# BrowserIcons.kt is the only place in the tree that constructs either preparer,
+# so one hunk covers Fenix, Focus, the PWA shortcut manager and the samples.
+#
+#
+# 3. Onboarding, and why a debug build cannot prove this half on its own
+# ---------------------------------------------------------------------
+# FeatureFlags.onboardingFeatureEnabled was `!Config.channel.isDebug`: the
+# onboarding flow is ALREADY off on the debug APK the smoke harness can drive. A
+# first-run capture on a debug build therefore says nothing whatever about
+# onboarding -- the same trap that makes --check-aboutconfig refuse to run on a
+# debuggable build (docs/android/SMOKE.md). Two consequences:
+#
+#   * the constant becomes false unconditionally, so release, beta and nightly get
+#     the behaviour the debug build already had;
+#   * Settings.shouldShowOnboarding() returns false rather than computing
+#     `featureEnabled && !hasUserBeenOnboarded || enablePersistentOnboarding`. That
+#     second arm is the point: enablePersistentOnboarding is a real
+#     SharedPreferences boolean (pref_key_enable_persistent_onboarding, reachable
+#     from Secret Settings) which forces the flow on EVERY HomeActivity creation
+#     regardless of the feature flag. Leaving it would mean the onboarding flow
+#     stayed reachable on a shipping build. It is also what makes this change
+#     falsifiable at runtime, which is how it was verified -- see below.
+#     Deleting that body also deletes the
+#     FxNimbus.features.junoOnboarding.recordExposure() it performed, a Nimbus
+#     exposure event recorded merely by ASKING whether to onboard.
+#
+# What the flow contains, from onboarding.fml.yaml's `cards` default, is exactly
+# what the board's acceptance lists: a terms-of-service card, a default-browser
+# card, an add-search-widget card, a sync-sign-in card (the Mozilla account
+# pitch), a notification-permission card and a toolbar-placement card. All six are
+# OnboardingFragment pages, so all six go with the flow. The default-browser
+# SYSTEM prompt in particular is only ever raised from
+# DefaultBrowserPromptManager.maybePromptToSetAsDefaultBrowser(), called from
+# OnboardingFragment and nowhere else.
+#
+# ContinuousOnboardingFeature is the same product spread over days instead of
+# cards: day 2 and day 3 request the default-browser role, day 7 shows a Firefox
+# Sync sign-in card. It runs from HomeFragment and BrowserFragment on every
+# resume; its own gate is the continuousOnboarding FML feature (default false,
+# nightly true). shouldShowContinuousOnboarding() returns false.
+#
+#
+# 4. Terms of Use, and the store-review prompt
+# --------------------------------------------
+# The Terms of Use bottom sheet is a separate surface from the onboarding ToS card
+# (TermsOfUseManager, shown from HomeFragment.kt:878-881 and BrowserFragment). Its
+# gate is the terms-of-use-prompt FML feature, `default: false` with no channel
+# override, so it fires on nothing we ship today -- but it is a Nimbus flag, i.e.
+# exactly the kind of switch this project does not want to depend on, and the
+# content is Mozilla's legal text presented for acceptance in a browser that is
+# not Mozilla's. DefaultTermsOfUsePromptRepository.canShowTermsOfUsePrompt()
+# returns false, which covers both surfaces at once and leaves no unused member
+# behind (hasExceededMaxDisplayCount() goes with it).
+#
+# ReviewPromptMiddleware asks the user to rate the app, either in the Play Store
+# or in an in-app sheet. It is a promo; it needs >= 5 app opens or 4 of the last 7
+# days so it is not a first-run leak; and its Play-Store arm reaches Google
+# through PlayStoreReviewPromptController. handleReviewPromptCheck() now dispatches
+# DoNotShowReviewPrompt and returns; see the corrected dex evidence below for what
+# that does and does not prove. It also removes the JEXL trigger evaluation, a
+# Nimbus event-store read that ran on every home-screen resume.
+#
+#
+# The two wrong answers, recorded because both looked obvious
+# ----------------------------------------------------------
+# prod-images.merino.prod.webservices.mozgcp.net survived the change in section 1,
+# and the name made it look like the stories-image CDN. Two ablations on the
+# patched build, each seeding shared_prefs BEFORE the first launch so the profile
+# is genuinely fresh, settled it (70 s windows, same pcap parser as the harness):
+#
+#   pref_key_enable_contile=false            ads.mozilla.org GONE,
+#                                            prod-images STILL THERE  (46 events)
+#     -> so prod-images is NOT the sponsored top-sites feed. That also confirms
+#        ads.mozilla.org IS the sponsored-tile feed, i.e. LW-M4-11's, reached via
+#        HomeActivity.kt:628-630 -> contileTopSitesUpdater -> macTopSitesProvider
+#        (MozAdsClientProvider, pinned to MozAdsEnvironment.PROD, which is why it
+#        has no staging twin the way the spocs endpoint does).
+#   + pref_key_show_top_sites=false          prod-images GONE, nothing replaced
+#                                            it  (37 events)
+#   + pref_key_enable_merino_manifest=false  prod-images GONE and REPLACED by
+#                                            google.com, www.google.com,
+#                                            www.wikipedia.org, plus QUIC to
+#                                            142.251.x  (55 events -- WORSE)
+#     -> the tiles' favicons, and switching the manifest off is a regression, not
+#        a fix. Hence section 2.
+#
+# Recorded for LW-M4-11, as its brief asks: there is NO request to
+# contile.services.mozilla.com in 153. Contile has moved to the MARS/ads-client
+# endpoint, so a capture grepped for "contile" finds nothing even on a stock
+# build. Grep for ads.mozilla.org.
+#
+#
+# Things that look like first-run network calls on a RELEASE build and are
+# invisible on the debug build we measure -- do not read "zero" as covering these
+# ---------------------------------------------------------------------------
+# fenix/app/build.gradle:404-441 gives the debug buildType TELEMETRY=false,
+# ADJUST_TOKEN=null, SENTRY_TOKEN=null and NIMBUS_ENDPOINT=null, and WALLPAPER_URL
+# is "" for every build type in our tree because build.gradle:396-401 reads it
+# from a ${rootDir}/.wallpaper_url file only Mozilla's CI has. So:
+#
+#   * Adjust never starts here, which is why no Adjust host appears in any capture
+#     above. That is not evidence for LW-M4-02. Handing over one detail: with
+#     onboarding gone, FenixApplication.setupPostMegazord()'s !userHasBeenOnboarded()
+#     branch is the one taken on first run, and it calls
+#     distributionIdManager.startAdjustIfSkippingConsentScreen(). A stock first run
+#     took that same branch, so this patch does not create the path -- but it does
+#     make it permanent rather than one-shot, because nothing calls
+#     FenixOnboarding.finish() until BaseBrowserFragment sees the first
+#     non-external navigation.
+#   * the wallpaper metadata fetch and thumbnail download
+#     (wallpapers/WallpaperMetadataFetcher.kt:27, WallpaperDownloader.kt:30, both
+#     queued from FenixApplication) build their URL from an empty string and go
+#     nowhere. A build that ever gained a .wallpaper_url would fetch on first run.
+#     That is also why WallpaperOnboardingDialogFragment cannot appear:
+#     SessionControlController.kt:285-300 only navigates to it once enough
+#     wallpaper THUMBNAILS have downloaded. Left alone deliberately -- it is the
+#     wallpapers feature rather than a promo, and neutering an already-unreachable
+#     path is a change no measurement here could confirm.
+#   * DefaultTopSitesBinding.kt:62-64 skips the default tiles entirely when
+#     `isReleased && region == RegionState.Default`, so a release build in an
+#     unknown region gets no tiles and no icon fetch at all. The debug build we
+#     measure always adds them, which is the conservative direction.
+#
+# Deliberately NOT in this patch, with owners: Nimbus messaging surfaces (the
+# fullscreen message and the homescreen message card, via HomeActivity's
+# showFullscreenMessageIfNeeded) and microsurveys -> LW-M4-03; sponsored top sites
+# -> LW-M4-11; Glean -> LW-M4-01; remote settings -> LW-M4-08.
+#
+# One of those is not merely left alone, it is BROUGHT FORWARD, and LW-M4-03 should
+# know: HomeActivity.kt guards `showFullscreenMessageIfNeeded()` and the initial
+# navigateToHome() with `if (!shouldShowOnboarding)`. On a stock RELEASE first run
+# shouldShowOnboarding is true, so that branch is skipped and the Nimbus fullscreen
+# message is not evaluated until a later launch. With shouldShowOnboarding()
+# constant-false it is evaluated on the first launch instead. This patch therefore
+# moves a Nimbus messaging read into first run rather than adding one -- the same
+# shape as the Adjust note above. Measured, not assumed: with LW-M4-03's
+# no-nimbus.patch applied the 90 s first-run capture below shows no host that is not
+# also present without it, and none belonging to messaging.
+#
+# One product question this patch deliberately does not answer, for the
+# maintainers: initial_shortcuts.json still seeds a **google.com** tile and, in
+# the JP region, a blog.mozilla.org "Firefox guide" tile. Those are Mozilla's
+# default placements. Removing them is a branding/search decision (LW-M4-06 /
+# LW-M4-07), not a network one, and after section 2 they no longer cost a request.
+#
+#
+# Ordering, and mutations outside the diff
+# ----------------------------------------
+# No ordering constraint: none of these eight files is touched by any other patch,
+# so scripts/check-patch-order.py derives no new shared-file pair. Nothing happens
+# outside this diff (landmine L4): no file is copied, removed or generated, and
+# .experimenter.yaml is not regenerated because nimbus.fml.yaml is untouched.
+#
+# Two assets are now dead weight rather than dead code: the 886 kB Merino manifest
+# and the 38 kB tippy-top list are still packaged, because nothing here changes
+# Gradle's asset packaging. Dropping them is a packaging change and a separate,
+# smaller job; leaving them costs bytes, not requests.
+#
+#
+# MEASURED RESULT
+# ---------------
+# Both APKs are `fenix-x86_64-debug.apk` built from the same Gecko objdir and the
+# same fat AAR (MOZ_BUILD_DATE 20260816204534) with only the Gradle stage re-run,
+# so nothing but Fenix/android-components code differs. Checked rather than
+# assumed: of 3,512 zip entries, exactly SEVEN differ between the unpatched and
+# the patched APK, and all seven are `classes*.dex` (4, 18, 19, 22, 25, 27, 31).
+# libxul.so, omni.ja, every resource, the manifest and all 147 searchplugins are
+# sha256-identical.
+#
+# 90-second first-run window, factory-fresh AVD, `emulator -tcpdump`, app data
+# wiped, no navigation, OS-noise allowlist removed:
+#
+#   unpatched   47 events   8 hostnames   uid rx +5,702,294 / tx +145,138
+#   patched     37 events   5 hostnames   uid rx +5,588,238 / tx +150,707
+#
+#   host                                            unpatched  patched
+#   merino.services.mozilla.com                      3 dns 1 sni    --
+#   prod-images.merino.prod.webservices.mozgcp.net   3 dns 1 sni    --
+#   ads.allizom.org                                  4 dns 1 sni    --
+#   ads.mozilla.org                                  3 dns       3 dns     <- LW-M4-11
+#   incoming.telemetry.mozilla.org                   3 dns       3 dns     <- LW-M4-01
+#   firefox.settings.services.mozilla.com            3 dns 2 sni 6 dns 3 sni <- LW-M4-08
+#   firefox-settings-attachments.cdn.mozilla.net     6 dns 2 sni 6 dns 4 sni <- LW-M4-08
+#   content-signature-2.cdn.mozilla.net              4 dns 1 sni 3 dns 1 sni <- LW-M4-08
+#
+# So: every hostname this task is responsible for is gone, and the five that
+# remain belong to three other named tasks. This patch does NOT on its own reach
+# the board's "zero outbound requests", and claiming otherwise would be the most
+# quotable lie the project could publish. The residue moves when those tasks land;
+# `--first-run-capture` stays red until all four of us are done.
+#
+# `./scripts/android-smoke.sh --emulator` (the M2 baseline gate) is green on the
+# patched APK: page-load-http, page-load-https, webgl, video, getusermedia,
+# extension and pref-dump all pass, so none of this broke the browser.
+#
+#
+# RE-MEASURED WITH THE REST OF THE M4 BATCH
+# -----------------------------------------
+# The table above is this patch alone, and it is not the number to quote at anyone:
+# five sibling patches now sit beside it in patches/android/, one of them (no-glean)
+# written after this one. So the run was repeated with all five applied to the same
+# tree and the same fat AAR, Gradle stage only (54 s; the Gecko pass was skipped, so
+# libxul.so and omni.ja are the same bytes as above):
+#
+#   no-nimbus (LW-M4-03), no-nimbus-toolkit (LW-M4-13), isolated-process (LW-M5-02),
+#   no-adjust (LW-M4-02), this patch, no-glean (LW-M4-01) -- applied to the tree in
+#   assets/patches/android.txt order, all six with zero rejects.
+#
+# Only the Kotlin/Gradle ones can reach this APK, and that is a limit of the method,
+# not of those patches: omni.ja and libxul.so come from the fat AAR built on
+# 2026-08-16, so no-nimbus-toolkit (three hunks in toolkit/components/nimbus, i.e.
+# omni.ja) is applied to the tree and absent from the artefact, as is anything else
+# Gecko-side that landed after that date -- LW-M3-02's autoconfig work included.
+#
+# Same harness, same 90 s window, fresh AVD from the factory image, app data wiped,
+# no navigation:
+#
+#                                                  this patch   whole batch
+#   total non-OS outbound events                       37            30
+#   distinct hostnames                                  5             4
+#   app uid bytes                          rx +5,588,238/tx +150,707   rx +5,549,244/tx +141,674
+#
+#   host                                          this patch   whole batch   owner
+#   incoming.telemetry.mozilla.org                 3 dns          --         LW-M4-01
+#   ads.mozilla.org                                3 dns        3 dns        LW-M4-11
+#   firefox.settings.services.mozilla.com          6 dns 3 sni  4 dns 2 sni  LW-M4-08
+#   firefox-settings-attachments.cdn.mozilla.net   6 dns 4 sni  6 dns 4 sni  LW-M4-08
+#   content-signature-2.cdn.mozilla.net            3 dns 1 sni  3 dns 1 sni  LW-M4-08
+#
+# Two things that measurement buys, beyond a fresher number:
+#
+#   * it CONFIRMS the attribution above rather than asserting it.
+#     incoming.telemetry.mozilla.org disappeared when LW-M4-01's patch was added and
+#     nothing else changed, so it was Glean's, not this task's. The hosts this task
+#     owns -- merino.services.mozilla.com, prod-images.merino.prod.webservices.
+#     mozgcp.net, ads.allizom.org -- stay absent in the presence of all five sibling
+#     patches, so none of them re-introduces a path into the code this one removed.
+#   * `./scripts/android-smoke.sh --emulator` is green on the COMBINED APK too,
+#     7/7, so the six patches do not interact badly in the browser either.
+#
+# The residue is still 30 events on 4 hostnames, and it is still not zero. Three of
+# the four are remote settings, which is Gecko-side: a Gradle-only rebuild cannot carry
+# LW-M4-08's work or LW-M3-02's librewolf.cfg, and this APK's own config layer
+# reports `librewolf.cfg: absent`, so the Gecko in it has NO LibreWolf pref layer at
+# all. Read the remaining four lines as "what the Kotlin layer still emits with the
+# stock Gecko configuration", not as the shipping figure. `--first-run-capture` is
+# the gate that decides that, and it stays red until LW-M4-08 and LW-M4-11 land.
+#
+# Evidence from the built APK, not from the sources (all 36 classes*.dex of the
+# patched x86_64 APK, via dexdump -d):
+#
+#   FeatureFlags.onboardingFeatureEnabled   PUBLIC STATIC FINAL Z, `value : false`
+#       (LW-M4-14 renamed the flag to ONBOARDING_FEATURE_ENABLED for ktlint; the dex
+#       field name follows the rename, nothing else about this line does -- see
+#       "UNIT TESTS" below, where the same shape is re-measured with javap)
+#       in the dex's encoded static values, and NO getter at all -- the constant is
+#       folded at every call site. Unpatched, the same field is PRIVATE with no
+#       encoded value and <clinit> computes it from Config.channel.isDebug, with a
+#       getOnboardingFeatureEnabled() accessor.
+#   Settings.shouldShowOnboarding(ZZ)Z      2 code units: `const/4 v0, 0; return v0`
+#       (was 35, and included the getEnablePersistentOnboarding() read and the
+#       FxNimbus junoOnboarding recordExposure call).
+#   ContinuousOnboardingFeatureDefault.shouldShowContinuousOnboarding$fenix_debug()Z
+#       2 code units (was 86).
+#   DefaultTermsOfUsePromptRepository.canShowTermsOfUsePrompt()Z   2 code units.
+#   ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled and
+#       isPocketSponsoredStoriesFeatureEnabled   7 code units each -- the Kotlin
+#       null-check on the parameter, then `const/4 v0, 0; return v0`.
+#   SettingsBackedPocketSettings.getShowPocketRecommendationsFeature and
+#       getShowPocketSponsoredStories   2 code units each.
+#   PocketStoriesService.startPeriodicContentRecommendationsRefresh   ZERO invokes
+#       anywhere in the APK.
+#   PocketStoriesService.startPeriodicSponsoredContentsRefresh   exactly ONE invoke,
+#       in HomeSettingsFragment.setupPreferences$lambda$6$0 -- the change listener
+#       of the checkbox whose setVisible() argument, in the same dex, is the return
+#       value of the now-constant isPocketSponsoredStoriesFeatureEnabled.
+#   AppAction$ReviewPromptAction$ShowPlayStorePrompt and $ShowCustomReviewPrompt
+#       are NEVER DISPATCHED -- but they are not absent from the dex, and an earlier
+#       draft of this header claimed they were. The claim was "ZERO sget-object
+#       anywhere in the APK"; re-running that exact grep on the built APK finds
+#       FOUR, all in classes31.dex, so the sentence was false and is corrected here
+#       rather than quietly dropped. Every one of the four is a COMPARISON, and the
+#       instruction immediately after each sget-object is the areEqual that consumes
+#       it:
+#         ReviewPromptMiddleware.invoke   2 -- the `when (action)` arms that map both
+#             actions to Unit (Kotlin compiles an equality `when` over objects into
+#             sget-object + Intrinsics.areEqual + if-nez)
+#         ReviewPromptReducer.reduce      2 -- the reducer arms that would turn each
+#             action into ReviewPromptState.Eligible if one were ever dispatched
+#       Those four are the ONLY instructions in the whole APK that name either type:
+#       every other reference to the fully-qualified
+#       Lorg/mozilla/fenix/components/appstate/AppAction$ReviewPromptAction$Show...
+#       is inside the two action classes' own definitions in classes24. (Grep for the
+#       bare word instead and you get 37 more hits, all in ShowReviewPromptBinding and
+#       the two R8 inner classes named after it -- they are its
+#       own method name `tryShowPlayStorePrompt` and R8's lambda classes named after
+#       it, not references to the action. A substring grep is the wrong instrument
+#       here; the type descriptor is the right one.) So no code path can pass either
+#       action to Store.dispatch: a class that never loads the object cannot dispatch
+#       it, and the two that do load it only compare. The only Store.dispatch in
+#       ReviewPromptMiddleware is in handleReviewPromptCheck (26 code units, verified
+#       in the dex) and its argument is DoNotShowReviewPrompt. Hence
+#       ShowReviewPromptBinding never observes
+#       ReviewPromptState.Eligible and PlayStoreReviewPromptController is unreachable
+#       -- which is what the removed sentence meant, stated so that the check that
+#       falsified it now confirms it.
+#   MerinoManifestIconPreparer and TippyTopIconPreparer   never constructed: across
+#       all 36 dex files there is not one `new-instance` of either type and not one
+#       invoke-direct of either type's <init>, so no instance of either can exist at
+#       runtime. Both classes are still IN the APK -- removing the call site does not
+#       remove the class -- and 23 instructions still name one of the two types, all
+#       of them inside the preparers' own compiled unit: 7 in TippyTopIconPreparer, 7
+#       in TippyTopIconPreparerKt (the file-facade class the Kotlin compiler emits for
+#       that file's top-level declarations), 1 in MerinoManifestIconPreparer, and 8 in
+#       the three $$ExternalSyntheticLambda holders R8 generated for the preparer's
+#       own `by lazy`. Those lambda holders ARE new-instanced, from inside the
+#       preparer, which is why "grep for new-instance" alone would have been the wrong
+#       check: the question is whether anything constructs a PREPARER, and nothing
+#       does. (Re-verified on the combined APK described above, not only on the
+#       one this patch was measured against.)
+#
+#
+# THE HOME SCREEN AND THE ONBOARDING FLOW, VERIFIED ON THE RUNNING BUILD
+# ---------------------------------------------------------------------
+# Onboarding, negative control. Because the debug APK already has the flow off,
+# "no onboarding appeared" proves nothing there. So the other arm was used as the
+# control: pref_key_enable_persistent_onboarding=true was written into
+# shared_prefs/fenix_preferences.xml with `run-as` before the first launch, on both
+# builds, on the same emulator:
+#
+#   unpatched  mResumedActivity HomeActivity, and the resumed fragment is
+#              OnboardingFragment. UI text: "Welcome to Firefox" / "Speedy, safe,
+#              and won't sell you out. Browsing just got better." / "Continue".
+#   patched    same seed, same emulator: the resumed fragment is HomeFragment.
+#              No OnboardingFragment anywhere in `dumpsys activity`.
+#
+# The home screen. `uiautomator dump` over seven dumps per build (second launch,
+# then six scrolls) finds NO resource-id or text matching
+# pocket|stor(y|ies)|sponsor|recommend|spoc|contile on either build -- and that is
+# NOT a change: HomepageState.kt:246-247 reads
+#
+#   showPocketStoriesCarousel = settings.showPocketRecommendationsFeature &&
+#       recommendationState.pocketStories.isNotEmpty() &&
+#       !settings.privateModeAndStoriesEntryPointEnabled
+#
+# and that third term is TRUE on the developer channel, so the carousel is
+# suppressed on the debug build whatever the prefs say. On that channel the
+# stories move into the header instead: buildHeaderState() returns
+# HeaderState.Experimental with `showStoriesButton = settings.showPocketRecommendationsFeature`.
+# THAT is where the difference is visible, and screenshots of the two first-run
+# home screens show it:
+#
+#   unpatched  a stories entry-point pill in the top-right of the header, and the
+#              two top-site tiles carry the real Google wordmark and the Wikipedia
+#              "W" -- the two favicons fetched from
+#              prod-images.merino.prod.webservices.mozgcp.net.
+#   patched    no stories pill, and the same two tiles are DefaultIconGenerator
+#              letter tiles ("G" on teal, "W" on dark blue) drawn locally.
+#
+# So on a release-configured build the carousel is governed by
+# showPocketRecommendationsFeature, which is now an unwritable false -- but that
+# last step is an inference from HomepageState.kt, not a measurement, because a
+# release-configured APK was not built for this task. Re-check it there, exactly
+# as docs/android/SMOKE.md says --check-aboutconfig has to be.
+#
+#
+# UNIT TESTS -- THE 31 FAILURES THIS PATCH CAUSED, AND THE FIX  (LW-M4-14)
+# -----------------------------------------------------------------------
+# The version of this patch that landed for LW-M4-10 broke 31 Fenix unit tests, and
+# its report did not mention unit tests at all. That is the second time this exact
+# casualty class shipped -- LW-M4-03 broke five in NimbusSystemTest and LW-M4-13
+# exists to clean it up -- so docs/android/AGENTS.md now names
+# `./mach gradle fenix:testDebugUnitTest` in the definition of done for any
+# Kotlin-layer patch. A Gradle build compiling is not its tests passing: the combined
+# build these numbers come from had exit 0 from both `mach build` and
+# `gradle assembleDebug` while 31 tests were red.
+#
+# MEASURED, all android patches applied, `./mach gradle fenix:testDebugUnitTest
+# --continue` over the six affected classes: 188 tests, 31 failed. Per class, and
+# every one of the 31 an assertion failure -- code that ran and disagreed, not a
+# compile error and not the environment:
+#
+#   ContentRecommendationsFeatureHelperTest   16   the per-locale matrix
+#   ReviewPromptMiddlewareTest                 8   the trigger arithmetic
+#   ContinuousOnboardingFeatureTest            3   day-2/3/7 gating
+#   SettingsTest                               2   shouldShowOnboarding
+#   PocketMiddlewareTest                       1   StartAction schedules the workers
+#   TermsOfUsePromptRepositoryTest             1   "all conditions satisfied"
+#
+# Every one of the 31 asserted the behaviour this patch removes, so the fix is not to
+# weaken the patch: it is to make the tests assert the NEW behaviour. That is worth
+# more than the originals were. These are the assertions an upstream rebase has to
+# break to bring onboarding, the stories carousel, the review prompt or the Terms of
+# Use sheet back, and there is now a red test waiting for each.
+#
+# What changed, file by file, and the one place tests were deleted rather than
+# inverted:
+#
+#   SettingsTest              2 inverted (a feature-enabled first run, and the Secret
+#     Settings enablePersistentOnboarding escape hatch that forced the flow on every
+#     HomeActivity creation regardless of the flag) + 1 ADDED that calls
+#     shouldShowOnboarding with no featureEnabled argument, so the default parameter
+#     is exercised as well. That default is Settings.onboardingFeatureEnabled, itself
+#     initialised from FeatureFlags.ONBOARDING_FEATURE_ENABLED, so the new test pins
+#     the compiled constant on every channel -- not only on the debug build where
+#     upstream's `!Config.channel.isDebug` already made it false.
+#   ContinuousOnboardingFeatureTest   3 inverted, setup kept verbatim: each still
+#     sets continuousOnboardingFeatureEnabled = true, which is what keeps the
+#     assertion non-vacuous.
+#   TermsOfUsePromptRepositoryTest    1 inverted, setup and its three sanity
+#     assertions kept verbatim -- they prove every upstream condition really is
+#     satisfied (settings.isTermsOfUsePromptEnabled included) and the answer is still
+#     no.
+#   PocketMiddlewareTest      1 inverted to verify(exactly = 0), still constructed
+#     with FakePocketSettings() and its `true` defaults, so it asserts that the
+#     schedulers stay unreachable even when the settings ask for them + 1 ADDED for
+#     SettingsBackedPocketSettings, which upstream never tested and which is the
+#     SECOND path into the same two fetches: its showPocketRecommendationsFeature
+#     used to OR in settings.privateModeAndStoriesEntryPointEnabled, which the FML
+#     enables on the developer and nightly channels. The new test answers true to all
+#     three backing settings through a mock and requires both overrides to stay false.
+#   ContentRecommendationsFeatureHelperTest   18 tests -> 4. The only file where a
+#     per-test inversion would have been eighteen copies of "false is false". Both
+#     helpers are unconditional now, so the replacement loops over the same fourteen
+#     locale tags the deleted tests covered and requires both helpers to stay false in
+#     every one, plus the two unsupported-locale tests kept as they were. The tag list
+#     is a literal in the test and deliberately NOT a read of
+#     CONTENT_RECOMMENDATIONS_SUPPORTED_LOCALE: a loop over the production constant
+#     would still pass if a rebase reinstated the locale check and shrank the list.
+#   ReviewPromptMiddlewareTest   10 tests -> 6. Eight asserted that a satisfied
+#     trigger makes the app Eligible; two asserted that criteria evaluation
+#     short-circuits. handleReviewPromptCheck evaluates nothing at all now, so the
+#     short-circuit pair had nothing left to assert and is DELETED -- subsumed by the
+#     two new "no criterion is evaluated" tests, which are strictly stronger (nothing
+#     is evaluated, so nothing can continue past anything). The other four new tests
+#     are "every criterion satisfied, still NotEligible", one per combination of
+#     trigger mode and custom-prompt setting. The JEXL half needs no assertion of its
+#     own: the file's createJexlHelper fake answers assertUnused() to every method, so
+#     an evaluated expression fails the test wherever it happens.
+#
+# One thing LW-M4-14 changed in the production hunks, and why
+# ----------------------------------------------------------
+# `mach gradle fenix:ktlint` was RED on the landed version, in this patch's own file:
+#
+#   FeatureFlags.kt:36:15: Property name should use the screaming snake case notation
+#   when the value can not be changed (standard:property-naming)
+#
+# Making the flag `const` is what folds it into every call site, and `const val`
+# requires SCREAMING_SNAKE_CASE -- which is what its three neighbours in the same
+# object already use (PULL_TO_REFRESH_ENABLED, FX_SUGGEST, FIREFOX_LABS); upstream's
+# camelCase name was legal only because upstream's declaration was not `const`. So
+# the flag is renamed to `ONBOARDING_FEATURE_ENABLED`, which touches exactly one more
+# line -- Settings.kt's `var onboardingFeatureEnabled = FeatureFlags.<flag>`, in a
+# file this patch already edits. Nothing else in the tree reads the FeatureFlags
+# constant: the androidTest helpers all read Settings.onboardingFeatureEnabled, whose
+# name is unchanged, and the two remaining textual mentions are KDoc code samples in
+# components/settings/FeatureFlagPreference.kt (a file this patch does not own and
+# whose behaviour does not depend on the name).
+# The compiled shape is unchanged by the rename, measured with javap on the class the
+# unit-test run compiled rather than inferred:
+#   public static final boolean ONBOARDING_FEATURE_ENABLED = false;
+# with the constant inlined and NO accessor emitted -- the only getter in the class is
+# getCustomExtensionCollectionFeature(), for the one property that is not `const`.
+# The flag's KDoc was also rewritten: it still said "Disables the Onboarding feature
+# for debug builds by default. Set this to `true` if you need to access the Onboarding
+# feature for development purposes", which after this patch is both wrong and an
+# invitation to reintroduce the flow.
+#
+# RESULT, same container, same tree, same command
+# ----------------------------------------------
+#   six classes, this patch applied      172 tests, 0 failed, BUILD SUCCESSFUL
+#                                        (was 188 tests, 31 failed)
+#   mach gradle fenix:ktlint             the FeatureFlags finding is gone. Two
+#     import-ordering findings remain and are NOT this patch's: they are in
+#     components/PlayStoreReviewPromptControllerTest.kt and components/Components.kt,
+#     both edited by no-gms.patch (LW-M4-05) -- in Components.kt it replaced the
+#     GooglePlayIntegrityClient import with concept.integrity.IntegrityClient in the
+#     old import's position, which is out of lexicographic order.
+#   mach gradle components:browser-icons:testDebugUnitTest
+#                                        118 tests, 0 failed, BUILD SUCCESSFUL --
+#     the android-components half needed no test change. BrowserIconsTest never
+#     referenced either preparer, and MerinoManifestIconPreparerTest and
+#     TippyTopIconPreparerTest both still pass, because the classes remain in the tree
+#     and this patch only stops CONSTRUCTING them.
+#
+# ATTRIBUTION RE-CHECKED THE WAY THE LW-M4-10 VERIFIER DID IT, with this patch as it
+# now stands: reverse-applied ALONE out of the combined tree (`patch -R -p1`, exit 0,
+# no .rej), leaving the other android patches in place. Thirteen of the fourteen
+# touched files then compare byte-identical to the pristine 153.0.4 tarball, and the
+# fourteenth, Settings.kt, differs from pristine by exactly two hunks that belong to
+# siblings and lie outside this patch's regions -- no-gms.patch's overridePushServer
+# removal (line ~1954) and no-adjust.patch's shouldShowMarketingOnboarding default
+# (line ~2283). The six classes then ran 188 tests, 0 failed. Re-applied: exit 0, all
+# fourteen files back to byte-identical md5s, 172 tests, 0 failed again. So the tests
+# were fixed rather than masked by a sibling's side effect, and the patch is a clean
+# round trip in both directions.
+#
+# TWO FAILURES IN THE SAME AREA THAT ARE NOT THIS PATCH'S
+# -------------------------------------------------------
+#   * HomeSettingsFragmentTest "GIVEN the Homepage Sports Widget feature is enabled
+#     ... THEN the World Cup toggle is visible" fails in the combined tree, and it is
+#     NOT this patch's. An earlier draft of this header said the file "belongs to
+#     no-glean.patch (LW-M4-01), which rewrites it". That is false and is corrected
+#     rather than quietly dropped: `grep -n "^+++ b/.*HomeSettings"` over
+#     patches/android/*.patch and patches/*.patch is EMPTY -- no patch in any list
+#     edits HomeSettingsFragment.kt or its test. What no-glean's header does is LIST
+#     "HomeSettingsFragmentTest (1)" among the 90 failures it observed both before and
+#     after its own change, i.e. it records the failure, it does not cause it. So the
+#     test is un-owned pre-existing red in this container, and neither LW-M4-01 nor
+#     LW-M4-14 can close it by editing a patch; it needs a task of its own.
+#     Measured twice, at opposite ends of the ablation:
+#       full android patch set applied,  seven classes   183 tests, 1 failed
+#       this patch reverse-applied,      seven classes   199 tests, 1 failed
+#     -- the same single test both times (11 of those tests are HomeSettingsFragmentTest's;
+#     the other 172 / 188 are the six classes this patch touches, and they are green in
+#     both states). It is also why the LW-M4-10 verifier's ablation run exited 1 with
+#     "199 tests completed, 1 failed" rather than the "BUILD SUCCESSFUL, 0 failures" its
+#     report claimed. The assertion is on getSportsWidgetPreference().isVisible with
+#     enableHomepageSportsWidget and showHomepageSportsWidget both mocked true: nothing
+#     in it touches onboarding, pocket, the review prompt or the terms-of-use sheet.
+#   * 87 failures elsewhere in the full suite (SearchSuggestionsProvidersBuilderTest
+#     70, ReviewPromptMiddlewareTriggerCriteriaTest 16, RecordedNimbusContextTest 1)
+#     are one root cause: "UnsatisfiedLinkError: Unable to load library 'megazord'".
+#     The container cannot load libmegazord.so into a JVM unit test; no-glean.patch's
+#     header records the same thing. Note especially that
+#     ReviewPromptMiddlewareTriggerCriteriaTest sits right beside this patch's
+#     ReviewPromptMiddlewareTest and is NOT collateral from it: its failures are link
+#     errors inside the trigger-criteria helpers, which this patch leaves untouched.
+#
+# THE NEGATIVE CONTROL -- RUN, and 16 of the 17 changed tests are load-bearing
+# ---------------------------------------------------------------------------
+# An earlier draft of this header said this control had NOT been run, on the grounds
+# that reverting production code in a tree other agents compile from is exactly the
+# silent artefact this project must not produce. That objection is about TIMING, not
+# about the experiment, so the experiment was run in a window where the objection did
+# not apply: the whole revert / measure / restore cycle ran 13:55:53 to 13:59:24 on
+# 2026-08-19, during which the only container on the host was this task's own test
+# runner and no other gradle or mach process existed; the next foreign container
+# started at 14:00:19, against a different tree. Both halves of the cycle end in a
+# byte-identical md5 round trip, checked below, so the tree another agent picked up
+# afterwards is the tree they would have found had this never run.
+#
+# The patch was split by a mechanical `--- a/...` filter over `/src/test/` into an
+# eight-file production half and a six-file test half, ONLY the production half was
+# reverse-applied, and the six classes were run with the NEW tests against UPSTREAM's
+# onboarding / pocket / review-prompt / terms-of-use code.
+#
+#   six classes, production reverted, new tests kept    172 tests, 16 FAILED
+#
+# That is the number that matters. Sixteen of the seventeen tests this patch changes
+# or adds fail the moment the production change is taken away, which is what "these
+# assertions are what an upstream rebase has to break" has to mean if it is to mean
+# anything. Per class, and each one an AssertionError -- code that ran and disagreed:
+#
+#   ReviewPromptMiddlewareTest                6   all six new tests
+#   ContinuousOnboardingFeatureTest           3   all three inverted
+#   ContentRecommendationsFeatureHelperTest   2   both locale loops
+#   PocketMiddlewareTest                      2   the inverted one and the new
+#                                                 SettingsBackedPocketSettings one
+#   SettingsTest                              2   both inverted
+#   TermsOfUsePromptRepositoryTest            1   the inverted one
+#
+# THE ONE THAT DOES NOT FAIL, and why it is kept anyway. SettingsTest's added
+# `GIVEN the feature flag default WHEN the user has not been onboarded THEN
+# shouldShowOnboarding is false` passes against upstream production code too. That is
+# not a defect in the test, it is the debug unit-test build: upstream's flag is
+# `!Config.channel.isDebug`, which is already false wherever `fenix:testDebugUnitTest`
+# runs, so the default parameter is false on both sides and the JVM test suite cannot
+# tell the two apart. The test is kept because the behaviour it pins -- that the
+# default argument to the call HomeActivity actually makes is false -- is exactly what
+# stops being true on release, beta and nightly, and the compiled `const` is what makes
+# it true there. Its evidence is the javap reading above (`public static final boolean
+# ONBOARDING_FEATURE_ENABLED = false`, inlined, no accessor), not this test. Do not
+# read its green as a control; the other sixteen are the control.
+#
+# ROUND TRIP. The production half was re-applied afterwards and all fourteen files
+# compare byte-identical to their pre-experiment md5s. Then the WHOLE patch was
+# reverse-applied alone, as the LW-M4-10 verifier did (`patch -R -p1`, exit 0, no
+# .rej): thirteen of the fourteen files are then byte-identical to the pristine
+# 153.0.4 tarball at
+# /home/mgysin/Documents/librewolf/firefox-153.0.4, and the fourteenth, Settings.kt,
+# differs by exactly the two sibling hunks named above. Six classes in that state:
+# 188 tests, 0 failed. Re-applied: exit 0, all fourteen md5s back, 172 tests, 0 failed.
+# So the three states are measured and consistent --
+#
+#   patch applied            172 tests, 0 failed   (was 188 tests, 31 failed)
+#   patch reverse-applied    188 tests, 0 failed   attribution: not a sibling's doing
+#   production reverted,
+#     new tests kept         172 tests, 16 failed  the tests are load-bearing
+#
+# -- and the tests were fixed rather than masked.
+#
+# The six test files are touched by no other patch in any list, so they add no new
+# shared-file pair for scripts/check-patch-order.py to classify.
+#
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FeatureFlags.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FeatureFlags.kt
+@@ -28,12 +28,23 @@
+     const val FX_SUGGEST = true
+ 
+     /**
+-     * Disables the Onboarding feature for debug builds by default. Set this to `true` if you need
+-     * to access the Onboarding feature for development purposes.
++     * LibreWolf (LW-M4-10): the Fenix onboarding flow is REMOVED, not switched off for debug
++     * builds. Upstream computed this flag from `!Config.channel.isDebug`, i.e. the flow was
++     * live on release, beta and nightly and only absent from debug builds; it is now a
++     * compiled `false` on every channel.
+      *
+-     * ⚠️ DO NOT MODIFY THIS FLAG IN PRODUCTION.
++     * ⚠️ Setting this back to `true` does NOT bring the flow back, and is not a supported
++     * configuration: `Settings.shouldShowOnboarding()` ignores both of its arguments,
++     * `ContinuousOnboardingFeatureDefault.shouldShowContinuousOnboarding()` is false too, and
++     * with them go the six onboarding cards (terms-of-service, default-browser,
++     * add-search-widget, sync-sign-in, notification-permission, toolbar-placement) and the
++     * default-browser SYSTEM prompt, which is raised only from OnboardingFragment.
++     *
++     * Named in SCREAMING_SNAKE_CASE like its `const val` neighbours above: ktlint's
++     * standard:property-naming rule requires it, and the camelCase name upstream used was
++     * legal only because upstream's declaration was not `const`.
+      */
+-    val onboardingFeatureEnabled = !Config.channel.isDebug
++    const val ONBOARDING_FEATURE_ENABLED = false
+ 
+     /**
+      * Enables Firefox Labs.
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+@@ -2203,20 +2203,11 @@
+      * @param hasUserBeenOnboarded Boolean to indicate whether the user has been onboarded.
+      * @param featureEnabled Boolean to indicate whether the feature is enabled.
+      */
++    @Suppress("UNUSED_PARAMETER")
+     fun shouldShowOnboarding(
+         hasUserBeenOnboarded: Boolean,
+         featureEnabled: Boolean = onboardingFeatureEnabled,
+-    ): Boolean {
+-        val shouldShowByDefaultConditions = featureEnabled && !hasUserBeenOnboarded
+-
+-        val shouldShow = shouldShowByDefaultConditions || enablePersistentOnboarding
+-
+-        if (shouldShow) {
+-            FxNimbus.features.junoOnboarding.recordExposure()
+-        }
+-
+-        return shouldShow
+-    }
++    ): Boolean = false
+ 
+     /**
+      * Secret setting preference that forces the onboarding flow to be shown every time `HomeActivity`
+@@ -2233,7 +2224,7 @@
+     /**
+      * Indicates if the onboarding feature is enabled.
+      */
+-    var onboardingFeatureEnabled = FeatureFlags.onboardingFeatureEnabled
++    var onboardingFeatureEnabled = FeatureFlags.ONBOARDING_FEATURE_ENABLED
+ 
+     /**
+      * The completion timestamp of the initial onboarding flow.
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeature.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeature.kt
+@@ -106,12 +106,7 @@
+     }
+ 
+     @VisibleForTesting
+-    internal fun shouldShowContinuousOnboarding(): Boolean {
+-        val continuousOnboardingCompleted = settings.seventhDayOnboardingCompletedTimestamp != -1L
+-        logger.info("continuousOnboardingCompleted: $continuousOnboardingCompleted")
+-        logger.info("continuousOnboardingFeatureEnabled: ${settings.continuousOnboardingFeatureEnabled}")
+-        return settings.continuousOnboardingFeatureEnabled && !continuousOnboardingCompleted
+-    }
++    internal fun shouldShowContinuousOnboarding(): Boolean = false
+ 
+     private fun maybeRequestDefaultBrowserRole(
+         activity: Activity,
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/termsofuse/store/TermsOfUsePromptRepository.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/termsofuse/store/TermsOfUsePromptRepository.kt
+@@ -77,11 +77,10 @@
+ 
+     override var isShowingPrompt = false
+ 
+-    override fun canShowTermsOfUsePrompt(): Boolean =
+-        !settings.hasAcceptedTermsOfService &&
+-                settings.isTermsOfUsePromptEnabled &&
+-                !hasExceededMaxDisplayCount() &&
+-                !isShowingPrompt
++    // LibreWolf (LW-M4-10): the Terms of Use bottom sheet is Mozilla's, and asking a LibreWolf
++    // user to accept it would be a first-run promo for someone else's legal text. The prompt is
++    // never shown, on any surface, whatever settings.isTermsOfUsePromptEnabled says.
++    override fun canShowTermsOfUsePrompt(): Boolean = false
+ 
+     override fun userPostponedAndWithinCooldownPeriod(currentTimeMillis: Long): Boolean {
+         val durationSinceLastPrompt = currentTimeMillis - settings.lastTermsOfUsePromptTimeInMillis
+@@ -94,9 +93,6 @@
+         return settings.hasPostponedAcceptingTermsOfUse && (durationSinceLastPrompt < durationBetweenPrompts)
+     }
+ 
+-    private fun hasExceededMaxDisplayCount(): Boolean =
+-        settings.termsOfUsePromptDisplayedCount >= settings.getTermsOfUseMaxDisplayCount()
+-
+     override fun updateHasAcceptedTermsOfUsePreference(nowMillis: Long) {
+         settings.hasAcceptedTermsOfService = true
+         settings.termsOfUseAcceptedVersion = TOU_VERSION
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelper.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelper.kt
+@@ -5,8 +5,6 @@
+ package org.mozilla.fenix.home.pocket
+ 
+ import android.content.Context
+-import mozilla.components.support.locale.LocaleManager
+-import mozilla.components.support.locale.LocaleManager.getSystemDefault
+ 
+ /**
+  * Utility singleton for providing helper functions related to content recommendations feature
+@@ -36,17 +34,13 @@
+     /**
+      * Show Pocket sponsored stories in between Pocket recommended stories on home.
+      */
+-    fun isPocketSponsoredStoriesFeatureEnabled(context: Context): Boolean {
+-        return isContentRecommendationsFeatureEnabled(context)
+-    }
++    @Suppress("UNUSED_PARAMETER")
++    fun isPocketSponsoredStoriesFeatureEnabled(context: Context): Boolean = false
+ 
+     /**
+      * Returns true if the current locale is part of the supported locales for content
+      * recommendations, and false otherwise.
+      */
+-    fun isContentRecommendationsFeatureEnabled(context: Context): Boolean {
+-        val langTag = LocaleManager.getCurrentLocale(context)
+-            ?.toLanguageTag() ?: getSystemDefault().toLanguageTag()
+-        return CONTENT_RECOMMENDATIONS_SUPPORTED_LOCALE.contains(langTag)
+-    }
++    @Suppress("UNUSED_PARAMETER")
++    fun isContentRecommendationsFeatureEnabled(context: Context): Boolean = false
+ }
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/PocketMiddleware.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/PocketMiddleware.kt
+@@ -43,14 +43,11 @@
+  *
+  * @param settings [Settings] used for fetching and storing pocket related settings.
+  */
+-class SettingsBackedPocketSettings(private val settings: Settings) : PocketSettings {
+-    override val showPocketRecommendationsFeature
+-        get() = (
+-            settings.showPocketRecommendationsFeature ||
+-                settings.privateModeAndStoriesEntryPointEnabled
+-            )
++@Suppress("UNUSED_PARAMETER")
++class SettingsBackedPocketSettings(settings: Settings) : PocketSettings {
++    override val showPocketRecommendationsFeature get() = false
+ 
+-    override val showPocketSponsoredStories get() = settings.showPocketSponsoredStories
++    override val showPocketSponsoredStories get() = false
+ }
+ 
+ /**
+@@ -79,17 +76,10 @@
+         // Pre process actions
+         when (action) {
+             is AppAction.AppLifecycleAction.StartAction -> {
+-                visualCompletenessQueue.runIfReadyOrQueue {
+-                    coroutineScope.launch(IO) {
+-                        if (settings.showPocketRecommendationsFeature) {
+-                            pocketStoriesService.value.startPeriodicContentRecommendationsRefresh()
+-                        }
+-
+-                        if (settings.showPocketSponsoredStories) {
+-                            pocketStoriesService.value.startPeriodicSponsoredContentsRefresh()
+-                        }
+-                    }
+-                }
++                // LibreWolf (LW-M4-10): the two periodic-refresh schedulers this branch used to
++                // start are the only thing that ever contacted merino.services.mozilla.com and
++                // the MARS ad server, and they did so on the very first launch. There is no
++                // condition under which we want them, so the calls are gone rather than gated.
+             }
+             is ContentRecommendationsAction.PocketStoriesCategoriesChange -> {
+                 // Intercept the original action which would only update categories and
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddleware.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddleware.kt
+@@ -100,43 +100,12 @@
+         next(action)
+     }
+ 
+-    @Suppress("CognitiveComplexMethod")
+     private fun handleReviewPromptCheck(store: Store<AppState, AppAction>) {
+-        // We shouldn't show the review prompt if continuous onboarding is in progress.
+-        if (continuousOnboardingInProgress()) {
+-            return
+-        }
+-
+-        if (store.state.reviewPrompt != ReviewPromptState.Unknown) {
+-            // We only want to try to show it once to avoid unnecessary disk reads.
+-            return
+-        }
+-
+-        val shouldShowPrompt: Boolean = createJexlHelper().use { jexlHelper ->
+-            // Keep the legacy criteria around, but use the nimbus data and jexl to trigger.
+-            // Leaving the original if-else logic and early return for readability.
+-            if (!shouldUseNewTriggerCriteria()) {
+-                val legacyCriteriaSatisfied = buildTriggerLegacyCriteria(jexlHelper).all { it }
+-                return@use legacyCriteriaSatisfied
+-            }
+-
+-            // Otherwise, we use the new criteria.
+-            val allMainCriteriaSatisfied = buildTriggerMainCriteria(jexlHelper).all { it }
+-            if (!allMainCriteriaSatisfied) {
+-                return@use false
+-            }
+-
+-            val atLeastOneOfSubCriteriaSatisfied = buildTriggerSubCriteria(jexlHelper).any { it }
+-            return@use atLeastOneOfSubCriteriaSatisfied
+-        }
+-
+-        if (shouldShowPrompt) {
+-            if (shouldShowCustomPrompt()) {
+-                store.dispatch(ShowCustomReviewPrompt)
+-            } else {
+-                store.dispatch(ShowPlayStorePrompt)
+-            }
+-        } else {
++        // LibreWolf (LW-M4-10): a browser does not solicit app-store reviews. Neither
++        // ShowPlayStorePrompt nor ShowCustomReviewPrompt is ever dispatched, so
++        // ShowReviewPromptBinding never reaches PlayStoreReviewPromptController and the JEXL
++        // trigger evaluation (a Nimbus event-store read) does not run either.
++        if (store.state.reviewPrompt == ReviewPromptState.Unknown) {
+             store.dispatch(DoNotShowReviewPrompt)
+         }
+     }
+--- a/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
++++ b/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
+@@ -49,8 +49,6 @@
+ import mozilla.components.browser.icons.preparer.DiskIconPreparer
+ import mozilla.components.browser.icons.preparer.IconPreprarer
+ import mozilla.components.browser.icons.preparer.MemoryIconPreparer
+-import mozilla.components.browser.icons.preparer.MerinoManifestIconPreparer
+-import mozilla.components.browser.icons.preparer.TippyTopIconPreparer
+ import mozilla.components.browser.icons.processor.DiskIconProcessor
+ import mozilla.components.browser.icons.processor.IconProcessor
+ import mozilla.components.browser.icons.processor.MemoryIconProcessor
+@@ -92,10 +90,10 @@
+  * @param httpClient The [Client] used to fetch icons over the network.
+  * @param generator The [IconGenerator] to generate an icon if no icon could be loaded.
+  * @param memoryInfoProvider Used to check available memory when deciding whether to cache icons.
+- * @param manifestProvider An instance of [MerinoManifestProvider] used to look up website metadata
+- * for loading an icon.
+- * @param useMerinoManifest Whether to use the embedded Merino manifest instead of the Tippy Top
+- * icon list as an icon source.
++ * @param manifestProvider IGNORED in LibreWolf; see the note on [preparers] below. Retained only
++ * so that call sites which pass it by name keep compiling.
++ * @param useMerinoManifest IGNORED in LibreWolf; see the note on [preparers] below. Retained only
++ * so that call sites which pass it by name keep compiling.
+  * @param preparers List of [IconPreprarer] instances that enrich an [IconRequest] before loading.
+  * @param loaders List of [IconLoader] instances used to load icons.
+  * @param decoders List of [ImageDecoder] instances to use when decoding a loaded icon into a [Bitmap].
+@@ -107,14 +105,33 @@
+     httpClient: Client,
+     private val generator: IconGenerator = DefaultIconGenerator(),
+     private val memoryInfoProvider: MemoryInfoProvider = DefaultMemoryInfoProvider(context),
++    @Suppress("UNUSED_PARAMETER")
+     manifestProvider: MerinoManifestProvider = MerinoManifestProvider(context.assets),
++    @Suppress("UNUSED_PARAMETER")
+     useMerinoManifest: Boolean = false,
++    // LibreWolf (LW-M4-10): upstream's first entry here is one of two preparers that inject an
++    // icon URL the site never declared -- MerinoManifestIconPreparer (a bundled snapshot of
++    // Mozilla's Merino manifest, ~886 kB of assets/manifest/manifest.json, whose icon URLs live
++    // on prod-images.merino.prod.webservices.mozgcp.net) or TippyTopIconPreparer (assets/
++    // mozac.browser.icons/icons-top200.json, whose 234 entries point at google.com, gstatic.com,
++    // googleusercontent.com, abs.twimg.com, cdn.shopify.com and friends).
++    //
++    // Either one turns simply LOOKING at the home screen into an outbound request: the two
++    // default top-site tiles from initial_shortcuts.json (google.com and wikipedia.org) have
++    // their favicons fetched before the user has navigated anywhere. Measured on the emulator's
++    // own pcap over a 70 s first-run window, with the sponsored-tile feed already off:
++    //   both preparers absent (this build)  0 icon requests
++    //   MerinoManifestIconPreparer          2 TLS connections to prod-images.merino.prod...
++    //   TippyTopIconPreparer                3 to google.com/www.google.com + 1 to
++    //                                       www.wikipedia.org, plus QUIC to Google
++    // So this is not a choice between two sources; it is a choice between a source and none.
++    //
++    // With no preparer supplying a resource, load() (this file) finds request.resources empty,
++    // returns null without consulting a single loader, and DefaultIconGenerator draws a local
++    // letter tile. A site's real favicon still loads normally once the user visits it: the
++    // icons@mozac.org web extension reports the page's own <link rel="icon"> resources, and
++    // MemoryIconPreparer / DiskIconPreparer replay what has already been fetched.
+     private val preparers: List<IconPreprarer> = listOf(
+-        if (useMerinoManifest) {
+-            MerinoManifestIconPreparer(manifestProvider = manifestProvider)
+-        } else {
+-            TippyTopIconPreparer(context.assets)
+-        },
+         MemoryIconPreparer(sharedMemoryCache),
+         DiskIconPreparer(sharedDiskCache),
+     ),
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+@@ -849,8 +849,14 @@
+         assertFalse(actual)
+     }
+ 
++    // LibreWolf (LW-M4-10, tests by LW-M4-14): upstream returned true for both cases
++    // below -- a first run with the feature enabled, and the Secret Settings
++    // "persistent onboarding" escape hatch, which forced the flow on every
++    // HomeActivity creation regardless of the feature flag. shouldShowOnboarding is
++    // now constant false, so both assertions are inverted rather than deleted: these
++    // are exactly the two behaviours an upstream rebase would silently reintroduce.
+     @Test
+-    fun `GIVEN feature is enabled, hasUserBeenOnboarded is false THEN shouldShowOnboarding returns true`() {
++    fun `GIVEN feature is enabled, hasUserBeenOnboarded is false THEN shouldShowOnboarding returns false`() {
+         val settings = spyk(settings)
+ 
+         val actual = settings.shouldShowOnboarding(
+@@ -858,11 +864,24 @@
+             hasUserBeenOnboarded = false,
+         )
+ 
+-        assertTrue(actual)
++        assertFalse(actual)
+     }
+ 
+     @Test
+-    fun `GIVEN should not show by default WHEN enablePersistentOnboarding is true THEN shouldShowOnboarding returns true`() {
++    fun `GIVEN the feature flag default WHEN the user has not been onboarded THEN shouldShowOnboarding is false`() {
++        val settings = spyk(settings)
++
++        // No featureEnabled argument on purpose: the default parameter is this class's own
++        // onboardingFeatureEnabled, initialised from FeatureFlags.ONBOARDING_FEATURE_ENABLED.
++        // So this is the call HomeActivity makes, and it pins the compiled constant too --
++        // on every channel, not just the debug one where upstream already had it false.
++        val actual = settings.shouldShowOnboarding(hasUserBeenOnboarded = false)
++
++        assertFalse(actual)
++    }
++
++    @Test
++    fun `GIVEN enablePersistentOnboarding is true THEN shouldShowOnboarding still returns false`() {
+         val settings = spyk(settings)
+         every { settings.enablePersistentOnboarding } returns true
+ 
+@@ -871,7 +890,7 @@
+             hasUserBeenOnboarded = true,
+         )
+ 
+-        assertTrue(actual)
++        assertFalse(actual)
+     }
+ 
+     @Test
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
+@@ -80,28 +80,34 @@
+         assertFalse(feature.shouldShowContinuousOnboarding())
+     }
+ 
++    // LibreWolf (LW-M4-10, tests by LW-M4-14): the three cases below returned true
++    // upstream -- day 2 and day 3 request the default-browser role, day 7 shows a
++    // Firefox Sync sign-in card. shouldShowContinuousOnboarding is now constant false,
++    // so the assertions are inverted and the setup is kept: each test still enables the
++    // continuousOnboarding feature that governed them, which is what makes the
++    // assertion non-vacuous.
+     @Test
+-    fun `WHEN feature enabled and seventh day not completed THEN shouldShowContinuousOnboarding returns true`() {
++    fun `WHEN feature enabled and seventh day not completed THEN shouldShowContinuousOnboarding returns false`() {
+         settings.continuousOnboardingFeatureEnabled = true
+         settings.seventhDayOnboardingCompletedTimestamp = -1
+ 
+-        assertTrue(feature.shouldShowContinuousOnboarding())
++        assertFalse(feature.shouldShowContinuousOnboarding())
+     }
+ 
+     @Test
+-    fun `WHEN feature enabled and only second day completed THEN shouldShowContinuousOnboarding returns true`() {
++    fun `WHEN feature enabled and only second day completed THEN shouldShowContinuousOnboarding returns false`() {
+         settings.continuousOnboardingFeatureEnabled = true
+         settings.secondDayOnboardingCompletedTimestamp = dateTimeProvider.currentTimeMillis()
+ 
+-        assertTrue(feature.shouldShowContinuousOnboarding())
++        assertFalse(feature.shouldShowContinuousOnboarding())
+     }
+ 
+     @Test
+-    fun `WHEN feature enabled and only third day completed THEN shouldShowContinuousOnboarding returns true`() {
++    fun `WHEN feature enabled and only third day completed THEN shouldShowContinuousOnboarding returns false`() {
+         settings.continuousOnboardingFeatureEnabled = true
+         settings.thirdDayOnboardingCompletedTimestamp = dateTimeProvider.currentTimeMillis()
+ 
+-        assertTrue(feature.shouldShowContinuousOnboarding())
++        assertFalse(feature.shouldShowContinuousOnboarding())
+     }
+ 
+     // syncOnboardingPageState
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/termsofuse/store/TermsOfUsePromptRepositoryTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/termsofuse/store/TermsOfUsePromptRepositoryTest.kt
+@@ -35,8 +35,14 @@
+         repository = DefaultTermsOfUsePromptRepository(settings)
+     }
+ 
++    // LibreWolf (LW-M4-10, tests by LW-M4-14): upstream asserted the prompt IS shown
++    // here. canShowTermsOfUsePrompt is now constant false, so the last assertion is
++    // inverted while the setup and its three sanity checks are kept verbatim -- they
++    // are what proves the test is not vacuous: every upstream condition really is
++    // satisfied, including settings.isTermsOfUsePromptEnabled, and the answer is still
++    // no. Mozilla's Terms of Use are not LibreWolf's to present for acceptance.
+     @Test
+-    fun `WHEN all conditions satisfied THEN show the prompt`() {
++    fun `WHEN all upstream conditions are satisfied THEN still do not show the prompt`() {
+         settings.hasAcceptedTermsOfService = false
+         settings.isTermsOfUsePromptEnabled = true
+         settings.termsOfUsePromptDisplayedCount = MAX_DISPLAY_COUNT - 1
+@@ -46,7 +52,7 @@
+         assertTrue(settings.isTermsOfUsePromptEnabled)
+         assertEquals(MAX_DISPLAY_COUNT - 1, settings.termsOfUsePromptDisplayedCount)
+ 
+-        assertTrue(repository.canShowTermsOfUsePrompt())
++        assertFalse(repository.canShowTermsOfUsePrompt())
+     }
+ 
+     @Test
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelperTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelperTest.kt
+@@ -9,15 +9,49 @@
+ import mozilla.components.support.test.robolectric.testContext
+ import org.junit.After
+ import org.junit.Assert.assertFalse
+-import org.junit.Assert.assertTrue
+ import org.junit.Before
+ import org.junit.Test
+ import org.junit.runner.RunWith
+ import java.util.Locale
+ 
++/**
++ * LibreWolf (LW-M4-10, tests by LW-M4-14).
++ *
++ * Upstream had eighteen tests here, one per locale, asserting that content
++ * recommendations and Pocket sponsored stories are enabled in the fourteen locales of
++ * CONTENT_RECOMMENDATIONS_SUPPORTED_LOCALE and disabled elsewhere. Both helpers are now
++ * unconditional `false`, so a per-locale matrix has nothing left to distinguish and
++ * sixteen of those eighteen tests failed. What is worth pinning instead is that NO
++ * locale turns either feature back on: these two helpers are the shared feature flag
++ * behind Settings.showPocketRecommendationsFeature and showPocketSponsoredStories, and
++ * while they are false FeatureFlagPreference hands out a DummyProperty that reads false
++ * and discards writes.
++ *
++ * The locale list below is a literal in the test rather than a read of the production
++ * constant, deliberately: a loop over the constant would still pass if a rebase
++ * reinstated the locale check and shrank the list. These are the exact fourteen tags the
++ * deleted tests covered, plus the ro-RO they used as the unsupported control.
++ */
+ @RunWith(AndroidJUnit4::class)
+ class ContentRecommendationsFeatureHelperTest {
+ 
++    private val previouslySupportedLocales = listOf(
++        "fr",
++        "fr-FR",
++        "es",
++        "es-ES",
++        "it",
++        "it-IT",
++        "en",
++        "en-CA",
++        "en-GB",
++        "en-US",
++        "de",
++        "de-DE",
++        "de-AT",
++        "de-CH",
++    )
++
+     @Before
+     @After
+     fun cleanUp() {
+@@ -25,146 +59,48 @@
+     }
+ 
+     @Test
+-    fun `GIVEN unsupported locale WHEN pocket sponsored stories feature enabled check is invoked THEN return false`() {
+-        val locale = Locale.Builder().setLanguage("ro").setRegion("RO").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertFalse(ContentRecommendationsFeatureHelper.isPocketSponsoredStoriesFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported en-US locale WHEN pocket sponsored stories feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("en").setRegion("US").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isPocketSponsoredStoriesFeatureEnabled(testContext))
++    fun `GIVEN a locale upstream supports WHEN content recommendations check is invoked THEN return false`() {
++        for (tag in previouslySupportedLocales) {
++            setLocale(tag)
++
++            assertFalse(
++                "content recommendations must stay disabled in $tag",
++                ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext),
++            )
++        }
+     }
+ 
+     @Test
+-    fun `GIVEN supported en-CA locale WHEN pocket sponsored stories feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("en").setRegion("CA").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isPocketSponsoredStoriesFeatureEnabled(testContext))
++    fun `GIVEN a locale upstream supports WHEN pocket sponsored stories check is invoked THEN return false`() {
++        for (tag in previouslySupportedLocales) {
++            setLocale(tag)
++
++            assertFalse(
++                "pocket sponsored stories must stay disabled in $tag",
++                ContentRecommendationsFeatureHelper.isPocketSponsoredStoriesFeatureEnabled(testContext),
++            )
++        }
+     }
+ 
+     @Test
+     fun `GIVEN unsupported locale WHEN content recommendations feature enabled check is invoked THEN return false`() {
+-        val locale = Locale.Builder().setLanguage("ro").setRegion("RO").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
++        setLocale("ro-RO")
+ 
+         assertFalse(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+     }
+ 
+     @Test
+-    fun `GIVEN supported fr locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("fr").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported fr-FR locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("fr").setRegion("FR").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported es locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("es").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported es-ES locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("es").setRegion("ES").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported it locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("it").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported it-IT locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("it").setRegion("IT").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported en locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("en").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported en-CA locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("en").setRegion("CA").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported en-GB locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("en").setRegion("GB").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported en-US locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("en").setRegion("US").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported de locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("de").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported de-DE locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("de").setRegion("DE").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-    }
+-
+-    @Test
+-    fun `GIVEN supported de-AT locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("de").setRegion("AT").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
++    fun `GIVEN unsupported locale WHEN pocket sponsored stories feature enabled check is invoked THEN return false`() {
++        setLocale("ro-RO")
+ 
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
++        assertFalse(ContentRecommendationsFeatureHelper.isPocketSponsoredStoriesFeatureEnabled(testContext))
+     }
+ 
+-    @Test
+-    fun `GIVEN supported de-CH locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locale = Locale.Builder().setLanguage("de").setRegion("CH").build()
+-        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-
+-        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
++    private fun setLocale(languageTag: String) {
++        LocaleManager.setNewLocale(
++            testContext,
++            localeUseCase = null,
++            locale = Locale.forLanguageTag(languageTag),
++        )
+     }
+ }
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/PocketMiddlewareTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/PocketMiddlewareTest.kt
+@@ -6,6 +6,7 @@
+ 
+ import androidx.datastore.core.DataStore
+ import io.mockk.coVerify
++import io.mockk.every
+ import io.mockk.mockk
+ import io.mockk.spyk
+ import io.mockk.verify
+@@ -20,6 +21,7 @@
+ import mozilla.components.support.test.middleware.CaptureActionsMiddleware
+ import mozilla.components.support.utils.RunWhenReadyQueue
+ import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
+ import org.junit.Assert.assertTrue
+ import org.junit.Test
+ import org.mozilla.fenix.components.AppStore
+@@ -33,6 +35,7 @@
+ import org.mozilla.fenix.home.pocket.PocketImpression
+ import org.mozilla.fenix.home.pocket.PocketRecommendedStoriesCategory
+ import org.mozilla.fenix.home.pocket.PocketRecommendedStoriesSelectedCategory
++import org.mozilla.fenix.utils.Settings
+ 
+ class PocketMiddlewareTest {
+ 
+@@ -298,8 +301,15 @@
+         }
+     }
+ 
++    // LibreWolf (LW-M4-10, tests by LW-M4-14): upstream asserted that StartAction
++    // schedules the two periodic WorkManager refreshes. A periodic job runs its first
++    // pass immediately, so those two calls were the whole of the first-run traffic to
++    // merino.services.mozilla.com and the MARS ad server -- they are deleted, not
++    // gated, and this test is inverted rather than dropped. FakePocketSettings()
++    // deliberately keeps its `true` defaults: the assertion is that the schedulers stay
++    // unreachable even when the settings say to schedule them.
+     @Test
+-    fun `GIVEN pocket settings are true WHEN App is Started THEN start the Pocket workers`() = runTest {
++    fun `GIVEN pocket settings are true WHEN App is Started THEN still do not start the Pocket workers`() = runTest {
+         val pocketService: PocketStoriesService = mockk(relaxed = true)
+         val pocketMiddleware = PocketMiddleware(
+             lazy { pocketService },
+@@ -312,12 +322,32 @@
+         pocketMiddleware.invoke(mockk(relaxed = true), {}, AppAction.AppLifecycleAction.StartAction)
+         testScheduler.advanceUntilIdle()
+ 
+-        verify {
++        verify(exactly = 0) {
+             pocketService.startPeriodicContentRecommendationsRefresh()
+             pocketService.startPeriodicSponsoredContentsRefresh()
+         }
+     }
+ 
++    // LibreWolf (LW-M4-14): upstream has no test for SettingsBackedPocketSettings, and
++    // it is the second path into the same two fetches -- its
++    // showPocketRecommendationsFeature used to OR in
++    // settings.privateModeAndStoriesEntryPointEnabled, which the FML enables on the
++    // developer and nightly channels, so the refreshes would have been scheduled with
++    // both user-facing prefs off. Both overrides are now constant false; a mock that
++    // answers true to all three backing settings is what pins that.
++    @Test
++    fun `GIVEN the backing settings are all true THEN SettingsBackedPocketSettings reports both features off`() {
++        val settings = mockk<Settings>()
++        every { settings.showPocketRecommendationsFeature } returns true
++        every { settings.showPocketSponsoredStories } returns true
++        every { settings.privateModeAndStoriesEntryPointEnabled } returns true
++
++        val pocketSettings = SettingsBackedPocketSettings(settings)
++
++        assertFalse(pocketSettings.showPocketRecommendationsFeature)
++        assertFalse(pocketSettings.showPocketSponsoredStories)
++    }
++
+     @Test
+     fun `GIVEN pocket settings are false WHEN App is Started THEN don't start the Pocket workers`() = runTest {
+         val pocketService: PocketStoriesService = mockk(relaxed = true)
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddlewareTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddlewareTest.kt
+@@ -7,7 +7,6 @@
+ import mozilla.components.support.test.assertUnused
+ import org.junit.Assert.assertEquals
+ import org.junit.Assert.assertFalse
+-import org.junit.Assert.assertTrue
+ import org.junit.Test
+ import org.mozilla.experiments.nimbus.NimbusMessagingHelperInterface
+ import org.mozilla.fenix.components.AppStore
+@@ -16,8 +15,6 @@
+ import org.mozilla.fenix.nimbus.FakeNimbusEventStore
+ import org.mozilla.fenix.nimbus.RecordEventMode.CompleteSuccessfully
+ import org.mozilla.fenix.nimbus.RecordEventMode.ThrowException
+-import org.mozilla.fenix.reviewprompt.ReviewPromptState.Eligible.Type
+-import kotlin.test.assertIs
+ 
+ class ReviewPromptMiddlewareTest {
+ 
+@@ -51,93 +48,63 @@
+         ),
+     )
+ 
++    // LibreWolf (LW-M4-10, tests by LW-M4-14): handleReviewPromptCheck no longer
++    // evaluates a trigger at all -- it dispatches DoNotShowReviewPrompt and returns, so
++    // neither ShowPlayStorePrompt nor ShowCustomReviewPrompt can reach
++    // ShowReviewPromptBinding and PlayStoreReviewPromptController is unreachable. Ten
++    // upstream tests asserted the trigger arithmetic: eight that a satisfied trigger
++    // makes the app Eligible (for the Play Store or the custom prompt), and two that
++    // evaluation short-circuits. There is no arithmetic left to test, so they are
++    // replaced by the six below -- two "no criterion is evaluated at all" (which also
++    // covers the short-circuit pair: nothing is evaluated, so nothing continues past
++    // anything), and four "every criterion satisfied, still not eligible", one per
++    // combination of trigger mode and custom-prompt setting.
++    //
++    // The JEXL half is pinned by construction rather than by an assertion: the
++    // createJexlHelper fake above answers assertUnused() to every method, so an
++    // evaluated expression fails the test wherever it happens.
+     @Test
+-    fun `GIVEN new criteria are enabled WHEN check requested THEN main and sub-criteria are checked`() {
++    fun `GIVEN new criteria are enabled WHEN check requested THEN no criteria are evaluated`() {
+         shouldUseNewTriggerCriteria = true
+ 
+-        var mainCriteriaChecked = false
+-        var subCriteriaChecked = false
+-        var legacyCriteriaChecked = false
+-        mainCriteria = sequence {
+-            mainCriteriaChecked = true
+-            yield(true)
+-        }
+-        subCriteria = sequence {
+-            subCriteriaChecked = true
+-            yield(true)
+-        }
+-        legacyCriteria = sequence {
+-            legacyCriteriaChecked = true
+-            yield(true)
+-        }
+-
+-        store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
+-
+-        assertTrue(mainCriteriaChecked)
+-        assertTrue(subCriteriaChecked)
+-        assertFalse(legacyCriteriaChecked)
++        assertNoCriteriaEvaluated()
+     }
+ 
+     @Test
+-    fun `GIVEN new criteria are disabled WHEN check requested THEN legacy criteria are checked`() {
++    fun `GIVEN new criteria are disabled WHEN check requested THEN no criteria are evaluated`() {
+         shouldUseNewTriggerCriteria = false
+ 
+-        var mainCriteriaChecked = false
+-        var subCriteriaChecked = false
+-        var legacyCriteriaChecked = false
+-        mainCriteria = sequence {
+-            mainCriteriaChecked = true
+-            yield(true)
+-        }
+-        subCriteria = sequence {
+-            subCriteriaChecked = true
+-            yield(true)
+-        }
+-        legacyCriteria = sequence {
+-            legacyCriteriaChecked = true
+-            yield(true)
+-        }
+-
+-        store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
+-
+-        assertFalse(mainCriteriaChecked)
+-        assertFalse(subCriteriaChecked)
+-        assertTrue(legacyCriteriaChecked)
++        assertNoCriteriaEvaluated()
+     }
+ 
+     @Test
+-    fun `GIVEN main criteria satisfied AND one of sub-criteria satisfied WHEN check requested THEN sets eligible`() {
++    fun `GIVEN every main and sub-criterion satisfied WHEN check requested THEN sets not eligible`() {
++        shouldUseNewTriggerCriteria = true
+         mainCriteria = sequenceOf(true)
+-        subCriteria = sequenceOf(false, true, false)
++        subCriteria = sequenceOf(true)
++        legacyCriteria = sequenceOf(true)
+ 
+         store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
+ 
+-        assertIs<ReviewPromptState.Eligible>(store.state.reviewPrompt)
++        assertEquals(
++            AppState(reviewPrompt = ReviewPromptState.NotEligible),
++            store.state,
++        )
+     }
+ 
+     @Test
+-    fun `GIVEN main criteria satisfied AND first sub-criteria satisfied WHEN check requested THEN other sub-criteria are not checked`() {
++    fun `GIVEN every legacy criterion satisfied WHEN check requested THEN sets not eligible`() {
++        shouldUseNewTriggerCriteria = false
+         mainCriteria = sequenceOf(true)
+-        var continuedPastFirstSatisfied = false
+-        subCriteria = sequence {
+-            yield(true)
+-            continuedPastFirstSatisfied = true
+-            yield(true)
+-        }
+-
+-        store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
+-
+-        assertFalse(continuedPastFirstSatisfied)
+-    }
+-
+-    @Test
+-    fun `GIVEN no main criteria AND one of sub-criteria satisfied WHEN check requested THEN sets eligible`() {
+-        mainCriteria = emptySequence()
+-        subCriteria = sequenceOf(false, true, false)
++        subCriteria = sequenceOf(true)
++        legacyCriteria = sequenceOf(true)
+ 
+         store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
+ 
+-        assertIs<ReviewPromptState.Eligible>(store.state.reviewPrompt)
++        assertEquals(
++            AppState(reviewPrompt = ReviewPromptState.NotEligible),
++            store.state,
++        )
+     }
+ 
+     @Test
+@@ -180,24 +147,6 @@
+     }
+ 
+     @Test
+-    fun `GIVEN one of main criteria not satisfied WHEN check requested THEN other criteria not checked`() {
+-        var continuedPastFirstNotSatisfied = false
+-        mainCriteria = sequence {
+-            yield(false)
+-            continuedPastFirstNotSatisfied = true
+-            yield(false)
+-        }
+-        subCriteria = sequence {
+-            continuedPastFirstNotSatisfied = true
+-            yield(false)
+-        }
+-
+-        store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
+-
+-        assertFalse(continuedPastFirstNotSatisfied)
+-    }
+-
+-    @Test
+     fun `GIVEN check ran WHEN check requested again THEN does nothing`() {
+         mainCriteria = sequenceOf()
+         subCriteria = sequenceOf()
+@@ -254,7 +203,7 @@
+     }
+ 
+     @Test
+-    fun `GIVEN custom prompt enabled AND criteria satisfied WHEN check requested THEN sets eligible for Custom prompt`() {
++    fun `GIVEN custom prompt enabled AND criteria satisfied WHEN check requested THEN sets not eligible`() {
+         shouldShowCustomPrompt = true
+         mainCriteria = sequenceOf(true)
+         subCriteria = sequenceOf(true)
+@@ -262,13 +211,13 @@
+         store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
+ 
+         assertEquals(
+-            AppState(reviewPrompt = ReviewPromptState.Eligible(Type.Custom)),
++            AppState(reviewPrompt = ReviewPromptState.NotEligible),
+             store.state,
+         )
+     }
+ 
+     @Test
+-    fun `GIVEN custom prompt disabled AND criteria satisfied WHEN check requested THEN sets eligible for Play Store prompt`() {
++    fun `GIVEN custom prompt disabled AND criteria satisfied WHEN check requested THEN sets not eligible`() {
+         shouldShowCustomPrompt = false
+         mainCriteria = sequenceOf(true)
+         subCriteria = sequenceOf(true)
+@@ -276,37 +225,33 @@
+         store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
+ 
+         assertEquals(
+-            AppState(reviewPrompt = ReviewPromptState.Eligible(Type.PlayStore)),
+-            store.state,
+-        )
+-    }
+-
+-    @Test
+-    fun `GIVEN new criteria are disabled AND custom prompt enabled AND criteria satisfied WHEN check requested THEN sets eligible for Custom prompt`() {
+-        shouldUseNewTriggerCriteria = false
+-        shouldShowCustomPrompt = true
+-        legacyCriteria = sequenceOf(true)
+-
+-        store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
+-
+-        assertEquals(
+-            AppState(reviewPrompt = ReviewPromptState.Eligible(Type.Custom)),
++            AppState(reviewPrompt = ReviewPromptState.NotEligible),
+             store.state,
+         )
+     }
+ 
+-    @Test
+-    fun `GIVEN new criteria are disabled AND custom prompt disabled AND criteria satisfied WHEN check requested THEN sets eligible for Play Store prompt`() {
+-        shouldUseNewTriggerCriteria = false
+-        shouldShowCustomPrompt = false
+-        legacyCriteria = sequenceOf(true)
++    private fun assertNoCriteriaEvaluated() {
++        var mainCriteriaChecked = false
++        var subCriteriaChecked = false
++        var legacyCriteriaChecked = false
++        mainCriteria = sequence {
++            mainCriteriaChecked = true
++            yield(true)
++        }
++        subCriteria = sequence {
++            subCriteriaChecked = true
++            yield(true)
++        }
++        legacyCriteria = sequence {
++            legacyCriteriaChecked = true
++            yield(true)
++        }
+ 
+         store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
+ 
+-        assertEquals(
+-            AppState(reviewPrompt = ReviewPromptState.Eligible(Type.PlayStore)),
+-            store.state,
+-        )
++        assertFalse("main criteria were evaluated", mainCriteriaChecked)
++        assertFalse("sub-criteria were evaluated", subCriteriaChecked)
++        assertFalse("legacy criteria were evaluated", legacyCriteriaChecked)
+     }
+ 
+     private fun assertNoOp(action: ReviewPromptAction) {

@@ -1,0 +1,2889 @@
+# LibreWolf no-glean.patch  (Android)
+# Owner: LW-M4-01 ("Remove Glean telemetry from the Fenix layer")
+#
+#
+# Scope, and why this is a removal rather than a flag
+# ---------------------------------------------------
+# Gecko's own telemetry is already gone: patches/disable-data-reporting-common.patch
+# plus patches/android/disable-data-reporting-android.patch (LW-M1-02, which had to
+# flip mobile/android/moz.configure's MOZ_SERVICES_HEALTHREPORT implication the
+# opposite way round from browser/). What is left is Fenix's Kotlin-side Glean
+# integration, which has its own upload path and sits entirely outside Gecko.
+#
+# The Glean *SDK* cannot be removed. `org.mozilla.telemetry:glean` is a binary Maven
+# artefact (67.3.2, gradle/libs.versions.toml:88); 150 files under
+# mobile/android/fenix/app/src/main plus 1,112 generated org.mozilla.fenix.GleanMetrics.*
+# classes record into it, the glean-gradle-plugin generates those from metrics.yaml,
+# and Fenix's own unit tests assert on Glean's testGetValue(). Deleting the dependency
+# or stubbing the API means rewriting thousands of call sites every four weeks, and
+# LW-M2-01 already established that --enable-geckoview-lite (which does drop Glean
+# from GeckoView) breaks the APK. So `mozilla.telemetry.glean.**` stays in the dex:
+# 684 classes, and the string "https://incoming.telemetry.mozilla.org"
+# (Configuration.DEFAULT_TELEMETRY_ENDPOINT, one occurrence, in classes36.dex) with
+# them -- unchanged by this patch, in both cases. 140 of the 150 main-source files
+# still name Glean afterwards. That is said plainly rather than hidden, because
+# anyone who greps the APK or the tree will find it and should know why.
+#
+# What this patch removes is every piece of machinery that turns those classes into
+# network traffic, at source level, in the places this tree owns:
+#
+#   1. the only call to Glean.initialize()
+#   2. the two services whose whole purpose is to submit pings
+#   3. the in-tree HTTP transport that carries a ping
+#   4. the exported activity that lets any app on the device trigger an upload
+#   5. the debug UI that submits pings on demand -- which, once (1) is gone, would
+#      also freeze the app; see "the hang this patch had to fix"
+#
+# Item 1 is the load-bearing one and it is not a flag. It is not
+# `uploadEnabled = false`, not `setCollectionEnabled(false)`, not a pref: the code
+# that starts Glean does not exist any more, and neither does the file it lived in.
+#
+#
+# Why "never initialize" is sufficient on Android, and how that was checked
+# ------------------------------------------------------------------------
+# On Android the Glean Kotlin SDK is the only thing that ever gives glean-core an
+# uploader. Two facts, both from this tree:
+#
+#   * toolkit/components/glean/src/init/mod.rs:67-87 -- the `target_os = "android"`
+#     arm of fog_init(). Its own comment reads "This should only be called in test
+#     scenarios. In normal use Glean should be initialized and controlled by the
+#     Glean Kotlin SDK", and it passes `uploader = None`.
+#   * third_party/rust/glean/src/lib.rs:101-108 -- with cfg.uploader None the Rust
+#     wrapper falls back to net::HttpUploader, and
+#     third_party/rust/glean/src/net/http_uploader.rs:17-21 shows that type is a stub
+#     which logs "TODO bug 1675468" and returns http_status(200) without opening a
+#     socket.
+#
+# So even the shutdown-time fog_init() that FOG::GetSingleton() performs when
+# telemetry.fog.init_on_shutdown is true (toolkit/components/glean/xpcom/FOG.cpp:100-115)
+# has no way to send anything. The real uploader is Kotlin:
+# GleanInternalAPI.initialize() sets Glean.httpClient from Configuration.httpClient,
+# glean-core hands ping tasks back through OnGleanEventsImpl.triggerUpload, that
+# enqueues mozilla.telemetry.glean.scheduler.PingUploadWorker, and the worker calls
+# BaseUploader.doUpload. With no initialize() the chain is never armed: no uploader,
+# no MetricsPingScheduler, no GleanLifecycleObserver, no WorkManager job. Recording
+# calls in the 150 files that remain go through glean-core's dispatcher, which queues
+# pre-init tasks (third_party/rust/glean-core/src/dispatcher/mod.rs:141-143) and
+# never flushes them, because flush_init() only runs from glean_initialize.
+#
+# That chain is not an argument from source reading alone. The pre-patch build's own
+# logcat walks it, class by class, 63 times in a 14-minute run:
+#
+#   D FenixApplication: Initializing Glean (uploadEnabled=true})
+#   I glean/Glean: Registering pings for org.mozilla.fenix.GleanMetrics.Pings
+#   I glean/MetricsPingSched: The application just updated. Send metrics ping now.
+#   D WM-WorkerWrapper: Starting work for mozilla.telemetry.glean.scheduler.PingUploadWorker
+#   D glean/ConceptFetchHttpUploader: Submitting ping to:
+#       https://incoming.telemetry.mozilla.org/submit/org-mozilla-fenix-debug/nimbus-targeting-context/1/...
+#     at mozilla.components.service.glean.net.ConceptFetchHttpUploader.upload(ConceptFetchHttpUploader.kt:81)
+#     at mozilla.telemetry.glean.net.BaseUploader.doUpload$glean_release(BaseUploader.kt:22)
+#     at mozilla.telemetry.glean.scheduler.PingUploadWorker.doWork(PingUploadWorker.kt:157)
+#
+# Every named class is one this patch either deletes or unhooks.
+#
+#
+# The hang this patch had to fix
+# ------------------------------
+# Removing the initialize() call is not free. glean-core exports four functions that
+# take the synchronous path -- block_on_dispatcher() and then core::with_glean(),
+# which is `global_glean().expect("Global Glean object not initialized")`
+# (third_party/rust/glean-core/src/core/mod.rs:81-97). With Glean uninitialized,
+# block_on_queue() posts its task to the *unbounded* queue
+# (dispatcher/mod.rs:158-176) that the worker only drains after flush_init, so the
+# calling thread blocks for ever. Two of the four are called from the Fenix debug
+# drawer, on the UI thread:
+#
+#   FenixOverlay.kt:104-105                       Glean.getLogPings(), Glean.getDebugViewTag()
+#   DefaultGleanDebugToolsStorage.getPingTypes()  Glean.getRegisteredPingNames()
+#
+# The debug drawer is not nightly-only: SecretSettingsFragment.kt:298 toggles it and
+# Secret Settings is reachable on any channel by tapping the About-page logo. So
+# deleting the initialize() call *without* deleting the Glean debug tools would ship
+# an ANR on a screen users can reach. That is why this patch also removes the whole
+# org.mozilla.fenix.debugsettings.gleandebugtools package, its debug-drawer route and
+# action, its nav-graph fragment and action, its BrowserDirection value and the
+# `about:glean` address-bar command. Those exist only to submit pings to Mozilla's
+# DebugView; removing them is not collateral damage. The dead
+# "Custom Glean server URL" field in Secret Settings and its two helper functions in
+# ext/Configuration.kt go the same way -- a privacy build should not ship a settings
+# row that claims to point telemetry somewhere when there is no telemetry to point.
+#
+#
+# The exported activity
+# ---------------------
+# The Glean AAR ships its own AndroidManifest.xml declaring
+#   <activity android:name="mozilla.telemetry.glean.debug.GleanDebugActivity"
+#             android:exported="true" android:launchMode="singleInstance" />
+# and the manifest merger folds it into ours. Verified with `aapt2 dump xmltree` on
+# the pre-patch APK, where it appears in the merged manifest with exported=true --
+# and confirmed by driving it: on the pre-patch build
+#   am start -n org.mozilla.fenix.debug/mozilla.telemetry.glean.debug.GleanDebugActivity \
+#            --es sendPing baseline --es debugViewTag lwm401
+# returned "Starting: Intent {...}" and was followed by fresh DNS traffic for
+# incoming.telemetry.mozilla.org. Any app on the device, or anyone with adb, could do
+# that. This patch removes the activity from the merged manifest with
+# tools:node="remove" -- the mechanism the file already uses for
+# WorkManagerInitializer and EmojiCompatInitializer. The class is inside the binary
+# AAR and stays in the dex; what goes away is the ability to launch it.
+#
+#
+# The in-tree transport
+# ---------------------
+# Fenix's uploader was mozilla.components.service.glean.net.ConceptFetchHttpUploader,
+# from the in-tree Android-Components module :components:service-glean. Dropping the
+# single `implementation project(':components:service-glean')` line from
+# mobile/android/fenix/app/build.gradle removes all six of its classes from the APK.
+# The component's own sources are deliberately left alone: mobile/android/focus-android
+# and three android-components samples also depend on it, none of them is built here
+# (assets/mozconfig.android sets --enable-android-subproject=fenix), and breaking a
+# subproject we never compile would be a trap for whoever compiles it next. Glean's
+# own HttpURLConnectionUploader stays in the AAR, but it is only ever constructed by
+# Configuration's default argument and nothing in the app constructs a Configuration
+# any more.
+#
+#
+# What this patch does NOT do, and who owns it
+# --------------------------------------------
+#   * mozilla.components.lib.crash.service.GleanCrashReporterService stays. It records
+#     CrashMetrics and submits Pings.crash, both dead while Glean is uninitialized,
+#     but the crash-reporter wiring in Analytics.kt belongs to LW-M4-04 ("Remove the
+#     Socorro crash reporter and its upload path"). Two patches editing the same
+#     constructor call would collide; this one stops at the Glean boundary.
+#   * org.mozilla.fenix.components.metrics.ActivationPing is left in place and now has
+#     no caller at all (its only one was GleanMetricsService.start()). It reaches for
+#     a Google advertising id, so it belongs to LW-M4-05 ("Strip Play Integrity,
+#     Firebase and push messaging"). It cannot fire: nothing constructs it.
+#   * mozilla.appservices.errorsupport.RustComponentsErrorTelemetry.register() calls
+#     Glean.registerPings and is the ONE remaining call site into the Glean API from
+#     outside the SDK in the patched dex. It is NOT dead code, and an earlier draft of
+#     this header said it was -- the patched build's own logcat corrected that:
+#       I glean/Glean: Registering pings for org.mozilla.appservices.errorsupport.GleanMetrics.Pings
+#     The chain is FenixApplication.setupMegazordInitial() ->
+#     AppServicesInitializer.init() (components/support/appservices/.../AppServicesInitializer.kt:28)
+#     -> RustComponentsInitializer.init()
+#     (third_party/application-services/components/init_rust_components/.../RustComponentsInitializer.kt:17)
+#     -> register(). It runs at every startup and it is harmless: register_ping_type()
+#     in third_party/rust/glean-core/src/lib.rs:944-961 branches on
+#     `was_initialize_called() && core::global_glean().is_some()` and, with Glean
+#     uninitialized, pushes onto PRE_INIT_PING_REGISTRATION instead of registering
+#     anything with a live Glean. The component's only other entry point,
+#     submitErrorPing(), is reached from reportRustError() and ends in
+#     Pings.rustComponentErrors.submit(), which is dispatched and therefore queued
+#     pre-init for ever. Registering a ping type cannot upload anything, and this
+#     patch deliberately does not touch third_party/application-services.
+#   * OnboardingFragment.startGlean() keeps its now-misleading name. Renaming it means
+#     touching the onboarding composables, and LW-M4-10 ("Remove the Fenix first-run
+#     flow") owns that file's shape. Its body no longer mentions Glean.
+#   * The Adjust SDK is LW-M4-02's; it is a separate attribution channel that does not
+#     go through Glean.
+#   * BuildConfig.TELEMETRY is *not* what this patch relies on, and anyone measuring
+#     this work has to know why. It is false on the debug build type
+#     (mobile/android/fenix/app/build.gradle:406), so on the debug APK the smoke
+#     harness tests, MetricController.create() returns DebugMetricController and no
+#     MetricsService ever starts -- GleanMetricsService.start() was already never
+#     called there. Glean.initialize() was called anyway: FeatureFlags.kt:36 makes
+#     onboardingFeatureEnabled false on debug, so FenixApplication.maybeInitializeGlean()
+#     ran at every start with Settings.isTelemetryEnabled defaulting to true
+#     (utils/Settings.kt:618-621). That is why the pre-patch capture below does reach
+#     incoming.telemetry.mozilla.org, and why the measurement is meaningful on a debug
+#     build at all.
+#
+#
+# Track, ordering and rebase
+# --------------------------
+# All 39 files are byte-identical between firefox-153.0.4 (./version) and
+# firefox-153.0esr (./version.android) -- checked by extracting exactly these paths
+# from firefox-153.0esr.source.tar.xz and cmp'ing all 39. The same hunks apply to
+# either tree.
+#
+# **This patch has a real ordering constraint and it is not optional.**
+# patches/android/no-adjust.patch (LW-M4-02) touches five of the same files, and in
+# two of them the hunks interleave:
+#
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
+#
+# no-adjust removes the AdjustMetricsService/InstallReferrerMetricsService imports and
+# list entries that sit immediately around the Glean ones, and the
+# rtamoAttributionHandler line that was this patch's trailing context in
+# OnboardingFragment. Measured, not guessed: generated against the pristine tree, this
+# patch's three Analytics.kt hunks and one OnboardingFragment.kt hunk are REJECTED
+# after no-adjust, and fuzz does not rescue them because the missing lines are context
+# on both sides. The hunks below are therefore in **post-no-adjust coordinates**, which
+# matches the list order in assets/patches/android.txt (no-adjust is listed first).
+# Applying this patch to a tree without no-adjust will reject those four hunks. The
+# other three shared files (app/build.gradle, AndroidManifest.xml, FenixApplication.kt)
+# are in disjoint regions and only shift by an offset.
+#
+# The whole android list, in list order, was applied to a freshly extracted tree with
+# `./scripts/check-patchfail.sh --targets=android --use-desktop-tarball`: exit 0, all
+# patches applied, no rejects. Applying this patch alone to a mini tree carrying
+# no-adjust reproduced the intended result byte for byte, and GNU patch really deletes
+# the 20 removed files rather than leaving them empty (checked with `[ -e ]`, because
+# `patch -p1` is invoked without -E and only removes empty output files when it can
+# read a deletion from the headers -- these hunks carry `deleted file mode` and
+# `+++ /dev/null`, and it does).
+#
+# Rebase notes -- the fragile parts, in the order they will break:
+#   * the four exact-text removals in FenixApplication.kt, OnboardingFragment.kt and
+#     Analytics.kt are the only places Glean is started or its services registered. If
+#     a rebase drops one, do NOT re-check with grep. Re-run the dexdump scan described
+#     under Evidence: the question is whether any class outside
+#     mozilla/telemetry/glean/** still invokes Glean.initialize.
+#   * the interleaving with no-adjust above. If either patch is regenerated, both
+#     need re-checking together.
+#   * 30 imports had to go with the code that used them, and the compiler will NOT
+#     catch a leftover one. Every KotlinCompile task in this tree sets
+#     allWarningsAsErrors
+#     (mobile/android/gradle/plugins/conventions/.../ProjectPlugin.kt:229-232), which
+#     is easy to mistake for cover -- it is not: an intermediate build of this patch
+#     compiled `fenix:assembleDebug` to BUILD SUCCESSFUL while carrying eight unused
+#     imports, because kotlinc has no unused-import diagnostic at all. `mach gradle
+#     fenix:ktlint` is what catches them. One import that LOOKS unused must stay:
+#     androidx.compose.runtime.getValue in FenixOverlay.kt, the operator import that
+#     `by remember` needs.
+#   * if upstream adds a caller of Glean.getLogPings, getDebugViewTag,
+#     getRegisteredPingNames or getDebugViewTag from product code, it will hang. Those
+#     are the only synchronous glean-core entry points reachable from Kotlin without a
+#     was_initialize_called() guard.
+#
+#
+# Evidence
+# --------
+# Two APKs from the same tree, differing only by this patch, same fat GeckoView AAR
+# and same MOZ_BUILD_DATE, both produced with `scripts/android-apk.sh --skip-gecko`
+# (Gradle only -- LW-M5-02 established that Kotlin-layer work leaves libxul.so
+# untouched).
+#
+# 1. dexdump -d over all 36 classes*.dex, every invoke-* whose target is the Glean
+#    lifecycle/upload API, attributed to the class it appears in:
+#      before: 35 call sites from outside mozilla/telemetry/glean/**, among them
+#              GleanHelperKt -> Glean.initialize / applyServerKnobsConfig,
+#              GleanMetricsService -> Glean.setCollectionEnabled,
+#              DefaultGleanDebugToolsStorage -> submitPingByName,
+#              FenixOverlayKt -> Glean.getLogPings, and 14 inside
+#              ConceptFetchHttpUploader
+#      after:  1 -- RustComponentsErrorTelemetry -> Glean.registerPings, the vendored
+#              app-services call analysed above (it does run; it cannot upload)
+#
+# 2. dex class_defs table (the real table, not a strings pass):
+#      mozilla.components.service.glean.*                        6 -> 0
+#      org.mozilla.fenix.components.GleanHelperKt                gone
+#      org.mozilla.fenix.components.metrics.GleanMetricsService  gone
+#      GleanUsageReporting / GleanUsageReportingMetricsService /
+#        GleanUsageReportingLifecycleObserver / GleanProfileId*  gone
+#      org.mozilla.fenix.debugsettings.gleandebugtools.*         gone
+#      mozilla.telemetry.glean.**                                684 -> 684 (see above)
+#
+# 3. merged AndroidManifest.xml via `aapt2 dump xmltree`:
+#      GleanDebugActivity, exported=true, launchMode=3  ->  absent
+#
+# 4. A 14-minute run on a headless x86_64 emulator, capture taken at the virtual NIC
+#    with `emulator -tcpdump` (below the guest), covering: install, data wipe, first
+#    launch and 5 minutes idle; ten settings screens by deep link plus a
+#    uiautomator-driven visit to Settings > Data collection (confirmed on screen by
+#    "Send technical and interaction data", "Daily usage ping", "Allow feature
+#    studies"); six background/foreground cycles, which is what makes Glean submit a
+#    baseline ping; and finally the GleanDebugActivity forced-ping intents above.
+#    Same script, same phases, both builds.
+#
+#                                                        pre-patch   post-patch
+#      DNS questions for incoming.telemetry.mozilla.org        29           0
+#      logcat "Initializing Glean (uploadEnabled=true})"        2           0
+#      logcat "Submitting ping to https://incoming.tele..."    63           0
+#      logcat "Starting work for ...glean.scheduler.
+#              PingUploadWorker"                               21           0
+#      logcat lines from ConceptFetchHttpUploader            1638           0
+#      logcat lines with a glean/ tag                        1400           4
+#      am start GleanDebugActivity                        launched    "Activity
+#                                                                     class ...
+#                                                                     does not
+#                                                                     exist"
+#
+#    The 4 surviving glean/ lines on the patched build are two per process start:
+#    "glean/GleanCrashReporterService: No crashes to record" (lib-crash, LW-M4-04's)
+#    and "glean/Glean: Registering pings for
+#    org.mozilla.appservices.errorsupport.GleanMetrics.Pings" (the app-services call
+#    analysed above). Neither can assemble or send a ping.
+#
+#    The 63 pre-patch uploads were to
+#    /submit/org-mozilla-fenix-debug/{baseline x28, nimbus-targeting-context x14,
+#    health x9, events x9, addons x3}.
+#
+#    **Read this limitation before quoting the capture.** The reference host's
+#    resolver answers incoming.telemetry.mozilla.org with 0.0.0.0 -- it has a
+#    DNS-level blocklist -- so on this machine no ping upload can complete on ANY
+#    build, and the pcap contains no TLS ClientHello for that name even before the
+#    patch. What the capture measures is therefore the DNS question, which is a real
+#    outbound packet naming the endpoint, plus the app's own log of what it did with
+#    the answer. It does not, and on this network cannot, show a POST being refused.
+#    A run on an unfiltered network would strengthen it; the on-device evidence in (5)
+#    is what closes the gap here.
+#
+# 5. On-device state after the run, which does not depend on the network at all:
+#      pre-patch:   /data/data/org.mozilla.fenix.debug/glean_data/ exists with
+#                   client_id.txt, a 23 KB db/data.safe.bin and 29 assembled pings
+#                   queued in pending_pings/; logcat has 2 "Initializing Glean
+#                   (uploadEnabled=true)", 21 PingUploadWorker runs and 63
+#                   "Submitting ping to https://incoming.telemetry.mozilla.org/submit/
+#                   org-mozilla-fenix-debug/{baseline,nimbus-targeting-context,health,
+#                   events,addons}"
+#      post-patch:  no glean_data directory at all --
+#                   `ls /data/data/org.mozilla.fenix.debug/glean_data` returns
+#                   "No such file or directory". No client id, no database, no
+#                   pending pings. logcat: 0 "Initializing Glean", 0
+#                   PingUploadWorker runs, 0 "Submitting ping to", 0
+#                   ConceptFetchHttpUploader lines
+#
+#
+# 6. The gates, on the patched tree and the patched APK:
+#      ./scripts/android-smoke.sh --emulator --apk <patched>   exit 0, 7/7 checks
+#        (page-load-http, page-load-https, webgl [the L1 canary: shader, draw and
+#         readPixels gave [51,102,153,255]], video, getusermedia, extension,
+#         pref-dump). The app installs, browses, plays video and prompts for the
+#         camera with Glean gone, which is the "it still works" half.
+#      mach gradle fenix:ktlint                       BUILD SUCCESSFUL, 0 findings
+#        (this is the gate that catches an unused import; see the rebase note)
+#      mach gradle fenix:compileDebugUnitTestKotlin   BUILD SUCCESSFUL
+#      mach gradle fenix:compileDebugAndroidTestKotlin BUILD SUCCESSFUL
+#      mach gradle fenix:testDebugUnitTest --continue
+#        5579 tests, 90 failed -- and NONE of them is this patch's. Six classes
+#        fail, none of which this patch touches and none of which mentions Glean:
+#        SearchSuggestionsProvidersBuilderTest (70),
+#        ReviewPromptMiddlewareTriggerCriteriaTest (16),
+#        AutofillSettingsMiddlewareTest (1-3), RecordedNimbusContextTest (1),
+#        LensCameraFragmentTest (1), HomeSettingsFragmentTest (1). 87 of the 90
+#        are one root cause -- "UnsatisfiedLinkError: Unable to load library
+#        'megazord'" and the two UniffiLib NoClassDefFoundErrors that follow from
+#        it -- i.e. this container cannot load libmegazord.so into a JVM unit
+#        test. That is an infrastructure gap, not a code defect, and it is worth
+#        knowing before someone blames the next patch for it.
+#        Measured rather than assumed: the same six classes were run twice with
+#        the same command, once with these 39 files reverted to their pre-patch
+#        contents and once with the patch, 167 tests each time. Pre-patch: 91
+#        failures. Post-patch: 92. The set difference is entirely inside
+#        AutofillSettingsMiddlewareTest, whose failure is
+#        "NoClassDefFoundError: Could not initialize class
+#        mozilla.appservices.autofill.UniffiLib" and which moves in BOTH
+#        directions between runs (one test failed only pre-patch, two only
+#        post-patch) -- a static-initialiser flake of the same missing library,
+#        not a regression.
+#      the board's own verify line, run both ways so it cannot be vacuous:
+#        ./scripts/android-smoke.sh --network-capture | grep -c telemetry.mozilla.org
+#        pre-patch APK:  2   (two dns rows for incoming.telemetry.mozilla.org)
+#        post-patch APK: 0   (54 rows of stdout to grep, harness exit 0 both times)
+#      ./scripts/check-patchfail.sh                            exit 0
+#      ./scripts/check-patchfail.sh --targets=android --use-desktop-tarball  exit 0
+#      python3 scripts/check-patch-order.py                    exit 0
+#      python3 scripts/lint-patch-scope.py                     exit 0
+#      python3 docs/android/board.py --check|--check-scope|--check-cfg-split|
+#              --check-policies|--diff-mozconfig                all exit 0
+#
+diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
+--- a/mobile/android/fenix/app/build.gradle
++++ b/mobile/android/fenix/app/build.gradle
+@@ -512,7 +512,6 @@
+     implementation project(':components:service-digitalassetlinks')
+     implementation project(':components:service-firefox-accounts')
+     implementation project(":components:service-firefox-relay")
+-    implementation project(':components:service-glean')
+     implementation project(':components:service-location')
+     implementation project(':components:service-mars')
+     implementation project(':components:service-merino-manifest')
+diff --git a/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt b/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt
+--- a/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt
++++ b/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt
+@@ -7,18 +7,12 @@
+ package org.mozilla.fenix.helpers
+ 
+ import android.content.Intent
+-import android.os.Handler
+-import android.os.Looper
+-import android.os.StrictMode
+ import android.util.Log
+ import android.view.ViewConfiguration.getLongPressTimeout
+ import androidx.test.espresso.intent.rule.IntentsTestRule
+ import androidx.test.rule.ActivityTestRule
+ import mozilla.components.feature.sitepermissions.SitePermissionsRules
+-import mozilla.components.support.base.log.logger.Logger
+ import org.mozilla.fenix.HomeActivity
+-import org.mozilla.fenix.components.initializeGlean
+-import org.mozilla.fenix.ext.components
+ import org.mozilla.fenix.helpers.Constants.TAG
+ import org.mozilla.fenix.helpers.FeatureSettingsHelper.Companion.settings
+ import org.mozilla.fenix.helpers.TestHelper.appContext
+@@ -380,17 +374,5 @@
+     // this API so it can be fragile.
+     Log.i(TAG, "skipOnboardingBeforeLaunch: Trying to skip the onboarding before launching the app")
+     FenixOnboarding(appContext).finish()
+-    // As we are disabling the onboarding we need to initialize glean manually,
+-    // as it runs after the onboarding finishes
+-    Handler(Looper.getMainLooper()).post {
+-        appContext.components.strictMode.allowViolation(StrictMode::allowThreadDiskReads) {
+-            initializeGlean(
+-                applicationContext = appContext,
+-                logger = Logger(),
+-                isTelemetryUploadEnabled = appContext.components.settings.isTelemetryEnabled,
+-                client = appContext.components.core.client,
+-            )
+-        }
+-    }
+     Log.i(TAG, "skipOnboardingBeforeLaunch: Successfully skipped the onboarding before launching the app")
+ }
+diff --git a/mobile/android/fenix/app/src/main/AndroidManifest.xml b/mobile/android/fenix/app/src/main/AndroidManifest.xml
+--- a/mobile/android/fenix/app/src/main/AndroidManifest.xml
++++ b/mobile/android/fenix/app/src/main/AndroidManifest.xml
+@@ -804,6 +804,15 @@
+         <meta-data
+             android:name="firebase_analytics_collection_deactivated"
+             android:value="true" />
++        <!-- LibreWolf: GleanDebugActivity is declared exported and singleInstance by the Glean
++           - SDK's own AndroidManifest.xml, which the manifest merger would otherwise fold into
++           - ours. It turns an "am start" intent carrying the string extras sendPing and
++           - debugViewTag into a ping upload that any other app on the device can trigger.
++           - Take it out of the merged manifest. -->
++        <activity
++            android:name="mozilla.telemetry.glean.debug.GleanDebugActivity"
++            tools:node="remove" />
++
+         <!-- Removes the default Workmanager  initialization so that we can use on-demand initializer. -->
+         <provider
+             android:name="androidx.startup.InitializationProvider"
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/BrowserDirection.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/BrowserDirection.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/BrowserDirection.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/BrowserDirection.kt
+@@ -43,5 +43,4 @@
+     FromDownloadLanguagesPreferenceFragment(R.id.downloadLanguagesPreferenceFragment),
+     FromMenuDialogFragment(R.id.menuDialogFragment),
+     FromWebCompatReporterFragment(R.id.webCompatReporterFragment),
+-    FromGleanDebugToolsFragment(R.id.gleanDebugToolsFragment),
+ }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+@@ -30,9 +30,6 @@
+ import org.mozilla.fenix.ReleaseChannel
+ import org.mozilla.fenix.components.metrics.DefaultMetricsStorage
+ import org.mozilla.fenix.components.metrics.FirstSessionMetricsService
+-import org.mozilla.fenix.components.metrics.GleanMetricsService
+-import org.mozilla.fenix.components.metrics.GleanProfileIdPreferenceStore
+-import org.mozilla.fenix.components.metrics.GleanUsageReportingMetricsService
+ import org.mozilla.fenix.components.metrics.MetricController
+ import org.mozilla.fenix.components.metrics.MetricsStorage
+ import org.mozilla.fenix.crashes.CrashFactCollector
+@@ -167,9 +164,7 @@
+     val metrics: MetricController by lazyMonitored {
+         MetricController.create(
+             listOf(
+-                GleanMetricsService(context),
+                 FirstSessionMetricsService(context),
+-                GleanUsageReportingMetricsService(gleanProfileIdStore = GleanProfileIdPreferenceStore(context)),
+             ),
+             isDataTelemetryEnabled = { settings.isTelemetryEnabled },
+             isMarketingDataTelemetryEnabled = {
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/GleanHelper.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/GleanHelper.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/GleanHelper.kt
++++ /dev/null
+@@ -1,66 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components
+-
+-import android.content.Context
+-import mozilla.components.concept.fetch.Client
+-import mozilla.components.service.glean.net.ConceptFetchHttpUploader
+-import mozilla.components.support.base.log.logger.Logger
+-import mozilla.telemetry.glean.Glean
+-import mozilla.telemetry.glean.config.Configuration
+-import org.mozilla.fenix.BuildConfig
+-import org.mozilla.fenix.Config
+-import org.mozilla.fenix.GleanMetrics.GleanBuildInfo
+-import org.mozilla.fenix.GleanMetrics.Pings
+-import org.mozilla.fenix.ext.getCustomGleanServerUrlIfAvailable
+-import org.mozilla.fenix.ext.setCustomEndpointIfAvailable
+-import org.mozilla.fenix.nimbus.FxNimbus
+-
+-/**
+- * Helper function to initialize Glean.
+- *
+- * [applicationContext] the application context required for glean initialization.
+- * [logger] the logger to send logs about initializing Glean.
+- * [isTelemetryUploadEnabled] indicate if telemetry should be enabled to be uploaded.
+- * [client] an instance of [Client] used to upload metrics.
+- */
+-fun initializeGlean(applicationContext: Context, logger: Logger, isTelemetryUploadEnabled: Boolean, client: Client) {
+-    logger.debug("Initializing Glean (uploadEnabled=$isTelemetryUploadEnabled})")
+-
+-    // for performance reasons, this is only available in Nightly or Debug builds
+-    val customEndpoint = if (Config.channel.isNightlyOrDebug) {
+-        // for testing, if custom glean server url is set in the secret menu, use it to initialize Glean
+-        getCustomGleanServerUrlIfAvailable(applicationContext)
+-    } else {
+-        null
+-    }
+-
+-    val configuration = Configuration(
+-        channel = BuildConfig.BUILD_TYPE,
+-        httpClient = ConceptFetchHttpUploader(
+-            lazy(LazyThreadSafetyMode.NONE) { client },
+-            supportsOhttp = true,
+-        ),
+-        enableEventTimestamps = FxNimbus.features.glean.value().enableEventTimestamps,
+-        delayPingLifetimeIo = FxNimbus.features.glean.value().delayPingLifetimeIo,
+-        pingLifetimeThreshold = FxNimbus.features.glean.value().pingLifetimeThreshold,
+-        pingLifetimeMaxTime = FxNimbus.features.glean.value().pingLifetimeMaxTime,
+-    )
+-
+-    // Since Glean v63.0.0, custom pings need to be registered prior to Glean init
+-    // in order to ensure they are enabled and able to collect data.
+-    // See https://bugzilla.mozilla.org/1934931 for more information.
+-    Glean.registerPings(Pings)
+-
+-    // Set the metric configuration from Nimbus.
+-    Glean.applyServerKnobsConfig(FxNimbus.features.glean.value().gleanMetricConfiguration.toJSONObject().toString())
+-
+-    Glean.initialize(
+-        applicationContext = applicationContext,
+-        configuration = configuration.setCustomEndpointIfAvailable(customEndpoint),
+-        uploadEnabled = isTelemetryUploadEnabled,
+-        buildInfo = GleanBuildInfo.buildInfo,
+-    )
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanMetricsService.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanMetricsService.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanMetricsService.kt
++++ /dev/null
+@@ -1,105 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import android.content.Context
+-import mozilla.components.support.base.log.logger.Logger
+-import mozilla.components.support.utils.RunWhenReadyQueue
+-import mozilla.telemetry.glean.Glean
+-import org.mozilla.fenix.GleanMetrics.Pings
+-import org.mozilla.fenix.ext.components
+-
+-private class EventWrapper<T : Enum<T>>(
+-    private val recorder: ((Map<T, String>?) -> Unit),
+-    private val keyMapper: ((String) -> T)? = null,
+-) {
+-
+-    /**
+-     * Converts snake_case string to camelCase.
+-     */
+-    private fun String.asCamelCase(): String {
+-        val parts = split("_")
+-        val builder = StringBuilder()
+-
+-        for ((index, part) in parts.withIndex()) {
+-            if (index == 0) {
+-                builder.append(part)
+-            } else {
+-                builder.append(part[0].uppercase())
+-                builder.append(part.substring(1))
+-            }
+-        }
+-
+-        return builder.toString()
+-    }
+-
+-    fun track(event: Event) {
+-        val extras = if (keyMapper != null) {
+-            event.extras?.mapKeys { (key) ->
+-                keyMapper.invoke(key.toString().asCamelCase())
+-            }
+-        } else {
+-            null
+-        }
+-
+-        @Suppress("DEPRECATION")
+-        // FIXME(#19967): Migrate to non-deprecated API.
+-        this.recorder(extras)
+-    }
+-}
+-
+-@Suppress("DEPRECATION")
+-// FIXME(#19967): Migrate to non-deprecated API.
+-private val Event.wrapper: EventWrapper<*>?
+-    get() = null
+-
+-/**
+- * Service responsible for sending the activation and installation pings.
+- */
+-class GleanMetricsService(
+-    private val context: Context,
+-    private val runWhenReadyQueue: RunWhenReadyQueue = context.components.performance.visualCompletenessQueue,
+-) : MetricsService {
+-    override val type = MetricServiceType.Data
+-
+-    private val logger = Logger("GleanMetricsService")
+-    private var initialized = false
+-
+-    private val activationPing = ActivationPing(context)
+-
+-    override fun start() {
+-        logger.debug("Enabling Glean.")
+-        // Initialization of Glean already happened in FenixApplication.
+-        Glean.setCollectionEnabled(true)
+-
+-        if (initialized) return
+-        initialized = true
+-
+-        // The code below doesn't need to execute immediately, so we'll add them to the visual
+-        // completeness task queue to be run later.
+-        runWhenReadyQueue.runIfReadyOrQueue {
+-            // We have to initialize Glean *on* the main thread, because it registers lifecycle
+-            // observers. However, the activation ping must be sent *off* of the main thread,
+-            // because it calls Google ad APIs that must be called *off* of the main thread.
+-            // These two things actually happen in parallel, but that should be ok because Glean
+-            // can handle events being recorded before it's initialized.
+-            Glean.registerPings(Pings)
+-
+-            activationPing.checkAndSend()
+-        }
+-    }
+-
+-    override fun stop() {
+-        Glean.setCollectionEnabled(false)
+-    }
+-
+-    override fun track(event: Event) {
+-        event.wrapper?.track(event)
+-    }
+-
+-    override fun shouldTrack(event: Event): Boolean {
+-        return event.wrapper != null
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingApi.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingApi.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingApi.kt
++++ /dev/null
+@@ -1,43 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-/**
+- * Defines the possible interactions with the Glean usage-reporting ping.
+- */
+-interface GleanUsageReportingApi {
+-
+-    /**
+-     * This marks whether the ping is being activated or inactivated.
+-     */
+-    enum class UsageReason { ACTIVE, INACTIVE }
+-
+-    /**
+-     * This allows the ping to be switched on or off from the settings screen.
+-     */
+-    fun setEnabled(enabled: Boolean)
+-
+-    /**
+-     * The usage reason should be set here before the ping is sent.
+-     * @param usageReason the new reason state of the usage ping.
+-     */
+-    fun setUsageReason(usageReason: UsageReason)
+-
+-    /**
+-     * The duration should be set here before the ping is sent.
+-     * @param durationMillis the duration in milliseconds of the last foreground session
+-     */
+-    fun setDuration(durationMillis: Long)
+-
+-    /**
+-     * Send the ping to Glean.
+-     */
+-    fun submitPing()
+-
+-    /**
+-     * Allows the user to request that all collected usage reporting data be deleted.
+-     */
+-    fun requestDataDeletion()
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReporting.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReporting.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReporting.kt
++++ /dev/null
+@@ -1,48 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import android.os.Build
+-import org.mozilla.fenix.BuildConfig
+-import org.mozilla.fenix.GleanMetrics.Pings
+-import org.mozilla.fenix.GleanMetrics.Usage
+-import kotlin.time.DurationUnit
+-import kotlin.time.toDuration
+-
+-/**
+- * Makes the glean calls we need to manage the usage reporting ping.
+- */
+-class GleanUsageReporting : GleanUsageReportingApi {
+-
+-    override fun setEnabled(enabled: Boolean) {
+-        Pings.usageReporting.setEnabled(enabled)
+-        Pings.usageDeletionRequest.setEnabled(true)
+-    }
+-
+-    override fun setDuration(durationMillis: Long) {
+-        val duration = durationMillis.toDuration(DurationUnit.MILLISECONDS)
+-        Usage.duration.setRawNanos(duration.inWholeNanoseconds)
+-    }
+-
+-    override fun setUsageReason(usageReason: GleanUsageReportingApi.UsageReason) {
+-        Usage.reason.set(usageReason.name.lowercase())
+-    }
+-
+-    override fun submitPing() {
+-        setUsageConstantValues()
+-        Pings.usageReporting.submit()
+-    }
+-
+-    override fun requestDataDeletion() {
+-        Pings.usageDeletionRequest.submit()
+-    }
+-
+-    private fun setUsageConstantValues() {
+-        Usage.os.set("android")
+-        Usage.osVersion.set(Build.VERSION.RELEASE)
+-        Usage.appDisplayVersion.set(BuildConfig.VERSION_NAME)
+-        Usage.appChannel.set(BuildConfig.BUILD_TYPE)
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingLifecycleObserver.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingLifecycleObserver.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingLifecycleObserver.kt
++++ /dev/null
+@@ -1,47 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import androidx.lifecycle.Lifecycle
+-import androidx.lifecycle.LifecycleEventObserver
+-import androidx.lifecycle.LifecycleOwner
+-import org.mozilla.fenix.components.metrics.GleanUsageReportingApi.UsageReason.ACTIVE
+-import org.mozilla.fenix.components.metrics.GleanUsageReportingApi.UsageReason.INACTIVE
+-
+-internal class GleanUsageReportingLifecycleObserver(
+-    private val gleanUsageReportingApi: GleanUsageReportingApi = GleanUsageReporting(),
+-    private val currentTimeProvider: () -> Long = { System.currentTimeMillis() },
+-) : LifecycleEventObserver {
+-
+-    private var durationStartMs: Long? = null
+-
+-    /**
+-     * Called when lifecycle events are triggered.
+-     */
+-    override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+-        when (event) {
+-            Lifecycle.Event.ON_START -> {
+-                durationStartMs = currentTimeProvider()
+-                with(gleanUsageReportingApi) {
+-                    setUsageReason(ACTIVE)
+-                    submitPing()
+-                }
+-            }
+-            Lifecycle.Event.ON_STOP -> {
+-                with(gleanUsageReportingApi) {
+-                    val lastDurationStartMs = durationStartMs
+-                    lastDurationStartMs?.also {
+-                        setDuration(currentTimeProvider() - lastDurationStartMs)
+-                    }
+-                    setUsageReason(INACTIVE)
+-                    submitPing()
+-                }
+-            }
+-            else -> {
+-                // For other lifecycle events, do nothing
+-            }
+-        }
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingMetricsService.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingMetricsService.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingMetricsService.kt
++++ /dev/null
+@@ -1,157 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import android.content.Context
+-import androidx.core.content.edit
+-import androidx.lifecycle.LifecycleEventObserver
+-import androidx.lifecycle.LifecycleOwner
+-import androidx.lifecycle.ProcessLifecycleOwner
+-import androidx.preference.PreferenceManager
+-import mozilla.components.support.base.log.logger.Logger
+-import org.mozilla.fenix.GleanMetrics.Usage
+-import org.mozilla.fenix.R
+-import org.mozilla.fenix.ext.getPreferenceKey
+-import java.util.UUID
+-
+-/**
+- * Metrics service which encapsulates sending the usage reporting ping.
+- * @param lifecycleOwner the top level container whose lifecycle is followed by usage data
+- * @param gleanUsageReportingLifecycleObserver this can be provided to control
+- * the start / stop sending events for the usage reporting ping
+- * @param gleanUsageReporting this can be provided to encapsulate interactions with the glean API
+- * @param gleanProfileId the glean profile id for usage reporting
+- * @param gleanProfileIdStore the app level storage mechanism for the glean profile id
+- */
+-class GleanUsageReportingMetricsService(
+-    private val lifecycleOwner: LifecycleOwner = ProcessLifecycleOwner.get(),
+-    private val gleanUsageReportingLifecycleObserver: LifecycleEventObserver = GleanUsageReportingLifecycleObserver(),
+-    private val gleanUsageReporting: GleanUsageReportingApi = GleanUsageReporting(),
+-    private val gleanProfileId: GleanProfileId = UsageProfileId(),
+-    private val gleanProfileIdStore: GleanProfileIdStore,
+-) : MetricsService {
+-
+-    override val type: MetricServiceType = MetricServiceType.UsageReporting
+-    private val logger = Logger("GleanUsageReportingMetricsService")
+-
+-    override fun start() {
+-        logger.debug("Start GleanUsageReportingMetricsService")
+-        gleanUsageReporting.setEnabled(true)
+-        checkAndSetUsageProfileId()
+-        lifecycleOwner.lifecycle.addObserver(gleanUsageReportingLifecycleObserver)
+-    }
+-
+-    override fun stop() {
+-        logger.debug("Stop GleanUsageReportingMetricsService")
+-        gleanUsageReporting.setEnabled(false)
+-        lifecycleOwner.lifecycle.removeObserver(gleanUsageReportingLifecycleObserver)
+-        gleanUsageReporting.requestDataDeletion()
+-        unsetUsageProfileId()
+-    }
+-
+-    override fun track(event: Event) {
+-        // no-op
+-    }
+-
+-    override fun shouldTrack(event: Event): Boolean = false
+-
+-    private fun checkAndSetUsageProfileId() {
+-        val profileId = gleanProfileIdStore.profileId
+-        if (profileId == null) {
+-            gleanProfileIdStore.profileId = gleanProfileId.generateAndSet().toString()
+-        } else {
+-            gleanProfileId.set(UUID.fromString(profileId))
+-        }
+-    }
+-
+-    private fun unsetUsageProfileId() {
+-        gleanProfileId.unset()
+-        gleanProfileIdStore.clear()
+-    }
+-}
+-
+-/**
+- * An abstraction to represent a profile id as required by Glean.
+- */
+-interface GleanProfileId {
+-    /**
+-     * Create a random UUID and set it in Glean.
+-     */
+-    fun generateAndSet(): UUID
+-
+-    /**
+-     * Set the given profile id in Glean.
+-     */
+-    fun set(profileId: UUID)
+-
+-    /**
+-     * Unset the current profile id in Glean.
+-     */
+-    fun unset()
+-}
+-
+-/**
+- * Represents the profile id used by Glean for usage reporting.
+- */
+-class UsageProfileId : GleanProfileId {
+-
+-    /**
+-     * Glean doesn't have an API to remove a value,
+-     * so we have to use this canary value.
+-     * (would also allow us to notice if we ever accidentally sent data after we shouldn't).
+-     */
+-    companion object {
+-        private const val CANARY_VALUE = "beefbeef-beef-beef-beef-beeefbeefbee"
+-    }
+-
+-    override fun generateAndSet(): UUID = Usage.profileId.generateAndSet()
+-    override fun set(profileId: UUID) {
+-        Usage.profileId.set(profileId)
+-    }
+-
+-    override fun unset() {
+-        Usage.profileId.set(UUID.fromString(CANARY_VALUE))
+-    }
+-}
+-
+-/**
+- * An abstraction to represent the storage mechanism within the app for a Glean profile id.
+- */
+-interface GleanProfileIdStore {
+-    /**
+-     * Property allowing access to the profile id which is stored.
+-     */
+-    var profileId: String?
+-
+-    /**
+-     * Remove the stored profile id.
+-     */
+-    fun clear()
+-}
+-
+-/**
+- * The actual preference store used to store the Glean profile id.
+- */
+-class GleanProfileIdPreferenceStore(context: Context) : GleanProfileIdStore {
+-    private val defaultSharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+-    private val preferenceKey = context.getPreferenceKey(R.string.pref_key_glean_usage_profile_id)
+-
+-    override var profileId: String?
+-        get() = defaultSharedPreferences.getString(
+-            preferenceKey,
+-            null,
+-        )
+-        set(value) {
+-            defaultSharedPreferences.edit {
+-                putString(preferenceKey, value)
+-            }
+-        }
+-
+-    override fun clear() {
+-        defaultSharedPreferences.edit {
+-            remove(preferenceKey)
+-        }
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsFragment.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsFragment.kt
++++ /dev/null
+@@ -1,120 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.debugsettings.gleandebugtools
+-
+-import android.content.Intent
+-import android.os.Bundle
+-import android.view.LayoutInflater
+-import android.view.View
+-import android.view.ViewGroup
+-import android.widget.Toast
+-import androidx.compose.foundation.layout.WindowInsets
+-import androidx.compose.foundation.layout.padding
+-import androidx.compose.material3.ExperimentalMaterial3Api
+-import androidx.compose.material3.Icon
+-import androidx.compose.material3.Scaffold
+-import androidx.compose.material3.Text
+-import androidx.compose.material3.TopAppBar
+-import androidx.compose.ui.Modifier
+-import androidx.compose.ui.res.painterResource
+-import androidx.compose.ui.res.stringResource
+-import androidx.compose.ui.unit.dp
+-import androidx.core.net.toUri
+-import androidx.fragment.app.Fragment
+-import androidx.fragment.compose.content
+-import androidx.navigation.fragment.findNavController
+-import mozilla.components.compose.base.button.IconButton
+-import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
+-import mozilla.telemetry.glean.Glean
+-import org.mozilla.fenix.R
+-import org.mozilla.fenix.debugsettings.gleandebugtools.ui.GleanDebugToolsScreen
+-import org.mozilla.fenix.e2e.SystemInsetsPaddedFragment
+-import org.mozilla.fenix.ext.requireComponents
+-import org.mozilla.fenix.theme.FirefoxTheme
+-import mozilla.components.ui.icons.R as iconsR
+-
+-/**
+- * [Fragment] for displaying the Glean Debug Tools in the about:glean page.
+- */
+-class GleanDebugToolsFragment : Fragment(), SystemInsetsPaddedFragment {
+-
+-    private val store by fragmentStore(
+-        GleanDebugToolsState(
+-            logPingsToConsoleEnabled = Glean.getLogPings(),
+-            debugViewTag = Glean.getDebugViewTag() ?: "",
+-        ),
+-    ) {
+-        GleanDebugToolsStore(
+-            initialState = it,
+-            middlewares = listOf(
+-                GleanDebugToolsMiddleware(
+-                    gleanDebugToolsStorage = DefaultGleanDebugToolsStorage(),
+-                    clipboardHandler = requireComponents.clipboardHandler,
+-                    openDebugView = { debugViewLink ->
+-                        val intent = Intent(Intent.ACTION_VIEW)
+-                        intent.data = debugViewLink.toUri()
+-                        requireContext().startActivity(intent)
+-                    },
+-                    showToast = { pingType ->
+-                        val toast = Toast.makeText(
+-                            requireContext(),
+-                            requireContext().getString(
+-                                R.string.glean_debug_tools_send_ping_toast_message,
+-                                pingType,
+-                            ),
+-                            Toast.LENGTH_LONG,
+-                        )
+-                        toast.show()
+-                    },
+-                ),
+-            ),
+-        )
+-    }
+-
+-    @OptIn(ExperimentalMaterial3Api::class)
+-    override fun onCreateView(
+-        inflater: LayoutInflater,
+-        container: ViewGroup?,
+-        savedInstanceState: Bundle?,
+-    ): View? = content {
+-        FirefoxTheme {
+-            Scaffold(
+-                topBar = {
+-                    TopAppBar(
+-                        title = {
+-                            Text(
+-                                text = stringResource(R.string.glean_debug_tools_title),
+-                                style = FirefoxTheme.typography.headline5,
+-                            )
+-                        },
+-                        navigationIcon = {
+-                            val directions = GleanDebugToolsFragmentDirections.actionGlobalBrowser()
+-                            IconButton(
+-                                onClick = { findNavController().navigate(directions) },
+-                                contentDescription = stringResource(
+-                                    R.string.bookmark_navigate_back_button_content_description,
+-                                ),
+-                            ) {
+-                                Icon(
+-                                    painter = painterResource(iconsR.drawable.mozac_ic_back_24),
+-                                    contentDescription = null,
+-                                )
+-                            }
+-                        },
+-                        windowInsets = WindowInsets(
+-                            top = 0.dp,
+-                            bottom = 0.dp,
+-                        ),
+-                    )
+-                },
+-            ) { paddingValues ->
+-                GleanDebugToolsScreen(
+-                    gleanDebugToolsStore = store,
+-                    modifier = Modifier.padding(paddingValues),
+-                )
+-            }
+-        }
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsMiddleware.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsMiddleware.kt
++++ /dev/null
+@@ -1,76 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.debugsettings.gleandebugtools
+-
+-import mozilla.components.lib.state.Middleware
+-import mozilla.components.lib.state.Store
+-import mozilla.components.support.ktx.kotlin.urlEncode
+-import mozilla.components.support.utils.ClipboardHandler
+-
+-internal const val PING_PREVIEW_URL = "https://debug-ping-preview.firebaseapp.com/"
+-
+-/**
+- * [Middleware] that reacts to various [GleanDebugToolsAction]s.
+- *
+- * @param gleanDebugToolsStorage [GleanDebugToolsStorage] used to dispatch calls to the Glean API.
+- * @param clipboardHandler [ClipboardHandler] used to add the debug view link to the clipboard.
+- * @param openDebugView Invoked when the user clicks on the open debug view button.
+- * @param showToast Invoked when the user sends a test ping.
+- */
+-class GleanDebugToolsMiddleware(
+-    private val gleanDebugToolsStorage: GleanDebugToolsStorage,
+-    private val clipboardHandler: ClipboardHandler,
+-    private val openDebugView: (String) -> Unit,
+-    private val showToast: (String) -> Unit,
+-) : Middleware<GleanDebugToolsState, GleanDebugToolsAction> {
+-    override fun invoke(
+-        store: Store<GleanDebugToolsState, GleanDebugToolsAction>,
+-        next: (GleanDebugToolsAction) -> Unit,
+-        action: GleanDebugToolsAction,
+-    ) {
+-        next(action)
+-        when (action) {
+-            is GleanDebugToolsAction.LogPingsToConsoleToggled -> {
+-                gleanDebugToolsStorage.setLogPings(store.state.logPingsToConsoleEnabled)
+-            }
+-            is GleanDebugToolsAction.OpenDebugView -> {
+-                val debugViewLink = getDebugViewLink(
+-                    debugViewTag = store.state.debugViewTag,
+-                    useDebugViewTag = action.useDebugViewTag,
+-                )
+-                openDebugView(debugViewLink)
+-            }
+-            is GleanDebugToolsAction.CopyDebugViewLink -> {
+-                val debugViewLink = getDebugViewLink(
+-                    debugViewTag = store.state.debugViewTag,
+-                    useDebugViewTag = action.useDebugViewTag,
+-                )
+-                clipboardHandler.text = debugViewLink
+-            }
+-            is GleanDebugToolsAction.DebugViewTagChanged -> {} // No-op
+-            is GleanDebugToolsAction.SendPing -> {
+-                gleanDebugToolsStorage.sendPing(
+-                    pingType = store.state.pingType,
+-                    debugViewTag = store.state.debugViewTag,
+-                )
+-                showToast(store.state.pingType)
+-            }
+-            is GleanDebugToolsAction.ChangePingType -> {} // No-op
+-        }
+-    }
+-
+-    /**
+-     * Get the debug view link for the given debug view tag.
+-     *
+-     * @param debugViewTag The debug view tag to use to get the link to the debug view.
+-     * @param useDebugViewTag Whether to use the given debug view tag to get the debug view link.
+-     */
+-    private fun getDebugViewLink(debugViewTag: String, useDebugViewTag: Boolean): String =
+-        if (useDebugViewTag) {
+-            "${PING_PREVIEW_URL}pings/${debugViewTag.urlEncode()}"
+-        } else {
+-            PING_PREVIEW_URL
+-        }
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsStorage.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsStorage.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsStorage.kt
++++ /dev/null
+@@ -1,53 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.debugsettings.gleandebugtools
+-
+-import mozilla.telemetry.glean.Glean
+-
+-/**
+- * A storage used to access the Glean APIs.
+- */
+-interface GleanDebugToolsStorage {
+-
+-    /**
+-     * Toggle whether to log pings to console.
+-     */
+-    fun setLogPings(enabled: Boolean)
+-
+-    /**
+-     * Send a ping.
+-     *
+-     * @param pingType The type of ping to submit.
+-     * @param debugViewTag The debug tag to use for the ping.
+-     */
+-    fun sendPing(pingType: String, debugViewTag: String)
+-}
+-
+-/**
+- * The default storage, used by the [GleanDebugToolsMiddleware] to access the Glean APIs.
+- */
+-class DefaultGleanDebugToolsStorage : GleanDebugToolsStorage {
+-    override fun setLogPings(enabled: Boolean) {
+-        Glean.setLogPings(enabled)
+-    }
+-
+-    override fun sendPing(pingType: String, debugViewTag: String) {
+-        Glean.setDebugViewTag(debugViewTag)
+-        Glean.submitPingByName(pingType)
+-    }
+-
+-    /**
+-     * @see [DefaultGleanDebugToolsStorage].
+-     */
+-    companion object {
+-
+-        /**
+-         * Get all the types of pings that can be submitted.
+-         */
+-        fun getPingTypes(): Set<String> {
+-            return Glean.getRegisteredPingNames()
+-        }
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsStore.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsStore.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsStore.kt
++++ /dev/null
+@@ -1,114 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.debugsettings.gleandebugtools
+-
+-import mozilla.components.lib.state.Action
+-import mozilla.components.lib.state.Middleware
+-import mozilla.components.lib.state.State
+-import mozilla.components.lib.state.Store
+-
+-/**
+- * Value type that represents the state of the Glean Debug Tools.
+- *
+- * @property logPingsToConsoleEnabled Whether logging pings to console is enabled.
+- * @property debugViewTag The debug view tag of the ping.
+- * @property pingType The selected ping to be submitted.
+- * @property pingTypes The types of pings that can be submitted.
+- */
+-data class GleanDebugToolsState(
+-    val logPingsToConsoleEnabled: Boolean,
+-    val debugViewTag: String,
+-    val pingType: String = "metrics",
+-    val pingTypes: List<String> = DefaultGleanDebugToolsStorage.getPingTypes().sorted(),
+-) : State {
+-
+-    /**
+-     * Check whether the debug view tag related buttons should be enabled, based on whether a debug
+-     * view tag is provided and whether it meets the criteria of being a debug view tag.
+-     */
+-    val isDebugTagButtonEnabled: Boolean
+-        get() = !hasDebugViewTagError && debugViewTag.isNotEmpty()
+-
+-    val hasDebugViewTagError: Boolean
+-        get() = debugViewTag.length > DEBUG_VIEW_TAG_MAX_LENGTH
+-
+-    companion object {
+-        internal const val DEBUG_VIEW_TAG_MAX_LENGTH = 20
+-    }
+-}
+-
+-/**
+- * [Action] implementation related to [GleanDebugToolsStore].
+- */
+-sealed class GleanDebugToolsAction : Action {
+-
+-    /**
+-     * Toggle whether to log pings to console.
+-     */
+-    data object LogPingsToConsoleToggled : GleanDebugToolsAction()
+-
+-    /**
+-     * Change the debug view tag to [newTag].
+-     */
+-    data class DebugViewTagChanged(val newTag: String) : GleanDebugToolsAction()
+-
+-    /**
+-     * Change the type of ping to submit to [newPing].
+-     */
+-    data class ChangePingType(val newPing: String) : GleanDebugToolsAction()
+-
+-    /**
+-     * Send the ping.
+-     */
+-    data object SendPing : GleanDebugToolsAction()
+-
+-    /**
+-     * Open the relevant debug view.
+-     *
+-     * @property useDebugViewTag Whether the debug view tag should be used to open the debug view.
+-     */
+-    data class OpenDebugView(val useDebugViewTag: Boolean) : GleanDebugToolsAction()
+-
+-    /**
+-     * Add the relevant debug view tag to clipboard.
+-     *
+-     * @property useDebugViewTag Whether to copy the debug view link with the debug view tag.
+-     */
+-    data class CopyDebugViewLink(val useDebugViewTag: Boolean) : GleanDebugToolsAction()
+-}
+-
+-/**
+- * Reducer for [GleanDebugToolsStore].
+- */
+-internal object GleanDebugToolsReducer {
+-    fun reduce(state: GleanDebugToolsState, action: GleanDebugToolsAction): GleanDebugToolsState {
+-        return when (action) {
+-            is GleanDebugToolsAction.LogPingsToConsoleToggled ->
+-                state.copy(logPingsToConsoleEnabled = !state.logPingsToConsoleEnabled)
+-            is GleanDebugToolsAction.DebugViewTagChanged -> {
+-                state.copy(
+-                    debugViewTag = action.newTag,
+-                )
+-            }
+-            is GleanDebugToolsAction.OpenDebugView -> state
+-            is GleanDebugToolsAction.CopyDebugViewLink -> state
+-            is GleanDebugToolsAction.SendPing -> state
+-            is GleanDebugToolsAction.ChangePingType -> state.copy(pingType = action.newPing)
+-        }
+-    }
+-}
+-
+-/**
+- * A [Store] that holds the [GleanDebugToolsState] for the Glean Debug Tools and reduces
+- * [GleanDebugToolsAction]s dispatched to the store.
+- */
+-class GleanDebugToolsStore(
+-    initialState: GleanDebugToolsState,
+-    middlewares: List<Middleware<GleanDebugToolsState, GleanDebugToolsAction>> = emptyList(),
+-) : Store<GleanDebugToolsState, GleanDebugToolsAction>(
+-    initialState,
+-    GleanDebugToolsReducer::reduce,
+-    middlewares,
+-)
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/ui/GleanDebugToolsScreen.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/ui/GleanDebugToolsScreen.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/ui/GleanDebugToolsScreen.kt
++++ /dev/null
+@@ -1,299 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.debugsettings.gleandebugtools.ui
+-
+-import androidx.compose.foundation.layout.Column
+-import androidx.compose.foundation.layout.Spacer
+-import androidx.compose.foundation.layout.fillMaxSize
+-import androidx.compose.foundation.layout.fillMaxWidth
+-import androidx.compose.foundation.layout.height
+-import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.rememberScrollState
+-import androidx.compose.foundation.text.KeyboardActions
+-import androidx.compose.foundation.text.KeyboardOptions
+-import androidx.compose.foundation.verticalScroll
+-import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.Surface
+-import androidx.compose.material3.Text
+-import androidx.compose.runtime.Composable
+-import androidx.compose.runtime.collectAsState
+-import androidx.compose.runtime.getValue
+-import androidx.compose.ui.Modifier
+-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+-import androidx.compose.ui.res.stringResource
+-import androidx.compose.ui.text.input.KeyboardType
+-import androidx.compose.ui.tooling.preview.PreviewParameter
+-import mozilla.components.compose.base.Dropdown
+-import mozilla.components.compose.base.annotation.FlexibleWindowPreview
+-import mozilla.components.compose.base.button.FilledButton
+-import mozilla.components.compose.base.menu.MenuItem
+-import mozilla.components.compose.base.text.Text
+-import mozilla.components.compose.base.textfield.TextField
+-import org.mozilla.fenix.R
+-import org.mozilla.fenix.compose.list.SwitchListItem
+-import org.mozilla.fenix.compose.list.TextListItem
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsAction
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsState
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsStore
+-import org.mozilla.fenix.theme.FirefoxTheme
+-import org.mozilla.fenix.theme.PreviewThemeProvider
+-import org.mozilla.fenix.theme.Theme
+-
+-/**
+- * Glean Debug Tools UI that allows for glean test pings to be sent.
+- *
+- * @param gleanDebugToolsStore [GleanDebugToolsStore] used to access [GleanDebugToolsState].
+- * @param modifier [Modifier] to be applied to the screen.
+- */
+-@Composable
+-fun GleanDebugToolsScreen(
+-    gleanDebugToolsStore: GleanDebugToolsStore,
+-    modifier: Modifier = Modifier,
+-) {
+-    val gleanDebugToolsState by gleanDebugToolsStore.stateFlow.collectAsState()
+-
+-    Surface {
+-        Column(
+-            modifier = modifier
+-                .fillMaxSize()
+-                .verticalScroll(rememberScrollState())
+-                .padding(top = FirefoxTheme.layout.space.dynamic400),
+-        ) {
+-            GleanDebugLoggingSection(logPingsToConsoleEnabled = gleanDebugToolsState.logPingsToConsoleEnabled) {
+-                gleanDebugToolsStore.dispatch(GleanDebugToolsAction.LogPingsToConsoleToggled)
+-            }
+-
+-            Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.dynamic150))
+-
+-            GleanDebugViewSection(
+-                buttonsEnabled = gleanDebugToolsState.isDebugTagButtonEnabled,
+-                debugViewTag = gleanDebugToolsState.debugViewTag,
+-                hasDebugViewTagError = gleanDebugToolsStore.state.hasDebugViewTagError,
+-                onOpenDebugView = { useDebugViewTag ->
+-                    gleanDebugToolsStore.dispatch(
+-                        GleanDebugToolsAction.OpenDebugView(
+-                            useDebugViewTag = useDebugViewTag,
+-                        ),
+-                    )
+-                },
+-                onCopyDebugViewLink = { useDebugViewTag ->
+-                    gleanDebugToolsStore.dispatch(
+-                        GleanDebugToolsAction.CopyDebugViewLink(
+-                            useDebugViewTag = useDebugViewTag,
+-                        ),
+-                    )
+-                },
+-            ) { newTag ->
+-                gleanDebugToolsStore.dispatch(GleanDebugToolsAction.DebugViewTagChanged(newTag))
+-            }
+-
+-            Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.dynamic150))
+-
+-            GleanDebugSendPingsSection(
+-                isButtonEnabled = gleanDebugToolsState.isDebugTagButtonEnabled,
+-                curPing = gleanDebugToolsState.pingType,
+-                pingTypes = gleanDebugToolsState.pingTypes,
+-                onPingItemClicked = {
+-                    gleanDebugToolsStore.dispatch(
+-                        GleanDebugToolsAction.ChangePingType(
+-                            it,
+-                        ),
+-                    )
+-                },
+-                onSendPing = { gleanDebugToolsStore.dispatch(GleanDebugToolsAction.SendPing) },
+-            )
+-        }
+-    }
+-}
+-
+-@Composable
+-private fun GleanDebugLoggingSection(
+-    logPingsToConsoleEnabled: Boolean,
+-    onLogPingsToConsoleToggled: () -> Unit,
+-) {
+-    GleanDebugSectionTitle(text = stringResource(R.string.glean_debug_tools_logging_title))
+-
+-    SwitchListItem(
+-        label = stringResource(R.string.glean_debug_tools_log_pings_to_console),
+-        checked = logPingsToConsoleEnabled,
+-        modifier = Modifier.padding(horizontal = FirefoxTheme.layout.space.dynamic400),
+-        showSwitchAfter = true,
+-    ) {
+-        onLogPingsToConsoleToggled()
+-    }
+-}
+-
+-@Composable
+-@Suppress("LongMethod")
+-private fun GleanDebugViewSection(
+-    buttonsEnabled: Boolean,
+-    debugViewTag: String,
+-    hasDebugViewTagError: Boolean,
+-    onOpenDebugView: (Boolean) -> Unit,
+-    onCopyDebugViewLink: (Boolean) -> Unit,
+-    onDebugViewTagChanged: (String) -> Unit,
+-) {
+-    val keyboardController = LocalSoftwareKeyboardController.current
+-
+-    GleanDebugSectionTitle(text = stringResource(id = R.string.glean_debug_tools_debug_view_title))
+-
+-    Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.dynamic400))
+-
+-    TextField(
+-        value = debugViewTag,
+-        onValueChange = {
+-            if (it.all { char -> char.isLetterOrDigit() || char == '-' }) {
+-                onDebugViewTagChanged(it)
+-            }
+-        },
+-        placeholder = stringResource(R.string.glean_debug_tools_debug_view_tag_placeholder),
+-        errorText = stringResource(
+-            R.string.glean_debug_tools_debug_view_tag_error,
+-            GleanDebugToolsState.DEBUG_VIEW_TAG_MAX_LENGTH,
+-        ),
+-        modifier = Modifier
+-            .fillMaxWidth()
+-            .padding(horizontal = FirefoxTheme.layout.space.dynamic400),
+-        isError = hasDebugViewTagError,
+-        keyboardOptions = KeyboardOptions(
+-            keyboardType = KeyboardType.Ascii,
+-        ),
+-        keyboardActions = KeyboardActions(
+-            onDone = {
+-                keyboardController?.hide()
+-            },
+-        ),
+-    )
+-
+-    if (buttonsEnabled) {
+-        GleanDebugButton(
+-            text = stringResource(
+-                R.string.glean_debug_tools_open_debug_view_debug_view_tag,
+-                debugViewTag,
+-            ),
+-        ) {
+-            onOpenDebugView(true)
+-        }
+-
+-        GleanDebugButton(
+-            text = stringResource(
+-                R.string.glean_debug_tools_copy_debug_view_link_debug_view_tag,
+-                debugViewTag,
+-            ),
+-        ) { onCopyDebugViewLink(true) }
+-    }
+-
+-    GleanDebugButton(text = stringResource(R.string.glean_debug_tools_open_debug_view)) {
+-        onOpenDebugView(false)
+-    }
+-
+-    GleanDebugButton(text = stringResource(R.string.glean_debug_tools_copy_debug_view_link)) {
+-        onCopyDebugViewLink(false)
+-    }
+-}
+-
+-@Composable
+-private fun GleanDebugSendPingsSection(
+-    isButtonEnabled: Boolean,
+-    curPing: String,
+-    pingTypes: List<String>,
+-    onPingItemClicked: (String) -> Unit,
+-    onSendPing: () -> Unit,
+-) {
+-    Column(
+-        modifier = Modifier.padding(horizontal = FirefoxTheme.layout.space.dynamic400),
+-    ) {
+-        Dropdown(
+-            label = "Ping Type",
+-            placeholder = "",
+-            dropdownItems = getPingDropdownMenu(
+-                curPing = curPing,
+-                pings = pingTypes,
+-                onClickItem = onPingItemClicked,
+-            ),
+-        )
+-
+-        Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.dynamic400))
+-
+-        FilledButton(
+-            text = stringResource(R.string.glean_debug_tools_send_ping_button_text),
+-            modifier = Modifier
+-                .fillMaxWidth()
+-                .padding(horizontal = FirefoxTheme.layout.space.dynamic200),
+-            enabled = isButtonEnabled,
+-            onClick = onSendPing,
+-        )
+-    }
+-}
+-
+-/**
+- * The UI for a section title on the Glean Debug Tools page.
+- *
+- * @param text The text for a section of Glean Debug Tools page.
+- */
+-@Composable
+-private fun GleanDebugSectionTitle(
+-    text: String,
+-) {
+-    Text(
+-        text = text,
+-        modifier = Modifier.padding(horizontal = FirefoxTheme.layout.space.dynamic400),
+-        color = MaterialTheme.colorScheme.tertiary,
+-        style = FirefoxTheme.typography.subtitle1,
+-    )
+-}
+-
+-/**
+- * The UI for a button on the Glean Debug Tools page.
+- *
+- * @param text The text on the button.
+- * @param onClick Called when the user clicks on the button.
+- */
+-@Composable
+-private fun GleanDebugButton(
+-    text: String,
+-    onClick: () -> Unit,
+-) {
+-    TextListItem(
+-        label = text,
+-        modifier = Modifier.fillMaxWidth(),
+-        maxLabelLines = Int.MAX_VALUE,
+-        onClick = onClick,
+-    )
+-}
+-
+-private fun getPingDropdownMenu(
+-    curPing: String,
+-    pings: List<String>,
+-    onClickItem: (String) -> Unit,
+-) = pings.map {
+-    MenuItem.CheckableItem(
+-        text = Text.String(it),
+-        isChecked = it == curPing,
+-    ) { onClickItem(it) }
+-}
+-
+-@Composable
+-@FlexibleWindowPreview
+-private fun GleanDebugToolsPreview(
+-    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+-) {
+-    FirefoxTheme(theme) {
+-        GleanDebugToolsScreen(
+-            gleanDebugToolsStore = GleanDebugToolsStore(
+-                initialState = GleanDebugToolsState(
+-                    logPingsToConsoleEnabled = false,
+-                    debugViewTag = "",
+-                    pingTypes = listOf(
+-                        "metrics",
+-                        "baseline",
+-                        "ping type 3",
+-                        "ping type 4",
+-                    ),
+-                ),
+-            ),
+-        )
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/navigation/DebugDrawerRoute.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/navigation/DebugDrawerRoute.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/navigation/DebugDrawerRoute.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/navigation/DebugDrawerRoute.kt
+@@ -24,8 +24,6 @@
+ import org.mozilla.fenix.debugsettings.crashtools.CrashTools
+ import org.mozilla.fenix.debugsettings.creditcards.CreditCardsTools
+ import org.mozilla.fenix.debugsettings.distributions.DistributionTools
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsStore
+-import org.mozilla.fenix.debugsettings.gleandebugtools.ui.GleanDebugToolsScreen
+ import org.mozilla.fenix.debugsettings.integrity.IntegrityTools
+ import org.mozilla.fenix.debugsettings.logins.LoginsTools
+ import org.mozilla.fenix.debugsettings.region.RegionTools
+@@ -75,10 +73,6 @@
+         route = "cfr_tools",
+         title = R.string.debug_drawer_cfr_tools_title,
+     ),
+-    GleanDebugTools(
+-        route = "glean_debug_tools",
+-        title = R.string.glean_debug_tools_title,
+-    ),
+     RegionDebugTools(
+         route = "region_debug_tools",
+         title = R.string.debug_drawer_region_tools_title,
+@@ -121,7 +115,6 @@
+          * @param appStore [AppStore] used to dispatch [AppAction] actions.
+          * @param browserStore [BrowserStore] used to access [BrowserState].
+          * @param cfrToolsStore [CfrToolsStore] used to access [CfrToolsState].
+-         * @param gleanDebugToolsStore [GleanDebugToolsStore] used to dispatch glean debug tools actions.
+          * @param loginsStorage [LoginsStorage] used to access logins for [LoginsScreen].
+          * @param addressesDebugRegionRepository used to control storage for [AddressesTools].
+          * @param creditCardsAddressesStorage used to access addresses for [AddressesTools].
+@@ -136,7 +129,6 @@
+             appStore: AppStore,
+             browserStore: BrowserStore,
+             cfrToolsStore: CfrToolsStore,
+-            gleanDebugToolsStore: GleanDebugToolsStore,
+             loginsStorage: LoginsStorage,
+             addressesDebugRegionRepository: AddressesDebugRegionRepository,
+             creditCardsAddressesStorage: CreditCardsAddressesStorage,
+@@ -219,15 +211,6 @@
+                         }
+                     }
+ 
+-                    GleanDebugTools -> {
+-                        onClick = {
+-                            debugDrawerStore.dispatch(DebugDrawerAction.NavigateTo.GleanDebugTools)
+-                        }
+-                        content = {
+-                            GleanDebugToolsScreen(gleanDebugToolsStore = gleanDebugToolsStore)
+-                        }
+-                    }
+-
+                     RegionDebugTools -> {
+                         onClick = {
+                             debugDrawerStore.dispatch(DebugDrawerAction.NavigateTo.RegionDebugTools)
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerAction.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerAction.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerAction.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerAction.kt
+@@ -6,7 +6,6 @@
+ 
+ import mozilla.components.lib.state.Action
+ import org.mozilla.fenix.debugsettings.autofill.AutofillTools
+-import org.mozilla.fenix.debugsettings.gleandebugtools.ui.GleanDebugToolsScreen
+ import org.mozilla.fenix.debugsettings.ui.DebugDrawerHome
+ import org.mozilla.fenix.debugsettings.addresses.AddressesTools as AddressesScreen
+ import org.mozilla.fenix.debugsettings.cfrs.CfrTools as CfrToolsScreen
+@@ -76,11 +75,6 @@
+         object CfrTools : NavigateTo()
+ 
+         /**
+-         * [NavigateTo] action fired when the debug drawer needs to navigate to [GleanDebugToolsScreen].
+-         */
+-        object GleanDebugTools : NavigateTo()
+-
+-        /**
+          * [NavigateTo] action fired when the debug drawer needs to navigate to [RegionScreen].
+          */
+         object RegionDebugTools : NavigateTo()
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerNavigationMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerNavigationMiddleware.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerNavigationMiddleware.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerNavigationMiddleware.kt
+@@ -59,8 +59,6 @@
+                 navController.navigate(route = DebugDrawerRoute.Autofill.route)
+             is DebugDrawerAction.NavigateTo.CfrTools ->
+                 navController.navigate(route = DebugDrawerRoute.CfrTools.route)
+-            is DebugDrawerAction.NavigateTo.GleanDebugTools ->
+-                navController.navigate(route = DebugDrawerRoute.GleanDebugTools.route)
+             is DebugDrawerAction.NavigateTo.RegionDebugTools ->
+                 navController.navigate(route = DebugDrawerRoute.RegionDebugTools.route)
+             is DebugDrawerAction.NavigateTo.AddonsDebugTools ->
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerTelemetryMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerTelemetryMiddleware.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerTelemetryMiddleware.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerTelemetryMiddleware.kt
+@@ -31,7 +31,6 @@
+             DebugDrawerAction.NavigateTo.CfrTools,
+             DebugDrawerAction.NavigateTo.CrashDebugTools,
+             DebugDrawerAction.NavigateTo.CreditCards,
+-            DebugDrawerAction.NavigateTo.GleanDebugTools,
+             DebugDrawerAction.NavigateTo.Home,
+             DebugDrawerAction.NavigateTo.IntegrityDebugTools,
+             DebugDrawerAction.NavigateTo.TabGroupDebugTools,
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/ui/FenixOverlay.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/ui/FenixOverlay.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/ui/FenixOverlay.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/ui/FenixOverlay.kt
+@@ -4,9 +4,7 @@
+ 
+ package org.mozilla.fenix.debugsettings.ui
+ 
+-import android.content.Intent
+ import android.os.StrictMode
+-import android.widget.Toast
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.collectAsState
+@@ -14,9 +12,7 @@
+ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.rememberCoroutineScope
+ import androidx.compose.ui.platform.LocalContext
+-import androidx.compose.ui.res.stringResource
+ import androidx.compose.ui.tooling.preview.PreviewLightDark
+-import androidx.core.net.toUri
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import androidx.lifecycle.lifecycleScope
+ import androidx.navigation.compose.rememberNavController
+@@ -29,8 +25,6 @@
+ import mozilla.components.concept.integrity.IntegrityClient
+ import mozilla.components.concept.storage.CreditCardsAddressesStorage
+ import mozilla.components.concept.storage.LoginsStorage
+-import mozilla.telemetry.glean.Glean
+-import org.mozilla.fenix.R
+ import org.mozilla.fenix.components.AppStore
+ import org.mozilla.fenix.components.ClientUUID
+ import org.mozilla.fenix.components.appstate.AppAction
+@@ -44,10 +38,6 @@
+ import org.mozilla.fenix.debugsettings.cfrs.CfrToolsState
+ import org.mozilla.fenix.debugsettings.cfrs.CfrToolsStore
+ import org.mozilla.fenix.debugsettings.cfrs.DefaultCfrPreferencesRepository
+-import org.mozilla.fenix.debugsettings.gleandebugtools.DefaultGleanDebugToolsStorage
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsMiddleware
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsState
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsStore
+ import org.mozilla.fenix.debugsettings.integrity.FakeClientUUID
+ import org.mozilla.fenix.debugsettings.logins.FakeLoginsStorage
+ import org.mozilla.fenix.debugsettings.logins.LoginsTools
+@@ -99,28 +89,6 @@
+                 ),
+             ),
+         ),
+-        gleanDebugToolsStore = GleanDebugToolsStore(
+-            initialState = GleanDebugToolsState(
+-                logPingsToConsoleEnabled = Glean.getLogPings(),
+-                debugViewTag = Glean.getDebugViewTag() ?: "",
+-            ),
+-            middlewares = listOf(
+-                GleanDebugToolsMiddleware(
+-                    gleanDebugToolsStorage = DefaultGleanDebugToolsStorage(),
+-                    clipboardHandler = context.components.clipboardHandler,
+-                    openDebugView = { debugViewLink ->
+-                        val intent = Intent(Intent.ACTION_VIEW)
+-                        intent.data = debugViewLink.toUri()
+-                        context.startActivity(intent)
+-                    },
+-                    showToast = stringResource(R.string.glean_debug_tools_send_ping_toast_message).let { template ->
+-                        { pingType: String ->
+-                            Toast.makeText(context, template.format(pingType), Toast.LENGTH_LONG).show()
+-                        }
+-                    },
+-                ),
+-            ),
+-        ),
+         loginsStorage = loginsStorage,
+         addressesDebugRegionRepository =
+             context.components.strictMode.allowViolation(StrictMode::allowThreadDiskReads) {
+@@ -140,7 +108,6 @@
+  * @param appStore [AppStore] used to dispatch [AppAction] actions.
+  * @param browserStore [BrowserStore] used to access [BrowserState].
+  * @param cfrToolsStore [CfrToolsStore] used to access [CfrToolsState].
+- * @param gleanDebugToolsStore [GleanDebugToolsStore] used to access [GleanDebugToolsState].
+  * @param loginsStorage [LoginsStorage] used to access logins for [LoginsTools].
+  * @param addressesDebugRegionRepository used to control storage for [AddressesTools].
+  * @param creditCardsAddressesStorage used to access addresses for [AddressesTools].
+@@ -155,7 +122,6 @@
+     appStore: AppStore,
+     browserStore: BrowserStore,
+     cfrToolsStore: CfrToolsStore,
+-    gleanDebugToolsStore: GleanDebugToolsStore,
+     loginsStorage: LoginsStorage,
+     addressesDebugRegionRepository: AddressesDebugRegionRepository,
+     creditCardsAddressesStorage: CreditCardsAddressesStorage,
+@@ -189,7 +155,6 @@
+             appStore = appStore,
+             browserStore = browserStore,
+             cfrToolsStore = cfrToolsStore,
+-            gleanDebugToolsStore = gleanDebugToolsStore,
+             inactiveTabsEnabled = inactiveTabsEnabled,
+             loginsStorage = loginsStorage,
+             addressesDebugRegionRepository = addressesDebugRegionRepository,
+@@ -254,18 +219,6 @@
+         ),
+         appStore = org.mozilla.fenix.components.AppStore(),
+         cfrToolsStore = CfrToolsStore(),
+-        gleanDebugToolsStore = GleanDebugToolsStore(
+-            initialState = GleanDebugToolsState(
+-                logPingsToConsoleEnabled = false,
+-                debugViewTag = "",
+-                pingTypes = listOf(
+-                    "metrics",
+-                    "baseline",
+-                    "ping type 3",
+-                    "ping type 4",
+-                ),
+-            ),
+-        ),
+         inactiveTabsEnabled = true,
+         loginsStorage = FakeLoginsStorage(),
+         addressesDebugRegionRepository = FakeAddressesDebugRegionRepository(),
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/ext/Activity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/ext/Activity.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/ext/Activity.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/ext/Activity.kt
+@@ -39,7 +39,6 @@
+ import org.mozilla.fenix.components.menu.MenuDialogFragmentDirections
+ import org.mozilla.fenix.customtabs.EXTRA_IS_SANDBOX_CUSTOM_TAB
+ import org.mozilla.fenix.customtabs.ExternalAppBrowserActivity
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsFragmentDirections
+ import org.mozilla.fenix.exceptions.trackingprotection.TrackingProtectionExceptionsFragmentDirections
+ import org.mozilla.fenix.home.HomeFragmentDirections
+ import org.mozilla.fenix.library.history.HistoryFragmentDirections
+@@ -294,8 +293,6 @@
+ 
+     BrowserDirection.FromHistory -> HistoryFragmentDirections.actionGlobalBrowser()
+ 
+-    BrowserDirection.FromGleanDebugToolsFragment -> GleanDebugToolsFragmentDirections.actionGlobalBrowser()
+-
+     BrowserDirection.FromHistoryMetadataGroup -> HistoryMetadataGroupFragmentDirections.actionGlobalBrowser()
+ 
+     BrowserDirection.FromTrackingProtectionExceptions ->
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/ext/Configuration.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/ext/Configuration.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/ext/Configuration.kt
++++ /dev/null
+@@ -1,36 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.ext
+-
+-import android.content.Context
+-import androidx.preference.PreferenceManager
+-import mozilla.telemetry.glean.config.Configuration
+-import org.mozilla.fenix.BuildConfig
+-import org.mozilla.fenix.R
+-
+-/**
+- * Get custom Glean server URL if available.
+- */
+-fun getCustomGleanServerUrlIfAvailable(context: Context): String? {
+-    return if (BuildConfig.GLEAN_CUSTOM_URL.isNullOrEmpty()) {
+-        PreferenceManager.getDefaultSharedPreferences(context).getString(
+-            context.getPreferenceKey(R.string.pref_key_custom_glean_server_url),
+-            null,
+-        )
+-    } else {
+-        BuildConfig.GLEAN_CUSTOM_URL
+-    }
+-}
+-
+-/**
+- * Applies the custom Glean server URL to the Configuration if available.
+- */
+-fun Configuration.setCustomEndpointIfAvailable(serverEndpoint: String?): Configuration {
+-    if (!serverEndpoint.isNullOrEmpty()) {
+-        return copy(serverEndpoint = serverEndpoint)
+-    }
+-
+-    return this
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+@@ -104,7 +104,6 @@
+ import org.mozilla.fenix.components.Components
+ import org.mozilla.fenix.components.Core
+ import org.mozilla.fenix.components.appstate.AppAction
+-import org.mozilla.fenix.components.initializeGlean
+ import org.mozilla.fenix.components.metrics.MozillaProductDetector
+ import org.mozilla.fenix.components.startMetricsIfEnabled
+ import org.mozilla.fenix.experiments.maybeFetchExperiments
+@@ -251,18 +250,6 @@
+         }
+     }
+ 
+-    // Begin initialization of Glean if we have data-upload consent, otherwise we will have to
+-    // wait until we do. Note that Glean initialization is asynchronous any may not be finished
+-    // when this method returns.
+-    @OptIn(DelicateCoroutinesApi::class) // GlobalScope usage
+-    private fun maybeInitializeGlean() {
+-        // We delay the Glean initialization until we have user consent from onboarding.
+-        // If onboarding is disabled (when in local builds), continue to initialize Glean.
+-        if (components.fenixOnboarding.userHasBeenOnboarded() || !FeatureFlags.onboardingFeatureEnabled) {
+-            initializeGlean(this, logger, components.settings.isTelemetryEnabled, components.core.client)
+-        }
+-    }
+-
+     /**
+      * This phase of main-process initialization runs before application-services is fully setup
+      * so care must be taken. This phases begins loading the Nimbus, Glean, Gecko libraries.
+@@ -306,11 +293,6 @@
+         // Here we access the engine property, which will cause the lazy property getter to
+         // construct the instance.
+         components.core.engine
+-
+-        // Kick off initialization of Glean backend off-thread. Glean will continue to queue
+-        // metric samples until the backend is ready. If we don't have data-upload consent then
+-        // this will be a no-op and initialization may be attempted after onboarding.
+-        maybeInitializeGlean()
+ 
+         // Initialize the [BrowserStore] so that [setStartupMetrics] can reference this.
+         // Note: This is a historical artifact and should be revisited.
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
+@@ -20,9 +20,7 @@
+ import androidx.core.app.NotificationManagerCompat
+ import androidx.fragment.app.Fragment
+ import androidx.fragment.compose.content
+-import androidx.lifecycle.lifecycleScope
+ import androidx.navigation.fragment.findNavController
+-import kotlinx.coroutines.launch
+ import mozilla.components.browser.state.action.WebExtensionAction
+ import mozilla.components.browser.state.state.extension.WebExtensionPromptRequest
+ import mozilla.components.concept.engine.webextension.InstallationMethod
+@@ -34,12 +32,10 @@
+ import mozilla.components.support.base.log.logger.Logger
+ import mozilla.components.support.utils.Browsers
+ import mozilla.components.support.utils.BuildManufacturerChecker
+-import org.mozilla.fenix.GleanMetrics.Pings
+ import org.mozilla.fenix.R
+ import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
+ import org.mozilla.fenix.components.appstate.AppAction
+ import org.mozilla.fenix.components.appstate.SupportedMenuNotifications
+-import org.mozilla.fenix.components.initializeGlean
+ import org.mozilla.fenix.components.metrics.installSourcePackage
+ import org.mozilla.fenix.components.startMetricsIfEnabled
+ import org.mozilla.fenix.ext.application
+@@ -325,19 +321,6 @@
+ 
+     private fun startGlean() {
+         val settings = requireComponents.settings
+-        viewLifecycleOwner.lifecycleScope.launch {
+-            initializeGlean(
+-                requireContext().applicationContext,
+-                logger,
+-                settings.isTelemetryEnabled,
+-                requireComponents.core.client,
+-            )
+-        }
+-
+-        if (!settings.isTelemetryEnabled) {
+-            Pings.onboardingOptOut.setEnabled(true)
+-            Pings.onboardingOptOut.submit()
+-        }
+ 
+         // The marketing telemetry may be enabled after finishing onboarding.
+         startMetricsIfEnabled(
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt
+@@ -240,12 +240,6 @@
+                 browserStore.dispatch(EngagementFinished(abandoned = false))
+             }
+ 
+-            "about:glean" -> {
+-                navController.navigate(
+-                    NavGraphDirections.actionGlobalGleanDebugToolsFragment(),
+-                )
+-            }
+-
+             "moz://a" -> openSearchOrUrl(
+                 SupportUtils.getMozillaPageUrl(SupportUtils.MozillaPage.MANIFESTO),
+                 navController,
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+@@ -23,7 +23,6 @@
+ import androidx.navigation.findNavController
+ import androidx.navigation.fragment.findNavController
+ import androidx.navigation.fragment.navArgs
+-import androidx.preference.EditTextPreference
+ import androidx.preference.Preference
+ import androidx.preference.PreferenceFragmentCompat
+ import androidx.preference.SwitchPreferenceCompat
+@@ -31,7 +30,6 @@
+ import kotlinx.coroutines.flow.first
+ import kotlinx.coroutines.launch
+ import mozilla.components.compose.base.button.FilledButton
+-import org.mozilla.fenix.BuildConfig
+ import org.mozilla.fenix.Config
+ import org.mozilla.fenix.FeatureFlags
+ import org.mozilla.fenix.R
+@@ -314,11 +312,6 @@
+                 }
+         }
+ 
+-        // for performance reasons, this is only available in Nightly or Debug builds
+-        requirePreference<EditTextPreference>(R.string.pref_key_custom_glean_server_url).apply {
+-            isVisible = Config.channel.isNightlyOrDebug && BuildConfig.GLEAN_CUSTOM_URL.isNullOrEmpty()
+-        }
+-
+         requirePreference<Preference>(R.string.pref_key_remote_settings_server).apply {
+             isVisible = true
+             summary = settings.getRemoteSettingsServerString()
+diff --git a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
+--- a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
++++ b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
+@@ -120,9 +120,6 @@
+     <action
+         android:id="@+id/action_global_crashListFragment"
+         app:destination="@id/crashListFragment" />
+-    <action
+-        android:id="@+id/action_global_gleanDebugToolsFragment"
+-        app:destination="@id/gleanDebugToolsFragment" />
+ 
+     <action
+         android:id="@+id/action_global_downloadsFragment"
+@@ -1443,10 +1440,6 @@
+             android:name="addon"
+             app:argType="mozilla.components.feature.addons.Addon" />
+     </fragment>
+-
+-    <fragment
+-        android:id="@+id/gleanDebugToolsFragment"
+-        android:name="org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsFragment" />
+ 
+     <fragment
+         android:id="@+id/unlockPrivateTabsFragment"
+diff --git a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
+--- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
+@@ -263,12 +263,6 @@
+       android:key="@string/pref_key_crash_pull_never_show_again"
+       android:title="@string/preferences_crash_pull_never_show_again"
+       app:iconSpaceReserved="false" />
+-    <EditTextPreference
+-      android:inputType="textUri"
+-      android:key="@string/pref_key_custom_glean_server_url"
+-      android:title="@string/preferences_debug_settings_custom_glean_server_url"
+-      app:iconSpaceReserved="false"
+-      app:useSimpleSummaryProvider="true" />
+     <Preference
+       android:key="@string/pref_key_remote_settings_server"
+       android:title="@string/preferences_debug_settings_remote_settings_server_label"
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanProfileId.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanProfileId.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanProfileId.kt
++++ /dev/null
+@@ -1,22 +0,0 @@
+-/*
+- *  This Source Code Form is subject to the terms of the Mozilla Public
+- *  * License, v. 2.0. If a copy of the MPL was not distributed with this
+- *  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+- */
+-
+-package org.mozilla.fenix.components.metrics.fake
+-
+-import org.mozilla.fenix.components.metrics.GleanProfileId
+-import java.util.UUID
+-
+-class FakeGleanProfileId : GleanProfileId {
+-    var gleanStoredProfileId: UUID? = null
+-    var generatedProfileId: UUID = UUID.randomUUID()
+-
+-    override fun generateAndSet(): UUID {
+-        gleanStoredProfileId = generatedProfileId
+-        return generatedProfileId
+-    }
+-    override fun set(profileId: UUID) { gleanStoredProfileId = profileId }
+-    override fun unset() { gleanStoredProfileId = null }
+-}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanProfileIdStore.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanProfileIdStore.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanProfileIdStore.kt
++++ /dev/null
+@@ -1,20 +0,0 @@
+-/*
+- *  This Source Code Form is subject to the terms of the Mozilla Public
+- *  * License, v. 2.0. If a copy of the MPL was not distributed with this
+- *  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+- */
+-
+-package org.mozilla.fenix.components.metrics.fake
+-
+-import org.mozilla.fenix.components.metrics.GleanProfileIdStore
+-
+-class FakeGleanProfileIdStore : GleanProfileIdStore {
+-    var appStoredProfileId: String? = null
+-    override var profileId: String?
+-        get() = appStoredProfileId
+-        set(value) { appStoredProfileId = value }
+-
+-    override fun clear() {
+-        appStoredProfileId = null
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanUsageReporting.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanUsageReporting.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanUsageReporting.kt
++++ /dev/null
+@@ -1,41 +0,0 @@
+-/*
+- *  This Source Code Form is subject to the terms of the Mozilla Public
+- *  * License, v. 2.0. If a copy of the MPL was not distributed with this
+- *  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+- */
+-
+-package org.mozilla.fenix.components.metrics.fake
+-
+-import org.mozilla.fenix.components.metrics.GleanUsageReportingApi
+-
+-/**
+- * Allows tests to insert their own version of a GleanUsageReportingApi
+- * and make assertions against it
+- */
+-class FakeGleanUsageReporting : GleanUsageReportingApi {
+-    var pingSubmitCount: Int = 0
+-    var lastUsageReason: String? = null
+-    var lastDurationMillis: Long? = null
+-    var lastEnabled: Boolean? = null
+-    var dataDeletionRequested: Boolean? = null
+-
+-    override fun setEnabled(enabled: Boolean) {
+-        lastEnabled = enabled
+-    }
+-
+-    override fun setUsageReason(usageReason: GleanUsageReportingApi.UsageReason) {
+-        this.lastUsageReason = usageReason.name.lowercase()
+-    }
+-
+-    override fun submitPing() {
+-        pingSubmitCount++
+-    }
+-
+-    override fun requestDataDeletion() {
+-        dataDeletionRequested = true
+-    }
+-
+-    override fun setDuration(durationMillis: Long) {
+-        lastDurationMillis = durationMillis
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUsageReportingLifecycleObserverTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUsageReportingLifecycleObserverTest.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUsageReportingLifecycleObserverTest.kt
++++ /dev/null
+@@ -1,106 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import androidx.lifecycle.Lifecycle
+-import org.junit.Assert.assertEquals
+-import org.junit.Assert.assertNull
+-import org.junit.Test
+-import org.mozilla.fenix.components.metrics.fake.FakeGleanUsageReporting
+-import org.mozilla.fenix.components.metrics.fake.FakeLifecycleOwner
+-
+-class GleanUsageReportingLifecycleObserverTest {
+-
+-    private val fakeGleanUsageReporting = FakeGleanUsageReporting()
+-
+-    private var fakeCurrentTime = 0L
+-    private val fakeCurrentTimeProvider = { ++fakeCurrentTime }
+-
+-    @Test
+-    fun `before any lifecycle state changes, no pings are submitted`() {
+-        createGleanUsageReportingLifecycleObserver()
+-        assertEquals(0, fakeGleanUsageReporting.pingSubmitCount)
+-    }
+-
+-    @Test
+-    fun `before any lifecycle state changes, no usage reason is set`() {
+-        createGleanUsageReportingLifecycleObserver()
+-        assertNull(fakeGleanUsageReporting.lastUsageReason)
+-    }
+-
+-    @Test
+-    fun `when state changed to start, usage reason is set to active`() {
+-        val lifecycleObserver = createGleanUsageReportingLifecycleObserver()
+-        lifecycleObserver.onStateChanged(FakeLifecycleOwner(), Lifecycle.Event.ON_START)
+-        assertEquals("active", fakeGleanUsageReporting.lastUsageReason)
+-    }
+-
+-    @Test
+-    fun `when state changed to start, usage ping is sent`() {
+-        val lifecycleObserver = createGleanUsageReportingLifecycleObserver()
+-        lifecycleObserver.onStateChanged(FakeLifecycleOwner(), Lifecycle.Event.ON_START)
+-        assertEquals(1, fakeGleanUsageReporting.pingSubmitCount)
+-    }
+-
+-    @Test
+-    fun `when state changed to stop, usage reason is set to inactive`() {
+-        val lifecycleObserver = createGleanUsageReportingLifecycleObserver()
+-        lifecycleObserver.onStateChanged(FakeLifecycleOwner(), Lifecycle.Event.ON_STOP)
+-        assertEquals("inactive", fakeGleanUsageReporting.lastUsageReason)
+-    }
+-
+-    @Test
+-    fun `when state changed to stop, usage ping is sent`() {
+-        val lifecycleObserver = createGleanUsageReportingLifecycleObserver()
+-        lifecycleObserver.onStateChanged(FakeLifecycleOwner(), Lifecycle.Event.ON_START)
+-        assertEquals(1, fakeGleanUsageReporting.pingSubmitCount)
+-    }
+-
+-    @Test
+-    fun `when duration is not set, don't submit it`() {
+-        val lifecycleObserver = createGleanUsageReportingLifecycleObserver()
+-        lifecycleObserver.onStateChanged(FakeLifecycleOwner(), Lifecycle.Event.ON_STOP)
+-        assertNull(fakeGleanUsageReporting.lastDurationMillis)
+-    }
+-
+-    @Test
+-    fun `duration is set to the length of the last foreground session`() {
+-        val lifecycleObserver = createGleanUsageReportingLifecycleObserver()
+-        lifecycleObserver.onStateChanged(FakeLifecycleOwner(), Lifecycle.Event.ON_START)
+-        assertEquals(1, fakeCurrentTime)
+-        fakeCurrentTimeProvider()
+-        lifecycleObserver.onStateChanged(FakeLifecycleOwner(), Lifecycle.Event.ON_STOP)
+-        assertEquals(3, fakeCurrentTime)
+-        assertEquals(2L, fakeGleanUsageReporting.lastDurationMillis)
+-    }
+-
+-    @Test
+-    fun `ON_PAUSE lifecycle event doesn't affect duration`() {
+-        val lifecycleObserver = createGleanUsageReportingLifecycleObserver()
+-        lifecycleObserver.onStateChanged(FakeLifecycleOwner(), Lifecycle.Event.ON_START)
+-        assertEquals(1, fakeCurrentTime)
+-        fakeCurrentTimeProvider()
+-        lifecycleObserver.onStateChanged(FakeLifecycleOwner(), Lifecycle.Event.ON_PAUSE)
+-        assertEquals(2, fakeCurrentTime)
+-        assertNull(fakeGleanUsageReporting.lastDurationMillis)
+-    }
+-
+-    @Test
+-    fun `ON_DESTROY lifecycle event doesn't affect duration`() {
+-        val lifecycleObserver = createGleanUsageReportingLifecycleObserver()
+-        lifecycleObserver.onStateChanged(FakeLifecycleOwner(), Lifecycle.Event.ON_START)
+-        assertEquals(1, fakeCurrentTime)
+-        fakeCurrentTimeProvider()
+-        lifecycleObserver.onStateChanged(FakeLifecycleOwner(), Lifecycle.Event.ON_DESTROY)
+-        assertEquals(2, fakeCurrentTime)
+-        assertNull(fakeGleanUsageReporting.lastDurationMillis)
+-    }
+-
+-    private fun createGleanUsageReportingLifecycleObserver() =
+-        GleanUsageReportingLifecycleObserver(
+-            gleanUsageReportingApi = fakeGleanUsageReporting,
+-            currentTimeProvider = fakeCurrentTimeProvider,
+-        )
+-}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUsageReportingMetricsServiceTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUsageReportingMetricsServiceTest.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUsageReportingMetricsServiceTest.kt
++++ /dev/null
+@@ -1,95 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import org.junit.Assert.assertFalse
+-import org.junit.Assert.assertNull
+-import org.junit.Assert.assertTrue
+-import org.junit.Test
+-import org.mozilla.fenix.components.metrics.fake.FakeGleanProfileId
+-import org.mozilla.fenix.components.metrics.fake.FakeGleanProfileIdStore
+-import org.mozilla.fenix.components.metrics.fake.FakeGleanUsageReporting
+-import org.mozilla.fenix.components.metrics.fake.FakeLifecycleEventObserver
+-import org.mozilla.fenix.components.metrics.fake.FakeLifecycleOwner
+-import kotlin.test.assertNotNull
+-
+-internal class GleanUsageReportingMetricsServiceTest {
+-
+-    private val fakeLifecycleOwner = FakeLifecycleOwner()
+-    private val fakeLifecycleEventObserver = FakeLifecycleEventObserver()
+-    private val fakeGleanUsageReporting = FakeGleanUsageReporting()
+-
+-    @Test
+-    fun `lifecycle is not initially observed`() {
+-        createGleanUsageReportingMetricsService()
+-        assertTrue(fakeLifecycleOwner.observers.isEmpty())
+-        assertNull(fakeLifecycleEventObserver.lastEvent)
+-    }
+-
+-    @Test
+-    fun `when service is started, the lifecycle observer is added`() {
+-        val service = createGleanUsageReportingMetricsService()
+-        service.start()
+-        assertTrue(fakeLifecycleOwner.observers.contains(fakeLifecycleEventObserver))
+-    }
+-
+-    @Test
+-    fun `when service is started then stopped, the lifecycle observer is removed`() {
+-        val service = createGleanUsageReportingMetricsService()
+-        service.start()
+-        service.stop()
+-        assertFalse(fakeLifecycleOwner.observers.contains(fakeLifecycleEventObserver))
+-    }
+-
+-    @Test
+-    fun `after starting and stopping the service, no lifecycle observers remain`() {
+-        val service = createGleanUsageReportingMetricsService()
+-        service.start()
+-        service.stop()
+-        assertTrue(fakeLifecycleOwner.observers.isEmpty())
+-    }
+-
+-    @Test
+-    fun `usage reporting is enabled on start`() {
+-        val service = createGleanUsageReportingMetricsService()
+-        assertNull(fakeGleanUsageReporting.lastEnabled)
+-        service.start()
+-        assertNotNull(fakeGleanUsageReporting.lastEnabled)
+-        assertTrue(fakeGleanUsageReporting.lastEnabled!!)
+-    }
+-
+-    @Test
+-    fun `usage reporting is disabled on start`() {
+-        val service = createGleanUsageReportingMetricsService()
+-        assertNull(fakeGleanUsageReporting.lastEnabled)
+-        service.start()
+-        service.stop()
+-        assertNotNull(fakeGleanUsageReporting.lastEnabled)
+-        assertFalse(fakeGleanUsageReporting.lastEnabled!!)
+-    }
+-
+-    @Test
+-    fun `when usage reporting is started, no data deletion request is sent`() {
+-        createGleanUsageReportingMetricsService().start()
+-        assertNull(fakeGleanUsageReporting.dataDeletionRequested)
+-    }
+-
+-    @Test
+-    fun `when usage reporting is stopped, a data deletion request is sent`() {
+-        val service = createGleanUsageReportingMetricsService()
+-        service.start()
+-        service.stop()
+-        assertNotNull(fakeGleanUsageReporting.dataDeletionRequested)
+-        assertTrue(fakeGleanUsageReporting.dataDeletionRequested!!)
+-    }
+-
+-    private fun createGleanUsageReportingMetricsService() = GleanUsageReportingMetricsService(
+-        lifecycleOwner = fakeLifecycleOwner,
+-        gleanUsageReportingLifecycleObserver = fakeLifecycleEventObserver,
+-        gleanUsageReporting = fakeGleanUsageReporting,
+-        gleanProfileId = FakeGleanProfileId(),
+-        gleanProfileIdStore = FakeGleanProfileIdStore(),
+-    )
+-}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUserProfileIdTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUserProfileIdTest.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUserProfileIdTest.kt
++++ /dev/null
+@@ -1,76 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import junit.framework.TestCase.assertEquals
+-import junit.framework.TestCase.assertNull
+-import org.junit.Test
+-import org.mozilla.fenix.components.metrics.fake.FakeGleanProfileId
+-import org.mozilla.fenix.components.metrics.fake.FakeGleanProfileIdStore
+-import org.mozilla.fenix.components.metrics.fake.FakeGleanUsageReporting
+-import org.mozilla.fenix.components.metrics.fake.FakeLifecycleEventObserver
+-import org.mozilla.fenix.components.metrics.fake.FakeLifecycleOwner
+-import java.util.UUID
+-
+-internal class GleanUserProfileIdTest {
+-
+-    private val fakeGleanUsageId = FakeGleanProfileId()
+-    private val fakeGleanProfileIdStore = FakeGleanProfileIdStore()
+-
+-    @Test
+-    fun `when the app is run for the first time, before initialising glean there are no stored profile ids`() {
+-        assertNull(fakeGleanProfileIdStore.appStoredProfileId)
+-        assertNull(fakeGleanUsageId.gleanStoredProfileId)
+-    }
+-
+-    @Test
+-    fun `when the app is run for the first time, a new glean usage profile id is generated and set`() {
+-        createGleanUsageReportingMetricsService().start()
+-        assertEquals(fakeGleanUsageId.generatedProfileId, fakeGleanUsageId.gleanStoredProfileId)
+-    }
+-
+-    @Test
+-    fun `when a new glean id is generated, it is stored in the app's prefs`() {
+-        createGleanUsageReportingMetricsService().start()
+-        assertEquals(fakeGleanUsageId.generatedProfileId.toString(), fakeGleanProfileIdStore.appStoredProfileId)
+-    }
+-
+-    @Test
+-    fun `on the second run of the app, the glean usage profile id is retrieved from prefs`() {
+-        val service = createGleanUsageReportingMetricsService()
+-        val firstGeneratedProfileId = fakeGleanUsageId.generatedProfileId
+-        service.start()
+-        fakeGleanUsageId.generatedProfileId = UUID.randomUUID()
+-        service.start()
+-        assertEquals(firstGeneratedProfileId.toString(), fakeGleanProfileIdStore.appStoredProfileId)
+-    }
+-
+-    @Test
+-    fun `on the second run of the app, the app stored glean usage profile id is set in glean`() {
+-        val service = createGleanUsageReportingMetricsService()
+-        val firstGeneratedProfileId = fakeGleanUsageId.generatedProfileId
+-        service.start()
+-        fakeGleanUsageId.generatedProfileId = UUID.randomUUID()
+-        service.start()
+-        assertEquals(firstGeneratedProfileId, fakeGleanUsageId.gleanStoredProfileId)
+-    }
+-
+-    @Test
+-    fun `when glean telemetry is switched off, the glean usage profile id is unset`() {
+-        val service = createGleanUsageReportingMetricsService()
+-        service.start()
+-        service.stop()
+-        assertNull(fakeGleanProfileIdStore.appStoredProfileId)
+-        assertNull(fakeGleanUsageId.gleanStoredProfileId)
+-    }
+-
+-    private fun createGleanUsageReportingMetricsService() = GleanUsageReportingMetricsService(
+-        lifecycleOwner = FakeLifecycleOwner(),
+-        gleanUsageReportingLifecycleObserver = FakeLifecycleEventObserver(),
+-        gleanUsageReporting = FakeGleanUsageReporting(),
+-        gleanProfileId = fakeGleanUsageId,
+-        gleanProfileIdStore = fakeGleanProfileIdStore,
+-    )
+-}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/debugsettings/DebugDrawerNavigationMiddlewareTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/debugsettings/DebugDrawerNavigationMiddlewareTest.kt
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/debugsettings/DebugDrawerNavigationMiddlewareTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/debugsettings/DebugDrawerNavigationMiddlewareTest.kt
+@@ -85,16 +85,6 @@
+         }
+ 
+     @Test
+-    fun `WHEN the glean debug tools screen is the next destination THEN the glean debug tools screen is navigated to`() =
+-        runTest(testDispatcher) {
+-            store.dispatch(DebugDrawerAction.NavigateTo.GleanDebugTools)
+-
+-            testDispatcher.scheduler.advanceUntilIdle()
+-
+-            verify { navController.navigate(DebugDrawerRoute.GleanDebugTools.route) }
+-        }
+-
+-    @Test
+     fun `WHEN the region tools screen is the next destination THEN the region tools screen is navigated to`() =
+         runTest(testDispatcher) {
+             store.dispatch(DebugDrawerAction.NavigateTo.RegionDebugTools)
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/debugsettings/GleanDebugToolsStoreTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/debugsettings/GleanDebugToolsStoreTest.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/debugsettings/GleanDebugToolsStoreTest.kt
++++ /dev/null
+@@ -1,295 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.debugsettings
+-
+-import androidx.test.ext.junit.runners.AndroidJUnit4
+-import junit.framework.TestCase
+-import mozilla.components.support.test.robolectric.testContext
+-import mozilla.components.support.utils.ClipboardHandler
+-import org.junit.Assert.assertEquals
+-import org.junit.Assert.assertFalse
+-import org.junit.Assert.assertNotEquals
+-import org.junit.Assert.assertTrue
+-import org.junit.Before
+-import org.junit.Test
+-import org.junit.runner.RunWith
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsAction
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsMiddleware
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsState
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsStorage
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsStore
+-import org.mozilla.fenix.debugsettings.gleandebugtools.PING_PREVIEW_URL
+-
+-@RunWith(AndroidJUnit4::class)
+-class GleanDebugToolsStoreTest {
+-
+-    private lateinit var gleanDebugToolsStorage: FakeGleanDebugToolsStorage
+-    private lateinit var clipboardHandler: ClipboardHandler
+-
+-    @Before
+-    fun setup() {
+-        gleanDebugToolsStorage = FakeGleanDebugToolsStorage()
+-        clipboardHandler = ClipboardHandler(testContext)
+-    }
+-
+-    @Test
+-    fun `WHEN there is no debug view tag THEN the debug view tag related buttons should be disabled`() {
+-        val initialState = initializeGleanDebugToolsState(
+-            debugViewTag = "",
+-        )
+-        assertFalse(initialState.isDebugTagButtonEnabled)
+-    }
+-
+-    @Test
+-    fun `WHEN the debug view tag length is larger than the limit THEN the debug view tag related buttons should be disabled`() {
+-        val initialState = initializeGleanDebugToolsState(
+-            debugViewTag = "123456789123456789123",
+-        )
+-        assertFalse(initialState.isDebugTagButtonEnabled)
+-    }
+-
+-    @Test
+-    fun `WHEN the the debug view tag length is smaller than the limit and it is not empty THEN the debug view tag related buttons should be enabled`() {
+-        val initialState = initializeGleanDebugToolsState(
+-            debugViewTag = "test",
+-        )
+-        assertTrue(initialState.isDebugTagButtonEnabled)
+-    }
+-
+-    @Test
+-    fun `GIVEN the log pings to console preference is off WHEN said preference is toggled THEN the preference should be enabled`() {
+-        gleanDebugToolsStorage = FakeGleanDebugToolsStorage(isSetLogPingsEnabled = false)
+-        val store = GleanDebugToolsStore(
+-            initialState = initializeGleanDebugToolsState(
+-                logPingsToConsoleEnabled = false,
+-            ),
+-            middlewares = listOf(
+-                createMiddleware(
+-                    gleanDebugToolsStorage = gleanDebugToolsStorage,
+-                ),
+-            ),
+-        )
+-        assertFalse(store.state.logPingsToConsoleEnabled)
+-        assertFalse(gleanDebugToolsStorage.isSetLogPingsEnabled)
+-        store.dispatch(GleanDebugToolsAction.LogPingsToConsoleToggled)
+-        assertTrue(store.state.logPingsToConsoleEnabled)
+-        assertTrue(gleanDebugToolsStorage.isSetLogPingsEnabled)
+-    }
+-
+-    @Test
+-    fun `GIVEN the log pings to console preference is on WHEN said preference is toggled THEN the preference should be enabled`() {
+-        gleanDebugToolsStorage = FakeGleanDebugToolsStorage(isSetLogPingsEnabled = true)
+-        val store = GleanDebugToolsStore(
+-            initialState = initializeGleanDebugToolsState(
+-                logPingsToConsoleEnabled = true,
+-            ),
+-            middlewares = listOf(
+-                createMiddleware(
+-                    gleanDebugToolsStorage = gleanDebugToolsStorage,
+-                ),
+-            ),
+-        )
+-        assertTrue(store.state.logPingsToConsoleEnabled)
+-        assertTrue(gleanDebugToolsStorage.isSetLogPingsEnabled)
+-        store.dispatch(GleanDebugToolsAction.LogPingsToConsoleToggled)
+-        assertFalse(store.state.logPingsToConsoleEnabled)
+-        assertFalse(gleanDebugToolsStorage.isSetLogPingsEnabled)
+-    }
+-
+-    @Test
+-    fun `WHEN the change debug view tag action is dispatched with an appropriate debug view tag THEN the debug view tag should be changed accordingly and hasDebugViewTagError should be false`() {
+-        val initialDebugViewTag = ""
+-        val newDebugViewTag = "Test"
+-        val store = GleanDebugToolsStore(
+-            initialState = initializeGleanDebugToolsState(
+-                debugViewTag = initialDebugViewTag,
+-            ),
+-        )
+-        store.dispatch(GleanDebugToolsAction.DebugViewTagChanged(newTag = newDebugViewTag))
+-        assertEquals(newDebugViewTag, store.state.debugViewTag)
+-        assertFalse(store.state.hasDebugViewTagError)
+-    }
+-
+-    @Test
+-    fun `WHEN the change debug view tag action is dispatched with a debug view tag that is too long THEN the debug view tag should be changed accordingly and hasDebugViewTagError should be true`() {
+-        val initialDebugViewTag = ""
+-        val newDebugViewTag = "123456789123456789123"
+-        val store = GleanDebugToolsStore(
+-            initialState = initializeGleanDebugToolsState(
+-                debugViewTag = initialDebugViewTag,
+-            ),
+-        )
+-        store.dispatch(GleanDebugToolsAction.DebugViewTagChanged(newTag = newDebugViewTag))
+-        assertEquals(newDebugViewTag, store.state.debugViewTag)
+-        assertTrue(store.state.hasDebugViewTagError)
+-    }
+-
+-    @Test
+-    fun `WHEN the send ping action is dispatched THEN the corresponding ping should be sent`() {
+-        val initialState = initializeGleanDebugToolsState()
+-        val store = GleanDebugToolsStore(
+-            initialState = initialState,
+-            middlewares = listOf(
+-                createMiddleware(
+-                    gleanDebugToolsStorage = gleanDebugToolsStorage,
+-                ),
+-            ),
+-        )
+-        assertEquals(initialState, store.state)
+-        assertFalse(gleanDebugToolsStorage.pingSent)
+-        store.dispatch(GleanDebugToolsAction.SendPing)
+-        assertEquals(initialState, store.state)
+-        assertTrue(gleanDebugToolsStorage.pingSent)
+-    }
+-
+-    @Test
+-    fun `WHEN the send ping action is dispatched THEN a toast is shown`() {
+-        var toastShown = false
+-        val store = GleanDebugToolsStore(
+-            initialState = initializeGleanDebugToolsState(),
+-            middlewares = listOf(
+-                createMiddleware(
+-                    gleanDebugToolsStorage = gleanDebugToolsStorage,
+-                    showToast = { pingType ->
+-                        assertEquals("metrics", pingType)
+-                        toastShown = true
+-                    },
+-                ),
+-            ),
+-        )
+-        assertFalse(toastShown)
+-        store.dispatch(GleanDebugToolsAction.SendPing)
+-        assertTrue(toastShown)
+-    }
+-
+-    @Test
+-    fun `GIVEN the debug view tag should be used WHEN the open debug view action is dispatched THEN the appropriate lambda is called with the appropriate debug view URL`() {
+-        var openDebugViewInvoked = false
+-        val debugViewTag = "test"
+-        val expectedDebugViewLink = "${PING_PREVIEW_URL}pings/$debugViewTag"
+-        val initialState = initializeGleanDebugToolsState(
+-            debugViewTag = debugViewTag,
+-        )
+-        val store = GleanDebugToolsStore(
+-            initialState = initialState,
+-            middlewares = listOf(
+-                createMiddleware(
+-                    gleanDebugToolsStorage = gleanDebugToolsStorage,
+-                    openDebugView = { debugViewLink ->
+-                        assertEquals(expectedDebugViewLink, debugViewLink)
+-                        openDebugViewInvoked = true
+-                    },
+-                ),
+-            ),
+-        )
+-        assertEquals(initialState, store.state)
+-        assertFalse(openDebugViewInvoked)
+-        store.dispatch(GleanDebugToolsAction.OpenDebugView(useDebugViewTag = true))
+-        assertEquals(initialState, store.state)
+-        assertTrue(openDebugViewInvoked)
+-    }
+-
+-    @Test
+-    fun `GIVEN the debug view tag should not be used WHEN the open debug view action is dispatched THEN the appropriate lambda is called with the default debug view URL`() {
+-        val initialState = initializeGleanDebugToolsState()
+-        var openDebugViewInvoked = false
+-        val store = GleanDebugToolsStore(
+-            initialState = initialState,
+-            middlewares = listOf(
+-                createMiddleware(
+-                    gleanDebugToolsStorage = gleanDebugToolsStorage,
+-                    openDebugView = { debugViewLink ->
+-                        TestCase.assertEquals(PING_PREVIEW_URL, debugViewLink)
+-                        openDebugViewInvoked = true
+-                    },
+-                ),
+-            ),
+-        )
+-        assertEquals(initialState, store.state)
+-        assertFalse(openDebugViewInvoked)
+-        store.dispatch(GleanDebugToolsAction.OpenDebugView(useDebugViewTag = false))
+-        assertEquals(initialState, store.state)
+-        assertTrue(openDebugViewInvoked)
+-    }
+-
+-    @Test
+-    fun `GIVEN the debug view tag should be used WHEN the copy debug view action is dispatched THEN the state should remain the same`() {
+-        val debugViewTag = "test"
+-        val expectedDebugViewLink = "${PING_PREVIEW_URL}pings/$debugViewTag"
+-        clipboardHandler.text = null
+-        val initialState = initializeGleanDebugToolsState(
+-            debugViewTag = debugViewTag,
+-        )
+-        val store = GleanDebugToolsStore(
+-            initialState = initialState,
+-            middlewares = listOf(
+-                createMiddleware(
+-                    gleanDebugToolsStorage = gleanDebugToolsStorage,
+-                ),
+-            ),
+-        )
+-        assertEquals(initialState, store.state)
+-        assertNotEquals(expectedDebugViewLink, clipboardHandler.text)
+-        store.dispatch(GleanDebugToolsAction.CopyDebugViewLink(useDebugViewTag = true))
+-        assertEquals(initialState, store.state)
+-        assertEquals(expectedDebugViewLink, clipboardHandler.text)
+-    }
+-
+-    @Test
+-    fun `GIVEN the debug view tag should not be used WHEN the copy debug view action is dispatched THEN the state should remain the same`() {
+-        val initialState = initializeGleanDebugToolsState()
+-        clipboardHandler.text = null
+-        val store = GleanDebugToolsStore(
+-            initialState = initialState,
+-            middlewares = listOf(
+-                createMiddleware(
+-                    gleanDebugToolsStorage = gleanDebugToolsStorage,
+-                ),
+-            ),
+-        )
+-        assertEquals(initialState, store.state)
+-        assertNotEquals(PING_PREVIEW_URL, clipboardHandler.text)
+-        store.dispatch(GleanDebugToolsAction.CopyDebugViewLink(useDebugViewTag = false))
+-        assertEquals(initialState, store.state)
+-        assertEquals(PING_PREVIEW_URL, clipboardHandler.text)
+-    }
+-
+-    private fun createMiddleware(
+-        gleanDebugToolsStorage: GleanDebugToolsStorage,
+-        openDebugView: (String) -> Unit = { _ -> },
+-        showToast: (String) -> Unit = { _ -> },
+-    ) = GleanDebugToolsMiddleware(
+-        gleanDebugToolsStorage = gleanDebugToolsStorage,
+-        clipboardHandler = clipboardHandler,
+-        openDebugView = openDebugView,
+-        showToast = showToast,
+-    )
+-
+-    private fun initializeGleanDebugToolsState(
+-        logPingsToConsoleEnabled: Boolean? = null,
+-        pingType: String = "metrics",
+-        debugViewTag: String? = null,
+-    ) = GleanDebugToolsState(
+-        logPingsToConsoleEnabled = logPingsToConsoleEnabled ?: false,
+-        pingType = pingType,
+-        debugViewTag = debugViewTag ?: "",
+-        pingTypes = listOf("metrics", "crash"),
+-    )
+-
+-    class FakeGleanDebugToolsStorage(
+-        var isSetLogPingsEnabled: Boolean = false,
+-    ) : GleanDebugToolsStorage {
+-
+-        var pingSent = false
+-
+-        override fun setLogPings(enabled: Boolean) {
+-            isSetLogPingsEnabled = enabled
+-        }
+-
+-        override fun sendPing(pingType: String, debugViewTag: String) {
+-            pingSent = true
+-        }
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ext/ConfigurationKtTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ext/ConfigurationKtTest.kt
+deleted file mode 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ext/ConfigurationKtTest.kt
++++ /dev/null
+@@ -1,34 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.ext
+-
+-import io.mockk.mockk
+-import mozilla.telemetry.glean.config.Configuration
+-import org.junit.Assert.assertEquals
+-import org.junit.Assert.assertNotEquals
+-import org.junit.Test
+-
+-class ConfigurationKtTest {
+-    @Test
+-    fun `GIVEN server endpoint is null THEN return the same configuration`() {
+-        val configuration = Configuration(httpClient = mockk())
+-
+-        assertEquals(configuration, configuration.setCustomEndpointIfAvailable(null))
+-    }
+-
+-    @Test
+-    fun `GIVEN server endpoint is not empty THEN make a copy of configuration with server endpoint`() {
+-        val configuration = Configuration(httpClient = mockk())
+-
+-        assertNotEquals(configuration, configuration.setCustomEndpointIfAvailable("test"))
+-    }
+-
+-    @Test
+-    fun `GIVEN server endpoint is empty THEN return the same configuration`() {
+-        val configuration = Configuration(httpClient = mockk())
+-
+-        assertEquals(configuration, configuration.setCustomEndpointIfAvailable(""))
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddlewareTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddlewareTest.kt
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddlewareTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddlewareTest.kt
+@@ -896,18 +896,6 @@
+     }
+ 
+     @Test
+-    fun `WHEN about glean is searched THEN navigate to glean debug tools fragment`() {
+-        val captorMiddleware = CaptureActionsMiddleware<AppState, AppAction>()
+-        val appStore = AppStore(middlewares = listOf(captorMiddleware))
+-        val (_, store) = buildMiddlewareAndAddToStore(appStore = appStore)
+-
+-        store.dispatch(CommitUrl("about:glean"))
+-
+-        verify { navController.navigate(NavGraphDirections.actionGlobalGleanDebugToolsFragment()) }
+-        captorMiddleware.assertLastAction(SearchEnded::class) {}
+-    }
+-
+-    @Test
+     fun `WHEN mozilla manifesto URL is searched THEN navigate to mozilla manifesto page`() {
+         val manifestoUrl = SupportUtils.getMozillaPageUrl(SupportUtils.MozillaPage.MANIFESTO)
+         val captorMiddleware = CaptureActionsMiddleware<AppState, AppAction>()

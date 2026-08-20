@@ -1,0 +1,1660 @@
+--- a/mobile/android/shared-settings.gradle
++++ b/mobile/android/shared-settings.gradle
+@@ -98,3 +98,21 @@
+             ndkVersion
+     )
+ }
++
++// LibreWolf (LW-M4-12): strip the Mozilla/Firefox marks out of every Android
++// string resource, in every locale, before AGP merges resources.  The Fenix UI
++// is localised through in-tree res/values-*/strings.xml -- mobile/android/
++// fenix/l10n.toml has basepath = "." -- so neither --with-l10n-base nor the
++// repository's l10n/ overlay reaches any of it.  See
++// docs/android/L10N-ANDROID.md.
++//
++// The hook lives here, and not at the end of the root build.gradle, for two
++// reasons: this file is under mobile/android/ so scripts/lint-patch-scope.py
++// can see the patch is Android-only from the path alone, and nothing else in
++// any patch list touches it -- the root build.gradle is already shared by
++// build-fixes.patch and no-gms.patch, and a third editor there would be a new
++// ordering pair to adjudicate for no benefit.
++gradle.projectsLoaded { ->
++    gradle.rootProject.apply from: new File(
++        gradle.mozconfig.topsrcdir, "mobile/android/lw-brand/brand-strings.gradle")
++}
+--- /dev/null
++++ b/mobile/android/lw-brand/brand-strings.gradle
+@@ -0,0 +1,110 @@
++// LibreWolf: strip Mozilla/Firefox branding out of every Android string
++// resource, in every locale, before AGP merges resources.  Owner: LW-M4-12.
++// See docs/android/L10N-ANDROID.md in the LibreWolf repository.
++//
++// Why here and not in scripts/librewolf-patches.py: the Fenix UI is localised
++// through in-tree res/values-*/strings.xml, 4,969 files across 81 resource
++// directories.  A patch that carried the rewritten bytes would be megabytes of
++// churn that rejects on every rebase; a sed over the tree would be landmine L4
++// (an out-of-patch mutation nothing can see) and would also corrupt the
++// <string> entries whose value is a SharedPreferences key.  So the rewrite runs
++// as a build step whose input is the tree and whose output is a generated
++// resource directory, and the source tree is never modified.
++//
++// The mechanism is a source-set redirection, not an overlay: res.srcDirs is
++// REPLACED by the rewritten copy.  Appending an overlay directory to the same
++// source set would make every rewritten string a duplicate-resource error --
++// AGP only lets a HIGHER-priority source set override, and there is no spare
++// one here.
++
++def lwBrandDir = new File(gradle.mozconfig.topsrcdir, "mobile/android/lw-brand")
++def lwBrandScript = new File(lwBrandDir, "lw_brand_strings.py")
++def lwBrandMap = new File(lwBrandDir, "brand-map.txt")
++def lwBrandPin = new File(lwBrandDir, "android-l10n-pin.txt")
++
++if (!lwBrandScript.exists() || !lwBrandMap.exists() || !lwBrandPin.exists()) {
++    // Fail here rather than build an APK that still says Firefox.  This file
++    // is only ever applied from a LibreWolf-patched tree, so a missing piece
++    // means the patch landed half-applied.
++    throw new GradleException(
++        "lw-brand: ${lwBrandDir} is incomplete -- expected lw_brand_strings.py, " +
++        "brand-map.txt and android-l10n-pin.txt (LW-M4-12)")
++}
++
++subprojects { project ->
++    project.afterEvaluate {
++        if (!project.hasProperty('android')) {
++            return
++        }
++        def outRoot = new File(project.layout.buildDirectory.get().asFile, "lw-brand/res")
++        def args = []
++        def watched = []
++        project.android.sourceSets.each { ss ->
++            def replacement = []
++            def index = 0
++            ss.res.srcDirs.each { dir ->
++                // Only redirect directories that actually hold resource values;
++                // everything else (generated res, empty dirs) is left alone so
++                // the copy stays cheap and the wiring stays visible.
++                def values = dir.exists() ? dir.listFiles()?.findAll {
++                    it.isDirectory() && (it.name == "values" || it.name.startsWith("values-"))
++                } : null
++                if (!values) {
++                    replacement << dir
++                    return
++                }
++                def dest = new File(outRoot, "${ss.name}/${index++}")
++                args << "--pair" << dir.absolutePath << dest.absolutePath
++                watched << dir
++                replacement << dest
++            }
++            if (!replacement.isEmpty()) {
++                ss.res.srcDirs = replacement
++            }
++        }
++        if (args.isEmpty()) {
++            return
++        }
++
++        def rewrite = project.tasks.register("lwBrandStrings", Exec) { task ->
++            task.group = "librewolf"
++            task.description = "Rewrite Mozilla/Firefox branding out of the " +
++                               "Android string resources (LW-M4-12)"
++            task.commandLine([
++                "python3", lwBrandScript.absolutePath,
++                "--map", lwBrandMap.absolutePath,
++                "--pin", lwBrandPin.absolutePath,
++                "rewrite",
++                "--report", new File(outRoot.parentFile, "dropped.txt").absolutePath,
++            ] + args)
++            watched.each { d ->
++                task.inputs.dir(d).withPathSensitivity(PathSensitivity.RELATIVE)
++            }
++            task.inputs.file(lwBrandScript)
++            task.inputs.file(lwBrandMap)
++            task.inputs.file(lwBrandPin)
++            task.outputs.dir(outRoot)
++            task.doFirst { outRoot.parentFile.mkdirs() }
++        }
++
++        // The generated directory is now a resource source, so everything that
++        // reads resources has to run after the rewrite.  AGP does not infer a
++        // dependency from srcDirs, so it is declared here; a missing edge shows
++        // up as Gradle's "uses this output without declaring a dependency"
++        // error, not as a silently un-rewritten APK.
++        project.tasks.configureEach { task ->
++            def n = task.name
++            if (n == "lwBrandStrings") {
++                return
++            }
++            if ((n.startsWith("pre") && n.endsWith("Build"))
++                    || (n.startsWith("merge") && n.endsWith("Resources"))
++                    || (n.startsWith("generate") && n.endsWith("Resources"))
++                    || (n.startsWith("package") && n.endsWith("Resources"))
++                    || (n.startsWith("map") && n.endsWith("SourceSetPaths"))
++                    || n.startsWith("lint")) {
++                task.dependsOn(rewrite)
++            }
++        }
++    }
++}
+--- /dev/null
++++ b/mobile/android/lw-brand/lw_brand_strings.py
+@@ -0,0 +1,915 @@
++#!/usr/bin/env python3
++"""Strip Mozilla/Firefox branding out of Fenix's Android string resources.
++
++LW-M4-12.  See docs/android/L10N-ANDROID.md in the LibreWolf repository for
++the why; this file is the what.
++
++The entire Fenix UI is localised through in-tree ``res/values-*/strings.xml``
++files that mozilla-l10n/android-l10n syncs into the tree.  ``--with-l10n-base``
++and the repository's ``l10n/`` overlay do not reach them: they cover
++``mobile/android/locales/en-US``, which is two .ftl files.  So the branding has
++to be removed from the resource XML itself, in every locale, before AGP merges
++resources.
++
++Design, in one paragraph.  Every ``<string>``/``<plurals>``/``<string-array>``
++text node is rewritten by replacing whole *words* that contain a declared brand
++stem with the LibreWolf brand name; URLs are masked off first and handled by an
++explicit table, because ``firefox.com/pair`` is an endpoint and not a word.
++Whatever the substitution cannot clean is **dropped**, not shipped: a translated
++entry that still matches a brand stem, or whose English source mentions the
++brand while the rewritten translation does not mention LibreWolf, is deleted
++from the translated file so Android falls back to the rewritten English string.
++That is the fail-closed half, and it is what covers the transliterations -- 37
++locales spell the mark in their own script (Фајерфокс, فايرفوكس, ഫയർഫോക്സ്,
++ෆයර්ෆොක්ස්), and no ASCII substitution can see them.  An unmatched brand stem in
++the *English* source is a hard error, because there is no fallback below it.
++
++Subcommands
++    rewrite   copy a res/ tree, rewriting values*/ XML on the way through
++    scan      report residual branding in a res/ tree or a directory of them
++    derive    re-derive the per-locale brand spellings from an android-l10n
++              checkout (maintainer tool; see resync)
++    resync    download the pinned android-l10n archive, verify its sha256,
++              re-derive, and diff against the checked-in map
++    selftest  run the built-in unit tests
++"""
++
++from __future__ import annotations
++
++import argparse
++import hashlib
++import os
++import re
++import shutil
++import sys
++import unicodedata
++import xml.parsers.expat
++from pathlib import Path
++
++HERE = Path(__file__).resolve().parent
++DEFAULT_MAP = HERE / "brand-map.txt"
++DEFAULT_PIN = HERE / "android-l10n-pin.txt"
++
++
++# --------------------------------------------------------------------------
++# Word splitting
++# --------------------------------------------------------------------------
++
++_MARKS = {"Mn", "Mc", "Me"}
++_JOINERS = {"‌", "‍", "ـ"}  # ZWNJ, ZWJ, Arabic tatweel
++
++
++def _is_word_char(ch: str) -> bool:
++    if ch.isalpha() or ch in _JOINERS:
++        return True
++    return unicodedata.category(ch) in _MARKS
++
++
++def script_of(ch: str) -> str:
++    """A coarse script name for one character; marks/joiners return "".
++
++    Used to decide how much of a word a brand stem owns.  Replacing the whole
++    word is wrong for scripts that glue grammatical particles straight onto the
++    Latin brand -- 'Firefox\ub97c' (ko), '\u12e8firefox' (am), 'mozilla\u1101\u1102'-style
++    Burmese -- and replacing only the stem is wrong for inflected Latin, where
++    'mozilli' would become 'LibreWolfli'.  Replacing the same-script run that
++    contains the stem is right in both cases.
++    """
++    if ch.isascii() or ord(ch) < 0x250 or 0x1E00 <= ord(ch) <= 0x1EFF:
++        return "LATIN"
++    if unicodedata.category(ch) in _MARKS or ch in _JOINERS:
++        return ""
++    name = unicodedata.name(ch, "")
++    return name.split(" ", 1)[0] if name else "?"
++
++
++def iter_words(text: str):
++    """Yield (start, end, word) for each maximal run of word characters.
++
++    'Word character' means alphabetic, combining mark, or ZWJ/ZWNJ/tatweel.
++    The combining-mark clause is load-bearing: a str.isalpha()-only definition
++    splits 'ഫയർഫോക്സ്' into five runs, and every stem derived from it is then a
++    fragment that either misses or over-matches.
++    """
++    n = len(text)
++    i = 0
++    while i < n:
++        if _is_word_char(text[i]):
++            j = i
++            while j < n and _is_word_char(text[j]):
++                j += 1
++            yield i, j, text[i:j]
++            i = j
++        else:
++            i += 1
++
++
++# A URL, or a bare host with a well-known TLD, or a query parameter value.
++URL_RE = re.compile(
++    r"(?i)\b(?:[a-z][a-z0-9+.-]*://)?(?:[a-z0-9-]+\.)+"
++    r"(?:com|org|net|io|dev|app|info|co|me)\b(?:[/?][^\s<>\"']*)?"
++)
++
++
++# --------------------------------------------------------------------------
++# The map file
++# --------------------------------------------------------------------------
++
++class MapError(Exception):
++    pass
++
++
++class BrandMap:
++    def __init__(self):
++        self.brand = None
++        self.derived_from = None
++        self.phrases = []     # (from, to, note)
++        self.words = []       # (stem, latin?, note)
++        self.urls = []        # (literal, replacement, note)
++        self.url_keep = []    # (literal, reason)
++        self.skip = []        # (resource name, reason)
++
++    @classmethod
++    def load(cls, path: Path) -> "BrandMap":
++        m = cls()
++        try:
++            text = path.read_text(encoding="utf-8")
++        except OSError as exc:
++            raise MapError(f"cannot read brand map {path}: {exc}") from exc
++        for lineno, raw in enumerate(text.splitlines(), 1):
++            line = raw.split("#", 1)[0].strip()
++            if not line:
++                continue
++            parts = [p.strip() for p in line.split("|")]
++            kind = parts[0]
++            try:
++                if kind == "brand":
++                    m.brand = parts[1]
++                elif kind == "derived-from":
++                    m.derived_from = parts[1]
++                elif kind == "phrase":
++                    m.phrases.append((parts[1], parts[2],
++                                      parts[3] if len(parts) > 3 else ""))
++                elif kind == "word":
++                    stem = parts[1]
++                    if not stem:
++                        raise IndexError
++                    # Case folding is applied to every stem, in every script.
++                    # It is identity for Arabic and the Indic scripts and it is
++                    # what makes the Cyrillic stems catch a lowercase spelling.
++                    m.words.append((stem.casefold(), True,
++                                    parts[2] if len(parts) > 2 else ""))
++                elif kind == "url":
++                    m.urls.append((parts[1], parts[2],
++                                   parts[3] if len(parts) > 3 else ""))
++                elif kind == "url-keep":
++                    m.url_keep.append((parts[1],
++                                       parts[2] if len(parts) > 2 else ""))
++                elif kind == "skip":
++                    m.skip.append((parts[1],
++                                   parts[2] if len(parts) > 2 else ""))
++                else:
++                    raise MapError(
++                        f"{path}:{lineno}: unknown directive {kind!r}. "
++                        "This parser refuses what it does not understand: a "
++                        "silently ignored rule is a rule that does not run.")
++            except IndexError:
++                raise MapError(f"{path}:{lineno}: malformed {kind!r} line: {raw!r}")
++        if not m.brand:
++            raise MapError(f"{path}: no 'brand|<name>' line")
++        if not m.words:
++            raise MapError(f"{path}: no 'word|<stem>' lines")
++        # Longest stems first so 'firefox' cannot shadow 'firefoxos'-style
++        # supersets; matching is substring-in-word so order only affects which
++        # note is reported, but determinism is cheap.
++        m.words.sort(key=lambda w: (-len(w[0]), w[0]))
++        m.skip_names = {n for n, _ in m.skip}
++        return m
++
++
++def read_pin(path: Path):
++    """commit + sha256, in exactly the format of assets/l10n-pin.txt."""
++    values = {}
++    try:
++        for line in path.read_text(encoding="utf-8").splitlines():
++            line = line.split("#", 1)[0].strip()
++            if not line or "=" not in line:
++                continue
++            key, _, value = line.partition("=")
++            values[key.strip()] = value.strip()
++    except OSError as exc:
++        raise MapError(f"cannot read pin file {path}: {exc}") from exc
++    commit = values.get("commit", "")
++    sha256 = values.get("sha256", "")
++    if not re.fullmatch(r"[0-9a-f]{40}", commit):
++        raise MapError(f"{path}: no valid 'commit = <40 hex>' line (got {commit!r})")
++    if not re.fullmatch(r"[0-9a-f]{64}", sha256):
++        raise MapError(f"{path}: no valid 'sha256 = <64 hex>' line (got {sha256!r})")
++    return commit, sha256
++
++
++def verify_sha256(path: Path, expected: str, description: str):
++    digest = hashlib.sha256()
++    with open(path, "rb") as fh:
++        for chunk in iter(lambda: fh.read(1 << 20), b""):
++            digest.update(chunk)
++    actual = digest.hexdigest()
++    if actual != expected:
++        raise MapError(
++            f"sha256 mismatch for {path} ({description})\n"
++            f"  expected: {expected}\n  actual:   {actual}\n"
++            f"  refusing to use an unverified download")
++    return actual
++
++
++# --------------------------------------------------------------------------
++# Offset-accurate resource XML
++# --------------------------------------------------------------------------
++
++RESOURCE_ELEMENTS = ("string", "plurals", "string-array", "array")
++
++
++class ResourceFile:
++    """Spans of a values*/*.xml file, from expat rather than from a regex.
++
++    Edits are applied to the raw bytes, so the offsets have to survive
++    comments, CDATA, entity references and inline markup.  expat reports
++    CurrentByteIndex for every event; nothing here re-implements XML lexing.
++    """
++
++    def __init__(self, data: bytes):
++        self.data = data
++        self.resources = []
++        self._parse()
++
++    def _parse(self):
++        p = xml.parsers.expat.ParserCreate()
++        p.buffer_text = False
++        stack = []
++        resources = []
++        events = []
++
++        def mark(kind, payload=None):
++            events.append((p.CurrentByteIndex, kind, payload))
++
++        def start(name, attrs):
++            mark("start")
++            stack.append([name, attrs, p.CurrentByteIndex])
++
++        def end(_name):
++            mark("end")
++            name, attrs, start_off = stack.pop()
++            if len(stack) == 1 and name in RESOURCE_ELEMENTS:
++                resources.append(dict(name=attrs.get("name"), tag=name,
++                                      start=start_off,
++                                      end_tag_start=p.CurrentByteIndex,
++                                      end=None, text_spans=[]))
++
++        p.StartElementHandler = start
++        p.EndElementHandler = end
++        p.CharacterDataHandler = lambda _t: mark("chars", tuple(f[0] for f in stack))
++        p.CommentHandler = lambda _t: mark("comment")
++        p.ProcessingInstructionHandler = lambda *_a: mark("pi")
++        p.StartCdataSectionHandler = lambda: mark("cdata")
++        p.EndCdataSectionHandler = lambda: mark("cdataend")
++        p.DefaultHandler = lambda _t: mark("default")
++        p.Parse(self.data, True)
++
++        for r in resources:
++            close = b"</" + r["tag"].encode() + b">"
++            idx = self.data.find(close, r["end_tag_start"])
++            r["end"] = idx + len(close) if idx >= 0 else \
++                self.data.find(b">", r["end_tag_start"]) + 1
++        self.resources = resources
++
++        ordered = sorted(events, key=lambda e: e[0])
++        for i, (off, kind, payload) in enumerate(ordered):
++            if kind != "chars":
++                continue
++            nxt = ordered[i + 1][0] if i + 1 < len(ordered) else len(self.data)
++            if nxt <= off or not payload or payload[0] != "resources":
++                continue
++            if len(payload) < 2 or payload[1] not in RESOURCE_ELEMENTS:
++                continue
++            for r in self.resources:
++                if r["start"] <= off < r["end"]:
++                    r["text_spans"].append((off, nxt))
++                    break
++
++    def values(self):
++        out = {}
++        for r in self.resources:
++            txt = b"".join(self.data[a:b] for a, b in r["text_spans"])
++            out[r["name"]] = out.get(r["name"], b"") + txt
++        return {k: v.decode("utf-8", "replace") for k, v in out.items()}
++
++    def edit(self, subst, drop_names):
++        edits = []
++        for r in self.resources:
++            if r["name"] in drop_names:
++                edits.append((r["start"], r["end"], b""))
++                continue
++            for a, b in r["text_spans"]:
++                old = self.data[a:b]
++                new = subst(old.decode("utf-8"), r["name"]).encode("utf-8")
++                if new != old:
++                    edits.append((a, b, new))
++        out = self.data
++        for a, b, new in sorted(edits, key=lambda e: -e[0]):
++            out = out[:a] + new + out[b:]
++        return out
++
++
++# --------------------------------------------------------------------------
++# Substitution
++# --------------------------------------------------------------------------
++
++def url_host(url: str) -> str:
++    """The host part of a URL span: after any scheme, before /, ? or :."""
++    rest = url.split("://", 1)[-1]
++    for sep in ("/", "?", ":"):
++        rest = rest.split(sep, 1)[0]
++    return rest
++
++
++class Rewriter:
++    def __init__(self, bmap: BrandMap):
++        self.map = bmap
++        self.brand = bmap.brand
++        # URL rules are keyed on the HOST, never on a substring.  A substring
++        # rule for "mozilla.org" silently rewrites "addons.mozilla.org" too,
++        # and that link has to keep working.
++        self.url_keep = {u.casefold() for u, _ in bmap.url_keep}
++        self.url_subst = {f.casefold(): t for f, t, _n in bmap.urls}
++
++    def _mask_urls(self, text):
++        """Return (masked text, list of (start, end, url))."""
++        spans = [(m.start(), m.end()) for m in URL_RE.finditer(text)]
++        return spans
++
++    def _stem_hit(self, word):
++        """Return (stem, start, end) where start/end bound the run to replace."""
++        low = word.casefold()
++        for stem, _latin, _note in self.map.words:
++            idx = low.find(stem)
++            if idx < 0:
++                continue
++            # casefold can change length (e.g. German sz); clamp to the word.
++            a = min(idx, len(word))
++            b = min(idx + len(stem), len(word))
++            return (stem,) + self._same_script_run(word, a, b)
++        return None
++
++    @staticmethod
++    def _same_script_run(word, a, b):
++        want = ""
++        for ch in word[a:b]:
++            want = script_of(ch)
++            if want:
++                break
++        i = a
++        while i > 0:
++            s = script_of(word[i - 1])
++            if s and s != want:
++                break
++            i -= 1
++        j = b
++        while j < len(word):
++            s = script_of(word[j])
++            if s and s != want:
++                break
++            j += 1
++        return i, j
++
++    def rewrite_text(self, text):
++        """Substitute brand words. Returns (new text, unresolved URL list)."""
++        for src, dst, _note in self.map.phrases:
++            text = text.replace(src, dst)
++        url_spans = self._mask_urls(text)
++
++        def in_url(a, b):
++            return any(s <= a and b <= e for s, e in url_spans)
++
++        out = []
++        last = 0
++        for a, b, word in iter_words(text):
++            if in_url(a, b):
++                continue
++            hit = self._stem_hit(word)
++            if hit:
++                _stem, ra, rb = hit
++                out.append(text[last:a + ra])
++                out.append(self.brand)
++                last = a + rb
++        out.append(text[last:])
++        new = "".join(out)
++
++        # URL rules, applied to the URL spans only, matched on the host.
++        pieces = []
++        last = 0
++        for m in URL_RE.finditer(new):
++            host = url_host(m.group(0))
++            repl = self.url_subst.get(host.casefold())
++            if repl is None:
++                continue
++            pieces.append(new[last:m.start()])
++            pieces.append(m.group(0).replace(host, repl, 1))
++            last = m.end()
++        pieces.append(new[last:])
++        new = "".join(pieces)
++
++        unresolved = []
++        for m in URL_RE.finditer(new):
++            u = m.group(0)
++            if not self._stem_hit_anywhere(u):
++                continue
++            if url_host(u).casefold() in self.url_keep:
++                continue
++            unresolved.append(u)
++        return new, unresolved
++
++    def _stem_hit_anywhere(self, text):
++        low = text.casefold()
++        for stem, _latin, _note in self.map.words:
++            if stem in low:
++                return stem
++        return None
++
++    def brand_words(self, text):
++        """Every distinct brand word in text, ignoring allowed URLs."""
++        keep = [(m.start(), m.end()) for m in URL_RE.finditer(text)
++                if url_host(m.group(0)).casefold() in self.url_keep]
++        out = []
++        for a, b, word in iter_words(text):
++            if any(s <= a and b <= e for s, e in keep):
++                continue
++            if self._stem_hit(word):
++                out.append(word)
++        return out
++
++    def residual(self, text):
++        """A brand stem still present outside an allowed URL, or None."""
++        keep_spans = []
++        for m in URL_RE.finditer(text):
++            if url_host(m.group(0)).casefold() in self.url_keep:
++                keep_spans.append((m.start(), m.end()))
++        for a, b, word in iter_words(text):
++            if any(s <= a and b <= e for s, e in keep_spans):
++                continue
++            if self._stem_hit(word):
++                return word
++        return None
++
++
++# --------------------------------------------------------------------------
++# rewrite: a whole res/ tree
++# --------------------------------------------------------------------------
++
++def is_identifier(name, value):
++    """A <string> whose value is its own name is an internal key, not prose.
++
++    'pref_key_enable_firefox_labs', 'mozac_error_asleep' and friends are looked
++    up by value at runtime -- pref_key_* are SharedPreferences keys and
++    mozac_error_* select an error-page illustration.  Rewriting them silently
++    breaks stored preferences and image lookups, and a sed over strings.xml
++    does exactly that.
++    """
++    return value.strip() == (name or "")
++
++
++class Stats:
++    def __init__(self):
++        self.files = 0
++        self.rewritten_rows = 0
++        self.dropped_rows = 0
++        self.dropped = []          # (locale, resource)
++        self.errors = []
++
++
++def rewrite_res_dir(src: Path, dst: Path, rw: Rewriter, stats: Stats,
++                    base_values=None):
++    """Copy src -> dst, rewriting values*/ XML on the way.
++
++    base_values is {resource name: English value}; when it is None the English
++    values are read from src's own values/ directory.
++    """
++    if base_values is None:
++        base_values = {}
++        vdir = src / "values"
++        if vdir.is_dir():
++            for f in sorted(vdir.glob("*.xml")):
++                try:
++                    base_values.update(ResourceFile(f.read_bytes()).values())
++                except Exception:
++                    pass
++
++    if dst.exists():
++        shutil.rmtree(dst)
++    dst.mkdir(parents=True, exist_ok=True)
++
++    for entry in sorted(src.iterdir()):
++        target = dst / entry.name
++        if entry.is_dir() and (entry.name == "values" or
++                               entry.name.startswith("values-")):
++            locale = "" if entry.name == "values" else entry.name[len("values-"):]
++            target.mkdir(parents=True, exist_ok=True)
++            for f in sorted(entry.iterdir()):
++                if f.suffix != ".xml":
++                    shutil.copy2(f, target / f.name)
++                    continue
++                stats.files += 1
++                (target / f.name).write_bytes(
++                    rewrite_file(f.read_bytes(), locale, rw, stats,
++                                 base_values, str(f)))
++        elif entry.is_dir():
++            shutil.copytree(entry, target, symlinks=True)
++        else:
++            shutil.copy2(entry, target)
++
++
++def rewrite_file(data: bytes, locale: str, rw: Rewriter, stats: Stats,
++                 base_values, where=""):
++    rf = ResourceFile(data)
++    values = rf.values()
++    drop = set()
++    skip = rw.map.skip_names
++
++    for name, value in values.items():
++        if name is None or name in skip or is_identifier(name, value):
++            continue
++        new, unresolved = rw.rewrite_text(value)
++        residual = rw.residual(new)
++        # What the fallback below this entry will say, once rewritten.
++        english_new = rw.rewrite_text(base_values.get(name, ""))[0]
++
++        if locale == "":
++            # There is nothing below en-US to fall back to, so an English
++            # value the rules cannot clean is a hard error, not a drop.
++            if unresolved:
++                stats.errors.append(
++                    f"{where}: {name}: URL {unresolved[0]!r} carries a brand "
++                    f"token and its host is in neither the 'url' nor the "
++                    f"'url-keep' table")
++            elif residual:
++                stats.errors.append(
++                    f"{where}: {name}: English value still contains "
++                    f"{residual!r} after rewriting; there is no fallback "
++                    f"below en-US")
++            continue
++
++        if unresolved:
++            drop.add(name)
++            stats.dropped.append((locale, name, f"unresolved URL {unresolved[0]!r}"))
++            continue
++        if residual is not None:
++            drop.add(name)
++            stats.dropped.append((locale, name, f"residual {residual!r}"))
++            continue
++        # The fail-closed rule.  If the rewritten English mentions the brand
++        # and the rewritten translation does not, the translation is either a
++        # transliteration this map has no stem for or a rendering that dropped
++        # the mark.  We cannot tell which, so we drop it and fall back to the
++        # English string rather than risk shipping the mark.
++        if rw.brand in english_new and rw.brand not in new:
++            drop.add(name)
++            stats.dropped.append((locale, name, "brand missing from translation"))
++
++    def subst(text, name):
++        if name is None or name in skip or is_identifier(name, values.get(name, "")):
++            return text
++        new, _ = rw.rewrite_text(text)
++        return new
++
++    out = rf.edit(subst, drop)
++    stats.dropped_rows += len(drop)
++    return out
++
++
++# --------------------------------------------------------------------------
++# Commands
++# --------------------------------------------------------------------------
++
++def find_res_dirs(root: Path):
++    for dirpath, dirnames, _files in os.walk(root):
++        if os.path.basename(dirpath) != "res":
++            continue
++        yield Path(dirpath)
++        dirnames[:] = []
++
++
++def check_pin(bmap, pin_path: Path):
++    """The map must declare which android-l10n commit it was derived from, and
++    that commit must be the pinned one.  Without this the word list can drift
++    from its source and nothing notices -- which is landmine L4's shape."""
++    commit, _sha = read_pin(pin_path)
++    if bmap.derived_from != commit:
++        raise MapError(
++            f"brand map says derived-from|{bmap.derived_from} but "
++            f"{pin_path} pins commit {commit}.\n"
++            f"  Re-derive the word list ('lw_brand_strings.py resync') and "
++            f"review the diff; do not just edit the derived-from line.")
++
++
++def cmd_rewrite(args):
++    bmap = BrandMap.load(Path(args.map))
++    check_pin(bmap, Path(args.pin))
++    rw = Rewriter(bmap)
++    stats = Stats()
++    pairs = list(args.pair or [])
++    if args.src:
++        pairs.append([args.src, args.dst])
++    if not pairs:
++        print("fatal error: no --src/--dst or --pair given", file=sys.stderr)
++        return 2
++    for src, dst in pairs:
++        rewrite_res_dir(Path(src), Path(dst), rw, stats)
++    for e in stats.errors:
++        print("error: " + e, file=sys.stderr)
++    print(f"[lw-brand] {len(pairs)} res dir(s), {stats.files} values file(s), "
++          f"{stats.dropped_rows} translated entr(ies) dropped", file=sys.stderr)
++    if args.report:
++        with open(args.report, "w", encoding="utf-8") as fh:
++            for loc, name, why in sorted(stats.dropped):
++                fh.write(f"{loc}\t{name}\t{why}\n")
++    return 1 if stats.errors else 0
++
++
++def cmd_scan(args):
++    bmap = BrandMap.load(Path(args.map))
++    check_pin(bmap, Path(args.pin))
++    rw = Rewriter(bmap)
++    bad = 0
++    for res in find_res_dirs(Path(args.root)):
++        for d in sorted(res.iterdir()):
++            if not d.is_dir() or not (d.name == "values" or
++                                      d.name.startswith("values-")):
++                continue
++            for f in sorted(d.glob("*.xml")):
++                try:
++                    vals = ResourceFile(f.read_bytes()).values()
++                except Exception as exc:
++                    print(f"error: {f}: {exc}", file=sys.stderr)
++                    bad += 1
++                    continue
++                for name, value in vals.items():
++                    if name in bmap.skip_names or is_identifier(name, value):
++                        continue
++                    hit = rw.residual(value)
++                    if hit:
++                        print(f"{f}: {name}: {hit}")
++                        bad += 1
++    print(f"[lw-brand] scan: {bad} residual branded value(s)", file=sys.stderr)
++    return 1 if bad else 0
++
++
++def cmd_derive(args):
++    """Re-derive candidate brand spellings from an android-l10n checkout."""
++    import collections
++    bmap = BrandMap.load(Path(args.map)) if Path(args.map).exists() else None
++    base = {}
++    for dirpath, dirnames, files in os.walk(args.tree):
++        if os.path.basename(dirpath) != "values":
++            continue
++        if "/samples/" in dirpath or "/examples/" in dirpath:
++            continue
++        for f in files:
++            if f.endswith(".xml"):
++                try:
++                    for k, v in ResourceFile(
++                            Path(dirpath, f).read_bytes()).values().items():
++                        base.setdefault(k, v)
++                except Exception:
++                    pass
++    per = collections.defaultdict(lambda: {"B": [], "O": []})
++    for dirpath, dirnames, files in os.walk(args.l10n):
++        b = os.path.basename(dirpath)
++        if not b.startswith("values-"):
++            continue
++        loc = b[len("values-"):]
++        for f in files:
++            if not f.endswith(".xml"):
++                continue
++            try:
++                vals = ResourceFile(Path(dirpath, f).read_bytes()).values()
++            except Exception:
++                continue
++            for name, val in vals.items():
++                en = base.get(name)
++                if en is None:
++                    continue
++                if any(w in en for w in ("Firefox", "Mozilla")):
++                    if not any(w in val for w in ("Firefox", "Mozilla")):
++                        per[loc]["B"].append(val)
++                else:
++                    per[loc]["O"].append(val)
++    rw = Rewriter(bmap) if bmap else None
++    uncovered = 0
++    for loc, d in sorted(per.items()):
++        if not d["B"]:
++            continue
++        odf = collections.Counter()
++        for v in d["O"]:
++            odf.update({w.lower() for _s, _e, w in iter_words(v)})
++        bdf = collections.Counter()
++        for v in d["B"]:
++            bdf.update({w.lower() for _s, _e, w in iter_words(v)})
++        cands = sorted(((n, w) for w, n in bdf.items() if odf[w] == 0),
++                       reverse=True)[:6]
++        covered = [w for _n, w in cands if rw and rw._stem_hit(w)]
++        flag = "" if covered else "   <-- NO STEM IN MAP"
++        if not covered:
++            uncovered += 1
++        print(f"{loc:10s} n={len(d['B']):3d} {flag}")
++        for n, w in cands:
++            mark = "*" if rw and rw._stem_hit(w) else " "
++            print(f"   {mark} {w}  ({n})")
++    print(f"[lw-brand] derive: {uncovered} locale(s) with no covered candidate",
++          file=sys.stderr)
++    return 0
++
++
++def cmd_resync(args):
++    import tempfile
++    import subprocess
++    commit, sha = read_pin(Path(args.pin))
++    with tempfile.TemporaryDirectory() as tmp:
++        zip_path = Path(tmp, "android-l10n.zip")
++        url = f"https://codeload.github.com/mozilla-l10n/android-l10n/zip/{commit}"
++        print(f"-> {url}", file=sys.stderr)
++        subprocess.check_call(["curl", "-sfL", "-o", str(zip_path), url])
++        verify_sha256(zip_path, sha, f"android-l10n zip @ {commit}")
++        print(f"sha256 ok: {sha}", file=sys.stderr)
++        subprocess.check_call(["unzip", "-qo", str(zip_path), "-d", tmp])
++        extracted = Path(tmp, f"android-l10n-{commit}")
++        if not extracted.is_dir():
++            raise MapError(f"{extracted} missing; codeload changed its layout")
++        args.l10n = str(extracted)
++        return cmd_derive(args)
++
++
++# --------------------------------------------------------------------------
++# Self-test
++# --------------------------------------------------------------------------
++
++SELFTEST_MAP = """
++brand|LibreWolf
++word|firefox|latin
++word|mozil|latin stem
++word|фајерфокс|sr
++phrase|Firefox Fenix|LibreWolf|app_name
++url|mozilla.org|librewolf.net|example domain
++url-keep|firefox.com|functional endpoint
++skip|some_key|internal
++"""
++
++SELFTEST_XML = b"""<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <!-- a comment mentioning Firefox and Mozilla -->
++    <string name="a">Welcome to Firefox</string>
++    <string name="b" tools:ignore="X">Send data to Mozilla</string>
++    <string name="c">Scan at <b>firefox.com/pair</b></string>
++    <string name="d">e.g. mozilla.org:80</string>
++    <string name="pref_key_x">pref_key_x</string>
++    <string name="some_key">Firefox</string>
++    <string name="e">Fajerfoks &amp; co</string>
++    <plurals name="f"><item quantity="one">One Firefox tab</item></plurals>
++</resources>
++"""
++
++
++def cmd_selftest(_args):
++    import tempfile
++    failures = []
++
++    def check(label, got, want):
++        if got != want:
++            failures.append(f"{label}\n  got:  {got!r}\n  want: {want!r}")
++
++    with tempfile.TemporaryDirectory() as tmp:
++        mp = Path(tmp, "m.txt")
++        mp.write_text(SELFTEST_MAP, encoding="utf-8")
++        bmap = BrandMap.load(mp)
++        rw = Rewriter(bmap)
++
++        check("latin word", rw.rewrite_text("Welcome to Firefox")[0],
++              "Welcome to LibreWolf")
++        check("possessive", rw.rewrite_text("Firefox’s job")[0],
++              "LibreWolf’s job")
++        check("inflected latin stem", rw.rewrite_text("dane do Mozilli")[0],
++              "dane do LibreWolf")
++        check("cyrillic word", rw.rewrite_text(
++            "Фајерфоксова заштита")[0],
++              "LibreWolf заштита")
++        check("url table", rw.rewrite_text("e.g. mozilla.org:80")[0],
++              "e.g. librewolf.net:80")
++        check("url kept", rw.rewrite_text("go to https://firefox.com/pair")[0],
++              "go to https://firefox.com/pair")
++        check("unresolved url is reported",
++              rw.rewrite_text("see support.mozilla.org/kb")[1],
++              ["support.mozilla.org/kb"])
++        check("host rule does not touch a subdomain",
++              rw.rewrite_text("see support.mozilla.org/kb")[0],
++              "see support.mozilla.org/kb")
++        check("phrase before words",
++              rw.rewrite_text("Firefox Fenix")[0], "LibreWolf")
++        check("residual finds cyrillic",
++              rw.residual("Фајерфокс"),
++              "Фајерфокс")
++        check("residual ignores kept url",
++              rw.residual("open https://firefox.com/pair now"), None)
++        check("identifier detected", is_identifier("pref_key_x", "pref_key_x"), True)
++
++        # File-level: English pass must not drop, must not touch comments.
++        stats = Stats()
++        base = ResourceFile(SELFTEST_XML).values()
++        out = rewrite_file(SELFTEST_XML, "", rw, stats, base, "selftest")
++        vals = ResourceFile(out).values()
++        check("en a", vals["a"], "Welcome to LibreWolf")
++        check("en b", vals["b"], "Send data to LibreWolf")
++        check("en c", vals["c"], "Scan at firefox.com/pair")
++        check("en d", vals["d"], "e.g. librewolf.net:80")
++        check("en pref key untouched", vals["pref_key_x"], "pref_key_x")
++        check("en skip untouched", vals["some_key"], "Firefox")
++        check("en plurals", vals["f"], "One LibreWolf tab")
++        check("comments untouched",
++              b"a comment mentioning Firefox and Mozilla" in out, True)
++        check("no error on English", stats.errors, [])
++
++        # Translated pass: a transliteration we do not know must be dropped.
++        tr = SELFTEST_XML.replace(b"Welcome to Firefox", b"Vitajte vo Fajerfokse")
++        stats2 = Stats()
++        out2 = rewrite_file(tr, "sk", rw, stats2, base, "selftest-sk")
++        vals2 = ResourceFile(out2).values()
++        check("unknown transliteration dropped", "a" in vals2, False)
++        check("drop recorded", any(n == "a" for _l, n, _w in stats2.dropped), True)
++
++        # A known transliteration must be substituted, not dropped.
++        tr2 = SELFTEST_XML.replace(
++            b"Welcome to Firefox",
++            "Добро Фајерфокс".encode())
++        stats3 = Stats()
++        vals3 = ResourceFile(rewrite_file(tr2, "sr", rw, stats3, base, "st-sr")).values()
++        check("known transliteration substituted", vals3.get("a"),
++              "Добро LibreWolf")
++
++        # An unknown brand-bearing URL must be an error, not a silent pass.
++        bad = SELFTEST_XML.replace(b"Welcome to Firefox",
++                                   b"see support.mozilla.org/kb/x")
++        stats4 = Stats()
++        rewrite_file(bad, "", rw, stats4, base, "st-url")
++        check("unknown branded URL errors", len(stats4.errors), 1)
++
++        # An unknown directive must be refused.
++        mp2 = Path(tmp, "m2.txt")
++        mp2.write_text(SELFTEST_MAP + "\nwibble|x\n", encoding="utf-8")
++        try:
++            BrandMap.load(mp2)
++            failures.append("unknown directive was accepted")
++        except MapError:
++            pass
++
++    for f in failures:
++        print("FAIL " + f, file=sys.stderr)
++    print(f"[lw-brand] selftest: {len(failures)} failure(s)", file=sys.stderr)
++    return 1 if failures else 0
++
++
++def main(argv=None):
++    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
++    ap.add_argument("--map", default=str(DEFAULT_MAP))
++    ap.add_argument("--pin", default=str(DEFAULT_PIN))
++    sub = ap.add_subparsers(dest="cmd", required=True)
++
++    p = sub.add_parser("rewrite")
++    p.add_argument("--src")
++    p.add_argument("--dst")
++    p.add_argument("--pair", nargs=2, action="append", metavar=("SRC", "DST"))
++    p.add_argument("--report")
++    p.set_defaults(func=cmd_rewrite)
++
++    p = sub.add_parser("scan")
++    p.add_argument("--root", required=True)
++    p.set_defaults(func=cmd_scan)
++
++    p = sub.add_parser("derive")
++    p.add_argument("--l10n", required=True)
++    p.add_argument("--tree", required=True)
++    p.set_defaults(func=cmd_derive)
++
++    p = sub.add_parser("resync")
++    p.add_argument("--tree", required=True)
++    p.set_defaults(func=cmd_resync)
++
++    p = sub.add_parser("selftest")
++    p.set_defaults(func=cmd_selftest)
++
++    args = ap.parse_args(argv)
++    try:
++        return args.func(args)
++    except MapError as exc:
++        print(f"fatal error: {exc}", file=sys.stderr)
++        return 2
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+--- /dev/null
++++ b/mobile/android/lw-brand/brand-map.txt
+@@ -0,0 +1,122 @@
++# LibreWolf brand map for the Fenix / android-components string resources.
++# Owner: LW-M4-12.  Consumed by lw_brand_strings.py; see
++# docs/android/L10N-ANDROID.md in the LibreWolf repository for the mechanism
++# and the re-sync procedure.
++#
++# Line format:  <directive>|<field>|<field>...     '#' starts a comment.
++# The parser REFUSES any directive it does not know -- a silently ignored rule
++# is a rule that does not run.
++#
++#   brand|<name>              the name every brand token is replaced with
++#   derived-from|<commit>     android-l10n commit the word list was derived
++#                             from; must equal android-l10n-pin.txt's commit
++#   phrase|<from>|<to>|<note>  literal phrase replacement, run before words
++#   word|<stem>|<note>        a word containing <stem> (case-folded) has the
++#                             whole same-script run around the stem replaced
++#                             by the brand.  Replacing the same-script RUN and
++#                             not the whole word is deliberate: Korean and
++#                             Amharic glue particles straight onto the Latin
++#                             mark ("Firefox\ub97c", "\u12e8firefox"), so the
++#                             particle has to survive; Slavic inflections are
++#                             all-Latin, so "Mozilli" collapses to the brand
++#                             rather than to "LibreWolfli".
++#   url|<host>|<to>|<note>    host replacement, applied inside URL spans only
++#   url-keep|<host>|<why>     a host that carries the mark and MUST NOT change
++#   skip|<resource>|<why>     a resource this pass never touches
++#
++# Anything the substitution cannot clean is DROPPED from the translated file,
++# not shipped: see lw_brand_strings.rewrite_file.  Strings whose value equals
++# their own name (pref_key_*, mozac_error_*) are internal keys and are skipped
++# automatically -- rewriting them breaks stored preferences and error-page
++# image lookups.
++
++brand|LibreWolf
++derived-from|b1b54243735917584168051b7206ca249427e86b
++
++# Phrases, replaced before the word pass so that a two-word product name does
++# not become "LibreWolf LibreWolf".  app_name is translatable="false" and has
++# no locale variants; LW-M4-07 owns the final product name and the launcher
++# icon, and may override these.
++phrase|Firefox Fenix|LibreWolf|debug/main app_name
++phrase|Firefox Nightly|LibreWolf Nightly|nightly app_name
++phrase|Firefox Beta|LibreWolf Beta|beta app_name
++
++# ---------------------------------------------------------------------------
++# Brand words.
++#
++# The Latin entries are typed by hand.  Every non-Latin entry was DERIVED from
++# the pinned android-l10n archive by `lw_brand_strings.py derive` and copied
++# from its output -- none of them was transcribed by a human, because a
++# mis-typed Malayalam or Sinhala stem fails silently.  Each was then checked
++# against the whole corpus (507,643 translated strings): a stem is only listed
++# here if every string in which it fires has an English source that mentions
++# Firefox or Mozilla.
++#
++# 37 locales spell the mark in their own script.  An ASCII-only substitution --
++# which is what the desktop appstrings.properties sed is -- sees none of them.
++# ---------------------------------------------------------------------------
++word|ಫೈರ್‌ಫಾಕ್ಸ್|kn
++word|ᱯᱷᱟᱭᱟᱨᱯᱷᱚᱠᱥ|sat
++word|ෆයර්ෆොක්ස්|si
++word|Фајерфокс|sr
++word|فایەرفۆکس|ckb
++word|فَيرفُكُس|ar, vocalised
++word|பயர்பாக்ச|ta
++word|Firefoks|pl
++word|firefrox|kmr
++word|mozzilla|trs
++word|Фаерфокс|ab
++word|فائرفاکس|pa-rPK, skr
++word|فايرفوكس|ar
++word|فایرفاکس|azb, fa
++word|فایرفوکس|ps
++word|ਫਾਇਰਫਾਕਸ|pa-rIN
++word|மொசில்லா|ta
++word|మొజిల్లా|te
++word|ಮೊಜಿಲ್ಲಾ|kn
++word|ഫയർഫോക്സ|ml
++word|මොසිල්ලා|si
++word|firebox|su
++word|firedox|gu-rIN
++word|firefox|en-US and every locale that keeps the mark in Latin script
++word|firefoz|meh, kmr
++word|musilla|ay
++word|موْزیلا|azb, vocalised
++word|മോസില്ല|ml
++word|fiefox|kab
++word|موزيلا|ar
++word|موزیلا|azb, fa, ps
++word|مۆزیلا|ckb
++word|مۊزیلا|bqi
++word|મોઝિલા|gu-rIN
++word|ፋየርፎክስ|am
++word|ᱢᱳᱡᱤᱞᱟ|sat
++word|fenix|app_name 'Firefox Fenix'; bs 'O Fenixu'
++word|mozil|Latin base and its inflections: cs sk sl hr hu pl szl bs su
++word|Мозил|ab, sr
++word|موزیل|pa-rPK
++word|موزل|skr, pa-rPK
++word|ਜ਼ੀਲਾ|pa-rIN
++word|ሞዚላ|am
++
++# ---------------------------------------------------------------------------
++# URLs.  Word substitution never touches a URL: 'firefox.com' is a host, not a
++# word, and rewriting it would ship a link that does not resolve.  Every URL
++# that carries the mark must appear in one of the two tables below or the
++# rewrite fails -- so a new branded URL from upstream stops the build instead
++# of shipping.
++# ---------------------------------------------------------------------------
++
++url|mozilla.org|librewolf.net|Example host in the port-blocked and autocomplete error text ("mozilla.org:80 for port 80 on mozilla.org"). It is an illustration, not an endpoint, so it is replaced rather than kept.
++
++url-keep|firefox.com|The Mozilla-account pairing endpoint. The QR-code and sign-in instructions name the page the user must actually open; rewriting the host would make the instruction wrong. Reported as an enumerated exception by `scan`. The real fix is to decide whether the Android build ships Mozilla accounts at all -- desktop LibreWolf sets identity.fxaccounts.enabled=false, and no task owns the Android side (android.cfg gap G2).
++url-keep|addons.mozilla.org|Add-ons are installed from addons.mozilla.org; the host is the service, not our chrome, and desktop LibreWolf ships the same AMO endpoints. Rewriting it would break add-on installation.
++url-keep|suggestqueries.google.com|A worked example of a third-party suggestion endpoint in "Add search engine". The 'client=firefox' query parameter is Google's API vocabulary, not our chrome; changing it makes the example stop working.
++
++# ---------------------------------------------------------------------------
++# Resources this pass never touches.
++# ---------------------------------------------------------------------------
++
++# (none at present -- the value==name rule below covers every internal key
++# that was found in this tree.  Add one here, with a reason, if a prose string
++# ever has to survive the pass.)
+--- /dev/null
++++ b/mobile/android/lw-brand/android-l10n-pin.txt
+@@ -0,0 +1,54 @@
++# Pinned snapshot of https://github.com/mozilla-l10n/android-l10n
++#
++# This file is the Android counterpart of assets/l10n-pin.txt and uses exactly
++# the same format and the same two mandatory keys, validated by
++# lw_brand_strings.py's read_pin()/verify_sha256() -- which are ports of
++# scripts/librewolf-patches.py's functions of the same names.
++#
++# What it pins, and what it does NOT pin.  The translated Fenix strings we
++# SHIP come from the Firefox source tarball, which is GPG-verified already:
++# mobile/android/fenix/l10n.toml has `basepath = "."`, so upstream syncs
++# android-l10n into in-tree res/values-*/strings.xml before it cuts a release.
++# Re-downloading them would add a second, weaker supply chain for bytes we
++# already have.
++#
++# What this archive IS used for is the brand-word list in brand-map.txt.  The
++# rewrite has to recognise the mark in every script a translator has written it
++# in -- Фајерфокс, فايرفوكس, ഫയർഫോക്സ്, ෆයර්ෆොක්ස්, ᱯᱷᱟᱭᱟᱨᱯᱷᱚᱠᱥ -- and that list
++# is derived from this corpus, which is a superset of the in-tree one (196
++# Fenix locales here against 131 in the tree). A tampered corpus produces a
++# brand map with a missing or a bogus stem, so it is verified before it is
++# unpacked, on the same principle as the desktop pin.
++#
++# Format: "key = value", one per line, '#' starts a comment.
++#   commit   full 40-hex commit sha in mozilla-l10n/android-l10n
++#   sha256   sha256 of https://codeload.github.com/mozilla-l10n/android-l10n/zip/<commit>
++#
++# ---------------------------------------------------------------------------
++# HOW TO BUMP THIS PIN -- both lines, in this order:
++#
++#   1. Pick the commit:
++#        git ls-remote https://github.com/mozilla-l10n/android-l10n refs/heads/main
++#
++#   2. Download that exact archive and hash it:
++#        sha=<the 40-hex sha from step 1>
++#        curl -sfL -o /tmp/android-l10n.zip \
++#          "https://codeload.github.com/mozilla-l10n/android-l10n/zip/$sha"
++#        sha256sum /tmp/android-l10n.zip
++#
++#   3. Write both values below, then re-derive and review the brand map:
++#        python3 mobile/android/lw-brand/lw_brand_strings.py resync \
++#            --tree mobile/android
++#
++# The same caveat as assets/l10n-pin.txt applies: codeload generates these zips
++# on demand and GitHub does not contractually guarantee byte-stability. If the
++# sha256 check starts failing while the commit line is unchanged, extract both
++# archives and diff the trees before touching the hash. A hash refreshed
++# without looking is not a pin.
++#
++# Verified on 2026-08-19: two downloads of the commit below, minutes apart,
++# were byte-identical (15971521 bytes).
++# ---------------------------------------------------------------------------
++
++commit = b1b54243735917584168051b7206ca249427e86b
++sha256 = 637978a42324ce15acdf01b7691ddddf3cd7caec4fe33f834fb1badee472c8f9
+--- /dev/null
++++ b/mobile/android/lw-brand/ui_brand_scan.py
+@@ -0,0 +1,303 @@
++#!/usr/bin/env python3
++"""Walk the running Fenix UI and report every visible Mozilla/Firefox mark.
++
++LW-M4-12.  This is a HOST-side tool: it drives a device over adb, it is not
++part of the app build.  It exists because the acceptance for that task is
++"verified from the running app, not from grep", and because a scrape of the
++home screen and the settings root would go green on a build whose deeper
++screens still say Firefox -- which is exactly why
++`scripts/android-smoke.sh --check-strings` still exits 3 rather than shipping
++a shallow version.  Hand this to LW-M2-07 as the body of that check.
++
++What it does:
++
++  * navigates by DEEP LINK (fenix-dev://settings_search_engine and the other
++    thirteen routes HomeDeepLinkIntentProcessor accepts), so navigation does
++    not depend on reading localised labels -- the point is to run in Serbian
++    and Malayalam, where a coordinate or a label-matching walker cannot go;
++  * then breadth-first taps every clickable row of every screen it reaches, to
++    a bounded depth, pressing Back afterwards;
++  * dumps the accessibility tree at each stop and matches every `text` and
++    `content-desc` against the SAME brand stems the rewrite uses
++    (brand-map.txt), so a transliteration is caught in the locale that spells
++    it that way;
++  * reports a hit as (screen, attribute, value), and exits 1 if there are any.
++
++What it does NOT prove: that a screen it never reached is clean.  It prints
++the screens it visited, and the count, so that is auditable rather than
++implied.
++"""
++
++from __future__ import annotations
++
++import argparse
++import re
++import subprocess
++import sys
++import time
++import xml.etree.ElementTree as ET
++from pathlib import Path
++
++# The crude counterpart of the stem detector: a plain ASCII search that knows
++# nothing about the map's url-keep allowlist.  It is here so the enumerated
++# exceptions are OBSERVED on screen rather than assumed away -- the stem
++# detector skips an allowed URL by construction, so on its own it could never
++# tell you the pairing screen still reads firefox.com/pair.
++CRUDE = re.compile(r"(?i)firefox|mozilla|fenix")
++
++sys.path.insert(0, str(Path(__file__).resolve().parent))
++from lw_brand_strings import BrandMap, Rewriter  # noqa: E402
++
++DEEP_LINKS = [
++    "home", "urls_bookmarks", "urls_history", "settings", "turn_on_sync",
++    "settings_search_engine", "settings_accessibility",
++    "settings_delete_browsing_data", "settings_addon_manager",
++    "settings_logins", "settings_tracking_protection", "settings_privacy",
++    "settings_wallpapers", "settings_private_browsing", "settings_app_icon",
++    "settings_ai_controls",
++]
++
++
++class Adb:
++    def __init__(self, adb, serial):
++        self.base = [adb] + (["-s", serial] if serial else [])
++
++    def sh(self, *args, timeout=60):
++        return subprocess.run(self.base + ["shell"] + list(args),
++                              capture_output=True, text=True, timeout=timeout)
++
++    def raw(self, *args, timeout=60):
++        return subprocess.run(self.base + list(args),
++                              capture_output=True, text=True, timeout=timeout)
++
++
++def dump_tree(adb, retries=4):
++    for _ in range(retries):
++        r = adb.sh("uiautomator", "dump", "/sdcard/lwui.xml")
++        if "dumped" in (r.stdout + r.stderr):
++            out = adb.raw("exec-out", "cat", "/sdcard/lwui.xml")
++            if out.stdout.strip().startswith("<"):
++                return out.stdout
++        time.sleep(1)
++    return ""
++
++
++def nodes(xml_text):
++    try:
++        root = ET.fromstring(xml_text)
++    except ET.ParseError:
++        return []
++    return list(root.iter("node"))
++
++
++def labelled_clickables(xml_text):
++    """(label, centre) for every clickable node, labelled by its own text or,
++    failing that, by the first text of a descendant.
++
++    The descendant clause is not cosmetic.  Fenix's settings rows are Compose
++    nodes: the clickable is a container and the words live in a child, so a
++    walker that only reads a clickable's own `text` sees "Navigate up" and
++    nothing else -- and never opens "About LibreWolf", which is the last row of
++    the settings list and the likeliest place for the mark to survive."""
++    try:
++        root = ET.fromstring(xml_text)
++    except ET.ParseError:
++        return []
++    out = []
++    for n in root.iter("node"):
++        if n.get("clickable") != "true":
++            continue
++        c = bounds_center(n.get("bounds"))
++        if not c:
++            continue
++        label = n.get("text") or n.get("content-desc") or ""
++        if not label:
++            for d in n.iter("node"):
++                label = d.get("text") or d.get("content-desc") or ""
++                if label:
++                    break
++        if label:
++            out.append((label, c))
++    return out
++
++
++def visible_strings(xml_text):
++    out = []
++    for n in nodes(xml_text):
++        for attr in ("text", "content-desc"):
++            v = n.get(attr, "")
++            if v:
++                out.append((attr, v, n.get("resource-id", "")))
++    return out
++
++
++def bounds_center(b):
++    m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", b or "")
++    if not m:
++        return None
++    x1, y1, x2, y2 = map(int, m.groups())
++    if x2 <= x1 or y2 <= y1:
++        return None
++    return (x1 + x2) // 2, (y1 + y2) // 2
++
++
++def scrollable(xml_text):
++    for n in nodes(xml_text):
++        if n.get("scrollable") == "true":
++            c = bounds_center(n.get("bounds"))
++            if c:
++                return c
++    return None
++
++
++def collect_rows(adb, xml_text, max_scrolls=12):
++    """Every clickable row with a visible label, scrolling to the bottom."""
++    rows = []
++    seen = set()
++
++    def harvest(x):
++        for label, c in labelled_clickables(x):
++            if label in seen:
++                continue
++            seen.add(label)
++            rows.append((label, c))
++
++    harvest(xml_text)
++    sc = scrollable(xml_text)
++    if sc:
++        for _ in range(max_scrolls):
++            before = dump_tree(adb)
++            adb.sh("input", "swipe", str(sc[0]), str(sc[1] + 500),
++                   str(sc[0]), str(sc[1] - 500), "300")
++            time.sleep(1.0)
++            after = dump_tree(adb)
++            harvest(after)
++            if after == before:
++                break
++    return rows
++
++
++def find_row(adb, label):
++    """Locate a row by its label on the screen now, scrolling if need be."""
++    for _ in range(14):
++        x = dump_tree(adb)
++        for got, c in labelled_clickables(x):
++            if got == label:
++                return c
++        sc = scrollable(x)
++        if not sc:
++            return None
++        adb.sh("input", "swipe", str(sc[0]), str(sc[1] + 500),
++               str(sc[0]), str(sc[1] - 500), "300")
++        time.sleep(0.9)
++    return None
++
++
++def scan_screen(rw, xml_text, screen, findings, seen_screens, crude=None):
++    seen_screens.append(screen)
++    n0 = len(findings)
++    n1 = len(crude) if crude is not None else 0
++    strings = visible_strings(xml_text)
++    for attr, value, rid in strings:
++        hit = rw.residual(value)
++        if hit:
++            findings.append((screen, attr, rid, value, hit))
++        elif crude is not None and CRUDE.search(value):
++            crude.append((screen, attr, rid, value))
++    print("  [%s] %d string(s), %d branded, %d allowed-exception" %
++          (screen, len(strings), len(findings) - n0,
++           (len(crude) - n1) if crude is not None else 0),
++          file=sys.stderr)
++
++
++def main(argv=None):
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--adb", default="adb")
++    ap.add_argument("--serial")
++    ap.add_argument("--package", required=True)
++    ap.add_argument("--scheme", default="fenix-dev")
++    ap.add_argument("--map", default=str(Path(__file__).resolve().parent / "brand-map.txt"))
++    ap.add_argument("--depth", type=int, default=1,
++                    help="how many levels of clickable rows to open below each "
++                         "deep-linked screen (default 1)")
++    ap.add_argument("--max-taps", type=int, default=14,
++                    help="cap on rows opened per screen")
++    ap.add_argument("--label", default="", help="tag for the report (e.g. the locale)")
++    args = ap.parse_args(argv)
++
++    bmap = BrandMap.load(Path(args.map))
++    rw = Rewriter(bmap)
++    adb = Adb(args.adb, args.serial)
++
++    findings = []
++    crude = []
++    seen = []
++
++    adb.sh("am", "force-stop", args.package)
++    adb.sh("monkey", "-p", args.package, "-c",
++           "android.intent.category.LAUNCHER", "1")
++    time.sleep(8)
++    # The Android runtime-permission dialog is part of the UI the user sees and
++    # it carries the app label, so it is scanned before it is dismissed.
++    scan_screen(rw, dump_tree(adb), "launch", findings, seen, crude)
++    for _ in range(3):
++        xml = dump_tree(adb)
++        deny = None
++        for n in nodes(xml):
++            rid = n.get("resource-id", "")
++            if rid.endswith("permission_deny_button") or rid.endswith("permission_allow_button"):
++                deny = bounds_center(n.get("bounds"))
++                break
++        if not deny:
++            break
++        scan_screen(rw, xml, "runtime-permission-dialog", findings, seen, crude)
++        adb.sh("input", "tap", str(deny[0]), str(deny[1]))
++        time.sleep(2)
++
++    for link in DEEP_LINKS:
++        adb.sh("am", "start", "-a", "android.intent.action.VIEW",
++               "-d", "%s://%s" % (args.scheme, link), args.package)
++        time.sleep(2.2)
++        xml = dump_tree(adb)
++        scan_screen(rw, xml, link, findings, seen, crude)
++        if args.depth < 1:
++            continue
++        # Scroll the screen to the bottom, collecting every labelled row on the
++        # way.  Without this the walker only ever sees the first screenful, and
++        # "About LibreWolf" -- the one row most likely to carry the mark -- is
++        # the last entry in the settings list.
++        rows = collect_rows(adb, xml)
++        opened = 0
++        for i, (label, _c) in enumerate(rows):
++            if opened >= args.max_taps:
++                break
++            # Re-find the row by label after each Back: coordinates go stale as
++            # soon as the list scrolls.
++            spot = find_row(adb, label)
++            if not spot:
++                continue
++            before = dump_tree(adb)
++            adb.sh("input", "tap", str(spot[0]), str(spot[1]))
++            time.sleep(1.6)
++            sub = dump_tree(adb)
++            if sub == before:
++                continue        # the tap changed nothing; not a screen
++            opened += 1
++            scan_screen(rw, sub, "%s>%s" % (link, label[:28]), findings, seen, crude)
++            adb.sh("input", "keyevent", "KEYCODE_BACK")
++            time.sleep(1.2)
++
++    label = args.label or "device"
++    print("[ui-scan %s] visited %d screen(s)" % (label, len(seen)), file=sys.stderr)
++    for screen, attr, rid, value, hit in findings:
++        print("BRANDED\t%s\t%s\t%s\t%s\t%s" % (label, screen, attr, rid, value))
++    for screen, attr, rid, value in crude:
++        print("ALLOWED\t%s\t%s\t%s\t%s" % (label, screen, attr, value))
++    print("[ui-scan %s] %d branded string(s) visible, %d in the enumerated "
++          "url-keep exception" % (label, len(findings), len(crude)),
++          file=sys.stderr)
++    return 1 if findings else 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/appstate/setup/checklist/SetupChecklistStateTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/appstate/setup/checklist/SetupChecklistStateTest.kt
+@@ -8,10 +8,18 @@
+ import org.junit.Assert.assertEquals
+ import org.junit.Test
+ import org.junit.runner.RunWith
++import org.mozilla.fenix.R
+ import org.robolectric.RobolectricTestRunner
+ 
+ @RunWith(RobolectricTestRunner::class)
+ class SetupChecklistStateTest {
++    // LW-M4-12: the product name is not a literal in this build. mobile/android/
++    // lw-brand rewrites the Mozilla mark out of every string resource, in every
++    // locale, so an expectation that spells the upstream brand asserts against
++    // upstream's branding and not against ours. Read it from the same resource
++    // the code under test uses (R.string.firefox).
++    private val appName get() = testContext.getString(R.string.firefox)
++
+     @Test
+     fun `WHEN state is initialized THEN the initial state is correct`() {
+         val expected = SetupChecklistState(
+@@ -33,19 +41,19 @@
+     @Test
+     fun `GIVEN tasks not completed WHEN getting checklist title THEN returns incomplete title`() {
+         val expected = getSetupChecklistTitle(testContext, allTasksCompleted = false)
+-        assertEquals("Finish setting up Firefox", expected)
++        assertEquals("Finish setting up $appName", expected)
+     }
+ 
+     @Test
+     fun `GIVEN tab strip disabled when calling getSetupChecklistSubtitle then returns expected subtitles`() {
+-        val step0Text = "Complete all 6 steps to set up Firefox for the best browsing experience."
++        val step0Text = "Complete all 6 steps to set up $appName for the best browsing experience."
+         val step1Text = "Great start! You’ve completed 1 out of 6 steps."
+         val step2Text = "You’ve completed 2 out of 6 steps. Great progress!"
+         val step3Text = "You’re halfway there! Three steps finished and 3 to go."
+         val step4Text = "You’re 4 steps in. Only 2 more to go!"
+         val step5Text = "Almost there! You’re just 1 step away from the finish line."
+         val step6Text =
+-            "You’ve completed all 6 setup steps. Enjoy the speed, privacy, and security of Firefox."
++            "You’ve completed all 6 setup steps. Enjoy the speed, privacy, and security of $appName."
+ 
+         assertEquals(step0Text, getSubtitleForGroupWith6Tasks(0))
+         assertEquals(step1Text, getSubtitleForGroupWith6Tasks(1))
+@@ -62,13 +70,13 @@
+ 
+     @Test
+     fun `GIVEN tab strip enabled when calling getSetupChecklistSubtitle then returns expected subtitles`() {
+-        val step0Text = "Complete all 5 steps to set up Firefox for the best browsing experience."
++        val step0Text = "Complete all 5 steps to set up $appName for the best browsing experience."
+         val step1Text = "Great start! You’ve completed 1 out of 5 steps."
+         val step2Text = "You’ve completed 2 out of 5 steps. Great progress!"
+         val step3Text = "You’re halfway there! Three steps finished and 2 to go."
+         val step4Text = "Almost there! You’re just 1 step away from the finish line."
+         val step5Text =
+-            "You’ve completed all 5 setup steps. Enjoy the speed, privacy, and security of Firefox."
++            "You’ve completed all 5 setup steps. Enjoy the speed, privacy, and security of $appName."
+ 
+         assertEquals(step0Text, getSubtitleForGroupWith5Tasks(0))
+         assertEquals(step1Text, getSubtitleForGroupWith5Tasks(1))
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/exceptions/login/LoginExceptionsViewTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/exceptions/login/LoginExceptionsViewTest.kt
+@@ -16,6 +16,7 @@
+ import org.junit.Before
+ import org.junit.Test
+ import org.junit.runner.RunWith
++import org.mozilla.fenix.R
+ import org.robolectric.RobolectricTestRunner
+ import kotlin.test.assertIs
+ 
+@@ -39,7 +40,9 @@
+     @Test
+     fun `sets empty message text`() {
+         assertEquals(
+-            "Firefox Fenix won’t save passwords for sites listed here.",
++            // LW-M4-12: LoginExceptionsView formats R.string.app_name into this
++            // message, and mobile/android/lw-brand rewrites app_name.
++            "${testContext.getString(R.string.app_name)} won’t save passwords for sites listed here.",
+             view.binding.exceptionsEmptyMessage.text,
+         )
+         assertIs<LoginExceptionsAdapter>(view.binding.exceptionsList.adapter)
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
+@@ -239,8 +239,10 @@
+     fun `getNotificationOnboardingPageState returns the expected state`() {
+         val expectedState = OnboardingPageState(
+             imageRes = R.drawable.nova_onboarding_notifications,
+-            title = "Notifications help you stay safer with Firefox",
+-            description = "Discover the latest privacy features in Firefox so you’re always up to date on how to stay protected.",
++            // LW-M4-12: both come straight from string resources that
++            // mobile/android/lw-brand rewrites, so neither can be a literal.
++            title = testContext.getString(R.string.nova_onboarding_notifications_title),
++            description = testContext.getString(R.string.nova_onboarding_notifications_subtitle),
+             primaryButton = Action(
+                 text = "Turn on notifications",
+                 onClick = {
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/termsofuse/experimentation/TermsOfUsePromptContentTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/termsofuse/experimentation/TermsOfUsePromptContentTest.kt
+@@ -4,6 +4,7 @@
+ import org.junit.Assert.assertEquals
+ import org.junit.Test
+ import org.junit.runner.RunWith
++import org.mozilla.fenix.R
+ import org.mozilla.fenix.nimbus.TermsOfUsePromptContentOption
+ import org.robolectric.RobolectricTestRunner
+ 
+@@ -68,7 +69,9 @@
+ 
+     @Test
+     fun `WHEN TermsOfUsePromptContentOption is VALUE_2 THEN getTermsOfUsePromptContent title is as expected`() {
+-        val expectedTitle = "A note from Firefox"
++        // LW-M4-12: getTermsOfUsePromptContent formats R.string.firefox into this
++        // title, and mobile/android/lw-brand rewrites that resource in every locale.
++        val expectedTitle = "A note from ${testContext.getString(R.string.firefox)}"
+         val result = getTermsOfUsePromptContent(
+             testContext,
+             TermsOfUsePromptContentOption.VALUE_2.name,

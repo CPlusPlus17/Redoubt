@@ -1,3 +1,24 @@
+EME permission -- DESKTOP half (LW-M1-03).
+
+Split out of patches/eme-permission.patch. This is the prompt UI only; the
+enforcement point is in patches/eme-permission-common.patch (common.txt).
+common + desktop together are byte-for-byte the original patch.
+
+What is here, both desktop-only because browser/app.mozbuild:11 is the only thing
+that pulls browser/ into a build and mobile/android/app.mozbuild never does:
+  browser/components/permissions/ContentPermissionPrompt.sys.mjs   routes the
+      "media-key-system-access" content-permission request to the prompt below
+  browser/modules/EMEPermissionPrompt.sys.mjs (new file)           the doorhanger
+
+Neither file has an Android counterpart to write. Android answers the same
+"media-key-system-access" request through GeckoViewPermission ->
+GeckoSession.PermissionDelegate -> Fenix's own site-permission prompt, which
+already exists upstream; see the ANDROID BEHAVIOUR section of
+patches/eme-permission-common.patch for the trace. That is why this split needs
+no patches/android/eme-permission-android.patch, unlike LW-M1-08.
+
+Order: no constraint. No other patch in either list touches these two files.
+
 diff --git a/browser/components/permissions/ContentPermissionPrompt.sys.mjs b/browser/components/permissions/ContentPermissionPrompt.sys.mjs
 index fc3c64110c37..032010493054 100644
 --- a/browser/components/permissions/ContentPermissionPrompt.sys.mjs
@@ -20,59 +41,6 @@ index fc3c64110c37..032010493054 100644
        case "geolocation": {
          return new lazy.PermissionUI.GeolocationPermissionPrompt(request);
        }
-diff --git a/dom/media/eme/MediaKeySystemAccessManager.cpp b/dom/media/eme/MediaKeySystemAccessManager.cpp
-index acdc1030c06fa..12f3363549245 100644
---- a/dom/media/eme/MediaKeySystemAccessManager.cpp
-+++ b/dom/media/eme/MediaKeySystemAccessManager.cpp
-@@ -364,9 +364,11 @@ void MediaKeySystemAccessManager::OnDoesAppAllowProtectedMedia(
-                   aIsAllowed ? "true" : "false",
-                   NS_ConvertUTF16toUTF8(aRequest->mKeySystem).get());
-   if (!aIsAllowed) {
--    aRequest->RejectPromiseWithNotSupportedError(
--        nsLiteralCString("The application embedding this user agent has "
--                         "blocked MediaKeySystemAccess"));
-+    if (IsClearkeyKeySystem(aRequest->mKeySystem)) {
-+      aRequest->RejectPromiseWithNotSupportedError("CDM is not installed"_ns);
-+    } else {
-+      aRequest->RejectPromiseWithNotSupportedError("EME has been preffed off"_ns);
-+    }
-     return;
-   }
- 
-@@ -421,8 +423,8 @@ void MediaKeySystemAccessManager::RequestMediaKeySystemAccess(
-     return;
-   }
- 
--  if (!StaticPrefs::media_eme_enabled() &&
--      !IsClearkeyKeySystem(aRequest->mKeySystem)) {
-+  if (!StaticPrefs::media_eme_enabled()) {
-+//      !IsClearkeyKeySystem(aRequest->mKeySystem)) {
-     // EME disabled by user, send notification to chrome so UI can inform user.
-     // Clearkey is allowed even when EME is disabled because we want the pref
-     // "media.eme.enabled" only taking effect on proprietary DRMs.
-@@ -431,12 +433,21 @@ void MediaKeySystemAccessManager::RequestMediaKeySystemAccess(
-       MediaKeySystemAccess::NotifyObservers(mWindow, aRequest->mKeySystem,
-                                             MediaKeySystemStatus::Api_disabled);
-     }
--    aRequest->RejectPromiseWithNotSupportedError("EME has been preffed off"_ns);
-+    if (IsClearkeyKeySystem(aRequest->mKeySystem)) {
-+      aRequest->RejectPromiseWithNotSupportedError("CDM is not installed"_ns);
-+    } else {
-+      aRequest->RejectPromiseWithNotSupportedError("EME has been preffed off"_ns);
-+    }
-     aRequest->mDiagnostics.StoreMediaKeySystemAccess(
-         mWindow->GetExtantDoc(), aRequest->mKeySystem, false, __func__);
-     return;
-   }
- 
-+  if (IsClearkeyKeySystem(aRequest->mKeySystem) && !Preferences::GetBool("librewolf.eme.gmp-clearkey.enabled", false)) {
-+      aRequest->RejectPromiseWithNotSupportedError("CDM is not installed"_ns);
-+      return;
-+  }
-+
-   nsAutoCString message;
-   MediaKeySystemStatus status =
-       MediaKeySystemAccess::GetKeySystemStatus(*aRequest, message);
 diff --git a/browser/modules/EMEPermissionPrompt.sys.mjs b/browser/modules/EMEPermissionPrompt.sys.mjs
 new file mode 100644
 index 000000000000..c019ce2073bc

@@ -1,0 +1,84 @@
+# moz-official -- COMMON half (LW-M1-04).
+#
+# Split out of patches/moz-official.patch, a straddler: it mixed two core GMP
+# hunks that are compiled on every target with three browser/base hunks that
+# only exist in a desktop build. The browser/ half now lives in
+# patches/moz-official-desktop.patch. common + desktop together are, byte for
+# byte, the hunks of the original patch, in the original order within each half.
+#
+# What is here:
+#   dom/media/gmp/ChromiumCDMAdapter.cpp     2 hunks, #ifdef MOZILLA_OFFICIAL -> #if 0
+#   media/gmp-clearkey/0.1/gmp-clearkey.cpp  1 hunk,  #ifdef MOZILLA_OFFICIAL -> #if 0
+#
+# What it does: disables CDM *host file verification*. A build with
+# MOZILLA_OFFICIAL set expects signed host files (the executable and libxul) and
+# refuses to initialise the CDM adapter, or to create a clearkey CDM instance,
+# when it cannot read and verify them. LibreWolf is an unofficial rebuild, so
+# those signatures never exist; `#if 0` switches the checks off rather than
+# switching MOZILLA_OFFICIAL off, which would change dozens of unrelated things.
+#
+# Why it is common -- proved from the pristine firefox-153.0.4 tree, not from
+# the path:
+#   * dom/media/moz.build:28-36 puts "gmp" in an unconditional DIRS, and
+#     dom/media/gmp/moz.build:65-67 lists ChromiumCDMAdapter.cpp in
+#     UNIFIED_SOURCES with no guard above it (the first `if CONFIG[...]` in that
+#     file is at :123, well below). It compiles on Android.
+#   * toolkit/toolkit.mozbuild:167-169 does `DIRS += ["/media/gmp-clearkey/0.1"]`
+#     unconditionally, and media/gmp-clearkey/0.1/moz.build:22-25 lists
+#     gmp-clearkey.cpp in UNIFIED_SOURCES. That same moz.build has an explicit
+#     Android branch at :13-16 -- `if CONFIG["OS_TARGET"] == "Android":
+#     FINAL_TARGET = "dist/bin"` -- so clearkey is not merely compiled on
+#     Android, it is deliberately packaged into the APK under lib/<arch>.
+#
+# Why losing it would matter (the risk flagged on LW-M1-04): the clearkey hunk is
+# the back half of the librewolf.eme.gmp-clearkey.enabled story. The pref itself
+# is enforced by the eme-permission split (LW-M1-03) in
+# dom/media/eme/MediaKeySystemAccessManager.cpp, which decides *whether* a
+# clearkey CDM may be requested; this hunk decides whether the CDM can then
+# actually be created in an unsigned build. Without it,
+# CreateCdmInstance() returns nullptr whenever the host verification files cannot
+# be read -- i.e. always, in an unofficial build -- so a user who has turned the
+# pref on still gets no clearkey. That is a silent DRM behaviour change, not a
+# build error, which is why both media/ files stay in this half intact.
+#
+# ANDROID: no companion Android patch is needed for these two files; they are
+# ordinary core sources with no mobile/ counterpart. For the browser-init
+# question -- whether mobile/android has its own equivalent of the desktop hunk
+# -- see the header of patches/moz-official-desktop.patch. The answer is no, and
+# the evidence is recorded there and in assets/patches/android.txt.
+#
+diff --git a/dom/media/gmp/ChromiumCDMAdapter.cpp b/dom/media/gmp/ChromiumCDMAdapter.cpp
+index 475de25..e1f0324 100644
+--- a/dom/media/gmp/ChromiumCDMAdapter.cpp
++++ b/dom/media/gmp/ChromiumCDMAdapter.cpp
+@@ -69,7 +69,7 @@ void* ChromiumCdmHostCompat(int aHostInterfaceVersion, void* aUserData) {
+   return aUserData;
+ }
+ 
+-#ifdef MOZILLA_OFFICIAL
++#if 0
+ static cdm::HostFile TakeToCDMHostFile(HostFileData& aHostFileData) {
+   return cdm::HostFile(aHostFileData.mBinary.Path().get(),
+                        aHostFileData.mBinary.TakePlatformFile(),
+@@ -85,7 +85,7 @@ GMPErr ChromiumCDMAdapter::GMPInit(const GMPPlatformAPI* aPlatformAPI) {
+     return GMPGenericErr;
+   }
+ 
+-#ifdef MOZILLA_OFFICIAL
++#if 0
+   // Note: we must call the VerifyCdmHost_0 function if it's present before
+   // we call the initialize function.
+   auto verify = reinterpret_cast<decltype(::VerifyCdmHost_0)*>(
+diff --git a/media/gmp-clearkey/0.1/gmp-clearkey.cpp b/media/gmp-clearkey/0.1/gmp-clearkey.cpp
+index e54d654..1b6039e 100644
+--- a/media/gmp-clearkey/0.1/gmp-clearkey.cpp
++++ b/media/gmp-clearkey/0.1/gmp-clearkey.cpp
+@@ -73,7 +73,7 @@ void* CreateCdmInstance(int cdm_interface_version, const char* key_system,
+     return nullptr;
+   }
+ 
+-#ifdef MOZILLA_OFFICIAL
++#if 0
+   // Test that we're able to read the host files.
+   if (!sCanReadHostVerificationFiles) {
+     return nullptr;

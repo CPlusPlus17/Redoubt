@@ -1,0 +1,799 @@
+# LibreWolf no-nimbus.patch  (Android)
+# Owner: LW-M4-03 ("Disable Nimbus experiments and the experimenter endpoint")
+#
+# Upstream files touched
+# ----------------------
+#   mobile/android/fenix/app/nimbus.fml.yaml
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/experiments/NimbusSetup.kt
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/nimbus/NimbusSystemTest.kt
+#       (added by LW-M4-13 -- see "THE TEST CASUALTY" below)
+#
+# The first three are the same in firefox-153.0.4 and firefox-153.0esr (the base
+# ./version.android pins), so the same hunks apply to either tree. Verified by
+# extracting them from firefox-153.0esr.source.tar.xz and diffing against the
+# 153.0.4 tree: NimbusSetup.kt and HomeActivity.kt are byte-identical,
+# nimbus.fml.yaml differs only in the unrelated `shake-to-summarize` defaults and
+# not by a single line of offset, so the fission block sits at the same line
+# numbers in both. The whole android list was then applied to a real extracted
+# 153.0esr tree (`./scripts/check-patchfail.sh --targets=android`), and these
+# three files applied with zero fuzz.
+#
+#
+# What Nimbus is, and what LibreWolf wants instead
+# ------------------------------------------------
+# Nimbus is Mozilla's remote-configuration and experiment-enrolment channel. In
+# Fenix it decides feature flags at runtime, including several that are security
+# decisions rather than product experiments. A browser that periodically asks a
+# Mozilla server "which experiments am I in" is two bad things at once: an
+# upstream-controlled configuration channel we do not audit, and a recurring
+# beacon whose timing, TLS fingerprint and client attributes identify the
+# installation even when the response is empty. LibreWolf keeps the feature
+# manifest -- the compiled-in FML defaults -- and removes the channel.
+#
+# There is no "experimenter" hostname to block, and this surprises people. In
+# 153 the Nimbus client does not talk to experimenter.services.mozilla.com; it
+# reads the `nimbus-mobile-experiments` collection from the ordinary
+# remote-settings service, i.e.
+#   https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/nimbus-mobile-experiments/records
+# (third_party/application-services/components/remote_settings/src/config.rs,
+# RemoteSettingsServer::Prod). Grepping a capture for "experimenter" therefore
+# finds nothing even in a stock build; grep for the collection name.
+#
+#
+# How the channel is actually severed (three independent barriers)
+# ---------------------------------------------------------------
+# 1. `serverSettings = null`, unconditionally.
+#    NimbusServerSettings is what create_client()
+#    (third_party/application-services/components/nimbus/src/stateful/client/mod.rs)
+#    switches on: the Some(..) arm calls RemoteSettingsService::make_client()
+#    for the experiment collection, the None arm builds a NullClient whose
+#    fetch_experiments() returns an empty vec without touching the network.
+#    NullClient's own doc comment says it exists "for non-Mozilla forks of apps
+#    that are not using their own server infrastructure" -- exactly this case.
+#
+#    This also removes the collection from the periodic sync. The Rust
+#    RemoteSettingsService::sync() iterates active_clients(), which are only the
+#    clients that make_client() created; with no nimbus client ever created,
+#    RemoteSettingsSyncWorker cannot sync the experiment collection no matter
+#    how often WorkManager runs it. That is the acceptance criterion "no
+#    remote-settings collection for experiments is synced", satisfied
+#    structurally rather than by an allowlist. (The rest of the remote-settings
+#    allowlist is LW-M4-08's; this patch deliberately does not touch the shared
+#    RemoteSettingsService, which search config and the blocklist also use.)
+#
+# 2. `maybeFetchExperiments()` becomes a no-op.
+#    Upstream it re-fetches on a `refreshIntervalForeground` schedule every time
+#    the app comes to the foreground. That is the recurring beacon. The function
+#    and its signature are kept so its one caller (FenixApplication.onForeground)
+#    compiles unedited -- see "Files deliberately NOT touched" below.
+#
+# 3. `setFetchEnabled(false)` after build().
+#    NimbusClient::fetch_experiments() checks DB_KEY_FETCH_ENABLED before it asks
+#    the SettingsClient for anything, so this catches fetch call sites this patch
+#    does not edit, e.g. MessageNotificationWorker's fetchExperiments(). Note this
+#    does not hang that worker: Nimbus.fetchExperimentsOnThisThread() notifies
+#    onExperimentsFetched() after fetch_experiments() returns, including on the
+#    disabled early-return path, so tryFetchAndApplyNimbusExperiments() completes
+#    normally instead of waiting out its timeout.
+#
+# And the LOCAL config channel, which is not a network fetch and is easy to miss:
+# HomeActivity.onCreate calls `nimbus.sdk.initializeTooling(applicationContext,
+# intent)` with the comment "This is a NOOP when launching normally". It is not a
+# no-op on a release build. ArgumentProcessor.createCommandLineArgs(Uri) rejects
+# only the http and https schemes; any other intent URI carrying
+# `--nimbus-cli=true` is accepted, and `--experiments=<json>` is then fed to
+# setExperimentsLocally() + applyPendingExperiments() and persisted to the Nimbus
+# database, so it survives the launch and overrides the FML defaults on the next
+# start -- fission.isolationStrategy included. With the remote channel severed
+# that was the last remaining way for the FML defaults not to be the effective
+# values, so the call and its import are removed. Nothing else in the tree calls
+# initializeTooling() -- `grep -rn initializeTooling mobile/android/fenix/app/src`
+# returns only this file after the patch -- so no source fails to compile.
+# (Side effect, accepted: `app/src/androidTest/.../experimentintegration` is a
+# pytest suite that drives the app with the external `nimbus-cli` binary, i.e.
+# through exactly this hook, and will no longer work. It is a Mozilla QA suite
+# for experiment enrolment, which this build has none of. It is Python, not
+# compiled Kotlin, so it does not affect any build task.)
+#
+# Plus one that is about the FML defaults being authoritative rather than about
+# the network: `initialExperiments = null`.
+# res/raw/initial_experiments.json is a checked-in snapshot of live Mozilla
+# experiment recipes -- 9 of them in 153.0, every one targeting the `release`
+# channel, covering juno-onboarding, tab-groups, import-bookmarks and others.
+# It is regenerated upstream by
+# taskcluster/docker/periodic-updates/scripts/periodic_file_updates.sh.
+# These are not inert: with no `.nimbus` file in the tree BuildConfig.NIMBUS_ENDPOINT
+# is null, so AbstractNimbusBuilder.isLocalBuild() is true, so build() takes the
+# applyLocalExperiments() branch and enrols from that file on EVERY launch, not
+# just the first. Leaving it wired would mean nine Mozilla experiments still
+# overriding the FML defaults in a browser that makes no network request -- the
+# defaults would not be "the only source" at all. Null makes build() take
+# applyPendingExperiments() instead, and with a NullClient nothing is ever
+# pending. The JSON file itself is left in the tree, unread: emptying it would be
+# a 720-line whole-file hunk that upstream's periodic job guarantees to break on
+# every rebase, for no behavioural gain over not reading it.
+#
+#
+# THE TEST CASUALTY (added by LW-M4-13, which owns this file)
+# ---------------------------------------------------------
+# mobile/android/fenix/app/src/test/java/org/mozilla/fenix/nimbus/NimbusSystemTest.kt
+# is five unit tests whose whole subject is maybeFetchExperiments'
+# refresh-interval behaviour -- exactly the behaviour the hunk below deletes.
+# LW-M4-03 did not touch it and did not mention it.
+#
+# LW-M4-13's board entry says those tests "will not compile". That is WRONG, and
+# it was checked rather than repeated: this patch keeps the function's name, its
+# package (org.mozilla.fenix.experiments), its receiver (NimbusInterface) and its
+# full signature including BOTH default arguments, so
+# `import org.mozilla.fenix.experiments.maybeFetchExperiments` still resolves,
+# and every other symbol the test file uses -- NimbusSystem,
+# Settings.ONE_HOUR_MS / ONE_MINUTE_MS, Settings.nimbusUsePreview,
+# Settings.nimbusLastFetchTime -- is untouched by this patch.
+#
+# What actually happens is a RED UNIT-TEST SUITE, not a red build, which is worse
+# in the way that matters: it passes `assembleDebug` and only shows up if someone
+# runs the tests. Four of the five assert `assertTrue(nimbus.isFetching)` after
+# calling the now-no-op function, so they fail; the fifth ("before an interval
+# THEN do not call fetchExperiments") passes vacuously, for the wrong reason.
+# Three of the four would also throw on `lastTimeSlot.captured`, since the slot
+# is never captured.
+#
+# The five are therefore REPLACED, not deleted, with the same five scenarios and
+# the opposite expectation. A test that pins "this build never contacts an
+# experiment server" is worth having: the single most likely way to lose this
+# patch is an upstream rebase that restores the function body, and that is
+# precisely what these tests now catch. Two assertions per test, not one --
+# fetchExperiments() was not called AND Settings.nimbusLastFetchTime was not
+# written -- because upstream records the timestamp *before* fetching, so a
+# partial revert that kept the bookkeeping would otherwise slip through.
+#
+# One incidental cleanup in the same hunk: the test no longer mocks
+# `context.components.settings` and passes the mocked Settings directly. The
+# upstream version went through `org.mozilla.fenix.ext.components`, which is
+# `applicationContext as FenixApplication` -- a cast on a relaxed mockk Context.
+# Nothing in the assertions needed it.
+#
+# RUN, not reasoned about. `./mach gradle fenix:testDebugUnitTest --tests
+# org.mozilla.fenix.nimbus.NimbusSystemTest` on a patched tree, inside the
+# librewolf-android-build image and reusing the LW-M2-04 objdir and Gradle home:
+# BUILD SUCCESSFUL, :fenix:compileDebugUnitTestKotlin EXECUTED (so the whole
+# unit-test source set compiled, not just this file), and
+# test-results/testDebugUnitTest/TEST-org.mozilla.fenix.nimbus.NimbusSystemTest.xml
+# reads tests="5" skipped="0" failures="0" errors="0". Its captured stdout is
+# eight lines of the logger.debug() line this patch puts in maybeFetchExperiments,
+# which is independent evidence that the no-op body -- and not some other
+# implementation -- is what the tests exercised. No other file under
+# app/src/test or app/src/androidTest references maybeFetchExperiments,
+# createNimbus, NimbusServerSettings, initial_experiments or initializeTooling,
+# so this is the only test casualty of this patch.
+#
+#
+# MEASURED ON THE DEVICE, WITH A NEGATIVE CONTROL (LW-M4-13)
+# ---------------------------------------------------------
+# The claim "no remote-settings collection for experiments is synced" is not
+# checkable from a hostname capture: the nimbus collection is served from
+# firefox.settings.services.mozilla.com, which this build contacts anyway for
+# search config and quicksuggest. The Rust RemoteSettingsService gives a
+# per-collection artefact instead -- Storage::new() opens one
+# `<collection>.sql` under the app's app_remote-settings/ directory for every
+# client make_client() creates (remote_settings/src/service.rs:78).
+#
+# Two x86_64 debug APKs, same emulator, same profile lifecycle, read with
+# `adb shell run-as org.mozilla.fenix.debug`:
+#
+#   artefact                                  stock (LW-M2-04)   this patch
+#   ----------------------------------------  -----------------  ----------
+#   app_remote-settings/nimbus-mobile-        present, 243 KB    ABSENT
+#     experiments.sql (+ -wal)                  of -wal
+#   shared_prefs pref_key_nimbus_last_fetch   1787084596794      ABSENT
+#   nimbus_data/db/data.safe.bin              237,603 bytes      1,951 bytes
+#
+# The other five collections (quicksuggest-amp, quicksuggest-other,
+# search-config-icons, search-config-v2, search-telemetry-v2) are present in
+# BOTH, which is what makes the nimbus row a measurement rather than a broken
+# RemoteSettingsService.
+#
+# ONE ARTEFACT THAT LOOKS LIKE A FETCH AND IS NOT. `pref_key_nimbus_experiments_fetched`
+# is `true` on the patched build too. It is NOT evidence of a network fetch:
+# Nimbus.fetchExperimentsOnThisThread() (application-services
+# .../nimbus/android/.../Nimbus.kt:305-315) calls nimbusClient.fetchExperiments()
+# and then notifies onExperimentsFetched() UNCONDITIONALLY if that returned Ok --
+# and the Rust fetch_experiments() returns Ok(()) immediately when
+# is_fetch_enabled() is false (nimbus_client.rs:363-366), which barrier 3 above
+# arranges. The flag is local bookkeeping read by SplashScreenOperation. Its
+# only remaining caller is MessageNotificationWorker.setupNimbusMessaging().
+# Do not "fix" this by chasing the flag; check nimbus-mobile-experiments.sql.
+#
+# THE INTERACTION THAT CUTS AGAINST THE OBVIOUS FIX (read this before rebasing)
+# ----------------------------------------------------------------------------
+# "Disable Nimbus, fall back to the FML defaults" would, done naively, LOCK IN
+# the weakest possible process isolation. This is why the second hunk exists.
+#
+#   * Core.kt:207-208 reads
+#     WebContentIsolationStrategy.fromValue(FxNimbus.features.fission.value().isolationStrategy)
+#     UNCONDITIONALLY and hands it to GeckoRuntimeSettings, which commits it to
+#     the `fission.webContentIsolationStrategy` pref at runtime
+#     (GeckoRuntimeSettings.java:773-774, a PrefWithoutDefault -- landmine L2's
+#     "runtime commit beats any default" shape).
+#   * The FML default for that variable is 0 = ISOLATE_NOTHING on the release
+#     channel, raised to 2 only for nightly and developer.
+#   * Gecko's own default is 1 (modules/libpref/init/StaticPrefList.yaml,
+#     `fission.webContentIsolationStrategy`).
+#
+# So on a stock release Fenix, Gecko's 1 is overwritten with 0 at startup, and
+# once the remote channel is gone the FML default is the ONLY remaining input.
+# Disabling Nimbus without touching it would cement isolate-nothing permanently.
+#
+# This patch therefore raises the release-channel FML default from 0 to 2
+# (ISOLATE_HIGH_VALUE) in the same change, never as a follow-up. 2 is not a new
+# policy invented here:
+#   - upstream ships 2 on nightly and developer (the `defaults:` block, kept);
+#   - android-components hardcodes ISOLATE_HIGH_VALUE as the default for every
+#     non-Fenix GeckoView embedder (concept/engine Settings' DefaultSettings);
+#   - GeckoWebContentIsolationMapper falls back to ISOLATE_HIGH_VALUE for any
+#     unrecognised value;
+#   - StaticPrefList's own comment says Android overrides this, "for Fenix via
+#     nimbus.fml.yml, and for other Android Components consumers value 2 is
+#     hardcoded".
+# 1 (isolate every site-origin) is the desktop value and costs more RAM per
+# site; choosing between 1 and 2 on a memory-constrained device is LW-M5-01's
+# job and its acceptance requires a measurement on a 4GB device.
+#
+# CORRECTION (skeptical verification of LW-M4-03). This block used to end with
+# "This patch only guarantees the value is never below what Gecko would have done
+# on its own." That is FALSE, and it inverted the security claim.
+# The strength order is 1 > 2 > 0:
+#   1 = isolate everything  -- every site-origin gets its own process (strongest)
+#   2 = isolate high value  -- only sites judged high value are isolated
+#   0 = isolate nothing     -- effectively non-fission (weakest)
+# Gecko's own default is 1 (StaticPrefList.yaml:6660-6662). This patch yields 2.
+# So the effective isolation is WEAKER than Gecko's default, not "never below" it.
+#
+# What the patch does achieve, and it is the thing that mattered: it does NOT
+# cement 0. The obvious implementation of "disable Nimbus, fall back to the
+# compiled-in FML defaults" WOULD have, because the release-channel FML default
+# for isolationStrategy is 0 -- so the naive fix would have shipped the weakest
+# isolation from a patch whose purpose is privacy. Landing 2 instead of 0 is a
+# real improvement over stock release Fenix; claiming it beats Gecko's default is
+# not. LW-M5-01 owns the 1-vs-2 decision and must make it on measured RAM, with
+# this corrected ordering in front of it.
+#
+# THE EFFECTIVE VALUE AFTER THIS PATCH IS 2 ON EVERY CHANNEL. Do not read that
+# off the YAML: the FML is compiled by nimbus-fml into a Kotlin `FxNimbus`
+# object per build variant, and the release variant is generated with
+# `--channel release`, which is a different code path from the nightly one. See
+# the verification note at the bottom for the generated-artefact check.
+#
+# `shouldUseNimbus` (default false) is NOT the escape hatch its description
+# claims. Its description says "otherwise, the values from StaticPrefList.yaml
+# apply"; that is false for isolationStrategy. It is read in exactly one place,
+# GeckoProvider.kt:137, and gates only `.fissionEnabled()` -- never Core.kt's
+# isolation-strategy line. This looks like an upstream bug and LW-M5-01's
+# acceptance list already requires reporting it. Do not "fix" it here by
+# flipping shouldUseNimbus to true: `enabled` defaults to false, so that would
+# call `.fissionEnabled(false)` and disable fission outright, which is strictly
+# worse than the problem.
+#
+#
+# Files deliberately NOT touched, and why
+# ---------------------------------------
+#   * mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+#     -- owned by LW-M3-03 and LW-M5-01 as a tree_path. LW-M5-01's job is to make
+#     Core.kt unable to LOWER the strategy; doing it here would collide.
+#   * .../gecko/GeckoProvider.kt -- owned by LW-M5-02.
+#   * .../FenixApplication.kt and .../components/NimbusComponents.kt -- reachable
+#     alternatives (null the RemoteSettingsService at the call site, delete the
+#     maybeFetchExperiments call) but each adds a file to the rebase surface for
+#     no extra guarantee. The three network barriers all live in one file.
+#   * third_party/application-services/components/nimbus/** -- the Rust SDK and
+#     its Kotlin wrapper are left completely stock. Everything above is done by
+#     choosing which arm of the SDK's own API to call, so an upstream refresh of
+#     application-services cannot silently undo it; it can only make a hunk
+#     reject.
+#   * mobile/android/fenix/app/build.gradle -- BuildConfig.NIMBUS_ENDPOINT is
+#     already null in this tree (it is read from a `.nimbus` file at the Gradle
+#     rootDir, which does not exist), and in 153 that string is NOT what the SDK
+#     fetches from anyway; it is read only by isLocalBuild(). Pinning it here
+#     would look like the fix and would not be one.
+#   * mobile/android/focus-android/** -- Focus has its own NimbusSetup.kt and is
+#     not a LibreWolf product.
+#   * Glean. RecordedNimbusContext and the NimbusEvents metrics still exist as
+#     dead code here; removing the Glean upload path is LW-M4-01.
+#
+# Nothing happens outside this diff (landmine L4): no file copies, no rm, no
+# generated file is edited by hand. The generated `FxNimbus` object is produced
+# from the patched nimbus.fml.yaml at build time by the in-tree nimbus-fml
+# (mobile/android/moz.configure `check_host_bin_prog("NIMBUS_FML", "nimbus-fml")`,
+# built from services/app-services-tools/nimbus-fml), so the FML hunk reaches the
+# APK through the normal build, not through a checked-in artefact.
+#
+# Ordering: no constraint. No other patch in common.txt, desktop.txt or
+# android.txt touches any of the three files (checked with
+#   grep -rn '^+++ b/mobile/' patches/
+# whose only other hit is disable-data-reporting-android.patch's
+# mobile/android/moz.configure). LW-M5-01's future
+# fission-isolation.patch will share nimbus.fml.yaml and must be applied after
+# this one; it already declares that ordering through depends_on: LW-M4-03.
+#
+# Kotlin note, measured rather than assumed.
+# Two imports are removed: `org.mozilla.fenix.R` from NimbusSetup.kt (its only
+# use was `R.raw.initial_experiments`) and
+# `org.mozilla.experiments.nimbus.initializeTooling` from HomeActivity.kt. Every
+# other import in the two files is still referenced -- NimbusServerSettings by
+# the `NimbusServerSettings? = null` declaration, FxNimbusMessaging and
+# NimbusSystem by maybeFetchExperiments' retained signature,
+# RemoteSettingsService by createNimbus' retained parameter.
+#
+# The reason to be careful here looked like this: ProjectPlugin.kt's
+# configureKotlinWarningsAsErrors() sets allWarningsAsErrors on EVERY
+# KotlinCompile task in these projects, so anything kotlinc warns about is a
+# build failure. That made the no-op maybeFetchExperiments(), which now has three
+# unused parameters, and any leftover unused import, look like build breakage.
+#
+# They are not, and this was checked by running the compiler rather than by
+# reasoning about it. kotlinc 2.3.20 (the Kotlin that ships in the Gradle 9.5.1
+# distribution this build downloads; the tree pins 2.3.21) was run over a probe
+# file containing an unused import, an unused local val, and unused parameters on
+# a public top-level function, a public extension function with default arguments
+# and a private function:
+#   * plain and with -Werror  -> no diagnostics at all, exit 0
+#   * with -Wextra            -> only "variable is unused", exit 0
+#   * a @Deprecated call in the same probe DID warn, and -Werror DID turn that
+#     one into "error: warnings found and -Werror specified", exit 1
+# So the flag works and simply does not cover unused imports or unused
+# parameters. The imports are still removed, because ktlint's no-unused-imports
+# does flag them -- but that runs as the separate `ktlint` verification task
+# (ProjectPlugin.configureKtlint), not as part of assemble.
+#
+# HOW THIS WAS VERIFIED, AND WHAT WAS NOT
+# ---------------------------------------
+# Be precise about this, because the acceptance criterion the board states --
+# "no request to any experimenter/nimbus endpoint in a 10-minute capture" -- was
+# NOT met by a capture. There is no APK yet (LW-M2-04 was still building one
+# while this landed), so nothing could be run and nothing could be captured.
+#
+# Observed, by running something:
+#
+#  1. The whole android patch sequence (24 common + 5 android) applies to a
+#     freshly extracted, real firefox-153.0esr tree:
+#     `./scripts/check-patchfail.sh --targets=android` -> exit 0, no .rej.
+#     Applied on its own with `patch -p1 --fuzz=0`, all three files of this patch
+#     apply with zero fuzz.
+#
+#  2. The FML default really is 2 in the generated code, not just in the YAML.
+#     The tree's own generator was built from the tree's own sources --
+#     `cargo build --offline --locked --release -p toolchain-nimbus-fml`, the
+#     crate mobile/android/moz.configure resolves NIMBUS_FML to -- and run with
+#     exactly the arguments NimbusFeaturesTask.configureFmlCommand() passes:
+#     `generate --language kotlin --channel <ch> --cache-dir <d> <manifest> <out>`.
+#     In the generated org/mozilla/fenix/nimbus/FxNimbus.kt, class Fission:
+#
+#         channel     pristine 153.0esr        after this patch
+#         release     isolationStrategy = 0    isolationStrategy = 2
+#         beta        isolationStrategy = 0    isolationStrategy = 2
+#         nightly     isolationStrategy = 2    isolationStrategy = 2
+#         developer   isolationStrategy = 2    isolationStrategy = 2
+#
+#     Note `beta` was 0 as well; upstream's `defaults:` block only raises nightly
+#     and developer, so two of the four channels shipped ISOLATE_NOTHING.
+#     Diffing the two generated release-channel files, the ONLY non-comment line
+#     that changes in the entire 2000-line file is that one default.
+#     `nimbus-fml validate` on the patched manifest reports all four channels
+#     valid (exit 0), so the `nimbusValidate` Gradle task that `nimbusFeatures*`
+#     depends on will pass; `generate-experimenter` also succeeds.
+#
+#  3. The allWarningsAsErrors question above, by running kotlinc 2.3.20 on a
+#     probe file. See the Kotlin note.
+#
+# NOT observed, and stated as static reasoning only:
+#
+#  * that no packet leaves the device. The three barriers are argued from the
+#    application-services source, not from a capture. When an APK exists, the
+#    capture to run is a 10-minute window covering first run, and the string to
+#    grep for is `nimbus-mobile-experiments`, NOT `experimenter` -- see the note
+#    at the top of this header. LW-M4-03's board `verify` line
+#    (`... --network-capture | grep -c experimenter`) will return 0 on a STOCK
+#    Fenix too and therefore proves nothing; that is a board bug, reported.
+#  * that fission.webContentIsolationStrategy reads 2 in about:config on a
+#    running build. That is LW-M5-01's acceptance and needs a device.
+#  * that the Kotlin in this patch compiles. It has not been through a Kotlin
+#    compiler with the real Fenix classpath, because no configured objdir for the
+#    fenix subproject exists yet. The API surface each edited line uses was
+#    checked against the declarations in this tree (NimbusInterface.setFetchEnabled,
+#    AbstractNimbusBuilder.url/initialExperiments, Logger.debug), but "checked
+#    against the declaration" is not "compiled".
+--- a/mobile/android/fenix/app/nimbus.fml.yaml
++++ b/mobile/android/fenix/app/nimbus.fml.yaml
+@@ -510,6 +510,18 @@
+         description: >
+             If true, the values for both SHIP and Fission set in this file apply.
+             Otherwise, the values from modules/libpref/init/StaticPrefList.yaml apply.
++
++            LIBREWOLF NOTE: the second sentence is not true of isolationStrategy,
++            and this is an upstream bug, not a LibreWolf divergence. shouldUseNimbus
++            is read in exactly one place -- GeckoProvider.kt, where it gates only
++            .fissionEnabled(). Core.kt applies
++            WebContentIsolationStrategy.fromValue(...isolationStrategy)
++            unconditionally, so with shouldUseNimbus false the FML value below is
++            still what reaches fission.webContentIsolationStrategy, and
++            StaticPrefList.yaml's value is overwritten rather than honoured.
++            Do NOT "fix" this by flipping shouldUseNimbus to true: `enabled`
++            defaults to false, so that would call .fissionEnabled(false) and turn
++            fission off altogether.
+         type: Boolean
+         default: false
+       enabled:
+@@ -524,8 +536,21 @@
+           non-fission behavior. "1" means "isolate everything", where every site-origin gets its own
+           process. "2" means "isolate high value", Android-specific setting to only isolate sites
+           considered "high value".
++
++          LIBREWOLF: raised from upstream's 0 to 2. Once the remote channel is gone
++          this default is the ONLY input to fission.webContentIsolationStrategy, so
++          leaving it at 0 would have made "disable Nimbus" mean "isolate nothing",
++          permanently and with no way left to raise it. 2 is not a novel choice: it
++          is what upstream itself ships on nightly and developer (the `defaults:`
++          block below), what android-components hardcodes for every non-Fenix
++          GeckoView embedder (concept.engine.Settings' DefaultSettings), and what
++          GeckoWebContentIsolationMapper falls back to for any unrecognised value.
++          It is the Android-tuned setting. Be exact about the strength order:
++          it is 1 > 2 > 0, so 2 is WEAKER than StaticPrefList.yaml:6660-6662's
++          own default of 1 -- it isolates only high-value sites, and buys that
++          with less RAM. LW-M5-01 owns the 1-vs-2 decision; measure first.
+         type: Int
+-        default: 0
++        default: 2
+     defaults:
+       - channel: nightly
+         value:
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/experiments/NimbusSetup.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/experiments/NimbusSetup.kt
+@@ -17,7 +17,6 @@
+ import org.mozilla.experiments.nimbus.internal.NimbusException
+ import org.mozilla.experiments.nimbus.internal.NimbusServerSettings
+ import org.mozilla.fenix.BuildConfig
+-import org.mozilla.fenix.R
+ import org.mozilla.fenix.ext.components
+ import org.mozilla.fenix.messaging.CustomAttributeProvider
+ import org.mozilla.fenix.nimbus.FxNimbus
+@@ -56,16 +55,23 @@
+         isFirstRun = isAppFirstRun,
+     )
+ 
+-    val serverSettings: NimbusServerSettings? = remoteSettingsService?.let { service ->
+-        NimbusServerSettings(
+-            rsService = service,
+-            collectionName = if (settings.nimbusUsePreview) {
+-                "nimbus-preview"
+-            } else {
+-                "nimbus-mobile-experiments"
+-            },
+-        )
+-    }
++    // LibreWolf: Nimbus has no server, and `remoteSettingsService` is ignored here.
++    //
++    // A null NimbusServerSettings is not "an endpoint that happens to be empty".
++    // It changes which SettingsClient the Rust SDK constructs: create_client() in
++    // components/nimbus/src/stateful/client/mod.rs builds a NullClient when this
++    // is None, and only reaches RemoteSettingsService::make_client(collection)
++    // in the Some(..) arm. So no remote-settings client for the experiment
++    // collection is ever registered on the shared RemoteSettingsService, which
++    // also means RemoteSettingsService::sync() -- the periodic worker in
++    // mozilla.components.support.remotesettings -- has no experiment collection
++    // among its active_clients() to sync. There is no periodic beacon left to
++    // fingerprint on, and the compiled-in FML defaults become the only source of
++    // feature configuration.
++    //
++    // Do not "restore" this by pointing it at a dead URL: a Custom URL still
++    // produces a live RemoteSettingsClient and still emits requests.
++    val serverSettings: NimbusServerSettings? = null
+ 
+     // The name "fenix" here corresponds to the app_name defined for the family of apps
+     // that encompasses all of the channels for the Fenix app.  This is defined upstream in
+@@ -83,9 +89,22 @@
+     )
+ 
+     return NimbusBuilder(context).apply {
+-        url = urlString
++        // LibreWolf: `urlString` (BuildConfig.NIMBUS_ENDPOINT) is ignored. It is
++        // only read by AbstractNimbusBuilder.isLocalBuild(); it is NOT what the
++        // SDK fetches from in 153, so setting it null is not on its own a fix.
++        url = null
+         errorReporter = context::reportError
+-        initialExperiments = R.raw.initial_experiments
++        // LibreWolf: do not seed enrolments from res/raw/initial_experiments.json.
++        // That file is a snapshot of live Mozilla experiment recipes (9 of them
++        // targeting the release channel in 153.0), regenerated upstream by
++        // taskcluster/docker/periodic-updates/scripts/periodic_file_updates.sh.
++        // With no `.nimbus` endpoint file in the tree, BuildConfig.NIMBUS_ENDPOINT
++        // is null, so AbstractNimbusBuilder.isLocalBuild() would be true and those
++        // recipes would be applied on EVERY launch, not merely the first -- they
++        // would override the FML defaults this task is meant to make authoritative.
++        // Null here makes build() take the applyPendingExperiments() branch, and
++        // with a NullClient nothing is ever pending.
++        initialExperiments = null
+         timeoutLoadingExperiment = TIME_OUT_LOADING_EXPERIMENT_FROM_DISK_MS
+         sharedPreferences = settings.preferences
+         isFirstRun = isAppFirstRun
+@@ -96,6 +115,12 @@
+         recordedContext = recordedNimbusContext
+         this.geckoPrefHandler = geckoPrefHandler
+     }.build(appInfo, serverSettings).also { nimbusApi ->
++        // LibreWolf: third barrier, at the Rust layer this time.
++        // NimbusClient::fetch_experiments() consults DB_KEY_FETCH_ENABLED before
++        // it asks the SettingsClient for anything, so this also covers fetch call
++        // sites this patch does not edit -- notably
++        // MessageNotificationWorker.setupNimbusMessaging()'s fetchExperiments().
++        nimbusApi.setFetchEnabled(false)
+         nimbusApi.recordIsReady(FxNimbus.features.nimbusIsReady.value().eventCount)
+     }
+ }
+@@ -128,27 +153,19 @@
+ }
+ 
+ /**
+- * Call `fetchExperiments` if the time since the last fetch is over a threshold.
++ * LibreWolf: permanently a no-op. Upstream this called `fetchExperiments()` on a
++ * `refreshIntervalForeground` schedule, which is exactly the recurring beacon this
++ * build must not have -- a periodic, network-visible request whose timing and TLS
++ * fingerprint identify the browser even when the response is empty.
+  *
+- * The threshold is given by the [NimbusSystem] feature object, defined in the
+- * `nimbus.fml.yaml` file.
++ * The signature, including the [NimbusSystem] default argument, is kept so the one
++ * caller (FenixApplication.onForeground) still compiles unedited; keeping this
++ * file the only Kotlin one the patch touches keeps the rebase surface small.
+  */
+ fun NimbusInterface.maybeFetchExperiments(
+     settings: Settings,
+     feature: NimbusSystem = FxNimbusMessaging.features.nimbusSystem.value(),
+     currentTimeMillis: Long = System.currentTimeMillis(),
+ ) {
+-    if (settings.nimbusUsePreview) {
+-        settings.nimbusLastFetchTime = 0L
+-        fetchExperiments()
+-    } else {
+-        val minimumPeriodMinutes = feature.refreshIntervalForeground
+-        val lastFetchTimeMillis = settings.nimbusLastFetchTime
+-        val minimumPeriodMillis = minimumPeriodMinutes * Settings.ONE_MINUTE_MS
+-
+-        if (currentTimeMillis - lastFetchTimeMillis >= minimumPeriodMillis) {
+-            settings.nimbusLastFetchTime = currentTimeMillis
+-            fetchExperiments()
+-        }
+-    }
++    logger.debug("LibreWolf: Nimbus experiment fetching is disabled; not contacting any server")
+ }
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+@@ -87,7 +87,6 @@
+ import mozilla.components.support.webextensions.WebExtensionOptionsPageObserver
+ import mozilla.components.support.webextensions.WebExtensionPopupObserver
+ import mozilla.telemetry.glean.private.NoExtras
+-import org.mozilla.experiments.nimbus.initializeTooling
+ import org.mozilla.fenix.GleanMetrics.AppIcon
+ import org.mozilla.fenix.GleanMetrics.Events
+ import org.mozilla.fenix.GleanMetrics.Metrics
+@@ -419,8 +418,20 @@
+         // DO NOT MOVE ANYTHING ABOVE THIS getProfilerTime CALL.
+         val startTimeProfiler = components.core.engine.profiler?.getProfilerTime()
+ 
+-        // Setup nimbus-cli tooling. This is a NOOP when launching normally.
+-        components.nimbus.sdk.initializeTooling(applicationContext, intent)
++        // LibreWolf: the nimbus-cli tooling hook is removed, not left as "a NOOP
++        // when launching normally". It is NOT inert on a release build:
++        // ArgumentProcessor.createCommandLineArgs(Uri) accepts any non-http(s)
++        // intent URI carrying `--nimbus-cli=true`, and will then
++        // setExperimentsLocally() + applyPendingExperiments() from a
++        // `--experiments=` JSON blob and persist the enrolments to the Nimbus
++        // database. That is a local configuration channel that outlives the
++        // launch and overrides the compiled-in FML defaults on the next start --
++        // including fission.isolationStrategy, which Core.kt reads from the FML.
++        // With the remote channel gone this was the last way to make the FML
++        // defaults not be the effective values, so it goes too. Nothing else
++        // calls initializeTooling(); FenixApplication.onCreate has already built
++        // the Nimbus singleton via initializeNimbus() before any Activity runs,
++        // so removing this line does not change when Nimbus is constructed.
+         components.strictMode.attachListenerToDisablePenaltyDeath(supportFragmentManager)
+         MarkersFragmentLifecycleCallbacks.register(supportFragmentManager, components.core.engine)
+ 
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/nimbus/NimbusSystemTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/nimbus/NimbusSystemTest.kt
+@@ -11,16 +11,28 @@
+ import io.mockk.runs
+ import io.mockk.slot
+ import mozilla.components.service.nimbus.messaging.NimbusSystem
+-import org.junit.Assert.assertEquals
+ import org.junit.Assert.assertFalse
+-import org.junit.Assert.assertTrue
+ import org.junit.Before
+ import org.junit.Test
+ import org.mozilla.experiments.nimbus.NimbusInterface
+ import org.mozilla.fenix.experiments.maybeFetchExperiments
+-import org.mozilla.fenix.ext.components
+ import org.mozilla.fenix.utils.Settings
+ 
++/**
++ * LibreWolf: this class used to assert that `maybeFetchExperiments` DOES fetch, on a
++ * `refreshIntervalForeground` schedule.  `patches/android/no-nimbus.patch` makes the
++ * function a permanent no-op, so those five assertions were inverted by the patch and
++ * four of them would fail on a patched tree.  They are replaced -- not deleted -- by
++ * the same five scenarios with the opposite expectation, because "we never contact an
++ * experiment server" is a property worth pinning: it is the one thing an upstream
++ * rebase could silently undo by restoring the function body.
++ *
++ * Each test asserts two things, not one: that `fetchExperiments()` was never called,
++ * and that `Settings.nimbusLastFetchTime` was never written.  The second matters
++ * because the upstream implementation records the timestamp *before* fetching, so a
++ * partial revert that kept the bookkeeping and dropped the fetch would still be
++ * caught here.
++ */
+ class NimbusSystemTest {
+ 
+     lateinit var context: Context
+@@ -29,7 +41,8 @@
+ 
+     private val lastTimeSlot = slot<Long>()
+ 
+-    // By default this comes from the generated Nimbus features.
++    // By default this comes from the generated Nimbus features.  It is passed in
++    // explicitly so the test does not depend on FxNimbusMessaging being initialised.
+     val config = NimbusSystem(
+         refreshIntervalForeground = 60, // minutes
+     )
+@@ -48,7 +61,6 @@
+         nimbus = NimbusUnderTest(context)
+ 
+         settings = mockk(relaxed = true)
+-        every { context.components.settings } returns settings
+ 
+         every { settings.nimbusLastFetchTime = capture(lastTimeSlot) } just runs
+         every { settings.nimbusLastFetchTime } returns 0L
+@@ -56,109 +68,81 @@
+         assertFalse(nimbus.isFetching)
+     }
+ 
++    private fun assertNeverFetched() {
++        assertFalse("maybeFetchExperiments called fetchExperiments()", nimbus.isFetching)
++        assertFalse(
++            "maybeFetchExperiments wrote Settings.nimbusLastFetchTime",
++            lastTimeSlot.isCaptured,
++        )
++    }
++
+     @Test
+-    fun `GIVEN a nimbus object WHEN calling maybeFetchExperiments after an interval THEN call fetchExperiments`() {
+-        val elapsedTime: Long = Settings.ONE_HOUR_MS + 1
++    fun `GIVEN a nimbus object WHEN calling maybeFetchExperiments after an interval THEN do not call fetchExperiments`() {
+         nimbus.maybeFetchExperiments(
+-            context.components.settings,
++            settings,
+             config,
+-            elapsedTime,
++            Settings.ONE_HOUR_MS + 1,
+         )
+-        assertTrue(nimbus.isFetching)
+-        assertEquals(elapsedTime, lastTimeSlot.captured)
++        assertNeverFetched()
+     }
+ 
+     @Test
+-    fun `GIVEN a nimbus object WHEN calling maybeFetchExperiments at exactly an interval THEN call fetchExperiments`() {
+-        val elapsedTime: Long = Settings.ONE_HOUR_MS
++    fun `GIVEN a nimbus object WHEN calling maybeFetchExperiments at exactly an interval THEN do not call fetchExperiments`() {
+         nimbus.maybeFetchExperiments(
+-            context.components.settings,
++            settings,
+             config,
+-            elapsedTime,
++            Settings.ONE_HOUR_MS,
+         )
+-        assertTrue(nimbus.isFetching)
+-        assertEquals(elapsedTime, lastTimeSlot.captured)
++        assertNeverFetched()
+     }
+ 
+     @Test
+     fun `GIVEN a nimbus object WHEN calling maybeFetchExperiments before an interval THEN do not call fetchExperiments`() {
+-        val elapsedTime: Long = Settings.ONE_HOUR_MS - 1
+         nimbus.maybeFetchExperiments(
+-            context.components.settings,
++            settings,
+             config,
+-            elapsedTime,
++            Settings.ONE_HOUR_MS - 1,
+         )
+-        assertFalse(nimbus.isFetching)
++        assertNeverFetched()
+     }
+ 
+     @Test
+-    fun `GIVEN a nimbus object WHEN calling maybeFetchExperiments at without an elapsedTime THEN call fetchExperiments`() {
+-        // since elapsedTime = currentTimeMillis
++    fun `GIVEN a nimbus object WHEN calling maybeFetchExperiments without an elapsedTime THEN do not call fetchExperiments`() {
++        // elapsedTime defaults to System.currentTimeMillis(), which upstream treats as
++        // "long past the interval" against a lastFetchTime of 0 and therefore fetches.
+         nimbus.maybeFetchExperiments(
+-            context.components.settings,
++            settings,
+             config,
+         )
+-        assertTrue(nimbus.isFetching)
++        assertNeverFetched()
+     }
+ 
+     @Test
+-    fun `GIVEN a nimbus object calling maybeFetchExperiments WHEN using a preview collection THEN always call fetchExperiments`() {
+-        var currentTime = 0L
+-        fun assertFetchEveryTime() {
++    fun `GIVEN a nimbus object calling maybeFetchExperiments WHEN using a preview collection THEN still do not call fetchExperiments`() {
++        // nimbusUsePreview was upstream's unconditional-fetch path: it fetched on every
++        // call and reset nimbusLastFetchTime to 0.  It must be dead too, otherwise the
++        // preview collection would remain reachable from the settings toggle.
++        every { settings.nimbusUsePreview } returns true
++
++        var currentTime = Settings.ONE_HOUR_MS
++        repeat(3) {
+             nimbus.maybeFetchExperiments(
+-                context.components.settings,
++                settings,
+                 config,
+                 currentTime,
+             )
+-            assertTrue(nimbus.isFetching)
+-            assertEquals(lastTimeSlot.captured, 0L)
+-            nimbus.isFetching = false
++            assertNeverFetched()
++            currentTime += Settings.ONE_MINUTE_MS
+         }
+ 
+-        // Using usePreview, we call fetch every time we call maybeFetch.
+-        every { settings.nimbusUsePreview } returns true
+-        currentTime = Settings.ONE_HOUR_MS
+-        assertFetchEveryTime()
+-
+-        currentTime += Settings.ONE_MINUTE_MS
+-        assertFetchEveryTime()
+-
+-        currentTime += Settings.ONE_MINUTE_MS
+-        assertFetchEveryTime()
+-
+-        // Now turn preview collection off.
+-        // We should fetch exactly once…
+         every { settings.nimbusUsePreview } returns false
+ 
+-        currentTime += Settings.ONE_MINUTE_MS
+-        nimbus.maybeFetchExperiments(
+-            context.components.settings,
+-            config,
+-            currentTime,
+-        )
+-        assertTrue(nimbus.isFetching)
+-        assertEquals(lastTimeSlot.captured, currentTime)
+-        nimbus.isFetching = false
+-        every { settings.nimbusLastFetchTime } returns currentTime
+-
+-        // … and then back off. We show here that the next call to maybeFetch
+-        // doesn't call fetch.
+-        currentTime += Settings.ONE_MINUTE_MS
+-        nimbus.maybeFetchExperiments(
+-            context.components.settings,
+-            config,
+-            currentTime,
+-        )
+-        assertFalse(nimbus.isFetching)
+-
+-        // Now wait, another hour, and we've reset the behaviour back to normal operation.
+         currentTime += Settings.ONE_HOUR_MS + Settings.ONE_MINUTE_MS
+         nimbus.maybeFetchExperiments(
+-            context.components.settings,
++            settings,
+             config,
+             currentTime,
+         )
+-        assertTrue(nimbus.isFetching)
+-        assertEquals(lastTimeSlot.captured, currentTime)
++        assertNeverFetched()
+     }
+ }

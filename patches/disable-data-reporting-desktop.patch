@@ -1,0 +1,67 @@
+Disable data reporting at compile time -- DESKTOP half (LW-M1-02).
+
+Split out of patches/disable-data-reporting-at-compile-time.patch. The two hunks
+below are the ones that only exist in a desktop build; everything else in the
+original patch is in patches/disable-data-reporting-common.patch. Applying
+common + desktop to a pristine tree reproduces the original patch byte for byte.
+
+  browser/moz.configure
+      MOZ_SERVICES_HEALTHREPORT and MOZ_NORMANDY -> False. These are the two
+      front-end inputs to MOZ_DATA_REPORTING (toolkit/moz.configure:3493-3507);
+      turning them off is what takes the datareporting.policy.* block in
+      modules/libpref/init/all.js:3724-3733 out of the build.
+      This file only exists for the desktop front end -- browser/app.mozbuild:11
+      pulls /browser in and mobile/android/app.mozbuild never does -- so it can
+      do nothing for Android. mobile/android/moz.configure:131-132 supplies the
+      same two options with MOZ_SERVICES_HEALTHREPORT *True*; the Android
+      equivalent of this hunk is
+      patches/android/disable-data-reporting-android.patch.
+
+  browser/components/tabbrowser/content/tabbrowser.js
+      Drops the UserInteraction.start/update("browser.tabs.opening") probes.
+      UserInteraction is a Glean/telemetry stopwatch; there is no Fenix
+      counterpart to remove -- tabbrowser.js is XUL tab UI that Android does not
+      build at all.
+
+diff --git a/browser/moz.configure b/browser/moz.configure
+index 3ea3d88..c55951b 100644
+--- a/browser/moz.configure
++++ b/browser/moz.configure
+@@ -3,11 +3,11 @@
+ # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ 
+ imply_option("MOZ_PLACES", True)
+-imply_option("MOZ_SERVICES_HEALTHREPORT", True)
++imply_option("MOZ_SERVICES_HEALTHREPORT", False)
+ imply_option("MOZ_SERVICES_SYNC", True)
+ imply_option("MOZ_DEDICATED_PROFILES", True)
+ imply_option("MOZ_BLOCK_PROFILE_DOWNGRADE", True)
+-imply_option("MOZ_NORMANDY", True)
++imply_option("MOZ_NORMANDY", False)
+ imply_option("MOZ_PROFILE_MIGRATOR", True)
+ 
+
+diff --git a/browser/components/tabbrowser/content/tabbrowser.js b/browser/components/tabbrowser/content/tabbrowser.js
+index c42b1a1a8d..bea12fa0fa 100644
+--- a/browser/components/tabbrowser/content/tabbrowser.js
++++ b/browser/components/tabbrowser/content/tabbrowser.js
+@@ -3330,10 +3330,6 @@
+         );
+       }
+ 
+-      if (!UserInteraction.running("browser.tabs.opening", window)) {
+-        UserInteraction.start("browser.tabs.opening", "initting", window);
+-      }
+-
+       // If we're opening a foreground tab, set the owner by default.
+       ownerTab ??= inBackground ? null : this.selectedTab;
+ 
+@@ -4205,8 +4201,6 @@
+           0,
+           this.tabContainer
+         );
+-      } else {
+-        UserInteraction.update("browser.tabs.opening", "animated", window);
+       }
+ 
+       return t;

@@ -1,0 +1,607 @@
+# LibreWolf for Android — pinned build toolchain image.
+#
+# Companion to assets/Dockerfile (the desktop build image). Same base image and
+# the same package-manager conventions; everything below it is Android-specific.
+#
+# EVERY VERSION IN THIS FILE IS PINNED AND CARRIES THE FILE:LINE IN THE FIREFOX
+# SOURCE TREE IT WAS READ FROM. Re-check them on every rebase — an NDK or SDK
+# mismatch produces a tree that configures fine and then fails deep in the link.
+# The line numbers below are from the Firefox 153.0.4 tree.
+#
+#   pin                       value              read from
+#   ------------------------  -----------------  ---------------------------------------------
+#   JDK (Temurin)             17.0.18+8          python/mozboot/mozboot/android.py:52-54
+#                                                taskcluster/kinds/toolchain/android.yml:196
+#                                                gradle/gradle-daemon-jvm.properties:8
+#   Android NDK               r29                python/mozboot/mozboot/android.py:28
+#                                                build/moz.configure/android-ndk.configure:8-13,114-119
+#   SDK cmdline-tools         20.0 / 14742923    python/mozboot/mozboot/android.py:29-30
+#   SDK build-tools           37.0.0             build/moz.configure/android-sdk.configure:154-156
+#                                                python/mozboot/mozboot/android-packages.txt:3
+#   SDK platform              android-37.0       build/moz.configure/android-sdk.configure:154,157-158,228
+#                                                python/mozboot/mozboot/android-packages.txt:4
+#   SDK platform-tools        latest             python/mozboot/mozboot/android-packages.txt:2
+#   SDK emulator              latest             python/mozboot/mozboot/android-packages.txt:1
+#   bundletool                1.18.3             python/mozboot/mozboot/android.py:32-33
+#   Rust                      1.94.1             taskcluster/kinds/toolchain/rust.yml:218,224
+#                                                (linux64-rust-android, consumed by
+#                                                 taskcluster/kinds/build/android.yml:58)
+#   Rust minimum (floor)      1.90.0             python/mozboot/mozboot/util.py:16, Cargo.toml:155
+#   Rust Android targets      5, see below       taskcluster/kinds/toolchain/rust.yml:227-231
+#   Node.js                   22.16.0            taskcluster/kinds/fetch/toolchains.yml:645-649
+#   Node.js minimum (floor)   12.22.12           python/mozbuild/mozbuild/nodeutil.py:15
+#   cbindgen                  0.29.4             taskcluster/kinds/fetch/toolchains.yml:245-251
+#                                                build/moz.configure/bindgen.configure:13 (same, as floor)
+#   WASI sysroot              sysroot-wasm32-    taskcluster/kinds/toolchain/sysroot.yml:88-104
+#                             wasi-clang-21
+#   wasm32 compiler-rt        wasm32-wasi-       taskcluster/kinds/toolchain/compiler-rt.yml:230-240
+#                             compiler-rt-21
+#   host clang                NDK's, 21.0.0      see the LW-M0-15 block below
+#   nasm (x86_64 ABI only)    3.01               taskcluster/kinds/fetch/toolchains.yml:171-177
+#                                                taskcluster/kinds/toolchain/nasm.yml:59-70
+#                                                (linux64-nasm, the toolchain upstream builds with)
+#   nasm minimum (floor)      2.14               toolkit/moz.configure:864-867 (AV1/dav1d)
+#
+# Not baked into the image, recorded here so the next rebase can cross-check:
+#   Gradle                    9.5.1              gradle/wrapper/gradle-wrapper.properties:4
+#                                                (fetched by ./gradlew, sha256-pinned there)
+#   Android Gradle Plugin     8.13.2             gradle/libs.versions.toml:3
+#   Kotlin                    2.3.21             gradle/libs.versions.toml:8
+#   compileSdk / target / min 37.0 / 36 / 26     mobile/android/android-components/.config.yml:6-9
+#                                                build/moz.configure/android-sdk.configure:154-160
+#   jvmTargetCompatibility    17                 mobile/android/android-components/.config.yml:5
+#
+# Build (docker is not installed everywhere; podman reads this file too):
+#   podman build -f assets/Dockerfile.android -t librewolf-android-build .
+#   docker build -f assets/Dockerfile.android -t librewolf-android-build .
+#
+# Nothing here is COPYed from the build context, so this file can also be fed on
+# stdin the way the Makefile's docker-build-image target does:
+#   podman build --no-cache -t librewolf-android-build - < assets/Dockerfile.android
+
+FROM ubuntu:jammy
+# FROM fedora:36
+
+# Base tools, same dual-package-manager idiom as assets/Dockerfile so the FROM
+# line above can be swapped without editing the rest of the file.
+RUN ( apt-get update && apt-get -y upgrade && apt-get -y install make wget git patch unzip ; true )
+RUN ( dnf -y update && dnf -y install make wget git patch unzip ; true )
+
+# Dependencies needed to run ./mach bootstrap for a mobile/android build.
+# The mandatory list is python/mozboot/mozboot/linux_common.py:59-67
+# (bash, findutils, gzip, make, perl, tar, unzip); the rest mirrors the
+# Makefile's setup-debian/setup-fedora targets.
+RUN ( apt-get -y update && apt-get -y upgrade && apt-get -y install \
+        bash ca-certificates curl findutils gzip libssl-dev libxml2-dev mercurial \
+        perl python3 python3-dev python3-pip tar xz-utils zip zstd ; true )
+RUN ( dnf -y upgrade && dnf -y install \
+        bash ca-certificates curl findutils gzip openssl-devel libxml2-devel mercurial \
+        perl python3 python3-devel python3-pip tar xz zip zstd ; true )
+
+# watchman is the one genuinely optional package (linux_common.py:68-72 installs
+# it inside a try/except). It gets its own layer: bundled with the mandatory
+# list, a distro that does not ship it would make the whole `; true` install
+# no-op and every other package would go missing silently.
+RUN ( apt-get -y install watchman ; true )
+RUN ( dnf -y install watchman ; true )
+
+# The `; true` above is the house idiom that lets the FROM line be swapped, but
+# it also swallows real failures. Assert the tools the Android build cannot do
+# without, so a broken package layer fails here and not three hours into a link.
+RUN for t in bash curl find git gzip make patch perl python3 tar unzip wget zstd; do \
+      command -v "$t" > /dev/null || { echo "MISSING build dependency: $t" >&2; exit 1; }; \
+    done
+
+# ---------------------------------------------------------------------------
+# Pinned versions. Changing any of these means re-reading the source above.
+# ---------------------------------------------------------------------------
+ENV LW_JAVA_MAJOR=17
+ENV LW_JDK_VERSION=17.0.18
+ENV LW_JDK_BUILD=8
+ENV LW_ANDROID_NDK_VERSION=r29
+ENV LW_ANDROID_CMDLINE_TOOLS_VERSION=20.0
+ENV LW_ANDROID_CMDLINE_TOOLS_BUILD=14742923
+ENV LW_ANDROID_BUILD_TOOLS_VERSION=37.0.0
+ENV LW_ANDROID_PLATFORM=android-37.0
+ENV LW_BUNDLETOOL_VERSION=1.18.3
+ENV LW_RUST_VERSION=1.94.1
+
+# Host toolchains (LW-M0-15). See the "Host toolchains" block near the bottom
+# of this file for why each one is here and how configure finds it.
+ENV LW_NODE_VERSION=22.16.0
+ENV LW_NODE_SHA256=f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e
+ENV LW_CBINDGEN_VERSION=0.29.4
+# The wasm sandbox (RLBox) toolchain. LW_WASI_LLVM_MAJOR must match the NDK's
+# clang major version — it is both the artifact we pin and the directory clang
+# looks in for its resource files.
+ENV LW_WASI_LLVM_MAJOR=21
+ENV LW_TASKCLUSTER_INDEX=https://firefox-ci-tc.services.mozilla.com/api/index/v1/task
+ENV LW_WASI_SYSROOT_INDEX=gecko.cache.level-3.toolchains.v3.sysroot-wasm32-wasi-clang-21.hash.9331ced32259b7567fe6da30d2eac6c3963ebf5d974988bf4fd125a098a8308b
+ENV LW_WASI_SYSROOT_SHA256=9848ba23b27794ba61db6a6d3500614d9146dcf5831e9edd00d413c395e9c21e
+ENV LW_WASI_COMPILER_RT_INDEX=gecko.cache.level-3.toolchains.v3.wasm32-wasi-compiler-rt-21.hash.b6dd1a2707cd37635de25d004caed7460887e2114aa2167b4b60d4a278c54e78
+ENV LW_WASI_COMPILER_RT_SHA256=b1111c2a1c83a5a15ac7404513541605386b676bdabe786a15f4a596f82933aa
+
+# The paths below are not free choices: configure looks for the toolchains at
+# exactly these locations under the mozbuild state dir and dies otherwise.
+#   SDK  build/moz.configure/android-sdk.configure:10-19 (android-sdk-linux)
+#   NDK  build/moz.configure/android-ndk.configure:9-13  (android-ndk-$NDK_VERSION)
+#   JDK  build/moz.configure/java.configure:24-57 via
+#        python/mozboot/mozboot/android.py:974-979 (jdk/jdk-$MAJOR.$MINOR+$PATCH).
+#        Note java.configure:29-34 explicitly IGNORES JAVA_HOME, so the JDK has
+#        to live in the state dir; JAVA_HOME below is only for gradle/sdkmanager.
+ENV MOZBUILD_STATE_PATH=/root/.mozbuild
+ENV ANDROID_SDK_ROOT=${MOZBUILD_STATE_PATH}/android-sdk-linux
+ENV ANDROID_HOME=${MOZBUILD_STATE_PATH}/android-sdk-linux
+ENV ANDROID_NDK_HOME=${MOZBUILD_STATE_PATH}/android-ndk-${LW_ANDROID_NDK_VERSION}
+ENV ANDROID_NDK_ROOT=${MOZBUILD_STATE_PATH}/android-ndk-${LW_ANDROID_NDK_VERSION}
+ENV JAVA_HOME=${MOZBUILD_STATE_PATH}/jdk/jdk-${LW_JDK_VERSION}+${LW_JDK_BUILD}
+ENV ANDROID_BUNDLETOOL_PATH=${MOZBUILD_STATE_PATH}/bundletool.jar
+ENV RUSTUP_HOME=${MOZBUILD_STATE_PATH}/rustup
+ENV CARGO_HOME=${MOZBUILD_STATE_PATH}/cargo
+ENV PATH=${CARGO_HOME}/bin:${JAVA_HOME}/bin:${ANDROID_SDK_ROOT}/platform-tools:${ANDROID_SDK_ROOT}/cmdline-tools/${LW_ANDROID_CMDLINE_TOOLS_VERSION}/bin:${PATH}
+
+# ---------------------------------------------------------------------------
+# JDK — Temurin 17.0.18+8.
+# URL shape copied from python/mozboot/mozboot/android.py:899-903.
+# Every layer from here down fails hard on error (no `; true`): a silently
+# missing toolchain is exactly the fail-open mode this image exists to avoid.
+# ---------------------------------------------------------------------------
+RUN mkdir -p ${MOZBUILD_STATE_PATH}/jdk \
+ && wget -q -O /tmp/jdk.tar.gz \
+      "https://github.com/adoptium/temurin${LW_JAVA_MAJOR}-binaries/releases/download/jdk-${LW_JDK_VERSION}%2B${LW_JDK_BUILD}/OpenJDK${LW_JAVA_MAJOR}U-jdk_x64_linux_hotspot_${LW_JDK_VERSION}_${LW_JDK_BUILD}.tar.gz" \
+ && tar -xzf /tmp/jdk.tar.gz -C ${MOZBUILD_STATE_PATH}/jdk \
+ && rm -f /tmp/jdk.tar.gz \
+ && test -x "${JAVA_HOME}/bin/java" \
+ && "${JAVA_HOME}/bin/java" -version
+
+# gradle/gradle-daemon-jvm.properties:8 pins the daemon to JDK 17 and Gradle
+# finds it through org.gradle.java.installations.paths. configure would write
+# this itself (python/mozboot/mozboot/android.py:910-971) but doing it here
+# means gradle works before the first configure run.
+RUN mkdir -p /root/.gradle \
+ && echo "org.gradle.java.installations.paths=${JAVA_HOME}" > /root/.gradle/gradle.properties
+
+# ---------------------------------------------------------------------------
+# Android SDK command-line tools — 20.0, build 14742923.
+# URL and the cmdline-tools/<version-string>/ relayout are both from
+# python/mozboot/mozboot/android.py:422-450 (ensure_android_sdk); configure
+# looks for the tool at that exact path (android.py:285-293).
+# ---------------------------------------------------------------------------
+RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools \
+ && wget -q -O /tmp/cmdline-tools.zip \
+      "https://dl.google.com/android/repository/commandlinetools-linux-${LW_ANDROID_CMDLINE_TOOLS_BUILD}_latest.zip" \
+ && unzip -q /tmp/cmdline-tools.zip -d ${ANDROID_SDK_ROOT}/cmdline-tools \
+ && mv ${ANDROID_SDK_ROOT}/cmdline-tools/cmdline-tools \
+       ${ANDROID_SDK_ROOT}/cmdline-tools/${LW_ANDROID_CMDLINE_TOOLS_VERSION} \
+ && rm -f /tmp/cmdline-tools.zip \
+ && test -x "${ANDROID_SDK_ROOT}/cmdline-tools/${LW_ANDROID_CMDLINE_TOOLS_VERSION}/bin/sdkmanager"
+
+# Accept the SDK licences non-interactively. An image that stops at a licence
+# prompt is useless in CI. `yes |` is the same trick mozboot uses
+# (python/mozboot/mozboot/android.py:674-679 feeds 100 "y" lines to sdkmanager).
+RUN yes | sdkmanager --sdk_root=${ANDROID_SDK_ROOT} --licenses > /dev/null \
+ && test -d ${ANDROID_SDK_ROOT}/licenses
+
+# SDK packages, verbatim from python/mozboot/mozboot/android-packages.txt:1-4.
+# `emulator` looks like a test-only package but is NOT optional: configure runs
+# check_android_tools("emulator", ...) unconditionally for mobile/android
+# (build/moz.configure/android-sdk.configure:376, reached from
+# mobile/android/moz.configure:156) and dies if the binary is absent.
+RUN yes | sdkmanager --sdk_root=${ANDROID_SDK_ROOT} \
+      "platform-tools" \
+      "emulator" \
+      "build-tools;${LW_ANDROID_BUILD_TOOLS_VERSION}" \
+      "platforms;${LW_ANDROID_PLATFORM}" \
+ && test -x "${ANDROID_SDK_ROOT}/build-tools/${LW_ANDROID_BUILD_TOOLS_VERSION}/zipalign" \
+ && test -x "${ANDROID_SDK_ROOT}/platform-tools/adb" \
+ && test -x "${ANDROID_SDK_ROOT}/emulator/emulator" \
+ && test -f "${ANDROID_SDK_ROOT}/platforms/${LW_ANDROID_PLATFORM}/android.jar"
+
+# ---------------------------------------------------------------------------
+# Android NDK — r29 exactly.
+# URL shape from python/mozboot/mozboot/android.py:733-742 (android_ndk_url);
+# the archive unpacks to a top-level android-ndk-$VER directory (android.py:418-419).
+#
+# The Pkg.Revision assertion below is deliberate. build/moz.configure/android-ndk.configure:114-119
+# dies unless get_ndk_version() renders exactly "r29", and that function
+# (python/mozboot/mozboot/android.py:240-272) derives the letter suffix from the
+# MINOR field: 29.0.x => "r29", 29.1.x => "r29b". So a drop-in "latest r29x" is a
+# hard failure, not a compatible upgrade — catch it here rather than at link time.
+# ---------------------------------------------------------------------------
+RUN wget -q -O /tmp/android-ndk.zip \
+      "https://dl.google.com/android/repository/android-ndk-${LW_ANDROID_NDK_VERSION}-linux.zip" \
+ && unzip -q /tmp/android-ndk.zip -d ${MOZBUILD_STATE_PATH} \
+ && rm -f /tmp/android-ndk.zip \
+ && test -f "${ANDROID_NDK_HOME}/source.properties" \
+ && grep -Eq '^Pkg\.Revision *= *29\.0\.' "${ANDROID_NDK_HOME}/source.properties" \
+ && test -x "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+
+# bundletool 1.18.3 — python/mozboot/mozboot/android.py:32-33. configure requires
+# it at $MOZBUILD_STATE_PATH/bundletool.jar unless ANDROID_BUNDLETOOL_PATH is set
+# (build/moz.configure/android-sdk.configure:265-291); both hold here.
+RUN wget -q -O ${ANDROID_BUNDLETOOL_PATH} \
+      "https://github.com/google/bundletool/releases/download/${LW_BUNDLETOOL_VERSION}/bundletool-all-${LW_BUNDLETOOL_VERSION}.jar" \
+ && test -s ${ANDROID_BUNDLETOOL_PATH}
+
+# ---------------------------------------------------------------------------
+# Rust 1.94.1 with the Android cross targets.
+#
+# 1.90.0 is only the floor (python/mozboot/mozboot/util.py:16, Cargo.toml:155);
+# the version Mozilla actually ships Android builds with is the
+# linux64-rust-android toolchain, taskcluster/kinds/toolchain/rust.yml:218-236,
+# pulled in by taskcluster/kinds/build/android.yml:58. Pin to that, not to the
+# floor, so we are compiling with the compiler upstream tests against.
+#
+# The four required targets are the Android ABIs. thumbv7neon-linux-androideabi
+# is the fifth target in Mozilla's own list (rust.yml:228) and is selected by
+# build/moz.configure/rust.configure:340-348 for armv7 targets with thumb2+neon,
+# so it is installed too — omitting it makes armeabi-v7a fall back or fail.
+# ---------------------------------------------------------------------------
+RUN wget -q -O /tmp/rustup-init.sh https://sh.rustup.rs \
+ && sh /tmp/rustup-init.sh -y --no-modify-path --profile minimal \
+      --default-toolchain ${LW_RUST_VERSION} \
+ && rm -f /tmp/rustup-init.sh \
+ && rustup target add \
+      aarch64-linux-android \
+      armv7-linux-androideabi \
+      thumbv7neon-linux-androideabi \
+      x86_64-linux-android \
+      i686-linux-android \
+ && rustc --version \
+ && rustup target list --installed
+
+# Fail the build, loudly, if any required Android target is missing.
+RUN for t in aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android; do \
+      rustup target list --installed | grep -qx "$t" \
+        || { echo "MISSING rust target: $t" >&2; exit 1; }; \
+    done
+
+# ===========================================================================
+# Host toolchains — LW-M0-15.
+#
+# Everything above this point is the *Android* toolchain. The four pieces
+# below are *host* tools; the image used to omit them, and LW-M2-01 could only
+# reach a green `./mach build` by installing all four by hand first
+# (docs/android/BUILD.md §4). Each one is a hard configure stop, not a warning.
+#
+# None of them needs a mozconfig option, an environment variable or a
+# `mach bootstrap` run, because bootstrap_path()
+# (build/moz.configure/bootstrap.configure:301-306) returns a path under
+# $MOZBUILD_STATE_PATH *whenever that path exists*, even with
+# --enable-bootstrap left at its default. Dropping a toolchain into the state
+# directory is therefore equivalent to having bootstrapped it — which is why
+# every layer below writes into ${MOZBUILD_STATE_PATH} and nowhere else.
+#
+# The layer order matters: clang first (the wasm compiler-rt layer needs it to
+# resolve its own resource directory), and cbindgen after the Rust layer above.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 1/4 — clang for the target, host, assembler and wasm compilers.
+#
+# The NDK already contains a complete clang 21.0.0; nothing here downloads a
+# compiler. What was missing is that configure never *looks* inside the NDK:
+# --with-android-ndk only supplies --sysroot and -gcc-toolchain flags
+# (build/moz.configure/android-ndk.configure:264-296), and the NDK's bin/ is
+# deliberately not on PATH. Configure falls through to /usr/bin/gcc and dies:
+#
+#   checking for the target C compiler... /usr/bin/gcc
+#   ERROR: Target C compiler target CPU (x86_64) does not match --target CPU (aarch64)
+#
+# build/moz.configure/toolchain.configure:760 is
+# `clang_search_path = bootstrap_search_path("clang/bin")`, so a `clang`
+# directory in the state dir is exactly where it expects one.
+#
+# Note this deviates from upstream, which builds Android with Mozilla's own
+# clang (mobile/android/config/mozconfigs/common:18), not the NDK's. The NDK
+# clang clears the >= 19.0 floor at toolchain.configure:1494-1498 and produced
+# a clean build (docs/android/BUILD.md), but it is the first thing to question
+# if a compiler-shaped failure ever appears.
+# ---------------------------------------------------------------------------
+RUN ln -sfn ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64 \
+            ${MOZBUILD_STATE_PATH}/clang \
+ && test -x ${MOZBUILD_STATE_PATH}/clang/bin/clang \
+ && test -x ${MOZBUILD_STATE_PATH}/clang/bin/clang++ \
+ && ${MOZBUILD_STATE_PATH}/clang/bin/clang --version
+
+# ---------------------------------------------------------------------------
+# 2/4 — Node.js 22.16.0.
+#
+# build/moz.configure/node.configure:5 defaults --enable-nodejs on, so a
+# missing node is a FatalCheckError, not a warning.
+#
+# The distro package is UNUSABLE, not merely old: NODE_MIN_VERSION is 12.22.12
+# (python/mozbuild/mozbuild/nodeutil.py:15) and Ubuntu jammy ships 12.22.9 —
+# three patch releases short. Do not "simplify" this back to apt-get.
+#
+# 22.16.0 is the version upstream builds Android with
+# (taskcluster/kinds/toolchain/node.yml:23-38 -> nodejs-22-source,
+# taskcluster/kinds/fetch/toolchains.yml:645-649). $MOZBUILD_STATE_PATH/node/bin
+# is the first entry in find_node_paths() (nodeutil.py:48-59), so no NODEJS
+# variable is needed. sha256 is nodejs.org's own published SHASUMS256.txt value.
+# ---------------------------------------------------------------------------
+RUN mkdir -p ${MOZBUILD_STATE_PATH}/node \
+ && wget -q -O /tmp/node.tar.xz \
+      "https://nodejs.org/dist/v${LW_NODE_VERSION}/node-v${LW_NODE_VERSION}-linux-x64.tar.xz" \
+ && echo "${LW_NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c - \
+ && tar -xJf /tmp/node.tar.xz -C ${MOZBUILD_STATE_PATH}/node --strip-components=1 \
+ && rm -f /tmp/node.tar.xz \
+ && test -x ${MOZBUILD_STATE_PATH}/node/bin/node \
+ && ${MOZBUILD_STATE_PATH}/node/bin/node --version
+
+# ---------------------------------------------------------------------------
+# 3/4 — cbindgen 0.29.4.
+#
+# build/moz.configure/bindgen.configure:13 requires >= 0.29.4 and upstream pins
+# exactly 0.29.4 (taskcluster/kinds/fetch/toolchains.yml:245-251). Without it:
+#
+#   checking for cbindgen... no
+#   ERROR: Cannot find cbindgen. Please run `mach bootstrap`, ...
+#
+# The extra symlink is not decoration. bootstrap_search_path("cbindgen") puts
+# $MOZBUILD_STATE_PATH/cbindgen *itself* on the search path, not its bin/, so
+# the executable has to sit directly in that directory — which is the layout
+# `mach bootstrap` produces when it unpacks the cbindgen.tar.zst artifact.
+#
+# This is the only layer that compiles Rust from crates.io (~1 min). The
+# registry/git caches it leaves behind in $CARGO_HOME are dropped in the same
+# layer: they are ~200 MB, and they are cbindgen's dependency set, not Gecko's.
+# ---------------------------------------------------------------------------
+RUN cargo install cbindgen --version ${LW_CBINDGEN_VERSION} --locked \
+      --root ${MOZBUILD_STATE_PATH}/cbindgen \
+ && ln -sf ${MOZBUILD_STATE_PATH}/cbindgen/bin/cbindgen \
+           ${MOZBUILD_STATE_PATH}/cbindgen/cbindgen \
+ && rm -rf ${CARGO_HOME}/registry ${CARGO_HOME}/git \
+ && ${MOZBUILD_STATE_PATH}/cbindgen/cbindgen --version
+
+# ---------------------------------------------------------------------------
+# 4/4 — the WASI sysroot and the wasm32 compiler-rt (RLBox).
+#
+# READ THIS BEFORE "FIXING" A WASM CONFIGURE ERROR. RLBox wasm sandboxing is on
+# by default for every little-endian target: toolkit/moz.configure:2829-2833
+# returns the full library list (graphite, ogg, hunspell, expat, woff2,
+# soundtouch) whenever target.endianness == "little", and aarch64-linux-android
+# qualifies. It is a security mitigation LibreWolf ships on desktop, so the
+# correct action is to supply the sysroot. Configure helpfully suggests
+# --without-wasm-sandboxed-libraries; taking it produces a green build with a
+# silent parity loss. LW-M2-01 refused it and so must this image.
+#
+# Two separate configure stops, in order:
+#
+#   checking the wasm C compiler can find wasi headers...
+#   ERROR: Cannot find wasi headers or problem with the wasm compiler.
+#       -> the sysroot. toolkit/moz.configure:2869 is
+#          bootstrap_path("sysroot-wasm32-wasi", ...), so unpacking the artifact
+#          into $MOZBUILD_STATE_PATH/sysroot-wasm32-wasi is picked up with no
+#          WASI_SYSROOT variable and no configure flag.
+#
+#   checking the wasm C linker can find wasi libraries...
+#   wasm-ld: error: cannot open .../lib/clang/21/lib/wasm32-unknown-wasi/libclang_rt.builtins.a
+#       -> the compiler-rt. The NDK ships compiler-rt for Android targets only
+#          (lib/clang/21/lib/linux/). clang resolves its resource directory from
+#          the REAL path of the binary, so the ${MOZBUILD_STATE_PATH}/clang
+#          symlink above does not help — the file has to land inside the NDK.
+#          The rename is real: the artifact carries the old flat name
+#          lib/wasi/libclang_rt.builtins-wasm32.a, clang 21 wants the
+#          per-target-directory name libclang_rt.builtins.a. This mirrors
+#          upstream, which repacks the same compiler-rt into its clang before
+#          building the sysroot (taskcluster/scripts/misc/build-sysroot-wasi.sh:8).
+#
+# WHY DIRECT URLS AND NOT `mach artifact toolchain --from-build`, which is what
+# docs/android/BUILD.md §4.4 uses: that command loads the taskgraph and so needs
+# a Firefox source tree. This image has none — /source below is the LibreWolf
+# build-script repo, and the Firefox tree is bind-mounted at run time. Fetching
+# and extracting a 4.7 GB tarball inside the image just to resolve two URLs is
+# not worth it. So the *resolution* was done once, with `mach artifact toolchain
+# -v --from-build ...` against the 153.0.4 tree, and its answer — the
+# `index-search` namespace it logs — is pinned above. That namespace embeds a
+# sha256 of the toolchain task's own inputs
+# (taskcluster/gecko_taskgraph/util/cached_tasks.py:9), so it is a content pin,
+# not a moving `.latest` tag, and it resolves to the exact artifact a 153 build
+# is tested against. The downloaded bytes are checked against a sha256 too,
+# because unlike every other URL in this file these are index-resolved rather
+# than version-named. Re-resolve both on a Firefox rebase; a stale namespace
+# fails here with a 404, loudly, which is the intent.
+# ---------------------------------------------------------------------------
+RUN wget -q -O /tmp/sysroot-wasm32-wasi.tar.zst \
+      "${LW_TASKCLUSTER_INDEX}/${LW_WASI_SYSROOT_INDEX}/artifacts/public/build/sysroot-wasm32-wasi.tar.zst" \
+ && echo "${LW_WASI_SYSROOT_SHA256}  /tmp/sysroot-wasm32-wasi.tar.zst" | sha256sum -c - \
+ && tar --zstd -xf /tmp/sysroot-wasm32-wasi.tar.zst -C ${MOZBUILD_STATE_PATH} \
+ && rm -f /tmp/sysroot-wasm32-wasi.tar.zst \
+ && test -f ${MOZBUILD_STATE_PATH}/sysroot-wasm32-wasi/include/stdio.h \
+ && test -f ${MOZBUILD_STATE_PATH}/sysroot-wasm32-wasi/lib/wasm32-wasi/libc.a
+
+RUN set -eu; \
+    resource_dir="$(${MOZBUILD_STATE_PATH}/clang/bin/clang -print-resource-dir)"; \
+    case "${resource_dir}" in \
+      */lib/clang/${LW_WASI_LLVM_MAJOR}) ;; \
+      *) echo "NDK clang resource dir '${resource_dir}' is not LLVM ${LW_WASI_LLVM_MAJOR};" >&2; \
+         echo "the pinned wasm32-wasi-compiler-rt-${LW_WASI_LLVM_MAJOR} artifact does not match this NDK" >&2; \
+         exit 1 ;; \
+    esac; \
+    wget -q -O /tmp/compiler-rt-wasm32-wasi.tar.zst \
+      "${LW_TASKCLUSTER_INDEX}/${LW_WASI_COMPILER_RT_INDEX}/artifacts/public/build/compiler-rt-wasm32-wasi.tar.zst"; \
+    echo "${LW_WASI_COMPILER_RT_SHA256}  /tmp/compiler-rt-wasm32-wasi.tar.zst" | sha256sum -c -; \
+    mkdir -p /tmp/crt; \
+    tar --zstd -xf /tmp/compiler-rt-wasm32-wasi.tar.zst -C /tmp/crt; \
+    mkdir -p "${resource_dir}/lib/wasm32-unknown-wasi"; \
+    cp /tmp/crt/compiler-rt-wasm32-wasi/lib/wasi/libclang_rt.builtins-wasm32.a \
+       "${resource_dir}/lib/wasm32-unknown-wasi/libclang_rt.builtins.a"; \
+    rm -rf /tmp/crt /tmp/compiler-rt-wasm32-wasi.tar.zst; \
+    test -f "${resource_dir}/lib/wasm32-unknown-wasi/libclang_rt.builtins.a"
+
+# ---------------------------------------------------------------------------
+# Assert all four, by running them — not by `ls`.
+#
+# The wasm compile-and-link at the end is the one that matters: it is the same
+# pair of checks configure runs (toolkit/moz.configure, "the wasm C compiler can
+# find wasi headers" / "the wasm C linker can find wasi libraries"), so if this
+# layer passes, those two configure stops are cleared. Linking pulls in
+# libclang_rt.builtins.a, so it covers the compiler-rt copy as well as the
+# sysroot.
+# ---------------------------------------------------------------------------
+RUN set -eu; \
+    ${MOZBUILD_STATE_PATH}/clang/bin/clang --version | head -1; \
+    ${MOZBUILD_STATE_PATH}/node/bin/node --version; \
+    ${MOZBUILD_STATE_PATH}/cbindgen/cbindgen --version; \
+    printf 'int main(void) { return 0; }\n' > /tmp/wasi-check.c; \
+    ${MOZBUILD_STATE_PATH}/clang/bin/clang \
+        --target=wasm32-wasi \
+        --sysroot=${MOZBUILD_STATE_PATH}/sysroot-wasm32-wasi \
+        /tmp/wasi-check.c -o /tmp/wasi-check.wasm; \
+    test -s /tmp/wasi-check.wasm; \
+    rm -f /tmp/wasi-check.c /tmp/wasi-check.wasm; \
+    echo "OK: clang / node / cbindgen / wasi sysroot + compiler-rt all usable"
+
+# ===========================================================================
+# nasm 3.01 — the x86_64 ABI's one extra host tool. LW-M0-16.
+#
+# This image was aarch64-only when it was written, and for aarch64 nasm is
+# genuinely not needed. The fat AAR (scripts/android-fat-aar.sh, LW-M2-03)
+# builds three ABIs — armeabi-v7a, arm64-v8a and x86_64, the only three
+# mobile/android/moz.configure:161-166 allows in
+# MOZ_ANDROID_FAT_AAR_ARCHITECTURES — and the x86_64 pass needs an assembler.
+#
+# WHY, EXACTLY. toolkit/moz.configure:2631-2643 collects four requirements,
+# every one of them keyed on target.cpu being x86 or x86_64:
+#
+#   dav1d_nasm   :864-867   AV1,   version floor 2.14   <- the binding one
+#   vpx_nasm     :2317-2323 VPX,   unversioned off Windows
+#   jpeg_nasm    :2468-2471 JPEG,  version floor 2.10
+#   ffvpx_nasm   :2608-2611 FFVPX, version floor 2.10
+#
+# If any fire, :2646-2651 runs check_prog("NASM", ["nasm"], bootstrap="nasm")
+# and :2655-2658 dies with
+#
+#   Nasm is required to build with AV1, FFVPX, JPEG and VPX, but it was not found.
+#
+# :2673-2681 then enforces the highest floor of the set, 2.14 (AV1). For
+# aarch64/armv7 none of the four fire, need_nasm is None, and check_prog is
+# skipped entirely — hence "no nasm needed" being true of the arm passes and
+# false of the x86_64 one. The assembly really is emitted: nasm_asflags
+# (:2684-2699) gives non-Windows non-Mac x86_64 `-f elf64` at :2697-2698,
+# which is what the assert below runs.
+#
+# WHY BUILT FROM SOURCE rather than fetched like the two WASI artifacts above.
+# Upstream's linux64-nasm (taskcluster/kinds/toolchain/nasm.yml:59-70) is just
+# nasm-3.01 compiled from the same tarball, and that tarball is version-named
+# and sha256-pinned in the tree itself
+# (taskcluster/kinds/fetch/toolchains.yml:171-177 — the sha256 below is copied
+# from :176, unchanged). So the source build is a *stronger* pin than an
+# index-resolved artifact: it needs no taskcluster namespace to be re-resolved
+# on a rebase, and no Firefox tree to resolve it with. It is also cheap:
+# measured 8s in this image on a 32-core host (2s download, 5s ./configure, 1s
+# `make -j32 nasm`), against a 1.5 MB tarball. It uses the host gcc the image
+# already has — a missing C compiler fails this layer loudly at ./configure,
+# which is the intent.
+#
+# WHY BOTH PATH AND THE STATE DIR. check_prog searches PATH first, and falls
+# back to bootstrap_search_path("nasm") = $MOZBUILD_STATE_PATH/nasm — which is
+# also exactly where `mach artifact toolchain --from-build linux64-nasm`
+# unpacks, and what scripts/android-fat-aar.sh's x86_64 preflight probes. The
+# binary is installed there and that directory is prepended to PATH, so both
+# spellings resolve and neither the preflight nor configure has to be told
+# anything.
+#
+# The two ENVs sit here rather than in the pinned block at the top of the file
+# on purpose: an ENV up there would invalidate the NDK, SDK and Rust layers and
+# turn "add an assembler" into a 4 GB re-download.
+# ===========================================================================
+ENV LW_NASM_VERSION=3.01
+ENV LW_NASM_SHA256=b7324cbe86e767b65f26f467ed8b12ad80e124e3ccb89076855c98e43a9eddd4
+ENV PATH=${MOZBUILD_STATE_PATH}/nasm:${PATH}
+
+RUN set -eu; \
+    wget -q -O /tmp/nasm.tar.xz \
+      "https://www.nasm.us/pub/nasm/releasebuilds/${LW_NASM_VERSION}/nasm-${LW_NASM_VERSION}.tar.xz"; \
+    echo "${LW_NASM_SHA256}  /tmp/nasm.tar.xz" | sha256sum -c -; \
+    mkdir -p /tmp/nasm-src "${MOZBUILD_STATE_PATH}/nasm"; \
+    tar -xJf /tmp/nasm.tar.xz -C /tmp/nasm-src --strip-components=1; \
+    cd /tmp/nasm-src; \
+    ./configure > /tmp/nasm-configure.log 2>&1 \
+      || { echo "nasm ./configure failed:" >&2; tail -20 /tmp/nasm-configure.log >&2; exit 1; }; \
+    make -j"$(nproc)" nasm > /tmp/nasm-make.log 2>&1 \
+      || { echo "nasm make failed:" >&2; tail -40 /tmp/nasm-make.log >&2; exit 1; }; \
+    install -m 0755 nasm "${MOZBUILD_STATE_PATH}/nasm/nasm"; \
+    cd /; \
+    rm -rf /tmp/nasm-src /tmp/nasm.tar.xz /tmp/nasm-configure.log /tmp/nasm-make.log
+
+# Assert nasm by RUNNING it, the same way the four host toolchains above are
+# asserted: resolve it through PATH, check the version against the pin (a
+# silent fallback to some other nasm is exactly what a version floor check in
+# configure would catch three hours later), and assemble one object with the
+# `-f elf64` that toolkit/moz.configure:2697-2698 selects for this target.
+RUN set -eu; \
+    command -v nasm; \
+    test -x "${MOZBUILD_STATE_PATH}/nasm/nasm"; \
+    nasm -v; \
+    nasm -v | grep -q "NASM version ${LW_NASM_VERSION}" \
+      || { echo "nasm is not the pinned ${LW_NASM_VERSION}" >&2; exit 1; }; \
+    printf 'section .text\nglobal lw_nasm_check\nlw_nasm_check:\n  xor eax, eax\n  ret\n' \
+      > /tmp/nasm-check.asm; \
+    nasm -f elf64 /tmp/nasm-check.asm -o /tmp/nasm-check.o; \
+    test -s /tmp/nasm-check.o; \
+    rm -f /tmp/nasm-check.asm /tmp/nasm-check.o; \
+    echo "OK: nasm ${LW_NASM_VERSION} on PATH and in the state dir, -f elf64 works"
+
+# ---------------------------------------------------------------------------
+# Source checkout, same as assets/Dockerfile.
+# ---------------------------------------------------------------------------
+WORKDIR /
+RUN rm -rf /source
+RUN git clone --recursive https://codeberg.org/librewolf/source.git
+WORKDIR /source
+
+# Unlike assets/Dockerfile this image deliberately stops at "toolchain ready"
+# and does not run the build in a RUN layer. Two reasons, and the second one is
+# the reason there is still no `make android-run-build-job`:
+#
+#   1. Baking a multi-hour Android build into every image rebuild is not what CI
+#      wants from a toolchain image.
+#   2. THE BUILD IS DRIVEN FROM THE HOST, NOT FROM IN HERE. LW-M2-06 added
+#      `make android-dir`, `android-build`, `android-package` and
+#      `android-clean` (plus the artifact-named aliases `android-aar` and
+#      `android-apk`) — but the two scripts the last three call,
+#      scripts/android-fat-aar.sh and scripts/android-apk.sh, are container
+#      *drivers*: they start one container per ABI themselves. This image ships
+#      no container engine, so run inside it they both stop in preflight with
+#      "container engine 'podman' not found in PATH" before compiling anything.
+#      Verified by running each of them in a container from this image.
+#
+# So the supported invocation runs `make` on the HOST, with this image as the
+# thing it starts containers from:
+#
+#   make android-build-image CONTAINER_ENGINE=podman     # builds this file
+#   make android-package     CONTAINER_ENGINE=podman     # tree -> fat AAR -> APKs
+#
+# There is no /output mount and no `cp` step, which is the other half of what
+# makes this different from assets/Dockerfile's `make build package && cp *.xz`:
+# the artifacts are written straight to host directories next to the checkout,
+# librewolf-android-aar-<version>-<release>/ (per-ABI target.maven.zip plus the
+# merged GeckoView AAR) and librewolf-android-apk-<version>-<release>/apk/
+# (one APK per ABI plus a universal one, debug-signed, not release-signed).
+#
+# The bind mounts those scripts make carry `:z`, which is required on an
+# SELinux Enforcing host — measured on the reference Fedora host with podman
+# rootless: `-v "$PWD:/out"` gives `touch: Permission denied` inside the
+# container, `-v "$PWD:/out:z"` writes and leaves the path container_file_t.
+# `:z` (shared) and not `:Z` (exclusive), because more than one container and
+# more than one pass read the same ~10GB tree. See docs/android/BUILD.md.
+#
+# A second reason an in-image job cannot work yet, independent of the first:
+# the /source clone above is UPSTREAM codeberg, whose Makefile has no android-*
+# target at all, so `git pull && make android-dir` in here finds nothing to make
+# until this branch has landed upstream.
+#
+# lw/l10n — the note LW-M0-15 left here for LW-M2-06 — HAS LANDED, in the
+# Makefile and not in this image. assets/mozconfig.android passes
+# --with-l10n-base="$topsrcdir/lw/l10n" and toolkit/moz.configure:500-504 *dies*
+# if that path is not a directory; a patched tree gets it from
+# scripts/librewolf-patches.py when it unpacks the l10n archive, a stock or
+# hand-extracted one does not. `android-dir`, the fat-AAR rule and
+# `android-package` each run an idempotent `test -d <tree> && mkdir -p
+# <tree>/lw/l10n` (the Makefile's $(android_l10n_base)) so that every entry
+# point into a build is covered, including LW_ANDROID_SRCDIR trees that no
+# make rule extracted. It correctly does NOT live in this image: there is no
+# Firefox tree in here to create it in — the tree is bind-mounted at run time.
+CMD ["/bin/bash"]

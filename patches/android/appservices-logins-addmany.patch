@@ -1,0 +1,48 @@
+Expose add_many on the DatabaseLoginsStorage wrapper
+
+Upstream version skew inside the Firefox 153 tree, not a LibreWolf divergence.
+
+  mobile/android/android-components/.../SyncableLoginsStorage.kt:211-213 calls
+  getStorage().addMany(asEntries) on the DatabaseLoginsStorage WRAPPER, and
+  components/lib/passwords-file/.../CsvPasswordsFileImporter.kt:64 does the same.
+
+  third_party/application-services/components/logins/src/logins.udl:182 declares
+  `sequence<BulkResultEntry> add_many(sequence<LoginEntry> logins);` so uniffi does
+  generate LoginStore.addMany(). But the hand-written wrapper at
+  DatabaseLoginsStorage.kt only re-exports add / update / addOrUpdate /
+  findLoginToUpdate -- never addMany -- at the revision moz.yaml pins
+  (06c391e81c367d1059d601c812f379875d7ef0a3, 2026-05-13).
+
+  Result: `Unresolved reference 'addMany'` and the Fenix Gradle stage fails.
+
+WHY MOZILLA DOES NOT HIT THIS: their Android builds consume a PREBUILT
+application-services artifact, built from a revision that matches
+android-components. LibreWolf builds it from source
+(--enable-appservices-in-tree, LW-M2-05) precisely so the search-config dumps and
+the Rust components are ours to control -- and that is what exposes the skew. So
+this patch is a cost of in-tree appservices, and it must be re-checked on every
+rebase: if a later revision adds the wrapper method, this patch will reject
+loudly, which is the desired behaviour.
+
+The wrapper mirrors the file's existing delegation style exactly (@Throws +
+one-line `return store.<method>(...)`), so it carries no LibreWolf behaviour --
+it only restores a method the UDL already promises.
+
+Found by the skeptical verification of LW-M2-04, which discovered the APK had been
+built with this fix applied as an UNCOMMITTED local edit that existed in no patch,
+making the deliverable irreproducible.
+---
+--- a/third_party/application-services/components/logins/android/src/main/java/mozilla/appservices/logins/DatabaseLoginsStorage.kt
++++ b/third_party/application-services/components/logins/android/src/main/java/mozilla/appservices/logins/DatabaseLoginsStorage.kt
+@@ -105,6 +105,11 @@
+         return store.addOrUpdate(entry)
+     }
+ 
++    @Throws(LoginsApiException::class)
++    fun addMany(entries: List<LoginEntry>): List<BulkResultEntry> {
++        return store.addMany(entries)
++    }
++
+     fun registerWithSyncManager() {
+         return store.registerWithSyncManager()
+     }

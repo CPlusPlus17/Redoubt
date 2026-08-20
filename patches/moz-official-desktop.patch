@@ -1,0 +1,135 @@
+# moz-official -- DESKTOP half (LW-M1-04).
+#
+# Split out of patches/moz-official.patch, a straddler. The two core GMP hunks
+# (dom/media/gmp/ChromiumCDMAdapter.cpp, media/gmp-clearkey/0.1/gmp-clearkey.cpp)
+# are in patches/moz-official-common.patch; common + desktop together are, byte
+# for byte, the hunks of the original patch, in the original order within each
+# half.
+#
+# What is here:
+#   browser/base/content/browser-init.js  !AppConstants.MOZILLA_OFFICIAL
+#                                         -> Services.prefs.getBoolPref(
+#                                              "librewolf.devHelpers", false)
+#   browser/base/content/browser-main.js  the same test, guarding the
+#                                         loadSubScript of
+#                                         browser-development-helpers.js
+#   browser/base/jar.mn                   drops the #ifndef MOZILLA_OFFICIAL /
+#                                         #endif around the packaging line for
+#                                         browser-development-helpers.js
+#
+# Together these keep the upstream "local development" helper -- the
+# accel+alt+R quick-restart command, key and File-menu item defined in
+# browser/base/content/browser-development-helpers.js -- available in an
+# official LibreWolf build, behind librewolf.devHelpers, which
+# settings/librewolf.cfg:756 defaults to false.
+#
+# Why it is desktop-only: all three files are under browser/.
+# browser/app.mozbuild:11 (`DIRS += ["/browser"]`) is what pulls /browser into a
+# build and mobile/android/app.mozbuild never does, so these files are not in an
+# Android build at all and the hunks could not apply to one.
+#
+# ==========================================================================
+# DOES mobile/android HAVE AN EQUIVALENT OF THE browser-init HUNK?  NO.
+# ==========================================================================
+# Asked and answered against the pristine firefox-153.0.4 tree, so the next
+# reader does not have to re-derive it. There is no Android counterpart, none is
+# needed, and there is deliberately no patches/android/moz-official-android.patch;
+# assets/patches/android.txt records the same conclusion.
+#
+# The evidence:
+#
+#   1. DevelopmentHelpers exists nowhere else. `grep -rl "DevelopmentHelpers\|
+#      development-helpers"` over the whole tree returns exactly six files: the
+#      three patched here, browser/base/content/browser-development-helpers.js
+#      itself, and two devtools files that only name it in a comment while
+#      reimplementing it --
+#      devtools/server/actors/descriptors/process.js:228 ("This aims at
+#      replicate `DevelopmentHelpers.quickRestart`", inside reloadDescriptor,
+#      which does the same startupcache-invalidate + MOZ_DISABLE_SAFE_MODE_KEY +
+#      eAttemptQuit|eRestart sequence) and
+#      devtools/client/webconsole/webconsole-ui.js:713 ("This is the same as
+#      DevelopmentHelpers.quickRestart, but it runs in all builds (even
+#      official)"). Neither is MOZILLA_OFFICIAL-gated, so neither needs this
+#      patch -- and devtools/server ships on Android unguarded
+#      (devtools/moz.build:11-16), so the one of the two that is common already
+#      carries the behaviour there. Nothing under mobile/ mentions the helper.
+#
+#   2. The helper is XUL-only by construction. addRestartShortcut() calls
+#      document.createXULElement("command"/"key"/"menuitem") and appends to
+#      #mainCommandSet, #mainKeyset and #menu_FilePopup -- the desktop browser
+#      window's XUL. GeckoView has no such document, so even a hypothetical
+#      Android port of the file would have nothing to attach to.
+#
+#   3. Android's MOZILLA_OFFICIAL uses are all a different shape. Every hit of
+#      `grep -rn MOZILLA_OFFICIAL mobile/` is one of:
+#        * mozconfig exports (mobile/android/config/mozconfigs/**, e.g.
+#          android-arm/nightly:8), i.e. build inputs;
+#        * Gradle plumbing (mobile/android/fenix/app/build.gradle:37,243,391-393,
+#          mobile/android/geckoview/build.gradle:78,389,
+#          gradle/{debug_level,mozconfig,with_gecko_binaries}.gradle,
+#          gradle/plugins/.../MachExec.kt), which turns the substitution into
+#          BuildConfig.MOZILLA_OFFICIAL and skips tasks;
+#        * Java/Kotlin runtime feature gates on that BuildConfig flag: fenix
+#          BaseBrowserFragment.kt:1279 (WebAuthnFeature -- "only works on Fenix
+#          when built on Mozilla infrastructure"), geckoview
+#          WebAuthnTokenManager.java:202,440,601,630, CrashHandler.java:605,
+#          GeckoAppShell.java:142, ContentBlocking.java:655 (safebrowsing
+#          provider name), and a row of `DEBUG = !BuildConfig.MOZILLA_OFFICIAL`
+#          log switches in the media/HLS classes.
+#      Not one of them is a chrome-JS `if (!AppConstants.MOZILLA_OFFICIAL)` init
+#      hook, and not one gates a developer restart shortcut. No .js, .mjs or
+#      jar.mn under mobile/ mentions MOZILLA_OFFICIAL at all.
+#
+#   4. Those Java/Kotlin gates are the wrong thing to convert anyway. They are
+#      compiled against BuildConfig, decided by Gradle before any pref exists,
+#      and the change here is specifically "keep a dev convenience that upstream
+#      drops in official builds, behind a pref". Android has no such convenience
+#      to keep. Flipping MOZILLA_OFFICIAL on Android would instead re-enable
+#      debug logging and change the safebrowsing provider -- unrelated, and
+#      unwanted, changes.
+#
+#   So: the browser-init hunk has no Android equivalent, and the common half is
+#   the whole of moz-official that reaches Android. If an Android build ever
+#   wants a quick-restart affordance it is new work in patches/android/, not a
+#   port of this hunk.
+#
+diff --git a/browser/base/content/browser-init.js b/browser/base/content/browser-init.js
+index 288a79e..f0106ba 100644
+--- a/browser/base/content/browser-init.js
++++ b/browser/base/content/browser-init.js
+@@ -504,7 +504,7 @@ var gBrowserInit = {
+       gDataNotificationInfoBar.init();
+     }
+ 
+-    if (!AppConstants.MOZILLA_OFFICIAL) {
++    if (Services.prefs.getBoolPref("librewolf.devHelpers", false)) {
+       DevelopmentHelpers.init();
+     }
+
+diff --git a/browser/base/content/browser-main.js b/browser/base/content/browser-main.js
+index d24bcbb..1c161f3 100644
+--- a/browser/base/content/browser-main.js
++++ b/browser/base/content/browser-main.js
+@@ -12,7 +12,7 @@
+   if (AppConstants.MOZ_DATA_REPORTING) {
+     Services.scriptloader.loadSubScript("chrome://browser/content/browser-data-submission-info-bar.js", this);
+   }
+-  if (!AppConstants.MOZILLA_OFFICIAL) {
++  if (Services.prefs.getBoolPref("librewolf.devHelpers", false)) {
+     Services.scriptloader.loadSubScript("chrome://browser/content/browser-development-helpers.js", this);
+   }
+   Services.scriptloader.loadSubScript("chrome://browser/content/browser-pageActions.js", this);
+diff --git a/browser/base/jar.mn b/browser/base/jar.mn
+index 22550de..470b23f 100644
+--- a/browser/base/jar.mn
++++ b/browser/base/jar.mn
+@@ -45,9 +45,7 @@ browser.jar:
+         content/browser/browser-context.js            (content/browser-context.js)
+         content/browser/browser-customization.js      (content/browser-customization.js)
+         content/browser/browser-data-submission-info-bar.js (content/browser-data-submission-info-bar.js)
+-#ifndef MOZILLA_OFFICIAL
+         content/browser/browser-development-helpers.js (content/browser-development-helpers.js)
+-#endif
+         content/browser/browser-fullScreenAndPointerLock.js (content/browser-fullScreenAndPointerLock.js)
+         content/browser/browser-gestureSupport.js           (content/browser-gestureSupport.js)
+         content/browser/browser-init.js                     (content/browser-init.js)

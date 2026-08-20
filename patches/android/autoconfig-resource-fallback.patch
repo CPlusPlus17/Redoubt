@@ -1,0 +1,239 @@
+# LW-M3-08: make autoconfig reach librewolf.cfg on Android.
+#
+# PROVEN ON A RUNNING BUILD.  See docs/android/AUTOCONFIG-SPIKE.md for the two
+# proofs, the screenshots and the measured pref-precedence table.  Short form:
+# with this patch a pref set only by librewolf.cfg is visible in about:config on
+# a fresh Android profile, and a lockPref'd pref survives the Fenix settings
+# screen that overwrites the unlocked control in the same session.
+#
+# WHAT WAS BROKEN, AND WHAT THE BOARD GOT WRONG ABOUT IT
+# ------------------------------------------------------
+# nsReadConfig loads two files.  prefcalls.js goes through openAndEvaluateJSFile
+# with isBinDir=FALSE, which resolves `resource://gre/defaults/autoconfig/<name>`
+# -- a resource: URI that resolves inside the APK.  The .cfg itself goes through
+# the same function with isBinDir=TRUE, which resolves NS_GRE_DIR.
+#
+# The board (and docs/android/AGENTS.md, and settings/common.cfg's header) said
+# NS_GRE_DIR "returns nothing" on Android, citing
+# toolkit/xre/nsXREDirProvider.cpp's `#if !defined(MOZ_WIDGET_ANDROID)` guard.
+# That guard is real, but the CALL DOES NOT FAIL.  nsXREDirProvider merely
+# declines; nsDirectoryService then answers from its own built-in table
+# (xpcom/io/nsDirectoryService.cpp:336-338, "Unless otherwise set, the core
+# pieces of the GRE exist in the current process directory").  Measured on the
+# emulator, NS_GetSpecialDirectory(NS_GRE_DIR) returns NS_OK and
+#
+#   /data/app/~~<hash>/org.mozilla.fenix.debug-<hash>/lib/x86_64
+#
+# -- the APK's extracted native-library directory, which contains only .so files
+# and is not writable by the app.  So the pre-patch failure was
+# NS_ERROR_FILE_NOT_FOUND (0x80520012) out of NS_NewLocalFileInputStream, not
+# NS_ERROR_FAILURE out of the directory service.  A patch keyed off
+# `NS_FAILED(NS_GetSpecialDirectory(NS_GRE_DIR))` -- the obvious shape, and the
+# first thing LW-M3-08 built -- is DEAD CODE.  This one is keyed off the target
+# instead.
+#
+# THE FIX
+# -------
+# On Android, always read through the resource: channel; there is no directory
+# for a file to be "next to the binary" in.  Two properties are load-bearing:
+#
+#   1. isBinDir is NOT flipped.  The last argument of EvaluateAdminConfigScript
+#      is `!isBinDir`, i.e. isPrivileged.  With sandboxEnabled (LibreWolf sets
+#      general.config.sandbox_enabled=true in local-settings.js) an isBinDir file
+#      runs in the UNPRIVILEGED NullPrincipal sandbox and sees only what
+#      prefcalls.js exported into gSandbox.  Reaching the resource: branch by
+#      passing isBinDir=false would have silently promoted the admin .cfg to the
+#      system-principal sandbox.  A separate `fromResourceURI` flag keeps that
+#      privilege decision exactly as it was.
+#
+#      isBinDir does NOT decide skipFirstLine -- an earlier version of this
+#      comment, and of the C++ comment below, said it did.  The call is
+#      EvaluateAdminConfigScript(buf, amt, aFileName, false, true, isEncoded,
+#      !isBinDir) and the signature (nsJSConfigTriggers.h:11-14) is
+#      (..., bool bGlobalContext, bool bCallbacks, bool skipFirstLine,
+#      bool isPrivileged), so skipFirstLine is fed isEncoded and isBinDir reaches
+#      isPrivileged only.  Neither argument is touched by this patch.
+#   2. Everything is inside `#if defined(MOZ_WIDGET_ANDROID)`.  On every other
+#      platform `fromResourceURI == !isBinDir`, so the generated code is
+#      identical to upstream's.  This patch cannot change desktop behaviour.
+#
+# WHERE THE FILE LIVES IN THE APK, AND WHY NOT AT THE ROOT
+# ---------------------------------------------------------
+# `resource://gre/` maps to the GRE omnijar, so the .cfg must be INSIDE omni.ja.
+# Membership is decided by OmniJarSubFormatter.is_resource
+# (python/mozbuild/mozpack/packager/formats.py:322-356), and a top-level
+# `librewolf.cfg` matches none of its branches -> it is packaged FLAT into
+# dist/geckoview/, and mobile/android/geckoview/build.gradle:118-121 copies only
+# dist/geckoview/assets (omni.ja) and dist/geckoview/lib into the AAR.  A flat
+# file is dropped on the floor.  That is exactly what happens to lw/moz.build's
+# FINAL_TARGET_FILES today (LW-M1-09's caveat; re-measured by LW-M3-08 against
+# the LW-M2-04 APK, whose omni.ja contains neither librewolf.cfg nor
+# local-settings.js).
+#
+# `defaults/...` DOES match is_resource (:340-343), so the .cfg is installed and
+# packaged as defaults/autoconfig/librewolf.cfg, beside prefcalls.js, and is
+# read as resource://gre/defaults/autoconfig/librewolf.cfg.
+#
+# defaults/pref/local-settings.js is packaged for the same reason: it sets
+# general.config.filename, and Preferences.cpp:3931-3939 only creates the
+# "pref-config-startup" category -- i.e. only instantiates nsReadConfig at all --
+# when that pref has a value.  It is picked up by InitInitialObjects'
+# `pref_ReadDefaultPrefs(jarReader, "defaults/pref/*.js$")`
+# (Preferences.cpp:5189-5191), which reads omni.ja and needs no directory
+# provider.  Verified in the running app: "D/MCD general.config.filename =
+# librewolf.cfg".
+#
+# The one MOZ_LOG line that is kept is deliberate: MCD:5 in logcat is the only
+# way to see this path work or fail on a device, and it is what turned a wrong
+# first patch into a correct second one in ten minutes.
+#
+# WHY THE PACKAGING HUNK IS IN THIS PATCH AND NOT A SIBLING
+# ---------------------------------------------------------
+# Decided by LW-M3-02 when it landed this file.  All three hunks are ONE
+# mechanism, and each one is inert without the other two:
+#
+#   * the C++ hunk reads resource://gre/defaults/autoconfig/librewolf.cfg;
+#   * the lw/moz.build hunk is what puts a file at that resource path;
+#   * the mobile/android/installer/package-manifest.in hunk is what gets that
+#     installed file into omni.ja, which is where resource://gre/ reads from.
+#
+# Split across two patches, every half applies cleanly on its own, and each one
+# alone is broken in a DIFFERENT way -- which is worse than one way, because two
+# of the three failure modes are silent and one is not:
+#
+#   * lw/moz.build install WITHOUT the manifest entry: the file lands in
+#     dist/bin and is SILENTLY dropped from omni.ja.  This is not a prediction,
+#     it is the measured pre-patch state -- LW-M1-09's FINAL_TARGET_FILES have
+#     installed librewolf.cfg into dist/bin since M1 and the LW-M2-04 APK's
+#     omni.ja contained neither it nor local-settings.js.  Landmine L4's shape.
+#   * C++ hunk WITHOUT either of the other two: NS_ERROR_FILE_NOT_FOUND, which
+#     nsReadConfig::Observe swallows into a single console warning.  Silent in
+#     any log nobody is reading.
+#   * manifest entry WITHOUT the install: NOT silent -- it is a hard packaging
+#     error.  python/mozbuild/mozpack/packager/__init__.py:409-422
+#     (SimpleManifestSink.add) calls errors.error("Missing file(s): %s") when a
+#     manifest pattern matches nothing on disk.  So that half alone would break
+#     the Android package rather than no-op, which makes the two halves ORDER-
+#     COUPLED as well: whichever of them landed first would leave the tree
+#     either silently inert or unbuildable.
+#
+# Keeping the three in one file makes check-patchfail's apply all-or-nothing, and
+# a rebase that moves any one of the three targets is a hard failure rather than
+# a half-landed channel.
+#
+# The scope test is satisfied too: all three files are either Android-only
+# (mobile/android/installer/) or built on every target with the addition guarded
+# per-target, so scripts/lint-patch-scope.py has nothing to object to and no
+# desktop-only file is touched.  LW-M3-08's own recommendation - move the
+# lw/moz.build hunk into patches/xmas-common.patch behind
+# `if CONFIG["MOZ_BUILD_APP"] == "mobile/android":` and lose the ordering
+# constraint - is still open, and is still a change to a file this patch's owner
+# does not own.  It would trade a declared, machine-checked constraint for no
+# constraint; do it when xmas-common is next edited for its own reasons, not to
+# save one tuple in scripts/check-patch-order.py.
+#
+# APPLY ORDER
+# -----------
+# The lw/moz.build hunk needs patches/xmas-common.patch (assets/patches/
+# common.txt) applied first -- that patch creates the file.  common.txt is always
+# applied before android.txt, so the constraint holds by construction; it is
+# nevertheless DECLARED, not assumed, as a CONSTRAINTS row in
+# scripts/check-patch-order.py (LW-M3-02).  Before it was declared,
+# check-patch-order flagged the pair by itself and refused to pass - the
+# derivation in that script reports every new shared-tree-file pair for
+# classification, and lw/moz.build became one the moment this patch entered
+# assets/patches/android.txt.
+#
+# It is the third CROSS-LIST constraint, alongside mozilla_dirs -> xdg-dir
+# (common -> desktop) and webgl-permission-common -> android/webgl-prompt-default
+# (common -> android).  The table in docs/android/AGENTS.md still says "five
+# pairs" and does not have this row; that file belongs to no live task and the
+# gap is reported to the board rather than edited here, exactly as
+# check-patch-order.py already records for the webgl pair.
+#
+--- a/extensions/pref/autoconfig/src/nsReadConfig.cpp
++++ b/extensions/pref/autoconfig/src/nsReadConfig.cpp
+@@ -241,7 +241,38 @@
+   nsresult rv;
+ 
+   nsCOMPtr<nsIInputStream> inStr;
+-  if (isBinDir) {
++  // Whether to read through the resource: channel rather than the filesystem.
++  // Off Android that is exactly the !isBinDir case (prefcalls.js).
++  //
++  // On Android it is ALWAYS the case, because there is no directory for a file
++  // to be "next to the binary" in -- everything ships inside the APK.  Note
++  // what does NOT work here: testing NS_GetSpecialDirectory(NS_GRE_DIR) for
++  // failure.  nsXREDirProvider declines NS_GRE_DIR on Android
++  // (toolkit/xre/nsXREDirProvider.cpp, "internal files are inside the APK"),
++  // but nsDirectoryService's own built-in fallback answers it anyway with the
++  // current process directory (xpcom/io/nsDirectoryService.cpp:336-338, "Unless
++  // otherwise set, the core pieces of the GRE exist in the current process
++  // directory").  So the call SUCCEEDS, NS_FAILED() is never true, and the .cfg
++  // is looked for in a directory it can never be in -- measured on a running
++  // build, which returned NS_ERROR_FILE_NOT_FOUND (0x80520012) from
++  // NS_NewLocalFileInputStream rather than the NS_ERROR_FAILURE a declining
++  // directory service would have produced.
++  //
++  // isBinDir itself is deliberately NOT changed.  Its only other use is as
++  // `!isBinDir` -- the isPrivileged argument -- in the EvaluateAdminConfigScript
++  // call below.  It does NOT decide skipFirstLine: that argument is fed
++  // isEncoded, which this patch never touches.  With
++  // general.config.sandbox_enabled, which LibreWolf sets in local-settings.js,
++  // an isBinDir file runs in the UNPRIVILEGED NullPrincipal sandbox and only
++  // sees the functions prefcalls.js exported into gSandbox.  Reaching the
++  // resource: branch by passing isBinDir=false would have silently promoted the
++  // admin .cfg to the system-principal sandbox.
++#if defined(MOZ_WIDGET_ANDROID)
++  const bool fromResourceURI = true;
++#else
++  const bool fromResourceURI = !isBinDir;
++#endif  // defined(MOZ_WIDGET_ANDROID)
++  if (!fromResourceURI) {
+     nsCOMPtr<nsIFile> jsFile;
+ #if defined(MOZ_WIDGET_GTK)
+     bool exists;
+@@ -286,6 +317,9 @@
+     NS_ENSURE_SUCCESS(rv, rv);
+ 
+     rv = channel->Open(getter_AddRefs(inStr));
++    MOZ_LOG(MCD, LogLevel::Debug,
++            ("opened %s: 0x%" PRIx32 "\n", location.get(),
++             static_cast<uint32_t>(rv)));
+     NS_ENSURE_SUCCESS(rv, rv);
+   }
+ 
+
+--- a/lw/moz.build
++++ b/lw/moz.build
+@@ -10,3 +10,12 @@
+ FINAL_TARGET_FILES.defaults.pref += [
+   "local-settings.js",
+ ]
++
++# Android reads the .cfg out of omni.ja through resource://gre/, and only
++# `defaults/...` survives OmniJarSubFormatter.is_resource
++# (python/mozbuild/mozpack/packager/formats.py:340-343); a top-level
++# librewolf.cfg is packaged flat and never reaches the AAR.  The desktop copy
++# above stays where it is -- desktop reads it from the bin dir via NS_GRE_DIR.
++FINAL_TARGET_FILES.defaults.autoconfig += [
++  "librewolf.cfg",
++]
+
+--- a/mobile/android/installer/package-manifest.in
++++ b/mobile/android/installer/package-manifest.in
+@@ -134,6 +134,13 @@
+ 
+ #ifdef MOZ_PREF_EXTENSIONS
+ @BINPATH@/defaults/autoconfig/prefcalls.js
++; LibreWolf: the autoconfig channel.  local-settings.js sets
++; general.config.filename, which is what makes Preferences.cpp instantiate
++; nsReadConfig at all; librewolf.cfg is the file it then evaluates, reached
++; through resource://gre/defaults/autoconfig/ -- see
++; patches/android/autoconfig-resource-fallback.patch.
++@BINPATH@/defaults/pref/local-settings.js
++@BINPATH@/defaults/autoconfig/librewolf.cfg
+ #endif
+ 
+ ; [Layout Engine Resources]
+

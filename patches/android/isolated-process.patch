@@ -1,0 +1,363 @@
+# LibreWolf isolated-process.patch  (Android)
+# Owner: LW-M5-02 ("Enable isolatedProcess and the app zygote")
+#
+# Upstream file touched
+# ----------------------
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+#
+# One hunk, two call arguments. Nothing else in any patch list touches this
+# file (`grep -rn '^+++ b/mobile/' patches/` -> disable-data-reporting-android
+# (moz.configure), no-nimbus (nimbus.fml.yaml, NimbusSetup.kt, HomeActivity.kt),
+# neterror-jar, webgl-prompt-default, build-fixes, appservices-logins-addmany).
+# So there is no ordering constraint against any patch that exists today. See
+# "Ordering" below for the one that is coming.
+#
+#
+# What LibreWolf wants instead, and why
+# --------------------------------------
+# On Android, Gecko's own content sandbox is NOT COMPILED IN. This is not an
+# inference from the pref list, it is read out of the objdir of the very build
+# this patch was verified on:
+#
+#   * `grep -i sandbox obj-x86_64/config.status` returns ONLY the seven RLBox
+#     entries (MOZ_USING_WASM_SANDBOXING and MOZ_WASM_SANDBOXING_{EXPAT,
+#     GRAPHITE,HUNSPELL,OGG,SOUNDTOUCH,WOFF2}). There is no MOZ_SANDBOX and no
+#     MOZ_CONTENT_SANDBOX. RLBox sandboxes six media/text libraries inside a
+#     process; it is not a process sandbox and does not confine content.
+#   * `obj-x86_64/security/sandbox/` does not exist -- the directory is never
+#     built for this target.
+#
+# So every `security.sandbox.*` pref is inert and there is no seccomp-bpf,
+# namespace or capability confinement around a content process at all. That is
+# what LW-M5-07's spike recorded, and it means the ONLY containment a
+# LibreWolf-for-Android content process has is the containment Android itself
+# provides.
+#
+# Android provides two mechanisms, and GeckoView already implements both:
+#
+#   android:isolatedProcess="true"  -- the service runs under its own, freshly
+#       allocated isolated uid in the SELinux domain `isolated_app` instead of
+#       `untrusted_app`. MEASURED HERE (see "How this was verified", items 1
+#       and 2): the content process really does get `u:r:isolated_app:s0` and a
+#       distinct uid, and the kernel really does refuse it access to
+#       /data/data/org.mozilla.fenix.debug -- so a compromised content process
+#       cannot read the profile, the cookie jar or the logins database, which
+#       an `untrusted_app` content process running under the browser's own uid
+#       trivially can. PLATFORM PROPERTY, documented by Android and NOT
+#       separately measured here: an isolated uid can hold no Android
+#       permissions and gets no supplementary groups, so it has no `inet` group
+#       and cannot open sockets of its own, and it can reach almost no system
+#       service. Nothing breaks: Gecko does its networking in the parent, and
+#       the probe page's fetch() succeeded from inside the isolated process on
+#       every run.
+#
+#   android:useAppZygote="true" + android:zygotePreloadName  -- content
+#       processes are forked from an app-specific zygote that has already
+#       dlopen()ed libmozglue, libxul and libnss3 (ZygotePreload.java), instead
+#       of from the system zygote. The forked children share those relocated
+#       pages copy-on-write.
+#
+# Both service families are ALREADY in the generated GeckoView manifest,
+# unconditionally: mobile/android/geckoview/src/main/AndroidManifest_overlay.jinja
+# emits `isolatedTab0..39` with android:isolatedProcess="true", one `zygoteTab`
+# with isolatedProcess + useAppZygote, and android:zygotePreloadName on
+# <application>. Verified in the built APK, not in the template -- `aapt2 dump
+# xmltree --file AndroidManifest.xml fenix-x86_64-debug.apk` shows 89 services
+# carrying an isolatedProcess attribute, the zygotePreloadName attribute and
+# useAppZygote=true. Neither the --num-content-services nor the
+# --enable-isolated-zygote-process mozconfig option gates any of it; the latter
+# is read only by mobile/android/test_runner.
+#
+# So this patch adds no plumbing and no build flag. GeckoProvider.kt already
+# called .isolatedProcessEnabled(...) and .appZygoteProcessEnabled(...); it
+# passed the wrong values.
+#
+#
+# Why the value is hard-coded here and NOT flipped in nimbus.fml.yaml
+# -------------------------------------------------------------------
+# The two arguments used to read Settings.isIsolatedProcessEnabled and
+# Settings.isAppZygoteEnabled (Settings.kt:980-992). Those are
+# `booleanPreference` delegates whose default lambda is the Nimbus FML feature
+# `isolated-content-processes`, and BOTH of its variables default to false
+# (nimbus.fml.yaml:1040-1052, no per-channel `defaults:` block). Two ways to
+# flip that were available:
+#
+#   (a) raise the two FML defaults to true;
+#   (b) stop consulting the setting at all.
+#
+# (b) was chosen, for three reasons.
+#
+#   1. OWNERSHIP. nimbus.fml.yaml is a declared tree_path of LW-M4-03 and
+#      LW-M5-01, not of LW-M5-02, whose only tree_path is GeckoProvider.kt. Two
+#      patches editing one tree file must be ordered, not parallel
+#      (docs/android/AGENTS.md). Editing the FML from here would be exactly the
+#      collision the board's tree_paths exist to prevent.
+#
+#   2. IT IS THE STRONGER GUARANTEE, and this is a security decision. The
+#      delegate is `booleanPreference(..., persistDefaultIfNotExists = false)`
+#      (PreferencesHolder.kt:21-40, class BooleanPreference), so the FML default
+#      is only consulted while the SharedPreferences key is ABSENT; the moment
+#      anything writes that key -- today only SecretSettingsFragment.kt:408-418,
+#      but landmine L2 is precisely about Fenix writing prefs at runtime -- the
+#      stored value wins forever. And the FML value itself is an experiment-overridable channel:
+#      FeatureHolder.value() calls getSdk()?.getVariables(featureId) first and
+#      only falls back to the compiled-in default (FeatureHolder.kt:45-58). It
+#      is true that LW-M4-03 has severed the remote half of that channel today,
+#      but "safe because a different patch removed the attacker's transport" is
+#      not a property this file can keep. A constant at the call site cannot be
+#      lowered by an experiment, by a settings write, or by an upstream flip of
+#      the FML default on the next rebase.
+#
+#   3. It keeps the whole change in one file that one task owns, so a future
+#      rebase conflict is legible.
+#
+# The falsification test for claim 2 was run, not reasoned: with this patch
+# applied, `pref_key_enable_isolated_process` and `pref_key_enable_app_zygote_process`
+# were written as false into /data/data/org.mozilla.fenix.debug/shared_prefs/
+# fenix_preferences.xml -- the exact artefact a settings write or an FML default
+# produces -- and the content processes still came up isolated. On the
+# unpatched build the mirror test (writing them true) turned isolation ON, which
+# is what proves the mechanism itself works on this device and that the
+# unpatched build's non-isolated processes really are the settings path's doing.
+# Numbers and process lists are in "How this was verified" below.
+#
+#
+# The app zygote has an API floor: SDK 29 (Android 10)
+# -----------------------------------------------------
+# The build's minSdk is 26 (build/moz.configure/android-sdk.configure:160 --
+# nothing in assets/mozconfig.android overrides it), so Android 8.0/8.1/9
+# devices are in range and are BELOW the floor. What happens there, from the
+# tree:
+#
+#   * GeckoRuntimeSettings.Builder.appZygoteProcessEnabled
+#     (GeckoRuntimeSettings.java:717-724) refuses the value itself:
+#     `if (enabled && SDK_INT < Q) { Log.w(...
+#     "Cannot set app Zygote preloading to true below SDK 29 (Android 10)!");
+#     mAppZygoteProcess = false; return this; }`. So passing `true`
+#     unconditionally is safe -- the guard is upstream's, not ours, and it will
+#     track upstream if the floor ever moves.
+#   * GeckoProcessType.determineContentProcessType() (:55-57) re-checks
+#     SDK_INT >= Q before returning CONTENT_ISOLATED_WITH_ZYGOTE, so even a
+#     stale `true` could not select the zygote service.
+#   * isolatedProcess itself has NO floor and still applies. The fallback is
+#     CONTENT_ISOLATED, whose manifest entries (isolatedTab0..39) carry
+#     android:isolatedProcess="true" and are bound with the ordinary
+#     Context.bindService() path (ServiceAllocator.DefaultBindDelegate), which
+#     has produced isolated uids since API 16.
+#   * The one thing that IS lost below 29 is the unbounded instance count:
+#     ServiceAllocator.allocate() picks IsolatedContentPolicy only when
+#     hasQApis() (:553-558), so pre-29 devices use DefaultContentPolicy and are
+#     capped at MOZ_ANDROID_CONTENT_SERVICE_COUNT (40) simultaneous content
+#     processes instead of Android-unlimited-with-instanceName. 40 is far above
+#     dom.ipc.processCount (8), so this is not a practical limit.
+#
+# Net effect below API 29: isolated uids yes, app zygote no, no crash, no
+# silent loss of isolation. Verified on a real Android 9 (API 28) emulator --
+# see "How this was verified".
+#
+#
+# What this patch knowingly leaves inconsistent
+# ----------------------------------------------
+# Two upstream call sites still read the Settings values, and neither can be
+# touched from here (Settings.kt and SecretSettingsFragment.kt are not this
+# task's tree_paths):
+#
+#   * SecretSettingsFragment.kt:408-418 -- the two hidden debug-menu switches.
+#     They are `isVisible = Config.channel.isNightlyOrDebug`, so on the RELEASE
+#     build LibreWolf ships they do not exist at all. On a debug build they
+#     still render (unchecked, because they read the FML default) and writing
+#     them no longer changes anything. Cosmetic, debug-only, and the honest
+#     trade for point 2 above.
+#   * FenixApplication.kt:1089-1090 -- two Glean metrics that would now report
+#     the settings value rather than the effective one. Glean is removed
+#     wholesale by LW-M4-01; flagged so that task does not "fix" it by
+#     re-plumbing the setting.
+#
+#
+# Ordering
+# ---------
+# No constraint today. LW-M5-01 (fission-isolation.patch) is the one to watch:
+# its brief talks about GeckoProvider.kt's `shouldUseNimbus` gate, which sits
+# immediately below this hunk, while its declared tree_paths are only
+# nimbus.fml.yaml and Core.kt. If LW-M5-01 does end up editing GeckoProvider.kt
+# it becomes a shared-file pair with this patch and needs a row in the ordering
+# table in docs/android/AGENTS.md plus a tree_paths fix on the board. Reported.
+#
+#
+# Nothing happens outside this diff (landmine L4)
+# ------------------------------------------------
+# No file copies, no rm, no generated file edited by hand, no manifest edit --
+# the isolated and zygote service definitions were already in the manifest the
+# ordinary build generates, which is the whole reason this patch is two lines
+# of Kotlin.
+#
+#
+# HOW THIS WAS VERIFIED, AND WHAT WAS NOT
+# ----------------------------------------
+# Everything below comes from a RUNNING APK, not from reading the tree.
+#
+# Artefacts. scripts/android-apk.sh built two fenix-x86_64-debug.apk from the
+# SAME patched tree (24 common + 6 android patches, including LW-M4-03's
+# no-nimbus, so fission isolationStrategy is 2 in both), differing ONLY by this
+# patch. MOZ_BUILD_DATE 20260816204534, GeckoView from ~/lw-m2-03/aar.
+#
+# Devices. Android emulator, `default` (non-Google) x86_64 system images:
+#   API 30 / Android 11, 4 vCPU, 3057 MB RAM, -no-window -no-audio -gpu host
+#   API 28 / Android 9,  4 vCPU, 3072 MB RAM   (the below-the-floor case)
+# Host: 32 core / 62 GB Fedora, NOT idle -- a second emulator belonging to
+# another agent ran throughout. Absolute milliseconds are therefore inflated;
+# the comparisons are between conditions measured on the same device minutes
+# apart, and every condition was repeated.
+#
+# 1. THE ACCEPTANCE CRITERION, on API 30, stock install, nothing configured:
+#
+#    $ adb shell ps -A -Z | grep -iE 'fenix|zygote'
+#    u:r:untrusted_app:s0:c135,...  u0_a135  12883  293  ... org.mozilla.fenix.debug
+#    u:r:app_zygote:s0:c512,c768    u0_a135  13036  293  ... org.mozilla.fenix.debug_zygote
+#    u:r:isolated_app:s0:c512,c768  u0_i0    13047 13036 ... :zygoteTab_disable_art_image_:...
+#    u:r:untrusted_app:s0:c135,...  u0_a135  13081  293  ... :gpu_disable_art_image_
+#    u:r:isolated_app:s0:c512,c768  u0_i1    13175 13036 ... :zygoteTab_disable_art_image_:...
+#    u:r:isolated_app:s0:c512,c768  u0_i2    13224 13036 ... :zygoteTab_disable_art_image_:...
+#    u:r:isolated_app:s0:c512,c768  u0_i3    13286 13036 ... :zygoteTab_disable_art_image_:...
+#
+#    Every content process: SELinux domain `isolated_app`, its own isolated uid
+#    (u0_i0..u0_i3), PPID 13036 = the app zygote. The app zygote itself is
+#    present, domain `app_zygote`. The GPU process correctly stays
+#    `untrusted_app` -- only content is isolated. The board's verify line
+#    (`ps -A -Z | grep -c isolated`) returns 0 on the unpatched build and 3-4 on
+#    this one.
+#
+# 2. THE ISOLATION IS REAL, not just a label. Same device (API 28), same URL,
+#    same code path, only the APK differs:
+#      patched  : 14 kernel denials of the form
+#                 avc: denied { getattr } for path="/data/data/org.mozilla.fenix.debug"
+#                 scontext=u:r:isolated_app:s0:c0,... tcontext=u:object_r:app_data_file:s0:c67,...
+#                 tclass=dir permissive=0
+#      unpatched: 0 such denials (the content process runs as the browser's own
+#                 uid and simply reads it)
+#    i.e. the content process is refused access to the profile directory by the
+#    kernel, and the browser works anyway -- Gecko gets what it needs over IPC.
+#
+# 3. THE VALUES CANNOT BE LOWERED (the "survive a Nimbus fetch" criterion). On
+#    the patched build, both keys were written FALSE into
+#    /data/data/org.mozilla.fenix.debug/shared_prefs/fenix_preferences.xml --
+#    the exact artefact a Fenix settings write, the secret-settings toggle or an
+#    FML default produces -- and the app relaunched:
+#      <boolean name="pref_key_enable_isolated_process" value="false" />
+#      <boolean name="pref_key_enable_app_zygote_process" value="false" />
+#    Result: still 4 isolated_app content processes and the app zygote. The
+#    mirror control on the UNPATCHED build (writing them TRUE) turned isolation
+#    on, which is what proves the mechanism works on this device and that the
+#    unpatched build's non-isolated processes really are the settings path's
+#    doing rather than something else.
+#
+# 4. BELOW THE API FLOOR -- run on a real Android 9 (API 28) emulator with this
+#    same APK:
+#      W GeckoRuntimeSettings: Cannot set app Zygote preloading to true below SDK 29 (Android 10)!
+#      u:r:isolated_app:s0:c0,...  u0_i0  3130  1733 ... :isolatedTab_disable_art_image_12
+#      u:r:isolated_app:s0:c1,...  u0_i1  3195  1733 ... :isolatedTab_disable_art_image_34
+#      u:r:isolated_app:s0:c2,...  u0_i2  3315  1733 ... :isolatedTab_disable_art_image_6
+#    No app_zygote process exists; PPID 1733 is the SYSTEM zygote; the content
+#    processes are the plain `isolatedTab<N>` services and are still isolated.
+#    Exactly the documented degradation, and the page loaded normally.
+#
+# 5. COST. Nine reboot-isolated runs on API 30. Each run: reboot -> uninstall ->
+#    install -> one warm-up launch -> 8 cold starts (`am start-activity -W -S`,
+#    force-stop between; medians below drop the first two, which are ART
+#    warm-up) -> 4 cold "launch to page JavaScript finished" timings against a
+#    local HTTP server -> a fixed 9-tab workload across 3 origins -> 20 s settle
+#    -> `dumpsys meminfo <pid>` summed over every process of the app.
+#
+#      condition                    runs  cold start   first page   sum PSS
+#      -------------------------------------------------------------------
+#      unpatched (no isolation)        3      520 ms       830 ms   567.7 MiB
+#      isolatedProcess only            1      474 ms       726 ms   565.3 MiB
+#      isolated + app zygote (THIS)    4      518 ms       830 ms   546.5 MiB
+#
+#    Cold start and first page are pooled medians (n = 18/24 and 12/16); sum PSS
+#    is the mean over runs, with 4 content processes + parent + GPU in every
+#    condition (+ the zygote where enabled).
+#
+#    * STARTUP COST IS ZERO within this rig's noise. 518 ms vs 520 ms; the
+#      spread between repeats of the SAME condition (474-534 ms across the
+#      unpatched and isolated-only runs) is larger than the difference between
+#      conditions. First page is identical to the millisecond-median, 830 vs 830.
+#    * MEMORY IS A NET SAVING of 21.2 MiB (-3.7 %), and it is entirely the app
+#      zygote's: isolatedProcess on its own moves nothing (565.3 vs 567.7 MiB),
+#      while adding the zygote drops each content process from ~66 MiB to
+#      ~57.5 MiB PSS -- about 8.4 MiB saved per content process, against 8.5 MiB
+#      for the zygote process itself. System-wide `dumpsys meminfo` "Used RAM"
+#      agrees: 1476.8 -> 1460.6 MiB.
+#    * FOR LW-M5-01: isolatedProcess costs you nothing to keep, and the app
+#      zygote pays for itself from the second content process onwards. At
+#      dom.ipc.processCount = 8 (modules/libpref/init/all.js:1866) the
+#      extrapolated saving is ~8.4 x 8 - 8.5 = ~59 MiB, which is headroom for
+#      the 1-vs-2 isolationStrategy decision rather than a cost against it.
+#      Do not, however, reuse these numbers as a device budget: they are an
+#      x86_64 emulator with a 172 MB libxul.
+#
+# 6. NO FUNCTIONAL REGRESSION. A probe page reported its own results back to the
+#    server on every one of 30 page loads across both builds; all fields are
+#    byte-identical between the unpatched and patched runs:
+#      canvas2d=255, webgl="WebGL 2.0 | Generic Renderer", wasm=true,
+#      localStorage ok, IndexedDB ok, Web Worker ok, fetch ok,
+#      hardwareConcurrency=4
+#    Audio was checked separately because an isolated uid is the obvious thing
+#    for AudioFlinger to refuse: on BOTH API 28 and API 30 the isolated content
+#    process created an AudioContext (state suspended, 44100 Hz -- suspended is
+#    the correct answer with no user gesture) and logcat shows AudioFlinger
+#    accepting the client ("Client defaulted notificationFrames to 882 for
+#    frameCount 1956"). Playback through real speakers was NOT tested; the
+#    emulator ran with -no-audio.
+#
+# METHODOLOGY WARNING, because it nearly produced a wrong answer here. The first
+# A/B was run as two measurements back to back on one long-lived emulator boot,
+# and it reported cold start 536 -> 2121 ms and first page 878 -> 4289 ms, i.e.
+# a 4x regression. That was ENTIRELY device drift: repeating the UNPATCHED build
+# immediately afterwards reproduced the same ~2100 ms. Only rebooting the device
+# before every condition made the numbers reproducible, and then the difference
+# vanished. Any future startup measurement on this rig must reboot between
+# conditions and must repeat the control after the treatment.
+#
+# NOT VERIFIED:
+#   * Any physical device. Everything above is an x86_64 emulator.
+#   * armv7/arm64 APKs. The two APKs were built for all three ABIs from the same
+#     Gradle run, but only x86_64 was executed.
+#   * The RELEASE variant. The APK is `assembleDebug` (channel `developer`).
+#     This patch has no channel-dependent behaviour -- it is a literal `true` at
+#     the call site, and unlike the FML route there is no per-channel generation
+#     step that could differ -- but the release build has not been run.
+#   * More than 4 simultaneous content processes. dom.ipc.processCount is 8; the
+#     9-tab/3-origin workload produced 4. The per-process figures extrapolate,
+#     the totals do not.
+#   * Audio actually reaching a speaker, and WebRTC capture (camera/microphone
+#     permissions cannot be held by an isolated uid; capture is brokered by the
+#     parent, but that path was not exercised).
+#
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+@@ -131,8 +131,22 @@
+             .setSameDocumentNavigationOverridesLoadTypeForceDisable(
+                 FxNimbus.features.sameDocumentNavigationOverridesLoadType.value().forceDisableUri,
+             )
+-            .isolatedProcessEnabled(context.components.settings.isIsolatedProcessEnabled)
+-            .appZygoteProcessEnabled(context.components.settings.isAppZygoteEnabled)
++            // LibreWolf (LW-M5-02): both of these are forced on, and are deliberately
++            // NOT read from Settings/Nimbus any more. Gecko's own content sandbox is
++            // not compiled on Android (MOZ_SANDBOX is absent from the Android
++            // config.status, so every security.sandbox.* pref is inert), so Android's
++            // own per-process isolation is the only containment a content process
++            // gets. That is a security decision and must not sit on a channel that a
++            // remote experiment, a Fenix settings write or an upstream default flip
++            // can lower.
++            //
++            // appZygoteProcessEnabled(true) is safe on every API level we ship to:
++            // GeckoRuntimeSettings.Builder itself refuses it below SDK 29 (Android 10)
++            // and stores false, and GeckoProcessType.determineContentProcessType()
++            // re-checks SDK_INT, so an API 26-28 device silently falls back to plain
++            // isolatedProcess (CONTENT_ISOLATED) instead of the zygote variant.
++            .isolatedProcessEnabled(true)
++            .appZygoteProcessEnabled(true)
+ 
+         if (FxNimbus.features.fission.value().shouldUseNimbus) {
+             builder

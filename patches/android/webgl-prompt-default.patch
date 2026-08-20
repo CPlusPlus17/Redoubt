@@ -1,0 +1,82 @@
+# LibreWolf webgl-prompt-default.patch
+#
+# Upstream file touched: modules/libpref/init/StaticPrefList.yaml
+#   (the `librewolf.webgl.prompt` entry that patches/webgl-permission-common.patch
+#   adds to it — this patch applies AFTER that one, i.e. after common.txt)
+#
+# What LibreWolf wants instead, and why
+# -------------------------------------
+# `librewolf.webgl.prompt` defaults to true, which is what makes desktop
+# LibreWolf refuse a WebGL context until the user answers a doorhanger. On
+# Android that default is not "stricter", it is fatal, and silently so — this is
+# landmine L1 in docs/android/AGENTS.md:
+#
+#   * ClientWebGLContext.cpp's IsWebGLAllowed_impl() fails closed for every
+#     principal that has no explicit "webgl" permission, and asks the parent to
+#     prompt;
+#   * BrowserParent::RecvShowWebGLPermissionPrompt() early-returns because
+#     `mFrameElement->AsBrowser()` yields nothing — GeckoView has no XUL
+#     <browser>;
+#   * the "webgl-permissions-prompt" observers, the doorhanger markup, the icons
+#     and WebGLPermissionPromptHelper.sys.mjs all live under browser/, which an
+#     Android build never contains (they are in
+#     patches/webgl-permission-desktop.patch, a desktop.txt entry).
+#
+# So on Android nothing can ever grant the permission and every WebGL context
+# fails — with no crash, no console error and no visible prompt. "It installs and
+# it browses" still passes. Hence: false on Android, true everywhere else, and it
+# ships in the same change as the split, never as a follow-up.
+#
+# Why this is a separate Android patch and not a hunk in the common half
+# ----------------------------------------------------------------------
+# patches/android/README.md says shared-Gecko changes belong in one common patch
+# with the Android behaviour gated in-tree, and the resulting tree here does
+# exactly that — the gate is the `#if defined(ANDROID)` below. Only the delivery
+# is split out, because LW-M1-08 requires the desktop tree after
+# common+desktop to stay byte-identical to the tree the old single
+# webgl-permission.patch produced. Putting the #if in the common half would
+# change modules/libpref/init/StaticPrefList.yaml on desktop too, which breaks
+# that. assets/patches/android.txt has named this file's job since LW-M1-01
+# ("the librewolf.webgl.prompt default that landmine L1 requires").
+#
+# The README's drift hazard does not apply: the context below is LibreWolf's own
+# pref block, not upstream text, so if webgl-permission-common.patch ever stops
+# applying this patch rejects loudly too rather than applying against something
+# it did not mean.
+#
+# Ordering (load-bearing)
+# -----------------------
+# Requires patches/webgl-permission-common.patch to have been applied first.
+# assets/patches/common.txt is always applied before android.txt, so listing this
+# in android.txt is enough.
+#
+# Nothing happens outside this diff (landmine L4): no file copies, no rm, no
+# generated file is edited by hand. The value reaches the binary through
+# modules/libpref/init/generate_static_pref_list.py, which preprocesses this yaml
+# with buildconfig.defines["ALLDEFINES"]; ANDROID is in there via
+# build/moz.configure/init.configure:924 `set_define("ANDROID", target_is_android)`.
+#
+--- a/modules/libpref/init/StaticPrefList.yaml
++++ b/modules/libpref/init/StaticPrefList.yaml
+@@ -11824,9 +11824,21 @@
+ # Prefs starting with "librewolf."
+ #---------------------------------------------------------------------------
+ 
++# LibreWolf for Android (LW-M1-08, landmine L1): this must default to false on
++# Android. The prompt has no UI there - the doorhanger, its observers and
++# WebGLPermissionPromptHelper.sys.mjs all live under browser/, which an Android
++# build never contains, and BrowserParent::RecvShowWebGLPermissionPrompt returns
++# early because GeckoView has no XUL <browser> to notify. With the desktop
++# default of true, IsWebGLAllowed_impl fails closed for every origin that has no
++# explicit "webgl" permission and nothing can ever grant one, so every WebGL
++# context dies with no crash and no console error. Desktop keeps true.
+ - name: librewolf.webgl.prompt
+   type: RelaxedAtomicBool
++#if defined(ANDROID)
++  value: false
++#else
+   value: true
++#endif
+   mirror: always
+ 
+ - name: librewolf.webgl.prompt.hide

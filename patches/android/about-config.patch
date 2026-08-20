@@ -1,0 +1,424 @@
+# LibreWolf about-config.patch  (Android)
+# Owner: LW-M4-09 ("Enable about:config on release builds")
+#
+# Upstream file touched
+# ----------------------
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+#
+# One hunk, one call argument.
+#
+#
+# READ THIS FIRST: WHICH TREE THE LINE NUMBERS BELOW COME FROM
+# -------------------------------------------------------------
+# The Android build tracks Firefox **ESR**, not the desktop release. ./version
+# is 153.0.4 and ./version.android is 153.0esr, and the ESR tarball unpacks to
+# `firefox-153.0/`, NOT `firefox-153.0esr/` (Makefile:201-206). The tree sitting
+# in the repo root as `firefox-153.0.4/` is therefore the DESKTOP tree and is the
+# wrong file to read for anything in patches/android/.
+#
+# This is not pedantry, it has already cost this patch two rounds of wrong
+# citations. The two trees really do differ in the file this patch is about:
+#   mobile/shared/chrome/geckoview/config.xhtml
+#     ESR (153.0, what we ship)  md5 ae29fd773b4d8de9db0660cde64a4af0 -- inline
+#                                onclick=/onload= handlers, no ids on the buttons
+#     desktop 153.0.4            md5 bd20ae6c4d1008a5c9bb3388c1ffd95a -- refactored
+#                                to id="pref-toggle-button" / "copy-pref-name" and
+#                                addEventListener
+# The APK's assets/omni.ja carries the ESR one, byte-identical (checked by
+# unzipping omni.ja out of the built release APK and diffing). So ids like
+# `#pref-toggle-button` DO NOT EXIST in what we ship, and a previous "correction"
+# to this header that renumbered config.js from the desktop tree made it wrong.
+# Every line number below is from the ESR tree.
+#
+#
+# What LibreWolf wants instead, and why
+# --------------------------------------
+# Upstream reads, at pristine ESR GeckoProvider.kt:123,
+#
+#     .aboutConfigEnabled(Config.channel.isBeta || Config.channel.isNightlyOrDebug)
+#
+# and Config.channel is BuildConfig.BUILD_TYPE, so about:config is ON for the
+# debug, nightly and beta build types and OFF for `release` -- the only build type
+# LibreWolf ships. The argument lands in GeckoRuntimeSettings.mAboutConfig, a
+# Pref<Boolean> for `general.aboutConfig.enable` (GeckoRuntimeSettings.java:768),
+# and nsAboutRedirector.cpp:285-288 returns NS_ERROR_NOT_AVAILABLE for
+# about:config when that pref is false. LibreWolf's entire configuration story is
+# prefs, so a shipping build with no pref editor is not shippable. Hence `true`.
+#
+# Note that RuntimeSettings.Pref.addToBundle() (RuntimeSettings.java:157-158)
+# writes `mIsSet ? mValue : defaultValue`, i.e. GeckoView commits this pref on
+# EVERY startup whether or not the call site touched it, and the Java-side
+# defaultValue is `false`. So the release build does not merely fail to enable
+# about:config, it actively pushes `general.aboutConfig.enable = false` over
+# GeckoView:SetDefaultPrefs after autoconfig has run. That is why a `defaultPref`
+# in librewolf.cfg would NOT have been an equivalent fix (landmine L2), and why
+# the change has to be at the Kotlin call site.
+#
+# (Gecko's own StaticPrefList.yaml default for this pref is `true`, and
+# nsAboutRedirector's GetBool falls back to `true` as well. Neither helps: the
+# call site is unconditional, so GeckoView overwrites the default branch on every
+# startup with whatever that argument evaluates to.)
+#
+# Hard-coded `true` rather than a Settings/Nimbus lookup, for the same reasons
+# LW-M5-02 gives for isolatedProcessEnabled: a constant cannot be lowered by a
+# remote experiment, by a Fenix settings write, or by an upstream flip of an FML
+# default on the next rebase. There is no Fenix UI for this setting on any
+# channel, so nothing is made inconsistent by ignoring one.
+#
+# A user can still turn it off from inside about:config itself by setting
+# general.aboutConfig.enable = false on the USER branch, which then wins over the
+# default this call site commits and locks them out until the profile is reset.
+# That is upstream desktop behaviour too, and it is deliberate: LibreWolf does
+# not lockPref this one, because locking it would take the choice away.
+#
+#
+# THE WARNING INTERSTITIAL: THERE IS NONE ON ANDROID, AND THIS PATCH REMOVES
+# NOTHING
+# --------------------------------------------------------------------------
+# LW-M4-09's brief says to keep the warning interstitial. There is nothing to
+# keep: Android's about:config is a different page from desktop's, and it has
+# never had the "Proceed with Caution / Accept the Risk and Continue" screen.
+# Verified three ways -- from the ESR tree, from the BUILT omni.ja, and from the
+# running release build:
+#
+#   * docshell/base/nsAboutRedirector.cpp:106-113 maps about:config to
+#     chrome://global/content/aboutconfig/aboutconfig.html only
+#     `#ifndef MOZ_WIDGET_ANDROID`; the `#else` arm maps it to
+#     chrome://geckoview/content/config.xhtml.
+#   * toolkit/components/moz.build:103-113 adds "aboutconfig" to DIRS only when
+#     CONFIG["MOZ_BUILD_APP"] != "mobile/android", so toolkit's about:config --
+#     the page that owns the interstitial, its `browser.aboutConfig.showWarning`
+#     pref and the about-config-intro-warning-* strings -- is not built for
+#     Android at all.
+#   * In the built APK's assets/omni.ja there is a
+#     chrome/geckoview/content/config.xhtml and NO
+#     chrome/toolkit/content/global/aboutconfig/*; the only aboutconfig entry in
+#     the archive is localization/en-US/mobile/android/aboutConfig.ftl, whose 14
+#     strings are Search / Name / Boolean / String / Integer / Cancel / Create /
+#     Change / Toggle / Reset / Copy Name / Copy Value -- no warning string of
+#     any kind. The packaged config.xhtml is a search box and a pref list: no
+#     warning container, no accept-the-risk button.
+#   * On the running release build, `document.querySelector` for #warningTitle,
+#     #showWarningNextTime and #about-config-search all return null in the same
+#     session in which the page reports readyState "complete" and 30 pref rows.
+#
+# So the interstitial's absence on Android is upstream GeckoView behaviour, is
+# already the case on the debug/nightly/beta builds where about:config is
+# enabled today, and is not something this patch touches. What this patch changes
+# is reachability, nothing else. The smoke check written for this task reports
+# the interstitial's presence as evidence and never requires it, and clicks
+# through one if a future build ever grows one.
+#
+# Corollary worth recording, because it looks like a lever and is not:
+# settings/common.cfg:600 ships `defaultPref("browser.aboutConfig.showWarning",
+# false)`. On Android that pref is DEAD -- its only reader is toolkit's
+# aboutconfig.js, which is not packaged. Flipping it back to true would not
+# produce an interstitial on Android.
+#
+#
+# LOCKED PREFS (the LW-M3-04 / landmine L2 interaction)
+# -----------------------------------------------------
+# GeckoView's about:config handles locked prefs, so the lockPref()s that
+# librewolf.cfg really does apply on Android (LW-M3-02/LW-M3-08) render as
+# read-only rather than as a broken page. From the ESR tree:
+#   * mobile/shared/chrome/geckoview/config.js:583-584
+#         get locked() { return Services.prefs.prefIsLocked(this.name); }
+#   * config.js:708-711 sets `disabled` on the value input and `locked` on the
+#     .pref-name div
+#   * mobile/android/themes/geckoview/config.css:210-217 draws
+#     chrome://geckoview/skin/images/lock.svg as a padlock in the name cell
+#     (packaged: it is in omni.ja)
+#   * config.js:420/425 setIntOrStringPref, :439/447 resetDefaultPref,
+#     :456/461 toggleBoolPref, :471/476 incrOrDecrIntPref all early-return for a
+#     locked pref
+# Measured on the running release build -- see "HOW THIS WAS VERIFIED".
+#
+# THE GESTURE MATTERS, and getting this wrong produces a false positive. A tap on
+# the row only sets AboutConfig.selected (config.js:604-606), and a *second* tap
+# on the name or value goes through selectOrToggleBoolPref (config.js:401) -- so
+# "I clicked the row twice and nothing changed" is indistinguishable from a page
+# that ignores every click. A lock refusal is only evidence when the SAME gesture
+# flips an UNLOCKED pref, and the gesture that does that is the row's toggle
+# BUTTON, `.pref-button.toggle` (config.js:648-651 -> toggleBoolPref).
+#
+#
+# Ordering
+# ---------
+# Shares mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+# with patches/android/isolated-process.patch (LW-M5-02) and with nothing else in
+# any list. The two hunks are disjoint: this one covers pristine ESR lines 120-126
+# (replacing .aboutConfigEnabled at 123), that one covers 131-138 (replacing
+# .isolatedProcessEnabled / .appZygoteProcessEnabled at 134-135), so four
+# unmodified lines separate them and neither quotes a line the other writes.
+# Order-freedom is a MEASUREMENT, not an eyeball, and it was re-measured for this
+# header against the pristine ESR file extracted from firefox-153.0esr.source.tar.xz:
+# both orders applied with `patch -p1 --fuzz=0`, exit 0 both ways, zero .rej
+# files, and the two results byte-identical (md5 63ca3b0e4ff183edf256f6ebbbd7a278).
+# The only effect of the order is a
+# 10-line OFFSET on isolated-process's hunk when this patch (net +10 lines) is
+# applied first, which is not fuzz. Recorded in scripts/check-patch-order.py's
+# REVIEWED_ORDER_FREE.
+#
+#
+# Nothing happens outside this diff (landmine L4)
+# ------------------------------------------------
+# No file copies, no rm, no generated file edited by hand, no manifest edit, no
+# new pref shipped in any .cfg, no new string. The page, its CSS, its icons and
+# its localisation are already in the APK -- they are packaged unconditionally by
+# mobile/shared/chrome/geckoview/jar.mn regardless of this pref -- which is the
+# whole reason this patch is one line of Kotlin.
+#
+#
+# HOW THIS WAS VERIFIED (second pass; the first pass's evidence is superseded)
+# ----------------------------------------------------------------------------
+# Everything below was measured in this round. Where it contradicts an earlier
+# version of this header, the earlier version was wrong and has been deleted
+# rather than annotated.
+#
+# ORDER OF OPERATIONS, because it is the point. about:config was opened BY HAND
+# on a running release-configured build FIRST, with no Marionette anywhere near
+# the device (Settings.Global.DEBUG_APP was `null`, checked), and only then was
+# the automated check touched:
+#   `pm clear org.mozilla.firefox`; launch; `input tap` on the ADDRESSBAR_URL_BOX
+#   node found in a `uiautomator dump`; `input text "about:config"`; `input
+#   keyevent 66`. The result is the GeckoView pref editor: the toolbar's new-pref
+#   "+" and Search box, then a scrolling list of pref rows
+#   (accessibility.AOM.enabled false, accessibility.ARIAElementReflection.enabled
+#   true, ...). No interstitial, no error page, nothing to click through.
+#   Artefacts: ~/lw-m4-09/pass3/hand-0{0,1,2,3}-*.png and hand-ui{0,1,2}.xml.
+#
+# THE ARTEFACTS. Two APKs, built by this task from ONE tree
+# (~/lw-batch-combined/src, the 24-common + android combined tree), ONE objdir,
+# the same GeckoView and omni.ja, the same MOZ_BUILD_DATE 20260816204534, the
+# same Gradle home and the SAME signing keystore, with exactly one difference
+# between them -- the argument on this patch's line:
+#     patched     .aboutConfigEnabled(true)
+#     unpatched   .aboutConfigEnabled(Config.channel.isBeta || Config.channel.isNightlyOrDebug)
+# Both from `./mach gradle fenix:assembleRelease -PdisableOptimization
+# --no-configuration-cache`, BUILD SUCCESSFUL, variantName "release".
+#   patched    md5 180d68ee5ecf4246b8d3ef8e65277e66
+#   unpatched  md5 6f5de341934b608d0de87db364fbdae5
+#
+# THAT THE TWO APKs REALLY DIFFER IN ONE THING is checked from the archives, not
+# asserted: comparing the CRC-32 of every entry in both APKs, exactly 2 of 3350
+# entries differ -- classes6.dex (the dex GeckoProvider lands in) and
+# assets/dexopt/baseline.prof, which is derived from it. assets/omni.ja, every
+# .so, every resource and every other dex are CRC-identical. This is deliberately
+# a zip integrity check and not a dex disassembly: a hand-rolled dex reader with
+# a wrong opcode table has already produced a concrete false pass on this project.
+# The tree was returned to the patched state afterwards (GeckoProvider.kt md5
+# eb3b1d4815d13d1280b9a8fe4089e80d, byte-identical to the snapshot taken before
+# the ablation).
+#
+# THAT THE ARTEFACT REALLY IS THE `release` BUILD TYPE is read out of the
+# installed package, not from the build command: applicationId is
+# org.mozilla.firefox (only the release buildType appends `.firefox`), and
+# `dumpsys package` reports `flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]` with no
+# DEBUGGABLE anywhere in the dump. `run-as` is refused on it, which is a second,
+# independent confirmation.
+#
+# WHY -PdisableOptimization, WHICH IS A REAL CAVEAT. A fully minified
+# `assembleRelease` BUILDS but does NOT RUN: it dies in FenixApplication.onCreate
+# with `java.lang.Error: Structure.getFieldOrder() on class
+# org.mozilla.experiments.nimbus.internal.RustBuffer$ByValue does not provide
+# enough names [0] ([]) to match declared fields [3] ([capacity, data, len])`.
+# R8 strips the @Structure.FieldOrder runtime annotation uniffi's generated JNA
+# bindings depend on, because
+# third_party/application-services/build-scripts/component-common.gradle declares
+# `consumerProguardFiles ".../proguard-rules-consumer-jna.pro"` and that file is
+# ABSENT from the tarball. That defect is NOTHING TO DO WITH THIS PATCH -- it is
+# in the app's own startup, before any GeckoRuntimeSettings is built, and it is
+# present with and without this hunk. `-PdisableOptimization` is upstream's own
+# switch for exactly this situation (it turns minify and shrinkResources off and
+# changes nothing about the build type or the channel). So: the channel gate is
+# verified on a real release-channel build, and the minified release build is
+# verified only to compile, not to run.
+#
+# DEVICE. Android emulator, x86_64, API 30, on its own AVD and console port.
+#
+# HOW A NON-DEBUGGABLE APK IS DRIVEN AT ALL. GeckoRuntime.java:509 reads
+# /data/local/tmp/<pkg>-geckoview-config.yaml when the app is FLAG_DEBUGGABLE
+# **or** when it is the package named in Settings.Global.DEBUG_APP
+# (isApplicationCurrentDebugApp, :603-609). `am set-debug-app --persistent` makes
+# a genuine release APK Marionette-drivable with its release configuration
+# otherwise untouched -- the package flags, the build type and Config.channel are
+# all unchanged, and run-as still refuses. scripts/android-smoke.sh now does this
+# itself when the installed package is not debuggable, and clears it afterwards.
+#
+# THE CONTROLLED A/B, one variable, both halves run against the same emulator
+# with a wiped profile, using the smoke harness's own `--check-aboutconfig`:
+#
+#   patched    exit 0
+#     "about:config reachable on a release-configured build: 30 pref rows,
+#      general.aboutConfig.enable=true on the default branch (no user value), an
+#      edit through the page's own toggle survived a restart. 67 prefs locked;
+#      interstitial present=False"
+#
+#   unpatched  exit 1
+#     "navigation to about:config did not complete (WebDriver:Navigate ->
+#      timeout: Navigation timed out after 45000 ms); general.aboutConfig.enable
+#      reads value=False default-branch=False"
+#
+# So the pref is the gate, this line is what writes it, and the check can go both
+# green and red on real builds. Artefacts: ~/lw-m4-09/pass3/ab/{patched,unpatched}/
+# {apk,build.log,smoke2.err,smoke2.json}.
+#
+# WHAT WAS OBSERVED IN DETAIL on the patched release build, profile wiped first:
+#
+#   1. REACHABILITY. location.href "about:config", document.readyState
+#      "complete", title "about:config", and the GeckoView page's own DOM:
+#      #filter-input, #prefs-container and #new-pref-item all present, 30
+#      .pref-item rows in #prefs-container (config.js:10 PREFS_BUFFER_MAX = 30,
+#      more on scroll). `general.aboutConfig.enable` reads type 128, value TRUE,
+#      prefIsLocked false, prefHasUserValue FALSE, and
+#      getDefaultBranch("").getBoolPref() TRUE -- the value is on the DEFAULT
+#      branch, whose only writer for this pref is the GeckoRuntimeSettings builder
+#      call this patch changes.
+#
+#   2. NO INTERSTITIAL -- see the section above.
+#
+#   3. LOCKED PREFS RENDER LOCKED, NOT BROKEN. toolkit.telemetry.enabled (locked
+#      by the packaged librewolf.cfg; prefIsLocked() true, value false) shows
+#      .pref-name[locked] with computed background-image
+#      url("chrome://geckoview/skin/images/lock.svg") -- the padlock really is
+#      drawn, and chrome/geckoview/skin/images/lock.svg and
+#      chrome/geckoview/skin/config.css are both in the packaged omni.ja. Its
+#      value input carries `disabled`, and a click on its `.pref-button.toggle`
+#      leaves the value at false. An unlocked control -- a pref created for the
+#      purpose -- was flipped false -> true by a click on that identical element
+#      in the same session. 67 prefs read prefIsLocked() == true and
+#      librewolf.cfg.version reads "8.6", which is also the first record of
+#      LibreWolf's autoconfig locks working on the RELEASE channel.
+#
+#      Read the computed style AFTER the attribute is applied. config.js sets
+#      `locked` in _setupValue, which runs INNERHTML_VALUE_DELAY (100 ms) after
+#      the row is inserted; sampling backgroundImage at insertion time returns
+#      "none" and looks like a missing padlock. That mistake was made and
+#      corrected here.
+#
+#   4. AN EDIT PERSISTS ACROSS RESTART. A pref created for the run
+#      (librewolf.smoke.aboutconfig.<epoch>, a name GeckoView cannot declare and
+#      therefore cannot clear via landmine L2b's GeckoView:ResetUserPrefs) was
+#      toggled false -> true through the page's own toggle button, flushed with
+#      savePrefFile, and read back TRUE with hasUserValue TRUE after
+#      `am force-stop` and a cold relaunch. This is now part of the automated
+#      check, not a one-off observation.
+#
+#   5. NOT A USABLE TEST, recorded so nobody files it as a regression:
+#      about:config is NOT reachable through an external intent.
+#      `am start -a android.intent.action.VIEW -d about:config` renders Fenix's
+#      own "Cannot Complete Request" page whether or not the pref is true. That is
+#      Fenix's external-URL handling and is independent of this patch. Do not use
+#      an intent as the reachability test; it fails either way, which makes it
+#      worthless as evidence in both directions.
+#
+#
+# THE SMOKE CHECK WAS THE BUG, AND IT IS FIXED (a file this task does not own)
+# ----------------------------------------------------------------------------
+# `./scripts/android-smoke.sh --check-aboutconfig` was RED against a build where
+# about:config demonstrably worked. The cause was in the harness, not here:
+# check_aboutconfig decided "recognised UI" with
+#     document.querySelector("#about-config-search, #warningTitle, .toggleButton")
+# which is DESKTOP's about:config markup. None of those three exists in
+# chrome://geckoview/content/config.xhtml, in the tree or in the built omni.ja,
+# and that querySelector returns null in the same session in which the page
+# reports readyState "complete" and 30 rendered rows. A gate that cannot go green
+# on a correct build is as broken as one that cannot go red on a bad one.
+#
+# Two things were changed there:
+#   (a) check_aboutconfig now asserts the GeckoView page's own landmarks
+#       (#filter-input, #prefs-container, #new-pref-item), a populated pref list
+#       (>= 20 of the 30 rows PREFS_BUFFER_MAX renders), general.aboutConfig.enable
+#       true ON THE DEFAULT BRANCH with no user value, an edit made by clicking the
+#       row's own .pref-button.toggle reaching the pref service, and that edit
+#       surviving am force-stop plus a cold relaunch. The interstitial is reported
+#       as evidence and never required, and one is clicked through if it appears.
+#   (b) App.push_debug_config() now runs `am set-debug-app --persistent` when the
+#       installed package is not debuggable, and clears it in remove_debug_config().
+#       Without it the harness cannot reach a release APK at all, which is why the
+#       docs used to claim the check had no runnable path.
+#
+# ONE MORE THING ABOUT THE DECLARED VERIFY: `./scripts/android-smoke.sh
+# --check-aboutconfig` with no --apk exits 3, not 0. The harness's default APK
+# search only looks in ~/lw-m2-04/out-make/apk, ~/lw-m2-04/out/apk and
+# $REPO/out/apk, all of which hold DEBUG builds, and the check refuses on a
+# debuggable build by design. The command that passes names the release APK:
+#   ./scripts/android-smoke.sh --check-aboutconfig --serial <dev> --apk <release.apk>
+#
+# scripts/android-smoke.sh and docs/android/SMOKE.md are owned by LW-M2-07, not
+# by this task. They were changed anyway, because the alternative was to leave a
+# gate lying; the board needs an owns/depends_on edge for it, and the verify line
+# needs the --apk argument. Both are reported rather than edited
+# (docs/android/tasks.yaml is not this task's to touch).
+#
+#
+# UNIT TESTS -- THE ABLATION THE PREVIOUS ROUND CLAIMED AND NEVER RAN
+# --------------------------------------------------------------------
+# `./mach gradle fenix:testDebugUnitTest --continue --rerun` was run twice on the
+# combined tree, once with this patch applied and once with the one line reverted,
+# 8 minutes apart, both to completion (BUILD FAILED is expected -- the suite has
+# a standing failure residue on this container, see below). They are two distinct
+# measurements: 597 JUnit XML files each, timestamps 14:2x for the first run and
+# 14:3x for the second, and the two sets are NOT byte-identical -- which is what
+# gave the previous round's claim away.
+#
+#   patched     5418 tests, 95 failures, 0 errors, 7 skipped
+#   unpatched   5418 tests, 92 failures, 0 errors, 7 skipped
+#   only in patched:   3, all in AutofillSettingsMiddlewareTest
+#   only in unpatched: 0
+#
+# THE DELTA IS NOISE, AND THAT IS MEASURED, NOT ASSERTED. All three are
+# `java.lang.NoClassDefFoundError: Could not initialize class
+# mozilla.appservices.autofill.UniffiLib` -- the libmegazord.so residue this
+# container has and LW-M2-09 owns. The same class fails in BOTH runs; only how
+# many of its 7 tests trip the class-initialisation cascade differs. To show that
+# is not the patch, that one class was then run three more times back to back on
+# one unchanged tree:
+#
+#   run 1  7 tests, 2 failures
+#   run 2  7 tests, 1 failure
+#   run 3  7 tests, 4 failures
+#
+# Same source, same objdir, same container image, three different answers. A
+# delta of 3 inside that class therefore says nothing about any patch. Outside it
+# the failing sets are identical.
+#
+# The static position is unchanged and worth keeping: the change replaces a
+# Boolean expression with
+# the Boolean literal `true` in one argument of one builder call (same type, same
+# arity), and NO unit test source under mobile/android references the call site --
+# `grep -rn 'GeckoProvider\|aboutConfigEnabled'` over fenix/app/src/test/ and
+# focus-android/app/src/test/ is EMPTY. The only `aboutConfigEnabled` references
+# in any test are geckoview/src/androidTest/*, which are INSTRUMENTED tests of
+# GeckoRuntimeSettings itself, not run by `fenix:testDebugUnitTest`, and this
+# patch does not touch GeckoRuntimeSettings.java.
+#
+#
+# NOT VERIFIED
+# -------------
+#   * The MINIFIED release build running. It compiles; it crashes at startup for
+#     the unrelated JNA/R8 reason above. Re-verify this patch on a minified build
+#     once that is fixed.
+#   * Any physical device; the arm64 and armv7 APKs. x86_64 emulator only.
+#   * A release APK signed with a real LibreWolf key (LW-M6-01 owns the key).
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+@@ -120,7 +120,17 @@
+             )
+             .consoleOutput(context.components.settings.enableGeckoLogs)
+             .debugLogging(Config.channel.isDebug || context.components.settings.enableGeckoLogs)
+-            .aboutConfigEnabled(Config.channel.isBeta || Config.channel.isNightlyOrDebug)
++            // LibreWolf (LW-M4-09): about:config is enabled on every channel,
++            // including release. Upstream gates it on beta/nightly/debug, which
++            // leaves the shipping build with no way to inspect or change a pref;
++            // LibreWolf's whole configuration story is prefs, so that gate has to
++            // go. Hard-coded `true` rather than a Settings or Nimbus lookup for the
++            // same reason LW-M5-02 hard-codes its two: the value must not be
++            // lowerable by an experiment, a Fenix settings write or an upstream
++            // default flip. Nothing about the page's own safety copy changes -- see
++            // the patch header, which records that Android's about:config is
++            // GeckoView's config.xhtml and has never had desktop's interstitial.
++            .aboutConfigEnabled(true)
+             .extensionsProcessEnabled(true)
+             .extensionsWebAPIEnabled(true)
+             .translationsOfferPopup(context.components.settings.offerTranslation)
