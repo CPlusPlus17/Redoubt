@@ -89,7 +89,7 @@ different questions need answering and one A/B cannot answer both:
 | **A** | `settings/librewolf.cfg` = `common + desktop` — **what `make` puts on a device today** | what LW-M3-10 will change |
 | **B** | `cat settings/common.cfg settings/android.cfg` — **the fix, composed by hand** | the target state |
 | **C** | B, minus the four promotion lines | **isolates this task's four promotions** |
-| **D** | B, minus only `lockPref("browser.contentblocking.category", …)` | isolates the one side effect C→B turned up |
+| **D** | B, minus only `lockPref("browser.contentblocking.category", …)` | was run to isolate the `url_decorations` side effect — now shown to be noise, see "Adjacent findings" |
 
 C is the arm the first pass did not have. A→B changes the whole
 `desktop.cfg` → `android.cfg` fragment, so it cannot attribute anything to
@@ -207,16 +207,20 @@ Runs, in the order they happened:
 
 The same APK was run three times (B, B2, B3) and another twice (C, C2). Across
 `prefs-all.json` — all ~4150 prefs in the running profile, not the curated 56 —
-repeated runs of one APK differ in exactly **three** names, all of them
+repeated runs of one APK differ in exactly **four** names, all of them
 per-profile identifiers or clocks:
 
 ```
 extensions.webextensions.uuids     nimbus.profileId     toolkit.startup.last_success
+captchadetection.lastSubmission
 ```
 
-The curated `prefs.txt` was **byte-identical** across B/B2/B3 and across C/C2.
-So any name outside those three that moves between arms is a real difference,
-and that is what the next section reports.
+The fourth, `captchadetection.lastSubmission`, moves `1787148` → `1787149`
+between B2 and B3 (and appears in the D→B delta); the other three are stable
+within an arm. The curated `prefs.txt` was **byte-identical** across B/B2/B3 and
+across C/C2, because none of the four noise names is in the curated 56. So any
+name outside those four that moves between arms is a real difference, and that is
+what the next section reports.
 
 ### What is kept, and what was thrown away
 
@@ -241,8 +245,10 @@ rebuilds them from the APKs in seconds.
 ### Result 1 — this task's four promotions, isolated (C → B)
 
 C and B are four lines apart. Their APKs differ in one zip entry. Across all
-~4150 prefs in the profile, their dumps differ in **five** names plus the
-three-name noise floor, and in nothing else. Four of the five are this task's:
+~4150 prefs in the profile, their dumps differ in the **four promotions** below,
+plus `url_decorations` (which is **not** one of the 24 and — per the corrected
+"Adjacent findings" — **not** a consequence of this task's lock), plus the noise
+floor, and in nothing else:
 
 | pref | C (fix reverted) | B (fix in) |
 |---|---|---|
@@ -252,10 +258,12 @@ three-name noise floor, and in nothing else. Four of the five are this task's:
 | `devtools.debugger.remote-enabled` | `false`, unlocked | `false`, **`locked`** |
 
 Reproduced on both C runs and all three B runs; full listing in
-`prefs-all-diff-CB.txt`. The fifth name is
-`privacy.restrict3rdpartystorage.url_decorations`, which is **not** one of the 24
-and is what arm D exists to isolate — see "Adjacent findings", and do not read
-this paragraph as if the C→B delta were only four names.
+`prefs-all-diff-CB.txt`. The `url_decorations` name is **not** one of the 24 and
+is **not** a consequence of this task's category lock — the `A-nokey` arm (arm-A
+content, `category` reading `standard`) dumped it **empty**, the arm-B outcome, so
+it does not track the lock and arm D does not isolate it. It is written up under
+"Adjacent findings" as unexplained noise; do not read this paragraph as if the
+C→B delta were only the four promotions.
 
 This is what the acceptance line *"the measured casualties are fixed, verified on
 a running build not by reading"* asks for. Note the fourth row is why the count
@@ -295,7 +303,7 @@ names change value; every one is attributed:
 | `devtools.console.stdout.chrome` | this task (`android.cfg` `defaultPref`) |
 | `browser.safebrowsing.provider.google4.dataSharingURL` | this task (`android.cfg` `defaultPref`) |
 | `media.eme.enabled` | LW-M3-06's `android.cfg` line — the positive control |
-| `privacy.restrict3rdpartystorage.url_decorations` | downstream of the category lock; isolated by arm D, see "Adjacent findings" |
+| `privacy.restrict3rdpartystorage.url_decorations` | **not** a consequence of this task's lock — `A-nokey` (arm-A content, `category=standard`) dumped it empty; unexplained noise, see "Adjacent findings" |
 | `privacy.sanitize.sanitizeOnShutdown` `true`→`false` | `desktop.cfg:66` has no `android.cfg` counterpart |
 | `privacy.window.maxInnerWidth` `1600`→`1400` | `desktop.cfg:144` (letterboxing pair with `:146`) has none either |
 | `extensions.webcompat-reporter.enabled` `false`→`true` | `desktop.cfg:284` `lockPref` has none either |
@@ -440,9 +448,10 @@ safe to do: `commit()` on a locked pref cannot crash the settings screen.
   `privacy.trackingprotection.allow_list.hasMigratedCategoryPrefs`, which
   `common.cfg:120` already ships as `lockPref(true)`. Measured: all three of
   those prefs read `true` on **every arm and every run**, `standard` and
-  `strict` alike. Do not read the fix as having moved them. (What the category
-  lock *did* move is `privacy.restrict3rdpartystorage.url_decorations` — see
-  "Adjacent findings".)
+  `strict` alike. Do not read the fix as having moved them. (The one name that
+  *did* move between the C and B arms,
+  `privacy.restrict3rdpartystorage.url_decorations`, is **not** a consequence of
+  the lock — the `A-nokey` arm breaks that correlation; see "Adjacent findings".)
 - **Cost:** Fenix's *Settings → Enhanced Tracking Protection* category selector
   becomes inert — it still moves, the behaviour does not follow. Desktop
   LibreWolf does the same thing by hiding that UI and rewriting the pref at every
@@ -800,14 +809,15 @@ branch of `cmd_check_policies` (`board.py:745-758`), skip the pref when
 
 ---
 
-## Adjacent findings — two that are not this task's, one that is
+## Adjacent findings — two that are not this task's, one that is unexplained
 
 All three are outside the 24, and none of them changes a disposition above. The
 first two are landmine **L2** — an unlocked `defaultPref` losing to a GeckoView
 runtime writer, not L2b — and neither moves between any two arms, so this task
-neither caused nor fixed them. The **third is a consequence of this task's
-category lock**, isolated to it by arm D, and it is written up here rather than
-buried in a log precisely because it is ours. Every value below was
+neither caused nor fixed them. The **third is not a consequence of this task's
+category lock** — the `A-nokey` arm breaks the correlation the first write-up
+claimed — but it is written up here rather than buried in a log precisely so the
+unexplained name is on the record. Every value below was
 **re-measured on this attempt's arms**, across all seven device runs, and none
 is carried over from the first attempt.
 
@@ -845,23 +855,27 @@ because the policy does not pass `Locked`") now has to be weighed against the
 pref simply not taking effect at all. **This is LW-M3-06's line and LW-M3-04's
 list; LW-M3-09 deliberately did not change it.**
 
-### `privacy.restrict3rdpartystorage.url_decorations` — a side effect of the category lock, isolated but not explained
+### `privacy.restrict3rdpartystorage.url_decorations` — not a consequence of the category lock, and not explained
 
-This one **is** downstream of this task's change, which is why it is recorded
-here rather than left in a log. The C→B contrast moved a fifth name:
+This one moved between the C and B arms, and the first write-up claimed it was
+downstream of the category lock. That claim is **not supported**. The full arm
+table, including the `A-nokey` arm that breaks the correlation:
 
 | arm | four promotions | `browser.contentblocking.category` | `url_decorations` |
 |---|---|---|---|
 | A | — (desktop cfg) | `standard` | `fbclid` |
+| **A-nokey** | — (arm-A content) | `standard` | **`""`** |
 | C | none | `standard` | `fbclid` |
 | C2 | none | `standard` | `fbclid` |
 | D | three — **all but** the category lock | `standard` | `fbclid` |
 | B, B2, B3 | all four | `strict` | **`""`** |
 
-Arm D exists only to answer this: with the other three promotions in and the
-category lock out, the value is `fbclid`. So it tracks
-`lockPref("browser.contentblocking.category", "strict")` and nothing else in
-this change.
+`A-nokey` is arm-A content — its packaged `librewolf.cfg` is byte-identical to
+A's, `ok:true`/`tainted:false` — yet it dumped `url_decorations` **empty** with
+`category` reading `standard`: the arm-B outcome on arm-A input. So
+`url_decorations` does **not** track
+`lockPref("browser.contentblocking.category", "strict")`, and arm D does not
+isolate it. It is unexplained, and it is not this task's.
 
 What is known about the mechanism, and it is not enough to call it explained:
 
@@ -877,19 +891,17 @@ What is known about the mechanism, and it is not enough to call it explained:
   `main/password-recipes` and `security-state/onecrl`. So `fbclid` cannot have
   come from the build; it can only have come **off the network**, from the live
   Remote Settings service that LW-M4-08 has not yet blocked.
-- Therefore `""` is the *default* still standing at dump time, i.e. the arm-B
-  runs reached the pref dump before that fetch had landed — a race whose outcome
-  nevertheless correlated perfectly with the arm across seven runs, in an
-  interleaved order (A, B, C, B2, C2, D, B3), so it is not drift over time.
+- The value therefore looks like a timing race on that async fetch — but it is
+  **not** a clean arm correlation: `A-nokey` shows the arm-B outcome on arm-A
+  input, so it does not track the category lock, and the first write-up's
+  "correlated perfectly across seven runs" reading is wrong.
 
-Why it is not filed as a regression: LibreWolf desktop ships
-`browser.contentblocking.category = strict` too, so whatever ETP-strict does to
-the Remote Settings startup order it does on both platforms; the value is
-Mozilla's list, not ours; and it will stop being reachable at all once LW-M4-08
-lands. But **the mechanism was not established here**, and this file is not
-claiming it is harmless — it is claiming it is out of scope, reproducible, and
-now written down. If anyone wants it closed, the experiment is one more arm plus
-a capture window, not a rebuild.
+Why it is not filed as a regression: the value is Mozilla's Remote Settings list,
+not ours; and it will stop being reachable at all once LW-M4-08 lands. But
+**the mechanism was not established here**, and this file is not claiming it is
+harmless — it is claiming it is out of scope, reproducible, and now written down.
+If anyone wants it closed, the experiment is one more arm plus a capture window,
+not a rebuild.
 
 ---
 
