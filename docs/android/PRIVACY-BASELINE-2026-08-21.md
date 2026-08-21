@@ -80,7 +80,63 @@ Runtime pref state incl. the cfg canary (Marionette, release app via `set-debug-
 python3 /tmp/cfg_probe3.py   # reads librewolf.cfg.version + cfg-only prefs, type/locked
 ```
 
+## Refinement (later in the same run): the build ships a partial patch set
+
+A follow-up pass established that lw-m3-08 is **not** built from the current
+`assets/patches/android.txt`. It is self-consistent (the source tree and the APK
+agree on every marker) but it applied a *partial* M4 set. So the "PRESENT" readings
+above measure that build, not the current patch list:
+
+| marker in the shipping APK dex | count | means |
+|---|---|---|
+| `GleanHelper` (Fenix Glean integration, no-glean's target) | **0** | no-glean **applied** |
+| `com/adjust/sdk` (no-adjust's target) | 201 | no-adjust **not applied** |
+| `com/android/installreferrer` (no-adjust's target) | 18 | no-adjust **not applied** |
+| `com/google/android/gms` (no-gms's target) | 904 (1659 across all descriptor forms) | no-gms **not applied** |
+| `com/google/android/gms/internal/fido` | 477 | the dominant GMS source is **FIDO/WebAuthn** |
+| `com/google/firebase` | 182 | Firebase present |
+| `com/google/android/play` | 84 | Play Integrity / Review present |
+
+Consequences that change how the table above should be read:
+
+1. **Glean:** "PRESENT" is the Glean *SDK* (`GleanMetrics`, glean-core), which
+   `no-glean.patch` deliberately leaves in the dex — it removes the Fenix
+   integration, not the SDK. `GleanHelper = 0` confirms **no-glean is effective**.
+   This is not a no-glean failure.
+2. **GMS / Adjust:** present because **no-gms / no-adjust were not in this build's
+   patch set**, not because those patches are broken. This build therefore **cannot
+   validate LW-M4-05 or LW-M4-02**, and it is a *different* build state than the "2
+   residual GMS strings" that LW-M4-16 works from (here it is 904+/1659,
+   FIDO-dominant, with `internal/fido` alone at 477).
+3. **The cfg still does not load.** `librewolf.cfg.version` ("8.6") is a real
+   `lockPref` in `settings/common.cfg:68` (and `settings/librewolf.cfg:68`), and it
+   is absent at runtime. That finding stands on its own, independent of the
+   partial-patch-set issue.
+
+Reproduce the partial-set table (static, no device):
+```sh
+python3 - <<'PY'
+import sys; sys.path.insert(0, "/home/mgysin/.cache/librewolf-android-smoke/harness")
+import driver
+apk = "/home/mgysin/lw-m3-08/out/apk/fenix-x86_64-release.apk"
+s = list(driver.apk_dex_strings(apk))
+for n in ["GleanHelper", "com/adjust/sdk", "com/android/installreferrer",
+          "com/google/android/gms", "internal/fido", "com/google/firebase",
+          "com/google/android/play"]:
+    print(n, sum(1 for x in s if n in x))
+PY
+```
+
+Net: the only booting build is (a) a partial patch set and (b) missing the cfg.
+Establishing the true baseline and validating the GMS/Adjust removal tasks both
+require a **fresh release build from current HEAD** (full `assets/patches/android.txt`
+plus a working cfg). That build was not run in this pass.
+
 ## Bottom line for the rest of the run
 
 Step 2 (LW-M4-05, strip GMS) and Step 3 (LW-M4-16, allowlist) must be done at the
-**code/packaging** level — the cfg will not close these gaps because it is not loading.
+**code/packaging** level, and the cfg will not close these gaps because it is not
+loading. Both the GMS/Adjust readings and the cfg result were measured on a
+partial-patch-set build, so **a fresh release build from current HEAD is the
+prerequisite for validating any of them** — that build is the single highest-value
+next step and is the one thing this pass did not produce.
