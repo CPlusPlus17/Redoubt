@@ -105,12 +105,53 @@ The sharpest instance so far, and it is worth understanding in full:
 > `--check-no-gms` exits 0 on it. It does exit 0 — **because R8 deleted the
 > classes.** The gate was green on that artefact for precisely the reason the
 > artefact cannot ship: it crashes on launch. See LW-M6-07.
+>
+> **The suspicion was confirmed, not refuted, once the release build boots.**
+> Re-deriving the same gate against the booting release build (2026-08-21,
+> LW-M6-07) fails with 1659 distinct GMS strings in the dex string table — the
+> deletion *was* the evidence. Removal is owned by LW-M4-05.
 
 ---
 
 ## 5. Open blockers, ranked
 
-### LW-M6-07 — the R8 release build does not boot. **Release blocker.**
+### LW-M6-07 — the R8 release build does not boot. ~~**Release blocker.**~~ **Resolved 2026-08-21.**
+
+> **RESOLVED (2026-08-21, LW-M6-07).** `patches/android/r8-keep-rules.patch`
+> (commit `8fa1e02`) restores
+> `third_party/application-services/proguard-rules-consumer-jna.pro` — the file
+> `component-common.gradle` already declares and that the ESR tarball lacks —
+> and the R8-minified release build now boots and browses. All four acceptance
+> criteria hold with evidence:
+>
+> - **Boots + loads pages, observed on device:** fresh release profile on
+>   emulator-5556 (x86_64, API 30); onboarding completed; Marionette page loads
+>   on both http and https with marker `lw-smoke-page-ok`.
+> - **Smoke harness against the release APK:** `./scripts/android-smoke.sh --serial
+>   emulator-5556 --apk .../out/apk/fenix-x86_64-release.apk --keep-state` →
+>   **7 check(s) run, 0 failed** (page-load http/https, webgl, video,
+>   getusermedia, extension, pref-dump) on `Firefox 153.0esr-1
+>   buildID=20260816204534`.
+> - **`scripts/android-apk.sh --variant release`, no `-PdisableOptimization`:**
+>   GREEN — gecko 488s, apk 169s, total 666s; all four split APKs carry their
+>   ABI's `libxul.so` (per-ABI sha256-identical to the per-ABI builds),
+>   signatures verify, `applicationId` is `org.mozilla.firefox`.
+> - **`--check-no-gms` re-derived on the booting release build: FAIL.** 1659
+>   distinct GMS strings in the dex string table, 0 apk entries — on both the
+>   manual and the script-produced release APK. The prior "provably zero-GMS"
+>   (LW-M4-16) was, as the suspicion above went, an artefact of R8 deletion:
+>   the classes R8 deleted were the gate's only evidence. Removal/hardening is
+>   owned by **LW-M4-05**.
+>
+> **Also found and fixed while doing this:** the
+> `MOZ_ANDROID_FAT_AAR_ARCHITECTURES` check in `android-apk.sh` grepped the key's
+> *presence*; a host-only `./mach configure` records the key with an **empty
+> list**, and `geckoview/build.gradle:130-136` then packages only the host ABI.
+> Measured 2026-08-21: arm split APKs (43M) with zero gecko native libraries,
+> caught by the per-APK verification. The check now reads the value and dies
+> with a say-why if it is empty or lacks a requested ABI.
+
+The original failure, kept for the record:
 
 ```
 FATAL EXCEPTION: main
@@ -144,6 +185,12 @@ Consequence beyond the crash: **every measurement on this project describes a bu
 we would not ship.** The parity statement, the zero-GMS claim and the first-run
 traffic capture all need re-deriving against a booting release build. Treat "the
 release variant boots and passes the smoke harness" as the gate before M6 starts.
+
+> **Status of that gate (2026-08-21):** the release variant now boots and passes
+> the smoke harness — the gate is cleared. Of the three re-derivations, the
+> zero-GMS claim is done and it **fails** (1659 distinct GMS strings; see the
+> RESOLVED record above and LW-M4-05). The parity statement and the first-run
+> traffic capture are still open.
 
 ### LW-M4-16 — the proposed GMS allowlist is broken, twice over
 
@@ -346,9 +393,11 @@ specifically check for a live WebGL context. Assume anything unmeasured is broke
 ## 10. Suggested next steps
 
 1. Read the three unread batch-9 verdicts (LW-M3-03, LW-M3-09, LW-M4-12).
-2. LW-M6-07 — teach `scripts/android-apk.sh` to build a release variant, add the
-   JNA/uniffi keep rules, boot it, run the smoke harness against it.
-3. Re-derive the M4 measurements against that booting release build.
+2. ~~LW-M6-07~~ **Done 2026-08-21** (`8fa1e02` + the release path in
+   `android-apk.sh`; see §5 for the record and the honest no-GMS result).
+3. Re-derive the M4 measurements against the booting release build.
+   (no-GMS is done: **FAIL**, 1659 strings, owned by LW-M4-05. The parity
+   statement and the first-run traffic capture remain.)
 4. Harden LW-M4-16's allowlist, or reject it.
 5. LW-M3-10 — wire the cfg fragments into `librewolf-patches.py` so Android stops
    shipping the desktop pref composition.

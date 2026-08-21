@@ -924,10 +924,40 @@ done
 
 # And configure knew about it, which is the half that decides what Gradle
 # packages.  Reading config.status is reading what the build actually used.
-grep -q "MOZ_ANDROID_FAT_AAR_ARCHITECTURES" "$objdir/config.status" ||
-    die "'$objdir/config.status' has no MOZ_ANDROID_FAT_AAR_ARCHITECTURES: this objdir was
-       configured without the fat inputs, so mobile/android/geckoview/build.gradle:130-136
-       would package a single ABI"
+#
+# Presence of the key is NOT the check.  geckoview/build.gradle:130-136 branches
+# on the list's truthiness, and a ./mach configure run without the fat-AAR
+# environment (a host-only configure) records the key with an EMPTY list -- the
+# exact state that packages dist/geckoview/lib, i.e. the host ABI alone.  A
+# `grep -q` on the key name passes on that state, so it must read the value.
+# Measured 2026-08-21: an objdir left in that state by an earlier host-only
+# configure produced fenix-armeabi-v7a-release.apk (43M) with zero gecko
+# native libraries while fenix-x86_64-release.apk (123M) carried libxul; the
+# per-APK verification below caught it, which is exactly where this check
+# should have.  The empty-list state is the one --skip-gecko can be handed, so
+# it has to die here with a say-why, not build a broken arm split.
+fat_archs=$(python3 - "$objdir/config.status" <<'PY'
+import ast, re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"['\"]MOZ_ANDROID_FAT_AAR_ARCHITECTURES['\"]\s*:\s*(\[[^\]]*\])", src)
+print(" ".join(ast.literal_eval(m.group(1)) if m else []))
+PY
+)
+[ -n "$fat_archs" ] ||
+    die "'$objdir/config.status' records MOZ_ANDROID_FAT_AAR_ARCHITECTURES as an empty
+       list: this objdir was configured without the fat inputs (a host-only ./mach
+       configure), so mobile/android/geckoview/build.gradle:130-136 would package
+       dist/geckoview/lib -- the host ABI only -- and the other split APKs would
+       ship with no gecko native libraries. Re-run without --skip-gecko so the
+       gecko pass reconfigures with $ABIS."
+for abi in $abi_list; do
+    case " $fat_archs " in
+    *" $abi "*) ;;
+    *) die "'$objdir/config.status' records MOZ_ANDROID_FAT_AAR_ARCHITECTURES =
+       [$fat_archs], which lacks $abi. Re-run without --skip-gecko so the gecko pass
+       reconfigures with $ABIS." ;;
+    esac
+done
 grep -q "'MOZ_ANDROID_SUBPROJECT': 'fenix'" "$objdir/config.status" ||
     die "'$objdir/config.status' does not record MOZ_ANDROID_SUBPROJECT == fenix"
 
