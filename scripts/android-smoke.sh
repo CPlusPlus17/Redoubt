@@ -74,7 +74,7 @@ cat > "$DRIVER" <<'PYDRIVEREOF'
 # The Redoubt smoke harness.  Unpacked from
 # scripts/android-smoke.sh; do not edit this copy, edit the script.
 # ---------------------------------------------------------------------------
-import argparse, base64, json, os, re, shutil, signal, socket, ssl, struct
+import argparse, base64, glob, json, os, re, shutil, signal, socket, ssl, struct
 import subprocess, sys, tempfile, threading, time, zipfile
 import http.server
 
@@ -1313,6 +1313,124 @@ def check_no_adjust(apk, res):
     return ok
 
 # --------------------------------------------------------------------------
+# strings / branding  (LW-M4-12)
+#
+# The gate is deterministic and static: it reads the APK's resources.arsc with
+# aapt2, then runs the l10n-strings patch's OWN checker (lw_brand_strings.py
+# check-apk) over every string / plurals / string-array value.  A value FAILS
+# iff a brand stem (Latin or non-Latin) still fires outside an enumerated
+# url-keep host and outside the internal-key (value==name) exception.  That is
+# exactly the acceptance criterion: no user-visible Firefox/Mozilla in the
+# built APK, measured over resources -- not a scrape of two screens, which is
+# what the earlier stub feared.  ui_brand_scan.py remains an evidence-only
+# runtime walker; this aapt2 gate is the hard gate.
+#
+# The checker, the brand map and the l10n pin all live INSIDE
+# patches/android/l10n-strings.patch (the source of truth for the build), so we
+# extract them here at check time rather than trusting a copy that could drift.
+# --------------------------------------------------------------------------
+def find_aapt2(explicit, sdk):
+    cands = []
+    if explicit:
+        cands.append(explicit)
+    if os.environ.get("LW_SMOKE_AAPT2"):
+        cands.append(os.environ["LW_SMOKE_AAPT2"])
+    w = shutil.which("aapt2")
+    if w:
+        cands.append(w)
+    if sdk:
+        bt = os.path.join(sdk, "build-tools")
+        if os.path.isdir(bt):
+            def verkey(v):
+                return [int(x) for x in re.findall(r"\d+", v)] or [0]
+            for v in sorted((v for v in os.listdir(bt)
+                             if os.path.isfile(os.path.join(bt, v, "aapt2"))),
+                            key=verkey, reverse=True):
+                cands.append(os.path.join(bt, v, "aapt2"))
+    # AGP fetches aapt2 into the gradle transforms cache; search a bounded set
+    # of gradle-home roots (never a whole-build-tree find, which times out).
+    ghs = [os.path.join(os.environ.get("LW_SMOKE_REPO", "."), "out", "gradle-home", "caches"),
+           os.path.expanduser("~/.gradle/caches")]
+    if os.environ.get("LW_SMOKE_GRADLE_HOME"):
+        ghs.insert(0, os.path.join(os.environ["LW_SMOKE_GRADLE_HOME"], "caches"))
+    for gh in ghs:
+        if os.path.isdir(gh):
+            cands += glob.glob(os.path.join(gh, "*", "transforms", "*", "transformed",
+                                            "aapt2-*linux", "aapt2"))
+    for c in cands:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    raise HarnessError("no aapt2 found to read resources.arsc. Pass --aapt2 PATH, or set "
+                       "LW_SMOKE_AAPT2 / LW_SMOKE_GRADLE_HOME, or install an Android SDK "
+                       "with build-tools. (Needed only by --check-strings.)")
+
+def _extract_lw_brand(work):
+    """Pull lw_brand_strings.py, brand-map.txt and android-l10n-pin.txt out of
+    patches/android/l10n-strings.patch into the work dir, so the check runs the
+    patch's own code.  Returns (py, map, pin)."""
+    patch = os.path.join(os.environ.get("LW_SMOKE_REPO", "."),
+                         "patches", "android", "l10n-strings.patch")
+    if not os.path.isfile(patch):
+        raise HarnessError("cannot find %s (the --check-strings source of truth)" % patch)
+    outdir = os.path.join(work, "lw-brand")
+    os.makedirs(outdir, exist_ok=True)
+    wanted = {"lw_brand_strings.py", "brand-map.txt", "android-l10n-pin.txt"}
+    got = {}
+    cur = None
+    buf = []
+    def flush():
+        if cur in wanted and buf:
+            p = os.path.join(outdir, cur)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("\n".join(buf) + "\n")
+            got[cur] = p
+    with open(patch, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line.startswith("+++ b/"):
+                flush()
+                name = line[6:].strip().split("/")[-1]
+                cur = name if name in wanted else None
+                buf = []
+            elif line.startswith("--- "):
+                flush()
+                cur, buf = None, []
+            elif cur is not None and line.startswith("+"):
+                buf.append(line[1:])
+    flush()
+    for need in wanted:
+        if need not in got:
+            raise HarnessError("--check-strings: %s is missing from l10n-strings.patch" % need)
+    return got["lw_brand_strings.py"], got["brand-map.txt"], got["android-l10n-pin.txt"]
+
+def check_strings(apk, res, aapt2, work):
+    py, brand_map, pin = _extract_lw_brand(work)
+    dump = os.path.join(work, "aapt2-resources.txt")
+    p = subprocess.run([aapt2, "dump", "resources", apk],
+                       stdout=open(dump, "w", encoding="utf-8", errors="replace"),
+                       stderr=subprocess.PIPE, text=True, timeout=300)
+    if p.returncode != 0:
+        raise HarnessError("aapt2 dump resources failed (%d): %s" % (p.returncode, p.stderr[-400:]))
+    r = subprocess.run([sys.executable, py, "--map", brand_map, "--pin", pin,
+                        "check-apk", "--dump", dump],
+                       capture_output=True, text=True, timeout=600)
+    # The checker (like the rest of the patch) sends human output to stderr.
+    out = (r.stderr or r.stdout or "").strip().splitlines()
+    tail = out[-1] if out else ""
+    stats = next((ln for ln in out if "unexplained" in ln), "")
+    ok = r.returncode == 0
+    res.add("check-strings", ok,
+            ("aapt2 gate over the built APK's resources.arsc: no unexplained "
+             "Firefox/Mozilla brand value (outside the enumerated url-keep and "
+             "internal-key exceptions)" if ok else
+             "aapt2 gate found unexplained Firefox/Mozilla brand value(s) in the "
+             "built APK -- owned by LW-M4-12"),
+            {"aapt2": aapt2, "dump_rows": stats, "checker_tail": tail,
+             "checker_exit": r.returncode, "checker_output": out[:40],
+             "checker_stdout": (r.stdout or "").strip()[:800]})
+    return ok
+
+# --------------------------------------------------------------------------
 # about:config  (LW-M4-09)
 #
 # READ THIS BEFORE CHANGING A SELECTOR HERE.  Android's about:config is NOT
@@ -1698,11 +1816,6 @@ NOT_IMPLEMENTED = {
         "Enter. Driving it with 'input text' plus a capture window is possible; a version that "
         "only reads browser.search.suggest.enabled would pass on a build that still calls "
         "merino, which is the failure this gate exists to catch."),
-    "--check-strings": (
-        "LW-M4-12. Needs a traversal of the whole Fenix UI, not a scrape of two screens. A "
-        "uiautomator dump of the home screen and settings root would pass today on a build "
-        "whose deeper screens still say Firefox, and a green gate that shallow is worse than "
-        "no gate."),
     "--check-update-privacy": (
         "LW-M6-06. There is no update-check implementation to test yet; the check has to be "
         "written against the endpoint and the opt-in UI that task builds."),
@@ -1722,6 +1835,7 @@ def main(argv):
     ap.add_argument("--apk", help="APK to test")
     ap.add_argument("--work", help="work directory (default $HOME/.cache/librewolf-android-smoke)")
     ap.add_argument("--abi", default="x86_64", help="preferred APK ABI (default x86_64)")
+    ap.add_argument("--aapt2", help="aapt2 binary for --check-strings (default: auto-detect)")
     ap.add_argument("--keep-emulator", action="store_true", help="leave the emulator running")
     ap.add_argument("--keep-state", action="store_true",
                     help="do not wipe app data before the run")
@@ -1769,7 +1883,7 @@ def main(argv):
     log("apk=%s" % apk)
     log("package=%s" % pkg)
 
-    static_only = (args.check_no_gms or args.check_no_adjust) and not (
+    static_only = (args.check_no_gms or args.check_no_adjust or args.check_strings) and not (
         args.emulator or args.serial or args.pref_dump or args.network_capture
         or args.first_run_capture or args.check_ubo or args.check_search
         or args.check_aboutconfig or args.self_test)
@@ -1777,6 +1891,8 @@ def main(argv):
         check_no_gms(apk, res)
     if args.check_no_adjust:
         check_no_adjust(apk, res)
+    if args.check_strings:
+        check_strings(apk, res, find_aapt2(args.aapt2, sdk), work)
     if static_only:
         return finish(res, args, work)
 

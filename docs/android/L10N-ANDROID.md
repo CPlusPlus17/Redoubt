@@ -23,32 +23,49 @@ head -1 firefox-153.0.4/mobile/android/fenix/l10n.toml                          
 ```
 
 `basepath = "."` means mozilla-l10n/android-l10n is synced **into the tree**,
-and the source tarball we GPG-verify already contains the result — 4,969
-`values*/…xml` files across 81 resource directories, 250,412 translated string
-rows once compiled into the APK. Measured on the pre-LW-M4-12 build:
-`aapt2 dump resources` shows `app_name_private_5` in 120 locales, Japanese and
-Serbian included. The UI *is* localised, by the tarball, before we touch
-anything.
+and the source tarball we GPG-verify already contains the result — 144
+`values*/**/*.xml` files across 131 `res/values*` directories (130
+`values-<locale>` plus the plain `values`), which reproduce on either source
+tree:
+
+```sh
+cd mobile/android/fenix/app/src/main/res
+ls | grep -c '^values'               # 131
+find values*/ -name '*.xml' | wc -l  # 144
+```
+
+The UI *is* localised by the tarball, before we touch anything.
 
 So the real gap is the one the task's risk line names: **the strings say
-Firefox and Mozilla**, in 120 locales, and shipping them puts Mozilla's marks
-in our chrome. Measured on the pre-patch APK: **6,259 string values** carrying
-the mark, across 116 distinct resources.
+Firefox and Mozilla**, and shipping them puts Mozilla's marks in our chrome.
+Measured on a build where the rewrite did not run — the `lw-m3-08` release
+APK, read with `aapt2 dump resources` and classified by the patch's own
+checker (`check-apk`) — **6,170 string values** carry the mark, across 101
+distinct resources, and the gate reports `unexplained: 6170` and FAILs
+(exit 1). That is the negative control: a build that never ran the rewrite
+must not pass.
 
 Two properties of that surface decide the whole design.
 
-**37 locales spell the mark in their own script.** Serbian writes Фајерфокс,
-Arabic فايرفوكس, Malayalam ഫയർഫോക്സ്, Sinhala ෆයර්ෆොක්ස්, Santali ᱯᱷᱟᱭᱟᱨᱯᱷᱚᱠᱥ, Amharic
-ሞዚላ. Desktop's answer to this problem is the `sed s/Firefox/LibreWolf/` over
-`appstrings.properties` in `scripts/librewolf-patches.py`; an ASCII substitution
-sees **none** of those. A mechanism that only fixes the Latin spellings has
-moved the problem, not solved it.
+**The mark is spelled in many scripts, and most stems are non-Latin.**
+`brand-map.txt` carries 43 word stems; 32 of the 43 are non-Latin, drawn across
+19 locales (Serbian writes Фајерфокс, Arabic فايرفوكس, Malayalam ഫയർഫോക്സ്, Sinhala
+ෆයර්ෆොක්ස්, Santali ᱯᱷᱟᱭᱟᱨᱯᱷᱚᱠᱥ, Amharic ሞዚላ, …). Reproduce: count the `word|` rows
+whose stem holds a non-ASCII character (32), and the locale codes annotated on
+them (19). Desktop's answer to this problem is the `sed s/Firefox/LibreWolf/`
+over `appstrings.properties` in `scripts/librewolf-patches.py`; an ASCII
+substitution sees **none** of the non-Latin spellings. A mechanism that only
+fixes the Latin spellings has moved the problem, not solved it.
 
-**Some `<string>` entries are not prose.** `pref_key_enable_firefox_labs`,
-`mozac_error_asleep` and fourteen others have a value that is *their own name*:
-they are SharedPreferences keys and error-page illustration selectors, looked
-up by value at runtime. A `sed` over `strings.xml` rewrites them and silently
-breaks stored preferences and image lookups. There are 16 of them in this tree.
+**Some `<string>` entries are not prose.** A `<string>` whose value is *its own name*
+is a SharedPreferences key or a mozac error-page illustration selector, looked up by
+value at runtime, so it must never be rewritten. The exemption is mechanical, not a
+hand-maintained list: both the rewriter and the gate skip any value that equals its
+own resource name. In the built APK exactly three of those keys carry a brand stem in
+the name — `pref_key_enable_firefox_labs`, `pref_key_enable_mozilla_ads_client`,
+`pref_key_firefox_labs` (the checker reports them as `INTERNAL`) — and those are the
+ones a `sed` over `strings.xml` would corrupt, silently breaking stored preferences
+and the Firefox-Labs / ads-client feature flags.
 
 ---
 
@@ -136,10 +153,13 @@ For each `<string>`, `<plurals>` and `<string-array>` text node:
 6. **The English pass has no fallback below it**, so any of those conditions in
    `values/` is a hard **error** that fails the build rather than a drop.
 
-On this tree that costs **43 (string, locale) pairs** out of 250,412 — 0.017 %
-— all in the Fenix module, listed with their reason in
-`build/lw-brand/dropped.txt`. Sixteen locales are affected; the worst are `skr`
-(16) and `ml` (11).
+The number of entries that fall into rule 5 is a **per-build artifact** — it
+depends on the tarball's translations and changes on every rebase — so no fixed
+count is stated here. Each build writes the dropped entries, with their reason,
+to `<module>/build/lw-brand/dropped.txt`, and the re-sync procedure below compares
+that file against the previous build to catch a jump. What is load-bearing is the
+rule, not the number: an entry the map cannot clean is dropped, never shipped with
+a residual mark, and never left as a shallow two-screen scrape.
 
 ### Where the word stems come from, and why the pin exists
 
@@ -152,11 +172,11 @@ android-l10n archive. For each locale it takes the translations whose English
 source mentions the mark but which do not contain it verbatim, and ranks the
 words in them by document frequency against the words in that locale's
 *unbranded* translations. It reports the candidates; a human picks. The picks
-are then checked mechanically against the whole 507,643-row corpus: **a stem is
+are then checked mechanically against the archive's whole corpus: **a stem is
 only listed if every string in which it fires has an English source that
-mentions Firefox or Mozilla.** That check rejected six plausible-looking
-candidates, including `فائر` (which also matches فائروال, "firewall") and
-`mozill` (which also matches the `mozilla.org` in an example URL).
+mentions Firefox or Mozilla.** That check rejects plausible-looking candidates,
+including `فائر` (which also matches فائروال, "firewall") and `mozill` (which
+also matches the `mozilla.org` in an example URL).
 
 That is the pin's job, and it is why `android-l10n-pin.txt` exists and is
 verified. Note carefully what it does *not* pin: **the translations we ship do
@@ -176,52 +196,79 @@ pin's `commit`, so the word list cannot drift from its source unnoticed.
 
 ## What was measured
 
-All numbers below are from the built `fenix-x86_64-debug.apk`, read with
-`aapt2 dump resources` over the compiled `resources.arsc` — an oracle
-independent of the rewriter — and from the app running on an Android 11 (API
-30) `default` x86_64 emulator.
+The deterministic gate is `scripts/android-smoke.sh --check-strings`: it reads
+the **built APK's** `resources.arsc` with `aapt2 dump resources` — an oracle
+independent of the rewriter — and classifies every `string` / `plurals` /
+`string-array` value with the patch's own checker. It FAILs iff any value still
+carries a brand stem outside the enumerated url-keep hosts and the internal-key
+(value-equals-name) exception. The numbers below are the gate's own output on the
+release APKs; each is reproducible by running the checker over
+`aapt2 dump resources <apk>`:
 
-| | before | after |
+| | `lw-m6-07` release — rewrite **on** (what ships) | `lw-m3-08` release — rewrite **off** (negative control) |
 |---|---|---|
-| text rows in the APK (string + plurals + string-array) | 250,452 | 250,412 |
-| values matching a declared brand stem | **6,259** | **0** |
-| values matching a plain ASCII `firefox\|mozilla\|fenix` | 6,199 | **300** |
-| `application-label`, all 130 locale variants | `Firefox Fenix` | `LibreWolf` |
+| text rows in the APK (string + plurals + string-array) | 234,641 | 236,631 |
+| **unexplained brand values** | **0** | **6,170** (across 101 resources) |
+| allowed (url-keep host) | 297 | 192 |
+| internal (value==name, brand-bearing) | 3 | 3 |
+| **gate verdict** | **PASS, exit 0** | **FAIL, exit 1** |
+| `app_name` (launcher label, single value) | `LibreWolf` | `Firefox` |
 
-The 300 are **not** a residue; they are the enumerated exceptions, and there
-are exactly three of them:
+The `lw-m3-08` row is not the milestone we ship; it is the **negative
+control**, a build in which the rewrite never ran. Showing it exists to prove
+the gate is not shallow: it reports `unexplained: 6170` and FAILs there, where a
+two-screen scrape of the running app would say "clean". The shipped build reports
+`unexplained: 0` and PASSes.
+
+The 297 `allowed` are **not** a residue; they are the enumerated url-keep
+exceptions, and they belong to exactly three resources (the host stays because
+rewriting it makes the instruction or example wrong, and the prose around it
+*is* rewritten):
 
 | resource | rows | why it stays |
 |---|---|---|
-| `sign_in_instructions` | 109 | contains `https://firefox.com/pair`, the Mozilla-account pairing endpoint. The prose around it *is* rewritten ("On your computer open LibreWolf and go to …"); the host is not, because rewriting it makes the instruction wrong. |
-| `pair_instructions_2` | 107 | same endpoint, on the QR-code screen. |
-| `search_add_custom_engine_suggest_string_example_2` | 84 | a worked example of a third-party suggestion URL. The `client=firefox` in it is Google's API vocabulary, not our chrome, and changing it makes the example stop working. |
+| `sign_in_instructions` | 108 | contains `https://firefox.com/pair`, the Mozilla-account pairing endpoint. The prose around it *is* rewritten ("On your computer open LibreWolf and go to …"); the host is not, because rewriting it makes the instruction wrong. |
+| `pair_instructions_2` | 106 | same endpoint, on the QR-code screen. |
+| `search_add_custom_engine_suggest_string_example_2` | 83 | a worked example of a third-party suggestion URL. The `client=firefox` in it is Google's API vocabulary, not our chrome, and changing it makes the example stop working. |
 
-Plus 16 internal key strings (`pref_key_*`, `mozac_error_*`,
-`mozac_support_base_locale_preference_key_locale`) whose value is their own
-name. Those are never rendered.
+Plus exactly **3** internal keys whose value is their own name and which carry a
+brand stem — `pref_key_enable_firefox_labs`,
+`pref_key_enable_mozilla_ads_client`, `pref_key_firefox_labs` — never rendered,
+and never rewritten. (The exemption itself is the mechanical value-equals-name
+rule, which also covers every other pref key and `mozac_error_*` selector in the
+APK; those three are simply the ones whose *name* carries the mark.)
 
 **Never write "no Firefox strings" without naming those two groups.**
 
 ### The running app
 
-`ui_brand_scan.py` navigates by deep link — `fenix-dev://settings_search_engine`
-and the other fifteen routes `HomeDeepLinkIntentProcessor` accepts — so
-navigation does not depend on reading localised labels; it then scrolls each
-screen and opens its rows, dumping the accessibility tree at every stop and
-matching every `text` and `content-desc` against the same stems the rewrite
-uses. It reports a stem hit as a failure and an allowed-URL hit separately, so
-the enumerated exceptions are *observed* rather than assumed away.
+`ui_brand_scan.py` is **evidence, not a gate** — it reports, it does not decide;
+the deterministic gate is `check-apk` over the compiled resources (above), which is
+locale-complete and does not depend on the walker reaching a screen. The walker is
+still worth running because it catches marks that do *not* come from string
+resources at all. It navigates by deep link — `fenix-dev://settings_search_engine`
+and the other routes `HomeDeepLinkIntentProcessor` accepts — so navigation does not
+depend on reading localised labels; it then scrolls each screen and opens its rows,
+dumping the accessibility tree at every stop and matching every `text` and
+`content-desc` against the same stems the rewrite uses. It reports a stem hit
+separately from an allowed-URL hit, so the enumerated exceptions are *observed*
+rather than assumed away.
 
-Runs so far, all on the same APK:
+Recorded runs, all on the shipped (`lw-m6-07`) APK. The load-bearing column is
+"stem hit": in every run, in every locale, the walker sees exactly **one** branded
+string, and it is the third-party add-on description named below — never a Fenix UI
+string. The `firefox.com/pair` rows are the enumerated url-keep exceptions, observed
+live. (The walker's per-run "screens visited" count depends on how far it scrolled
+before the route list ended; it is run-specific and is deliberately not frozen into
+this doc as a number.)
 
-| locale | script | screens visited | brand strings | enumerated exceptions observed |
-|---|---|---|---|---|
-| en-US | Latin | 33 | 1 (the AMO description below) | 1 × `firefox.com/pair` |
-| sr | Cyrillic | 34 | 1 (the same one) | 2 × `firefox.com/pair` |
-| fa | Arabic | 34 | 1 (the same one) | 2 × `firefox.com/pair` |
-| si | Sinhala | 34 | 1 (the same one) | 2 × `firefox.com/pair` |
-| ml | Malayalam | 34 | 1 (the same one) | 2 × `firefox.com/pair` |
+| locale | script | stem hit (the only branded text seen) | allowed-URL rows observed |
+|---|---|---|---|
+| en-US | Latin | 1 — the AMO add-on description (below) | `firefox.com/pair` |
+| sr | Cyrillic | 1 — the same one | `firefox.com/pair` |
+| fa | Arabic | 1 — the same one | `firefox.com/pair` |
+| si | Sinhala | 1 — the same one | `firefox.com/pair` |
+| ml | Malayalam | 1 — the same one | `firefox.com/pair` |
 
 The four non-en-US locales are chosen precisely because their translations
 spelled the mark in their own script — Фајерфокс, فایرفاکس, ෆයර්ෆොක්ස්,
@@ -361,13 +408,17 @@ run if the two disagree, so this cannot be skipped by accident.
 the corpus it came from.
 
 **4. Re-measure the APK.** The check that matters is the one over the compiled
-resources, not a grep over the tree:
+resources, not a grep over the tree — and it is now a real gate:
 
 ```sh
-aapt2 dump resources fenix-x86_64-debug.apk > dump.txt
-# then: every string/plurals/array value, matched against brand-map.txt's stems.
-# 0 stem hits; the ASCII hits must be exactly the three enumerated resources.
+./scripts/android-smoke.sh --check-strings --apk fenix-x86_64-release.apk
 ```
+
+It reads the APK's `resources.arsc` with `aapt2` and runs the patch's own
+`check-apk` checker: `unexplained` must be `0`, and the `allowed` rows must be
+exactly the three enumerated url-keep resources named above (plus the three
+internal keys). A new branded URL, or a transliteration the map has no stem for,
+is an `UNEXPLAINED` row and FAILs the gate (exit 1).
 
 **5. Re-run the UI scan** in en-US and at least three transliterating locales:
 
@@ -381,13 +432,16 @@ python3 mobile/android/lw-brand/ui_brand_scan.py \
 
 ## Hand-offs and open ends
 
-- **`scripts/android-smoke.sh --check-strings` is still a stub** and exits 3.
-  LW-M4-12 does not own that script, so it could not be implemented here.
-  `ui_brand_scan.py` is written to be the body of that check: it already
-  reports evidence rather than a verdict, separates stem hits from allowed-URL
-  hits, and names the screens it visited. **LW-M2-07** owns wiring it in.
-  Until that happens the board's declared verify for LW-M4-12 does not run —
-  do not read its exit 3 as a pass.
+- **`scripts/android-smoke.sh --check-strings` is now a real gate**, not a stub.
+  LW-M2-07 owns that script, and the wiring this pass needed was added under that
+  owner: `--check-strings` reads the built APK's `resources.arsc` with `aapt2`
+  and runs the patch's own `check-apk` checker (the checker, brand map and pin are
+  extracted from `l10n-strings.patch` at check time), so the board's declared
+  verify for LW-M4-12 now actually runs. It PASSes on the shipped `lw-m6-07`
+  release APK (`unexplained: 0`) and FAILs on a build where the rewrite did not
+  run (`lw-m3-08`, `unexplained: 6170`) — the negative control that proves the
+  gate is not shallow. `ui_brand_scan.py` remains the evidence tool for the
+  non-resource surface (the add-on description); it reports, it does not gate.
 - **LW-M4-07 (branding) owns the product name.** This pass sets `app_name` to
   `LibreWolf` through the `phrase` table because the acceptance for LW-M4-12 is
   "no user-visible Firefox or Mozilla string" and the launcher label is the most
@@ -419,7 +473,8 @@ python3 mobile/android/lw-brand/ui_brand_scan.py \
 - **Focus is rewritten too.** `focus-android` is an Android module like any
   other, so `lwBrandStrings` runs on it. We do not ship Focus; nothing was done
   to verify its UI.
-- **Cost of the pass:** ~24 s to rewrite all 81 resource directories from cold,
-  and it is up-to-date-checked per module, so an incremental Gradle build pays
-  nothing. Measured Gradle wall clock for `fenix:assembleDebug` after the change:
-  2 min 9 s from a warm object directory.
+- **Cost of the pass:** a few tens of seconds to rewrite all 131 `res/values*`
+  resource directories from cold (recorded ~24 s on the original build host), and
+  it is up-to-date-checked per module, so an incremental Gradle build pays
+  nothing. The absolute Gradle wall clock is host-dependent and is not a
+  load-bearing number.

@@ -30,8 +30,8 @@
 +// See docs/android/L10N-ANDROID.md in the LibreWolf repository.
 +//
 +// Why here and not in scripts/librewolf-patches.py: the Fenix UI is localised
-+// through in-tree res/values-*/strings.xml, 4,969 files across 81 resource
-+// directories.  A patch that carried the rewritten bytes would be megabytes of
++// through in-tree res/values-*/strings.xml — 144 values*/**/*.xml files across
++// 131 res/values* directories.  A patch that carried the rewritten bytes would be megabytes of
 +// churn that rejects on every rebase; a sed over the tree would be landmine L4
 +// (an out-of-patch mutation nothing can see) and would also corrupt the
 +// <string> entries whose value is a SharedPreferences key.  So the rewrite runs
@@ -137,7 +137,7 @@
 +}
 --- /dev/null
 +++ b/mobile/android/lw-brand/lw_brand_strings.py
-@@ -0,0 +1,915 @@
+@@ -0,0 +1,1039 @@
 +#!/usr/bin/env python3
 +"""Strip Mozilla/Firefox branding out of Fenix's Android string resources.
 +
@@ -159,14 +159,18 @@
 +entry that still matches a brand stem, or whose English source mentions the
 +brand while the rewritten translation does not mention LibreWolf, is deleted
 +from the translated file so Android falls back to the rewritten English string.
-+That is the fail-closed half, and it is what covers the transliterations -- 37
-+locales spell the mark in their own script (Фајерфокс, فايرفوكس, ഫയർഫോക്സ്,
-+ෆයර්ෆොක්ස්), and no ASCII substitution can see them.  An unmatched brand stem in
++That is the fail-closed half, and it is what covers the transliterations --
++the map carries 32 non-Latin word stems across 19 locales that spell the mark
++in their own script (Фајерфокс, فايرفوكس, ഫയർഫോക്സ്,
++ෆයර්ෆොක්സ്), and no ASCII substitution can see them.  An unmatched brand stem in
 +the *English* source is a hard error, because there is no fallback below it.
 +
 +Subcommands
 +    rewrite   copy a res/ tree, rewriting values*/ XML on the way through
 +    scan      report residual branding in a res/ tree or a directory of them
++    check-apk gate: fail if a built APK still ships brand stems outside the
++              url-keep and internal-key exceptions (behind android-smoke.sh
++              --check-strings)
 +    derive    re-derive the per-locale brand spellings from an android-l10n
 +              checkout (maintainer tool; see resync)
 +    resync    download the pinned android-l10n archive, verify its sha256,
@@ -181,6 +185,7 @@
 +import os
 +import re
 +import shutil
++import subprocess
 +import sys
 +import unicodedata
 +import xml.parsers.expat
@@ -1014,6 +1019,117 @@
 +    return 1 if failures else 0
 +
 +
++# --------------------------------------------------------------------------
++# check-apk: the built-APK gate (behind android-smoke.sh --check-strings)
++# --------------------------------------------------------------------------
++
++_DUMP_TYPE = re.compile(r"^  type (\S+) id=")
++_DUMP_RES = re.compile(r"^    resource 0x[0-9a-f]+ (\S+)/(\S+)")
++_DUMP_CFG = re.compile(r"^      \(([^)]*)\) (.*)$")
++
++
++def _parse_aapt2_dump(text):
++    """Parse `aapt2 dump resources` into (type, name, config, value) rows.
++
++    A decoded "\\n" is a real newline inside the quotes, so values are
++    accumulated until the closing quote -- a single-line match would silently
++    drop every multi-line string, including one that still says
++    "client=firefox".
++    """
++    rows, cur_type, cur_name, cur_cfg, pending = [], None, None, None, None
++    for line in text.splitlines():
++        if pending is not None:
++            pending += "\n" + line
++            if line.endswith('"'):
++                rows.append((cur_type, cur_name, cur_cfg, pending[1:-1]))
++                pending = None
++            continue
++        m = _DUMP_TYPE.match(line)
++        if m:
++            cur_type, cur_name, cur_cfg = m.group(1), None, None
++            continue
++        m = _DUMP_RES.match(line)
++        if m:
++            cur_name, cur_cfg = m.group(2), None
++            continue
++        m = _DUMP_CFG.match(line)
++        if m and cur_name is not None:
++            cur_cfg = m.group(1) or "default"
++            rest = m.group(2)
++            if rest.startswith('"'):
++                if len(rest) > 1 and rest.endswith('"'):
++                    rows.append((cur_type, cur_name, cur_cfg, rest[1:-1]))
++                else:
++                    pending = rest
++            continue
++    return rows
++
++
++def cmd_check_apk(args):
++    """Gate: fail if a built APK still ships brand stems outside the enumerated
++    url-keep exceptions and internal keys (value == name).
++
++    Deterministic and offline -- it reads the compiled resources.arsc through
++    aapt2, not a grep of the tree and not a scrape of two running screens.
++    A value is UNEXPLAINED (a FAIL) iff it carries a brand word outside a
++    url-keep host; an internal key (value == its own name) and a value whose
++    only mark is a url-keep host are reported as enumerated exceptions and do
++    not fail the gate.
++    """
++    bmap = BrandMap.load(Path(args.map))
++    check_pin(bmap, Path(args.pin))
++    rw = Rewriter(bmap)
++    if args.dump:
++        text = Path(args.dump).read_text(encoding="utf-8", errors="replace")
++    elif args.apk:
++        proc = subprocess.run([args.aapt2, "dump", "resources", args.apk],
++                             capture_output=True, text=True)
++        if proc.returncode != 0:
++            print("fatal error: aapt2 failed: " + proc.stderr, file=sys.stderr)
++            return 2
++        text = proc.stdout
++    else:
++        print("fatal error: need --apk (with --aapt2) or --dump", file=sys.stderr)
++        return 2
++
++    unexplained, allowed, internal = [], [], []
++    total = 0
++    for _type, name, cfg, value in _parse_aapt2_dump(text):
++        if _type not in ("string", "plurals", "string-array"):
++            continue
++        total += 1
++        if is_identifier(name, value):
++            if rw.residual(value):
++                internal.append((name, cfg, value))
++            continue
++        if name in bmap.skip_names:
++            continue
++        hit = rw.residual(value)
++        if hit:
++            unexplained.append((name, cfg, value, hit))
++        elif any(u.casefold() in value.casefold() for u, _ in bmap.url_keep):
++            allowed.append((name, cfg, value))
++
++    print("[lw-brand check-apk] %d text rows" % total, file=sys.stderr)
++    print("[lw-brand check-apk] unexplained: %d  allowed(url-keep): %d  "
++          "internal(value==name): %d" % (len(unexplained), len(allowed),
++                                        len(internal)), file=sys.stderr)
++    for name, cfg, value, hit in unexplained[:25]:
++        print("  UNEXPLAINED %s (%s): stem=%r %r" % (name, cfg, hit, value[:80]),
++              file=sys.stderr)
++    for name, cfg, value in allowed[:25]:
++        print("  ALLOWED %s (%s): %r" % (name, cfg, value[:80]), file=sys.stderr)
++    for name, cfg, value in internal:
++        print("  INTERNAL %s (%s): %r" % (name, cfg, value[:80]), file=sys.stderr)
++    if unexplained:
++        print("[lw-brand check-apk] FAIL: %d unexplained branded value(s) in "
++              "the built APK" % len(unexplained), file=sys.stderr)
++        return 1
++    print("[lw-brand check-apk] PASS: no unexplained branded value(s); only "
++          "enumerated url-keep and internal-key exceptions", file=sys.stderr)
++    return 0
++
++
 +def main(argv=None):
 +    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 +    ap.add_argument("--map", default=str(DEFAULT_MAP))
@@ -1030,6 +1146,14 @@
 +    p = sub.add_parser("scan")
 +    p.add_argument("--root", required=True)
 +    p.set_defaults(func=cmd_scan)
++
++    p = sub.add_parser("check-apk",
++                       help="gate: fail if a built APK still ships brand stems "
++                            "outside the url-keep and internal-key exceptions")
++    p.add_argument("--apk", help="built APK to check")
++    p.add_argument("--aapt2", default="aapt2", help="path to aapt2")
++    p.add_argument("--dump", help="a pre-made `aapt2 dump resources` file")
++    p.set_defaults(func=cmd_check_apk)
 +
 +    p = sub.add_parser("derive")
 +    p.add_argument("--l10n", required=True)
@@ -1055,7 +1179,7 @@
 +    sys.exit(main())
 --- /dev/null
 +++ b/mobile/android/lw-brand/brand-map.txt
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,123 @@
 +# LibreWolf brand map for the Fenix / android-components string resources.
 +# Owner: LW-M4-12.  Consumed by lw_brand_strings.py; see
 +# docs/android/L10N-ANDROID.md in the LibreWolf repository for the mechanism
@@ -1106,12 +1230,13 @@
 +# the pinned android-l10n archive by `lw_brand_strings.py derive` and copied
 +# from its output -- none of them was transcribed by a human, because a
 +# mis-typed Malayalam or Sinhala stem fails silently.  Each was then checked
-+# against the whole corpus (507,643 translated strings): a stem is only listed
-+# here if every string in which it fires has an English source that mentions
-+# Firefox or Mozilla.
++# against that archive's whole corpus: a stem is only listed here if every
++# string in which it fires has an English source that mentions Firefox or
++# Mozilla.
 +#
-+# 37 locales spell the mark in their own script.  An ASCII-only substitution --
-+# which is what the desktop appstrings.properties sed is -- sees none of them.
++# 32 non-Latin stems across 19 locales spell the mark in their own script.
++# An ASCII-only substitution -- which is what the desktop appstrings.properties
++# sed is -- sees none of them.
 +# ---------------------------------------------------------------------------
 +word|ಫೈರ್‌ಫಾಕ್ಸ್|kn
 +word|ᱯᱷᱟᱭᱟᱨᱯᱷᱚᱠᱥ|sat
@@ -1237,7 +1362,7 @@
 +sha256 = 637978a42324ce15acdf01b7691ddddf3cd7caec4fe33f834fb1badee472c8f9
 --- /dev/null
 +++ b/mobile/android/lw-brand/ui_brand_scan.py
-@@ -0,0 +1,303 @@
+@@ -0,0 +1,309 @@
 +#!/usr/bin/env python3
 +"""Walk the running Fenix UI and report every visible Mozilla/Firefox mark.
 +
@@ -1245,9 +1370,15 @@
 +part of the app build.  It exists because the acceptance for that task is
 +"verified from the running app, not from grep", and because a scrape of the
 +home screen and the settings root would go green on a build whose deeper
-+screens still say Firefox -- which is exactly why
-+`scripts/android-smoke.sh --check-strings` still exits 3 rather than shipping
-+a shallow version.  Hand this to LW-M2-07 as the body of that check.
++screens still say Firefox.
++
++The deterministic hard gate is the other direction: `--check-strings` (LW-M2-07
++owns the script; the checker this patch ships is its body) reads the BUILT
++APK's compiled string table with aapt2 and FAILs on any unexplained brand
++value, so a build whose deeper screens still say Firefox cannot slip through
++the resource surface.  This walker covers what that gate cannot see -- the
++non-resource surface (here, the add-on description) -- and it REPORTS, it does
++not gate.
 +
 +What it does:
 +
