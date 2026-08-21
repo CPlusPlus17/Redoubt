@@ -48,8 +48,10 @@ From LW-M3-01, and it matters for every pref row:
   `.cfg` is its exact equivalent. A `lockPref()` there would be a *stricter*
   setting than desktop, not parity.
 - `MOZ_DEFAULT_PREFS` (`GeckoLoader.java:83-103` → `Preferences.cpp:3963`,
-  `PrefValueKind::Default`) writes the default branch and **cannot lock**:
-  `modules/libpref/parser/src/lib.rs:14,297-321` has no `locked_pref` token.
+  `PrefValueKind::Default`) writes the default branch but **carries no lock as
+  shipped**: the parser supports the `locked` attribute
+  (`modules/libpref/parser/src/lib.rs:30`), yet `GeckoLoader` emits only bare
+  `pref()` lines with no attribute.
 - a bare `pref()` in a `.cfg` writes the **user** branch
   (`extensions/pref/autoconfig/src/prefcalls.js:12-18`), not the default branch.
 
@@ -561,10 +563,11 @@ Branch and lock: **default branch, and it NEEDS A LOCK.**
 >
 > That makes this the textbook landmine-L2 case: GeckoView owns the pref at
 > runtime, so an unlocked `defaultPref` survives startup and is then overwritten
-> the moment Fenix touches it. And per LW-M3-01 the `MOZ_DEFAULT_PREFS` channel
-> **cannot express a lock at all** — there is no `locked_pref` token in
-> `modules/libpref/parser/src/lib.rs`. So the value we ship is advisory until
-> LW-M3-08 settles whether autoconfig works on Android.
+> the moment Fenix touches it. And the `MOZ_DEFAULT_PREFS` channel carries **no
+> lock as shipped** — `GeckoLoader` emits only bare `pref()` lines with no
+> `locked` attribute (the parser supports the attribute, `lib.rs:30`, but
+> `GeckoLoader` never emits it). So the value we ship is advisory until the
+> autoconfig path (LW-M3-08) evaluates the `.cfg` natively.
 >
 > The lesson generalises: "I grepped and did not find it" is not evidence for
 > "nothing writes it". Every negative claim in this document that rules out a lock
@@ -691,8 +694,8 @@ close two rows; everything else needs code in Fenix.
 Stated explicitly, since the brief asks for it: **the two prefs this task adds do
 not depend on the autoconfig spike either way.** Both are unlocked defaults on
 prefs no Fenix writer touches, so `MOZ_DEFAULT_PREFS` (which writes the default
-branch and cannot lock) carries them correctly today, and native autoconfig would
-carry them identically.
+branch and carries no lock as shipped) carries them correctly today, and native
+autoconfig would carry them identically.
 
 The spike's outcome does not change any row above. Row 16 is the only row where
 locking was on the table, and it was rejected because locking would be *wrong*

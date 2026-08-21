@@ -609,9 +609,11 @@ since neither is referenced from a patch list.
   copy that can fail open (landmine L4's shape), a file the app itself can
   rewrite, and it still would not work without a patch, because the directory
   service returns the lib dir rather than `GRE_HOME`. No.
-* **Give up and build the compiler.** That is what this spike existed to avoid,
-  and `modules/libpref/parser/src/lib.rs:14,297-321` still has no `locked_pref`
-  token, so the compiler could not have expressed the 38 locks anyway.
+* **Give up and build the compiler.** That is what this spike existed to avoid.
+  (It is not rejected on lock grounds — the parser supports the `locked`
+  attribute, `modules/libpref/parser/src/lib.rs:30`, in the
+  `PrefValueKind::Default` mode, so a compiler emitting `pref("x", v, locked);`
+  could express the 38 locks. It is the workaround this spike made unnecessary.)
 
 ---
 

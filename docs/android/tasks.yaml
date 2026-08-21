@@ -1538,11 +1538,11 @@ tasks:
       works that way).
 
       WHY THIS MATTERS SO MUCH — and it is now stronger than when this task was
-      written. LW-M3-01 established that `MOZ_DEFAULT_PREFS` CANNOT LOCK AT ALL:
-      the parser at modules/libpref/parser/src/lib.rs:14,297-321 accepts only
-      `pref`, `user_pref` and `sticky_pref`, with no `locked_pref` token. So the
-      fallback plan cannot express the 38 `lockPref`s in common.cfg, and landmine
-      L2's own prescribed mitigation is unavailable through that channel.
+      written. `MOZ_DEFAULT_PREFS` as shipped carries no lock: `GeckoLoader` emits
+      only bare `pref()` lines with no `locked` attribute (the parser does support
+      the attribute — modules/libpref/parser/src/lib.rs:30 — but the channel never
+      uses it). So the fallback plan cannot express the 38 `lockPref`s in common.cfg,
+      and landmine L2's own prescribed mitigation is unavailable through that channel.
 
       Autoconfig's `lockPref` calls `Preferences::Lock` directly. If the .cfg is
       evaluated natively, locking works, Android ships the SAME file as desktop

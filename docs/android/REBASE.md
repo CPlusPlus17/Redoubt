@@ -599,7 +599,8 @@ This is the Android-specific silent revert, and a rebase is exactly when it appe
 Mozilla adds a `Pref<>` field to `GeckoRuntimeSettings.java` or
 `ContentBlocking.java` for a pref we already ship. Our value survives startup and is
 then overwritten the moment Fenix's settings load, because `MOZ_DEFAULT_PREFS`
-cannot express a lock at all (there is no `locked_pref` token in the parser —
+carries **no lock as shipped** — `GeckoLoader` emits only bare `pref()` lines with
+no `locked` attribute (the parser supports the attribute, `lib.rs:30`; see
 `AGENTS.md` L2).
 
 **Name the tree. Do not let the gate look for one.**
