@@ -102,10 +102,25 @@
 # Branding and applicationId are deliberately STOCK
 # ---------------------------------------------------------------------------
 #
-# The debug variant is org.mozilla.fenix.debug (applicationId "org.mozilla" +
-# applicationIdSuffix ".fenix.debug", mobile/android/fenix/app/build.gradle:60,121)
-# and the branding is mobile/android/branding/unofficial.  LW-M4-07 changes both.
-# Changing them here would make the first failure of the first APK ambiguous.
+# The debug build type is org.mozilla.fenix.debug (applicationId "org.mozilla" +
+# applicationIdSuffix ".fenix.debug", mobile/android/fenix/app/build.gradle:60,121);
+# the release build type is org.mozilla.firefox (same applicationId + the release
+# block's applicationIdSuffix ".firefox").  The branding is
+# mobile/android/branding/unofficial.  LW-M4-07 changes all of it.
+# Changing it here would make the first failure of the first APK ambiguous.
+#
+# Both build types are debug-signed in this configuration: the releaseTemplate
+# closure sets signingConfig = signingConfigs.debug whenever MOZ_AUTOMATION is
+# unset and disableDebugSigning is not passed, and assets/mozconfig.android sets
+# neither.  So the apksigner check at the end ("CN=Android Debug") is the same
+# for debug and release, and that is asserted, not assumed.
+#
+# --variant=release is the first thing in this project that runs R8
+# (releaseTemplate: minifyEnabled = !disableOptimization).  It needs
+# third_party/application-services/proguard-rules-consumer-jna.pro in the tree
+# (patches/android/r8-keep-rules.patch, LW-M6-07), which the ESR tarball does
+# not ship; without it the APK crashes on launch.  The preflight enforces that
+# for release only.
 #
 # ---------------------------------------------------------------------------
 # Cost (measured on the reference host: 32 core / 62 GB, podman, not idle)
@@ -156,6 +171,7 @@ SRCDIR=""
 AARDIR=""
 OUTDIR=""
 ABIS=""
+VARIANT="debug"
 FAT_HOST_ABI="$DEFAULT_FAT_HOST_ABI"
 MOZCONFIG_SRC=""
 JOBS=""
@@ -176,9 +192,15 @@ usage() {
     cat <<EOF
 usage: $progname --srcdir DIR --aar-dir DIR [options]
 
-Builds a debug-signed Fenix APK whose GeckoView is the fat AAR built by
-scripts/android-fat-aar.sh.
+Builds a debug-signed Fenix APK (debug or release build type) whose GeckoView
+is the fat AAR built by scripts/android-fat-aar.sh.
 
+  --variant V       debug (default) or release build type.  Both are
+                    debug-signed in this configuration (see the header), but
+                    only release runs R8, and release refuses to build without
+                    third_party/application-services/proguard-rules-consumer-
+                    jna.pro in the tree (patches/android/r8-keep-rules.patch,
+                    LW-M6-07) -- without it the APK crashes on launch.
   --srcdir DIR      extracted, patched source tree to build in (required).
                     It gets one objdir; give it its own copy.
   --aar-dir DIR     output directory of scripts/android-fat-aar.sh, i.e. what
@@ -253,7 +275,7 @@ need_val() { [ "$1" -ge 2 ] || die "$2 needs a value"; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --srcdir|--aar-dir|--outdir|--abis|--fat-host-abi|--mozconfig|--jobs|-j|--build-date|--gradle-home|--engine|--image|--mount-opt)
+        --srcdir|--aar-dir|--outdir|--variant|--abis|--fat-host-abi|--mozconfig|--jobs|-j|--build-date|--gradle-home|--engine|--image|--mount-opt)
             need_val "$#" "$1" ;;
     esac
     case "$1" in
@@ -263,6 +285,8 @@ while [ $# -gt 0 ]; do
         --aar-dir=*)      AARDIR=${1#*=}; shift ;;
         --outdir)         OUTDIR=${2:-}; shift 2 ;;
         --outdir=*)       OUTDIR=${1#*=}; shift ;;
+        --variant)        VARIANT=${2:-}; shift 2 ;;
+        --variant=*)      VARIANT=${1#*=}; shift ;;
         --abis)           ABIS=${2:-}; shift 2 ;;
         --abis=*)         ABIS=${1#*=}; shift ;;
         --fat-host-abi)   FAT_HOST_ABI=${2:-}; shift 2 ;;
@@ -294,6 +318,16 @@ done
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd) || die "cannot resolve the repository root"
 
+# The Gradle build types mobile/android/fenix/app/build.gradle defines are
+# debug, nightly, beta, release and benchmark; this script knows the output
+# directory and applicationId of exactly two of them, so those are the only
+# ones it will accept.
+case "$VARIANT" in
+    debug)   VARIANT_CAP="Debug" ;;
+    release) VARIANT_CAP="Release" ;;
+    *)       die "--variant must be 'debug' or 'release' (got '$VARIANT')" ;;
+esac
+
 [ -n "$SRCDIR" ] || { usage >&2; die "--srcdir is required"; }
 [ -d "$SRCDIR" ] || die "--srcdir '$SRCDIR' is not a directory"
 SRCDIR=$(cd "$SRCDIR" && pwd)
@@ -308,6 +342,27 @@ SRCDIR=$(cd "$SRCDIR" && pwd)
 grep -q "include ':fenix'" "$SRCDIR/settings.gradle" ||
     die "'$SRCDIR/settings.gradle' does not include ':fenix'; the subproject wiring this
        script depends on (settings.gradle:55-62) has moved"
+
+# Release is the first build type that runs R8 (releaseTemplate:
+# minifyEnabled = !disableOptimization), and R8 needs the app-services AAR's
+# consumer ProGuard rules: third_party/application-services/
+# proguard-rules-consumer-jna.pro, declared by build-scripts/
+# component-common.gradle but ABSENT from the ESR tarball.  Without it R8
+# strips @Structure.FieldOrder from the uniffi RustBuffer classes,
+# Structure.getFieldOrder() returns an empty name list, and the APK dies on
+# launch (LW-M6-07; the LW-M4-09 crash, reproduced in
+# ~/lw-m4-09/evidence/release-r8-crash.logcat).  Debug is immune because it
+# never minifies, which is exactly how the crash stayed invisible until now.
+# patches/android/r8-keep-rules.patch (LW-M6-07) restores the file; check the
+# tree, not the patch list, because that is what the build reads.
+if [ "$VARIANT" = "release" ]; then
+    [ -f "$SRCDIR/third_party/application-services/proguard-rules-consumer-jna.pro" ] ||
+        die "release: '$SRCDIR/third_party/application-services/proguard-rules-consumer-jna.pro' is missing.
+       component-common.gradle declares it as the AAR's consumerProguardFiles, but the
+       ESR tarball does not ship it, so R8 would strip @Structure.FieldOrder from the
+       uniffi RustBuffer classes and the APK would crash on launch (LW-M6-07).
+       Apply patches/android/r8-keep-rules.patch to the tree and re-run."
+fi
 
 [ -n "$AARDIR" ] || { usage >&2; die "--aar-dir is required"; }
 [ -d "$AARDIR" ] || die "--aar-dir '$AARDIR' is not a directory"
@@ -341,7 +396,7 @@ grep -Eq '^[[:space:]]*ac_add_options[[:space:]]*--enable-android-subproject=fen
          $SUBPROJECT_OPTION
 
        Without it settings.gradle:55-62 leaves :fenix out of the Gradle build and
-       there is no fenix:assembleDebug task to run.  assets/mozconfig.android is
+       there is no fenix:assemble$VARIANT_CAP task to run.  assets/mozconfig.android is
        owned by LW-M5-03 this batch; until that line lands there, point
        --mozconfig at your own copy (make android-apk ANDROID_MOZCONFIG=...)."
 
@@ -519,6 +574,7 @@ log "source tree     : $SRCDIR"
 log "fat AAR inputs  : $AARDIR"
 log "output          : $OUTDIR"
 log "base mozconfig  : $MOZCONFIG_SRC"
+log "variant         : $VARIANT (fenix:assemble$VARIANT_CAP)"
 log "ABIs            : $(printf '%s' "$abi_list" | tr '\n' ' ')(host $FAT_HOST_ABI)"
 log "objdir          : $objdir"
 log "engine / image  : $ENGINE / $IMAGE"
@@ -652,6 +708,17 @@ pass_body_gecko() {
 set -u
 mkdir -p "\$GRADLE_USER_HOME" || exit 90
 cp -n /root/.gradle/gradle.properties "\$GRADLE_USER_HOME"/ 2>/dev/null || true
+# KGP registers its FUS build service in the build-wide shared services
+# registry when the configuration cache is on, and this build carries two KGP
+# classloaders (2.3.21 on the main buildscript classpath, 2.3.20 embedded for
+# the kotlin-dsl plugin builds).  Whichever registers first wins the service
+# name; the other then wires the foreign service into its KotlinCompile tasks,
+# and Gradle dies decoding the work graph with "Could not load the value of
+# field __buildFusService__ ... Cannot set the value of a property of type
+# ...BuildFusService using a provider of type ...FlowActionBuildFusService"
+# (gradle/gradle#31278).  Disabling FUS keeps both copies from registering;
+# it is JetBrains first-use telemetry and cannot change build output.
+grep -qx 'kotlin.internal.collectFUSMetrics=false' "\$GRADLE_USER_HOME/gradle.properties" 2>/dev/null || echo 'kotlin.internal.collectFUSMetrics=false' >> "\$GRADLE_USER_HOME/gradle.properties"
 date -u +'PASS gecko START %Y-%m-%dT%H:%M:%SZ'
 ./mach configure
 rc=\$?
@@ -671,6 +738,12 @@ pass_body_apk() {
 set -u
 mkdir -p "\$GRADLE_USER_HOME" || exit 90
 cp -n /root/.gradle/gradle.properties "\$GRADLE_USER_HOME"/ 2>/dev/null || true
+# Same FUS fix as the gecko pass: fenix's Gradle build runs with the same
+# configuration cache and dual-KGP classloader setup, so the
+# __buildFusService__ work-graph decode crash reaches it the same way.  (The
+# batch build sidestepped it with --no-configuration-cache on that pass;
+# disabling FUS lets us keep the cache.)
+grep -qx 'kotlin.internal.collectFUSMetrics=false' "\$GRADLE_USER_HOME/gradle.properties" 2>/dev/null || echo 'kotlin.internal.collectFUSMetrics=false' >> "\$GRADLE_USER_HOME/gradle.properties"
 date -u +'PASS apk START %Y-%m-%dT%H:%M:%SZ'
 
 # The Glean Gradle plugin runs the interpreter whose path configure recorded in
@@ -691,7 +764,22 @@ if [ -n "\$venv" ] && [ ! -x "\$venv/bin/python" ]; then
     exit 91
 fi
 
-./mach gradle fenix:assembleDebug
+# :fenix:compileReleaseKotlin consumes the Safe Args generated sources
+# (*Directions / *Args).  In the full parallel build it can start before
+# :fenix:generateSafeArgsRelease has written them and fail with ~100
+# "Unresolved reference" errors.  The generator itself is sound -- run in
+# isolation it emits all 191 files under both the configuration cache and
+# --no-configuration-cache -- so this is a task-ordering race, not a broken
+# generator.  Pre-generating in a dedicated invocation puts the sources on
+# disk before the assemble graph runs, so the compile always sees them.
+./mach gradle fenix:generateSafeArgs$VARIANT_CAP
+rc=\$?
+if [ \$rc -ne 0 ]; then
+    date -u +'PASS apk END %Y-%m-%dT%H:%M:%SZ'
+    echo "MACH_EXIT=\$rc"
+    exit \$rc
+fi
+./mach gradle fenix:assemble$VARIANT_CAP
 rc=\$?
 date -u +'PASS apk END %Y-%m-%dT%H:%M:%SZ'
 echo "MACH_EXIT=\$rc"
@@ -736,7 +824,7 @@ if [ "$DRY_RUN" = "1" ]; then
     else
         log "  would build $FAT_HOST_ABI ($(abi_to_target "$FAT_HOST_ABI")) in $objdir, merging in the fat AAR"
     fi
-    log "  would run ./mach gradle fenix:assembleDebug"
+    log "  would run ./mach gradle fenix:assemble$VARIANT_CAP"
     log "  would collect APKs into $OUTDIR"
     exit 0
 fi
@@ -841,7 +929,7 @@ grep -q "'MOZ_ANDROID_SUBPROJECT': 'fenix'" "$objdir/config.status" ||
 # Pass 2: the APK
 # ---------------------------------------------------------------------------
 
-log "apk: ./mach gradle fenix:assembleDebug, log: $OUTDIR/logs/apk.log"
+log "apk: ./mach gradle fenix:assemble$VARIANT_CAP, log: $OUTDIR/logs/apk.log"
 rm -f "$OUTDIR/logs/apk.mempeak"
 t0=$(date +%s)
 container_run apk "$(pass_body_apk)" > "$OUTDIR/logs/apk.log" 2>&1
@@ -849,7 +937,7 @@ rc=$?
 t1=$(date +%s)
 if [ "$rc" != "0" ]; then
     record apk $((t1 - t0)) "FAILED rc=$rc"
-    die "apk: mach gradle fenix:assembleDebug failed (exit $rc) after $((t1 - t0))s.
+    die "apk: mach gradle fenix:assemble$VARIANT_CAP failed (exit $rc) after $((t1 - t0))s.
        Log: $OUTDIR/logs/apk.log"
 fi
 record apk $((t1 - t0)) "ok"
@@ -859,9 +947,12 @@ log "apk: gradle ok in $((t1 - t0))s"
 # Collect and verify
 # ---------------------------------------------------------------------------
 
-apk_src_dir="$objdir/gradle/build/mobile/android/fenix/app/outputs/apk/debug"
+# AGP's per-build-type output directory is outputs/apk/<buildType>, spelled in
+# lowercase (outputs/apk/debug, outputs/apk/release) -- the same spelling
+# upstream uses in taskcluster/kinds/build/fenix.yml:52-55.
+apk_src_dir="$objdir/gradle/build/mobile/android/fenix/app/outputs/apk/$VARIANT"
 [ -d "$apk_src_dir" ] ||
-    die "'$apk_src_dir' does not exist after a successful fenix:assembleDebug.
+    die "'$apk_src_dir' does not exist after a successful fenix:assemble$VARIANT_CAP.
        (Upstream names the same directory in
        taskcluster/kinds/build/fenix.yml:52-55.)"
 
@@ -1044,7 +1135,9 @@ fi
 # LW-M2-04 keeps branding and the app id STOCK on purpose -- LW-M4-07 changes
 # them, and changing them here would make the first failure of the first APK
 # ambiguous.  When LW-M4-07 lands, this expectation moves with it.
-log "checking the applicationId is still stock"
+# debug: org.mozilla.fenix.debug (applicationIdSuffix ".fenix.debug");
+# release: org.mozilla.firefox (applicationIdSuffix ".firefox").
+log "checking the applicationId is still stock for the $VARIANT build type"
 appid=$("$ENGINE" run --rm \
         -v "$OUTDIR:/work/out$mount_suffix" \
         "$IMAGE" \
@@ -1053,9 +1146,16 @@ appid=$("$ENGINE" run --rm \
     die "aapt2 could not read the package name from the universal APK:
 $appid"
 appid=$(printf '%s' "$appid" | tr -d '\r' | tail -1)
-[ "$appid" = "org.mozilla.fenix.debug" ] ||
-    die "APK applicationId is '$appid', expected the stock debug id org.mozilla.fenix.debug
-       (mobile/android/fenix/app/build.gradle:60 applicationId + :121 applicationIdSuffix).
+if [ "$VARIANT" = "debug" ]; then
+    expected_appid="org.mozilla.fenix.debug"
+    appid_note="mobile/android/fenix/app/build.gradle:60 applicationId + :121 debug applicationIdSuffix"
+else
+    expected_appid="org.mozilla.firefox"
+    appid_note="mobile/android/fenix/app/build.gradle:60 applicationId + the release block's applicationIdSuffix .firefox"
+fi
+[ "$appid" = "$expected_appid" ] ||
+    die "APK applicationId is '$appid', expected the stock $VARIANT id $expected_appid
+       ($appid_note).
        If this is LW-M4-07 rebranding on purpose, update this check with it."
 [ "$appid" = "$meta_appid" ] ||
     die "aapt2 reads applicationId '$appid' out of the APK's binary manifest while AGP's
@@ -1120,9 +1220,14 @@ with open(report_path, "w", encoding="utf-8") as fh:
 print(report, end="")
 PY
 
-# Debug signature.  `apksigner verify` is the tool that actually validates the
-# APK signature blocks; a `META-INF/*.RSA` listing would only prove something
-# was signed, not that the signature verifies.
+# Debug signature -- for BOTH build types in this configuration: the
+# releaseTemplate closure (fenix/app/build.gradle) sets
+# signingConfig = signingConfigs.debug unless MOZ_AUTOMATION or
+# disableDebugSigning is set, and assets/mozconfig.android sets neither, so a
+# release APK signed with anything other than the debug certificate is a
+# surprise and fails here.  `apksigner verify` is the tool that actually
+# validates the APK signature blocks; a `META-INF/*.RSA` listing would only
+# prove something was signed, not that the signature verifies.
 # No prebuilt GeckoView, and no prebuilt app-services.
 #
 # This is the criterion the mozconfig's --enable-appservices-in-tree comment

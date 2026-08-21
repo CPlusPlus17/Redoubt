@@ -1,0 +1,113 @@
+# LibreWolf r8-keep-rules.patch  (Android)
+# Owner: LW-M6-07 ("Make the R8-minified release build actually boot")
+#
+# THE CRASH (reproduced, logcat saved)
+# -----------------------------------
+# Every R8-minified release build of the Android port dies on launch:
+#
+#   FATAL EXCEPTION: main
+#   java.lang.Error: Structure.getFieldOrder() on class
+#       org.mozilla.experiments.nimbus.internal.RustBuffer$ByValue
+#       does not provide enough names [0] ([]) to match declared fields
+#       [3] ([capacity, data, len])
+#       at com.sun.jna.Structure.getFields(r8-map-id-7758...:144)
+#
+# Evidence from the LW-M4-09 build (same tree, same crash):
+#   ~/lw-m4-09/apk-patched/fenix-x86_64-release.apk          (R8 on, crashes)
+#   ~/lw-m4-09/apk-patched-noopt/fenix-x86_64-release.apk    (R8 off, boots)
+#   ~/lw-m4-09/evidence/release-r8-crash.logcat              (the crash above)
+#
+# ROOT CAUSE (verified against the ESR tarball and the built AAR)
+# ----------------------------------------------------------------
+# It is NOT "R8 renames the JNA fields". R8 strips the
+# @com.sun.jna.Structure.FieldOrder RUNTIME annotation from the uniffi-
+# generated RustBuffer classes (third_party/rust/uniffi_bindgen/src/bindings/
+# kotlin/templates/RustBufferTemplate.kt, which declares
+# @Structure.FieldOrder("capacity", "len", "data") on capacity/len/data).
+# com.sun.jna.Structure.getFieldOrder() reads that annotation at runtime and
+# gets back an empty name list, so the "enough names [0] ([]) to match
+# declared fields [3]" Error fires the moment the Nimbus FFI is touched.
+#
+# The keep rules that Mozilla ships for exactly this are delivered through the
+# application-services AAR's consumer ProGuard file. The build already
+# references it:
+#
+#   third_party/application-services/build-scripts/
+#   component-common.gradle (release block):
+#       consumerProguardFiles \
+#           "$appServicesRootDir/proguard-rules-consumer-jna.pro"
+#
+# but that file is ABSENT from the Firefox source tarball. Verified on
+# firefox-153.0esr.source.tar.xz (the base this board builds):
+#
+#   $ tar -tJf firefox-153.0esr.source.tar.xz | grep application-services
+#   .../third_party/application-services/build-scripts/component-common.gradle
+#   (no proguard-rules-consumer-jna.pro anywhere in the tarball)
+#
+# so the in-tree-built Nimbus AAR ships with NO consumer ProGuard rules.
+# Verified in a built AAR (LW-M2-04 batch tree): META-INF/ contains only
+# com/android/build/gradle/aar-metadata.properties -- no
+# proguard.txt. Consequence: in fenix:assembleRelease, R8 runs against the
+# Nimbus AAR with only fenix/app/proguard-rules.pro (which keeps
+# mozilla.appservices.** but NOT org.mozilla.experiments.nimbus.internal.**),
+# the annotation is stripped, and the app dies on the first RustBuffer use.
+# The only "release" APKs ever built by this project were therefore built
+# with -PdisableOptimization (R8 off) -- which is why LW-M4-09's booting
+# APK lives in apk-patched-noopt/.
+#
+# THE FIX
+# -------
+# Restore the file the build already points at. The content below is
+# byte-identical to upstream Mozilla's
+# proguard-rules-consumer-jna.pro (fetched 2026-08-20 from
+# github.com/mozilla/application-services main, 949 bytes). Its two jobs:
+#
+#   * -keepattributes ...RuntimeVisibleAnnotations... -- R8 may drop runtime
+#     annotations without them; the @Structure.FieldOrder annotation is what
+#     Structure.getFieldOrder() needs.
+#   * -keep class org.mozilla.experiments.nimbus.internal.** { *; } --
+#     stops R8 from renaming/merging the uniffi FFI classes (RustBuffer and
+#     friends) that the Rust side addresses by name.
+#   * the JNA rules -- JNA resolves field layout from the annotation and
+#     the class shape; upstream keeps all of it.
+#
+# Why this path is Android-only (android.txt, not common.txt):
+#   * third_party/application-services/ is shared source, but this file is a
+#     pure Gradle BUILD INPUT (consumerProguardFiles of the AAR's release
+#     buildType). The desktop build never consumes AAR consumer rules; the
+#     file is dead weight but harmless there. Keeping it in android.txt means
+#     the desktop tree stays byte-identical to stock -- the stronger guarantee.
+#   * scripts/lint-patch-scope.py for android.txt only forbids browser/
+#     paths; this one is clean.
+#
+# Ordering: touches a file no other patch in any list touches (checked
+# against common.txt and android.txt), so it has no ordering constraint.
+# Applied to a pristine 153.0esr tree with zero fuzz by
+# scripts/check-patchfail.sh --targets=android.
+#
+# WHAT THIS UNLOCKS
+# -----------------
+# fenix:assembleRelease with minifyEnabled=true (R8 on) for the first time.
+# scripts/android-apk.sh gains a release variant in the same change (LW-M6-07).
+# The acceptance bar is a logcat of the R8-minified release APK loading a page
+# with no FATAL EXCEPTION, plus scripts/android-smoke.sh --check-no-gms green
+# on that same release APK -- not "the keep rules look right".
+
+--- /dev/null
++++ b/third_party/application-services/proguard-rules-consumer-jna.pro
+@@ -0,0 +1,15 @@
++# ProGuard rules for consumers of this library.
++
++# JNA specific rules
++# See https://github.com/java-native-access/jna/blob/master/www/FrequentlyAskedQuestions.md#jna-on-android
++-dontwarn java.awt.*
++-keep class com.sun.jna.* { *; }
++-keep class * extends com.sun.jna.* { *; }
++-keepclassmembers class * extends com.sun.jna.* { public *; }
++
++####################################################################################################
++# Add explicit keep rules for Nimbus RustBuffer and related structs to avoid
++# overly-aggressive optimization when R8 fullMode is enabled, leading to crashes.
++####################################################################################################
++-keepattributes RuntimeVisibleAnnotations,RuntimeInvisibleAnnotations,RuntimeVisibleTypeAnnotations,RuntimeInvisibleTypeAnnotations,AnnotationDefault,InnerClasses,EnclosingMethod,Signature
++-keep class org.mozilla.experiments.nimbus.internal.** { *; }
