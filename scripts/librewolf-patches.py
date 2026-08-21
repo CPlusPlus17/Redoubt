@@ -373,7 +373,25 @@ def librewolf_patches():
 
     exec('mkdir -p lw')
     enter_srcdir('lw')
-    exec('cp -v ../../settings/librewolf.cfg .')
+    # The pref composition is per target (LW-M3-10): common.cfg plus the
+    # target's fragment, in that order. The leading `null;` comes from
+    # common.cfg and autoconfig's skipFirstLine eats it; neither fragment
+    # carries one, so the concatenation yields exactly one at the top and none
+    # in the middle (board.py --check-cfg-split rule E checks the fragments for
+    # this, not the generated output). A desktop build's composition
+    # (common.cfg + desktop.cfg) is byte-identical to the checked-in
+    # settings/librewolf.cfg, so it stays a plain copy. An android build swaps
+    # in android.cfg: before this it got the desktop composition, which is why
+    # every M3 android.cfg decision (LW-M3-09's L2b lockPref overrides,
+    # LW-M3-06's policy translations) was absent from the build and the
+    # desktop-only ones (e.g. privacy.resistFingerprinting.letterboxing) were
+    # present. A desktop+android run keeps the desktop composition - the
+    # existing behaviour for a shared tree, which desktop and android never are
+    # (they are separate tarballs, each built for a single target).
+    if "android" in targets and "desktop" not in targets:
+        exec('cat ../../settings/common.cfg ../../settings/android.cfg > librewolf.cfg')
+    else:
+        exec('cp -v ../../settings/librewolf.cfg .')
     exec('cp -v ../../settings/distribution/policies.json .')
     exec('cp -v ../../settings/defaults/pref/local-settings.js .')
     leave_srcdir();
