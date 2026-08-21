@@ -1751,6 +1751,60 @@ tasks:
     isolation: worktree
     risk: Every Android-specific pref decision made in M3 is currently absent from the build, and the desktop-only ones are present.
 
+  - id: LW-M3-11
+    title: Make the packaged librewolf.cfg actually evaluate on Android
+    milestone: M3
+    depends_on: [LW-M3-08, LW-M3-10]
+    owns: [patches/android/autoconfig-resource-fallback.patch]
+    what: |
+      The autoconfig-resource-fallback.patch (LW-M3-08) is present in the build
+      tree, MOZ_WIDGET_ANDROID is defined, and the `opened` log string is in the
+      compiled libxul.so. Yet on both the debug and release APKs the MCD log
+      (MOZ_LOG=MCD:5) shows:
+
+        D/MCD general.config.filename = librewolf.cfg
+        D/MCD evaluating .cfg file librewolf.cfg with obscureValue 0
+        D/MCD error evaluating .cfg file librewolf.cfg 80520012
+
+      with NO `opened resource://gre/defaults/autoconfig/...` line and the
+      `Autoconfig is sandboxed by default` console warning. 0x80520012 is
+      NS_ERROR_FILE_NOT_FOUND. The LW-M3-08 canary proof
+      (lockPref("librewolf.cfg.version","8.6")) returns cfg_applied=false on
+      both builds: the canary is unset, no lockPref from the .cfg is active,
+      and privacy.resistFingerprinting is not true.
+
+      LW-M3-08's AUTOCONFIG-SPIKE.md Proof 1 shows a different MCD trace (both
+      `opened` lines at 0x0, no error) from a hand-composed .cfg with sentinel
+      prefs. That trace is not reproducible on the current builds: the same
+      code, the same omni.ja contents, the same MOZ_LOG level, produces a
+      FILE_NOT_FOUND on the .cfg and no `opened` line at all. The spike's
+      verdict ("YES, librewolf.cfg can be evaluated natively on Android") is
+      not supported by the current evidence.
+
+      Determine, on a running build, why openAndEvaluateJSFile returns
+      NS_ERROR_FILE_NOT_FOUND for librewolf.cfg when fromResourceURI is true
+      and the resource:// branch is taken. The spike's §2.1 established that
+      NS_GetSpecialDirectory(NS_GRE_DIR) succeeds on Android (returns the APK
+      lib/ dir), so the pre-patch file-branch failure is understood; the
+      post-patch resource:// branch failure is not. The `opened` log line
+      sits after channel->Open, so its absence means the failure is in
+      NS_NewURI or NS_NewChannel, or the code is not reaching the resource://
+      branch despite fromResourceURI=true (a build or preprocessor issue).
+      Pin the exact failing call with MOZ_LOG evidence from a running build,
+      then fix it.
+    acceptance:
+      - "on a running debug APK, MOZ_LOG=MCD:5 shows `opened resource://gre/defaults/autoconfig/librewolf.cfg: 0x0` and no `error evaluating` line"
+      - "on a running release APK, the same two conditions hold"
+      - "lockPref(\"librewolf.cfg.version\",\"8.6\") from the packaged .cfg is observable as a locked pref in about:config on both builds"
+      - "a defaultPref from the packaged .cfg (e.g. privacy.resistFingerprinting true) is observable in the running build's prefs on both builds"
+      - "no `Autoconfig is sandboxed by default` console warning in logcat on either build"
+    verify: "adb logcat -d | grep -E 'D/MCD|Autoconfig' && ./scripts/android-smoke.sh --pref-dump"
+    effort_h: "8-16"
+    skills: [cpp, android, mozilla]
+    agent_safe: yes
+    isolation: worktree
+    risk: Every M3 cfg-gated pref decision (android.cfg L2b locks, policy translations, privacy defaults) is inert on a running Android build until this is fixed.
+
   - id: LW-M3-04
     title: Generate the must-lock pref list from the Fenix sources
     milestone: M3

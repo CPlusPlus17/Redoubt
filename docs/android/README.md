@@ -14,14 +14,17 @@ This directory is the work plan and the record of what has been done against it.
 **Status: M0 and M1 complete, M2 done, M3/M4 well advanced.** Gecko builds from
 source for aarch64-linux-android with the full patch set and every hardening flag
 intact; a three-ABI fat AAR and an installable APK exist and run *our* GeckoView
-(verified from the packaged `omni.ja`, not inferred). Autoconfig works on Android,
-so `lockPref` produces real `Preferences::Lock` calls that survive the Fenix
-settings screen. Glean, Adjust, Nimbus, Play Integrity and the onboarding flow are
-removed. First-run network traffic is **22-24 events over 4 hostnames, down from 59
+(verified from the packaged `omni.ja`, not inferred). Autoconfig does **not**
+work on Android: the packaged `librewolf.cfg` fails to load
+(`NS_ERROR_FILE_NOT_FOUND`), no `lockPref` from the `.cfg` is active, and
+LW-M3-08's spike proof of success is not reproducible on the current builds
+(filed as LW-M3-11). Glean, Adjust, Nimbus, Play Integrity and the onboarding
+flow are removed. First-run network traffic is **22-24 events over 4 hostnames, down from 59
 over 8** — all that remains is Remote Settings and one `ads.mozilla.org` lookup, both
 tracked. 76 patch files: 24 common, 36 desktop, 16 android.
 
 Not done: the Android build still ships the *desktop* pref composition (LW-M3-10),
+autoconfig does not evaluate the packaged `.cfg` on Android (LW-M3-11),
 the UI still says "Firefox" (LW-M4-12), and nothing is signed or distributed.
 
 ## Read in this order
