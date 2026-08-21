@@ -120,9 +120,19 @@ enough names [0] ([]) to match declared fields [3] ([capacity, data, len])
   at com.sun.jna.Structure.getFields(r8-map-id-7758…:144)
 ```
 
-JNA derives native struct layout by reflecting over field names; R8 renames them,
-so every uniffi/Nimbus call dies before the browser starts. The `r8-map-id-` frames
-prove it is the minified build.
+**Root cause, corrected 2026-08-21 by LW-M6-07 and evidenced.** The first
+diagnosis in this file said R8 renames the JNA field names. It does not. R8 strips
+the `@com.sun.jna.Structure.FieldOrder` *runtime annotation* from the
+uniffi-generated `RustBuffer` classes, so `getFieldOrder()` reads it back empty.
+
+The underlying defect is one level deeper:
+`third_party/application-services/build-scripts/component-common.gradle` declares
+`consumerProguardFiles "$appServicesRootDir/proguard-rules-consumer-jna.pro"`, and
+**that file is absent from the Firefox source tarball** — confirmed by `tar -tJf`
+against firefox-153.0esr and by a built AAR whose `META-INF/` contains no
+`proguard.txt`. So the in-tree Nimbus AAR ships with no consumer ProGuard rules,
+R8 runs against it with only fenix's own rules, and the app dies on first
+`RustBuffer` use. The fix restores the file the build already points at.
 
 Nobody caught it because **every APK this project has built is
 `fenix:assembleDebug`** — `assembleRelease` appears nowhere in
