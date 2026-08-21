@@ -16,7 +16,7 @@ not verified" — is still the single most important thing on this project.
 | [`IDENTITY.md`](IDENTITY.md) | what this project may call itself, and what it may not. Read before touching any user-visible string. |
 | [`AGENTS.md`](AGENTS.md) | the working agreement: how to claim a task, file ownership, the five landmines, definition of done. |
 | this file | current state, open blockers, the ways work has actually failed here. |
-| [`tasks.yaml`](tasks.yaml) | the board. 88 tasks. Source of truth. |
+| [`tasks.yaml`](tasks.yaml) | the board. Source of truth. Run `board.py --stats` for counts. |
 
 Do not start work before reading `AGENTS.md`'s landmine section. Every one of L1–L5
 describes a failure that already happened here, not a hypothetical.
@@ -26,7 +26,9 @@ describes a failure that already happened here, not a hypothetical.
 ## 2. Where things are
 
     Redoubt            github.com/CPlusPlus17/Redoubt
-      android-port     b6e4d73   ← all the work
+      android-port     b6e4d73   ← the tag. The branch tip has moved well past
+                                  this; `baseline-2026-08-20` is the audit
+                                  anchor, not the head.
       main             71177a3   ← LibreWolf upstream, unmodified
 
     Redoubt-settings   github.com/CPlusPlus17/Redoubt-settings
@@ -62,12 +64,21 @@ LW_TREE=firefox-153.0.4 python3 docs/android/board.py --check-policies
 python3 scripts/lint-patch-scope.py
 python3 scripts/check-patch-order.py
 ./scripts/check-patchfail.sh                    # desktop; needs the tarball, ~minutes
+./scripts/check-patchfail.sh --targets=android  # needs the ESR tarball; see below
 ```
+
+That is **nine** commands. Any doc claiming eight or "all ten green" is wrong —
+`STATUS.md:9` says ten and lists eight.
+
+**These are the numbers AS OF the tag, not as of the working tree.** They are a
+point-in-time record and are meant to go out of date — do not "fix" them to match
+a later tree, or the tag stops being an anchor. Re-run the commands for current
+values.
 
 Verified green at `baseline-2026-08-20`:
 
     --check            88 tasks, 17 waves, 0 warnings
-    --check-scope      78 patch files — 24 common, 36 desktop, 18 android
+    --check-scope      76 patch files — 24 common, 36 desktop, 16 android
     --check-cfg-split  182 common / 85 desktop / 6 android; regenerates exactly
     --diff-mozconfig   hardening parity holds, 0 documented differences
     --check-policies   101 GeckoView-declared prefs, 24 shipped by us, all acknowledged
