@@ -181,10 +181,34 @@ work may be sound and the claim merely overstated, or not.
   ships librewolf.net, runs mozilla.org; `browser.cache.disk.enable` ships
   false, runs true), and every android.cfg decision is inert
   (`media.eme.enabled` runs true, not false; `network.lna.block_trackers` runs
-  false, not true). Root cause: the `autoconfig.properties` in the omni.ja
-  carries no `pref.default=` entry, so the autoconfig mechanism never loads
-  `librewolf.cfg`; `prefcalls.js` only wires a desktop `file://`
-  user-local overrides path that does not exist on Android. This is
+  false, not true).
+  **Root cause (corrected 2026-08-21, evidenced from running builds):** the
+  earlier filing blamed `autoconfig.properties` for a missing `pref.default=`
+  entry. That was wrong — `autoconfig.properties` is a *localization* file and
+  has no `pref.default=` on any platform. The selector is
+  `defaults/pref/local-settings.js`, which IS present in both APKs' omni.ja
+  and DOES set `general.config.filename = librewolf.cfg` at runtime. The
+  actual failure is one step later: `openAndEvaluateJSFile("librewolf.cfg",
+  0, true, true)` returns **`NS_ERROR_FILE_NOT_FOUND` (0x80520012)** on BOTH
+  the debug and the release APK. MOZ_LOG=MCD:5 captured from both builds
+  (via the GeckoView debug-config `env:` injection) shows the identical three
+  lines:
+  ```
+  D/MCD general.config.filename = librewolf.cfg
+  D/MCD evaluating .cfg file librewolf.cfg with obscureValue 0
+  D/MCD error evaluating .cfg file librewolf.cfg 80520012
+  ```
+  followed by the `Autoconfig is sandboxed by default` warning. Notably there
+  is **no `opened ...: 0x%` line** — that `MOZ_LOG` sits immediately after
+  `channel->Open` in the `resource://` branch of
+  `openAndEvaluateJSFile`, so its absence means the code either never reached
+  `channel->Open` or took the filesystem branch
+  (`NS_NewLocalFileInputStream`, which is the path that produces
+  `NS_ERROR_FILE_NOT_FOUND` when the file is absent from the directory
+  `NS_GetSpecialDirectory(NS_GRE_DIR)` resolves to on Android). The definitive
+  LW-M3-08 proof (`lockPref("librewolf.cfg.version","8.6")` canary +
+  `defaultPref` checks) returns `cfg_applied: false` on both builds: the
+  canary is unset and no `lockPref` from the `.cfg` is active. This is
   pre-existing (independent of the LW-M3-10 composition) and means **every
   M3 android.cfg / common.cfg decision that depends on the built-in cfg is
   unproven on a running build** — the M4 privacy re-derivation must treat
