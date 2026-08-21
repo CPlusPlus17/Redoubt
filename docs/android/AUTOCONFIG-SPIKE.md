@@ -19,9 +19,40 @@
 
 ## Verdict
 
-**YES. `settings/librewolf.cfg` can be evaluated natively on Android, and
-`lockPref` really locks.** Both are demonstrated below from a running build on
-an emulator, not from source reading.
+> **RETRACTED, THEN RESOLVED (2026-08-21, LW-M3-11).** The Proof 1 trace
+> below — both `opened resource://gre/defaults/autoconfig/...` lines at `0x0`,
+> no error — was **not reproducible** on the debug build at the time of
+> retraction. The same code, the same omni.ja contents, the same
+> `MOZ_LOG=MCD:5` level, produced:
+> ```
+> D/MCD general.config.filename = librewolf.cfg
+> D/MCD evaluating .cfg file librewolf.cfg with obscureValue 0
+> D/MCD error evaluating .cfg file librewolf.cfg 80520012
+> ```
+> with **no `opened` line for either file** and the
+> `Autoconfig is sandboxed by default` warning.
+>
+> **Root cause (LW-M3-11):** a stale `libxul.so` (Aug 17, pre-patch) in
+> `dist/fat-aar/output/jni/x86_64/` was being shipped in the APK instead of
+> the freshly-built one in `dist/geckoview/lib/x86_64/`. The fat-aar
+> intermediates cache (`merged_jni_libs/`, `merged_native_libs/`,
+> `stripped_native_libs/`) was serving the old binary. The patch
+> (`autoconfig-resource-fallback.patch`) was correct all along. After
+> copying the fresh `libxul.so` to the fat-aar location and clearing the
+> stale intermediates, the packaged `librewolf.cfg` loads and evaluates
+> successfully:
+> ```
+> D/MCD opened resource://gre/defaults/autoconfig/prefcalls.js: 0x0
+> D/MCD evaluating .cfg file librewolf.cfg with obscureValue 0
+> D/MCD opened resource://gre/defaults/autoconfig/librewolf.cfg: 0x0
+> ```
+> The spike used a hand-composed `.cfg` with sentinel prefs; it never proved
+> the **packaged** `librewolf.cfg` loads. LW-M3-11 now has.
+
+**[RETRACTED] YES. `settings/librewolf.cfg` can be evaluated natively on
+Android, and `lockPref` really locks.** Both were demonstrated below from a
+running build on an emulator, not from source reading. **That demonstration
+has not been reproduced on any subsequent build.**
 
 What that buys, concretely:
 
@@ -200,6 +231,16 @@ unreachable on Android.
 ---
 
 ## 4. Proof 1 — a pref set only by `librewolf.cfg` is live on a fresh profile
+
+> **NOT REPRODUCIBLE AT THE TIME (2026-08-21, LW-M3-11).** The MCD trace
+> below — both `opened` lines at `0x0` — did not appear on the debug build
+> when LW-M3-11 was investigated. Root cause: a stale `libxul.so` in the
+> fat-aar intermediates was shipped instead of the freshly-built one. The
+> patch was correct; the build pipeline was serving an old binary. After
+> fixing the stale-binary issue, the packaged `librewolf.cfg` loads and
+> evaluates successfully (see the Verdict retraction above). This proof
+> used a hand-composed `.cfg` with sentinel prefs; LW-M3-11 confirmed the
+> packaged one.
 
 The `.cfg` used was `settings/common.cfg` + `settings/android.cfg` concatenated
 (common first, so its sacrificial `null;` line 1 is the one
