@@ -21,7 +21,7 @@ LW-M3-08's spike proof of success is not reproducible on the current builds
 (filed as LW-M3-11). Glean, Adjust, Nimbus, Play Integrity and the onboarding
 flow are removed. First-run network traffic is **22-24 events over 4 hostnames, down from 59
 over 8** — all that remains is Remote Settings and one `ads.mozilla.org` lookup, both
-tracked. 76 patch files: 24 common, 36 desktop, 16 android.
+tracked. 78 patch files: 24 common, 36 desktop, 18 android.
 
 Not done: the Android build still ships the *desktop* pref composition (LW-M3-10),
 autoconfig does not evaluate the packaged `.cfg` on Android (LW-M3-11),

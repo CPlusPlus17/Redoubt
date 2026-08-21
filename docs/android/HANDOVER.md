@@ -67,7 +67,7 @@ python3 scripts/check-patch-order.py
 Verified green at `baseline-2026-08-20`:
 
     --check            88 tasks, 17 waves, 0 warnings
-    --check-scope      76 patch files — 24 common, 36 desktop, 16 android
+    --check-scope      78 patch files — 24 common, 36 desktop, 18 android
     --check-cfg-split  182 common / 85 desktop / 6 android; regenerates exactly
     --diff-mozconfig   hardening parity holds, 0 documented differences
     --check-policies   101 GeckoView-declared prefs, 24 shipped by us, all acknowledged
