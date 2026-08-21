@@ -168,10 +168,27 @@ work may be sound and the claim merely overstated, or not.
 
 ### Known-open, not blockers
 
-- **LW-M3-10** — the Android build still ships the *desktop* pref composition.
-  The three fragments exist and `--check-cfg-split` passes, but nothing consumes
-  them: `scripts/librewolf-patches.py:376` still copies plain `settings/librewolf.cfg`.
-  This is the wiring task.
+- **LW-M3-10 — LANDED (75026bc).** The patcher now composes `common.cfg` +
+  `android.cfg` for android-only targets; desktop and desktop+android runs keep
+  the checked-in composition (byte-identical to `settings/librewolf.cfg`).
+  **But see the next item: the cfg is packaged yet never loaded on Android.**
+- **NEW — the Android cfg is packaged into omni.ja but never applied at
+  runtime.** Discovered while verifying LW-M3-10: the built-in `librewolf.cfg`
+  (common+android, 59867 B) is present in the APK's omni.ja at
+  `defaults/autoconfig/librewolf.cfg`, and `prefcalls.js` is alongside it, but
+  the running build's prefs sit at their *built-in* defaults — 72 of 147
+  `common.cfg` prefs mismatch a `--pref-dump` (e.g. `app.support.baseURL`
+  ships librewolf.net, runs mozilla.org; `browser.cache.disk.enable` ships
+  false, runs true), and every android.cfg decision is inert
+  (`media.eme.enabled` runs true, not false; `network.lna.block_trackers` runs
+  false, not true). Root cause: the `autoconfig.properties` in the omni.ja
+  carries no `pref.default=` entry, so the autoconfig mechanism never loads
+  `librewolf.cfg`; `prefcalls.js` only wires a desktop `file://`
+  user-local overrides path that does not exist on Android. This is
+  pre-existing (independent of the LW-M3-10 composition) and means **every
+  M3 android.cfg / common.cfg decision that depends on the built-in cfg is
+  unproven on a running build** — the M4 privacy re-derivation must treat
+  cfg-gated prefs as open until this is fixed.
 - **LW-M4-08** — Remote Settings still reaches the network. `rs-blocker.patch`
   only touches the JS stack; Fenix uses the Rust `RemoteSettingsService`, so this
   needs a Rust-side change.
