@@ -442,6 +442,24 @@ REVIEWED_ORDER_FREE = (
      ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt",),
      "disjoint regions of GeckoProvider.kt (123 vs 134-135); measured identical both ways (LW-M4-09)"),
 
+    # LW-M6-07 loose end. fenix-abi-split edits the fenix app/build.gradle splits
+    # block (~:239-256), which no other patch touches, so it is order-free
+    # against the four patches that share that file: no-adjust (:350+),
+    # no-glean (:512), no-gms (:32/:366+) and no-crashreporter (:334+). Disjoint
+    # regions of one file; order only shifts offsets.
+    ("patches/android/no-adjust.patch", "patches/android/fenix-abi-split.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "disjoint regions of fenix app/build.gradle: splits block (~:239-256) vs no-adjust's region (:350+); order only shifts offsets (LW-M6-07)"),
+    ("patches/android/no-glean.patch", "patches/android/fenix-abi-split.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "disjoint regions of fenix app/build.gradle: splits block (~:239-256) vs no-glean's region (:512); order only shifts offsets (LW-M6-07)"),
+    ("patches/android/no-gms.patch", "patches/android/fenix-abi-split.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "disjoint regions of fenix app/build.gradle: splits block (~:239-256) vs no-gms's regions (:32, :366+); order only shifts offsets (LW-M6-07)"),
+    ("patches/android/no-crashreporter.patch", "patches/android/fenix-abi-split.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "disjoint regions of fenix app/build.gradle: splits block (~:239-256) vs no-crashreporter's region (:334+); order only shifts offsets (LW-M6-07)"),
+
     # Recorded in assets/patches/desktop.txt on the moz-official-desktop entry:
     # "different region, ~line 300 vs ~504".
     ("patches/hide-passwordmgr.patch", "patches/moz-official-desktop.patch",

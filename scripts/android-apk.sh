@@ -779,7 +779,13 @@ if [ \$rc -ne 0 ]; then
     echo "MACH_EXIT=\$rc"
     exit \$rc
 fi
-./mach gradle fenix:assemble$VARIANT_CAP
+# fenixSplitAbi drives the fenix/app/build.gradle splits block so the AGP split
+# matches --abis exactly (the apk_index check asserts produced == requested and
+# is right to do so).  MOZ_ANDROID_FAT_AAR_ARCHITECTURES is already set in the
+# container env for both passes, so reuse it; \$ keeps it for the container
+# shell, not the heredoc's host shell.  When unset (it is never unset here) the
+# build falls back to the original three-ABI split.
+./mach gradle fenix:assemble$VARIANT_CAP -PfenixSplitAbi="\$MOZ_ANDROID_FAT_AAR_ARCHITECTURES"
 rc=\$?
 date -u +'PASS apk END %Y-%m-%dT%H:%M:%SZ'
 echo "MACH_EXIT=\$rc"

@@ -1,0 +1,56 @@
+# LibreWolf fenix-abi-split.patch  (Android)
+# Owner: LW-M6-07 ("Make the R8-minified release build actually boot") -- loose end
+#
+# THE DEFECT
+# ----------
+# scripts/android-apk.sh's apk_index check (the block that reads
+# output-metadata.json) asserts the set of ABIs AGP actually split for is
+# EXACTLY the set passed to --abis.  It is correct to do so: a caller that asks
+# for one ABI should not receive three.  But the build ignored the request.
+# fenix/app/build.gradle's splits block hardcoded
+#     include "armeabi-v7a", "arm64-v8a", "x86_64"
+# so `--abis x86_64` still produced the full three-ABI split plus a universal,
+# and the script exited 1 with
+#     AGP split for ['arm64-v8a','armeabi-v7a','x86_64'], expected ['x86_64']
+# (reproduced: ~/lw-m6-07 run3, output-metadata.json shows 1 UNIVERSAL + 3
+# ONE_OF_MANY regardless of the request).  The owner's verdict: the check is
+# right, the build is wrong.
+#
+# THE FIX
+# -------
+# Add a `fenixSplitAbi` property to the splits block, generalising the existing
+# `benchmarkTest` branch (which already proves a property can drive the split
+# set -- it restricts to arm64-v8a for benchmark runs).  When fenixSplitAbi is
+# set to a comma-separated ABI list, the build includes exactly those ABIs and
+# keeps a universal APK (the apk_index check requires exactly one universal).
+# When it is unset, behaviour is unchanged (all three, universal gated on
+# MOZILLA_OFFICIAL as before).  scripts/android-apk.sh passes the requested
+# --abis set as -PfenixSplitAbi, reusing the MOZ_ANDROID_FAT_AAR_ARCHITECTURES
+# environment variable it already sets for both build passes.
+#
+# The splits block is untouched by every other patch in the list, so this hunk
+# is in vanilla coordinates; the desktop and ESR trees carry an identical
+# block (verified by diff), so the same patch applies to both.
+
+--- a/mobile/android/fenix/app/build.gradle
++++ b/mobile/android/fenix/app/build.gradle
+@@ -239,9 +239,17 @@
+             if (project.hasProperty("benchmarkTest")) {
+                 include "arm64-v8a"
+             } else {
+-                include "armeabi-v7a", "arm64-v8a", "x86_64"
+-                if (gradle.mozconfig.substs.MOZILLA_OFFICIAL || System.getenv("MOZ_BUILD_CONFIG_LINT") == "1") {
++                // fenixSplitAbi is a comma-separated ABI list passed by
++                // scripts/android-apk.sh so the split matches --abis exactly.
++                def splitAbi = project.findProperty("fenixSplitAbi")
++                if (splitAbi) {
++                    splitAbi.toString().split(",").collect { it.trim() }.each { include it }
+                     universalApk true
++                } else {
++                    include "armeabi-v7a", "arm64-v8a", "x86_64"
++                    if (gradle.mozconfig.substs.MOZILLA_OFFICIAL || System.getenv("MOZ_BUILD_CONFIG_LINT") == "1") {
++                        universalApk true
++                    }
+                 }
+             }
+         }
