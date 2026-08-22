@@ -2449,6 +2449,43 @@ tasks:
       the isolation strategy. Fix both call sites, not just the pref: a locked
       pref that Core.kt overwrites at runtime is landmine L2 all over again.
       Measure RAM and startup on a low-end device before choosing 1 over 2.
+
+      STATUS 2026-08-22 (patch + decision + upstream report done; runtime
+      verification parked under rule G):
+      DECISION - locked to 2 (ISOLATE_HIGH_VALUE), not 1. Rationale: 1
+      (ISOLATE_EVERYTHING) puts every site-origin in its own content process and
+      costs more RAM and startup; on a 3-4 GB device 2 is the Android-tuned floor.
+      2 also matches the no-nimbus FML default and the value android-components
+      hardcodes for non-Fenix consumers (StaticPrefList.yaml:6658 comment). Gecko's
+      own default is 1, but that is the desktop/stronger posture, not what a
+      memory-constrained phone should ship by default.
+      MECHANISM - patches/android/fission-isolation.patch hard-codes
+      WebContentIsolationStrategy.ISOLATE_HIGH_VALUE at Core.kt:207-208, replacing
+      the FxNimbus FML read. A constant cannot be lowered by a Nimbus experiment, a
+      Fenix settings write, or an upstream default flip (same rationale as
+      isolated-process.patch, LW-M5-02). This is the code-level guarantee for
+      acceptance #2: Core.kt:207-208 has no remaining path that reads a lower
+      value. Listed in assets/patches/android.txt after no-nimbus.patch. Divergence
+      from no-nimbus.patch line 316 (which expected this patch to "share
+      nimbus.fml.yaml"): it instead hard-codes in Core.kt - the only file it
+      touches - so it is order-free with the rest of the set (measured:
+      no-nimbus <-> fission-isolation both orders, 0 rejects; fuzz 0).
+      UPSTREAM - the shouldUseNimbus/isolationStrategy inconsistency is drafted as
+      a reproduction in docs/android/UPSTREAM-FIREFOX.md. PENDING owner sign-off and
+      filing (per the M5 ground rules, public wording is not filed or published
+      without sign-off); NO bug link recorded yet.
+      PARKED (rule G - environment, not logic): acceptance #1 (value in
+      about:config after settings), the runtime half of #2 (set the FML value to 0
+      and show Core.kt still applies 2), and #3 (RAM/startup) all require a rebuild
+      (multi-hour container build: android-fat-aar.sh pass 1 + android-apk.sh pass 2)
+      plus a stable device. The only device here is a 3072 MB API-30 AVD (lw30),
+      NOT a 4 GB device - say so and record what is measured, per the goal. Next
+      steps: (a) rebuild with the 43-patch list and re-prove the artefact (patch
+      list, fresh libxul, cfg canary); (b) on the AVD, drive about:config and read
+      fission.webContentIsolationStrategy after opening settings; (c) attempt to
+      lower it via a Nimbus/pref path and show it stays 2; (d) record
+      cold-start ms + per-process RSS on the 3072 MB AVD, flagged as not the 4 GB
+      target.
     acceptance:
       - "the effective value is 1 or 2 at runtime (justify which), verified in about:config after settings has been opened"
       - "Core.kt:207-208 can no longer lower it — verified by exercising the path, not by reading it"
