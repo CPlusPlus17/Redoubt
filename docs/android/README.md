@@ -20,17 +20,24 @@ intact; a three-ABI fat AAR and an installable APK exist and run *our* GeckoView
 `lw-fresh-2026-08-22` (HEAD `5d8af8f`, built 2026-08-22) is built from the
 **full** `assets/patches/android.txt` (42 patches, verified byte-for-byte) with
 R8 on. Measured on it (release, x86_64): **0 GMS and 0 Adjust dex strings**
-(both removed), the Glean SDK present with the Fenix integration removed
-(`GleanHelper`=0), **14 first-run network events over 4 Mozilla hostnames** (down
+(both removed); for Glean, **the generated metrics classes remain** (475
+`GleanMetrics` in the dex) **but the upload path is gone**
+(`org.mozilla.components.service.glean` = 0, `GleanHelper` = 0) — the metrics
+definitions stay, the thing that would send them does not; **14 first-run network
+events over 4 Mozilla hostnames** (down
 from 27 on the partial-patch-set `lw-m3-08`), and `lockPref("librewolf.cfg.version")`
 from `common.cfg:68` **present at runtime and locked** — so the packaged
 configuration **is** now applied. [`PRIVACY-BASELINE-2026-08-21.md`](PRIVACY-BASELINE-2026-08-21.md)
 keeps the earlier `lw-m3-08` baseline this supersedes; the 2026-08-22 build's
 numbers and reproducing commands are in `~/lw-fresh-2026-08-22/measurements-2026-08-22.md`.
 
-Still unproven / not done: LW-M4-05 and LW-M4-16 (validating the GMS/Adjust
-removal at the code level) were not re-attempted on this build; the UI still says
-"Firefox" (LW-M4-12); and nothing is signed or distributed.
+Re-checked against this build: **LW-M4-05's `--check-no-gms` gate now passes** —
+the zero-GMS result is a real removal (0 `com/google/android/gms` dex strings,
+verified on a build that boots), not the R8-deletion artefact that LW-M4-16's
+earlier "zero-GMS" was. **LW-M4-16 is now closed**: its two residual strings are
+gone (GMS = 0), so the allowlist it was hardening is unnecessary — the gate holds
+on its own. Still not done: the UI still says "Firefox" (LW-M4-12); and nothing
+is signed or distributed.
 
 78 patch files: 24 common, 36 desktop, 18 android.
 

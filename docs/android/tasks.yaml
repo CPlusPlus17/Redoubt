@@ -2357,6 +2357,13 @@ tasks:
       zero-GMS" conclusion came from an APK that does not boot. R8 stripped the JNA
       field names Nimbus needs, so the gate was green because the classes were
       deleted. Re-derive any release-build GMS claim on a build that actually runs.
+
+      CLOSED 2026-08-22 — the ground moved. The fresh full-patch-list release build
+      (lw-fresh-2026-08-22, HEAD 5d8af8f) has GMS = 0: `--check-no-gms` passes on a
+      build that boots (0 com/google/android/gms dex strings, 0 apk entries). The two
+      residual strings this task existed to remove are gone, so the allowlist it was
+      hardening is unnecessary — the gate now holds on its own, with no exemption and
+      no threshold change. Satisfied on the reference artefact; see the 4-day report.
     acceptance:
       - "./scripts/android-smoke.sh --check-no-gms exits 0 against a freshly built APK"
       - "if any string is kept, the check documents precisely why it is unreachable"
