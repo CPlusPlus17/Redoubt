@@ -2600,6 +2600,20 @@ tasks:
       fingerprint. Run the standard fingerprinting probes, compare against desktop
       LibreWolf and against Tor Browser for Android, and document where our Android
       fingerprint stands. Note letterboxing is NOT a gap — desktop ships it false.
+      STATUS 2026-08-22: the comparison is written (RFP-ANDROID.md sec 1-2): RFP
+      master switch is on for Android (common.cfg:300, shared with desktop); the
+      desktop-only sub-features (window-size trio, letterboxing) are correctly NOT
+      in the Android composition (desktop.cfg only; letterboxing is false anyway
+      and does not work on GeckoView, desktop.cfg:139) - so they are not gaps,
+      per the what. android.cfg decision (acceptance item 2): NO adjustment
+      landed, documented - RFP is already on, no cfg lever fixes the coherence
+      question, and pulling in desktop-only prefs would be a regression. The
+      gate (scripts/android-rfp-check.sh) checks the configured coherence and its
+      --self-test PASSES (rejects RFP-off and letterboxing-enabled configs).
+      PENDING (acceptance substance, needs a device): the live fingerprint probes
+      (UA, screen, DPR, canvas, RFP coherence) vs desktop LibreWolf + Tor Browser
+      Android - the "MORE identifiable" risk is only confirmable/ruleable out on a
+      real device; parked per rule G, not faked. Acceptance/verify unchanged.
     acceptance:
       - "a written comparison against desktop LibreWolf and Tor Browser Android"
       - "any Android-specific RFP pref adjustment landed in android.cfg with a reason"
