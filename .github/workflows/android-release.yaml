@@ -1,13 +1,11 @@
 # Android release pipeline (LW-M6-05)
 #
-# LOCATION NOTE: this file lives under .github/workflows/ because the
-# repository is hosted on GitHub; the .forgejo/ directory is dead.  The shape
-# is mirrored from .forgejo/workflows/source-release.yaml (see the M6 report
-# for the deviation and the fate of the stale .forgejo workflows).
+# LOCATION: .github/workflows/, because this repository is hosted on GitHub.
+# The .forgejo/ directory is dead here — GitHub Actions does not read it.
 #
-# CUSTODY MODEL (LW-M6-01): the signing material never touches CI.  This
+# CUSTODY MODEL (LW-M6-01): the signing material never touches CI. This
 # pipeline builds the RELEASE build type *unsigned* and publishes only the
-# unsigned APK plus its sha256 sums, as a CI artifact.  A maintainer then signs
+# unsigned APK plus its sha256 sums, as a CI artifact. A maintainer then signs
 # offline on a machine that holds the signing material and publishes the
 # *signed* APK as the actual release.
 #
@@ -15,98 +13,179 @@
 #   * there is no signing step anywhere in this file, and
 #   * there is no release-creation step anywhere in this file, and
 #   * the build job hard-fails if the APK it is about to publish is not
-#     provably unsigned (apksigner must REFUSE it).
+#     provably unsigned.
 # A build therefore cannot reach "published" without passing the unsigned
 # gate, and this workflow has no code path that turns any build into a release.
-# That is the "only publish signed releases" discipline from
-# source-release.yaml (commit 71177a3), applied to a pipeline that
-# deliberately holds no signing material: CI can only ever emit the unsigned
-# artifact + hashes, never a release.  Publishing a release without a
-# signature is blocked by construction -- there is simply no signing or
-# release step to run.
 #
-# RUNNER / IMAGE: point at a self-hosted Android runner and a registry-pushed
-# build image (the locally built librewolf-android-build image, published).
-# The build assumes the same preconditions as the measured local builds
-# (scripts/android-apk.sh, scripts/android-verify-repro.sh): a tree that can be
-# ./mach configure'd for the Android target with the Fenix subproject enabled,
-# plus the per-ABI fat AAR inputs.
+# NO `container:` BLOCK, DELIBERATELY. Three measured reasons:
+#   1. The image the first draft named (ghcr.io/librewolf/android-build) does
+#      not exist — HTTP 401. It was never real. The Makefile builds
+#      `librewolf-android-build` LOCALLY from assets/Dockerfile.android and
+#      publishes it to no registry, exactly as
+#      .forgejo/workflows/android-test.yaml:37 already documented.
+#   2. Actions `container:` jobs do not work on this runner regardless of
+#      image. It is rootless podman behind the podman-docker shim; the runner
+#      mounts a dangling /var/run/docker.sock (podman-docker points it at the
+#      ROOT socket /run/podman/podman.sock, which does not exist rootless),
+#      and SELinux is Enforcing while the runner emits bind mounts with no
+#      :z flags and no way to add them. Measured 2026-08-22, three attempts,
+#      all `statfs ...: no such file or directory` at container create.
+#   3. The runner is a dedicated build machine. Its toolchain is the point.
+# If a step ever genuinely needs the build image, invoke `podman run`
+# explicitly inside a `run:` step, where the mount flags are ours to set.
+#
+# NO apksigner DEPENDENCY, DELIBERATELY. The first draft resolved apksigner
+# from $ANDROID_SDK_ROOT/build-tools/*/. That variable was never set anywhere
+# in the workflow, and this machine has no build-tools directory at all. The
+# unsigned check below inspects the APK itself and needs only unzip + grep,
+# which is both dependency-free and strictly more honest: it detects v1, v2
+# and v3 signatures rather than trusting one tool's exit code.
 
 name: Android release (unsigned artifacts only)
 
 on:
+  # Changes to this pipeline preflight themselves. A workflow that has never
+  # executed is not a pipeline; this makes "it runs" observable on every edit.
+  push:
+    branches: [android-port, main]
+    paths: ['.github/workflows/android-release.yaml']
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "preflight = verify the runner can do the build (minutes). full = fetch, patch, build, gate, publish (hours, ~40 GB)."
+        required: true
+        default: preflight
+        type: choice
+        options: [preflight, full]
 
 jobs:
   build-unsigned:
-    # Self-hosted Android runner (mirrors source-release.yaml's `epsilon`).
     runs-on: librewolf-android
-    container:
-      # Registry-pushed build image (mirrors source-release.yaml's container).
-      image: ghcr.io/librewolf/android-build:latest
+    env:
+      # `inputs` only exists for workflow_dispatch; a push always preflights.
+      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'preflight' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Build the unsigned release APK
+      - name: Preflight — the runner must be able to do this at all
         run: |
-          # Full configure/seed plumbing is the project's build scripts
-          # (scripts/android-apk.sh, scripts/android-verify-repro.sh); this is
-          # the release invocation core they share.
-          #
-          #   -PdisableDebugSigning  release build type, no signature applied.
-          #   -PdisableOptimization  R8 off (LW-M4-09 / LW-M6-07: the R8
-          #                          minified release build does not boot yet).
-          # The universal (all-ABI) APK is what ships to direct-install users.
-          ./mach gradle fenix:generateSafeArgsRelease -PdisableDebugSigning -PdisableOptimization
-          ./mach gradle fenix:assembleRelease -PdisableDebugSigning -PdisableOptimization
+          set -eu
+          fail=0
+          need() {
+            if command -v "$1" >/dev/null 2>&1; then
+              echo "  ok      $1 -> $(command -v "$1")"
+            else
+              echo "  MISSING $1 ${2:+($2)}" >&2; fail=1
+            fi
+          }
+          echo "== tools =="
+          need make; need python3; need curl; need gpg; need tar; need xz
+          need patch; need unzip; need java "JDK, for the Gradle stage"
+          need podman "optional: only if a step invokes the build image"
 
-      - name: Hard gate - the artifact MUST be unsigned
+          echo "== disk =="
+          avail=$(df -BG --output=avail /home | tail -1 | tr -dc '0-9')
+          echo "  ${avail} GB free on /home"
+          if [ "${avail:-0}" -lt 150 ]; then
+            echo "  FATAL: a Gecko tree is ~40 GB; refusing to start under 150 GB" >&2
+            fail=1
+          fi
+
+          echo "== board gates =="
+          python3 docs/android/board.py --check
+          python3 docs/android/board.py --check-scope
+          python3 docs/android/board.py --check-cfg-split
+          python3 scripts/lint-patch-scope.py
+          python3 scripts/check-patch-order.py
+
+          echo "== version pinning =="
+          echo "  android track: $(cat version.android) release $(cat release.android)"
+
+          [ "$fail" -eq 0 ] || { echo "PREFLIGHT FAILED" >&2; exit 1; }
+          echo "PREFLIGHT PASSED"
+
+      - name: Stop here unless a full build was requested
+        if: ${{ env.MODE != 'full' }}
         run: |
-          # apksigner exits non-zero for an unsigned APK.  We REQUIRE that
-          # non-zero exit: if the APK ever comes out signed, this step fails
-          # the build instead of letting it be published.  This is the active
-          # block on "publish a build that is not the offline-signed one".
-          set -u
-          APKSIGNER="$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | head -n1)"
+          echo "mode=$MODE — preflight only. No build was run."
+          echo "Re-dispatch with mode=full to fetch, patch, build and publish."
+
+      - name: Fetch and patch the Android tree
+        if: ${{ env.MODE == 'full' }}
+        run: |
+          set -eu
+          # The build happens in the EXTRACTED tree, not at the repo root:
+          # ./mach does not exist here. `make dir` produces
+          # librewolf-<version>-<release>/ and that is where mach lives.
+          make fetch TARGETS=android
+          make dir   TARGETS=android
+          test -x "librewolf-$(cat version.android)-$(cat release.android)/mach" \
+            || { echo "FATAL: mach not found in the extracted tree" >&2; exit 1; }
+
+      - name: Build the unsigned release APK
+        if: ${{ env.MODE == 'full' }}
+        run: |
+          set -eu
+          cd "librewolf-$(cat version.android)-$(cat release.android)"
+          #   -PdisableDebugSigning  release build type, no signature applied.
+          # R8 is left ON: LW-M6-07 fixed the JNA/uniffi keep rules and the
+          # minified release build now boots. Do not reintroduce
+          # -PdisableOptimization without re-measuring.
+          ./mach gradle fenix:generateSafeArgsRelease -PdisableDebugSigning
+          ./mach gradle fenix:assembleRelease -PdisableDebugSigning
+
+      - name: Hard gate — the artifact MUST be unsigned
+        if: ${{ env.MODE == 'full' }}
+        run: |
+          set -eu
           found=0
           for apk in $(find . -path '*/fenix/app/outputs/apk/release/*.apk'); do
             found=1
-            if "$APKSIGNER" verify "$apk" >/tmp/verify.log 2>&1; then
-              echo "FATAL: $apk VERIFIED as signed." >&2
+            signed=0
+            # v1 (JAR signing): a signature block file under META-INF/.
+            if unzip -l "$apk" | grep -qiE 'META-INF/.*\.(RSA|DSA|EC)$'; then
+              echo "FATAL: $apk carries a v1 JAR signature." >&2; signed=1
+            fi
+            # v2/v3 (APK Signing Block): magic string before the central dir.
+            if grep -qa 'APK Sig Block 42' "$apk"; then
+              echo "FATAL: $apk carries a v2/v3 APK Signing Block." >&2; signed=1
+            fi
+            if [ "$signed" -eq 1 ]; then
               echo "This pipeline may only publish UNSIGNED artifacts;" >&2
               echo "a signed build belongs to the offline maintainer step." >&2
               exit 1
             fi
-            echo "OK: $apk is unsigned (apksigner refused it, as required)."
+            echo "OK: $apk is unsigned (no v1 block, no v2/v3 signing block)."
           done
           [ "$found" -eq 1 ] || { echo "FATAL: no release APK found to gate." >&2; exit 1; }
 
       - name: Collect unsigned APKs and publish sha256 sums
+        if: ${{ env.MODE == 'full' }}
         run: |
-          set -u
+          set -eu
           mkdir -p dist
-          for apk in $(find . -path '*/fenix/app/outputs/apk/release/*.apk'); do
-            cp "$apk" dist/
-          done
+          find . -path '*/fenix/app/outputs/apk/release/*.apk' -exec cp {} dist/ \;
           ( cd dist && sha256sum *.apk > SHA256SUMS )
           cat dist/SHA256SUMS
 
       - name: Upload unsigned artifacts + sums
+        if: ${{ env.MODE == 'full' }}
         uses: actions/upload-artifact@v4
         with:
-          name: librewolf-android-unsigned
+          name: redoubt-android-unsigned
           path: |
             dist/*.apk
             dist/SHA256SUMS
           retention-days: 90
 
-      - name: Boundary - CI stops here (no signing, no release)
+      - name: Boundary — CI stops here (no signing, no release)
+        if: ${{ env.MODE == 'full' }}
         run: |
-          echo "CI is done.  What was published is an UNSIGNED artifact plus"
-          echo "its sha256 sums -- not a release.  Signing and release"
+          echo "CI is done. What was published is an UNSIGNED artifact plus"
+          echo "its sha256 sums -- not a release. Signing and release"
           echo "publication happen offline, on a maintainer machine that holds"
-          echo "the signing material.  This workflow has no signing step and no"
+          echo "the signing material. This workflow has no signing step and no"
           echo "release-creation step, by design (LW-M6-01 custody model)."
