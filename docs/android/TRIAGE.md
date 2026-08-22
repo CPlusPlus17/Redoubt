@@ -1,17 +1,18 @@
-# Android issue triage — `codeberg.org/librewolf/issues`
+# Android issue triage — `github.com/CPlusPlus17/Redoubt/issues`
 
 Task: **LW-M7-04**. Wave 0, on purpose: the first week after launch is when triage
 is most needed and least likely to get written.
 
 This document is a **specification plus the literal files a maintainer commits**.
-Nothing in it has been applied — labels and templates require write access to
-`codeberg.org/librewolf/issues`, which is a maintainer action. Everything needed to
-execute it is here; [§6](#6-maintainer-checklist) is the ordered checklist and
-should take about ten minutes.
+Nothing in it has been applied — creating the labels and enabling the issue form
+are actions a maintainer performs on the repository, which is a maintainer action.
+Everything needed to execute it is here; [§6](#6-maintainer-checklist) is the
+ordered checklist and should take about ten minutes.
 
-The issue tracker is a **separate repository** from this one
-(`librewolf/source`). Everything below lands in `librewolf/issues`, on its default
-branch. Nothing in this document changes `librewolf/source`.
+The issue tracker is **this repository's own GitHub tracker**
+(`github.com/CPlusPlus17/Redoubt/issues`). Labels and the issue form live on the
+default branch of that same repository. Nothing in this document changes the
+tracked source.
 
 ---
 
@@ -69,24 +70,24 @@ explicit mapping so that commit messages and task references still resolve:
 
 This is a deviation from the board text and is recorded in [§7](#7-what-this-document-does-not-decide).
 If a maintainer prefers the lowercase names, rename all four consistently and change
-the `labels:` lists in [§2](#2-the-issue-template) to match — Forgejo silently drops
-template labels that do not exist, so a mismatch produces unlabelled issues with no
-error anywhere.
+the `labels:` lists in [§2](#2-the-issue-template) to match — the tracker will not
+create a label from a template reference, so a mismatch produces unlabelled issues
+with no error anywhere.
 
 ### 1.2 The required four
 
-Colours are `#RRGGBB` as Forgejo's label editor expects. The three `Android *`
+Colours are `#RRGGBB` as the GitHub label editor expects. The three `Android *`
 sub-labels share a green hue so the family reads as a block in the sidebar;
 `Android Security` deliberately breaks the family in red so it is visible in an
-unsorted list without reading any text. Forgejo picks black or white label text
+unsorted list without reading any text. GitHub picks black or white label text
 automatically from background luminance — no separate text colour to set.
 
 ---
 
 #### `Android` — `#0B6E4F`
 
-> **Description (paste into Forgejo):**
-> `Issues related to the Android release of LibreWolf`
+> **Description (paste into GitHub):**
+> `Issues related to the Android release of Redoubt`
 
 **Means:** the report is about the Android build. This is the platform label, the
 exact sibling of `Linux`, `macOS`, `Windows` and `FreeBSD`.
@@ -193,7 +194,7 @@ anything suggesting a distribution channel served something we did not sign.
   We publish this rather than hide it. Reports of it are correct observations of a
   documented gap, not vulnerabilities — see [§3.2](#32-close-immediately-with-the-boilerplate),
   boilerplate **B2**.
-- general privacy anxiety, hardening wishlists, or "is LibreWolf Android as secure
+- general privacy anxiety, hardening wishlists, or "is Redoubt as secure
   as X" comparisons. Those are `Type Question` or `Type Discussion`.
 
 **Boundary:** the label means *a maintainer looks at this today*. If applying it to
@@ -219,8 +220,8 @@ follow the existing `Build *` family exactly.
 
 | label | colour | description |
 |---|---|---|
-| `Build F-Droid` | `#1976D2` | `Issues specific to the LibreWolf F-Droid repository` |
-| `Build Accrescent` | `#5E35B1` | `Issues specific to the Accrescent release of LibreWolf` |
+| `Build F-Droid` | `#1976D2` | `Issues specific to the Redoubt F-Droid repository` |
+| `Build Accrescent` | `#5E35B1` | `Issues specific to the Accrescent release of Redoubt` |
 | `Build APK` | `#455A64` | `Issues specific to the direct APK download or Obtainium updates` |
 
 Apply the channel label whenever the reporter's answer to the channel question
@@ -262,11 +263,12 @@ three.
 
 ### 2.1 Form choice: YAML issue form, not Markdown
 
-Forgejo accepts both. Templates live on the **default branch** of `librewolf/issues`
-in `.forgejo/issue_template/` (also accepted: `.forgejo/ISSUE_TEMPLATE/`,
-`.gitea/…`, `.github/…`, `docs/…`), with extensions `.md`, `.yaml` or `.yml`.
+GitHub accepts both. Templates live on the **default branch** of the repository in
+`.github/ISSUE_TEMPLATE/`, as a Markdown file (`.md`) or a YAML issue form
+(`.yml`/`.yaml`), with a sibling `config.yml` holding `blank_issues_enabled` and
+`contact_links`.
 
-**Chosen: `.forgejo/issue_template/android-bug.yaml`** — a YAML issue form.
+**Chosen: `.github/ISSUE_TEMPLATE/android-bug.yml`** — a YAML issue form.
 
 Why, given that a Markdown template is simpler:
 
@@ -290,10 +292,11 @@ enabled so that path stays open.
 A Markdown fallback is in [Appendix A](#appendix-a--markdown-fallback-template) for
 the case where the form is rejected or a maintainer prefers it.
 
-### 2.2 `.forgejo/issue_template/android-bug.yaml`
+### 2.2 `.github/ISSUE_TEMPLATE/android-bug.yml`
 
-Create the labels in [§1](#1-labels) **first** — Forgejo drops unknown template
-labels without an error.
+Create the labels in [§1](#1-labels) **first** — GitHub will not create a label
+from a template reference, so an unknown label in the form's `labels:` list is
+simply not applied.
 
 ```yaml
 name: Android bug report
@@ -360,9 +363,9 @@ body:
         Obtainium and F-Droid both show the source repository in the app's detail
         page.
       options:
-        - The LibreWolf F-Droid repository
+        - The Redoubt F-Droid repository
         - Accrescent
-        - Direct APK download from librewolf.net
+        - Direct APK download from our site
         - Obtainium (tracking the direct APK)
         - A different F-Droid repository or mirror (say which, below)
         - I built it from source
@@ -373,9 +376,9 @@ body:
   - type: input
     id: app-version
     attributes:
-      label: LibreWolf version and build ID
+      label: Redoubt version and build ID
       description: >-
-        LibreWolf → Settings → About LibreWolf. Paste the whole version line,
+        Redoubt → Settings → About Redoubt. Paste the whole version line,
         including the build ID.
       placeholder: "153.0.4-1 (Build #20260815120000)"
     validations:
@@ -410,7 +413,7 @@ body:
       label: Which prefs did you change?
       description: >-
         One `pref.name = value` per line. Also list anything you changed in
-        LibreWolf's own Settings screens, and any extensions you installed beyond
+        Redoubt's own Settings screens, and any extensions you installed beyond
         the preinstalled uBlock Origin.
       render: text
 
@@ -420,9 +423,9 @@ body:
       label: Does it still happen with a clean profile?
       description: >-
         **This deletes your bookmarks, history and logins — export them first.**
-        "Delete browsing data" inside LibreWolf is NOT enough; it leaves your
+        "Delete browsing data" inside Redoubt is NOT enough; it leaves your
         about:config changes in place. A clean profile means Android Settings →
-        Apps → LibreWolf → Storage → **Clear storage**, or uninstall and reinstall.
+        Apps → Redoubt → Storage → **Clear storage**, or uninstall and reinstall.
         If you would rather not lose your data, choose the last option — that is a
         fine answer and we will not close the issue for it.
       options:
@@ -440,13 +443,13 @@ body:
       description: >-
         The most useful single test you can run. If stock Firefox does the same
         thing, it is an upstream Gecko bug and we will route it to Mozilla instead
-        of sitting on it. Installing Firefox alongside LibreWolf is safe; they do
+        of sitting on it. Installing Firefox alongside Redoubt is safe; they do
         not share data.
       options:
         - "Yes, Firefox for Android does it too"
         - "No, Firefox for Android is fine"
         - "I have not tried"
-        - "Not applicable (this is about a LibreWolf-specific feature)"
+        - "Not applicable (this is about a Redoubt-specific feature)"
     validations:
       required: true
 
@@ -465,7 +468,7 @@ body:
       description: >-
         There is no crash reporter, so `adb logcat` is the only way we see a crash.
         With USB debugging on and the device connected:
-        `adb logcat -d > librewolf.txt` right after reproducing, then attach the
+        `adb logcat -d > redoubt.txt` right after reproducing, then attach the
         file. Read it first — logcat can contain URLs you have visited.
       render: shell
 
@@ -488,30 +491,31 @@ body:
           required: false
 ```
 
-### 2.3 `.forgejo/issue_template/config.yaml`
+### 2.3 `.github/ISSUE_TEMPLATE/config.yml`
 
 ```yaml
 blank_issues_enabled: true
 contact_links:
   - name: Security vulnerability — do NOT open a public issue
-    url: https://librewolf.net/
+    url: https://example.com/
     about: >-
       Memory-safety bugs, APK signature mismatches, or anything suggesting a
-      distribution channel served a build we did not sign. Report these privately
-      through the LibreWolf security contact.
+      distribution channel served a build we did not sign. Report these privately,
+      using the contact path in docs/android/SECURITY.md.
   - name: Questions, support and general chat
-    url: https://librewolf.net/docs/faq/
+    url: https://example.com/
     about: >-
-      "How do I …" and "why does LibreWolf …" are answered faster in the FAQ and
+      "How do I …" and "why does Redoubt …" are answered faster in the FAQ and
       the chat rooms than in the issue tracker.
 ```
 
-> **Before committing:** replace the first `url:` with the exact private contact
-> URL. The placeholder is a valid URL so that the file always parses, but it is not
-> the right one. `docs/android/SECURITY.md` (**LW-M7-05**) defines the Android
-> disclosure path; until it lands, use whatever contact LibreWolf's existing
-> disclosure process publishes. This substitution is step 6 of the checklist and is
-> the one step that must not be skipped.
+> **Before committing:** replace both `url:` values — both are
+> `https://example.com/`, a valid placeholder (RFC 2606 reserved domain) so the
+> file always parses, but it is not the right one. The security link must point at
+> the private contact path in `docs/android/SECURITY.md` (**LW-M7-05**): GitHub's
+> private vulnerability reporting for this repository, or its out-of-band channel.
+> The questions link must point at the real FAQ and chat rooms. This substitution
+> is step 6 of the checklist and is the one step that must not be skipped.
 
 `blank_issues_enabled: true` is deliberate. Forcing every report through a form
 also blocks the person who has read the code and wants to explain a race condition
@@ -579,7 +583,7 @@ brush-off does not file the second, better report.
 **B1 — Play Store**
 
 ```
-Thanks for asking. The Play Store is out of scope for LibreWolf on Android, and it
+Thanks for asking. The Play Store is out of scope for Redoubt on Android, and it
 is a deliberate decision rather than a to-do item.
 
 Play requires either Google's app signing (which means handing over the signing key)
@@ -635,8 +639,8 @@ need three things that are not in the issue yet:
 - where you installed the APK from (our F-Droid repo, Accrescent, direct download,
   Obtainium, or built from source)
 
-and, if you have it, your LibreWolf version and build ID from Settings → About
-LibreWolf.
+and, if you have it, your Redoubt version and build ID from Settings → About
+Redoubt.
 
 There is no crash reporter in this build, so we genuinely cannot see any of this from
 here. The "Android bug report" template collects all of it if you would rather refile.
@@ -651,7 +655,7 @@ back, and reopening it later is fine.
 Thanks — that is a useful test result, and it points away from us.
 
 If stock Firefox for Android does the same thing on the same version, the bug is in
-Gecko rather than in anything LibreWolf changes, and it needs to go to Mozilla:
+Gecko rather than in anything Redoubt changes, and it needs to go to Mozilla:
 
   https://bugzilla.mozilla.org/enter_bug.cgi?product=Fenix
 
@@ -742,13 +746,12 @@ requests from a build that should make none before first navigation; a demonstra
 way past the containment we *do* have (isolated processes, the app zygote, the
 locked isolation strategy).
 
-**What does not qualify:** the documented sandbox gap (**B2**); "LibreWolf is less
+**What does not qualify:** the documented sandbox gap (**B2**); "Redoubt is less
 secure than $BROWSER" comparisons; hardening wishlists; anything that is a privacy
 preference argument rather than a defect.
 
 **Where it goes:** the private disclosure path in `docs/android/SECURITY.md`
-(**LW-M7-05**, not yet written). Until that lands, the existing LibreWolf disclosure
-contact is the path, and the same rule holds regardless: **not the public tracker.**
+(**LW-M7-05**). The same rule holds regardless: **not the public tracker.**
 
 **If it arrives as a public issue anyway** — which it will, at least once, in week
 one:
@@ -759,8 +762,9 @@ one:
 2. **Copy the full issue and every comment somewhere private** before touching it.
    This step is not optional and it is the one people skip.
 3. Post **B6**, with the real contact address substituted.
-4. **Delete the issue** (Forgejo: issue → `⋯` → Delete). Editing the text out is not
-   enough — Forgejo keeps comment edit history and it is visible to ordinary users.
+4. **Delete the issue** (GitHub: the issue page → `⋯` → Delete issue). Editing the
+   text out is not enough — GitHub keeps the edit history and it is visible to
+   ordinary users.
    Deleting is destructive and irreversible, which is exactly why step 2 comes first.
 5. Continue privately. Tell the reporter what will happen and roughly when.
 6. Once fixed and released, open a **new** public issue with `Android`,
@@ -929,9 +933,9 @@ three, expensive in month six.
 
 ## 6. Maintainer checklist
 
-Everything below happens on `codeberg.org/librewolf/issues` and needs write access
-there. Nothing has been done. Order matters: labels before templates, because
-Forgejo silently drops template labels that do not exist yet.
+Everything below happens on `github.com/CPlusPlus17/Redoubt` and needs write
+access to that repository. Nothing has been done. Order matters: labels before
+templates, because GitHub will not create a label from a template reference.
 
 1. **Create the four required labels** ([§1.2](#12-the-required-four)). Repository →
    Issues → Labels → New label. Name, description and colour are given verbatim for
@@ -943,16 +947,15 @@ Forgejo silently drops template labels that do not exist yet.
 3. **Create `Android Needs Repro`** `#D9A441` ([§1.4](#14-one-more-recommended)).
    If you skip this one, delete [§3.5](#35-needs-a-build-to-reproduce-when-nobody-can-build)'s
    rules too rather than leaving policy that references a label that does not exist.
-4. **Confirm the repo has a default branch with at least one commit.** Templates are
-   read from the default branch only. If `librewolf/issues` is issues-only with an
-   empty tree, make an initial commit first (a `README.md` naming the repo is
-   enough).
-5. **Commit `.forgejo/issue_template/android-bug.yaml`** ([§2.2](#22-forgejoissue_templateandroid-bugyaml)),
+4. **Confirm the repository has a default branch with at least one commit.** Issue
+   templates are read from the default branch only. (This repository is the source
+   tree, so it already has one — this step is a guard, not a gap.)
+5. **Commit `.github/ISSUE_TEMPLATE/android-bug.yml`** ([§2.2](#22-githubissue_templateandroid-bugyml)),
    copied verbatim.
-6. **Commit `.forgejo/issue_template/config.yaml`** ([§2.3](#23-forgejoissue_templateconfigyaml)),
+6. **Commit `.github/ISSUE_TEMPLATE/config.yml`** ([§2.3](#23-githubissue_templateconfigyml)),
    **after replacing the placeholder security URL** with the real private contact.
-   Do not skip this substitution — the placeholder points at the LibreWolf homepage,
-   which is not a disclosure channel.
+   Do not skip this substitution — the placeholder (`https://example.com/`) is a
+   reserved domain, not a disclosure channel.
 7. **File a test issue through the new template** and confirm: the chooser shows
    "Android bug report"; the security contact link appears above the templates;
    `Android` and `Type Bug` are applied automatically on submit; the form refuses to
@@ -969,8 +972,9 @@ Forgejo silently drops template labels that do not exist yet.
     [§5](#5-the-launch-window-rotation) has something to read.
 11. *(optional)* Build the two saved searches the daily pass uses — filter the issue
     list by `Android` + `Android Security`, and by `Android Needs Repro`, then
-    bookmark the resulting URLs. Forgejo's label filter uses numeric label ids in the
-    query string, so the URLs only exist after step 1 and cannot be written here.
+    bookmark the resulting URLs. GitHub filters issues by label name (for example
+    `is:issue label:"Android Security"`), so the saved-search URLs only exist once
+    those labels exist and cannot be written here.
 
 Not in scope for this checklist, owned by other tasks: reopening or updating
 **issue #2169** and the FAQ's IronFox recommendation are **LW-M7-03**; the Android
@@ -1003,11 +1007,11 @@ disclosure process is **LW-M7-05**; `PARITY.md` is **LW-M5-06**.
 
 ## Appendix A — Markdown fallback template
 
-Use only if the YAML form in [§2.2](#22-forgejoissue_templateandroid-bugyaml) is
+Use only if the YAML form in [§2.2](#22-githubissue_templateandroid-bugyml) is
 rejected or a maintainer prefers Markdown. It asks the same questions and enforces
 none of them, which is the entire trade.
 
-Path: `.forgejo/issue_template/android-bug.md`
+Path: `.github/ISSUE_TEMPLATE/android-bug.md`
 
 ```markdown
 ---
@@ -1036,10 +1040,10 @@ labels:
 
 - **Device model:**              <!-- e.g. Pixel 6a — Settings → About phone -->
 - **Android version:**           <!-- e.g. Android 14, One UI 6.1 / GrapheneOS -->
-- **Installed from:**            <!-- LibreWolf F-Droid repo / Accrescent / direct APK
-                                      from librewolf.net / Obtainium / another F-Droid
+- **Installed from:**            <!-- Redoubt F-Droid repo / Accrescent / direct APK
+                                      from our site / Obtainium / another F-Droid
                                       repo (which?) / built from source / not sure -->
-- **LibreWolf version + build ID:**  <!-- Settings → About LibreWolf, whole line -->
+- **Redoubt version + build ID:**  <!-- Settings → About Redoubt, whole line -->
 - **CPU architecture (optional):**   <!-- arm64-v8a on nearly all phones -->
 
 ### Configuration
@@ -1053,9 +1057,9 @@ labels:
 
 - **Still happens with a clean profile?**  <!-- yes / no / not tried / would rather not -->
 
-  <!-- A clean profile means Android Settings → Apps → LibreWolf → Storage → Clear
+  <!-- A clean profile means Android Settings → Apps → Redoubt → Storage → Clear
        storage, or uninstall and reinstall. THIS DELETES BOOKMARKS, HISTORY AND
-       LOGINS — export first. "Delete browsing data" inside LibreWolf is not enough;
+       LOGINS — export first. "Delete browsing data" inside Redoubt is not enough;
        it leaves about:config changes in place. "Would rather not" is a fine answer. -->
 
 - **Does stock Firefox for Android do it too?**  <!-- yes / no / not tried / n-a -->
@@ -1068,7 +1072,7 @@ labels:
 ### Logs (optional, very welcome)
 
 <!-- No crash reporter, so `adb logcat` is the only way we see a crash:
-       adb logcat -d > librewolf.txt
+       adb logcat -d > redoubt.txt
      right after reproducing, then attach it. Read it first — it contains URLs you
      have visited. -->
 
