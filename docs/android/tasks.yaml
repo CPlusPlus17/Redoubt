@@ -2622,6 +2622,22 @@ tasks:
       HTTPS-only enforcement including the interstitial, DoH provider and fallback
       behaviour, OCSP hard-fail, and TLS version floor. Each one gets a live test
       against a server that exercises it, not a pref read.
+      STATUS 2026-08-22: the one script (scripts/android-network-check.sh) is
+      built with all four checks and a PASSING negative control (--self-test
+      rejects HTTPS-only-off / DoH-off / CRLite-off / TLS-1.0 and accepts the real
+      cfg). The configured posture is measured (network-posture.md sec 1: HTTPS-only
+      upgrade_local=true + suggestions, main switch not force-on; DoH mode 5 +
+      Quad9 + dns4all fallback; CRLite mode 2 + OCSP off; TLS floor at Gecko
+      default, 0-RTT off, safe negotiation on). Divergence from desktop RECORDED
+      (sec 2): on Android only DoH is code-locked ([ANDROID: LOCK]
+      GeckoRuntimeSettings); HTTPS-only, CRLite/OCSP, TLS floor are cfg-only and
+      the cfg layer is not packaged on Android (android-apk.sh:1202, LW-M3-08 gap).
+      The acceptance as written - "a live test against a server that exercises it,
+      not a pref read" - is PENDING: it needs a device plus test servers, neither
+      available here (only a 3072 MB AVD); parked per rule G, not faked. Naming
+      note (item e): the task says "OCSP hard-fail" but LibreWolf's mechanism is
+      CRLite mode 2 with OCSP disabled; the gate tests CRLite-enforce + OCSP-off.
+      Acceptance/verify unchanged.
     acceptance:
       - "each of the four behaviours has a live test with a recorded result"
       - "any divergence from desktop is either fixed or listed in parity/network-posture.md"
