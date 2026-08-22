@@ -2479,6 +2479,33 @@ tasks:
       SecretSettingsFragment.kt:410,416, the hidden debug menu. So this task is
       flipping two defaults and making them stick, not adding plumbing. Check
       whether the app zygote has a minimum API level before defaulting it on.
+
+      VERIFIED 2026-08-22 on the fresh release build (org.mozilla.firefox, HEAD
+      5d8af8f, x86_64, API 30) — closing the patch's "NOT VERIFIED: RELEASE
+      variant" gap:
+      (1) `adb shell ps -A -Z` on a stock install shows the content processes
+          under isolated uids u0_i0..u0_i2 in the isolated_app SELinux domain,
+          each forked from the app zygote (org.mozilla.firefox_zygote,
+          app_zygote domain, uid u0_a142); the main process stays untrusted_app.
+          Both isolatedProcess and the app zygote are live on the release build.
+      (2) The values survive a Nimbus/prefs fetch: the profile already carries
+          pref_key_nimbus_experiments_fetched=true and isolation holds; and
+          injecting pref_key_enable_isolated_process=false and
+          pref_key_enable_app_zygote_process=false (which the app reads into its
+          prefs), then cold-launching, left isolation intact. That is because the
+          patch sets the GeckoRuntimeSettings.Builder args to literal true at the
+          call site, not from FML/prefs — so Nimbus cannot lower them. Confirmed
+          on a COLD start, not a stale first-run state.
+      (3) Startup cost: cold start TotalTime 333ms / 238ms (am start -W).
+      (4) Functional regression, WITH isolation active: page-load-http and
+          page-load-https PASS (https is a validated secure context), video
+          decodes; librewolf.webgl.prompt=False so L1 is not the cause of the
+          one webgl pixel mismatch (a documented SwiftShader/emulator GL limit).
+          The getusermedia and extension smoke checks did not complete: the host
+          emulator crashes on the camera/GL path (s_glUnmapBufferAEMU: could not
+          get host gpu pointer!) in both -gpu host and -gpu swiftshader_indirect
+          modes, with no app FATAL/ANR/kill in logcat. Recorded as
+          environment-blocked; re-run those two checks on a stable GPU host.
     acceptance:
       - "content processes run under isolated uids on a stock install, verified with `adb shell ps -A -Z`"
       - "the app zygote process is present, or its absence is explained by an API-level floor"
