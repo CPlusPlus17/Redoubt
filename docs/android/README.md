@@ -16,26 +16,28 @@ source for aarch64-linux-android with the full patch set and every hardening fla
 intact; a three-ABI fat AAR and an installable APK exist and run *our* GeckoView
 (verified from the packaged `omni.ja`, not inferred).
 
-**Nothing below the build itself is currently validated.** The only booting
-release APK (`lw-m3-08`, 2026-08-21) was built from a *partial* patch set —
-`no-glean` applied, `no-gms` and `no-adjust` not — so every privacy measurement
-taken on it describes that build and not `assets/patches/android.txt`. Measured
-there: 1659 GMS and 206 Adjust dex strings present, 27 first-run network events
-over 4 Mozilla hostnames, and `lockPref("librewolf.cfg.version")` from
-`common.cfg:68` **absent at runtime and absent from the APK** — so the packaged
-configuration is still not being applied, despite LW-M3-11's stale-`libxul.so`
-fix. See [`PRIVACY-BASELINE-2026-08-21.md`](PRIVACY-BASELINE-2026-08-21.md).
+**A fresh release build from current HEAD now validates the core claims.**
+`lw-fresh-2026-08-22` (HEAD `5d8af8f`, built 2026-08-22) is built from the
+**full** `assets/patches/android.txt` (42 patches, verified byte-for-byte) with
+R8 on. Measured on it (release, x86_64): **0 GMS and 0 Adjust dex strings**
+(both removed), the Glean SDK present with the Fenix integration removed
+(`GleanHelper`=0), **14 first-run network events over 4 Mozilla hostnames** (down
+from 27 on the partial-patch-set `lw-m3-08`), and `lockPref("librewolf.cfg.version")`
+from `common.cfg:68` **present at runtime and locked** — so the packaged
+configuration **is** now applied. [`PRIVACY-BASELINE-2026-08-21.md`](PRIVACY-BASELINE-2026-08-21.md)
+keeps the earlier `lw-m3-08` baseline this supersedes; the 2026-08-22 build's
+numbers and reproducing commands are in `~/lw-fresh-2026-08-22/measurements-2026-08-22.md`.
 
-A single fresh release build from current HEAD, with the full android patch list
-and a working cfg, is the prerequisite for validating any of it. Until that
-exists, treat the removal and traffic claims as unproven rather than as either
-true or false.
+Still unproven / not done: LW-M4-05 and LW-M4-16 (validating the GMS/Adjust
+removal at the code level) were not re-attempted on this build; the UI still says
+"Firefox" (LW-M4-12); and nothing is signed or distributed.
 
 78 patch files: 24 common, 36 desktop, 18 android.
 
-Not done: LW-M3-10 landed the common+android composition, but it is unproven on a
-running build for the reason above;
-the UI still says "Firefox" (LW-M4-12), and nothing is signed or distributed.
+Not done: the UI still says "Firefox" (LW-M4-12), and nothing is signed or
+distributed. (LW-M3-10's common+android composition is now proven on the running
+`lw-fresh-2026-08-22` build — the packaged cfg loads and the `common.cfg:68`
+canary is locked at runtime.)
 
 ## Read in this order
 
