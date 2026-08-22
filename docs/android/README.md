@@ -14,20 +14,27 @@ This directory is the work plan and the record of what has been done against it.
 **Status: M0 and M1 complete, M2 done, M3/M4 well advanced.** Gecko builds from
 source for aarch64-linux-android with the full patch set and every hardening flag
 intact; a three-ABI fat AAR and an installable APK exist and run *our* GeckoView
-(verified from the packaged `omni.ja`, not inferred). Autoconfig **works** on Android: the packaged `librewolf.cfg` loads and
-evaluates successfully (verified on a running build, 2026-08-21; LW-M3-11).
-The prior failure was a stale `libxul.so` in the fat-aar build intermediates,
-not a code bug. Glean, Adjust, Nimbus, Play Integrity and the onboarding
-flow are removed. First-run network traffic is **22-24 events over 4 hostnames, down from 59
-over 8** — all that remains is Remote Settings and one `ads.mozilla.org` lookup, both
-tracked. That figure measures only the code-level patch removals (Glean, Adjust,
-Nimbus, onboarding); it was taken on a build where the privacy configuration
-never applied, so the pref-gated reductions (search suggestions, contile
-top-sites, safebrowsing, Remote Settings) contributed nothing. It is a floor
-that should drop on the next measurement now that LW-M3-11 is resolved.
+(verified from the packaged `omni.ja`, not inferred).
+
+**Nothing below the build itself is currently validated.** The only booting
+release APK (`lw-m3-08`, 2026-08-21) was built from a *partial* patch set —
+`no-glean` applied, `no-gms` and `no-adjust` not — so every privacy measurement
+taken on it describes that build and not `assets/patches/android.txt`. Measured
+there: 1659 GMS and 206 Adjust dex strings present, 27 first-run network events
+over 4 Mozilla hostnames, and `lockPref("librewolf.cfg.version")` from
+`common.cfg:68` **absent at runtime and absent from the APK** — so the packaged
+configuration is still not being applied, despite LW-M3-11's stale-`libxul.so`
+fix. See [`PRIVACY-BASELINE-2026-08-21.md`](PRIVACY-BASELINE-2026-08-21.md).
+
+A single fresh release build from current HEAD, with the full android patch list
+and a working cfg, is the prerequisite for validating any of it. Until that
+exists, treat the removal and traffic claims as unproven rather than as either
+true or false.
+
 78 patch files: 24 common, 36 desktop, 18 android.
 
-Not done: the Android build still ships the *desktop* pref composition (LW-M3-10),
+Not done: LW-M3-10 landed the common+android composition, but it is unproven on a
+running build for the reason above;
 the UI still says "Firefox" (LW-M4-12), and nothing is signed or distributed.
 
 ## Read in this order
