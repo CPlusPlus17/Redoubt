@@ -471,7 +471,7 @@ reading it:**
 running the script against the **stock** `firefox-153.0.4/` tree with `common.cfg` +
 `android.cfg` — deliberately the harder case, because a stock tree also surfaces our
 own `librewolf.*` prefs and so exercises every category at once. It reported 11 of
-188 prefs. That breakdown is the shape to expect every time:
+189 prefs. That breakdown is the shape to expect every time:
 
 | reported name | verdict |
 |---|---|
@@ -552,7 +552,7 @@ sed -E 's,([^:])//.*,\1,' settings/common.cfg settings/android.cfg | tr '\n' ' '
 comm -12 /tmp/drifted.txt /tmp/ours.txt
 ```
 
-`/tmp/ours.txt` is 188 names today (`common.cfg` + `android.cfg`). Swap in
+`/tmp/ours.txt` is 189 names today (`common.cfg` + `android.cfg`). Swap in
 `settings/desktop.cfg` for the desktop answer.
 
 The final `comm` prints the prefs where **we have an opinion and Mozilla changed
