@@ -1,0 +1,122 @@
+# Android patch-set check (LW-M0-09), ported to GitHub.
+#
+# LOCATION: .github/workflows/, because this repository is hosted on GitHub.
+# The .forgejo/ copy is dead here — GitHub Actions does not read it (HANDOVER.md).
+#
+# This job answers exactly one question: does the Android patch list still apply
+# to the Firefox tree the Android track is pinned to?
+#
+# It deliberately does NOT build Gecko. LW-M2-08 owns this file next and adds the
+# real build job once sccache/artifact caching exists; a build step here would not
+# fit the runner budget and the job would get disabled instead of fixed.
+#
+# NO `container:` BLOCK, DELIBERATELY (same measured finding as android-release.yaml).
+# The first draft ran this on `codeberg.org/librewolf/bsys6:dind`. Two reasons to
+# drop it:
+#   1. actions `container:` jobs do not work on this runner regardless of image —
+#      rootless podman behind the podman-docker shim, a dangling docker.sock,
+#      SELinux Enforcing with no :z mount flags (measured in android-release.yaml).
+#   2. the bare runner already carries the toolchain this job needs (make, python3,
+#      curl, gpg, tar, xz, patch, unzip): android-release.yaml's preflight checks
+#      for exactly these and its full mode runs the same `make fetch`/`make dir`
+#      this job runs, with no container.
+#
+# It references no secrets. Signing never happens in CI — see LW-M6-01 and
+# "What not to do" in docs/android/AGENTS.md.
+
+name: Test Android Patch Set
+
+on:
+  push:
+    branches:
+      - main
+      - beta
+      # The port lands on these until it reaches main. Without them this workflow
+      # would not run once during M0-M5, which is precisely when it is needed.
+      - android-port
+      - android/**
+  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+jobs:
+  test-android:
+    runs-on: librewolf-android
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          # settings/ is a submodule and scripts/librewolf-patches.py copies
+          # librewolf.cfg, policies.json and local-settings.js out of it, so
+          # `make dir` fails outright without this.
+          submodules: recursive
+
+      - name: Check the Android board
+        run: |
+          python3 docs/android/board.py --check
+
+      - name: Lint patch scope
+        run: |
+          # LW-M1-01 has landed, so this is blocking now: it exits non-zero on a
+          # common/desktop/android split that is not authoritative, which is a real
+          # failure, not an in-flight state. (Verified: exits 0 on this tree.)
+          python3 scripts/lint-patch-scope.py
+
+      - name: Check patch order
+        run: |
+          # LW-M1-10's acceptance says its test is "wired into
+          # .github/workflows/android-test.yaml", and it owns only
+          # scripts/check-patch-order.py and cannot edit this file. Wired here; it
+          # arms itself when that script lands.
+          if [ -f scripts/check-patch-order.py ]; then
+            python3 scripts/check-patch-order.py
+          else
+            echo "scripts/check-patch-order.py is not present yet (LW-M1-10); skipping."
+          fi
+
+      - name: Fetching Firefox ESR Source
+        run: |
+          # No detect-firefox-version.sh here: that script knows the release, beta
+          # and rc channels, and the Android track is pinned to an ESR version in
+          # ./version.android (docs/android/TRACK.md). TARGETS=android is what
+          # selects that pair, so the tarball fetched is the ESR one.
+          #
+          # This is ~766 MiB from archive.mozilla.org plus a GPG verify on every
+          # run, and it is deliberately uncached: caching is LW-M2-08's, keyed on
+          # the mozconfig and toolchain, and a half-measure here would be thrown
+          # away by it. For scale, source-test.yaml already pulls this tarball
+          # three times per pull request and then builds Firefox three times.
+          make fetch TARGETS=android
+
+      - name: Checking patches for rejects
+        run: |
+          # check-patchfail.sh is target-blind until LW-M1-11: it reads ./version
+          # (the desktop track), requires firefox-<desktop version>.source.tar.xz
+          # which this job never downloads, and walks the common+desktop shim.
+          # Unguarded it would fail every run for a reason that has nothing to do
+          # with the Android patch set. It arms itself when LW-M1-11 lands.
+          #
+          # It runs before `make dir` on purpose: it reports every rejected hunk,
+          # where the patcher stops at the first failing patch. On a rebase pull
+          # request that difference is the whole value of the step.
+          if grep -q -- '--targets' scripts/check-patchfail.sh; then
+            ./scripts/check-patchfail.sh --targets=android
+          else
+            echo "scripts/check-patchfail.sh has no --targets yet (LW-M1-11); skipping."
+            echo "The patch-application test below is the blocking one."
+          fi
+
+      - name: Applying the Android patch set
+        run: |
+          # The test. Extracts the ESR tarball and runs
+          # scripts/librewolf-patches.py --targets=android over it, which applies
+          # assets/patches/common.txt then assets/patches/android.txt and exits 1
+          # on the first patch that does not apply — so this step is green exactly
+          # when the Android patch list applies and red when it does not.
+          #
+          # TARGETS=desktop,android is not tested here: the Makefile refuses it at
+          # recipe time whenever ./version and ./version.android differ, and it
+          # only reaches that guard after downloading a second tarball.
+          make dir TARGETS=android
