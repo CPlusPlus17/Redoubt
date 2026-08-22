@@ -2707,6 +2707,26 @@ tasks:
       decision or a technical impossibility: what does Chrome on Android do, what
       does seccomp-bpf allow under Android's own sandbox, has Mozilla an open bug,
       and what would it cost. Deliver a recommendation, including "not worth it".
+      STATUS 2026-08-22: spike COMPLETE (docs/android/SANDBOX-SPIKE.md, committed;
+      all claims evidence-graded M/S/U/I, none from memory). Answer: neither a
+      policy decision nor a technical impossibility - a never-finished port that
+      upstream is closer to deleting than shipping (bugs 1660102 [meta seccomp in
+      GeckoView, NEW, last touched 2025-05], 2040639 [remove Android sandbox
+      scaffolding, NEW 2026-05, "enabling it yields build errors"], 1565196
+      [isolatedProcess meta, 65 deps]; Chrome android-sandbox.md as the empirical
+      reference). Recommendation (sec 8): do NOT pursue MOZ_SANDBOX on Android -
+      the marginal gain over Android's own isolated_app + RLBox is kernel
+      attack-surface reduction only (ioctl + a couple hundred syscalls bionic's
+      permissive app filter allows), undercut by the LibreWolf-specific multiplier:
+      no telemetry/crash reports to catch a SIGSYS on a vendor-kernel fleet
+      (assets/mozconfig.android disables crashreporter; Glean/Adjust stripped).
+      Cost (sec 7): 4-8 engineer-weeks to a first booting build on one device,
+      6-12 engineer-months to ship-safe, then permanent maintenance. Time-boxed:
+      it is a research doc, not an implementation, per the what. Cross-task
+      findings reported in sec 9 (the app-zygote ASLR regression for LW-M5-02; the
+      upstream isolatedProcess blocker list; the sec 10 wording input for
+      LW-M5-06). Acceptance met: written answer + upstream refs, explicit
+      recommendation + cost, time-boxed.
     acceptance:
       - "a written answer with references to the upstream code and bugs"
       - "an explicit recommendation and a cost estimate if pursued"
