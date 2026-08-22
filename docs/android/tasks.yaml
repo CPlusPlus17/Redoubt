@@ -2241,6 +2241,32 @@ tasks:
       Fix the tests to assert the NEW behaviour where that is meaningful (a test
       pinning "no onboarding cards are shown" is worth having), and delete with a
       stated reason only where the behaviour is genuinely gone.
+
+      VERIFIED 2026-08-22 on a full M4-patched tree (lw-m4-10/src under the
+      librewolf-android-build image; JVM-only `./mach gradle fenix:testDebugUnitTest`,
+      no device). All three acceptance lines, measured:
+      (1) Full patch set applied: the six affected classes are green — SettingsTest
+          103/0, ContinuousOnboardingFeatureTest 24/0, TermsOfUsePromptRepositoryTest
+          15/0, ContentRecommendationsFeatureHelperTest 4/0, PocketMiddlewareTest 10/0,
+          ReviewPromptMiddlewareTest 16/0 (172 tests, 0 failures). The patch deletes
+          16 of the 188 original tests (onboarding removed, so they are no longer
+          meaningful) and rewrites the survivors to assert the new behaviour.
+      (2) Attribution re-checked the verifier's way — reverse-applying ONLY
+          no-onboarding.patch with the five sibling M4 patches left in place: the same
+          six classes are green on the upstream code (188 tests, 0 failures), and all
+          14 touched files round-trip to identical md5s when the patch is re-applied.
+          With only the main hunks present (test hunks not applied) the same six
+          classes give 31 failures, so the 31 are caused by this patch's production
+          change and fixed by its test hunks. The ~90-94 other failures in every run
+          (UnsatisfiedLinkError 'megazord' / UniffiLib NoClassDefFoundError, e.g.
+          SearchSuggestionsProvidersBuilderTest 70, ReviewPromptMiddlewareTriggerCriteriaTest
+          16) are present with and without the patch: environmental, the residue
+          LW-M2-09 documents, not caused by this patch.
+      (3) AGENTS.md's definition of done names the unit-test run explicitly — "a Gradle
+          build compiling is NOT the tests passing".
+      Evidence in ~/lw-m4-14/evidence: runA-main-only.log, runB-full-patch.log,
+      runC-reverse-applied.log, per-class XML (xml-runB/, xml-runC/), and
+      md5-full-patch-applied.txt.
     acceptance:
       - "`./mach gradle fenix:testDebugUnitTest` passes for the six affected classes with the full M4 patch set applied"
       - "the attribution is re-checked by reverse-applying this patch alone, as the verifier did"
