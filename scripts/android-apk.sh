@@ -102,10 +102,10 @@
 # Branding and applicationId are deliberately STOCK
 # ---------------------------------------------------------------------------
 #
-# The debug build type is org.mozilla.fenix.debug (applicationId "org.mozilla" +
-# applicationIdSuffix ".fenix.debug", mobile/android/fenix/app/build.gradle:60,121);
-# the release build type is org.mozilla.firefox (same applicationId + the release
-# block's applicationIdSuffix ".firefox").  The branding is
+# The debug build type is org.redoubtbrowser.debug (applicationId "org.redoubtbrowser" +
+# applicationIdSuffix ".debug", mobile/android/fenix/app/build.gradle:60,121);
+# the release build type is org.redoubtbrowser (same applicationId, no suffix in the
+# release block).  The branding is
 # mobile/android/branding/unofficial.  LW-M4-07 changes all of it.
 # Changing it here would make the first failure of the first APK ambiguous.
 #
@@ -1171,8 +1171,8 @@ fi
 # LW-M2-04 keeps branding and the app id STOCK on purpose -- LW-M4-07 changes
 # them, and changing them here would make the first failure of the first APK
 # ambiguous.  When LW-M4-07 lands, this expectation moves with it.
-# debug: org.mozilla.fenix.debug (applicationIdSuffix ".fenix.debug");
-# release: org.mozilla.firefox (applicationIdSuffix ".firefox").
+# debug: org.redoubtbrowser.debug (applicationIdSuffix ".debug");
+# release: org.redoubtbrowser (no applicationIdSuffix).
 log "checking the applicationId is still stock for the $VARIANT build type"
 appid=$("$ENGINE" run --rm \
         -v "$OUTDIR:/work/out$mount_suffix" \
@@ -1183,10 +1183,10 @@ appid=$("$ENGINE" run --rm \
 $appid"
 appid=$(printf '%s' "$appid" | tr -d '\r' | tail -1)
 if [ "$VARIANT" = "debug" ]; then
-    expected_appid="org.mozilla.fenix.debug"
+    expected_appid="org.redoubtbrowser.debug"
     appid_note="mobile/android/fenix/app/build.gradle:60 applicationId + :121 debug applicationIdSuffix"
 else
-    expected_appid="org.mozilla.firefox"
+    expected_appid="org.redoubtbrowser"
     appid_note="mobile/android/fenix/app/build.gradle:60 applicationId + the release block's applicationIdSuffix .firefox"
 fi
 [ "$appid" = "$expected_appid" ] ||

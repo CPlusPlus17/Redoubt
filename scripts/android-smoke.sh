@@ -1727,7 +1727,7 @@ PARTNER_CODE_RE = re.compile(r"[?&](client|pc|channel|form|tag|partner|ref|hspar
 # this keeps working across the toolbar rewrite that is in flight upstream.
 URLBAR_IDS = ("ADDRESSBAR_URL_BOX",
               "mozac_browser_toolbar_url_view",
-              "org.mozilla.fenix.debug:id/toolbar")
+              "org.redoubtbrowser.debug:id/toolbar")
 
 def _node_bounds(xml, ident):
     m = re.search(r'resource-id="[^"]*%s"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"'

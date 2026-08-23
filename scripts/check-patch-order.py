@@ -460,6 +460,33 @@ REVIEWED_ORDER_FREE = (
      ("mobile/android/fenix/app/build.gradle",),
      "disjoint regions of fenix app/build.gradle: splits block (~:239-256) vs no-crashreporter's region (:334+); order only shifts offsets (LW-M6-07)"),
 
+    # LW-M4-07. branding edits fenix app/build.gradle's defaultConfig +
+    # buildTypes (roughly lines 55-175): applicationId org.mozilla ->
+    # org.redoubtbrowser, the per-variant suffixes, a single deepLinkScheme
+    # redoubt, and the removal of the Mozilla sharedUserId on beta+release.
+    # That region is disjoint from every other toucher of the file (no-adjust
+    # :350+, no-glean :512, no-gms :32/:366+, no-crashreporter :334+,
+    # fenix-abi-split's splits block ~:239-256); branding's other three files
+    # (values/colors.xml, ic_launcher_foreground.xml,
+    # ic_launcher_monochrome.xml) are touched by no other patch in either
+    # list, so each pair shares exactly this one file. Order only shifts
+    # offsets.
+    ("patches/android/no-adjust.patch", "patches/android/branding.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "disjoint regions of fenix app/build.gradle: branding's defaultConfig+buildTypes (~:55-175) vs no-adjust's region (:350+); order only shifts offsets (LW-M4-07)"),
+    ("patches/android/no-glean.patch", "patches/android/branding.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "disjoint regions of fenix app/build.gradle: branding's defaultConfig+buildTypes (~:55-175) vs no-glean's region (:512); order only shifts offsets (LW-M4-07)"),
+    ("patches/android/no-gms.patch", "patches/android/branding.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "disjoint regions of fenix app/build.gradle: branding's defaultConfig+buildTypes (~:55-175) vs no-gms's regions (:32, :366+); order only shifts offsets (LW-M4-07)"),
+    ("patches/android/no-crashreporter.patch", "patches/android/branding.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "disjoint regions of fenix app/build.gradle: branding's defaultConfig+buildTypes (~:55-175) vs no-crashreporter's region (:334+); order only shifts offsets (LW-M4-07)"),
+    ("patches/android/fenix-abi-split.patch", "patches/android/branding.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "disjoint regions of fenix app/build.gradle: branding's defaultConfig+buildTypes (~:55-175) vs fenix-abi-split's splits block (~:239-256); order only shifts offsets (LW-M4-07)"),
+
     # Recorded in assets/patches/desktop.txt on the moz-official-desktop entry:
     # "different region, ~line 300 vs ~504".
     ("patches/hide-passwordmgr.patch", "patches/moz-official-desktop.patch",
