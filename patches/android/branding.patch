@@ -16,10 +16,9 @@
 # all FileProvider authorities, launcher/theme aliases) propagates
 # automatically from the applicationId change.
 #
-# Primary launcher icon: ic_launcher_background colour -> #00acff (brand
-# colour), and ic_launcher_foreground / ic_launcher_monochrome swapped from
-# the Firefox mark to a clearly-flagged PLACEHOLDER white disc. Final Redoubt
-# brand art is a separate design deliverable; do not ship this placeholder.
+# Primary launcher icon: ic_launcher_background colour -> #1E293B (Deep Bastion
+# Slate), and ic_launcher_foreground / ic_launcher_monochrome set to the Redoubt
+# mark: the architectural plan view of a four-bastion square fort.
 #
 # Ordering: the hunk sits in defaultConfig + buildTypes (roughly lines 55-175
 # of fenix/app/build.gradle), disjoint from no-adjust (:350+), no-glean (:512),
@@ -121,21 +120,18 @@
  
      <!-- Launcher Icon colors -->
 -    <color name="ic_launcher_background">#FDFDFD</color>
-+    <color name="ic_launcher_background">#00acff</color>
++    <color name="ic_launcher_background">#1E293B</color>
  
      <!-- Private Browsing Mode Persistent Notification -->
      <color name="pbm_notification_color">@color/photonViolet70</color>
 --- a/mobile/android/fenix/app/src/main/res/drawable/ic_launcher_foreground.xml
 +++ b/mobile/android/fenix/app/src/main/res/drawable/ic_launcher_foreground.xml
-@@ -1,27 +1,14 @@
+@@ -1,27 +1,11 @@
 -<!-- This Source Code Form is subject to the terms of the Mozilla Public
 -   - License, v. 2.0. If a copy of the MPL was not distributed with this
 -   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
 +<?xml version="1.0" encoding="utf-8"?>
-+<!-- Redoubt launcher icon foreground. PLACEHOLDER for the final Redoubt brand
-+     art (LW-M4-07): a plain white disc centred on the #00acff background
-+     (ic_launcher_background). Replace this vector with the real Redoubt mark
-+     before publication. -->
++<!-- Redoubt launcher icon foreground. Architectural plan view of a four-bastion square fort. -->
  <vector xmlns:android="http://schemas.android.com/apk/res/android"
 -    xmlns:aapt="http://schemas.android.com/aapt"
      android:width="108dp"
@@ -160,17 +156,16 @@
 -        </aapt:attr>
 -    </path>
 +        android:fillColor="#FFFFFFFF"
-+        android:pathData="M34,54 a20,20 0 1,0 40,0 a20,20 0 1,0 -40,0 z"/>
++        android:pathData="M46,38 L62,38 L62,27 L75,33 L81,46 L70,46 L70,62 L81,62 L75,75 L62,81 L62,70 L46,70 L46,81 L33,75 L27,62 L38,62 L38,46 L27,46 L33,33 L46,27 Z"/>
  </vector>
 --- a/mobile/android/fenix/app/src/main/res/drawable/ic_launcher_monochrome.xml
 +++ b/mobile/android/fenix/app/src/main/res/drawable/ic_launcher_monochrome.xml
-@@ -1,17 +1,12 @@
+@@ -1,17 +1,11 @@
  <?xml version="1.0" encoding="utf-8"?>
 -<!-- This Source Code Form is subject to the terms of the Mozilla Public
 -   - License, v. 2.0. If a copy of the MPL was not distributed with this
 -   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
-+<!-- Redoubt launcher icon monochrome. PLACEHOLDER (LW-M4-07), see
-+     ic_launcher_foreground.xml. White disc; the launcher tints monochrome icons. -->
++<!-- Redoubt launcher icon monochrome silhouette for Material You themed icons. -->
  <vector xmlns:android="http://schemas.android.com/apk/res/android"
      android:width="108dp"
 -    android:height="109dp"
@@ -186,9 +181,8 @@
 -        android:fillColor="#20123A"/>
 -  </group>
 +        android:fillColor="#FFFFFFFF"
-+        android:pathData="M34,54 a20,20 0 1,0 40,0 a20,20 0 1,0 -40,0 z"/>
++        android:pathData="M46,38 L62,38 L62,27 L75,33 L81,46 L70,46 L70,62 L81,62 L75,75 L62,81 L62,70 L46,70 L46,81 L33,75 L27,62 L38,62 L38,46 L27,46 L33,33 L46,27 Z"/>
  </vector>
-
 --- a/mobile/android/fenix/app/src/release/AndroidManifest.xml
 +++ b/mobile/android/fenix/app/src/release/AndroidManifest.xml
 @@ -10,6 +10,5 @@
@@ -199,7 +193,6 @@
 -    android:sharedUserId="${sharedUserId}">
 +<manifest xmlns:android="http://schemas.android.com/apk/res/android">
  </manifest>
-
 --- a/mobile/android/fenix/app/src/beta/AndroidManifest.xml
 +++ b/mobile/android/fenix/app/src/beta/AndroidManifest.xml
 @@ -10,6 +10,5 @@
