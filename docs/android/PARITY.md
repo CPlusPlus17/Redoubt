@@ -54,7 +54,7 @@ assertion.
 | 13 | Shared LibreWolf security/privacy patch set | common ∪ desktop (60) | common ∪ android (42) | **Equivalent for the shared (common) set.** 24 common patches apply to both targets; 36 desktop-only do not reach Android; 18 are Android-specific (isolation, telemetry removal). Measured by: `board.py --check-scope`. [PATCH-SCOPE] |
 | 14 | Telemetry / experiments / sponsored content | patched off | **Equivalent (broader removal)** | `no-adjust`, `no-glean`, `no-nimbus`, `no-nimbus-toolkit`, `no-gms`, `no-onboarding` (all `android.txt`); 2,623 GMS dex classes → 0. Measured by: dex class count on a running build. [PATCH-SCOPE, POLICIES] |
 | 15 | Enterprise policy keys (22) | via `policies.json` | **Partial** | `policies.json` engine absent on Android (`Services.policies` undefined); all 22 keys mapped to other mechanisms; gaps **P1–P8** (Nimbus P2, Glean P3, default-browser prompt P4, extension-type restriction P5, sponsored/contile P6, HttpsOnlyMode P7). Measured by: policy-key mapping + running build. [POLICIES] |
-| 16 | Signing-key / codebase identity | LibreWolf/Mozilla code-signing trust root | **Absent (irreducible)** | Fork (Redoubt), not the LibreWolf project. Android identity is a distinct trust root — the `<PROJECT_ID>` applicationId plus the signing key (LW-M6-01) — and the current build still ships as `org.mozilla` + `.fenix.debug`. It cannot carry the desktop build's code-signing identity. [IDENTITY, ROADMAP] |
+| 16 | Signing-key / codebase identity | LibreWolf/Mozilla code-signing trust root | **Absent (irreducible)** | Fork (Redoubt), not the LibreWolf project. Android identity is a distinct trust root — the `org.redoubtbrowser` applicationId plus the signing key (LW-M6-01) — and the current build still ships as `org.mozilla` + `.fenix.debug`. It cannot carry the desktop build's code-signing identity. [IDENTITY, ROADMAP] |
 
 **Auxiliary-process containment (GPU / RDD / socket / utility / media):** not
 counted as an independent row. On desktop several of these run under per-process
@@ -81,7 +81,7 @@ it is undercut by the no-telemetry SIGSYS risk on a vendor-kernel fleet
 This is a fork, not the LibreWolf project. The MPL-2.0 licence grants the code,
 not the name or the trust identity (§3.4 grants no rights in any contributor's
 trademarks). The Android build's identity is a separate trust root — the
-`<PROJECT_ID>` applicationId plus the signing key generated in LW-M6-01 — and it
+`org.redoubtbrowser` applicationId plus the signing key generated in LW-M6-01 — and it
 cannot be the desktop build's code-signing identity. Both the applicationId and
 the key are **one-way** decisions (a change strands every install), which is why
 neither may be decided carelessly (IDENTITY.md, ROADMAP).
@@ -120,8 +120,8 @@ Quoted **verbatim** from ROADMAP.md and the LW-M5-06 task, which states: *"Do no
 soften it."*
 
 **Status of this wording: NEEDS OWNER SIGN-OFF. Do not publish it as-is.** The
-owner must approve the final wording and the `<PROJECT_DOMAIN>` that will host it
-before any external use (IDENTITY.md still carries `<PROJECT_DOMAIN>` as an open
+owner must approve the final wording and the `redoubtbrowser.org` that will host it
+before any external use (IDENTITY.md still carries `redoubtbrowser.org` as an open
 placeholder). This section records the agreed text; it is not a publication.
 
 ## 6. Sources

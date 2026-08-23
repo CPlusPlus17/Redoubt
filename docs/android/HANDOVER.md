@@ -307,7 +307,7 @@ Breaking any of these is expensive or irreversible.
    see `IDENTITY.md`. The output paths are also covered by the existing
    `/librewolf-*` gitignore rule; renaming them would leave build artefacts visible
    as untracked files.
-6. **`<PROJECT_ID>` is a one-way door.** Changing an `applicationId` after release
+6. **`org.redoubtbrowser` is a one-way door.** Changing an `applicationId` after release
    makes a different app to Android: no upgrade path, no data migration, every user
    reinstalls by hand. It is still a placeholder on purpose.
 7. **Do not commit `.nodeterm/`, `__pycache__/`, build trees or tarballs.** They
@@ -358,10 +358,13 @@ Five tasks are marked `agent_safe: false` and must not be executed autonomously:
     LW-M6-04  Publish to Accrescent and provide direct APK plus Obtainium metadata
     LW-M7-06  Run a closed beta before the public release
 
-Two placeholders remain unresolved and are greppable:
+Both remaining placeholders were resolved 2026-08-23 (see `IDENTITY.md`):
 
-    <PROJECT_ID>       the Android applicationId — one-way, needed before the first public build
-    <PROJECT_DOMAIN>   the download and parity-statement site
+    domain          redoubtbrowser.org      (NOT registered yet)
+    applicationId   org.redoubtbrowser      (one-way; do not revisit)
+
+`libreRedoubt` was proposed and rejected — the "Libre" prefix reads as a
+LibreWolf sub-brand, which is the inference `IDENTITY.md` exists to prevent.
 
 The current build still ships as `org.mozilla.fenix.debug`. That is Mozilla's
 namespace *and* it collides with a real Firefox install on device. It must change

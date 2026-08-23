@@ -9,7 +9,7 @@ their own updater (**F-Droid** and **Accrescent**), which must not double-notify
 It is the **unblocked half of LW-M6-06**. The half that is still open is the code
 (`patches/android/update-check.patch`) and the endpoint itself; both depend on the
 distribution domain being decided. That domain is the open placeholder
-`<PROJECT_DOMAIN>` (`docs/android/IDENTITY.md`), and it is left literal here on
+`redoubtbrowser.org` (`docs/android/IDENTITY.md`), and it is left literal here on
 purpose. **Nothing on this page is a real URL, hostname, or address.**
 
 This page is a specification, not a shipped feature. It fixes the *shape* of the
@@ -51,14 +51,14 @@ These are LW-M6-06's acceptance criteria, restated as things that must hold:
 The endpoint is a single static document, served over TLS, on the distribution
 host. The host is the open placeholder:
 
-    ENDPOINT  https://<PROJECT_DOMAIN>/updates/android/latest.json
+    ENDPOINT  https://redoubtbrowser.org/updates/android/latest.json
 
-`<PROJECT_DOMAIN>` is **not a real hostname**. It is the placeholder from
+`redoubtbrowser.org` is **not a real hostname**. It is the placeholder from
 `docs/android/IDENTITY.md`, left literal on purpose — this page does not invent a
 domain, hostname, or URL. The path is a contract constant both the client and the
 server must implement (and can be renamed in one place when the domain is
 decided); the host is the only undecided part, and the URL does not resolve until
-`<PROJECT_DOMAIN>` does.
+`redoubtbrowser.org` does.
 
 ### The document
 
@@ -68,8 +68,8 @@ there at all.
 
     {
       "latest_version":    "153.0.4-2",
-      "download_url":      "https://<PROJECT_DOMAIN>/downloads/redoubt-153.0.4-2.apk",
-      "release_notes_url": "https://<PROJECT_DOMAIN>/releases/153.0.4-2/",
+      "download_url":      "https://redoubtbrowser.org/downloads/redoubt-153.0.4-2.apk",
+      "release_notes_url": "https://redoubtbrowser.org/releases/153.0.4-2/",
       "sha256":            "<hex digest of the APK the download link points to>",
       "published_at":      "2026-08-22T00:00:00Z",
       "signature":         "<base64 detached signature over this document>"
@@ -78,7 +78,7 @@ there at all.
 - **latest_version** — the string the client compares against its own. This is
   the only thing the check needs to decide that a newer version exists.
 - **download_url** — where the user is sent if they choose to update. Same
-  `<PROJECT_DOMAIN>` host. Offering the link, not fetching it, is the app's job.
+  `redoubtbrowser.org` host. Offering the link, not fetching it, is the app's job.
 - **sha256** — the digest of the artifact the link points to.
   `docs/android/SECURITY.md` §2 already relies on a published, checksummed
   artifact; the digest lives here so there is one source of truth rather than two.
@@ -154,7 +154,7 @@ Exactly one thing: the current version string. Nothing else identifies the clien
   it" mode, because that is a phone-home with the label taken off.
 - **First-run honesty.** Because it is off by default, the user must know it exists
   and why it is off. The setting's description carries that, and the download page
-  (on `<PROJECT_DOMAIN>`, when it exists) says the direct APK has no store and how
+  (on `redoubtbrowser.org`, when it exists) says the direct APK has no store and how
   to get update awareness.
 
 ## F-Droid and Accrescent do not double-notify
@@ -181,7 +181,7 @@ in-app prompt, or the same update is announced twice through two mechanisms.
 
 ## What this page does not decide
 
-- **The domain.** `<PROJECT_DOMAIN>` is the open placeholder. The exact host, and
+- **The domain.** `redoubtbrowser.org` is the open placeholder. The exact host, and
   whether the endpoint is a separate origin, wait on that decision. This page names
   the shape so that decision is smaller when it happens.
 - **The key.** The signing key belongs to the skipped distribution tasks. This page
@@ -200,7 +200,7 @@ in-app prompt, or the same update is announced twice through two mechanisms.
 This is the specification and the invariants, and it is complete on its own terms:
 the check's privacy boundary, its frequency, its disclosure, and the channel split
 are all decided. What is not done is the half that needs the world — the domain
-(`<PROJECT_DOMAIN>`), the key (the skipped distribution tasks), the patch
+(`redoubtbrowser.org`), the key (the skipped distribution tasks), the patch
 (`patches/android/update-check.patch`), and the smoke-test pass against a live
 endpoint. The domain is the load-bearing one: until it is decided, the endpoint is
 a contract, not an address.

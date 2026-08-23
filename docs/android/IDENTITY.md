@@ -51,10 +51,32 @@ either — see "the space is occupied" below.
 
 The forge is <https://github.com/CPlusPlus17/Redoubt>.
 
-Two placeholders are still open, and remain greppable on purpose:
+## The domain and the applicationId
 
-    <PROJECT_ID>       the Android applicationId, e.g. tld.example.browser
-    <PROJECT_DOMAIN>   the site that hosts downloads and the parity statement
+Both decided 2026-08-23. No placeholders remain.
+
+    domain          redoubtbrowser.org
+    applicationId   org.redoubtbrowser
+
+Two segments, not three. `org.redoubtbrowser.android` was the alternative; the
+shorter form leaves the channel suffixes clean — `org.redoubtbrowser.beta`,
+`org.redoubtbrowser.debug` — rather than stacking to
+`org.redoubtbrowser.android.beta`.
+
+**`libreRedoubt` was proposed and rejected**, and the reasoning belongs in the
+record. Putting "Libre" in front reverses the whole point of choosing Redoubt:
+it reads as a LibreWolf sub-brand, so a user installing it from F-Droid would
+credit the LibreWolf team for its security posture and be wrong. That is the
+harm this file exists to prevent, and it is what LibreWolf itself exists because
+Mozilla forbids. `libreredoubt.org` was available; it was not taken.
+
+`redoubt.org`, `.net`, `.io`, `.dev`, `.app`, `.page`, `.software`, `.systems`
+and `.build` are all registered to other parties. `redoubt.foundation` was free
+and was rejected too: there is no foundation, and claiming one would be the same
+species of overclaim as "provably zero-GMS".
+
+**The domain is not registered yet.** It is written throughout the docs as a
+decision, not as a live host. Register it before anything links to it publicly.
 
 ## The space is occupied
 
@@ -69,10 +91,10 @@ the desktop build, rather than patching a prebuilt Fennec. That is a real
 difference and it is also the expensive one. LW-M7-03 owns saying it accurately
 and without overclaiming.
 
-**`<PROJECT_ID>` is one-way.** A changed applicationId is a different app to
-Android: no upgrade path, no data migration, every user reinstalls by hand. It is
-the same severity as losing the signing key, and F-Droid and Accrescent both key on
-it. Decide it before the first public build, not after.
+**`org.redoubtbrowser` is one-way.** A changed applicationId is a different app
+to Android: no upgrade path, no data migration, every user reinstalls by hand. It
+is the same severity as losing the signing key, and F-Droid and Accrescent both
+key on it. It is decided; do not revisit it after the first public build.
 
 Note the current build still ships as `org.mozilla` + `.fenix.debug`. That must
 change before anything is published: it is Mozilla's namespace *and* it collides

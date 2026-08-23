@@ -84,8 +84,8 @@ project out of the LibreWolf name also keeps it out of the Firefox name.
 
 ## Status
 
-Not published. Before any public build: the `<PROJECT_ID>` applicationId and the
-`<PROJECT_DOMAIN>` hosting domain must be decided (both one-way, both still open
+Not published. Before any public build: the `org.redoubtbrowser` applicationId and the
+`redoubtbrowser.org` hosting domain must be decided (both one-way, both still open
 placeholders), the branding must stop shipping as `org.mozilla`, and the final
 public wording above must be approved by the owner. Until then this page
 describes intent and measurement, not a product on a shelf.

@@ -63,7 +63,7 @@ So the response is about containment, not silent rotation:
 A malicious or tampered APK served under the project's name — on the F-Droid
 repository, the direct-download host, or a mirror — is a supply-chain event even
 if the signing key itself is intact. The channel is currently an open
-placeholder (`<PROJECT_DOMAIN>`), so the controls are stated generically and the
+placeholder (`redoubtbrowser.org`), so the controls are stated generically and the
 concrete host is filled in when it is decided:
 
 - **F-Droid repository integrity first.** A F-Droid repository is signed and the
@@ -137,7 +137,7 @@ only if they ask for it.
 ## Status
 
 Not all of this is operational yet, and it is not pretending to be. The
-distribution channel is `<PROJECT_DOMAIN>` (open placeholder — see
+distribution channel is `redoubtbrowser.org` (open placeholder — see
 `docs/android/DISTRIBUTION.md`), the signing key is generated in LW-M6-01, and
 the 72-hour target is the maintainer's to ratify. What this page fixes now is the
 *shape* of the process and the two failure modes that are specific to Android,
