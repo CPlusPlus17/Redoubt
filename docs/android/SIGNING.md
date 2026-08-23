@@ -44,18 +44,42 @@ acceptance criteria demand at least two holders rather than a single backup.
 
 ## Custody
 
-**TO BE COMPLETED BY THE OWNER — this section is the deliverable, not
-decoration.** `LW-M6-01` is not done until every line below is filled in with a
-real answer, and a placeholder left here is a worse outcome than an ugly truth.
+State as of 2026-08-23, reported by the owner.
 
-    holders (>= 2)         TODO — who physically holds a copy
-    storage medium         TODO — encrypted volume? hardware token? paper?
-    locations              TODO — must be geographically separate; two copies
-                                  in one building is one copy
-    passphrase custody     TODO — stored SEPARATELY from the keystore. On the
-                                  same medium it adds nothing.
-    restore last tested    TODO — an untested backup is a belief, not a backup
-    review cadence         TODO — when is holder access re-confirmed
+    copies                 2 — the build machine and the owner's Mac
+    holders (people)       1 — see "The single-holder gap" below
+    restore tested         2026-08-23. The Mac copy was opened with keytool and
+                           printed the fingerprint published above, so both the
+                           file and the passphrase are known good, not assumed.
+    passphrase custody     owner-held, separate from the keystore file
+    review cadence         re-confirm at each release
+
+### The single-holder gap
+
+The acceptance criterion for LW-M6-01 says "at least two holders". Redoubt has
+one person, so it is **not met**, and this file records that rather than
+counting two machines as two holders. They are not: one person's laptop and one
+person's desktop share a threat model, sit in one building, and are lost to the
+same fire, theft or compromise.
+
+What this actually means, stated plainly: if the owner loses access to both
+machines and the passphrase, Redoubt ends under `org.redoubtbrowser`. There is
+no co-holder to recover from and no authority to appeal to. That is an accepted
+risk of a solo project, not an oversight, and it is written here so that a
+future reader — or the owner in two years — does not mistake "two copies" for
+"two holders".
+
+Closing it needs one of:
+
+  * a second person holding an encrypted copy, with the passphrase conveyed
+    separately, or
+  * an offline copy in a third location the owner controls (safe deposit,
+    another address) — which reduces the loss risk without reducing the
+    compromise risk, and still leaves one holder, or
+  * an explicit decision to ship single-holder, recorded here with a date.
+
+The one thing not to do is leave this section reading as though the criterion
+were satisfied.
 
 ### Rules that are already settled
 
