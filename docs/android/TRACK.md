@@ -305,6 +305,43 @@ If Android ships on ESR and we later want release:
    requires touching either — **keep them uncoupled**, and this stays a schedule
    decision.
 
+### 5.7 Recording of the decided applicationId (per LW-M4-07)
+
+The identity decision §5 item 6 keeps uncoupled from the ESR track is made and is
+recorded here per LW-M4-07 acceptance #1. The authoritative record is
+`IDENTITY.md`; this is the track's copy so the decision is visible in the
+document that gates release.
+
+    applicationId   org.redoubtbrowser
+    domain          redoubtbrowser.org   (decided 2026-08-23, not yet registered)
+
+Decided and signed off 2026-08-23 (see IDENTITY.md for the full record, including
+the `libreRedoubt` rejection). **One-way:** a changed applicationId is a different
+app to Android — no upgrade path, no data migration — and F-Droid and Accrescent
+key on it. Channel suffixes are the clean two-segment `org.redoubtbrowser.beta`
+and `org.redoubtbrowser.debug`; the three-segment alternative
+`org.redoubtbrowser.android` was rejected.
+
+State at recording: **decided, not yet applied.** The build still ships as
+`org.mozilla` + `.fenix.debug` — Mozilla's namespace, which collides with a real
+Firefox install on a device. LW-M4-07 owns applying it, and "applying it" is
+wider than the manifest:
+
+- `build.gradle` `applicationId` (currently `org.mozilla`) → `org.redoubtbrowser`,
+  plus the per-variant suffixes (`.fenix.debug`, `.firefox`, `.firefox_beta` →
+  `.debug`, none, `.beta`). The `namespace` (`org.mozilla.fenix`, the Kotlin
+  package) **stays** — it is not branding and renaming it breaks every patch.
+- `deepLinkScheme` (currently `fenix` / `fenix-beta` / `fenix-dev`) — a separate
+  manifest placeholder, **not** derived from applicationId; must be re-decided.
+- `sharedUserId "org.mozilla.firefox.sharedID"` (currently on beta + release) is
+  Mozilla's and must be **dropped**.
+- The user-visible name, icons (brand colour `#00acff`) and about screen.
+- The coupled script references in `scripts/android-*.sh` that hardcode the old
+  identity.
+
+This is a recording pointer, not a build change, and it does not alter the ESR
+decision above.
+
 ---
 
 ## 6. The version-divergence model
