@@ -142,22 +142,30 @@ jobs:
           # R8 stays ON: LW-M6-07 fixed the JNA/uniffi keep rules and the
           # minified release build now boots. Do not reintroduce
           # -PdisableOptimization without re-measuring.
-          scripts/android-apk.sh \
-            --srcdir "librewolf-$(cat version.android)-$(cat release.android)" \
-            --outdir redoubt-rc \
-            --variant release \
-            --disable-debug-signing \
-            --engine podman \
-            --jobs 16
-          ls redoubt-rc/apk/*.apk >/dev/null 2>&1 \
-            || { echo "FATAL: no release APK produced under redoubt-rc/apk/" >&2; exit 1; }
+          #
+          # make android-package (alias android-apk) is the one-command path: its
+          # build-times.txt prerequisite builds the fat AAR first (scripts/
+          # android-fat-aar.sh -> librewolf-android-aar-<v>-<r>/), then feeds it to
+          # scripts/android-apk.sh, which runs pass 1 (Gecko, producing the objdir)
+          # and pass 2 (fenix:assembleRelease). The script REQUIRES --aar-dir, so
+          # calling it directly without that (as the previous revision did) dies
+          # with 'fatal: --aar-dir is required'. ANDROID_APK_FLAGS carries the
+          # variant + the unsigned flag through to the script.
+          make android-package \
+            TARGETS=android \
+            CONTAINER_ENGINE=podman \
+            ANDROID_APK_FLAGS="--variant=release --disable-debug-signing"
+          APKDIR="librewolf-android-apk-$(cat version.android)-$(cat release.android)/apk"
+          ls "$APKDIR"/*.apk >/dev/null 2>&1 \
+            || { echo "FATAL: no release APK produced under $APKDIR/" >&2; exit 1; }
 
       - name: Hard gate — the artifact MUST be unsigned
         if: ${{ env.MODE == 'full' }}
         run: |
           set -eu
+          APKDIR="librewolf-android-apk-$(cat version.android)-$(cat release.android)/apk"
           found=0
-          for apk in redoubt-rc/apk/*.apk; do
+          for apk in "$APKDIR"/*.apk; do
             [ -e "$apk" ] || continue
             found=1
             signed=0
@@ -176,14 +184,15 @@ jobs:
             fi
             echo "OK: $apk is unsigned (no v1 block, no v2/v3 signing block)."
           done
-          [ "$found" -eq 1 ] || { echo "FATAL: no release APK found to gate (redoubt-rc/apk/)." >&2; exit 1; }
+          [ "$found" -eq 1 ] || { echo "FATAL: no release APK found to gate ($APKDIR/)." >&2; exit 1; }
 
       - name: Collect unsigned APKs and publish sha256 sums
         if: ${{ env.MODE == 'full' }}
         run: |
           set -eu
+          APKDIR="librewolf-android-apk-$(cat version.android)-$(cat release.android)/apk"
           mkdir -p dist
-          cp redoubt-rc/apk/*.apk dist/
+          cp "$APKDIR"/*.apk dist/
           ( cd dist && sha256sum *.apk > SHA256SUMS )
           cat dist/SHA256SUMS
 
