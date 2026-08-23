@@ -179,6 +179,11 @@ BUILD_DATE=""
 GRADLE_HOME_SEED=""
 DRY_RUN=0
 SKIP_GECKO=0
+# When set (via --disable-debug-signing) this string is appended to both
+# Gradle invocations in the apk pass so the release build type is produced
+# unsigned, per the LW-M6-01 custody model. Empty by default: an unflagged
+# release build still carries the debug signature, exactly as before.
+DISABLE_DEBUG_SIGNING=""
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -306,6 +311,7 @@ while [ $# -gt 0 ]; do
         --mount-opt)      MOUNT_OPT=${2:-}; shift 2 ;;
         --mount-opt=*)    MOUNT_OPT=${1#*=}; shift ;;
         --skip-gecko)     SKIP_GECKO=1; shift ;;
+        --disable-debug-signing) DISABLE_DEBUG_SIGNING="-PdisableDebugSigning"; shift ;;
         -n|--dry-run)     DRY_RUN=1; shift ;;
         -h|--help)        usage; exit 0 ;;
         *)                usage >&2; die "unknown argument: $1" ;;
@@ -772,7 +778,7 @@ fi
 # --no-configuration-cache -- so this is a task-ordering race, not a broken
 # generator.  Pre-generating in a dedicated invocation puts the sources on
 # disk before the assemble graph runs, so the compile always sees them.
-./mach gradle fenix:generateSafeArgs$VARIANT_CAP
+./mach gradle fenix:generateSafeArgs$VARIANT_CAP $DISABLE_DEBUG_SIGNING
 rc=\$?
 if [ \$rc -ne 0 ]; then
     date -u +'PASS apk END %Y-%m-%dT%H:%M:%SZ'
@@ -785,7 +791,7 @@ fi
 # container env for both passes, so reuse it; \$ keeps it for the container
 # shell, not the heredoc's host shell.  When unset (it is never unset here) the
 # build falls back to the original three-ABI split.
-./mach gradle fenix:assemble$VARIANT_CAP -PfenixSplitAbi="\$MOZ_ANDROID_FAT_AAR_ARCHITECTURES"
+./mach gradle fenix:assemble$VARIANT_CAP -PfenixSplitAbi="\$MOZ_ANDROID_FAT_AAR_ARCHITECTURES" $DISABLE_DEBUG_SIGNING
 rc=\$?
 date -u +'PASS apk END %Y-%m-%dT%H:%M:%SZ'
 echo "MACH_EXIT=\$rc"
@@ -1285,25 +1291,44 @@ $hits
 done
 log "  none resolved: GeckoView and app-services are both in-tree"
 
-log "verifying the APK signatures"
-for f in "$OUTDIR"/apk/*.apk; do
-    name=$(basename "$f")
-    out=$("$ENGINE" run --rm \
-            -v "$OUTDIR:/work/out$mount_suffix" \
-            "$IMAGE" \
-            bash -c 'set -e; s=$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | head -1); "$s" verify --print-certs "$1"' \
-            _ "/work/out/apk/$name" 2>&1) ||
-        die "apksigner could not verify '$name':
+if [ -n "$DISABLE_DEBUG_SIGNING" ]; then
+    # Unsigned custody artefact (LW-M6-01): the release build type must carry NO
+    # signature. Verify the ABSENCE of a v1 (JAR) and a v2/v3 (APK Signing Block)
+    # signature, mirroring the CI gate exactly. This is the inverse of the signed
+    # check below: a maintainer signs this APK offline, so neither CI nor this
+    # script may have applied a signature. Runs on the host (unzip + grep only).
+    log "verifying the APKs are UNSIGNED (--disable-debug-signing)"
+    for f in "$OUTDIR"/apk/*.apk; do
+        name=$(basename "$f")
+        if unzip -l "$f" 2>/dev/null | grep -qiE 'META-INF/.*\.(RSA|DSA|EC)$'; then
+            die "'$name' carries a v1 JAR signature; an --disable-debug-signing build must be unsigned"
+        fi
+        if grep -qa 'APK Sig Block 42' "$f"; then
+            die "'$name' carries a v2/v3 APK Signing Block; an --disable-debug-signing build must be unsigned"
+        fi
+        log "  $name: unsigned (no v1 block, no v2/v3 signing block)"
+    done
+else
+    log "verifying the APK signatures"
+    for f in "$OUTDIR"/apk/*.apk; do
+        name=$(basename "$f")
+        out=$("$ENGINE" run --rm \
+                -v "$OUTDIR:/work/out$mount_suffix" \
+                "$IMAGE" \
+                bash -c 'set -e; s=$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | head -1); "$s" verify --print-certs "$1"' \
+                _ "/work/out/apk/$name" 2>&1) ||
+            die "apksigner could not verify '$name':
 $out"
-    printf '%s' "$out" | grep -q 'CN=Android Debug' ||
-        die "'$name' is not signed with the Android debug certificate:
+        printf '%s' "$out" | grep -q 'CN=Android Debug' ||
+            die "'$name' is not signed with the Android debug certificate:
 $out"
-    # apksigner spells this "V2 Signer: certificate DN: ..." (checked against its
-    # real output, not guessed), and only the CN part is stable across machines --
-    # the debug keystore's key differs per builder, so the DN, not a fingerprint,
-    # is what can be asserted.
-    log "  $name: signature verifies, $(printf '%s' "$out" | sed -n 's/.*certificate DN: /DN=/p' | head -1)"
-done
+        # apksigner spells this "V2 Signer: certificate DN: ..." (checked against its
+        # real output, not guessed), and only the CN part is stable across machines --
+        # the debug keystore's key differs per builder, so the DN, not a fingerprint,
+        # is what can be asserted.
+        log "  $name: signature verifies, $(printf '%s' "$out" | sed -n 's/.*certificate DN: /DN=/p' | head -1)"
+    done
+fi
 
 end_all=$(date +%s)
 {
