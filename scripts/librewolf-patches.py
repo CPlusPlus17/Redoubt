@@ -334,6 +334,13 @@ def librewolf_patches():
     # themes/android/, it copies it in under an "android" in targets gate here.
     if "desktop" in targets:
         exec("cp -r ../themes/browser .")
+    if "android" in targets:
+        # The 44 launcher-icon rasters (ic_launcher*.webp/png) are binary and
+        # cannot live in a text patch, so they are staged in themes/android/
+        # (mirroring the src/<variant>/... layout) and copied in here. The
+        # vector drawables and build.gradle/manifest identity changes are in
+        # patches/android/branding.patch; this supplies the raster halves.
+        exec("cp -rv ../themes/android/. mobile/android/fenix/app/src/")
 
     # copy the right search-config.json-v2 file and search-config-icons file
     exec('cp -v ../assets/search-config-v2.json services/settings/dumps/main/search-config-v2.json')
