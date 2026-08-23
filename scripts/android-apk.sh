@@ -1123,29 +1123,24 @@ else:
             f"lib/{abi}/libxul.so has ELF e_machine {machine}, expected {want_machine}"
         )
 
-# The buildid this run pinned has to be inside the shipped library, or the APK
-# is carrying a libxul from some other build.
-if build_date.encode() not in apk_lib:
-    problems.append(
-        f"lib/{abi}/libxul.so does not contain the pinned build id {build_date}"
-    )
-
+# Identity check: the packaged libxul.so must be the one from the AAR that was
+# actually used as input.  This is the guard against LW-M3-11 (stale libxul,
+# cfg perfectly packaged, autoconfig silently dead).  A build-date string
+# probe is not a reliable identity test (the date need not be embedded in the
+# binary, and on an AAR-reuse build the tree's date differs from the AAR's),
+# so compare bytes against the AAR's own libxul instead.
 apk_sha = hashlib.sha256(apk_lib).hexdigest()
 aar_sha = hashlib.sha256(aar_lib).hexdigest()
-if apk_sha == aar_sha:
-    verdict = "sha256-identical to the per-ABI build"
-else:
-    # AGP may run its own strip over jniLibs.  That is a transformation of our
-    # library, not a substitution of somebody else's, and the two checks above
-    # already pin identity -- so report it loudly instead of failing.
-    verdict = (
-        f"DIFFERS from the per-ABI build (apk {len(apk_lib)}B {apk_sha[:16]}, "
-        f"aar {len(aar_lib)}B {aar_sha[:16]}) -- expected only if AGP stripped it"
+if apk_sha != aar_sha:
+    problems.append(
+        f"lib/{abi}/libxul.so is NOT the AAR's libxul (apk {len(apk_lib)}B "
+        f"{apk_sha[:16]} != aar {len(aar_lib)}B {aar_sha[:16]}); the packaged "
+        f"native library is not the one that was used as input"
     )
 
 if problems:
     sys.exit("\n".join("  " + p for p in problems))
-print(f"  {abi}: libxul.so {len(apk_lib)} bytes, buildid {build_date} present, {verdict}")
+print(f"  {abi}: libxul.so {len(apk_lib)} bytes, sha256-identical to the AAR input ({apk_sha[:16]})")
 PY
 done
 
