@@ -1,0 +1,74 @@
+# LibreWolf kotlin-version-alignment.patch  (Android)
+# Owner: LW-M3-12 (align the Kotlin version to Gradle 9.5.1's embedded kotlin-dsl)
+#
+# THE DEFECT
+# ----------
+# gradle/libs.versions.toml:8 pins the Kotlin Gradle plugin to 2.3.21, but the
+# build runs on Gradle 9.5.1, whose embedded kotlin-dsl and embedded-kotlin
+# plugins rely on Kotlin 2.3.20. The build log flags this mismatch itself
+# (arm64-v8a.log:802-806):
+#
+#   The `embedded-kotlin` and `kotlin-dsl` plugins rely on features of Kotlin
+#   `2.3.20` that might work differently than in the requested version `2.3.21`.
+#   Using the `kotlin-dsl` plugin together with a different Kotlin version ... is
+#   not recommended.
+#   Applying other version of the `org.jetbrains.kotlin.jvm` plugin in the build
+#   and/or adding dependencies to different versions of the Kotlin Standard
+#   Library can cause incompatibilities.
+#
+# The observed failure is a Kotlin-plugin-internal build-service registration
+# type conflict on :geckoview:compileDebugKotlin (a DEBUG task run by
+# `mach android export` for geckoview API extraction):
+#
+#   Could not load the value of field `__buildFusService__` of task
+#   `:geckoview:compileDebugKotlin` of type
+#   `org.jetbrains.kotlin.gradle.tasks.KotlinCompile`.
+#   Cannot set the value of a property of type
+#   org.jetbrains.kotlin.gradle.plugin.statistics.BuildFusService using a
+#   provider of type
+#   org.jetbrains.kotlin.gradle.plugin.statistics.FlowActionBuildFusService.
+#
+# THE FAULT IS INTERMITTENT - attribution is unproven
+# ----------------------------------------------------
+# It is NOT deterministic. On 2026-08-22 the x86_64 pass hit this exact fault
+# and then PASSED on a later run with no version change (the failing log was
+# overwritten by the successful rerun). On 2026-08-24 the arm64-v8a and
+# armeabi-v7a first passes hit it in clean fresh outdirs (empty
+# GRADLE_USER_HOME, no prior pass to leave state). So it is a real,
+# sometimes-reproducible fault, but a single green pass does not prove it is
+# fixed and a single red pass does not prove this alignment caused it. The
+# shared-GRADLE_USER_HOME / pass-order hypothesis was explicitly falsified by
+# the 2026-08-24 clean-first-pass failures.
+#
+# THE FIX (defensible correctness, NOT a proven fault fix)
+# ---------------------------------------------------------
+# Align the Kotlin version to 2.3.20 to match Gradle 9.5.1's embedded
+# kotlin-dsl / embedded-kotlin, removing the version mismatch the build log
+# itself flags as "not recommended" and "can cause incompatibilities." The
+# version mismatch is real regardless of whether this specific fault is
+# attributable to it. This patch removes a real Kotlin/Gradle version mismatch
+# that is a known source of Kotlin-plugin-internal incompatibilities; it does
+# NOT claim the intermittent fault is fixed. Evidence is reported as
+# "mismatch removed", NOT "fault fixed"; the attribution is unproven.
+#
+# SCOPE / ORDERING
+# ----------------
+# One line in gradle/libs.versions.toml [versions]. no-adjust and no-gms also
+# carry a hunk in gradle/libs.versions.toml but only in the [versions] /
+# [libraries] Google-dependency sections (lines 56+); neither touches the
+# `kotlin =` line (line 8) or the [versions] Kotlin block, so this hunk is
+# order-free against both. The two order-free pairs (kotlin-version-alignment
+# + no-adjust, kotlin-version-alignment + no-gms) are declared in
+# docs/android/AGENTS.md and scripts/check-patch-order.py.
+
+--- a/gradle/libs.versions.toml
++++ b/gradle/libs.versions.toml
+@@ -5,7 +5,7 @@
+ 
+ # Kotlin
+ coroutines = "1.11.0"
+-kotlin = "2.3.21"
++kotlin = "2.3.20"
+ serialization = "1.11.0"
+ 
+ # AndroidX

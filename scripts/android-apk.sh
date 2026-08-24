@@ -821,6 +821,28 @@ print("\n".join(abis))
 PY
 }
 
+# Lists EVERY ABI directory under a prefix in a zip, whether or not it holds
+# libxul.so.  This is the half of the pair that catches an "empty" ABI dir: an
+# APK that ships lib/arm64-v8a/ with the app's own .so but no libxul.so is
+# installable on arm64 and dead on arrival, and zip_abis_with_libxul would
+# report it as absent (so a check that only looks at libxul.so would pass it).
+# Comparing zip_abis_with_libxul against this function is what turns "an ABI
+# dir is missing its engine" from a silent gap into a hard failure.
+zip_abis_present() {
+    # $1 = zip, $2 = prefix ("jni/" or "lib/")
+    python3 - "$1" "$2" <<'PY'
+import sys, zipfile, posixpath
+path, prefix = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(path) as z:
+    abis = sorted({
+        n[len(prefix):].split("/")[0]
+        for n in z.namelist()
+        if n.startswith(prefix) and len(n[len(prefix):].split("/")) >= 2
+    })
+print("\n".join(abis))
+PY
+}
+
 # ---------------------------------------------------------------------------
 # Plan
 # ---------------------------------------------------------------------------
@@ -1156,9 +1178,23 @@ universal=$(apk_for universal)
 if [ -f "$universal" ]; then
     got=$(zip_abis_with_libxul "$universal" "lib/" | tr '\n' ' ' | sed 's/ *$//')
     want=$(printf '%s\n' $abi_list | sort | tr '\n' ' ' | sed 's/ *$//')
+    # An ABI directory that exists in the APK but has no libxul.so is an
+    # installable-but-dead slice: the device would load the app's own .so, find
+    # no engine, and crash on launch. This is the "universal that is not
+    # universal" fault -- e.g. a single-ABI AAR whose libxul.so only landed
+    # under one ABI while the AGP split still emitted the other ABI dirs with
+    # their app-only .so. zip_abis_with_libxul would report those ABIs as absent
+    # and the `got == want` check below would pass them (want is AAR-derived),
+    # so assert it explicitly: the set of ABI dirs present equals the set that
+    # carry libxul.so.
+    present=$(zip_abis_present "$universal" "lib/" | tr '\n' ' ' | sed 's/ *$//')
+    [ "$present" = "$got" ] ||
+        die "'$universal' has ABI directories [$present] but libxul.so only under
+           [$got]. Every ABI directory must carry the Gecko engine; an ABI dir
+           without libxul.so is installable on that ABI and dead on arrival."
     [ "$got" = "$want" ] ||
         die "'$universal' carries libxul.so for [$got], expected [$want]"
-    log "  universal: libxul.so for $got"
+    log "  universal: every ABI directory [$got] carries libxul.so (none empty)"
 else
     # universalApk is gated on MOZILLA_OFFICIAL (fenix/app/build.gradle:242-245),
     # which the preflight already required, so its absence means the splits
