@@ -1,0 +1,66 @@
+# Redoubt gradle-no-config-cache.patch  (Android)
+# Owner: LW-M3-13 ("The Gradle configuration cache breaks the Kotlin build")
+#
+# THE FAULT
+# ---------
+# Every multi-ABI Gecko/AAR build died at :geckoview:compileDebugKotlin with:
+#
+#   > Could not load the value of field `__buildFusService__` of task
+#     `:geckoview:compileDebugKotlin` of type
+#     `org.jetbrains.kotlin.gradle.tasks.KotlinCompile`.
+#   >   > Cannot set the value of a property of type
+#       org.jetbrains.kotlin.gradle.plugin.statistics.BuildFusService using a
+#       provider of type
+#       org.jetbrains.kotlin.gradle.plugin.statistics.FlowActionBuildFusService.
+#
+# The operative word is LOAD. This is configuration-cache DESERIALIZATION, not
+# service registration: KGP writes the FUS (usage-statistics) build service
+# into the configuration cache as FlowActionBuildFusService and reads it back
+# into a field declared BuildFusService. The types do not round-trip.
+#
+# WHAT IT COST, AND THE THREE WRONG DIAGNOSES IT PRODUCED
+# --------------------------------------------------------
+# The fault presents as intermittent and target-specific, and it is neither.
+# Recorded here because the same shape will recur:
+#
+#   1. "It is ARM-specific."  Both ARM ABIs failed and x86_64 appeared to pass.
+#      The x86_64 "pass" was a 2026-08-22 run; re-running x86_64 on 2026-08-24
+#      failed identically. The ABI was never the variable.
+#   2. "It is a Kotlin version mismatch."  gradle/libs.versions.toml pins
+#      kotlin 2.3.21 while Gradle 9.5.1 embeds kotlin-dsl 2.3.20, and the build
+#      log itself flags this as "not recommended". Aligning 2.3.21 -> 2.3.20
+#      did not fix it; the fault reproduced on all three ABIs at 2.3.20. The
+#      mismatch is real and harmless.
+#   3. "It is a stale configuration cache."  Deleting
+#      <srcdir>/.gradle/configuration-cache did not fix it either. The cache is
+#      not stale, it is unusable: a freshly written entry fails to load.
+#
+# Note for anyone tempted to chase it with a fresh --outdir: the configuration
+# cache lives in the SOURCE tree at <srcdir>/.gradle/configuration-cache, not
+# in the output directory, so a new outdir does not clear it and never did.
+#
+# THE FIX
+# -------
+# Turn the configuration cache off for the Android build. Measured 2026-08-24:
+# with org.gradle.configuration-cache=false, :geckoview:compileDebugKotlin
+# completes and the build proceeds into the Rust compile stage, at the same
+# Kotlin 2.3.21 that upstream pins.
+#
+# The cost is small here and the benefit is not: the configuration cache speeds
+# up the CONFIGURATION phase of repeated builds. Redoubt's Gecko/AAR builds are
+# from-scratch release builds in a container, where configuration is a rounding
+# error against a ~20 minute Rust and C++ compile. We trade a few seconds of
+# configuration time for a build that completes.
+#
+# Revisit when the Kotlin Gradle plugin fixes the round-trip. The check is one
+# line: flip this to true and run a single ABI pass.
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -10,6 +10,6 @@
+ # Do not modify these values without first reviewing Bug 1954747: https://bugzilla.mozilla.org/show_bug.cgi?id=1954747
+ org.gradle.jvmargs=-Xmx7g -Xms2g -XX:MaxMetaspaceSize=6g -XX:+HeapDumpOnOutOfMemoryError -XX:+UseParallelGC
+ 
+-org.gradle.configuration-cache=true
++org.gradle.configuration-cache=false
+ 
+ android.useAndroidX=true

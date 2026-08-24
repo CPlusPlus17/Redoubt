@@ -627,22 +627,6 @@ REVIEWED_ORDER_FREE = (
      "measured order-free (LW-M4-02): both orders applied with zero rejects "
      "and produced byte-identical trees; disjoint but only 19-36 lines apart, "
      "so this is a measurement and not an eyeball"),
-    # LW-M3-12. kotlin-version-alignment edits gradle/libs.versions.toml:8
-    # (the kotlin = line in the [versions] Kotlin block). no-adjust and no-gms
-    # also carry a hunk in gradle/libs.versions.toml but only in the [versions]
-    # / [libraries] Google-dependency sections (lines 56+); neither touches the
-    # kotlin = line (line 8) or the [versions] Kotlin block, so the hunk is
-    # order-free against both.
-    ("patches/android/kotlin-version-alignment.patch",
-     "patches/android/no-adjust.patch",
-     ("gradle/libs.versions.toml",),
-     "disjoint regions of gradle/libs.versions.toml: kotlin line :8 vs "
-     "Google-dependency sections :56+ (LW-M3-12)"),
-    ("patches/android/kotlin-version-alignment.patch",
-     "patches/android/no-gms.patch",
-     ("gradle/libs.versions.toml",),
-     "disjoint regions of gradle/libs.versions.toml: kotlin line :8 vs "
-     "Google-dependency sections :56+ (LW-M3-12)"),
 )
 
 
