@@ -121,8 +121,8 @@ For each `<string>`, `<plurals>` and `<string-array>` text node:
 
 1. **Skip internal keys.** A resource whose value equals its own name is never
    touched. This is mechanical, not a hand-maintained list.
-2. **Phrases first.** `Firefox Fenix` → `LibreWolf`, so the word pass cannot
-   turn a two-word product name into "LibreWolf LibreWolf".
+2. **Phrases first.** `Firefox Fenix` → `Redoubt`, so the word pass cannot
+   turn a two-word product name into "Redoubt Redoubt".
 3. **Mask URLs.** A URL span is matched, and only the `url` / `url-keep` tables
    apply inside it, keyed on the **host**. A host rule for `mozilla.org` must
    not quietly rewrite `addons.mozilla.org`, so matching is host-equality and
@@ -133,9 +133,9 @@ For each `<string>`, `<plurals>` and `<string-array>` text node:
 
    | input | whole word | stem only | same-script run |
    |---|---|---|---|
-   | `Firefox를` (ko) | `LibreWolf` — particle lost | `LibreWolf를` ✓ | `LibreWolf를` ✓ |
-   | `የfirefox` (am) | `LibreWolf` — prefix lost | `የLibreWolf` ✓ | `የLibreWolf` ✓ |
-   | `Mozilli` (hr) | `LibreWolf` ✓ | `LibreWolfli` ✗ | `LibreWolf` ✓ |
+   | `Firefox를` (ko) | `Redoubt` — particle lost | `Redoubt를` ✓ | `Redoubt를` ✓ |
+   | `የfirefox` (am) | `Redoubt` — prefix lost | `የRedoubt` ✓ | `የRedoubt` ✓ |
+   | `Mozilli` (hr) | `Redoubt` ✓ | `Redoubtli` ✗ | `Redoubt` ✓ |
 
    Only the third column is right in all three cases. Losing the Slavic
    declension on the brand is a deliberate, stated cost: brand names commonly
@@ -146,7 +146,7 @@ For each `<string>`, `<plurals>` and `<string-array>` text node:
    - a declared stem still matches (a spelling in a locale we know about that
      the substitution somehow left behind);
    - a URL still carries the mark and its host is in neither table;
-   - the rewritten **English** value mentions LibreWolf and the rewritten
+   - the rewritten **English** value mentions the brand and the rewritten
      translation does not. This last one is what covers a transliteration the
      map has no stem for: we cannot spell it, so we cannot detect it, so we
      refuse to ship the entry.
@@ -227,7 +227,7 @@ rewriting it makes the instruction or example wrong, and the prose around it
 
 | resource | rows | why it stays |
 |---|---|---|
-| `sign_in_instructions` | 108 | contains `https://firefox.com/pair`, the Mozilla-account pairing endpoint. The prose around it *is* rewritten ("On your computer open LibreWolf and go to …"); the host is not, because rewriting it makes the instruction wrong. |
+| `sign_in_instructions` | 108 | contains `https://firefox.com/pair`, the Mozilla-account pairing endpoint. The prose around it *is* rewritten ("On your computer open Redoubt and go to …"); the host is not, because rewriting it makes the instruction wrong. |
 | `pair_instructions_2` | 106 | same endpoint, on the QR-code screen. |
 | `search_add_custom_engine_suggest_string_example_2` | 83 | a worked example of a third-party suggestion URL. The `client=firefox` in it is Google's API vocabulary, not our chrome, and changing it makes the example stop working. |
 

@@ -1401,7 +1401,10 @@ tasks:
     title: Make the Fenix unit suite runnable in the build container
     milestone: M2
     depends_on: [LW-M2-07, LW-M2-08]
-    owns: [assets/Dockerfile.android, docs/android/BUILD.md]
+    owns:
+      - assets/Dockerfile.android
+      - docs/android/BUILD.md
+      - docs/android/fenix-test-allowlist.yaml
     what: |
       AGENTS.md now requires `./mach gradle fenix:testDebugUnitTest` to pass for any
       Kotlin-layer change, and it cannot cleanly: **libmegazord.so is absent from the
@@ -1424,11 +1427,53 @@ tasks:
       documented residue", and every task has to prove that by differencing against a
       baseline it ran itself. That is expensive and error-prone, which is why this
       exists.
+
+      RESOLVED 2026-08-25. Allowlist, not a shipped library — and the reason is
+      structural, not effort: libmegazord.so is a cross-compiled *Android* ELF, so
+      the host JVM cannot load it at all. A host-native build would need a separate
+      appservices target the tree does not configure. Shipping it in the image was
+      never on the table.
+
+      Measured against the current objdir and independently reconfirmed from the
+      JUnit XML rather than from a run log: 5418 tests, 90 failed, 87 environmental
+      across 3 classes, 3 real. Every count matches.
+
+      Two corrections to what first landed.
+
+      (a) The allowlist was prose. This entry asks for a list "that the harness
+      subtracts", and nothing subtracted it — a maintainer had to eyeball a
+      `uniq -c` against a markdown table. It is now
+      docs/android/fenix-test-allowlist.yaml plus `board.py --check-fenix-tests`,
+      which reads the JUnit XML rather than the console log. A log is only as good
+      as whoever remembered to tee it, and a grep over a log that was never captured
+      prints nothing — which is exactly what a clean run prints.
+
+      The gate's sharpest rule is the one that was not obvious: a listed class that
+      DID NOT RUN AT ALL is an error, not a pass. A partial run — one class, an
+      aborted task, the wrong Gradle module — contains nothing beyond the allowlist
+      precisely because it barely ran, and the first draft printed "ok" for it.
+
+      (b) The error type is not a stable key. The evidence file recorded
+      NoClassDefFoundError for the 16 ReviewPrompt tests; the XML for that same run
+      says UnsatisfiedLinkError for all 16, with UniffiLib in the stack rather than
+      in the type. Both are one failure at different points in a JVM's life:
+      mobile/android/fenix/app/build.gradle sets forkEvery = 80, so the first touch
+      in a fresh JVM raises UnsatisfiedLinkError and any later touch in that JVM
+      raises NoClassDefFoundError. Which one a test reports depends on where the
+      80-test fork boundary falls, and that moves whenever the patch set changes the
+      test count — it already moved between the LW-M4-14 baseline (5435) and this
+      run (5418). An allowlist keyed on error type would go red on a rebase that
+      changed nothing. Keyed on class name.
+
+      Left open deliberately: DefaultDistributionProviderCheckerTest is a NEW real
+      failure since the LW-M4-14 baseline (2026-08-22) and nobody has bisected which
+      patch caused it. It is in known_real so the gate is usable, not because it is
+      understood. LensCameraFragmentTest and HomeSettingsFragmentTest predate it.
     acceptance:
       - "`./mach gradle fenix:testDebugUnitTest` reports a clean result, or a documented allowlist makes it one"
       - "the allowlist, if used, is checked in with a per-entry reason"
       - "BUILD.md tells a maintainer how to run the suite and what a clean result looks like"
-    verify: "manual: run the suite in the container and compare against the documented baseline"
+    verify: "python3 docs/android/board.py --check-fenix-tests"
     effort_h: "4-8"
     skills: [gradle, android, ops]
     agent_safe: yes
@@ -1692,6 +1737,18 @@ tasks:
       patcher copies common+desktop to every target, so android.cfg is not shipped.
       This task's fix is correct and currently inert; do not let that hide a
       measurement failure.
+
+      STILL OPEN after the second attempt. The pref work is right; the WRITE-UP is
+      not. docs/android/parity/bare-prefs.md attributes
+      privacy.restrict3rdpartystorage.url_decorations to "downstream of the category
+      lock" and says arm D isolates it — but the verifier found a contradicting run
+      the agent had kept and excluded from the conclusion. That is the third variant
+      of the same failure in this project: a measured-sounding claim built on a
+      selected subset of the runs.
+
+      Fix the attribution or state it as unresolved. An honest "we observed X and
+      cannot yet explain it" is worth more than a mechanism that does not survive
+      the agent's own data.
     acceptance:
       - "every one of the 24 bare pref() calls has a stated disposition and reason"
       - "the 9 measured casualties are fixed, verified on a running build not by reading"
@@ -1923,7 +1980,7 @@ tasks:
       - "no outbound connection to incoming.telemetry.mozilla.org in a 10-minute capture covering first run and settings"
       - "the Glean dependency is absent from the APK, or its upload path is provably unreachable"
       - "build has no dead references to removed classes"
-    verify: "./scripts/android-smoke.sh --network-capture | grep -c telemetry.mozilla.org"
+    verify: "./scripts/android-smoke.sh --network-capture > /tmp/cap.txt && ! grep -qE '(incoming\\.)?telemetry\\.mozilla\\.org' /tmp/cap.txt"
     effort_h: "8-16"
     skills: [kotlin, gradle, android]
     agent_safe: yes
@@ -1968,7 +2025,7 @@ tasks:
       - "no request to any experimenter/nimbus endpoint in a 10-minute capture"
       - "FML-generated defaults still compile and are the effective values"
       - "no remote-settings collection for experiments is synced"
-    verify: "./scripts/android-smoke.sh --network-capture | grep -c experimenter"
+    verify: "./scripts/android-smoke.sh --network-capture > /tmp/cap.txt && ! grep -q experimenter /tmp/cap.txt"
     effort_h: "6-12"
     skills: [kotlin, rust, android]
     agent_safe: yes
@@ -2129,7 +2186,9 @@ tasks:
     title: Apply the remote-settings blocker to the Android build
     milestone: M4
     depends_on: [LW-M3-03]
-    owns: [patches/android/rs-blocker-android.patch]
+    owns:
+      - patches/android/rs-blocker-android.patch
+      - scripts/android-smoke.sh   # --check-no-remote-settings; stand off it elsewhere for this task
     reads: [patches/rs-blocker.patch]
     what: |
       Desktop's rs-blocker.patch plus librewolf.services.settings.allowedCollections
@@ -2154,11 +2213,59 @@ tasks:
       librewolf.services.settings.allowedCollections (common.cfg:698) is inert on
       Android for the collections Fenix actually syncs, and the desktop mechanism
       does not transfer. Plan for a Rust-side change, not an allowlist tweak.
+
+      RESOLVED 2026-08-25. Rust-side, as this entry predicted. Three hunks in
+      third_party/application-services/components/remote_settings/: fetch_changes()
+      returns an empty Changes, sync() is a no-op, make_request() returns an error.
+      make_request really is the single choke point for the client — all four call
+      sites (client.rs:658 changeset, :675 root, :686 attachment, :699 cert) go
+      through it, and service.rs's fetch_changes was the one path that built its own
+      Request, which is why it needed a hunk of its own. Verified: no viaduct call
+      remains in the crate outside #[cfg(test)].
+
+      The server deliberately STAYS Prod. Pointing it at a dead URL is the obvious
+      move and is strictly worse: client.rs:307 gates the packaged-dump path on
+      is_prod_server(), which client.rs:715-721 implements as a literal prefix match
+      against the production URL, so any Custom server silently disables every
+      packaged dump and makes the browser MORE network-dependent.
+
+      Four of the five collections Fenix uses are packaged in the binary
+      (client.rs packaged_collections!: regions, search-config-v2,
+      search-config-icons, search-telemetry-v2, plus three unused). The fifth,
+      search-config-overrides-v2, has no dump and does not need one:
+      components/search/src/selector.rs:57-60 only creates a client for it under
+      `if apply_engine_overrides`, and SearchEngineSelectorRepository.kt:59 passes
+      false. Checked in both files, not taken on trust.
+
+      IT COMPILES — established during verification, not by the task, which shipped
+      without a build. cargo check inside the build container: 10 warnings, 0
+      errors, finished in 42.85s
+      (docs/android/evidence/lw-m4-08/cargo-check-patched.txt). The warnings are
+      dead-code/unused-import fallout and cannot break this build:
+      build/moz.configure/rust.configure:797 adds -Dwarnings only under
+      --enable-warnings-as-errors, and obj-x86_64/config.status:645 shows this tree
+      builds with `--cap-lints warn`. A Rust patch nobody has built is precisely the
+      failure --check-scope, check-patch-order and `patch --dry-run` all pass in
+      silence.
+
+      STILL UNPROVEN AT RUNTIME, and that is the real gap: no emulator in this
+      environment, so --check-no-remote-settings has never run against a live debug
+      APK and the 3 hosts / 14 events have not been re-measured. The gate is written
+      and fails closed on a dead capture, but "the code path is gone and it
+      compiles" is not the same claim as "the capture is clean". Whoever next has a
+      device runs it.
+
+      Consequence to state plainly rather than discover later: with sync dead, the
+      packaged collections are frozen at whatever ships in the binary until the next
+      release — search config, engine icons and region data no longer update
+      out-of-band. That is the same posture desktop takes, and it is the point, but
+      it means a stale search config is a release-cadence problem now, not a
+      remote-settings problem.
     acceptance:
       - "a network capture shows only allowlisted collections syncing"
       - "the two librewolf.services.settings.* prefs have Android-correct values"
       - "blocking a needed collection is caught by the smoke test, not by users"
-    verify: "./scripts/android-smoke.sh --network-capture | grep firefox.settings.services.mozilla.com"
+    verify: "./scripts/android-smoke.sh --check-no-remote-settings"
     effort_h: "4-8"
     skills: [js, android]
     agent_safe: yes
@@ -2390,8 +2497,58 @@ tasks:
       residual strings this task existed to remove are gone, so the allowlist it was
       hardening is unnecessary — the gate now holds on its own, with no exemption and
       no threshold change. Satisfied on the reference artefact; see the 4-day report.
+
+      THIRD ATTEMPT NEEDED. The second attempt landed NOTHING in
+      patches/android/no-gms.patch and its headline claim was disproved twice over:
+        - It concluded "the F-Droid artefact is already provably zero-GMS" because
+          --check-no-gms exits 0 on the R8-minified RELEASE build. That build
+          CRASHES ON LAUNCH, so the clean result is meaningless. Also
+          scripts/android-apk.sh only ever runs `fenix:assembleDebug`
+          (:694, :844 — `assembleRelease` appears nowhere), so the release APK is
+          not what this repo builds.
+        - Its proposed allowlist was BROKEN WITH A REAL ARTEFACT: the verifier
+          dexed androidx.activity:activity:1.8.2 with the pinned container's d8 and
+          built an APK carrying a live GMS reference the allowlist would pass.
+      The debug APK the repo actually builds still fails with the same two strings.
+
+      So both previous remedies would have produced a false green, by different
+      routes. The task is unchanged and the constraint is now sharper: whatever you
+      propose must be demonstrated against an APK that BOOTS, must be the artefact
+      scripts/android-apk.sh actually produces, and must survive someone trying to
+      smuggle a live GMS reference past it.
+
+      RESOLVED 2026-08-25, and two things this entry used to say are now known to
+      be wrong.
+
+      (b) The brief offered "make the class check stricter" OR "pin the
+      androidx.activity version" as if either alone made the exemption safe.
+      Measurement says neither does:
+        - the VERSION check alone is defeated by a forged marker — control nc2 is
+          the real 1.8.2 dex carrying a marker claiming 1.13.0;
+        - the CLASS check alone is vacuous on any minified build, because R8
+          deletes the class and both literals outright, so the gate takes its
+          unconditional-zero path and never asks about the version.
+      Both, or neither is sound. They cover each other's blind spot and that is
+      the argument for having both.
+
+      (c) The old "CLOSED 2026-08-22 — GMS = 0" note was true only of the RELEASE
+      artefact, and now demonstrably for the WRONG REASON: R8 had deleted the
+      class. It read as vindication and was closer to the opposite — a release
+      green says "R8 deleted it", not "the dependency is safe". That is the
+      LW-M6-07 trap in miniature.
+
+      THE FLOOR IS 1.10.0, NOT THE PINNED 1.13.0 — established by bisecting every
+      stable androidx.activity from 1.8.0 to 1.13.0 plus the 1.10.0 prerelease
+      series, parsing each class file's own member tables. GMS_ACTION_PICK_IMAGES /
+      GMS_EXTRA_PICK_IMAGES_MAX plus getGmsPicker/isGmsPickerAvailable are live
+      through 1.10.0-alpha01 and inert from 1.10.0-alpha02. Assuming 1.13.0 would
+      have been safe but wrong: it would fail a legitimate 1.10–1.12 tree.
+
+      Seven control APKs (5 negative, 2 positive) in
+      docs/android/evidence/lw-m4-16/controls/, dexed with the pinned container's
+      d8 — the same route that broke the previous allowlist.
     acceptance:
-      - "./scripts/android-smoke.sh --check-no-gms exits 0 against a freshly built APK"
+      - "./scripts/android-smoke.sh --check-no-gms exits 0 against a freshly built DEBUG APK (the variant scripts/android-apk.sh produces — a release green is not evidence, see below)"
       - "if any string is kept, the check documents precisely why it is unreachable"
       - "the threshold is not relaxed to make a failing build pass"
     verify: "./scripts/android-smoke.sh --check-no-gms --apk <path-to-built-apk>"
@@ -2439,6 +2596,19 @@ tasks:
       the appstrings.properties sed at librewolf-patches.py and the l10n/ overlay;
       Android needs its own mechanism. Decide it, build it, and pin the
       android-l10n source the same way LW-M0-04 pinned firefox-l10n.
+
+      NOT DONE. Two concrete problems:
+        - The declared verify does not run: `./scripts/android-smoke.sh
+          --check-strings` exits 3, "NOT IMPLEMENTED and is not a pass". The report
+          hands the stub to LW-M2-07, but the stub's own text names THIS task:
+          "LW-M4-12. Needs a traversal of the whole Fenix UI, not a scrape of two
+          screens". Implementing it is in scope here; LW-M2-07 owns the file, so
+          agree the change with it rather than reassigning the work.
+        - assets/patches/android.txt describes a DESIGN THAT WAS ABANDONED. Its
+          l10n-strings entry says the patch adds "one `apply from:` line at the end
+          of the root build.gradle" and that it shares that file with
+          build-fixes.patch and no-gms.patch. The delivered patch touches no
+          build.gradle at all. Fix the entry to describe what shipped.
     acceptance:
       - "no user-visible 'Firefox' or 'Mozilla' string in the Fenix UI on a built APK, verified from the running app not from grep"
       - "the android-l10n source is pinned and hash-verified, like assets/l10n-pin.txt"

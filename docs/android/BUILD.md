@@ -488,3 +488,138 @@ real work on Android and are not silently ignored.
 
 No hardening option had to be dropped, softened or worked around to make the
 Android build succeed.
+
+---
+
+## Running the Fenix unit test suite (LW-M2-09)
+
+`AGENTS.md` requires `./mach gradle fenix:testDebugUnitTest` to pass for any
+Kotlin-layer change. This section explains how to run it, what a clean result
+looks like, and why ~92 tests fail for environmental reasons that have nothing
+to do with the code under test.
+
+### How to run
+
+```sh
+# Prerequisites: a patched tree with a completed objdir (at least the Gradle
+# half must have run, so the geckoview AAR and megazord dylib are present).
+# The tree must be the one the build used — the Gradle project paths are
+# relative to the tree root.
+
+# From the tree root:
+./mach gradle fenix:testDebugUnitTest 2>&1 | tee /tmp/test-run.log
+```
+
+The `mach gradle` command runs the Gradle task in the container's JDK (Temurin
+17, from the image). No additional toolchain is needed — the unit tests run on
+the host JVM, not on an Android device.
+
+### What a clean result looks like
+
+A **clean** run has **zero failures beyond the documented environmental set**.
+
+The environmental set is **87 tests in 3 classes**, all failing because
+`libmegazord.so` (the appservices UniFFI native library) cannot be loaded on
+the host JVM. It is built as an **Android** native library (cross-compiled ELF
+for ARM/x86 Android) and bundled in the APK under `lib/<abi>/libmegazord.so`,
+but `testDebugUnitTest` runs on the **host** JVM (Linux x86_64), where an
+Android `.so` is not loadable.
+
+#### Environmental failures (EXPECTED — subtract from results)
+
+| Test class | Tests | Root cause |
+|---|---|---|
+| `org.mozilla.fenix.search.awesomebar.SearchSuggestionsProvidersBuilderTest` | 70 | `UnsatisfiedLinkError: Unable to load library 'megazord'` — every test constructs a suggestion provider that calls into appservices via UniFFI |
+| `org.mozilla.fenix.reviewprompt.ReviewPromptMiddlewareTriggerCriteriaTest` | 16 | every test calls `NimbusApi` methods that route through `UniffiLib`, whose static initializer loads `libmegazord.so`. Surfaces as `UnsatisfiedLinkError` **or** `NoClassDefFoundError: Could not initialize class ...UniffiLib` — see the note on `forkEvery` below |
+| `org.mozilla.fenix.experiments.RecordedNimbusContextTest` | 1 | `UnsatisfiedLinkError: Unable to load library 'megazord'` — directly invokes a recorded `NimbusApi` event query |
+
+**Total: 87 tests.** Full evidence: `docs/android/evidence/lw-m2-09/expected-failures.md`.
+
+Note: the LW-M4-14 baseline (2026-08-22) also had
+`AutofillSettingsMiddlewareTest` (5 tests) in this set. As of 2026-08-25 it
+passes; if it regresses, add it back with the same reason (UniFFI binding
+cannot initialize on host JVM).
+
+#### Non-environmental failures (NOT expected — real signal)
+
+Failures in **any other class** are real regressions and must be investigated.
+Three known non-environmental failures (as of 2026-08-25) are:
+
+| Test class | Tests | Error |
+|---|---|---|
+| `org.mozilla.fenix.components.lens.LensCameraFragmentTest` | 1 | `MockKException: no answer found for Context.getPackageManager()` — mockk stubbing gap |
+| `org.mozilla.fenix.settings.HomeSettingsFragmentTest` | 1 | `AssertionError` — assertion failure |
+| `org.mozilla.fenix.distributions.DefaultDistributionProviderCheckerTest` | 1 | `AssertionError: expected:<myProvider> but was:<null>` — new since LW-M4-14 |
+
+These are tracked separately and are **not** part of the environmental allowlist.
+
+### Verifying a clean result
+
+Do not eyeball it. The allowlist above is checked in machine-readable form as
+`docs/android/fenix-test-allowlist.yaml`, and the board tool subtracts it:
+
+```sh
+python3 docs/android/board.py --check-fenix-tests
+# ...or against a specific results directory:
+python3 docs/android/board.py --check-fenix-tests --results <objdir>/gradle/build/mobile/android/fenix/app/test-results/testDebugUnitTest
+```
+
+It reads the JUnit XML Gradle writes, **not** the console log — a log is only as
+good as whoever remembered to `tee` it, and a `grep` over a log that was never
+captured prints nothing, which is indistinguishable from a clean run. Exit 0
+means no failure beyond the documented set. It errors on:
+
+* a failing class that is in neither list — the signal the gate exists to surface;
+* **more** failures in a listed class than declared — a real regression hiding
+  behind an expected name;
+* any listed class that **did not run at all** — a partial run, an aborted task,
+  or the wrong Gradle module. This is the false green that matters: such a run
+  has nothing beyond the allowlist in it precisely *because it barely ran*.
+
+It warns (exit 0) when a listed class ran and passed, or failed fewer times than
+declared — the entry is going stale and should be trimmed. That is how
+`AutofillSettingsMiddlewareTest` left the list.
+
+Quote the header lines in any task report: they name the results directory and
+the timestamp of the newest result, so a green taken from a stale objdir is
+visible to the reader rather than hidden.
+
+#### Fallback: reading the console log
+
+If you have a log but no objdir, the Mozilla conventions Gradle plugin
+(`mobile/android/gradle/plugins/conventions/.../ProjectPlugin.kt`) prints
+`  TEST-UNEXPECTED-FAIL | <class>.<test> | <exception>` per failure:
+
+```sh
+grep "TEST-UNEXPECTED-FAIL" /tmp/test-run.log \
+  | sed 's/.*TEST-UNEXPECTED-FAIL | //' \
+  | awk -F'|' '{print $1}' \
+  | sed 's/ \+.*//' \
+  | sed 's/\.[^.]*$//' \
+  | sort | uniq -c | sort -rn
+```
+
+A **clean** result shows **only** the 3 environmental classes (87 tests), plus
+possibly the 3 known non-environmental failures. Any **new** class, or a **count
+increase** in an existing environmental class, is a real regression. Note this
+form cannot detect a partial run — prefer `--check-fenix-tests`.
+
+#### Why the allowlist is keyed on class name, not error type
+
+`mobile/android/fenix/app/build.gradle` sets `forkEvery = 80`: the test JVM is
+recycled every 80 tests. A megazord-backed test reports `UnsatisfiedLinkError`
+on the first touch in a fresh JVM, and `NoClassDefFoundError: Could not
+initialize class ...UniffiLib` on a later touch in a JVM whose static
+initializer already failed. Which one you get depends on where the fork boundary
+falls, and that moves whenever the patch set changes the test count — it has
+already moved once, between the LW-M4-14 baseline and the 2026-08-25 run. The
+error type is not a stable key; the class name is.
+
+### Why not ship `libmegazord.so` in the image?
+
+`libmegazord.so` is a cross-compiled **Android** ELF binary. The host JVM
+(Linux x86_64) cannot load it — the ELF platform, ABI, and dynamic linker
+paths are all wrong. Building a host-native version would require a separate
+appservices build target (Rust → `libmegazord.so` for Linux x86_64), which the
+current tree does not configure. Until a host build target exists, the
+allowlist above is the correct gate.

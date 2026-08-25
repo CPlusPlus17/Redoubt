@@ -1,0 +1,15 @@
+Order-freedom of the root build.gradle between android/no-gms.patch and
+android/build-fixes.patch, RE-MEASURED 2026-08-25 after LW-M4-16 added a
+second hunk to no-gms's build.gradle (the androidx.activity floor, ~line 40).
+
+Method: reconstruct the pristine file, apply both patches' build.gradle hunks
+in each order, compare.
+
+  no-gms -> build-fixes : applies, 0 .rej
+  build-fixes -> no-gms : applies, 0 .rej
+  results byte-identical (cmp)
+
+Regions remain disjoint: no-gms at ~:22 (osslicenses classpath) and ~:40
+(the new assertion, after the plugins{} block); build-fixes at ~:168
+(computeVersionCode).  The pair stays order-free and the row already
+recorded in scripts/check-patch-order.py needs no change.

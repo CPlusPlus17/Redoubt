@@ -475,6 +475,112 @@ def apk_entries(apk):
         return z.namelist()
 
 # --------------------------------------------------------------------------
+# DEX type_ids / method_ids / field_ids -- the OTHER structured tables.
+#
+# READ THIS BEFORE EXTENDING IT.  Two earlier attempts at LW-M4-16 were
+# rejected, one of them for shipping a hand-rolled linear-sweep DISASSEMBLER
+# whose opcode width table was wrong; a verifier drove it to a concrete false
+# pass.  Nothing below decodes an instruction.  These are fixed-width index
+# tables at offsets the dex header states outright:
+#
+#   type_ids    u32 descriptor_idx                      -> string_ids
+#   method_ids  u16 class_idx, u16 proto_idx, u32 name_idx
+#   field_ids   u16 class_idx, u16 type_idx,  u32 name_idx
+#
+# Reading them cannot desynchronise, because there is nothing to synchronise
+# to: every entry is at a computed offset.  That is the whole reason this is
+# allowed where a disassembler is not.  If you find yourself needing to know
+# whether an instruction EXECUTES, stop -- that is the thing this file may not
+# do, and the answer belongs in a different kind of evidence.
+# --------------------------------------------------------------------------
+def _dex_header(blob):
+    """(endian, {table: (size, off)}) or None if this is not a dex."""
+    if blob[:4] != b"dex\n":
+        return None
+    e = "<" if struct.unpack("<I", blob[40:44])[0] == 0x12345678 else ">"
+    (s_sz, s_off, t_sz, t_off, p_sz, p_off,
+     f_sz, f_off, m_sz, m_off, c_sz, c_off) = struct.unpack(e + "12I", blob[56:104])
+    return e, {"string": (s_sz, s_off), "type": (t_sz, t_off), "proto": (p_sz, p_off),
+               "field": (f_sz, f_off), "method": (m_sz, m_off), "class": (c_sz, c_off)}
+
+def _dex_string_list(blob, e, tables):
+    size, off = tables["string"]
+    out = []
+    for i in range(size):
+        so = struct.unpack(e + "I", blob[off + i * 4: off + i * 4 + 4])[0]
+        p = so
+        shift = val = 0
+        while True:  # uleb128 utf16_size
+            b = blob[p]; p += 1
+            val |= (b & 0x7F) << shift; shift += 7
+            if not b & 0x80:
+                break
+        end = blob.index(b"\x00", p)
+        out.append(blob[p:end].decode("utf-8", "replace"))
+    return out
+
+def dex_types_and_members(blob):
+    """(type descriptors, {class descriptor: {member names}}) for one dex.
+
+    Members are METHOD and FIELD names as the dex declares or references them.
+    A minified build renames them; that is a real limit, and check_no_gms says
+    so in its own detail line rather than letting a rename read as absence."""
+    h = _dex_header(blob)
+    if h is None:
+        return [], {}
+    e, tables = h
+    S = _dex_string_list(blob, e, tables)
+    t_sz, t_off = tables["type"]
+    T = [S[struct.unpack(e + "I", blob[t_off + i * 4: t_off + i * 4 + 4])[0]]
+         for i in range(t_sz)]
+    members = {}
+    for key, width in (("method", 8), ("field", 8)):
+        sz, off = tables[key]
+        for i in range(sz):
+            cls_idx, _mid, name_idx = struct.unpack(e + "HHI", blob[off + i * width:
+                                                                    off + i * width + width])
+            members.setdefault(T[cls_idx], {"method": set(), "field": set()})[key].add(S[name_idx])
+    return T, members
+
+def apk_types_and_members(apk):
+    types = set()
+    members = {}
+    with zipfile.ZipFile(apk) as z:
+        for n in z.namelist():
+            if not re.fullmatch(r"classes\d*\.dex", n):
+                continue
+            T, M = dex_types_and_members(z.read(n))
+            types.update(T)
+            for cls, kinds in M.items():
+                slot = members.setdefault(cls, {"method": set(), "field": set()})
+                slot["method"] |= kinds["method"]
+                slot["field"] |= kinds["field"]
+    return types, members
+
+def apk_dep_version(apk, marker):
+    """The version AGP stamps into META-INF/<group>_<artifact>.version.
+
+    This is the one statement of a dependency's version that survives R8: it is
+    a resource entry, not a class, so minification cannot rename it and
+    shrinking cannot delete it.  Measured present and equal to 1.13.0 in both
+    the debug and the release APKs, 2026-08-25."""
+    try:
+        with zipfile.ZipFile(apk) as z:
+            return z.read(marker).decode("utf-8", "replace").strip()
+    except KeyError:
+        return None
+
+def parse_semver(v):
+    """(1,10,0,stable?) -- None if it does not parse.  The prerelease flag
+    matters: androidx.activity 1.10.0-alpha01 still had the LIVE GMS path that
+    1.10.0-alpha02 removed, so a prerelease OF the floor version is not the
+    floor version."""
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:[-+](.+))?$", v.strip())
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4) is None)
+
+# --------------------------------------------------------------------------
 # Results
 # --------------------------------------------------------------------------
 class Results:
@@ -520,21 +626,51 @@ def find_apk(explicit, abi):
         cands.append(explicit)
     if os.environ.get("LW_SMOKE_APK"):
         cands.append(os.environ["LW_SMOKE_APK"])
-    for d in [os.path.expanduser("~/lw-m2-04/out-make/apk"),
-              os.path.expanduser("~/lw-m2-04/out/apk"),
-              os.path.join(os.environ.get("LW_SMOKE_REPO", "."), "out", "apk")]:
-        if os.path.isdir(d):
-            for f in sorted(os.listdir(d)):
-                if f.endswith(".apk") and abi and abi in f:
-                    cands.append(os.path.join(d, f))
-            for f in sorted(os.listdir(d)):
-                if f.endswith(".apk") and "universal" in f:
-                    cands.append(os.path.join(d, f))
+    # Search the directories this REPO actually builds into, derived from
+    # version.android/release.android the way scripts/android-apk.sh and
+    # .github/workflows/android-release.yaml name them, plus anything the
+    # caller points at with LW_SMOKE_APK_DIR.
+    #
+    # The previous list hardcoded ~/lw-m2-04/out-make/apk and ~/lw-m2-04/out/apk
+    # -- one contributor's scratch tree, long deleted.  The error it raised then
+    # named those two vanished paths, which reads as "the check is broken" when
+    # what actually happened is "you did not say which APK".  A path assumption
+    # about one machine is not a default; it is a trap for the next reader.
+    searched = []
+    for d in apk_search_dirs():
+        searched.append(d)
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            if f.endswith(".apk") and abi and abi in f:
+                cands.append(os.path.join(d, f))
+        for f in sorted(os.listdir(d)):
+            if f.endswith(".apk") and "universal" in f:
+                cands.append(os.path.join(d, f))
     for c in cands:
         if c and os.path.isfile(c):
             return c
-    raise HarnessError("no APK found for abi=%s. Pass --apk PATH or set LW_SMOKE_APK. "
-                       "Looked in ~/lw-m2-04/out-make/apk and ~/lw-m2-04/out/apk." % abi)
+    raise HarnessError("no APK found for abi=%s. Pass --apk PATH, or set LW_SMOKE_APK "
+                       "(one file) or LW_SMOKE_APK_DIR (a directory). Searched:\n  %s"
+                       % (abi, "\n  ".join(searched) or "(nothing)"))
+
+def apk_search_dirs():
+    repo = os.environ.get("LW_SMOKE_REPO", ".")
+    dirs = []
+    if os.environ.get("LW_SMOKE_APK_DIR"):
+        dirs.append(os.environ["LW_SMOKE_APK_DIR"])
+    try:
+        ver = open(os.path.join(repo, "version.android")).read().strip()
+        rel = open(os.path.join(repo, "release.android")).read().strip()
+    except OSError:
+        ver = rel = None
+    if ver and rel:
+        # The name make android-package produces, in the repo and beside it.
+        leaf = os.path.join("librewolf-android-apk-%s-%s" % (ver, rel), "apk")
+        dirs.append(os.path.join(repo, leaf))
+        dirs.append(os.path.join(os.path.dirname(os.path.abspath(repo)), leaf))
+    dirs.append(os.path.join(repo, "out", "apk"))
+    return dirs
 
 def apk_package(apk):
     meta = os.path.join(os.path.dirname(apk), "output-metadata.json")
@@ -1283,20 +1419,191 @@ def scan_apk(apk, needles):
     entries = apk_entries(apk)
     return hits, entries
 
+# --------------------------------------------------------------------------
+# --check-no-gms  (LW-M4-05 does the removal; LW-M4-16 owns this contract)
+#
+# The gate is ZERO com.google.android.gms, and it has never been relaxed to a
+# count.  Two strings nonetheless survive in the DEBUG artefact this repo
+# builds, and this is the contract under which they -- and only they -- do not
+# fail the build.  Read all of it before touching the constants below.
+#
+# WHAT THE TWO STRINGS ARE.  They are the VALUES of two static final fields,
+#     GMS_ACTION_PICK_IMAGES  = "com.google.android.gms.provider.action.PICK_IMAGES"
+#     GMS_EXTRA_PICK_IMAGES_MAX = "com.google.android.gms.provider.extra.PICK_IMAGES_MAX"
+# on androidx.activity's ActivityResultContracts$PickVisualMedia.  They enter
+# the APK inside a PREBUILT Maven class file.  There is no manifest attribute,
+# no ProGuard keep rule, no resource and no source file of ours that carries
+# them, so there is nothing for patches/android/no-gms.patch to delete: route
+# "remove at source" is unavailable without vendoring a fork of an AndroidX
+# core artifact.
+#
+# WHY A BARE ALLOWLIST OF THOSE TWO STRINGS IS NOT ENOUGH -- and this is the
+# part that got two previous attempts rejected.  A verifier broke the string
+# allowlist with a REAL artefact: androidx.activity 1.8.2, where getGmsPicker
+# is LIVE CODE that hands off to the Play Services photo picker.  That live
+# path references NO Lcom/google/android/gms/ descriptor at all; the same two
+# string literals are its only trace.  So string-identical, behaviour-opposite:
+# an allowlist keyed on the strings passes the version that actually calls Play
+# Services.  Naming the strings does not make the exemption safe.
+#
+# WHAT MAKES IT SAFE.  The exemption is CONDITIONAL on the dependency version,
+# and both conditions are read out of the artefact, never assumed:
+#
+#   (1) THE VERSION PIN, from META-INF/androidx.activity_activity.version.
+#       AGP stamps it as a resource entry, so unlike a class it survives R8 --
+#       measured present and "1.13.0" in BOTH the debug and the release APK.
+#       The floor is 1.10.0.  That is not the pinned version and not a guess:
+#       every stable release from 1.8.0 through 1.13.0 was fetched from
+#       dl.google.com and its PickVisualMedia class parsed (2026-08-25).
+#           1.8.0 .. 1.9.3      getGmsPicker$activity_release,
+#                               isGmsPickerAvailable$activity_release   LIVE
+#           1.10.0 .. 1.13.0    the two constants only                  INERT
+#       The boundary is inside the 1.10.0 prerelease series -- 1.10.0-alpha01
+#       is still LIVE, 1.10.0-alpha02 is the first build without the methods --
+#       which is why parse_semver tracks the prerelease flag and why a
+#       prerelease OF the floor version is rejected rather than rounded up.
+#       Upstream replaced the path with SystemFallbackPicker; the GMS_* fields
+#       are what it left behind.
+#
+#   (2) THE CLASS SHAPE, from the dex method_ids/field_ids tables.  On an
+#       unminified build the declaring class must expose the two GMS-named
+#       FIELDS and NO GMS-named METHOD.  1.8.2 fails this outright -- it
+#       declares getGmsPicker$activity_release and
+#       isGmsPickerAvailable$activity_release -- so the counterexample that
+#       broke the old allowlist is caught here even if its version marker were
+#       forged.  Measured on the debug APK: 9 methods, none GMS-named.
+#
+# WHAT THIS CANNOT SEE, stated because a green must not overclaim.  On a
+# MINIFIED build R8 removes the class and both literals outright: measured on
+# lw-fresh-2026-08-22's release APK, the descriptor is absent and the GMS string
+# count is 0, so that build takes the unconditional-zero path and NEITHER
+# condition is exercised.  A release green therefore says "R8 deleted it", which
+# is the LW-M6-07 trap in miniature -- there, "provably zero-GMS" came from an
+# APK that could not even boot.  Read a release PASS as evidence about the
+# minifier, and a DEBUG pass as evidence about the dependency.  The debug
+# artefact is the one that carries the exemption and the one to cite.
+#
+# The consequence worth stating: neither condition can catch a downgrade in a
+# minified build, because there is nothing left to inspect.  What still holds
+# there is the version marker, which is why (1) reads a resource entry rather
+# than trusting the class alone -- but on a build where the strings are gone the
+# check never asks.  A BUILD-TIME floor on gradle/libs.versions.toml would cover
+# that gap; it is NOT implemented here and is recorded as an open item in
+# docs/android/evidence/lw-m4-16/README.md, not silently assumed.
+#
+# NOTHING HERE DECODES AN INSTRUCTION.  "Is this string ever loaded" is not a
+# question this file answers; see the dex-table comment above.
+# --------------------------------------------------------------------------
+
+# value -> the field it is the value of.  Exact match, not substring.
+GMS_EXEMPT_STRINGS = {
+    "com.google.android.gms.provider.action.PICK_IMAGES": "GMS_ACTION_PICK_IMAGES",
+    "com.google.android.gms.provider.extra.PICK_IMAGES_MAX": "GMS_EXTRA_PICK_IMAGES_MAX",
+}
+GMS_EXEMPT_CLASS = "Landroidx/activity/result/contract/ActivityResultContracts$PickVisualMedia;"
+GMS_EXEMPT_MARKER = "META-INF/androidx.activity_activity.version"
+GMS_EXEMPT_FLOOR = (1, 10, 0)
+GMS_EXEMPT_FLOOR_S = "1.10.0"
+
+def _gms_version_ok(ver):
+    """(ok, why).  A missing or unparseable marker is NOT a pass."""
+    if ver is None:
+        return False, ("%s is absent from the APK, so the androidx.activity version "
+                       "cannot be established and the exemption cannot be granted"
+                       % GMS_EXEMPT_MARKER)
+    parsed = parse_semver(ver)
+    if parsed is None:
+        return False, "%s reads %r, which is not a version this check can compare" % (
+            GMS_EXEMPT_MARKER, ver)
+    triple, stable = parsed[:3], parsed[3]
+    if triple < GMS_EXEMPT_FLOOR:
+        return False, ("androidx.activity is %s, BELOW the %s floor at which "
+                       "getGmsPicker/isGmsPickerAvailable were removed -- at this version "
+                       "the two strings are a live Play Services hand-off, not dead constants"
+                       % (ver, GMS_EXEMPT_FLOOR_S))
+    if triple == GMS_EXEMPT_FLOOR and not stable:
+        return False, ("androidx.activity is %s, a prerelease of the floor version; "
+                       "1.10.0-alpha01 still carried the live GMS path, so prereleases of "
+                       "%s are not accepted" % (ver, GMS_EXEMPT_FLOOR_S))
+    return True, "androidx.activity %s >= %s" % (ver, GMS_EXEMPT_FLOOR_S)
+
 def check_no_gms(apk, res):
     needles = ["com.google.android.gms", "com/google/android/gms", "Lcom/google/android/gms"]
     hits, entries = scan_apk(apk, needles)
     lib_hits = [e for e in entries if "gms" in e.lower()]
-    total = sum(len(v) for v in hits.values())
-    ok = total == 0 and not lib_hits
-    res.add("check-no-gms", ok,
-            ("no com.google.android.gms strings in any classes*.dex and no gms entries in the apk"
-             if ok else
-             "%d distinct GMS strings in the dex string table (e.g. %s) and %d apk entries -- "
-             "owned by LW-M4-05" % (total, sorted(list(hits.get(needles[0], set()) |
-                                                       hits.get(needles[1], set())))[:3],
-                                    len(lib_hits))),
-            {"hits": {k: sorted(v)[:20] for k, v in hits.items()}, "apk_entries": lib_hits[:20]})
+    found = set()
+    for v in hits.values():
+        found |= v
+    types, members = apk_types_and_members(apk)
+    gms_types = sorted(t for t in types if t.startswith("Lcom/google/android/gms/"))
+
+    unexpected = sorted(s for s in found if s not in GMS_EXEMPT_STRINGS)
+    exempted = sorted(s for s in found if s in GMS_EXEMPT_STRINGS)
+
+    ver = apk_dep_version(apk, GMS_EXEMPT_MARKER)
+    ver_ok, ver_why = _gms_version_ok(ver)
+
+    slot = members.get(GMS_EXEMPT_CLASS)
+    if slot is None:
+        class_present = False
+        gms_methods = []
+        class_why = ("%s is not in the dex -- a minified build renames or deletes it, so the "
+                     "class-shape condition had nothing to test here and this run rests on "
+                     "the version marker alone" % GMS_EXEMPT_CLASS.split("/")[-1])
+    else:
+        class_present = True
+        gms_methods = sorted(m for m in slot["method"] if "gms" in m.lower())
+        gms_fields = sorted(f for f in slot["field"] if "gms" in f.lower())
+        if gms_methods:
+            class_why = ("%s declares GMS-named METHOD(S) %s -- that is the live Play Services "
+                         "hand-off, not two dead constants"
+                         % (GMS_EXEMPT_CLASS.split("/")[-1], gms_methods))
+        else:
+            class_why = ("%s declares the GMS-named fields %s and no GMS-named method (%d "
+                         "methods total)" % (GMS_EXEMPT_CLASS.split("/")[-1], gms_fields,
+                                             len(slot["method"])))
+
+    # A GMS *class* reference is what a real Play Services dependency looks
+    # like; no exemption covers one.
+    reasons = []
+    if lib_hits:
+        reasons.append("%d gms apk entr(ies): %s" % (len(lib_hits), lib_hits[:3]))
+    if gms_types:
+        reasons.append("%d Lcom/google/android/gms/ type descriptor(s) in the dex: %s"
+                       % (len(gms_types), gms_types[:3]))
+    if unexpected:
+        reasons.append("%d GMS string(s) outside the documented exemption: %s"
+                       % (len(unexpected), unexpected[:3]))
+    if exempted:
+        if not ver_ok:
+            reasons.append("the exemption does not hold: " + ver_why)
+        if class_present and gms_methods:
+            reasons.append("the exemption does not hold: " + class_why)
+
+    ok = not reasons
+    if ok and exempted:
+        detail = ("0 GMS class references, 0 gms apk entries; %d string(s) exempted by exact "
+                  "value, each a dead constant: %s. Exemption holds: %s; %s"
+                  % (len(exempted),
+                     "; ".join("%r (%s)" % (s, GMS_EXEMPT_STRINGS[s]) for s in exempted),
+                     ver_why, class_why))
+    elif ok:
+        detail = ("no com.google.android.gms strings in any classes*.dex, no GMS class "
+                  "references and no gms entries in the apk")
+    else:
+        detail = "; ".join(reasons) + " -- owned by LW-M4-16"
+
+    res.add("check-no-gms", ok, detail,
+            {"exempted": {s: GMS_EXEMPT_STRINGS[s] for s in exempted},
+             "unexpected_strings": unexpected[:20],
+             "gms_type_descriptors": gms_types[:20],
+             "apk_entries": lib_hits[:20],
+             "androidx_activity_version": ver,
+             "version_floor": GMS_EXEMPT_FLOOR_S,
+             "version_condition_ok": ver_ok,
+             "declaring_class_present": class_present,
+             "declaring_class_gms_methods": gms_methods,
+             "hits": {k: sorted(v)[:20] for k, v in hits.items()}})
     return ok
 
 def check_no_adjust(apk, res):
@@ -1310,6 +1617,70 @@ def check_no_adjust(apk, res):
              "%d Adjust/INSTALL_REFERRER strings in the dex string table (e.g. %s) -- "
              "owned by LW-M4-02" % (total, sorted(set().union(*hits.values()))[:3])),
             {"hits": {k: sorted(v)[:20] for k, v in hits.items()}})
+    return ok
+
+# --------------------------------------------------------------------------
+# --check-no-remote-settings  (LW-M4-08)
+#
+# The gate: after a first-run capture, NONE of the three Remote Settings
+# hosts may appear in the outbound traffic.  The Rust RemoteSettingsService
+# (third_party/application-services/components/remote_settings/) is the
+# channel Fenix uses, and patches/android/rs-blocker-android.patch closes
+# it.  This check is the runtime proof that the patch did its job.
+#
+# THE INVERTED-GATE BUG THIS EXISTS TO PREVENT: an aborted or dead capture
+# produces zero events, and "zero events" trivially contains no Remote
+# Settings hostname.  A naive `not any(host in events)` passes on a dead
+# capture.  This check therefore FAILS (exit 1) if the capture produced
+# zero events, because we cannot distinguish "no traffic" from "the capture
+# died".  A valid run must show at least one outbound event (proving the
+# NIC tap is live) before we can assert "none of them is a Remote Settings
+# host".  This is the same discipline as require_pcap, extended from
+# "the file exists" to "the file has content".
+# --------------------------------------------------------------------------
+RS_HOSTS = (
+    "firefox.settings.services.mozilla.com",
+    "firefox-settings-attachments.cdn.mozilla.net",
+    "content-signature-2.cdn.mozilla.net",
+)
+
+def check_no_remote_settings(pcap, start_offset, guest_ips, capture_seconds, res):
+    """Network-based gate: the three Remote Settings hosts must not appear
+    in outbound traffic during a first-run window.
+
+    FAILS (exit 1, a real defect) if:
+      - the capture produced zero events (dead capture — cannot distinguish
+        'no RS traffic' from 'capture died'), or
+      - any event's detail contains one of RS_HOSTS.
+
+    PASSES only if the capture is confirmed live (>= 1 total event) AND
+    no RS host appears in the app-originated events."""
+    rows = summarise_capture(pcap, start_offset, guest_ips=guest_ips)
+    total = len(rows)
+    app_rows = [r for r in rows if not r["os_noise"] and not r.get("harness")]
+
+    if total == 0:
+        res.add("check-no-remote-settings", False,
+                "CAPTURE PRODUCED ZERO EVENTS -- cannot distinguish 'no Remote "
+                "Settings traffic' from 'the capture died'. An aborted capture "
+                "prints no hostnames either, and this gate refuses to pass on "
+                "that ambiguity. Re-run with a working capture (emulator "
+                "-tcpdump).",
+                {"total_events": 0, "app_events": 0})
+        return False
+
+    rs_hits = [r for r in app_rows
+               if any(h in (r["detail"] or "").lower() for h in RS_HOSTS)]
+
+    ok = not rs_hits
+    res.add("check-no-remote-settings", ok,
+            ("no Remote Settings host in %d app events (capture confirmed live: "
+             "%d total events, %d app events)" % (len(app_rows), total, len(app_rows))
+             if ok else
+             "%d event(s) to a Remote Settings host: %s"
+             % (len(rs_hits), sorted({r["detail"] for r in rs_hits})[:5])),
+            {"total_events": total, "app_events": len(app_rows),
+             "rs_hosts_checked": list(RS_HOSTS), "rs_hits": rs_hits[:50]})
     return ok
 
 # --------------------------------------------------------------------------
@@ -1365,16 +1736,17 @@ def find_aapt2(explicit, sdk):
                        "with build-tools. (Needed only by --check-strings.)")
 
 def _extract_lw_brand(work):
-    """Pull lw_brand_strings.py, brand-map.txt and android-l10n-pin.txt out of
-    patches/android/l10n-strings.patch into the work dir, so the check runs the
-    patch's own code.  Returns (py, map, pin)."""
+    """Pull lw_brand_strings.py, brand-map.txt, android-l10n-pin.txt and
+    ui_brand_scan.py out of patches/android/l10n-strings.patch into the work
+    dir, so the check runs the patch's own code.  Returns a name->path dict."""
     patch = os.path.join(os.environ.get("LW_SMOKE_REPO", "."),
                          "patches", "android", "l10n-strings.patch")
     if not os.path.isfile(patch):
         raise HarnessError("cannot find %s (the --check-strings source of truth)" % patch)
     outdir = os.path.join(work, "lw-brand")
     os.makedirs(outdir, exist_ok=True)
-    wanted = {"lw_brand_strings.py", "brand-map.txt", "android-l10n-pin.txt"}
+    wanted = {"lw_brand_strings.py", "brand-map.txt", "android-l10n-pin.txt",
+              "ui_brand_scan.py"}
     got = {}
     cur = None
     buf = []
@@ -1401,10 +1773,240 @@ def _extract_lw_brand(work):
     for need in wanted:
         if need not in got:
             raise HarnessError("--check-strings: %s is missing from l10n-strings.patch" % need)
-    return got["lw_brand_strings.py"], got["brand-map.txt"], got["android-l10n-pin.txt"]
+    return got
 
-def check_strings(apk, res, aapt2, work):
-    py, brand_map, pin = _extract_lw_brand(work)
+# --------------------------------------------------------------------------
+# --check-strings, the running-app half.
+#
+# The static half below reads the compiled resource table and is complete over
+# it: every locale, every string/plurals/string-array row, including screens no
+# walker ever reaches.  What it cannot see is text the app renders that does
+# NOT come from a string resource, and it cannot prove the running app actually
+# uses the rewritten table.  That is what this half is for.
+#
+# It is a TRAVERSAL, not a scrape of two screens: navigation is by deep link
+# (so it does not depend on reading localised labels and works in Serbian and
+# Malayalam), every screen it lands on is scrolled to the bottom, and every
+# labelled clickable row is opened and scanned.  It still cannot be complete --
+# no walker of a UI this size is -- so it REPORTS THE SCREENS IT VISITED BY
+# NAME and the check's detail line states the count.  Coverage is auditable,
+# never implied.
+# --------------------------------------------------------------------------
+
+# Locales whose android-l10n translations spell the mark in their own script,
+# so a walker running in them exercises the non-Latin stems rather than the
+# ASCII ones.  Used only when --strings-locale is given without a value list.
+UI_SCAN_LOCALES = ("sr", "fa", "ml")
+
+def apk_deeplink_scheme(aapt2, apk):
+    """The app's own deep-link scheme, read from the APK's manifest.
+
+    Not guessed and not hardcoded: LW-M4-07 changed it from Fenix's four
+    per-variant schemes to a single `redoubt`, and a walker that navigated by a
+    stale scheme would silently visit nothing and report a clean UI."""
+    p = subprocess.run([aapt2, "dump", "xmltree", "--file", "AndroidManifest.xml", apk],
+                       capture_output=True, text=True, timeout=300, errors="replace")
+    if p.returncode != 0:
+        raise HarnessError("aapt2 dump xmltree failed (%d): %s"
+                           % (p.returncode, p.stderr[-300:]))
+    seen = []
+    for m in re.finditer(r'A: (?:http://schemas.android.com/apk/res/android:)?scheme'
+                         r'\([^)]*\)="([^"]+)"', p.stdout):
+        if m.group(1) not in seen:
+            seen.append(m.group(1))
+    for s in seen:
+        if s not in ("http", "https", "about", "javascript", "file", "content",
+                     "data", "resource", "market", "samsungapps"):
+            return s
+    raise HarnessError("no deep-link scheme in the APK manifest (found %s); pass "
+                       "--strings-scheme" % (seen or "none"))
+
+def _device_locale(adb):
+    for prop in ("persist.sys.locale", "ro.product.locale"):
+        v = adb.shell("getprop %s" % prop, timeout=60).strip()
+        if v:
+            return v
+    return "unknown"
+
+def _set_device_locale(adb, tag, timeout=240):
+    """Switch the device's system locale and wait for the restart.
+
+    Needs a rootable (AOSP / -userdebug) image.  If root is refused the check
+    raises rather than quietly walking the UI in English and calling that a
+    locale sweep -- a check that reports coverage it did not have is the one
+    outcome this harness must not produce."""
+    r = adb.run("root", timeout=90)
+    if "cannot run as root" in (r.stdout + r.stderr):
+        raise HarnessError(
+            "--strings-locale needs a rootable image to set persist.sys.locale; "
+            "adb root was refused on this device (%s). Use an AOSP/userdebug "
+            "emulator image, or drop --strings-locale and the runtime half will "
+            "walk the UI in the device's current locale only."
+            % (r.stdout + r.stderr).strip()[:120])
+    time.sleep(2)
+    adb.run("wait-for-device", timeout=120)
+    adb.shell("setprop persist.sys.locale %s" % tag, timeout=60)
+    adb.shell("stop", timeout=60)
+    adb.shell("start", timeout=60)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if adb.shell("getprop sys.boot_completed", timeout=30).strip() == "1":
+            time.sleep(6)
+            got = _device_locale(adb)
+            if got.split("-")[0].split("_")[0] != tag.split("-")[0].split("_")[0]:
+                raise HarnessError("locale did not take: asked for %s, device reports %s"
+                                   % (tag, got))
+            return got
+        time.sleep(3)
+    raise HarnessError("device did not come back after switching locale to %s" % tag)
+
+def _ui_scan_once(scan_py, brand_map, adb, pkg, scheme, label, work, depth, max_taps):
+    """One traversal.  Returns (findings, allowed, screens, raw)."""
+    argv = [sys.executable, scan_py, "--adb", adb.exe, "--package", pkg,
+            "--scheme", scheme, "--map", brand_map, "--label", label,
+            "--depth", str(depth), "--max-taps", str(max_taps)]
+    if adb.serial:
+        argv += ["--serial", adb.serial]
+    p = subprocess.run(argv, capture_output=True, text=True, timeout=7200,
+                       errors="replace")
+    raw = (p.stderr or "") + (p.stdout or "")
+    with open(os.path.join(work, "ui-brand-scan-%s.log" % label), "w",
+              encoding="utf-8", errors="replace") as f:
+        f.write(raw)
+    findings = [l.split("\t") for l in (p.stdout or "").splitlines()
+                if l.startswith("BRANDED\t")]
+    allowed = [l.split("\t") for l in (p.stdout or "").splitlines()
+               if l.startswith("ALLOWED\t")]
+    # The walker names every stop it made on stderr, "  [<screen>] N string(s)".
+    screens = re.findall(r"^\s+\[([^\]]+)\] \d+ string\(s\)", p.stderr or "",
+                         re.M)
+    if not screens and p.returncode not in (0, 1):
+        raise HarnessError("ui_brand_scan.py could not run (%d): %s"
+                           % (p.returncode, raw.strip()[-400:]))
+    return findings, allowed, screens, raw
+
+def _shipped_text(apk, dump_path):
+    """Every text this APK could possibly render out of its own bytes: the
+    compiled resource values, and the DEX string constants.
+
+    A branded string seen on screen is classified against this set, and the
+    classification is what makes the runtime half both strict and non-vacuous:
+
+      * present here  -> the build SHIPS that text. It is a resource the rewrite
+        missed, or a brand literal hardcoded in Kotlin (which the resource-table
+        half cannot see at all).  That is a defect and it FAILS.
+      * absent here   -> the app rendered text it does not ship. It came over the
+        network or out of a profile, so no change to this tree can remove it;
+        it is REPORTED with its screen, and the owning task is named.
+
+    The distinction is mechanical.  It is not an allowlist and there is nothing
+    in it to soften: adding a brand string anywhere in the APK moves it into the
+    failing class, not out of it."""
+    vals = set()
+    with open(dump_path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = re.match(r'\s*\([^)]*\)\s+["\'](.*)["\']\s*$', line)
+            if m:
+                vals.add(m.group(1))
+    for s in apk_dex_strings(apk):
+        vals.add(s)
+    return vals
+
+def _is_shipped(value, shipped):
+    """True if the on-screen text comes from something this APK ships.
+
+    Compared after collapsing whitespace, and also as a substring of a shipped
+    value, because Android renders a format string with its arguments already
+    substituted and a TextView may show only part of one."""
+    v = re.sub(r"\s+", " ", value).strip()
+    if not v:
+        return True
+    if v in shipped:
+        return True
+    for s in shipped:
+        if len(s) >= 12 and (v in s or s in v):
+            return True
+    return False
+
+def check_strings_ui(res_evidence, work, brand, adb, pkg, scheme, locales,
+                     depth, max_taps, shipped=None):
+    """The running-app traversal.  Returns (ok, summary, evidence)."""
+    scan_py, brand_map = brand["ui_brand_scan.py"], brand["brand-map.txt"]
+    # ui_brand_scan.py imports lw_brand_strings from its own directory; both
+    # were extracted side by side, so that import resolves to the patch's copy.
+    started = _device_locale(adb)
+    runs = []
+    ok = True
+    try:
+        for tag in locales:
+            if tag != "device":
+                log("check-strings: switching device locale to %s" % tag)
+                got = _set_device_locale(adb, tag)
+            else:
+                got = started
+            log("check-strings: walking the running UI in %s" % got)
+            findings, allowed, screens, _raw = _ui_scan_once(
+                scan_py, brand_map, adb, pkg, scheme, tag, work, depth, max_taps)
+            hits = [dict(zip(("kind", "locale", "screen", "attr",
+                              "resource_id", "value"), f)) for f in findings]
+            for h in hits:
+                h["shipped_by_this_apk"] = (shipped is None
+                                            or _is_shipped(h["value"], shipped))
+            ours = [h for h in hits if h["shipped_by_this_apk"]]
+            remote = [h for h in hits if not h["shipped_by_this_apk"]]
+            runs.append({"locale": tag, "device_locale": got,
+                         "screens_visited": screens,
+                         "screen_count": len(screens),
+                         "branded": ours,
+                         "branded_not_shipped_by_this_apk": remote,
+                         "allowed_url_rows": len(allowed)})
+            if ours:
+                ok = False
+            log("check-strings: %s -- %d screen(s) visited, %d branded string(s) this "
+                "APK ships, %d branded string(s) it does not ship (remote content), "
+                "%d enumerated url-keep row(s)"
+                % (got, len(screens), len(ours), len(remote), len(allowed)))
+            for h in remote:
+                log("check-strings: REPORTED (not shipped by this APK, so no change "
+                    "to this tree removes it) [%s] %r"
+                    % (h["screen"], h["value"][:120]))
+    finally:
+        if locales != ["device"] and started != "unknown":
+            try:
+                _set_device_locale(adb, started)
+            except Exception as e:
+                log("check-strings: could not restore the device locale to %s (%s)"
+                    % (started, e))
+    total_screens = sum(r["screen_count"] for r in runs)
+    total_branded = sum(len(r["branded"]) for r in runs)
+    total_remote = sum(len(r["branded_not_shipped_by_this_apk"]) for r in runs)
+    remote_examples = sorted({h["value"][:110]
+                              for r in runs
+                              for h in r["branded_not_shipped_by_this_apk"]})
+    summary = ("running-app traversal: %d screen stop(s) across %d locale(s) (%s), "
+               "%d branded string(s) shipped by this APK, %d branded string(s) NOT "
+               "shipped by it%s. Screens the walker never reached are not covered by "
+               "this half -- result.json lists every stop by name"
+               % (total_screens, len(runs),
+                  ", ".join(r["device_locale"] for r in runs),
+                  total_branded, total_remote,
+                  (" (remote content, reported not gated: %s)"
+                   % "; ".join(repr(v) for v in remote_examples[:2]))
+                  if remote_examples else ""))
+    res_evidence["ui_scan"] = {"ran": True, "runs": runs,
+                               "started_locale": started,
+                               "note": ("a traversal, not a proof of completeness: the "
+                                        "screens actually visited are listed per run. "
+                                        "A branded string this APK does not ship is "
+                                        "reported, not gated -- no change to this tree "
+                                        "can remove it.")}
+    return ok, summary
+
+def check_strings(apk, res, aapt2, work, adb=None, pkg=None, scheme=None,
+                  locales=None, depth=1, max_taps=14):
+    brand = _extract_lw_brand(work)
+    py, brand_map, pin = (brand["lw_brand_strings.py"], brand["brand-map.txt"],
+                          brand["android-l10n-pin.txt"])
     dump = os.path.join(work, "aapt2-resources.txt")
     p = subprocess.run([aapt2, "dump", "resources", apk],
                        stdout=open(dump, "w", encoding="utf-8", errors="replace"),
@@ -1418,16 +2020,52 @@ def check_strings(apk, res, aapt2, work):
     out = (r.stderr or r.stdout or "").strip().splitlines()
     tail = out[-1] if out else ""
     stats = next((ln for ln in out if "unexplained" in ln), "")
-    ok = r.returncode == 0
-    res.add("check-strings", ok,
-            ("aapt2 gate over the built APK's resources.arsc: no unexplained "
-             "Firefox/Mozilla brand value (outside the enumerated url-keep and "
-             "internal-key exceptions)" if ok else
-             "aapt2 gate found unexplained Firefox/Mozilla brand value(s) in the "
-             "built APK -- owned by LW-M4-12"),
-            {"aapt2": aapt2, "dump_rows": stats, "checker_tail": tail,
-             "checker_exit": r.returncode, "checker_output": out[:40],
-             "checker_stdout": (r.stdout or "").strip()[:800]})
+    rows = next((ln for ln in out if "text rows" in ln), "")
+    static_ok = r.returncode == 0
+    ev = {"aapt2": aapt2, "dump_rows": stats, "checker_tail": tail,
+          "checker_exit": r.returncode, "checker_output": out[:40],
+          "checker_stdout": (r.stdout or "").strip()[:800]}
+
+    # ---- half 1: the compiled resource table, complete over every locale ---
+    static_txt = ("resource table (%s): %s"
+                  % (re.sub(r"^\[[^\]]*\]\s*", "", rows) or "aapt2 dump",
+                     re.sub(r"^\[[^\]]*\]\s*", "", stats) or "no counts reported"))
+
+    # ---- half 2: the running app, if there is one to run against ----------
+    ui_ok, ui_txt = True, None
+    if adb is not None and pkg:
+        shipped = _shipped_text(apk, dump)
+        ev["shipped_text_values"] = len(shipped)
+        ui_ok, ui_txt = check_strings_ui(ev, work, brand, adb, pkg, scheme,
+                                         locales or ["device"], depth, max_taps,
+                                         shipped=shipped)
+    else:
+        ev["ui_scan"] = {"ran": False,
+                         "why": "no device: --check-strings was run without "
+                                "--emulator or --serial"}
+        ui_txt = ("running-app traversal: NOT RUN (no device -- pass --emulator or "
+                  "--serial). This run covers the compiled resource surface ONLY; "
+                  "text the app renders from anywhere other than a string resource "
+                  "is not covered by it")
+
+    ok = static_ok and ui_ok
+    if ok:
+        detail = "%s; %s" % (static_txt, ui_txt)
+    else:
+        why = []
+        if not static_ok:
+            why.append("the aapt2 gate found unexplained Firefox/Mozilla brand "
+                       "value(s) in the built APK's resource table (%s)" % stats)
+        if not ui_ok:
+            hits = [b for run in ev["ui_scan"]["runs"] for b in run["branded"]]
+            why.append("the running-app traversal saw %d branded string(s) that this "
+                       "APK ships, e.g. %s"
+                       % (len(hits),
+                          "; ".join("%s [%s] %r" % (h["locale"], h["screen"],
+                                                    h["value"][:90])
+                                    for h in hits[:3])))
+        detail = "%s -- owned by LW-M4-12" % "; ".join(why)
+    res.add("check-strings", ok, detail, ev)
     return ok
 
 # --------------------------------------------------------------------------
@@ -1836,6 +2474,23 @@ def main(argv):
     ap.add_argument("--work", help="work directory (default $HOME/.cache/librewolf-android-smoke)")
     ap.add_argument("--abi", default="x86_64", help="preferred APK ABI (default x86_64)")
     ap.add_argument("--aapt2", help="aapt2 binary for --check-strings (default: auto-detect)")
+    # --check-strings, running-app half (LW-M4-12).
+    ap.add_argument("--strings-locale", action="append", metavar="BCP47",
+                    help="run --check-strings' running-app traversal in this system "
+                         "locale as well; repeatable. Bare --strings-locale-sweep uses "
+                         "the transliterating set %s. Needs a rootable image."
+                         % ",".join(UI_SCAN_LOCALES))
+    ap.add_argument("--strings-locale-sweep", action="store_true",
+                    help="shorthand for --strings-locale on each of %s plus the "
+                         "device's own locale" % ",".join(UI_SCAN_LOCALES))
+    ap.add_argument("--strings-scheme", default=None,
+                    help="deep-link scheme the build under test registers "
+                         "(default: read from the APK)")
+    ap.add_argument("--strings-depth", type=int, default=1,
+                    help="levels of clickable rows the traversal opens below each "
+                         "deep-linked screen (default 1)")
+    ap.add_argument("--strings-max-taps", type=int, default=14,
+                    help="cap on rows the traversal opens per screen (default 14)")
     ap.add_argument("--keep-emulator", action="store_true", help="leave the emulator running")
     ap.add_argument("--keep-state", action="store_true",
                     help="do not wipe app data before the run")
@@ -1848,7 +2503,7 @@ def main(argv):
     ap.add_argument("--self-test", action="store_true",
                     help="prove the harness reports failure when a probe fails")
     for f in ("ubo", "search", "no-gms", "no-adjust", "aboutconfig", "no-suggest",
-              "strings", "update-privacy"):
+              "strings", "update-privacy", "no-remote-settings"):
         ap.add_argument("--check-" + f, action="store_true")
     args = ap.parse_args(argv)
 
@@ -1891,7 +2546,12 @@ def main(argv):
         check_no_gms(apk, res)
     if args.check_no_adjust:
         check_no_adjust(apk, res)
-    if args.check_strings:
+    # --check-strings has two halves (LW-M4-12).  The resource-table half needs
+    # only the APK and runs here; the running-app traversal needs the app
+    # installed, so with a device it runs from the device section below.
+    strings_on_device = args.check_strings and (args.emulator or args.serial
+                                                or os.environ.get("ANDROID_SERIAL"))
+    if args.check_strings and not strings_on_device:
         check_strings(apk, res, find_aapt2(args.aapt2, sdk), work)
     if static_only:
         return finish(res, args, work)
@@ -1923,6 +2583,19 @@ def main(argv):
         if not args.keep_state:
             app.wipe()
 
+        # ---- --check-strings with a device: resource table AND a UI walk ---
+        if strings_on_device:
+            locs = list(args.strings_locale or [])
+            if args.strings_locale_sweep:
+                locs = ["device"] + [l for l in UI_SCAN_LOCALES if l not in locs] + locs
+            aapt2 = find_aapt2(args.aapt2, sdk)
+            scheme = args.strings_scheme or apk_deeplink_scheme(aapt2, apk)
+            log("check-strings: deep-link scheme %s" % scheme)
+            check_strings(apk, res, aapt2, work, adb=adb, pkg=pkg, scheme=scheme,
+                          locales=locs or ["device"], depth=args.strings_depth,
+                          max_taps=args.strings_max_taps)
+            return finish(res, args, work)
+
         # ---- first-run capture: nothing may leave before the first URL ----
         if args.first_run_capture:
             require_pcap(pcap)
@@ -1950,6 +2623,23 @@ def main(argv):
                      % (len(app_rows), sorted({r["detail"] or r["dst"] for r in app_rows})[:8],
                         rb1 - rb0, tb1 - tb0)),
                     {"events": app_rows[:200], "uid_rx": rb1 - rb0, "uid_tx": tb1 - tb0})
+            return finish(res, args, work)
+
+        # ---- --check-no-remote-settings: the three RS hosts must be absent ----
+        if args.check_no_remote_settings:
+            require_pcap(pcap)
+            app.push_debug_config()
+            app.force_stop()
+            time.sleep(2)
+            off = pcap_size(pcap)
+            guest = app.guest_ips()
+            log("check-no-remote-settings: launching the home screen and idling %ds "
+                "(device addresses: %s)" % (args.capture_seconds, ", ".join(sorted(guest))))
+            app.start_home()
+            time.sleep(args.capture_seconds)
+            sys.stdout.write(render_capture(
+                summarise_capture(pcap, off, guest_ips=guest)))
+            ok = check_no_remote_settings(pcap, off, guest, args.capture_seconds, res)
             return finish(res, args, work)
 
         # ---- the origin server and the browsing session -------------------

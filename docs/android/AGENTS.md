@@ -42,6 +42,13 @@ A task is done when **all** of these hold:
 - **if you touched the Kotlin layer: `./mach gradle fenix:testDebugUnitTest` passes.**
   A Gradle build compiling is NOT the tests passing — unit tests are a separate task
   and a patch can break 31 of them while the APK builds and installs fine.
+  The suite cannot go fully green (libmegazord.so is an Android ELF; the host JVM
+  cannot load it), so "passes" means **`python3 docs/android/board.py
+  --check-fenix-tests` exits 0** — it subtracts the checked-in allowlist and errors
+  on anything new, on a count that grew, and on a listed class that did not run at
+  all. Do not hand-derive the residue and do not quote a bare failure count; quote
+  that command's output, which names the results directory and its timestamp. See
+  BUILD.md, "Running the Fenix unit test suite".
 
 "It builds" is not done. "It launched" is not done — see landmine L1. **"It compiled"
 is not "its tests pass"** — that one has now shipped twice: LW-M4-03 broke five tests
@@ -256,6 +263,27 @@ is applied before any target list — but a checker that only compares positions
 `settings/` is a git submodule pointing at `codeberg.org/librewolf/settings`. Tasks
 marked `submodule: settings` need **two** PRs: one in that repo, and a submodule
 bump here. Do not commit a detached submodule pointer.
+
+## Evidence outside the repo evaporates
+
+Everything a task leaves in `/home/mgysin/lw-*` — build trees, APKs, objdirs, pcaps,
+pref dumps — is gone. Verified 2026-08-25: `lw-batch-combined`, `lw-m2-04`,
+`lw-m2-01b`, `lw-m3-09` and the whole Android SDK no longer exist. Only the podman
+image and this repo survived.
+
+The cost is concrete. Every number in `docs/android/parity/bare-prefs.md` is now
+unverifiable, and one open question there — whether a particular run should be
+discounted — **cannot be settled**, because the run's `result.json` is gone.
+
+So: **if a claim is meant to outlive your task, its evidence goes in
+`docs/android/evidence/<task-id>/` inside the repo.** Not a path in your report, not
+a directory under `$HOME`. A citation to a file that no longer exists is worse than
+no citation, because it reads as verified.
+
+Corollary for anyone writing a verify command: assume the device, the APK and the
+build tree are absent. A verify that can only run on the machine that happened to
+build something is not a verify. Say what it needs, and make it fail loudly rather
+than silently pass when its input is missing.
 
 ## Scratch files: use a task-private subdirectory
 

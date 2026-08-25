@@ -8,6 +8,7 @@ Validator and query tool for the Redoubt task board.
     python3 docs/android/board.py --ready --done LW-M0-01,LW-M0-04
     python3 docs/android/board.py --show LW-M1-08  # one task in full
     python3 docs/android/board.py --stats          # effort, critical path
+    python3 docs/android/board.py --check-fenix-tests   # subtract the LW-M2-09 allowlist
 
 The --check pass is what keeps parallel agents from colliding. It enforces:
 
@@ -774,6 +775,154 @@ def cmd_check_policies():
     return 0
 
 
+FENIX_ALLOWLIST = Path(__file__).resolve().parent / "fenix-test-allowlist.yaml"
+# Where Gradle writes the JUnit XML, relative to the repo root.
+FENIX_RESULTS_GLOB = "*/obj-*/gradle/build/mobile/android/fenix/app/test-results/testDebugUnitTest"
+
+
+def _junit_failures(results):
+    """(files, total_tests, {class: failing_tests}, {classes seen}) from a
+    Gradle JUnit XML dir.
+
+    Reads the XML, not the console log. A log is only as good as whoever
+    remembered to `tee` it, and `grep TEST-UNEXPECTED-FAIL` over a log that was
+    never captured prints nothing — which is exactly what a clean run prints.
+    The XML is written by the task itself and cannot be forgotten.
+    """
+    import xml.etree.ElementTree as ET
+    total, by_class, seen = 0, Counter(), set()
+    files = sorted(results.glob("TEST-*.xml"))
+    for f in files:
+        try:
+            root = ET.parse(f).getroot()
+        except ET.ParseError as e:
+            raise ValueError(f"{f.name}: {e}")
+        total += int(root.get("tests") or 0)
+        if root.get("name"):
+            seen.add(root.get("name"))
+        for tc in root.iter("testcase"):
+            cls = tc.get("classname") or "<unknown>"
+            seen.add(cls)
+            if any(c.tag in ("failure", "error") for c in tc):
+                by_class[cls] += 1
+    return files, total, by_class, seen
+
+
+def cmd_check_fenix_tests(results_arg):
+    """Subtract the LW-M2-09 expected-failure allowlist from a real run.
+
+    The Definition of done requires `./mach gradle fenix:testDebugUnitTest` to
+    pass, and it cannot: libmegazord.so is an Android ELF and the suite runs on
+    the host JVM. Without a machine-checked subtraction the gate is prose, and a
+    gate that cannot return a clean answer trains people to ignore it.
+    """
+    import os
+    if not FENIX_ALLOWLIST.exists():
+        print(f"error: {FENIX_ALLOWLIST.name} is missing — the allowlist is the gate")
+        return 2
+    doc = yaml.safe_load(FENIX_ALLOWLIST.read_text()) or {}
+
+    override = results_arg or os.environ.get("LW_FENIX_RESULTS")
+    if override:
+        cands = [Path(override) if Path(override).is_absolute() else REPO / override]
+    else:
+        cands = sorted(REPO.glob(FENIX_RESULTS_GLOB))
+    if not cands:
+        print("warn:  no Fenix test results on disk — nothing to check")
+        print("       run `./mach gradle fenix:testDebugUnitTest` in the build container,")
+        print("       or point at a results dir: --results <dir> / LW_FENIX_RESULTS=<dir>")
+        return 0
+    if len(cands) > 1:
+        # Same rule as --check-policies: never "whichever sorts first".
+        print("error: more than one Fenix test-results directory — refusing to guess:")
+        for c in cands:
+            print(f"         {c}")
+        print("       pass --results <one of these>")
+        return 2
+    results = cands[0]
+    if not results.is_dir():
+        print(f"error: {results} is not a directory")
+        return 2
+
+    try:
+        files, total, failing, seen = _junit_failures(results)
+    except ValueError as e:
+        print(f"error: unreadable JUnit XML in {results}: {e}")
+        return 2
+    if not files:
+        print(f"error: no TEST-*.xml in {results} — an absent result is not a pass")
+        return 2
+    if total == 0:
+        print(f"error: {len(files)} XML files in {results} report 0 tests — "
+              f"the run did not execute")
+        return 2
+
+    newest = max(f.stat().st_mtime for f in files)
+    stamp = __import__("datetime").datetime.fromtimestamp(newest).isoformat(" ", "seconds")
+    try:
+        shown = results.relative_to(REPO)
+    except ValueError:
+        shown = results
+    print(f"# {len(files)} classes / {total} tests from {shown}")
+    print(f"# newest result written {stamp} — check this against the change you are testing")
+
+    allowed = {e["class"]: e for e in (doc.get("allowlist") or [])}
+    known = {e["class"]: e for e in (doc.get("known_real") or [])}
+    both = set(allowed) & set(known)
+    if both:
+        print("error: class listed in both allowlist and known_real: " + ", ".join(sorted(both)))
+        return 2
+
+    errs, warns = [], []
+    for cls, n in sorted(failing.items()):
+        entry = allowed.get(cls) or known.get(cls)
+        if entry is None:
+            errs.append(f"NEW failing class {cls} ({n} test(s)) — not allowlisted. "
+                        f"This is the signal the gate exists to surface.")
+            continue
+        cap = int(entry.get("tests") or 0)
+        if n > cap:
+            kind = "environmental" if cls in allowed else "known-real"
+            errs.append(f"{cls}: {n} failing, {kind} ceiling is {cap} — "
+                        f"{n - cap} more than declared, so a real regression is "
+                        f"hiding behind an expected name")
+    absent = [c for c in sorted({**allowed, **known}) if c not in seen]
+    if absent:
+        # The one false green that matters: a partial run — a single class, an
+        # aborted task, the wrong Gradle module — has nothing beyond the allowlist
+        # in it *because it barely ran*, and would otherwise print "ok".
+        errs.append(f"{len(absent)} listed class(es) did not run at all — this is not "
+                    f"the full suite, or they were renamed/deleted:")
+        errs.extend(f"    {c}" for c in absent)
+    for cls, entry in sorted({**allowed, **known}.items()):
+        if cls not in seen:
+            continue
+        n = failing.get(cls, 0)
+        cap = int(entry.get("tests") or 0)
+        if n == 0:
+            warns.append(f"{cls} ran and passed — drop the entry "
+                         f"(this is how AutofillSettingsMiddlewareTest left the list)")
+        elif n < cap:
+            warns.append(f"{cls}: {n} failing, declared {cap} — lower the count")
+
+    env = sum(n for c, n in failing.items() if c in allowed)
+    real = sum(n for c, n in failing.items() if c in known)
+    unexpected = sum(n for c, n in failing.items() if c not in allowed and c not in known)
+    print(f"# failing {sum(failing.values())} = {env} environmental "
+          f"+ {real} known-real + {unexpected} unexpected")
+
+    for w in warns:
+        print(f"warn:  {w}")
+    for e in errs:
+        print(f"error: {e}")
+    if errs:
+        n_err = sum(1 for e in errs if not e.startswith("    "))
+        print(f"\n{n_err} problem(s) — this run is NOT clean")
+        return 2
+    print("\nok: no failures beyond the documented allowlist")
+    return 0
+
+
 def cmd_stats(doc, tasks):
     depth = waves(tasks)
     lo = hi = 0
@@ -827,6 +976,9 @@ def main():
     p.add_argument("--check-scope", action="store_true")
     p.add_argument("--check-cfg-split", action="store_true")
     p.add_argument("--check-policies", action="store_true")
+    p.add_argument("--check-fenix-tests", action="store_true")
+    p.add_argument("--results", metavar="DIR", default="",
+                   help="--check-fenix-tests: Gradle JUnit XML directory")
     for flag in DEFERRED:
         p.add_argument(flag, action="store_true")
     p.add_argument("--strict", action="store_true",
@@ -841,6 +993,8 @@ def main():
         return cmd_check_cfg_split()
     if args.check_policies:
         return cmd_check_policies()
+    if args.check_fenix_tests:
+        return cmd_check_fenix_tests(args.results)
 
     for flag, owner in DEFERRED.items():
         if getattr(args, flag.lstrip("-").replace("-", "_")):

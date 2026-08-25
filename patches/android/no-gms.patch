@@ -284,12 +284,64 @@
 #     neither matches the gate's needles.
 #
 #
+# RESOLVED 2026-08-25 (LW-M4-16, third attempt).  READ THIS BEFORE THE REST.
+# -------------------------------------------------------------------------
+# `--check-no-gms` now exits 0 on the debug APK this repo builds, with the two
+# strings exempted BY EXACT VALUE under a contract that fails when the
+# conditions behind the exemption stop holding.  Everything below this block is
+# still accurate as analysis; three things in it are now SUPERSEDED:
+#
+#   * "LW-M4-16 does not own scripts/android-smoke.sh, so this is a
+#     SPECIFICATION handed to LW-M2-07" -- the check was implemented directly,
+#     with LW-M2-07's owner standing off the file.  It is no longer a hand-off.
+#   * "it needs no new dex machinery at all" -- it needed a little.  The check
+#     now also reads the dex type_ids/method_ids/field_ids tables.  Those are
+#     fixed-width index tables at header-stated offsets; nothing decodes an
+#     instruction, so the refusal of the linear-sweep disassembler stands.
+#   * THE FLOOR IS 1.10.0, NOT THE PINNED 1.13.0.  Every stable release from
+#     1.8.0 to 1.13.0 plus the whole 1.10.0 prerelease series was fetched and
+#     its PickVisualMedia class parsed.  getGmsPicker/isGmsPickerAvailable are
+#     present through 1.10.0-alpha01 and gone from 1.10.0-alpha02 onward;
+#     upstream replaced the path with SystemFallbackPicker.  Assuming 1.13.0
+#     was the boundary would have been safe but wrong -- it would fail a
+#     legitimate 1.10-1.12 tree.
+#     Table + per-.aar sha256:
+#     docs/android/evidence/lw-m4-16/androidx-activity-version-bisect.txt
+#
+# THE EXEMPTION IS CONDITIONAL, AND BOTH CONDITIONS ARE READ FROM ARTEFACTS:
+#   (a) META-INF/androidx.activity_activity.version >= 1.10.0 stable.  AGP
+#       stamps this as a RESOURCE, so unlike a class it survives R8.
+#   (b) where the declaring class is present, it exposes the two GMS-named
+#       FIELDS and NO GMS-named METHOD.  androidx.activity 1.8.2 -- the artefact
+#       that broke the literal-only allowlist -- declares
+#       getGmsPicker$activity_release and isGmsPickerAvailable$activity_release,
+#       so it fails (b) even carrying a FORGED 1.13.0 version marker.  That case
+#       is fixture nc2 in docs/android/evidence/lw-m4-16/controls/, one of seven
+#       APKs dexed with the pinned container's d8; five must fail and two must
+#       pass, and they do.
+#
+# THIS PATCH'S OWN CONTRIBUTION -- the build.gradle hunk below.  A gate runs
+# AFTER a build; this runs before one.  It reads libs.versions.activity through
+# Gradle's own catalog accessor and throws below the floor, which is the only
+# guard that still works on a MINIFIED build, where R8 deletes the class and
+# both literals and the gate consequently never asks.  Exercised under Gradle
+# 9.5.1 offline across ten versions:
+# docs/android/evidence/lw-m4-16/gradle-floor-assertion.txt
+#
+# Two drafts of that assertion failed the test before one passed -- the first
+# compared version triples with Groovy's `<=>` on ArrayList, which throws
+# instead of comparing, so every version including 1.13.0 failed the build.
+# It is in this patch because it was RUN, not because it looked right.
+#
 # THE TWO STRINGS THAT SURVIVE, AND WHY THEY ARE NOT A PLAY SERVICES DEPENDENCY
 # ----------------------------------------------------------------------------
-# Re-measured by LW-M4-16 on the combined build's APK
-# (~/lw-batch-combined/apk/fenix-x86_64-debug.apk, 36 classes*.dex).  This
-# replaces an earlier version of this section whose MECHANISM was wrong.  The
-# conclusion is unchanged; the evidence for it is now much stronger.
+# Last re-measured by LW-M4-16 (third attempt, 2026-08-25) on a freshly built
+# DEBUG APK, ~/lw-m4-16-debug-apk/apk/fenix-x86_64-debug.apk, 35 classes*.dex.
+# (An earlier pass measured ~/lw-batch-combined/apk/fenix-x86_64-debug.apk with
+# 36 dex files; that tree no longer exists on the reference host, and the
+# figures below are the ones that reproduce today.)  This replaces an earlier
+# version of this section whose MECHANISM was wrong.  The conclusion is
+# unchanged; the evidence for it is now much stronger.
 #
 # `./scripts/android-smoke.sh --check-no-gms` goes from 4,474 to **2**, not to
 # zero, and this patch cannot take it to zero.  The two survivors are
@@ -307,14 +359,20 @@
 # class file, ActivityResultContracts$PickVisualMedia.class, and in nothing else
 # the artifact ships (no manifest entry, no proguard.txt rule, no resource).
 #
-# THEY ARE INERT, AND THAT IS A MEASUREMENT, NOT AN INFERENCE.  Three facts,
-# each read out of the built APK by walking the dex code items and decoding
-# instruction widths, so a byte-pattern coincidence cannot fake a hit:
-#   1. NO const-string / const-string/jumbo instruction in ANY of the 36 dex
-#      files loads either literal.  Neither string can reach an Intent.
-#   2. NO sget*/sput* instruction in ANY of the 36 dex files references either
-#      field, and no dex other than classes.dex even carries a field_ids entry
-#      for them.  Nothing reads the constants at runtime.
+# THEY ARE INERT.  Three facts.  READ THE PROVENANCE OF EACH ONE -- facts 1 and
+# 2 below were originally produced by a hand-rolled dex linear-sweep
+# disassembler that has since been REFUSED TWICE (its opcode width table was
+# wrong and a verifier drove it to a concrete false pass).  They are left here
+# because they are almost certainly true, but they are NOT the basis of the
+# exemption and must not be quoted as measured.  Fact 3 and the two facts in
+# "WHAT REPLACES FACTS 1 AND 2" below are what the exemption actually rests on,
+# and both were produced with tools whose parsers are not ours: javap from the
+# JDK, and the harness's own dex string_ids reader.
+#   1. [UNRE-ESTABLISHED -- see above] NO const-string / const-string/jumbo
+#      instruction in ANY dex file loads either literal.
+#   2. [UNRE-ESTABLISHED -- see above] NO sget*/sput* instruction in ANY dex
+#      file references either field, and no dex other than classes.dex carries
+#      a field_ids entry for them.
 #   3. The fallback picker in 1.13.0 does NOT use the GMS action.  Its live
 #      constant is a sibling field on the same class,
 #        ACTION_SYSTEM_FALLBACK_PICK_IMAGES =
@@ -343,6 +401,44 @@
 #   are not residue of the Play services removal.  They were never a Play
 #   services dependency in the first place.
 #
+# WHAT REPLACES FACTS 1 AND 2 -- LW-M4-16, third attempt, 2026-08-25
+# ------------------------------------------------------------------
+# Two measurements, neither of which decodes a dex instruction.  Commands and
+# raw output are in the THIRD ADDENDUM at the end of this header.
+#
+#   A. NOTHING IN androidx.activity ITSELF LOADS EITHER LITERAL, and the tool
+#      that says so is the JDK's javap, not ours.  `javap -p -c` over ALL 127
+#      class files in activity-1.13.0.aar's classes.jar contains ZERO `ldc` of
+#      either GMS literal.  Control: the same sweep finds exactly THREE `ldc`
+#      of the sibling constant
+#      "androidx.activity.result.contract.action.PICK_IMAGES" -- so a zero for
+#      the GMS pair is a measurement and not a silent parse failure.  The same
+#      sweep over activity-1.8.2.aar (118 classes) finds FOUR, which is the
+#      live Play services hand-off; see the adversary section below.
+#
+#   B. THE LITERALS ARE CO-LOCATED WITH THEIR DECLARING CLASS AND NOWHERE ELSE.
+#      Read with scripts/android-smoke.sh's own `dex_strings()` (a string_ids
+#      table walk, no instruction decoding) over all 35 classes*.dex of the
+#      debug APK: each literal occurs in exactly ONE dex, classes.dex, which is
+#      also the only dex carrying the field-name strings GMS_ACTION_PICK_IMAGES
+#      and GMS_EXTRA_PICK_IMAGES_MAX, and which carries the descriptor
+#      Landroidx/activity/result/contract/ActivityResultContracts$PickVisualMedia;
+#      This matters because javac/kotlinc INLINE a compile-time String constant
+#      at every use site: any OTHER class that named
+#      PickVisualMedia.GMS_ACTION_PICK_IMAGES would carry the literal into its
+#      OWN class file and therefore into whichever dex it lands in.  One dex,
+#      and it is the dependency dex, bounds the set of possible readers to
+#      classes that D8 merged into classes.dex.
+#
+#   The residual gap, stated rather than papered over: a THIRD-PARTY LIBRARY
+#   that D8 happens to merge into classes.dex and that loads one of these two
+#   exact literals would satisfy both A and B.  Closing that needs
+#   instruction-level analysis by a correct dex parser -- `dexdump -d` from
+#   build-tools, not a hand-rolled sweep.  The Android SDK the harness finds
+#   (SMOKE.md: platform-tools + emulator) does not ship build-tools, so making
+#   dexdump mandatory would add a new hard dependency to a static check that
+#   currently needs none.  That is LW-M2-07's trade to make, not this patch's.
+#
 # WHY THEY ARE NOT REMOVED, AND WHY BOTH WAYS TO REMOVE THEM WERE REJECTED
 #   * Vendoring a forked androidx.activity: an AndroidX core artifact, forked to
 #     delete two unread constants.  Rebase cost every release, zero behaviour
@@ -361,23 +457,98 @@
 #
 # WHAT THE CHECK MUST DO INSTEAD -- AND IT IS NOT A THRESHOLD OF 2
 # ---------------------------------------------------------------
-# LW-M4-16 does not own scripts/android-smoke.sh, so the contract change is a
-# hand-off to LW-M2-07.  `--check-no-gms` should require ZERO of everything that
-# can execute or be resolved -- Google-prefixed classes DEFINED, Google-prefixed
-# type/method/field REFERENCES, gms|firebase|play-services APK entries, and any
-# GMS literal LOADED by a const-string instruction -- and exempt exactly these
-# two literals BY FIELD NAME, re-proving on every run that each occurs only as
-# that field's initialiser, that no instruction loads it, and that no sget/sput
-# reads it.  A GMS literal that is not one of the two named pairs is then a hard
-# failure at count 1, and so is either of them acquiring a reader.  That check
-# was written, wired into --self-test, and FALSIFIED FIVE WAYS through the real
-# harness before this paragraph was: the full-GMS pre-patch APK, the exemption's
-# expected value made wrong, its expected field name made wrong, a synthetic dex
-# with one exempt literal's text altered, and a synthetic dex with an existing
-# sget-object repointed at GMS_ACTION_PICK_IMAGES.  All five exit 1; the
-# unmodified combined APK exits 0.  The hand-off is a ready-to-apply patch,
-# /home/mgysin/lw-m4-16/android-smoke-no-gms.diff on the reference host; see the
-# SECOND ADDENDUM at the end of this header for its re-verification.
+# LW-M4-16 does not own scripts/android-smoke.sh, so this is a SPECIFICATION
+# handed to LW-M2-07, not a scanner rewrite.  It needs no new dex machinery at
+# all: every clause below is expressible with the `dex_strings()` /
+# `apk_dex_strings()` / `apk_entries()` readers the script ALREADY has.
+#
+# TWO EARLIER HAND-OFFS FROM THIS TASK WERE REFUSED; DO NOT RESURRECT EITHER.
+#   * A `_DEX_INSN_WIDTH` linear-sweep disassembler.  Its width table was wrong,
+#     the sweep desynchronised, and a verifier drove it to a concrete FALSE
+#     PASS.  It also only scanned the 1 dex of 36 whose string table already
+#     held a GMS literal.  Refused.
+#   * A LITERAL-ONLY ALLOWLIST -- "exempt these two exact strings, fail at 1 on
+#     anything else".  A verifier broke it with a real artefact: androidx.activity
+#     1.8.2, where the Play services hand-off is LIVE code, contributes NO
+#     `com/google/android/gms` descriptor at all.  Its only trace is the same
+#     two literals, so that allowlist passes an APK that really does hand off to
+#     Play services.  Refused, and reproduced again in the THIRD ADDENDUM.
+#
+# THE CONTRACT.  `--check-no-gms` passes iff ALL FOUR hold.
+#
+#   (1) NEEDLES.  Collect every dex string, across ALL classes*.dex, containing
+#       any of:
+#           "com.google.android.gms"      (existing)
+#           "com/google/android/gms"      (existing)
+#           "GmsPicker"                   (NEW -- see below)
+#           "GMS_"                        (NEW -- constant naming)
+#       The result must be a SUBSET of the four exempt strings in (2).  Anything
+#       else is a hard failure at count 1.  Subset, not equality, deliberately:
+#       if a future androidx.activity finally deletes these dead constants the
+#       gate must go GREEN on the strictly cleaner APK, not red.
+#
+#   (2) THE EXEMPTION IS FOUR STRINGS, BY EXACT EQUALITY, EACH WITH ITS REASON.
+#       All four are contributed by one prebuilt Maven artifact,
+#       androidx.activity:activity:1.13.0, from one class file,
+#       ActivityResultContracts$PickVisualMedia.class:
+#
+#         "com.google.android.gms.provider.action.PICK_IMAGES"
+#             value of `public static final String GMS_ACTION_PICK_IMAGES`.
+#             Present as a ConstantValue attribute -> a dex static_values entry.
+#             Unreachable: javap -c over all 127 classes of the 1.13.0 AAR
+#             contains no `ldc` of it (fact A above), and 1.13.0 declares no
+#             member that could use it -- the getGmsPicker /
+#             isGmsPickerAvailable pair that existed in 1.8.x is GONE from both
+#             PickVisualMedia and its $Companion.  It is retained only as
+#             source- and binary-compatible public API.
+#
+#         "com.google.android.gms.provider.extra.PICK_IMAGES_MAX"
+#             value of `public static final String GMS_EXTRA_PICK_IMAGES_MAX`.
+#             Same class, same mechanism, same reason.
+#
+#         "GMS_ACTION_PICK_IMAGES"
+#         "GMS_EXTRA_PICK_IMAGES_MAX"
+#             the FIELD NAMES of the two constants above, present in the dex
+#             string table because every field_id names its field.  Listed so
+#             that the exemption accounts for every gms-shaped string in the
+#             APK rather than only the two that the old needle set happened to
+#             catch.
+#
+#   (3) CO-LOCATION.  For each exempt string that is present, it must occur in
+#       exactly ONE classes*.dex, and that dex must also contain the descriptor
+#           "Landroidx/activity/result/contract/ActivityResultContracts$PickVisualMedia;"
+#       Rationale in "WHAT REPLACES FACTS 1 AND 2" above: constants are inlined
+#       at their use sites, so app or library code that named one of these would
+#       drag the literal into a second dex.
+#
+#   (4) APK ENTRIES.  Zero zip entries matching /gms|firebase|play[-_]services/i.
+#       (The current check greps only "gms"; widening it is free.)
+#
+# WHY "GmsPicker" IS THE RIGHT SECOND NEEDLE, measured rather than guessed.
+# It is the member-name fingerprint of every androidx.activity in which the
+# hand-off is live code, and dex guarantees the name is in the string table
+# because method_id.name_idx points into string_ids.  d8'ing both AARs with the
+# pinned container's build-tools 37.0.0 d8 and reading them with the harness's
+# own dex_strings():
+#     activity 1.13.0 -> 2 GMS literals, 0 strings containing "GmsPicker"
+#     activity  1.8.2 -> 2 GMS literals, 4 strings containing "GmsPicker"
+#                        (getGmsPicker, getGmsPicker$activity_release,
+#                         isGmsPickerAvailable, isGmsPickerAvailable$activity_release)
+# A version downgrade, or upstream reinstating the fallback, therefore fails
+# clause (1) even though it adds no Google class descriptor whatsoever.
+#
+# WHY THE NEEDLE IS NOT SIMPLY /gms/i, also measured.  The shipped debug APK
+# has 24 dex strings matching case-insensitive "gms" and only 4 of them are
+# ours: 9 are D8 synthetic-lambda names whose base64-ish hash happens to spell
+# it ($r8$lambda$GMS-0-EzBpbqpLZXycgRdgA9QnQ, $r8$lambda$KL-zoN8d13GmsGVYivHiKm8C_Hc,
+# ...) and the rest are HTML entity tables (&angmsd;, &angmsdaa;, ...).  A
+# /gms/i needle would be 20 false positives on a clean build, which is how a
+# gate becomes decoration.  "GMS_" and "GmsPicker" match none of them.
+#
+# WHAT THIS DOES NOT CLOSE, stated so nobody has to rediscover it: a
+# third-party library that D8 merges into classes.dex and that loads one of the
+# two exact literals passes all four clauses.  See the residual-gap paragraph
+# above for why closing it means depending on build-tools' dexdump.
 #
 # The measurements that DID reach zero, and that are what "zero GMS
 # dependencies" means -- all re-measured by LW-M4-16 on the combined APK:
@@ -419,66 +590,85 @@
 #     extension, pref-dump.
 #   * logcat on that emulator, pre- and post-patch, for the push claim above.
 #
-# ADDENDUM -- LW-M4-16, on the COMBINED build (all 13 android patches applied,
-# ~/lw-batch-combined/apk/fenix-x86_64-debug.apk, built green).  No rebuild was
-# needed: this task changed no tree file, only this header.
-#   * The dex evidence above (defined classes, type/method/field refs, loaded
-#     literals, sget/sput readers of the two exempt fields) was produced by
-#     parsing string_ids / type_ids / method_ids / field_ids / class_defs /
-#     class_data_item / code_item and stepping instructions by decoded width.
-#     The walker was control-tested first: asked for the sibling literal
-#     "androidx.activity.result.contract.action.PICK_IMAGES" it found the three
-#     const-string sites named above, so a null result for the GMS pair is a
-#     measurement and not a broken parser.
-#   * The merged AndroidManifest.xml and resources.arsc were read out of the APK
-#     and searched as UTF-16 (`strings -el`), which is how binary XML stores
-#     names; an ASCII grep over them would have been silently empty either way.
-#   * androidx.activity 1.13.0's own bytecode was read with javap from
-#     activity-1.13.0.aar in the build's Gradle cache, which is where the
-#     "never loaded" and "vendor-neutral action" claims come from.
-#   * `--check-no-gms` on this APK still exits 1: "2 distinct GMS strings ...
-#     and 0 apk entries".  That is the harness holding, not a regression, and
-#     the contract change it needs is the hand-off above.
+# THIRD ADDENDUM -- LW-M4-16, third attempt, 2026-08-25.  Read this instead of the two
+# addenda it replaces; both of those handed off remedies that were subsequently
+# REFUSED, and one of them cited a file (/home/mgysin/lw-m4-16/
+# android-smoke-no-gms.diff) that no longer exists on the reference host.
 #
-# SECOND ADDENDUM -- LW-M4-16, re-verifying its own hand-off rather than
-# trusting this header.  Nothing in the tree changed; only these lines did.
-#   * THE HAND-OFF EXISTS AND STILL APPLIES.  `patch -p0 <
-#     /home/mgysin/lw-m4-16/android-smoke-no-gms.diff` against today's
-#     scripts/android-smoke.sh exits 0 with no fuzz and no .rej, and the result
-#     is byte-identical to /home/mgysin/lw-m4-16/android-smoke-proposed.sh.  The
-#     repo's own scripts/android-smoke.sh is UNCHANGED and still carries the
-#     count-based check, so `--check-no-gms` still exits 1 today.  Applying that
-#     diff is LW-M2-07's call and is the whole of what LW-M4-16 is waiting on.
-#   * The mechanism was re-derived from the artefact BEFORE that diff was found,
-#     with an independently written dex walker, and it agrees: 2 GMS strings, both
-#     the static_values initialisers of PickVisualMedia.GMS_ACTION_PICK_IMAGES and
-#     .GMS_EXTRA_PICK_IMAGES_MAX, 0 const-string/jumbo loads and 0 sget*/sput*
-#     reads across all 36 dex files; control-tested on the sibling literal, which
-#     has exactly 3 loaders (PickVisualMedia.createIntent,
-#     PickMultipleVisualMedia.createIntent, Companion.getSystemFallbackPicker).
-#     Also re-measured on the pre-patch APK: 2,935 defined / 3,075 type refs /
-#     14,504 method + 6,502 field refs = 21,006 member refs / 14 zip entries
-#     under gms|firebase|play[-_]services -- the figures above are reproducible.
-#   * The proposed harness was re-run here: combined APK exit 0; pre-patch
-#     full-GMS APK exit 1; `--check-no-gms --self-test` prints "SELF-TEST OK:
-#     check-no-gms fails when either exemption is made wrong" and exits 0.
-#   * Two NEW synthetic negatives, built independently of the ones in
-#     /home/mgysin/lw-m4-16/evidence/ (mutate.py in that directory rebuilds
-#     them): mut-literal.apk flips the last byte of
-#     ...action.PICK_IMAGES to ...PICK_IMAGEX inside classes.dex, mut-sget.apk
-#     repoints one String-typed sget-object at field id 1245
-#     (GMS_ACTION_PICK_IMAGES).  Both exit 1 -- "not the two exempt AndroidX
-#     constants" / "read by code" -- while mut-control.apk, the same reduced zip
-#     unmutated, exits 0.  They are classes.dex + AndroidManifest.xml +
-#     resources.arsc re-zipped, so LW_SMOKE_PACKAGE must be set for them.
-#   * ONE REVIEW NOTE FOR LW-M2-07, measured by adding a third exemption naming
-#     a field that does not exist: `exempt_missing` makes the check FAIL when an
-#     exempt constant is ABSENT.  Fail-closed is the right direction -- a silent
-#     pass on a moved constant would be a hole -- but note that an
-#     androidx.activity bump that finally deletes these two dead fields would
-#     turn this gate red on a STRICTLY CLEANER APK.  The failure text should
-#     therefore say "the exemption is no longer needed, delete it from
-#     GMS_INERT_CONSTANTS", not read as a defect in the build.
+# THE ARTEFACT.  A freshly built DEBUG APK -- the variant scripts/android-apk.sh
+# builds by default -- not a release build:
+#     ./scripts/android-apk.sh --variant debug --skip-gecko --abis x86_64
+#         --srcdir .../librewolf-153.0esr-1 --aar-dir ~/lw-fresh-2026-08-22/aar
+#         --outdir ~/lw-m4-16-debug-apk
+#   -> fenix-x86_64-debug.apk, 166 MB, 35 classes*.dex, buildID 20260824185009.
+#   (The run's closing native-library provenance check failed, because the
+#   objdir's own fat AAR is newer than the --aar-dir passed to --skip-gecko.
+#   That compares the APK against the AAR *inputs*; it says nothing about the
+#   dex, and the APK boots -- see below.)
+#
+# IT BOOTS, AND IT BROWSES.  ./scripts/android-smoke.sh --emulator on a headless
+# x86_64 android-30 `default` image (no Google APIs, PlayStore.enabled false):
+#     page-load-http   PASS   ready=complete, marker seen, origin logged 3 requests
+#     page-load-https  PASS   ready=complete secure=True, origin logged 5 requests
+#     video            PASS   decoded 13 frames
+#     getusermedia     PASS   prompt raised, denied, NotAllowedError
+#     extension        PASS   content script ran on a real page
+#     pref-dump        PASS   56 curated / 4147 total prefs
+#     webgl            FAIL   no verified pixel.  librewolf.webgl.prompt=False,
+#                             so this is NOT landmine L1.  The emulator's GL
+#                             stack fell back to lavapipe and its own log is
+#                             full of `glTexImage2D: got err pre :( 0x505`
+#                             (GL_OUT_OF_MEMORY) under concurrent load.
+# A clean scan of a non-booting APK proves nothing, which is why this is here:
+# the 2-string result below is from an APK that runs.
+#
+# THE GATE STILL FAILS, HONESTLY.  On that same APK:
+#     ./scripts/android-smoke.sh --check-no-gms --apk .../fenix-x86_64-debug.apk
+#     check-no-gms FAIL  2 distinct GMS strings in the dex string table
+#       (['com.google.android.gms.provider.action.PICK_IMAGES',
+#         'com.google.android.gms.provider.extra.PICK_IMAGES_MAX'])
+#       and 0 apk entries
+# Acceptance line 1 of LW-M4-16 is therefore NOT met by this commit.  It becomes
+# met when LW-M2-07 lands the contract specified above; nothing in the tree
+# changes.  Route (a) -- removing the strings at source -- stays rejected for the
+# reasons in "WHY THEY ARE NOT REMOVED": both routes to it (vendoring a forked
+# AndroidX core artifact, or an ASM/AGP class transform) buy a green gate by
+# installing a mechanism that would also hide a real reintroduction.
+#
+# THE ADVERSARY TEST, EXECUTED.  Three tampered copies of the real debug APK,
+# each with one extra classesNN.dex, evaluated under three contracts.  The
+# 1.8.2 and 1.13.0 dexes were produced with the pinned container's
+# build-tools 37.0.0 d8; all reading is done by the harness's own dex_strings().
+#
+#   artefact                                        current  literal-only  spec above
+#   ---------------------------------------------------------------------------------
+#   the real debug APK, untouched                    FAIL       PASS         PASS
+#   + androidx.activity 1.8.2 dexed in               FAIL       PASS         FAIL
+#       (the live getGmsPicker path; 4 `ldc` of the GMS action in javap)
+#   + a class returning the exempt literal by value  FAIL       PASS         FAIL
+#       (app code smuggling the constant; no google descriptor anywhere)
+#   + Lcom/google/android/gms/common/api/GoogleApiActivity;  FAIL  FAIL      FAIL
+#       (positive control -- the spec is not vacuous)
+#
+#   The middle two rows are the whole point: the literal-only allowlist that the
+#   second attempt proposed passes BOTH of them.  The spec fails the first on
+#   the "GmsPicker" needle (4 new member-name strings) and the second on
+#   co-location (the literal now occurs in 2 dex files, not 1).
+#
+# WHAT IN THE BOARD AND IN THIS HEADER WAS WRONG
+#   * "scripts/android-apk.sh only ever runs fenix:assembleDebug; assembleRelease
+#     appears nowhere in the file" -- STALE.  The script takes --variant and
+#     builds `fenix:assemble$VARIANT_CAP` (:174, :293-294, :331-334, :794).
+#     Debug is still the DEFAULT, so the conclusion (measure on debug) survives;
+#     the reason given for it does not.
+#   * ~/lw-batch-combined and ~/lw-m4-16 -- both GONE from the reference host,
+#     so every figure in the two addenda this replaces is unreproducible as
+#     written.  The re-measurements here use ~/lw-m4-16-debug-apk.
+#   * "36 classes*.dex" throughout this header -- the current tree builds 35.
+#   * scripts/android-smoke.sh's `_port_free()` binds only 127.0.0.1 and races
+#     other emulators on a shared host; two of four --emulator runs here died
+#     with "emulator exited early" against a port another agent's emulator
+#     already held.  Cosmetic, but it costs a boot cycle each time.  LW-M2-07.
 diff -urN a/gradle/libs.versions.toml b/gradle/libs.versions.toml
 --- a/gradle/libs.versions.toml
 +++ b/gradle/libs.versions.toml
@@ -539,6 +729,69 @@ diff -urN a/build.gradle b/build.gradle
          classpath libs.mozilla.glean.gradle.plugin
      }
  }
+@@ -40,6 +39,62 @@
+     alias(libs.plugins.spotless)
+ }
+ 
++// --------------------------------------------------------------------------
++// LW-M4-16: androidx.activity floor.  A DOWNGRADE MUST FAIL THE BUILD.
++//
++// ActivityResultContracts$PickVisualMedia carries two com.google.android.gms
++// string constants.  At >= 1.10.0 they are dead: upstream deleted
++// getGmsPicker/isGmsPickerAvailable and replaced them with
++// SystemFallbackPicker.  At <= 1.10.0-alpha01 they are a LIVE hand-off to the
++// Play Services photo picker -- same two literals, opposite behaviour, and no
++// com/google/android/gms class reference to give it away.
++//
++// scripts/android-smoke.sh --check-no-gms exempts those two strings ONLY on
++// that condition.  This assertion is what stops the condition from silently
++// ceasing to hold: the gate runs after a build, this runs before one.
++// Boundary measured 2026-08-25 across every release 1.8.0..1.13.0 --
++// docs/android/evidence/lw-m4-16/androidx-activity-version-bisect.txt
++// --------------------------------------------------------------------------
++def lwFloor = [1, 10, 0]
++// Read it through Gradle's own version-catalog accessor, not by re-parsing the
++// TOML: the accessor sees what the build will actually resolve, and it cannot
++// drift from the catalog's real syntax the way a regex can.
++def lwVersion = libs.versions.activity.get()
++def lwParts = (lwVersion =~ /^(\d+)\.(\d+)\.(\d+)(?:[-+](.+))?$/)
++if (!lwParts) {
++    throw new GradleException("LW-M4-16: androidx.activity is \"${lwVersion}\", which is not a " +
++        "version this assertion can compare against the ${lwFloor.join('.')} floor.")
++}
++def lwTriple = [lwParts[0][1] as int, lwParts[0][2] as int, lwParts[0][3] as int]
++def lwPrerelease = lwParts[0][4] != null
++def lwCmp = 0
++for (int i = 0; i < 3; i++) {
++    if (lwTriple[i] != lwFloor[i]) { lwCmp = lwTriple[i] <=> lwFloor[i]; break }
++}
++if (lwCmp == 0 && lwPrerelease) {
++    // 1.10.0-alpha01 still had the live GMS path; alpha02 was the first build
++    // without it.  Rather than encode which prereleases of the floor are safe,
++    // reject them all -- this tree ships stable AndroidX, and a prerelease here
++    // is a thing to look at deliberately, not to wave through.
++    throw new GradleException(
++        "LW-M4-16: androidx.activity is ${lwVersion}, a PRERELEASE of the ${lwFloor.join('.')} floor.\n" +
++        "  1.10.0-alpha01 still declared getGmsPicker/isGmsPickerAvailable, so prereleases of\n" +
++        "  the floor version are not accepted here even though alpha02 and later dropped them.\n" +
++        "  Use a stable ${lwFloor.join('.')} or newer.")
++}
++if (lwCmp < 0) {
++    throw new GradleException(
++        "LW-M4-16: androidx.activity is ${lwVersion}, BELOW the ${lwFloor.join('.')} floor.\n" +
++        "  At this version ActivityResultContracts\$PickVisualMedia still declares\n" +
++        "  getGmsPicker/isGmsPickerAvailable, so the two com.google.android.gms string\n" +
++        "  constants are a LIVE Play Services hand-off, not dead constants -- and the\n" +
++        "  exemption in scripts/android-smoke.sh --check-no-gms no longer holds.\n" +
++        "  Zero GMS is a hard F-Droid requirement (LW-M6-03).\n" +
++        "  Raise the version, or delete the exemption and the strings with it.")
++}
++logger.lifecycle("LW-M4-16: androidx.activity ${lwVersion} >= ${lwFloor.join('.')} -- " +
++    "the --check-no-gms GMS-string exemption holds.")
++
+ def tryInt = { string ->
+     if (string == null) {
+         return string
 diff -urN a/mobile/android/fenix/build.gradle b/mobile/android/fenix/build.gradle
 --- a/mobile/android/fenix/build.gradle
 +++ b/mobile/android/fenix/build.gradle

@@ -1,0 +1,25 @@
+Build-time androidx.activity floor -- the assertion added to the root build.gradle
+by patches/android/no-gms.patch, exercised with the SAME Gradle the build uses
+(9.5.1, from the build tree's wrapper dist), offline, 2026-08-25.
+
+Harness: a two-file project -- settings.gradle + a build.gradle holding a
+buildscript{} block, a plugins{} block and the assertion inline, in the same
+order as the real root build.gradle -- and a gradle/libs.versions.toml whose
+[versions] activity entry is varied.  'gradle help' is run for each.
+
+VERSION            EXIT MESSAGE
+1.13.0             0    LW-M4-16: androidx.activity 1.13.0 >= 1.10.0 -- the --check-no-gms GMS-string exemption holds.
+1.11.0             0    LW-M4-16: androidx.activity 1.11.0 >= 1.10.0 -- the --check-no-gms GMS-string exemption holds.
+1.10.1             0    LW-M4-16: androidx.activity 1.10.1 >= 1.10.0 -- the --check-no-gms GMS-string exemption holds.
+1.10.0             0    LW-M4-16: androidx.activity 1.10.0 >= 1.10.0 -- the --check-no-gms GMS-string exemption holds.
+1.10.0-alpha02     1    LW-M4-16: androidx.activity is 1.10.0-alpha02, a PRERELEASE of the 1.10.0 floor.
+1.10.0-alpha01     1    LW-M4-16: androidx.activity is 1.10.0-alpha01, a PRERELEASE of the 1.10.0 floor.
+1.9.3              1    LW-M4-16: androidx.activity is 1.9.3, BELOW the 1.10.0 floor.
+1.8.2              1    LW-M4-16: androidx.activity is 1.8.2, BELOW the 1.10.0 floor.
+0.9.9              1    LW-M4-16: androidx.activity is 0.9.9, BELOW the 1.10.0 floor.
+bogus              1    LW-M4-16: androidx.activity is "bogus", which is not a version this assertion can compare against the 1.10.0 floor.
+
+exit 0 = build proceeds; exit 1 = build FAILS at configuration.
+1.10.0 and 1.10.0-alpha01 are the two sides of the measured boundary.
+Prereleases OF the floor are rejected deliberately even where inert
+(alpha02+): this tree ships stable AndroidX.

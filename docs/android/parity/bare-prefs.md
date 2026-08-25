@@ -33,6 +33,15 @@ Second attempt. Everything measured in this file was re-measured on
 first attempt's comparison is retracted below rather than quietly replaced, and
 none of its numbers are reused.
 
+**Third pass, 2026-08-25 — write-up only, no new measurement.** Nothing about the
+24 prefs changed and no build or device run was made. Two things were corrected:
+`privacy.restrict3rdpartystorage.url_decorations` is now filed as **UNRESOLVED**
+with every run that bears on it shown side by side — the previous pass demoted it
+to "noise", which its own measured noise floor contradicts — and the fact that
+**the entire evidence tree under `/home/mgysin/lw-m3-09/` has since been deleted**
+is recorded where it belongs rather than left for the next reader to discover.
+One stale citation (`android-smoke.sh:1598-1606` → `:1983`) was fixed.
+
 ## Headline
 
 | | |
@@ -89,7 +98,7 @@ different questions need answering and one A/B cannot answer both:
 | **A** | `settings/librewolf.cfg` = `common + desktop` — **what `make` puts on a device today** | what LW-M3-10 will change |
 | **B** | `cat settings/common.cfg settings/android.cfg` — **the fix, composed by hand** | the target state |
 | **C** | B, minus the four promotion lines | **isolates this task's four promotions** |
-| **D** | B, minus only `lockPref("browser.contentblocking.category", …)` | was run to isolate the `url_decorations` side effect — now shown to be noise, see "Adjacent findings" |
+| **D** | B, minus only `lockPref("browser.contentblocking.category", …)` | was run to isolate the `url_decorations` side effect. **Whether it does is UNRESOLVED** — one kept run outside the seven contradicts it; see "Adjacent findings" |
 
 C is the arm the first pass did not have. A→B changes the whole
 `desktop.cfg` → `android.cfg` fragment, so it cannot attribute anything to
@@ -242,13 +251,27 @@ under `smokework/avd` (the emulator was killed at the end of the run) and the
 capture window. The extracted `omni.ja` blobs were deleted too; `compare.py`
 rebuilds them from the APKs in seconds.
 
+> **⚠ As of 2026-08-25 the whole evidence tree is gone.** `/home/mgysin/lw-m3-09/`
+> — `ab3/`, `evidence/`, `ab2/`, `src/` and every artefact named in this section —
+> **no longer exists on this machine**, and nothing was archived anywhere else
+> (searched: no `ab3` directory and no `prefs-all-diff*` file anywhere on the
+> filesystem). So **every number in this file is now unverifiable**: it can be
+> read, reasoned about and contradicted, but it cannot be re-checked against the
+> dumps it came from. Two consequences worth stating rather than discovering.
+> First, the `A-nokey` question below cannot be settled by going back and looking
+> at its `result.json`; it needs new runs. Second, this is the general failure the
+> project keeps hitting from a different direction — an unreproducible measurement
+> is only as good as the write-up, which is why the write-up must not overstate.
+> A future task that keeps evidence for a claim in a durable file should keep it
+> **inside the repo** (or in a named, backed-up location), not under `/home`.
+
 ### Result 1 — this task's four promotions, isolated (C → B)
 
 C and B are four lines apart. Their APKs differ in one zip entry. Across all
 ~4150 prefs in the profile, their dumps differ in the **four promotions** below,
-plus `url_decorations` (which is **not** one of the 24 and — per the corrected
-"Adjacent findings" — **not** a consequence of this task's lock), plus the noise
-floor, and in nothing else:
+plus `url_decorations` (which is **not** one of the 24, and whose cause is
+**unresolved** — see "Adjacent findings"), plus the noise floor, and in nothing
+else:
 
 | pref | C (fix reverted) | B (fix in) |
 |---|---|---|
@@ -258,12 +281,14 @@ floor, and in nothing else:
 | `devtools.debugger.remote-enabled` | `false`, unlocked | `false`, **`locked`** |
 
 Reproduced on both C runs and all three B runs; full listing in
-`prefs-all-diff-CB.txt`. The `url_decorations` name is **not** one of the 24 and
-is **not** a consequence of this task's category lock — the `A-nokey` arm (arm-A
-content, `category` reading `standard`) dumped it **empty**, the arm-B outcome, so
-it does not track the lock and arm D does not isolate it. It is written up under
-"Adjacent findings" as unexplained noise; do not read this paragraph as if the
-C→B delta were only the four promotions.
+`prefs-all-diff-CB.txt`. The `url_decorations` name is **not** one of the 24, and
+this file does **not** claim to know why it moved. Across the seven declared runs
+it tracks the category lock exactly; an eighth run kept from the discarded first
+build round (`A-nokey`) shows the opposite outcome on arm-A input and breaks that
+correlation. Both readings are on the record under "Adjacent findings" and the
+name is left **unresolved** — it is not called noise, because the measured noise
+floor below is four named prefs and this is not one of them. Do not read this
+paragraph as if the C→B delta were only the four promotions.
 
 This is what the acceptance line *"the measured casualties are fixed, verified on
 a running build not by reading"* asks for. Note the fourth row is why the count
@@ -303,7 +328,7 @@ names change value; every one is attributed:
 | `devtools.console.stdout.chrome` | this task (`android.cfg` `defaultPref`) |
 | `browser.safebrowsing.provider.google4.dataSharingURL` | this task (`android.cfg` `defaultPref`) |
 | `media.eme.enabled` | LW-M3-06's `android.cfg` line — the positive control |
-| `privacy.restrict3rdpartystorage.url_decorations` | **not** a consequence of this task's lock — `A-nokey` (arm-A content, `category=standard`) dumped it empty; unexplained noise, see "Adjacent findings" |
+| `privacy.restrict3rdpartystorage.url_decorations` | **unresolved.** Tracks the category lock across the seven declared runs; the eighth kept run (`A-nokey`, arm-A content, `category=standard`) dumped it empty and breaks that. Not noise — see "Adjacent findings" |
 | `privacy.sanitize.sanitizeOnShutdown` `true`→`false` | `desktop.cfg:66` has no `android.cfg` counterpart |
 | `privacy.window.maxInnerWidth` `1600`→`1400` | `desktop.cfg:144` (letterboxing pair with `:146`) has none either |
 | `extensions.webcompat-reporter.enabled` `false`→`true` | `desktop.cfg:284` `lockPref` has none either |
@@ -450,8 +475,10 @@ safe to do: `commit()` on a locked pref cannot crash the settings screen.
   those prefs read `true` on **every arm and every run**, `standard` and
   `strict` alike. Do not read the fix as having moved them. (The one name that
   *did* move between the C and B arms,
-  `privacy.restrict3rdpartystorage.url_decorations`, is **not** a consequence of
-  the lock — the `A-nokey` arm breaks that correlation; see "Adjacent findings".)
+  `privacy.restrict3rdpartystorage.url_decorations`, is **unresolved** — it
+  correlates with the lock across the seven declared runs and the eighth kept run
+  breaks that correlation; see "Adjacent findings". Do not cite it as an effect of
+  the lock, and do not cite it as ruled out.)
 - **Cost:** Fenix's *Settings → Enhanced Tracking Protection* category selector
   becomes inert — it still moves, the behaviour does not follow. Desktop
   LibreWolf does the same thing by hiding that UI and rewriting the pref at every
@@ -671,7 +698,7 @@ verify: python3 docs/android/board.py --check-cfg-split && ./scripts/android-smo
 ```
 
 `--pref-dump` **prints** prefs. It asserts nothing about any of them:
-`android-smoke.sh:1598-1606` records `res.add("pref-dump", True, …)` — the
+`android-smoke.sh:1983` records `res.add("pref-dump", True, …)` — the
 literal `True` — and returns. The only way that check goes red is if the
 harness cannot reach the device at all, which is exit code 2, not a failed
 check.
@@ -730,6 +757,27 @@ arm B  -> 0      arm B2 -> 0      arm B3 -> 0
 
 Arm C is the honest negative control: it is not "an old build" or "a different
 tree", it is this build with the fix reverted and nothing else changed.
+
+**What of that is still checkable, as of 2026-08-25.** Not the table above — the
+dumps behind it were deleted with the rest of the evidence tree (see the warning
+in "What is kept"), and this machine now has no Android SDK, no AVD and no
+emulator binary, so the line cannot be re-executed end to end here. What *was*
+re-checked today, and is cheap for anyone to repeat:
+
+- the assertion's **logic**, against hand-written dumps in the harness's exact
+  `name\ttype\tvalue\tlocked\tuser` format (`do_pref_dump`,
+  `android-smoke.sh:1211-1237`): `strict`+`locked` → exit **0**; `standard` →
+  exit **1**; `strict` but **unlocked** → exit **1**. It fails on both shapes of
+  broken build, not just the obvious one.
+- that stdout carries only the dump — `log()` at `android-smoke.sh:86-90` sends
+  every human-facing line to stderr on purpose — so the redirect captures a clean
+  payload and the `awk` has nothing else to match against.
+- that the line survives a YAML round-trip verbatim (`yaml.safe_load` of a
+  `verify:` scalar returns the identical string), which is the failure mode that
+  would otherwise turn a gate into a syntax error at load time.
+
+The end-to-end pass/fail table above is therefore reported as it was recorded, and
+flagged as no longer independently verifiable.
 
 ### Two things the owner must decide with it
 
@@ -809,17 +857,17 @@ branch of `cmd_check_policies` (`board.py:745-758`), skip the pref when
 
 ---
 
-## Adjacent findings — two that are not this task's, one that is unexplained
+## Adjacent findings — two that are not this task's, one that is UNRESOLVED
 
 All three are outside the 24, and none of them changes a disposition above. The
 first two are landmine **L2** — an unlocked `defaultPref` losing to a GeckoView
 runtime writer, not L2b — and neither moves between any two arms, so this task
-neither caused nor fixed them. The **third is not a consequence of this task's
-category lock** — the `A-nokey` arm breaks the correlation the first write-up
-claimed — but it is written up here rather than buried in a log precisely so the
-unexplained name is on the record. Every value below was
-**re-measured on this attempt's arms**, across all seven device runs, and none
-is carried over from the first attempt.
+neither caused nor fixed them. The **third is unresolved**: the arms do not
+settle whether this task's category lock causes it, and the section below shows
+the whole run set rather than the subset that supports either answer. Every
+value below was **re-measured on this attempt's arms**, across the seven declared
+device runs plus the one kept run from the discarded build round, and none is
+carried over from the first attempt.
 
 ### `privacy.trackingprotection.allow_list.convenience.enabled`
 
@@ -855,11 +903,15 @@ because the policy does not pass `Locked`") now has to be weighed against the
 pref simply not taking effect at all. **This is LW-M3-06's line and LW-M3-04's
 list; LW-M3-09 deliberately did not change it.**
 
-### `privacy.restrict3rdpartystorage.url_decorations` — not a consequence of the category lock, and not explained
+### `privacy.restrict3rdpartystorage.url_decorations` — UNRESOLVED
 
-This one moved between the C and B arms, and the first write-up claimed it was
-downstream of the category lock. That claim is **not supported**. The full arm
-table, including the `A-nokey` arm that breaks the correlation:
+**Status: we observe the value moving, arm D isolates it only if one kept run is
+discounted, and this file cannot explain the mechanism either way.** That is the
+finding. It is stated as unresolved rather
+than attributed, because every attribution this task has tried has rested on a
+subset of the runs — first the seven that support "downstream of the category
+lock", then the one that refutes it. Here is the whole run set, which is what
+either answer has to survive:
 
 | arm | four promotions | `browser.contentblocking.category` | `url_decorations` |
 |---|---|---|---|
@@ -870,14 +922,33 @@ table, including the `A-nokey` arm that breaks the correlation:
 | D | three — **all but** the category lock | `standard` | `fbclid` |
 | B, B2, B3 | all four | `strict` | **`""`** |
 
-`A-nokey` is arm-A content — its packaged `librewolf.cfg` is byte-identical to
-A's, `ok:true`/`tainted:false` — yet it dumped `url_decorations` **empty** with
-`category` reading `standard`: the arm-B outcome on arm-A input. So
-`url_decorations` does **not** track
-`lockPref("browser.contentblocking.category", "strict")`, and arm D does not
-isolate it. It is unexplained, and it is not this task's.
+**The two readings, and why neither is safe to publish as the answer.**
 
-What is known about the mechanism, and it is not enough to call it explained:
+- *Reading 1 — it is downstream of the category lock.* Across the **seven
+  declared runs** (A, C, C2, D, B, B2, B3) the correlation is exact, and arm D is
+  the arm designed to test it: D carries three of the four promotions and **not**
+  the category lock, and it reads `fbclid`, exactly as "downstream of the lock"
+  predicts. This is the claim the previous write-up made, and on those seven runs
+  it is not a sloppy claim.
+- *Reading 2 — it does not track the lock at all.* `A-nokey` is arm-A content —
+  its packaged `librewolf.cfg` is byte-identical to A's, `ok:true`/`tainted:false`
+  — and it dumped `url_decorations` **empty** with `category` reading `standard`:
+  the arm-B outcome on arm-A input. One counterexample is enough to break a
+  correlation, so arm D does not isolate anything.
+
+**And the honest caveat on the counterexample, which the previous correction did
+not state.** `A-nokey` is *not one of the seven runs in "The device" above*. It
+comes from the discarded first build round — the round made before the debug
+keystore was pinned, and the round in which an `adb install` failed with
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Its APK content is vouched for (the cfg
+hash is checked); the *device conditions* of its run are not vouched for by this
+experiment's provenance section, which was written to cover seven runs. So the
+run that refutes Reading 1 is itself the weakest run in the set. Demoting the
+finding on its strength alone would be the same error in the other direction —
+which is why the conclusion here is **unresolved**, not "refuted".
+
+What is known about the mechanism, and it is not enough to call it explained
+either way:
 
 - The pref's static default is `""` (`modules/libpref/init/all.js:836`), and the
   only writer is `URLDecorationAnnotationsService.onDataAvailable`
@@ -891,17 +962,61 @@ What is known about the mechanism, and it is not enough to call it explained:
   `main/password-recipes` and `security-state/onecrl`. So `fbclid` cannot have
   come from the build; it can only have come **off the network**, from the live
   Remote Settings service that LW-M4-08 has not yet blocked.
-- The value therefore looks like a timing race on that async fetch — but it is
-  **not** a clean arm correlation: `A-nokey` shows the arm-B outcome on arm-A
-  input, so it does not track the category lock, and the first write-up's
-  "correlated perfectly across seven runs" reading is wrong.
+- So the two observed values have a reading: `""` is the static default with the
+  fetch **not landed** by dump time, `fbclid` is the fetch **landed**. Every run
+  wipes app data (`pm clear`) before it measures, so each run races that fetch
+  from scratch; nothing is carried over.
+- **The obvious escape — "it is just a network race, correlated with the clock" —
+  does not survive the run order.** The seven runs are already interleaved:
+  chronologically they are A, B, C, B2, C2, D, B3 (read "The device" down its
+  columns), so `fbclid`/`""` alternates *with the arm* on a 13-second A→B gap and
+  again across C → B2 → C2 inside one minute. A time-driven race would not track
+  the arm through that. The arm correlation across the seven declared runs is
+  therefore real and not a clock artefact — which is what makes `A-nokey` a
+  genuine problem rather than a tie-breaker, and why this is filed unresolved
+  instead of quietly demoted.
+- **What is still missing is a mechanism.** Nothing found in the tree explains how
+  `lockPref("browser.contentblocking.category","strict")` would stop or delay a
+  Remote Settings fetch that is kicked off at `profile-after-change` and is not
+  gated on the category anywhere in
+  `URLDecorationAnnotationsService.sys.mjs`. Without that, "downstream of the
+  category lock" is a correlation with a name, not an explanation — and this file
+  has already shipped one of those.
+- It is also **not noise** in this file's sense: the noise floor was measured, it
+  is four named prefs (`extensions.webextensions.uuids`, `nimbus.profileId`,
+  `toolkit.startup.last_success`, `captchadetection.lastSubmission`), and
+  `url_decorations` is not one of them. Within an arm it is perfectly
+  reproducible — C and C2 agree, B/B2/B3 agree. Calling it noise would be another
+  unsupported attribution.
+
+**Where this leaves it, precisely.** Seven interleaved runs say the value tracks
+the arm; one kept run from an unvouched round says it does not; and no mechanism
+in the tree connects the two. Any one of those three could be the thing that is
+wrong, and this experiment cannot tell which. **We observe X, arm D does not
+isolate it, and we cannot yet explain the mechanism.**
+
+**What would settle it, for whoever picks this up.** Interleaving is already done,
+so do not just re-run the arms. Three things this exercise did not do:
+
+1. Run `--pref-dump` with `--network-capture`, or watch logcat, and establish
+   directly whether `""` means *the `anti-tracking-url-decoration` fetch never
+   landed* — that turns the pref reading into an observation of the actual
+   mechanism instead of an inference from it.
+2. Reproduce `A-nokey`'s result on purpose: build arm-A content again, run it
+   repeatedly, and see whether `""` on arm-A input recurs. If it does, the arm
+   correlation is coincidence after all; if seven more arm-A runs all read
+   `fbclid`, `A-nokey` was a bad run and should be discounted **on evidence**
+   rather than on the fact that it is inconvenient.
+3. Remove the external variable entirely — block or pin Remote Settings
+   (LW-M4-08's work), or ship the collection dump in `omni.ja` — so the pref has
+   exactly one possible source and a C/B comparison is decisive.
 
 Why it is not filed as a regression: the value is Mozilla's Remote Settings list,
 not ours; and it will stop being reachable at all once LW-M4-08 lands. But
 **the mechanism was not established here**, and this file is not claiming it is
-harmless — it is claiming it is out of scope, reproducible, and now written down.
-If anyone wants it closed, the experiment is one more arm plus a capture window,
-not a rebuild.
+harmless — it is claiming it is out of scope, reproducible within an arm, and now
+written down with every run that bears on it, including the one that is
+inconvenient.
 
 ---
 
