@@ -98,29 +98,33 @@ Written, on disk and listed in `assets/patches/android.txt`:
 | `neterror-jar.patch` | LW-M1-07 — packages `illustrations/warning.svg` for `toolkit/themes/mobile`, which never includes `desktop-jar.inc.mn`. The entry must go in `toolkit/themes/mobile/global/jar.mn` and **never** in `shared/minimal-toolkit.jar.inc.mn`, which `desktop-jar.inc.mn:10` includes |
 | `webgl-prompt-default.patch` | LW-M1-08 — landmine L1: `librewolf.webgl.prompt` defaults to false on Android, where the prompt's UI and observers are `browser/`-only. Without it every WebGL context fails silently |
 
-Planned, not yet written:
+Status is computed against the files on disk, 2026-08-25. This table said
+"Planned, not yet written" over **13 patches that had already shipped**, one of
+them landed the same day — including every M4 dependency removal. Full
+descriptions live in `docs/android/PATCH-SCOPE.md`, which is checked by
+`board.py --check-scope`; this table is not.
 
-| patch | task |
-|---|---|
-| `build-fixes.patch` | LW-M2-02 — make the common set build on Android |
-| `appservices.patch` | LW-M2-05 — `--enable-appservices-in-tree`, search dumps |
-| `pref-delivery.patch` | LW-M3-03 — `MOZ_DEFAULT_PREFS` into the startup path |
-| `ubo-preinstall.patch` | LW-M3-07 — preinstall uBlock Origin |
-| `no-glean.patch` | LW-M4-01 — remove Glean from the Fenix layer |
-| `no-adjust.patch` | LW-M4-02 — remove the Adjust attribution SDK |
-| `no-nimbus.patch` | LW-M4-03 — disable Nimbus experiments |
-| `no-crashreporter.patch` | LW-M4-04 — remove Socorro and its upload path |
-| `no-gms.patch` | LW-M4-05 — strip Play Integrity, Firebase, push |
-| `search-config.patch` | LW-M4-06 — LibreWolf search configuration |
-| `branding.patch` | LW-M4-07 — branding and applicationId |
-| `rs-blocker-android.patch` | LW-M4-08 — remote-settings blocker for Android |
-| `about-config.patch` | LW-M4-09 — about:config on release builds |
-| `no-onboarding.patch` | LW-M4-10 — onboarding, promos, first-run calls |
-| `no-suggest.patch` | LW-M4-11 — search suggestions and contile |
-| `l10n-strings.patch` | LW-M4-12 — localise Fenix, de-brand its strings |
-| `fission-isolation.patch` | LW-M5-01 — `isolate-high-value` |
-| `isolated-process.patch` | LW-M5-02 — `isolatedProcess` and the app zygote |
-| `update-check.patch` | LW-M6-06 — in-app update check without a store |
+| patch | status | task |
+|---|---|---|
+| `build-fixes.patch` | landed | LW-M2-02 — make the common set build on Android |
+| `appservices.patch` | planned | LW-M2-05 — `--enable-appservices-in-tree`, search dumps |
+| `pref-delivery.patch` | **cancelled** | LW-M3-03 — **CANCELLED 2026-08-25**, not deferred. The env channel cannot bootstrap autoconfig (`general.config.filename` is read 30 lines before it), nothing we set is read that early, and emitting a lock through it would make most of `common.cfg` a no-op. See LW-M3-03 in tasks.yaml. |
+| `ubo-preinstall.patch` | planned | LW-M3-07 — preinstall uBlock Origin |
+| `no-glean.patch` | landed | LW-M4-01 — remove Glean from the Fenix layer |
+| `no-adjust.patch` | landed | LW-M4-02 — remove the Adjust attribution SDK |
+| `no-nimbus.patch` | landed | LW-M4-03 — disable Nimbus experiments |
+| `no-crashreporter.patch` | landed | LW-M4-04 — remove Socorro and its upload path |
+| `no-gms.patch` | landed | LW-M4-05 — strip Play Integrity, Firebase, push |
+| `search-config.patch` | planned | LW-M4-06 — LibreWolf search configuration |
+| `branding.patch` | landed | LW-M4-07 — branding and applicationId |
+| `rs-blocker-android.patch` | landed | LW-M4-08 — remote-settings blocker for Android |
+| `about-config.patch` | landed | LW-M4-09 — about:config on release builds |
+| `no-onboarding.patch` | landed | LW-M4-10 — onboarding, promos, first-run calls |
+| `no-suggest.patch` | planned | LW-M4-11 — search suggestions and contile |
+| `l10n-strings.patch` | landed | LW-M4-12 — localise Fenix, de-brand its strings |
+| `fission-isolation.patch` | landed | LW-M5-01 — `isolate-high-value` |
+| `isolated-process.patch` | landed | LW-M5-02 — `isolatedProcess` and the app zygote |
+| `update-check.patch` | planned | LW-M6-06 — in-app update check without a store |
 
 LW-M1-06 was expected to add one more, and did not: Android packaging does not
 ship pingsender (`mobile/android/installer/package-manifest.in` never mentions

@@ -54,7 +54,7 @@ One stale citation (`android-smoke.sh:1598-1606` → `:1983`) was fixed.
 | changed in `settings/common.cfg` | **0 bytes** — desktop cannot move |
 | bare `pref()` calls reading LibreWolf's value, with the fix reverted | 21 / 24 |
 | bare `pref()` calls reading LibreWolf's value, with the fix in | **24 / 24** |
-| does any of this reach a device from `make` today? | **no** — see "the delivery gap", LW-M3-10 |
+| does any of this reach a device from `make` today? | **yes, since commit 75026bc (2026-08-21)** — `scripts/librewolf-patches.py:398-401` composes `common.cfg + android.cfg` for android-only targets. This row said "no" until 2026-08-25; the delivery gap it points at (LW-M3-10) had already closed, and the third pass was write-up-only so it never revisited the question. |
 | the `verify:` line `tasks.yaml` declares for this task | **vacuous** — see "The declared `verify:` is vacuous" |
 
 ---
@@ -640,7 +640,7 @@ only the second one lost its user value.
    common+desktop) all pass. Those three exist precisely to catch a desktop
    semantic change and none of them fires.
 3. The desktop build never reads `android.cfg` at all:
-   `scripts/librewolf-patches.py:376` copies `settings/librewolf.cfg`, which is
+   `scripts/librewolf-patches.py:398-401` copies `settings/librewolf.cfg`, which is
    `common + desktop`. Nothing else in the repository references `android.cfg`
    except `board.py` and documentation.
 4. The counterfactual was **re-measured for this attempt**, at 2026-08-19, not
@@ -661,7 +661,7 @@ only the second one lost its user value.
 ## The delivery gap this task cannot close, and must not be read as closed
 
 **`settings/android.cfg` is not shipped to Android by the repository today.**
-`scripts/librewolf-patches.py:376` unconditionally copies `settings/librewolf.cfg`
+`scripts/librewolf-patches.py:398-401` unconditionally copies `settings/librewolf.cfg`
 (= `common + desktop`) into `lw/`, on every target. LW-M3-09 does not own that
 file.
 

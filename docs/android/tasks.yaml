@@ -1667,7 +1667,8 @@ tasks:
     title: Decide what remains of the MOZ_DEFAULT_PREFS channel
     milestone: M3
     depends_on: [LW-M3-02, LW-M2-04]
-    owns: [patches/android/pref-delivery.patch]
+    owns:
+      - docs/android/AGENTS.md   # the L2 precedence table is this task's deliverable
     tree_paths:
       - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoRuntimeSettings.java
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
@@ -1678,11 +1679,67 @@ tasks:
       startup, but anything Fenix writes at runtime overwrites a defaultPref — so
       lockPref is mandatory for those. Wire the LW-M3-02 startup artifact into the
       GeckoRuntimeSettings construction and confirm with a pref dump.
+
+      RESOLVED 2026-08-25 — and the answer is NOTHING. Do not wire the channel.
+      patches/android/pref-delivery.patch is cancelled, not deferred; the row for it
+      in patches/android/README.md should go.
+
+      This entry's framing was written before LW-M3-08 ran and is now wrong in its
+      premise. It says "wire the LW-M3-02 startup artifact into the
+      GeckoRuntimeSettings construction". Four measured facts kill that:
+
+      (a) NOTHING WE SET IS READ THAT EARLY. Autoconfig fires at
+      nsAppRunner.cpp:6002. Of the 255 pref names across settings/*.cfg, none is read
+      before that point — none is `mirror: once`, none is a javascript.options.*
+      startup pref, none appears at a pre-autoconfig read site. The env channel buys
+      us zero prefs today.
+
+      (b) IT CANNOT BOOTSTRAP AUTOCONFIG ANYWAY. general.config.filename is read at
+      Preferences.cpp:3933; MOZ_DEFAULT_PREFS is parsed at :3963 — the same function,
+      thirty lines later. Putting general.config.filename in the env var means
+      nsReadConfig is never constructed and autoconfig silently never runs. That is
+      the one job the channel looked obviously suited for, and it cannot do it.
+
+      (c) TEACHING IT TO LOCK WOULD BREAK US. The parser does accept the `locked`
+      attribute in Default-kind data (parser/src/lib.rs:494-517) — the earlier claim
+      that no such token exists was wrong and is corrected in settings/android.cfg.
+      But a locked default arriving at stage 2 makes every later defaultPref a silent
+      no-op: Pref::SetDefaultValue returns without writing when IsLocked()
+      (Preferences.cpp:876-902), and common.cfg is overwhelmingly defaultPref. Only
+      lockPref would still land, because prefcalls.js unlocks first. "Improving" this
+      channel is a foot-gun aimed at most of LibreWolf's configuration.
+
+      (d) IT IS NOT OUR CHANNEL. GeckoLoader populates it from
+      RuntimeSettings.getPrefsMap() — every Pref<> GeckoView declares, ~77 names,
+      emitted on every start whether or not anyone set them. Writing into it means
+      contending with GeckoView for its own transport. Autoconfig runs later and wins
+      cleanly (LW-M3-08 proved a lockPref'd value survives on a running build).
+
+      Nothing in the LibreWolf overlay sets MOZ_DEFAULT_PREFS today — verified by
+      grep over assets/, scripts/, patches/ and the Makefile. The correct outcome of
+      this task is to keep it that way and write down why, which is done: AGENTS.md's
+      L2 section now carries the five-stage precedence table this was derived from.
+
+      What this task DID surface, and what actually matters, is that we are stage 4
+      of 5 — GeckoView:ResetUserPrefs and ~65 Pref.commit() calls run AFTER autoconfig
+      on every cold start, the latter from GeckoEngine.kt:1986-2074 with no user
+      interaction. So an unlocked defaultPref is not safe on Android. That is
+      LW-M3-04's mandate and it is now measured rather than estimated: 89 Pref<>
+      declarations, 113 names in the reset universe, 36 of them constructed as
+      ROOT + name + ".suffix" and therefore invisible to a literal grep.
+
+      Upstream bug found in passing, worth reporting: GeckoLoader.escapeDoubleQuotes
+      (.../gecko/mozglue/GeckoLoader.java:79-81) is a no-op — `replaceAll("\"",
+      "\\\"")` returns its input under Matcher replacement semantics, confirmed by
+      running it. Any pref name or String value containing a double quote emits
+      malformed text, and the parser error-recovers by scanning to the next `;`,
+      swallowing the rest of that pref. We do not use the channel, so it cannot bite
+      us; it can bite GeckoView embedders who set a String pref from user data.
     acceptance:
       - "prefs from common.cfg are observable in about:config on first run, before any UI interaction"
       - "a pref Fenix sets at runtime is demonstrated to override an unlocked defaultPref (documents the need for LW-M3-04)"
       - "startup time regression measured and under 50ms"
-    verify: "./scripts/android-smoke.sh --pref-dump | diff - docs/android/expected-prefs.txt"
+    verify: "! grep -rqI --include='*.py' --include='*.sh' --include='*.patch' --include='*.mk' MOZ_DEFAULT_PREFS assets scripts patches && ! grep -q MOZ_DEFAULT_PREFS Makefile"
     effort_h: "6-12"
     skills: [kotlin, java, android]
     agent_safe: yes
@@ -1749,6 +1806,7 @@ tasks:
       Fix the attribution or state it as unresolved. An honest "we observed X and
       cannot yet explain it" is worth more than a mechanism that does not survive
       the agent's own data.
+
     acceptance:
       - "every one of the 24 bare pref() calls has a stated disposition and reason"
       - "the 9 measured casualties are fixed, verified on a running build not by reading"
@@ -1768,8 +1826,9 @@ tasks:
     depends_on: [LW-M3-02, LW-M3-09]
     owns: [scripts/librewolf-patches.py]
     what: |
-      LIVE GAP, and it undercuts most of M3's value. `scripts/librewolf-patches.py:376`
-      does `cp -v ../../settings/librewolf.cfg .` UNCONDITIONALLY, and
+      WAS A LIVE GAP; CLOSED 2026-08-21 in commit 75026bc — see the RESOLVED note at the
+      end of this entry. As written: `scripts/librewolf-patches.py` did
+      `cp -v ../../settings/librewolf.cfg .` UNCONDITIONALLY, and
       settings/librewolf.cfg is by construction `common.cfg + desktop.cfg`. So the
       autoconfig channel LW-M3-02 landed works perfectly — and delivers the DESKTOP
       composition to Android.
@@ -1795,6 +1854,24 @@ tasks:
       autoconfig's skipFirstLine eats. Whatever you concatenate must keep exactly
       one of those at the top and none in the middle — --check-cfg-split rule E
       checks the fragments for this, but not your generated output.
+      RESOLVED 2026-08-21 (commit 75026bc), recorded 2026-08-25 after a survey found
+      three separate files still asserting the gap was open.
+      scripts/librewolf-patches.py:398-401 now branches: android-only targets get
+      `cat common.cfg android.cfg > librewolf.cfg`, everything else keeps the desktop
+      composition. The extracted tree's lw/librewolf.cfg is 1119 lines with the
+      ANDROID fragment beginning at :707.
+
+      The stale citation is worth naming because it was copied forward twice: this
+      entry, docs/android/parity/bare-prefs.md and settings/android.cfg all cited
+      `librewolf-patches.py:376` as the unconditional copy. Line 376 is now a comment
+      in an unrelated function. A line number quoted in three documents outlives the
+      code it pointed at, which is an argument for citing the branch by name.
+
+      Also corrected here: bare-prefs.md's headline row said "does any of this reach
+      a device from make today? no" as late as its 2026-08-25 third pass. That pass
+      was explicitly write-up-only, so it never revisited the delivery question and
+      carried a four-day-stale "no" into a document whose whole purpose is to say
+      what reaches a device.
     acceptance:
       - "the desktop tree's lw/librewolf.cfg is byte-identical to today's settings/librewolf.cfg"
       - "the android tree's is common.cfg + android.cfg, in that order"
