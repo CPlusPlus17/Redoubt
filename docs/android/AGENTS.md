@@ -335,6 +335,40 @@ build tree are absent. A verify that can only run on the machine that happened t
 build something is not a verify. Say what it needs, and make it fail loudly rather
 than silently pass when its input is missing.
 
+## When two models share a task: planner + coder
+
+The setup, from 2026-08-26: box A (Gemma, planning and vision) reasons, reads and
+orchestrates; box B (Qwen, coding) implements, on an **explicit** `@coder` hand-off.
+Opportunistic auto-delegation was tried twice with a local orchestrator and did not
+hold. Treat the explicitness as a feature: every hand-off is a deliberate, visible
+boundary, and boundaries are where this project's defects live.
+
+**The failure mode this creates is the one that has already cost us three rounds.**
+Our recurring defect is a claim passed forward as established — the `locked_pref`
+claim survived three hand-offs because each reader treated the previous writer's
+assertion as measurement. A planner/coder split adds a seam per task where exactly
+that happens: the planner writes "GeckoView declares it at `ContentBlocking.java:1818`",
+the coder implements against it without opening the file, and the report says
+"implemented as specified" — true, and worthless, because nobody checked the premise.
+
+So:
+
+1. **Every claim carries its provenance.** Mark each as *read it*, *inferred*, or
+   *taken from the brief, not checked*. The third is allowed; silently promoting it
+   to the first is not. A brief is a hypothesis, not evidence.
+2. **The box that runs the gate owns the green.** The planner may not report a gate
+   it did not execute. "Definition of done" means the commands ran, in one box, and
+   that box says which.
+3. **If a fact is load-bearing, the coder opens the file.** A file:line in a brief
+   costs one `sed` to confirm and a rewrite to get wrong. My own briefs have shipped
+   a wrong path (`GeckoLoader.java` is under `.../gecko/mozglue/`) and a line range
+   two short.
+4. **One evidence directory per task, not per box** — `docs/android/evidence/<task-id>/`.
+   Name which box produced each artefact, because "we measured it" stops being
+   answerable once two machines are involved.
+5. **Ownership and stand-off lists are per task, not per box.** Two models in one
+   working tree are still one writer. The tree has no second index.
+
 ## Scratch files: use a task-private subdirectory
 
 The scratchpad is **shared** between concurrently running agents. Generic temp
