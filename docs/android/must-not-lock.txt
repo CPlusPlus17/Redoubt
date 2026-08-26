@@ -1,0 +1,38 @@
+# Must-NOT-lock allowlist (LW-M3-04)
+#
+# Prefs in this list are in the must-lock universe (Fenix writes them at
+# runtime via Pref.commit()), BUT they are also exposed to the user through
+# a visible settings toggle. Locking them would make the toggle a silent
+# no-op — no crash, no log, no gate catches it.
+#
+# Format: one pref per line, followed by # owned by <settings UI>.
+# An entry without a named owner is a guess and should not be here.
+#
+# These prefs must use defaultPref (not lockPref) in librewolf.cfg, accepting
+# that stage 5b (GeckoView:SetDefaultPrefs) will overwrite our value at the
+# next startup. The user's explicit choice in Settings is the later write.
+
+dom.security.https_only_mode            # owned by Settings > Privacy > HTTPS-Only Mode toggle (HttpsOnlyFragment.kt:79)
+privacy.globalprivacycontrol.enabled    # owned by Settings > Privacy > Global Privacy Control toggle (TrackingProtectionFragment.kt:147)
+privacy.fingerprintingProtection        # owned by Settings > Privacy > "Block cross-site trackers" / fingerprinting toggle (TrackingProtectionFragment.kt:419-430)
+
+# ---------------------------------------------------------------------------
+# LOCKED, KNOWN TO LEAVE A VISIBLE CONTROL DEAD
+#
+# A third category, and LW-M3-09 asked for it by name: settings/android.cfg:338
+# says the dead selector "belongs in LW-M3-04's 'locked, known to leave a visible
+# control dead'". Entries here are deliberate, measured, and NOT bugs.
+#
+# Corrected 2026-08-26 by the board-owner session: browser.contentblocking.category
+# was first filed under must-NOT-lock, which contradicts what we actually ship
+# (settings/android.cfg:341 lockPref's it) and would have undone LW-M3-09's fix for
+# the single pref bare-prefs.md measured as the headline L2b failure — it read
+# "standard" despite a bare pref() of "strict". Acting on that entry would have
+# re-opened the landmine.
+# ---------------------------------------------------------------------------
+
+browser.contentblocking.category        # lockPref, settings/android.cfg:341. Settings > Privacy >
+                                        # Tracking Protection selector still MOVES but no longer
+                                        # changes behaviour. Parity with desktop, which hides the
+                                        # equivalent UI and rewrites the pref every startup — see
+                                        # settings/android.cfg:335-338 and docs/android/parity/bare-prefs.md.

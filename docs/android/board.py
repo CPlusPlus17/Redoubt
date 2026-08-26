@@ -725,7 +725,25 @@ def cmd_check_policies():
         # the doc.
         cands = [Path(override) if Path(override).is_absolute() else REPO / override]
     else:
-        cands = sorted(p.parent for p in REPO.glob("firefox-*/mobile"))
+        # BOTH naming schemes. `firefox-<version>` is the extracted DESKTOP tarball
+        # (./version, 153.0.4); the Android build works in `librewolf-<version>-<rel>`
+        # off ./version.android (153.0esr). The glob was "firefox-*/mobile", so this
+        # ANDROID check could never select the ANDROID tree — it silently read the
+        # desktop one and was right only because the two agree today (ContentBlocking
+        # .java and GeckoRuntimeSettings.java are byte-identical across both, checked
+        # 2026-08-26). They are different release tracks and need not stay that way.
+        # Surfaced by LW-M3-04's gen-android-locks.py, which globbed wider and
+        # reported the ambiguity this one could not see.
+        cands = sorted({p.parent for p in list(REPO.glob("firefox-*/mobile"))
+                        + list(REPO.glob("librewolf-*/mobile"))})
+        vfile = REPO / "version.android"
+        if len(cands) > 1 and vfile.exists():
+            want = vfile.read_text().strip()
+            preferred = [c for c in cands if want in c.name]
+            if len(preferred) == 1:
+                print(f"# two trees on disk; preferring {preferred[0].name} "
+                      f"(matches version.android = {want})")
+                cands = preferred
     if not cands:
         print("warn:  no extracted Firefox tree found — cannot check pref declarations")
         print("       (extract one, or set LW_TREE=/path/to/firefox-<version>)")
