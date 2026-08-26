@@ -639,6 +639,43 @@ def cmd_check_cfg_split():
     return 0
 
 
+def _constructed_prefs(path, rel):
+    """Pref names GeckoView BUILDS rather than writes, e.g. the SafeBrowsingProvider
+    trees: `new Pref<>(ROOT + mName + ".updateURL", null)` with
+    `ROOT = "browser.safebrowsing.provider."` and one provider per `withName("...")`.
+
+    A literal-string scan cannot see any of these, and this checker was blind to all
+    36 of them until 2026-08-26 — while common.cfg:371-374, :384 and android.cfg:432
+    set six such prefs. The gate whose entire job is "GeckoView declares this, did you
+    acknowledge the lock?" was answering "no such pref" for a whole subtree. Found
+    while briefing LW-M3-04, which exists because a hand-built list misses exactly
+    this shape.
+
+    Deliberately derives the pieces from the file instead of hardcoding the 36 names:
+    a provider added upstream should widen the check on its own.
+    """
+    text = path.read_text(errors="replace")
+    roots = dict(re.findall(r'\b(\w+)\s*=\s*"([^"]*\.)"\s*;', text))
+    # Comment lines excluded deliberately: ContentBlocking.java:1537 is a javadoc
+    # example `.withName("custom-provider")`, and scraping it invented 12 pref names
+    # for a provider that does not ship. Caught by the count assertion below.
+    code = "\n".join(l for l in text.splitlines()
+                     if not l.lstrip().startswith(("*", "//", "/*")))
+    names = sorted(set(re.findall(r'withName\(\s*"([^"]+)"', code)))
+    out = {}
+    for m in re.finditer(r'Pref(?:WithoutDefault)?<[^>]*>\s*\(\s*'
+                         r'(\w+)\s*\+\s*(\w+)\s*\+\s*"([^"]+)"', text):
+        root_id, _var, suffix = m.groups()
+        root = roots.get(root_id)
+        if root is None:
+            continue
+        line_no = text[:m.start()].count("\n") + 1
+        for n in names:
+            out.setdefault(f"{root}{n}{suffix}",
+                           f"{Path(rel).name}:{line_no} (built as {root_id}+name+\"{suffix}\")")
+    return out
+
+
 def _gv_declared_prefs(tree):
     """Pref names declared in GeckoRuntimeSettings.java / ContentBlocking.java.
 
@@ -650,6 +687,7 @@ def _gv_declared_prefs(tree):
         p = tree / rel
         if not p.exists():
             continue
+        found.update(_constructed_prefs(p, rel))
         for i, line in enumerate(p.read_text(errors="replace").splitlines(), 1):
             for m in re.finditer(r'\bPref(?:WithoutDefault)?<[^>]*>\s*\(\s*"([^"]+)"', line):
                 found.setdefault(m.group(1), f"{Path(rel).name}:{i}")
@@ -711,6 +749,21 @@ def cmd_check_policies():
               f"— the parser is broken or the tree layout changed")
         return 2
 
+    # A pref common.cfg sets and android.cfg overrides is HANDLED on Android: the
+    # android composition is common + android, later wins. Without this, the checker
+    # reports the very pattern LW-M3-09 landed as the fix — android.cfg:432 promotes
+    # browser.safebrowsing.provider.google4.dataSharingURL from common.cfg's bare
+    # pref() to a defaultPref, which is correct, and the first version of this check
+    # called it "new debt". Same class of false positive as Rule C in
+    # --check-cfg-split, which forbade overrides until it was rewritten.
+    android_overrides = set()
+    ap = S / "android.cfg"
+    if ap.exists():
+        for line in ap.read_text().splitlines():
+            m = re.match(r'\s*(defaultPref|lockPref|pref)\s*\(\s*"([^"]+)"', line)
+            if m:
+                android_overrides.add(m.group(2))
+
     errs, warns, checked = [], [], 0
     for name in ("common", "android"):
         p = S / f"{name}.cfg"
@@ -740,6 +793,8 @@ def cmd_check_policies():
             kind, pref = m.group(1), m.group(2)
             if pref not in declared:
                 continue
+            if name == "common" and pref in android_overrides:
+                continue          # android.cfg has the last word on Android
             checked += 1
             if kind == "lockPref":
                 continue                      # already locked, nothing to acknowledge
