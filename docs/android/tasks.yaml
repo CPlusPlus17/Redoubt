@@ -1970,6 +1970,43 @@ tasks:
       the lock list. Maintain a must-not-lock allowlist for prefs the settings
       fragment legitimately exposes to the user; locking those makes visible
       toggles do nothing.
+
+      EXTENDED 2026-08-27. The generated must-lock list was only half the job. The other
+      half — deciding what to do about each pref — was being answered by a COMMENT.
+
+      board.py --check-policies used to pass if the string "[ANDROID: LOCK]" appeared near
+      the pref. So of the 26 GeckoView-declared prefs we ship on Android, 23 were
+      effectively defaultPref and the gate was green over every one of them. The marker was
+      never meant to be the answer — settings/common.cfg:53-56 says so outright: it "is a
+      hint for LW-M3-04, which generates the authoritative list ... it is not a substitute
+      for it". The gate had been treating the hint as the answer for as long as it existed.
+
+      All 23 were classified against the code, each verdict adversarially re-checked
+      (0 of 23 refuted). docs/android/must-not-lock.txt is now a decision register with
+      three sections and a reason per entry, and --check-policies HARD ERRORS on any
+      unlocked GeckoView-declared pref that is not classified. Tested in both directions.
+
+      The alarming headline did not survive contact: 14 of the 23 are genuinely safe
+      unlocked — no stage-5b writer reaches them, or the commit provably no-ops on the
+      equality guard. One needed a real lock and got one (network.lna.block_trackers:
+      overwritten every cold start, only a hidden debug switch as UI, so locking cost
+      nothing). Eight are owned by a visible setting and must NOT be locked.
+
+      THE FINDING THAT NEEDS ITS OWN TASK — OUR DoH CONFIG DOES NOT APPLY ON ANDROID.
+      common.cfg:259-260 set network.trr.mode=5 and a quad9 URI. Both are overwritten on
+      every cold start: Core.kt:190-191 -> GeckoEngine.kt:2032-2033 -> setTrustedRecursive
+      Resolver{Mode,Uri} -> GeckoRuntimeSettings.java:2265/2323 -> commit(). The equality
+      guard at RuntimeSettings.java:106 cannot short-circuit, because PrefWithoutDefault is
+      built with super(name, null) (:186-187), so Fenix's OWN default (mode 0, empty URI)
+      commits over ours. Verified by reading every link.
+
+      Locking is NOT the fix: Settings > Privacy > DNS over HTTPS owns both prefs
+      (preferences.xml:137-141 -> DohSettingsProvider.kt:94-110), so a lock would leave the
+      provider list and custom-URL field interactive while silently discarding every
+      choice. The fix is Fenix-side — change the default or hide the entry point — and it
+      is not in any task's scope today. Both values currently leave DoH off, so this is a
+      semantic loss rather than a live leak, but the .cfg lines are cosmetic on Android and
+      have read as effective since M3.
     acceptance:
       - "generated list covers both Java files and the SafeBrowsingProvider trees"
       - "every entry on the must-not-lock allowlist names the settings UI that owns it"

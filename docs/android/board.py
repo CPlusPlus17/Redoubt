@@ -52,6 +52,7 @@ GV_PREF_DECLARERS = (
     "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/ContentBlocking.java",
 )
 LOCK_MARKER = "[ANDROID: LOCK]"
+DECISIONS = Path(__file__).resolve().parent / "must-not-lock.txt"
 
 # Bare pref() calls on GeckoView-declared prefs that LW-M3-09 is chartered to fix.
 # Declared debt, not tolerated debt: these three warn, anything NOT in this set is a
@@ -762,6 +763,17 @@ def cmd_check_policies():
     print(f"# reading pref declarations from {tree.name}")
 
     declared = _gv_declared_prefs(tree)
+    decisions = set()
+    if DECISIONS.exists():
+        for ln in DECISIONS.read_text().splitlines():
+            ln = ln.strip()
+            if ln and not ln.startswith("#"):
+                decisions.add(ln)
+    else:
+        print(f"error: {DECISIONS} is missing — it is what classifies every unlocked "
+              f"GeckoView-declared pref, and without it this check cannot answer its "
+              f"own question")
+        return 2
     if not declared:
         print(f"error: found no Pref<> declarations in {', '.join(GV_PREF_DECLARERS)} "
               f"— the parser is broken or the tree layout changed")
@@ -830,11 +842,30 @@ def cmd_check_policies():
                 else:
                     errs.append(msg + " — and it is NOT in BARE_PREF_BACKLOG, so it is new debt")
                 continue
-            if LOCK_MARKER not in line and LOCK_MARKER not in "\n".join(block):
+            # A MARKER IS NOT AN ANSWER. Until 2026-08-27 this check passed on the
+            # string "[ANDROID: LOCK]" appearing in a nearby comment, so 23 of the 26
+            # GeckoView-declared prefs we ship were effectively defaultPref with the
+            # gate green over all of them — including network.trr.mode, which stage 5b
+            # provably overwrites on every cold start. A comment recorded that someone
+            # had thought about the question; it never recorded the answer.
+            #
+            # Now every unlocked GeckoView-declared pref must be classified in
+            # docs/android/must-not-lock.txt, which says WHICH answer and why.
+            if pref not in decisions:
                 errs.append(
-                    f"{name}.cfg:{i + 1} ships {pref} as {kind} but GeckoView declares it at "
-                    f"{declared[pref]} — it is landmine L2 and needs a {LOCK_MARKER} "
-                    f"acknowledgement (or a real lock)")
+                    f"{name}.cfg:{i + 1} ships {pref} as {kind}, GeckoView declares it at "
+                    f"{declared[pref]}, and it is not classified in "
+                    f"{DECISIONS.name}. Add it under MUST-NOT-LOCK (naming the settings "
+                    f"UI that owns it) or SAFE-UNLOCKED (saying why no stage-5b writer "
+                    f"reaches it) — or make it a real lockPref. An [ANDROID: LOCK] "
+                    f"comment no longer satisfies this check.")
+            # No warning for the [ANDROID: LOCK] marker on a classified-but-unlocked
+            # pref. A first draft of this check warned on exactly that and was wrong:
+            # settings/common.cfg:53 defines the marker as "this pref is one GeckoView
+            # declares", NOT "this pref is locked". It flags membership of the danger
+            # set; must-not-lock.txt now supplies the answer. Warning on all seven
+            # would have been noise, and a gate nobody reads is the failure mode the
+            # ratchets in this file exist to avoid.
 
     for w in warns:
         print(f"warn:  {w}")
@@ -844,7 +875,7 @@ def cmd_check_policies():
         print(f"\n{len(errs)} error(s)")
         return 1
     print(f"ok: {len(declared)} prefs declared by GeckoView; {checked} of them shipped by us, "
-          f"all acknowledged as needing a lock")
+          f"every unlocked one classified in must-not-lock.txt")
     return 0
 
 
