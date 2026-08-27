@@ -2355,6 +2355,43 @@ def check_ubo(m, res):
             {"addons": listed, "assetsBootstrapLocation": pref})
     return ok
 
+# The add-on ID is uBlock0@raymondhill.net — Raymond Hill's, and the one this repo
+# already uses at settings/distribution/policies.json:50. It was uBlock0@uvrove.com
+# here and in patches/android/ubo-preinstall.patch until 2026-08-27; that ID exists
+# nowhere else in the project or upstream, so this gate could never have gone green
+# against genuine uBO, and WOULD have gone green against an add-on carrying the made-up
+# ID. Both halves of a gate keyed on an identifier have to use the same identifier the
+# rest of the system does.
+def check_ubo_preinstall(m, res):
+    """Verify uBlock Origin is PREINSTALLED -- present in the add-on registry
+    by its exact ID and active -- and report the assets bootstrap location the
+    build declares for it.  Unlike check_ubo, this does not substring-match the
+    name and it does not require the harness to have installed anything: a green
+    here means the build ships uBlock Origin, not that this run added it."""
+    listed = m.script(r"""
+      return (async () => {
+        const { AddonManager } = ChromeUtils.importESModule(
+          "resource://gre/modules/AddonManager.sys.mjs");
+        return await AddonManager.getAllAddons().then(addons =>
+          addons.map(a => ({id: a.id, name: a.name, active: a.isActive})));
+      })();
+    """, chrome=True)
+    pref = m.script('var n="librewolf.uBO.assetsBootstrapLocation";'
+                    'return {type: Services.prefs.getPrefType(n), '
+                    'value: Services.prefs.getPrefType(n) ? Services.prefs.getStringPref(n) : null};',
+                    chrome=True)
+    boot = pref.get("value") if pref.get("type") else None
+    ubo = [a for a in (listed or []) if a.get("id") == "uBlock0@raymondhill.net"]
+    ok = bool(ubo) and bool(ubo[0]["active"])
+    res.add("check-ubo-preinstall", ok,
+            ("uBlock Origin preinstalled and active: %s (bootstrap location: %s)"
+             % (ubo[0], boot) if ok else
+             "uBlock Origin (uBlock0@raymondhill.net) is not installed or is not active among "
+             "the %d add-ons on record (bootstrap location: %s) -- owned by LW-M4-04"
+             % (len(listed or []), boot)),
+            {"addons": listed, "bootstrap_location": boot})
+    return ok
+
 # Mozilla's search partner / attribution parameters.  Measured on this build:
 # a real query typed into the Fenix toolbar produced
 # https://www.google.com/search?client=firefox-b-m&q=... -- client=firefox-b-m
@@ -2502,8 +2539,9 @@ def main(argv):
     ap.add_argument("--first-run-capture", action="store_true")
     ap.add_argument("--self-test", action="store_true",
                     help="prove the harness reports failure when a probe fails")
-    for f in ("ubo", "search", "no-gms", "no-adjust", "aboutconfig", "no-suggest",
-              "strings", "update-privacy", "no-remote-settings"):
+    for f in ("ubo", "ubo-preinstall", "search", "no-gms", "no-adjust",
+              "aboutconfig", "no-suggest", "strings", "update-privacy",
+              "no-remote-settings"):
         ap.add_argument("--check-" + f, action="store_true")
     args = ap.parse_args(argv)
 
@@ -2700,6 +2738,9 @@ def main(argv):
             return finish(res, args, work)
         if args.check_ubo:
             check_ubo(m, res)
+            return finish(res, args, work)
+        if args.check_ubo_preinstall:
+            check_ubo_preinstall(m, res)
             return finish(res, args, work)
         if args.check_search:
             check_search(m, res, adb, apk)

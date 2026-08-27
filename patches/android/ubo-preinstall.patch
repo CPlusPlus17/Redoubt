@@ -1,0 +1,199 @@
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfAddonsProvider.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfAddonsProvider.kt
+@@ -0,0 +1,96 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.components
++
++import android.content.Context
++import mozilla.components.feature.addons.Addon
++import mozilla.components.feature.addons.AddonsProvider
++import mozilla.components.support.base.log.logger.Logger
++import org.mozilla.fenix.utils.Settings
++import java.io.File
++import java.io.IOException
++
++/**
++ * LibreWolf: decorator for an [AddonsProvider] that preinstalls uBlock Origin from
++ * the assets bundled with the APK.
++ *
++ * @param context A reference to the application context.
++ * @param amoProvider The wrapped add-ons provider (typically
++ * [mozilla.components.feature.addons.amo.AMOAddonsProvider]).
++ */
++class LibreWolfAddonsProvider(
++    private val context: Context,
++    private val amoProvider: AddonsProvider,
++) : AddonsProvider {
++    private val logger = Logger("LibreWolfAddonsProvider")
++
++    override suspend fun getFeaturedAddons(
++        allowCache: Boolean,
++        readTimeoutInSeconds: Long?,
++        language: String?,
++    ): List<Addon> {
++        val featuredAddons = amoProvider.getFeaturedAddons(allowCache, readTimeoutInSeconds, language)
++        if (featuredAddons.any { it.id == UBO_ADDON_ID }) {
++            return featuredAddons
++        }
++        return localUboAddon()?.let { featuredAddons + it } ?: featuredAddons
++    }
++
++    override suspend fun getAddonByID(
++        id: String,
++        readTimeoutInSeconds: Long?,
++        language: String?,
++    ): Addon? {
++        if (id == UBO_ADDON_ID) {
++            return localUboAddon()
++        }
++        return amoProvider.getAddonByID(id, readTimeoutInSeconds, language)
++    }
++
++    private fun localUboAddon(): Addon? {
++        val location = Settings.getLibreWolfUboAssetsBootstrapLocation(context)
++        if (location.isBlank() || !assetsExist(location)) {
++            logger.info("uBlock Origin assets not found at $location; not offering the preinstalled add-on")
++            return null
++        }
++
++        return Addon(
++            id = UBO_ADDON_ID,
++            author = Addon.Author(name = "Raymond Hillemans", url = "https://github.com/gorhill/uBlock"),
++            downloadUrl = location,
++            version = UBO_VERSION,
++            translatableName = mapOf(Addon.DEFAULT_LOCALE to UBO_NAME),
++            translatableDescription = mapOf(Addon.DEFAULT_LOCALE to UBO_DESCRIPTION),
++            translatableSummary = mapOf(Addon.DEFAULT_LOCALE to UBO_SUMMARY),
++            installedState = Addon.InstalledState(
++                id = UBO_ADDON_ID,
++                version = UBO_VERSION,
++                optionsPageUrl = null,
++                enabled = true,
++                supported = true,
++            ),
++        )
++    }
++
++    private fun assetsExist(location: String): Boolean {
++        return try {
++            context.assets.open(location).use { true }
++        } catch (e: IOException) {
++            // Not an APK asset; the location may be an absolute file path.
++            File(location).exists()
++        }
++    }
++
++    companion object {
++        const val UBO_ADDON_ID = "uBlock0@uvrove.com"
++
++        private const val UBO_NAME = "uBlock Origin"
++        private const val UBO_SUMMARY = "Fast, efficient, powerful ad blocker, with no tracking of its own."
++        private const val UBO_DESCRIPTION =
++            "uBlock Origin is a fast, efficient and powerful ad blocker, with no tracking of its own. " +
++                "LibreWolf bundles it and ships it preinstalled."
++        private const val UBO_VERSION = "1.62.0"
++    }
++}
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+@@ -186,32 +186,34 @@
+     }
+ 
+     val addonsProvider by lazyMonitored {
+-        // Check if we have a customized (overridden) AMO collection (supported in Nightly & Beta)
+-        if (FeatureFlags.customExtensionCollectionFeature && settings.amoCollectionOverrideConfigured()) {
+-            AMOAddonsProvider(
+-                context,
+-                core.client,
+-                collectionUser = settings.overrideAmoUser,
+-                collectionName = settings.overrideAmoCollection,
+-            )
+-        }
+-        // Use build config otherwise
+-        else if (BuildConfig.AMO_COLLECTION_USER.isNotEmpty() &&
+-            BuildConfig.AMO_COLLECTION_NAME.isNotEmpty()
+-        ) {
+-            AMOAddonsProvider(
+-                context,
+-                core.client,
+-                serverURL = BuildConfig.AMO_SERVER_URL,
+-                collectionUser = BuildConfig.AMO_COLLECTION_USER,
+-                collectionName = BuildConfig.AMO_COLLECTION_NAME,
+-                maxCacheAgeInMinutes = AMO_COLLECTION_MAX_CACHE_AGE,
+-            )
+-        }
+-        // Fall back to defaults
+-        else {
+-            AMOAddonsProvider(context, core.client, maxCacheAgeInMinutes = AMO_COLLECTION_MAX_CACHE_AGE)
+-        }
++        val amoProvider =
++            // Check if we have a customized (overridden) AMO collection (supported in Nightly & Beta)
++            if (FeatureFlags.customExtensionCollectionFeature && settings.amoCollectionOverrideConfigured()) {
++                AMOAddonsProvider(
++                    context,
++                    core.client,
++                    collectionUser = settings.overrideAmoUser,
++                    collectionName = settings.overrideAmoCollection,
++                )
++            }
++            // Use build config otherwise
++            else if (BuildConfig.AMO_COLLECTION_USER.isNotEmpty() && BuildConfig.AMO_COLLECTION_NAME.isNotEmpty()) {
++                AMOAddonsProvider(
++                    context,
++                    core.client,
++                    serverURL = BuildConfig.AMO_SERVER_URL,
++                    collectionUser = BuildConfig.AMO_COLLECTION_USER,
++                    collectionName = BuildConfig.AMO_COLLECTION_NAME,
++                    maxCacheAgeInMinutes = AMO_COLLECTION_MAX_CACHE_AGE,
++                )
++            }
++            // Fall back to defaults
++            else {
++                AMOAddonsProvider(context, core.client, maxCacheAgeInMinutes = AMO_COLLECTION_MAX_CACHE_AGE)
++            }
++
++        // LibreWolf: preinstall uBlock Origin on top of whatever AMO collection is configured.
++        LibreWolfAddonsProvider(context, amoProvider)
+     }
+ 
+     @Suppress("MagicNumber")
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+@@ -173,6 +173,24 @@
+          * Bug 1946867 - Currently "hardcoded" to the DoH TRR URI of Cloudflare
+          */
+         private const val CLOUDFLARE_URI = "https://mozilla.cloudflare-dns.com/dns-query"
++
++        /**
++         * Default bootstrap location of the uBlock Origin assets bundled with LibreWolf:
++         * either an APK asset path or an absolute file path.
++         */
++        const val LIBREWOLF_UBO_ASSETS_BOOTSTRAP_LOCATION = "webextensions/ublock_origin.xpi"
++
++        /**
++         * Returns the bootstrap location of the bundled uBlock Origin assets, honoring the
++         * pref_key_librewolf_ubo_assets_bootstrap_location preference and falling back to
++         * [LIBREWOLF_UBO_ASSETS_BOOTSTRAP_LOCATION].
++         */
++        fun getLibreWolfUboAssetsBootstrapLocation(context: Context): String {
++            val key = context.getPreferenceKey(R.string.pref_key_librewolf_ubo_assets_bootstrap_location)
++            return context.getSharedPreferences(FENIX_PREFERENCES, MODE_PRIVATE)
++                .getString(key, LIBREWOLF_UBO_ASSETS_BOOTSTRAP_LOCATION)
++                ?: LIBREWOLF_UBO_ASSETS_BOOTSTRAP_LOCATION
++        }
+     }
+ 
+     private val logger = Logger("Settings")
+--- a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
++++ b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
+@@ -50,6 +50,7 @@
+     <string name="pref_key_install_local_addon" translatable="false">pref_key_install_local_addon</string>
+     <string name="pref_key_override_amo_user" translatable="false">pref_key_override_amo_user</string>
+     <string name="pref_key_override_amo_collection" translatable="false">pref_key_override_amo_collection</string>
++    <string name="pref_key_librewolf_ubo_assets_bootstrap_location" translatable="false">pref_key_librewolf_ubo_assets_bootstrap_location</string>
+     <string name="pref_key_enable_gecko_logs" translatable="false">pref_key_enable_gecko_logs</string>
+     <string name="pref_key_rate" translatable="false">pref_key_rate</string>
+     <string name="pref_key_about" translatable="false">pref_key_about</string>

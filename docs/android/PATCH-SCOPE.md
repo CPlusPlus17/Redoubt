@@ -22,7 +22,26 @@ arithmetic — so these are checked, not asserted.
 
 ## Pending — on disk, deliberately in no list
 
-**Currently empty. Every patch file on disk is in a list.**
+**One entry: `patches/android/ubo-preinstall.patch` (LW-M3-07).**
+
+- patches/android/ubo-preinstall.patch (LW-M3-07) — parked 2026-08-27, NOT applied.
+  It applies cleanly and its ordering is measured
+  (`docs/android/evidence/lw-m3-07/order-free.txt`), so this is not a build problem —
+  it is parked because shipping it would make a **false privacy claim**. Three defects,
+  each verified against the files:
+  (a) the add-on ID is `uBlock0@raymondhill.net` everywhere in this project
+  (`settings/distribution/policies.json:50`) but the patch declares
+  `uBlock0@uvrove.com`, an ID that exists nowhere else;
+  (b) the XPI it reads, `webextensions/ublock_origin.xpi`, does not exist in the repo
+  and nothing fetches or packages one, so the feature cannot work at all today;
+  (c) `LibreWolfAddonsProvider.localUboAddon()` returns an `Addon` carrying a
+  fabricated `Addon.InstalledState(enabled = true)` while performing **no install** —
+  there is no `installAddon`/`installWebExtension` call in the patch. It decorates the
+  AMO catalogue only. So the moment anyone drops an XPI into assets/, the Add-ons UI
+  reports uBlock Origin as installed and enabled with no content blocking behind it.
+  That is worse than the feature being absent.
+  Un-park by fixing the ID, sourcing and packaging a hash-pinned XPI, and performing a
+  real install — then re-add the `android.txt` line and the four ordering rows.
 
 The mechanism stays documented because it is load-bearing: a `- <path> (LW-…)`
 bullet in this section is the *only* way `board.py --check-scope` will tolerate a

@@ -258,12 +258,18 @@ regenerated, and *exit non-zero with no `.rej`* is the L5 shape — reported, ne
 regenerated. It also closed a second fail-open there: the regeneration subshell's
 exit status was discarded and nobody checked that a `.nofuzz` had appeared.
 
-**Still open: `scripts/git-patchtree.sh`.** It hardcodes `firefox-$(cat version)` in
-the repo root — the same directory `make dir` uses and other agents read — and
-`rm -rf`s it. So `make fixfuzz` destroys the shared tree, and it always rebuilds
-against the desktop tarball, so it cannot produce a correct `.nofuzz` for an Android
-patch. `fuzzfail.sh` now refuses to regenerate rather than write a wrong one.
-LW-M1-15 owns the fix.
+**`scripts/git-patchtree.sh` — FIXED, and this paragraph said otherwise for too
+long.** It used to hardcode `firefox-$(cat version)` in the repo root, `rm -rf` it,
+and always rebuild against the desktop tarball. LW-M1-15 landed all of that: a
+private `mktemp -d` scratch directory with a cleanup trap (`:483`), and the
+target/version split so an android patch rebuilds against `./version.android` and the
+ESR tarball. LW-M1-16 then made `fuzzfail.sh` forward its own `--targets` here
+instead of refusing to regenerate.
+
+**Corrected 2026-08-26**, after this stale paragraph was quoted into an agent brief as
+a live blocker and a coder spent a cycle "fixing" a script that needed no changes —
+then reported it fixed, having modified nothing. Verify a landmine against the code
+before you plan around it; this file is not a gate and nothing checks it.
 
 Useful to know: check-patchfail does **not** need a librewolf source directory. It
 extracts the Firefox tarball into its own `mktemp -d` scratch directory under the

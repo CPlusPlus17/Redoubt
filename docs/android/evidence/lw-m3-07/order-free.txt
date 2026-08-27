@@ -1,0 +1,57 @@
+# LW-M3-07 — order-freedom measurement for ubo-preinstall.patch
+#
+# scripts/check-patch-order.py's REVIEWED_ORDER_FREE is a MEASURED claim, not an
+# argument: both orders apply, no .rej, byte-identical result. The four pairs below
+# were first landed with the reason "disjoint regions of shared files", which is
+# reasoning. This file replaces it with the measurement, taken 2026-08-27.
+#
+# Method: extract each shared file PRISTINE from firefox-153.0esr.source.tar.xz,
+# slice each patch down to just that file's hunks, apply in both orders, sha256 the
+# result. Slicing per-file is what makes this cheap enough to run at all — no 4.7GB
+# extract, no build.
+#
+# pair / file / sha256(A then B) / sha256(B then A)
+
+no-adjust + ubo-preinstall
+  mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+    no-adjust->ubo-preinstall: b50fc74c6d090b46f5261f28efe56c86ba4510b3d92935d63f49e3ecfb9fce71
+    ubo-preinstall->no-adjust: b50fc74c6d090b46f5261f28efe56c86ba4510b3d92935d63f49e3ecfb9fce71
+    IDENTICAL
+
+no-adjust + ubo-preinstall
+  mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+    no-adjust->ubo-preinstall: cb28fc2a96eb306112d8273b748ed2d63c567ca678ee9aa850a49502473455a1
+    ubo-preinstall->no-adjust: cb28fc2a96eb306112d8273b748ed2d63c567ca678ee9aa850a49502473455a1
+    IDENTICAL
+
+no-crashreporter + ubo-preinstall
+  mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+    no-crashreporter->ubo-preinstall: 79d065db3420ed2592226ccf86550440d5d2c89fa086a418b97a77af193fde8f
+    ubo-preinstall->no-crashreporter: 79d065db3420ed2592226ccf86550440d5d2c89fa086a418b97a77af193fde8f
+    IDENTICAL
+
+no-gms + ubo-preinstall
+  mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+    no-gms->ubo-preinstall: 4e2409623edde8adf692417e37b27a4d00d0a0c9e087586343938f2178f92c16
+    ubo-preinstall->no-gms: 4e2409623edde8adf692417e37b27a4d00d0a0c9e087586343938f2178f92c16
+    IDENTICAL
+
+no-gms + ubo-preinstall
+  mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+    no-gms->ubo-preinstall: 95fccba01ade3d5fd193fafae474772380c8300dc960859e451d9d35cf229ed0
+    ubo-preinstall->no-gms: 95fccba01ade3d5fd193fafae474772380c8300dc960859e451d9d35cf229ed0
+    IDENTICAL
+
+no-gms + ubo-preinstall
+  mobile/android/fenix/app/src/main/res/values/preference_keys.xml
+    no-gms->ubo-preinstall: 40408bbca3af5f520f0090cc791ff6fbbc273bead1e9b13940ff597aa4b786dc
+    ubo-preinstall->no-gms: 40408bbca3af5f520f0090cc791ff6fbbc273bead1e9b13940ff597aa4b786dc
+    IDENTICAL
+
+no-onboarding + ubo-preinstall
+  mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+    no-onboarding->ubo-preinstall: c7abba958c792bab647bfab12738458e4c41894508fecef406267285bb014ad9
+    ubo-preinstall->no-onboarding: c7abba958c792bab647bfab12738458e4c41894508fecef406267285bb014ad9
+    IDENTICAL
+
+RESULT: all pairs order-free = True

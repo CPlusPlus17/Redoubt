@@ -1059,6 +1059,21 @@ tasks:
 
       Once this lands, remove fuzzfail.sh's refusal-to-regenerate guard — but that
       file belongs to LW-M1-11, so coordinate rather than editing it.
+
+      RESOLVED — landed in commit 2e7dabe, recorded 2026-08-26. All four acceptance
+      criteria are implemented in scripts/git-patchtree.sh: a private
+      `mktemp -d "$repo_root/tmpdir92.XXXXXX"` with a cleanup trap (:483), the
+      ./version vs ./version.android split with "both when they have diverged" refused
+      rather than silently answered, and --use-desktop-tarball kept as the noisy
+      escape hatch. LW-M1-16 subsequently made fuzzfail.sh forward --targets here
+      rather than refuse to regenerate, so the guard this task was meant to lift is
+      already lifted.
+
+      Cost of not recording it: AGENTS.md's landmine L5 still read "Still open ...
+      LW-M1-15 owns the fix", that sentence was quoted into an agent brief as a live
+      blocker, and a coder spent a cycle on a script that needed no changes — then
+      reported it "fixed, concurrency-safe" having made zero modifications. The board
+      having no status field is what let a completed task read as open.
     acceptance:
       - "running it never touches firefox-$(cat version) in the repo root"
       - "two concurrent runs both succeed"
@@ -2026,6 +2041,44 @@ tasks:
       custom-ubo-assets-bootstrap-location.patch must keep working — check whether
       that patch is in common.txt and whether its code path is reachable on
       Android.
+
+      NOT DONE — patch written, measured, and PARKED 2026-08-27. It is on disk and applies
+      cleanly (check-patchfail --targets=android exit 0) with its ordering measured against
+      four partners (docs/android/evidence/lw-m3-07/order-free.txt, byte-identical either
+      way). It is deliberately in NO list: docs/android/PATCH-SCOPE.md's Pending section
+      carries the declaration, so --check-scope warns about it by name on every run.
+
+      Parked because shipping it would make a FALSE PRIVACY CLAIM, which is worse than the
+      feature being absent. Three defects, each read out of the files:
+
+      (a) WRONG ADD-ON ID. The patch declares uBlock0@uvrove.com. The real ID — used by this
+      repo's own settings/distribution/policies.json:50 — is uBlock0@raymondhill.net. The
+      made-up ID appears nowhere else in the project or upstream. scripts/android-smoke.sh
+      hard-coded the SAME made-up ID, so the gate could never have gone green against genuine
+      uBO and WOULD have gone green against an add-on carrying the invented one. The gate is
+      corrected; the patch is not.
+
+      (b) NO PAYLOAD. It reads webextensions/ublock_origin.xpi from the APK assets. No .xpi
+      exists anywhere in the repo, nothing fetches one (scripts/update-ubo-assets.sh only
+      rewrites uBO's assets.json — the filter-list config, not the extension), and the patch
+      adds no packaging step: it touches four Kotlin/XML files and no build.gradle.
+
+      (c) IT NEVER INSTALLS ANYTHING. LibreWolfAddonsProvider only decorates the AMO
+      catalogue provider, and localUboAddon() returns an Addon carrying a fabricated
+      Addon.InstalledState(enabled = true, supported = true). There is no installAddon or
+      installWebExtension call in the patch. Today assetsExist() fails so nothing is offered;
+      the moment anyone drops an XPI into assets/, the Add-ons UI reports uBlock Origin as
+      installed and enabled with no content blocking behind it.
+
+      To un-park: fix the ID, source and package a hash-pinned XPI (same supply-chain
+      question as the tarball — see the GPG revocation finding), perform a real install on
+      first run, then restore the assets/patches/android.txt line and the four
+      REVIEWED_ORDER_FREE rows in scripts/check-patch-order.py, which are kept and still
+      valid.
+
+      Worth keeping in view: none of the ten gates caught any of this. They check that a
+      patch applies, is registered, is ordered and is scoped — not that the asset it
+      references exists or that the identifier it declares is real.
     acceptance:
       - "uBO is present and enabled on first launch with no network fetch from Mozilla's collection"
       - "librewolf.uBO.assetsBootstrapLocation is honoured on Android"
