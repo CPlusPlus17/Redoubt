@@ -2304,8 +2304,8 @@ tasks:
   - id: LW-M4-06
     title: Ship the LibreWolf search configuration on Android
     milestone: M4
-    depends_on: [LW-M2-05, LW-M3-03]
-    owns: [patches/android/search-config.patch, assets/search-config-v2.android.json]
+    depends_on: [LW-M2-05, LW-M3-03, LW-M3-10, LW-M2-07]   # 2026-09-02: both done; serialises the two files this task now shares with them (librewolf-patches.py, android-smoke.sh)
+    owns: [patches/android/search-config.patch, scripts/librewolf-patches.py, scripts/android-smoke.sh, docs/android/evidence/lw-m4-06/]   # 2026-09-02: the android-specific JSON was never needed -- the shared asset is copied by the patcher (android_search_config); the harness owns its --check-search half
     reads: [assets/search-config-v2.json, assets/search-config-icons.json]
     what: |
       librewolf-patches.py:107-112 replaces desktop's search-config-v2.json and
@@ -2728,8 +2728,8 @@ tasks:
   - id: LW-M4-11
     title: Disable search suggestions and the top-sites contile feed
     milestone: M4
-    depends_on: [LW-M2-04]   # relaxed 2026-08-26: was [LW-M4-06]. Turning suggestions OFF does not need our own search config shipped first; the two only share the search subsystem.
-    owns: [patches/android/no-suggest.patch]
+    depends_on: [LW-M2-04, LW-M2-07, LW-M4-06]   # relaxed 2026-08-26: was [LW-M4-06]; re-added 2026-09-02 together with LW-M2-07 only to serialise the harness file the three now share
+    owns: [patches/android/no-suggest.patch, scripts/android-smoke.sh, docs/android/evidence/lw-m4-11/]   # 2026-09-02: --check-no-suggest lives in the harness
     what: |
       Android defaults differ from desktop: search suggestions and the Contile
       sponsored top-sites feed are on. Match desktop's posture — suggestions off by
@@ -3286,8 +3286,8 @@ tasks:
   - id: LW-M6-06
     title: Implement in-app update checking without an app store
     milestone: M6
-    depends_on: [LW-M6-04]
-    owns: [patches/android/update-check.patch, docs/android/DISTRIBUTION.md]
+    depends_on: [LW-M6-04, LW-M4-11, LW-M2-04]   # 2026-09-02: LW-M4-11/LW-M2-04 added only to serialise android-smoke.sh / android-apk.sh, which this task now shares
+    owns: [patches/android/update-check.patch, docs/android/DISTRIBUTION.md, scripts/android-apk.sh, scripts/android-smoke.sh, docs/android/evidence/lw-m6-06/]   # 2026-09-02: android-apk.sh forwards the key; --check-update-privacy lives in the harness
     what: |
       Users installing the direct APK have no store to update them. Provide a
       version check against a signed, static endpoint on redoubtbrowser.org that tells

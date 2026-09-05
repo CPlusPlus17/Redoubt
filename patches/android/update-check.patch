@@ -1,0 +1,633 @@
+# LibreWolf update-check.patch  (Android)
+# Owner: LW-M6-06 ("Implement in-app update checking without an app store")
+#
+# Upstream files touched
+# -----------------------
+#   mobile/android/fenix/app/build.gradle                                   (2 buildConfigFields)
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt (1 call in onResume)
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt (row visibility)
+#   mobile/android/fenix/app/src/main/res/xml/preferences.xml                (the switch row)
+# New files
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt
+#   mobile/android/fenix/app/src/main/res/values/lw_update_check.xml
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt
+#
+# Line numbers are from the ESR tree (firefox-153.0esr, ./version.android), AFTER
+# the patches listed before this one in assets/patches/android.txt.
+#
+#
+# What it is
+# -----------
+# The direct-APK distribution has no store to tell its users an update exists.
+# docs/android/DISTRIBUTION.md is the contract; this is the code. In one
+# paragraph: a switch in Settings (About category), OFF by default, with a
+# summary that says exactly what is sent and where. When it is on, and only
+# then, HomeActivity.onResume asks UpdateCheck.maybeRun, which at most once per
+# 24 h fetches two static files from the distribution host -- latest.json and
+# latest.json.sig -- verifies the ECDSA P-256 / SHA-256 signature against a
+# public key embedded at build time, and if the signed document names a newer
+# version than the running one, shows a dialog with an "Open download page"
+# button. It never downloads, never installs, never retries in a loop, and
+# treats every failure (network, parse, signature) as "no update".
+#
+#
+# The privacy properties, and where each one is pinned
+# -----------------------------------------------------
+#   * Nothing identifies the install. The request carries a static User-Agent
+#     ("Redoubt-UpdateCheck/1", the same literal on every install), no cookies
+#     (CookiePolicy.OMIT), no cache validators (useCaches=false, so no ETag or
+#     If-Modified-Since that could act as a per-install token), follows no
+#     redirects, and is a private load. It sends NOT EVEN the version string:
+#     the comparison happens on the device, so the server learns only that
+#     some Redoubt asked. UpdateCheckerTest pins every one of those request
+#     fields, because a packet capture cannot see inside TLS.
+#   * Off by default, opt-in, disclosed. android:defaultValue="false"; the
+#     summary names the host, the cadence, what is and is not sent.
+#   * Foreground only, rate-limited. The only caller is onResume; there is no
+#     WorkManager job, timer or service. UpdateCheck.MIN_INTERVAL_MS = 24 h,
+#     tracked in its own SharedPreferences file (lw_update_check).
+#   * Store builds do not double-notify, by ARTIFACT not by runtime query.
+#     build.gradle reads -PlwUpdateCheckPubkey; without it
+#     BuildConfig.LW_UPDATE_CHECK_PUBKEY is "", UpdateCheck.isCompiledIn is
+#     false, SettingsFragment hides the row, and maybeRun returns on its first
+#     line. The F-Droid and Accrescent pipelines simply do not pass the key.
+#     scripts/android-apk.sh forwards LW_UPDATE_CHECK_PUBKEY (and, for the
+#     smoke harness, LW_UPDATE_CHECK_ENDPOINT) from the environment.
+#   * The private key never enters the build or this repository. What the
+#     build embeds is the base64 DER SubjectPublicKeyInfo. Generating and
+#     holding the key is LW-M6-01's custody problem, not this patch's.
+#
+#
+# Why a detached .sig and not a "signature" field inside the JSON
+# ------------------------------------------------------------------
+# DISTRIBUTION.md's first draft put the signature inside the document, "over
+# this document". A signature over a JSON object needs a canonical form (which
+# whitespace, which key order, how numbers are written) agreed between the
+# maintainer's signing script and the Kotlin verifier, and a mismatch there is
+# a silent "no update" forever. Signing the exact served bytes and shipping the
+# signature next to them (the minisign/signify shape) has no canonical form to
+# get wrong: `openssl dgst -sha256 -sign key.pem latest.json | base64 -w0 >
+# latest.json.sig`. DISTRIBUTION.md is updated to match.
+#
+#
+# Why ECDSA P-256 and not Ed25519
+# --------------------------------
+# java.security.Signature "Ed25519" exists only from API 33; SHA256withECDSA
+# and the EC KeyFactory are in every Android release Fenix supports, and
+# openssl produces and verifies the same signatures on the maintainer's side.
+#
+#
+# What this patch does NOT do, on purpose
+# ----------------------------------------
+#   * No endpoint exists yet: redoubtbrowser.org is unregistered (IDENTITY.md).
+#     A build made without a key has no reachable code; a build made with a
+#     key against a host that does not resolve gets NoResult and stays silent.
+#   * No key is checked in. The release pipeline passes the PUBLIC key when the
+#     maintainer has one.
+#   * No notification-channel plumbing: the prompt is an in-app dialog on the
+#     home activity, which needs no permission on any API level.
+#
+#
+# Ordering
+# ---------
+# Shares fenix app/build.gradle with no-adjust, no-glean, no-gms,
+# no-crashreporter, fenix-abi-split and branding (an ORDERED chain);
+# HomeActivity.kt with no-nimbus, no-adjust and no-suggest. preferences.xml,
+# SettingsFragment.kt and the three new files are shared with nothing. Every
+# pair was replayed from the pristine ESR copy in list order and with this
+# patch moved in front of each partner; results byte-identical, exit 0, no .rej
+# -- see scripts/check-patch-order.py's REVIEWED_ORDER_FREE. Listed last in
+# assets/patches/android.txt.
+#
+#
+# Verification
+# -------------
+#   ./mach gradle fenix:testDebugUnitTest  -> UpdateCheckerTest (8 tests)
+#   ./scripts/android-smoke.sh --check-update-privacy --serial <dev> --apk <apk>
+#     with the switch OFF: no traffic to the update host across launch and the
+#     settings screens; with it ON (flipped through the UI): exactly one host
+#     is contacted, the update host, and nothing else new. Store-style builds
+#     (no key) pass because the row does not exist and nothing is sent.
+#   Evidence: docs/android/evidence/lw-m6-06/.
+--- a/mobile/android/fenix/app/build.gradle
++++ b/mobile/android/fenix/app/build.gradle
+@@ -86,6 +86,17 @@
+ 
+         buildConfigField "String[]", "SUPPORTED_LOCALE_ARRAY", getSupportedLocales()
+         buildConfigField "boolean", "IS_BENCHMARK_BUILD", "false"
++
++        // LibreWolf (LW-M6-06): the opt-in update check is compiled in only when
++        // the build is given the base64 SubjectPublicKeyInfo of the ECDSA P-256
++        // key that signs updates/android/latest.json (-PlwUpdateCheckPubkey=...).
++        // No key -> empty string -> UpdateCheck.isCompiledIn is false, the
++        // Settings row is hidden and no code path can reach the network. That is
++        // how the F-Droid and Accrescent builds are told apart from the direct
++        // APK: by the artifact, not by a runtime query. The private key never
++        // enters the build; it lives with the maintainer (LW-M6-01 custody).
++        buildConfigField "String", "LW_UPDATE_CHECK_PUBKEY", "\"${project.findProperty('lwUpdateCheckPubkey') ?: ''}\""
++        buildConfigField "String", "LW_UPDATE_CHECK_ENDPOINT", "\"${project.findProperty('lwUpdateCheckEndpoint') ?: 'https://redoubtbrowser.org/updates/android/latest.json'}\""
+     }
+ 
+     def releaseTemplate = {
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+@@ -778,6 +778,12 @@
+ 
+         onBackPressedCallback.isEnabled = true
+ 
++        // LibreWolf (LW-M6-06): the opt-in update check. Foreground only (this is
++        // onResume, there is no worker or timer), off unless the user turned it
++        // on, at most once a day, and compiled out entirely on builds without a
++        // verification key. Everything it does is in org.mozilla.fenix.lw.UpdateCheck.
++        org.mozilla.fenix.lw.UpdateCheck.maybeRun(this, lifecycleScope)
++
+         // This was done in order to refresh search engines when app is running in background
+         // and the user changes the system language
+         // More details here: https://github.com/mozilla-mobile/fenix/pull/27793#discussion_r1029892536
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt
+@@ -0,0 +1,290 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++// LibreWolf (LW-M6-06): the opt-in update check for the direct-APK distribution.
++//
++// The contract this implements is docs/android/DISTRIBUTION.md. The short form:
++//   * off by default; on only after the user flips the switch in Settings;
++//   * foreground only (HomeActivity.onResume), at most once per 24 h, no worker,
++//     no timer, no background service;
++//   * one static document and its detached signature are fetched from the
++//     distribution host; the request carries a static User-Agent, no cookies,
++//     no cache validators and nothing that identifies the device or install;
++//   * the signature (ECDSA P-256 / SHA-256, public key embedded at build time)
++//     is verified before a single field is read; any failure -- network, parse,
++//     signature -- is treated exactly as "no update": no prompt, no log line
++//     leaves the device, no retry storm;
++//   * it never downloads or installs anything. It tells the user a newer version
++//     exists and offers to open the download page.
++//   * builds without an embedded key (F-Droid, Accrescent) have no key, no row
++//     and no reachable code path -- BuildConfig.LW_UPDATE_CHECK_PUBKEY is empty.
++
++package org.mozilla.fenix.lw
++
++import android.app.AlertDialog
++import android.content.Context
++import android.util.Base64
++import androidx.annotation.VisibleForTesting
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++import mozilla.components.concept.fetch.Client
++import mozilla.components.concept.fetch.MutableHeaders
++import mozilla.components.concept.fetch.Request
++import mozilla.components.concept.fetch.isSuccess
++import mozilla.components.support.base.log.logger.Logger
++import org.json.JSONException
++import org.json.JSONObject
++import org.mozilla.fenix.BrowserDirection
++import org.mozilla.fenix.BuildConfig
++import org.mozilla.fenix.HomeActivity
++import org.mozilla.fenix.R
++import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.ext.settings
++import java.io.IOException
++import java.security.GeneralSecurityException
++import java.security.KeyFactory
++import java.security.Signature
++import java.security.spec.X509EncodedKeySpec
++import java.util.concurrent.TimeUnit
++
++/**
++ * What one run of the check concluded.
++ */
++sealed class UpdateCheckResult {
++    /** A signed document named a version newer than the one running. */
++    data class UpdateAvailable(
++        val latestVersion: String,
++        val downloadUrl: String,
++        val releaseNotesUrl: String?,
++        val sha256: String?,
++    ) : UpdateCheckResult()
++
++    /** A signed document named the running version (or an older one). */
++    object UpToDate : UpdateCheckResult()
++
++    /**
++     * The check could not conclude anything: network, parse or signature
++     * failure. By contract this is indistinguishable, for the user, from the
++     * check being off. [reason] is for local logs only.
++     */
++    data class NoResult(val reason: String) : UpdateCheckResult()
++}
++
++/**
++ * The pure half: two GETs, one signature verification, one version compare.
++ * Everything is injected so a unit test can drive it with a fake [Client]
++ * and its own key pair.
++ */
++class UpdateChecker(
++    private val client: Client,
++    private val endpoint: String,
++    private val publicKeySpkiBase64: String,
++    private val currentVersion: String,
++) {
++    private val logger = Logger("UpdateChecker")
++
++    fun check(): UpdateCheckResult {
++        val document = get(endpoint) ?: return UpdateCheckResult.NoResult("document fetch failed")
++        val signature = get("$endpoint.sig") ?: return UpdateCheckResult.NoResult("signature fetch failed")
++        if (!verify(document, String(signature, Charsets.UTF_8).trim(), publicKeySpkiBase64)) {
++            return UpdateCheckResult.NoResult("signature did not verify")
++        }
++        val parsed = parse(String(document, Charsets.UTF_8))
++            ?: return UpdateCheckResult.NoResult("document did not parse")
++        return if (isNewer(parsed.latestVersion, currentVersion)) parsed else UpdateCheckResult.UpToDate
++    }
++
++    /**
++     * One GET. The only things this request says about its sender are the URL
++     * and [USER_AGENT], which is the same literal on every install. Cookies are
++     * omitted, caches bypassed (no ETag / If-Modified-Since round-trips that
++     * could act as a per-install token), redirects are not followed (the
++     * document lives at one fixed URL), and the load is private.
++     */
++    @Suppress("TooGenericExceptionCaught")
++    private fun get(url: String): ByteArray? = try {
++        val request = Request(
++            url = url,
++            method = Request.Method.GET,
++            headers = MutableHeaders("User-Agent" to USER_AGENT),
++            connectTimeout = Pair(TIMEOUT_SECONDS, TimeUnit.SECONDS),
++            readTimeout = Pair(TIMEOUT_SECONDS, TimeUnit.SECONDS),
++            redirect = Request.Redirect.MANUAL,
++            cookiePolicy = Request.CookiePolicy.OMIT,
++            useCaches = false,
++            private = true,
++        )
++        client.fetch(request).use { response ->
++            if (!response.isSuccess) {
++                null
++            } else {
++                response.body.useStream { readAtMost(it, MAX_BYTES + 1) }.takeIf { it.size <= MAX_BYTES }
++            }
++        }
++    } catch (e: IOException) {
++        logger.debug("update check: ${e.javaClass.simpleName} for $url")
++        null
++    } catch (e: RuntimeException) {
++        // GeckoViewFetchClient surfaces some transport failures as unchecked
++        // exceptions; every failure is "no result", never a crash.
++        logger.debug("update check: ${e.javaClass.simpleName} for $url")
++        null
++    }
++
++    /** Reads up to [limit] bytes; one more than [MAX_BYTES] is enough to reject an oversized body. */
++    private fun readAtMost(stream: java.io.InputStream, limit: Int): ByteArray {
++        val out = java.io.ByteArrayOutputStream()
++        val buf = ByteArray(8192)
++        while (out.size() < limit) {
++            val n = stream.read(buf, 0, minOf(buf.size, limit - out.size()))
++            if (n < 0) break
++            out.write(buf, 0, n)
++        }
++        return out.toByteArray()
++    }
++
++    companion object {
++        /** Static on purpose: identical on every install. */
++        const val USER_AGENT = "Redoubt-UpdateCheck/1"
++        const val TIMEOUT_SECONDS = 10L
++        const val MAX_BYTES = 64 * 1024
++
++        /**
++         * ECDSA P-256 with SHA-256 over the exact bytes of the served document;
++         * [signatureBase64] is the base64 of the DER signature (what
++         * `openssl dgst -sha256 -sign key.pem latest.json | base64 -w0` writes)
++         * and [publicKeySpkiBase64] the base64 DER SubjectPublicKeyInfo
++         * (`openssl ec -in key.pem -pubout -outform DER | base64 -w0`).
++         */
++        fun verify(document: ByteArray, signatureBase64: String, publicKeySpkiBase64: String): Boolean = try {
++            val key = KeyFactory.getInstance("EC")
++                .generatePublic(X509EncodedKeySpec(Base64.decode(publicKeySpkiBase64, Base64.DEFAULT)))
++            Signature.getInstance("SHA256withECDSA").run {
++                initVerify(key)
++                update(document)
++                verify(Base64.decode(signatureBase64, Base64.DEFAULT))
++            }
++        } catch (e: GeneralSecurityException) {
++            false
++        } catch (e: IllegalArgumentException) {
++            // malformed base64
++            false
++        }
++
++        /**
++         * The document, per DISTRIBUTION.md: `latest_version` and an https
++         * `download_url` are required; the rest is optional. Unknown fields are
++         * ignored.
++         */
++        fun parse(document: String): UpdateCheckResult.UpdateAvailable? = try {
++            val json = JSONObject(document)
++            val latest = json.getString("latest_version").trim()
++            val download = json.getString("download_url").trim()
++            if (latest.isEmpty() || !download.startsWith("https://")) {
++                null
++            } else {
++                UpdateCheckResult.UpdateAvailable(
++                    latestVersion = latest,
++                    downloadUrl = download,
++                    releaseNotesUrl = json.optString("release_notes_url").takeIf { it.startsWith("https://") },
++                    sha256 = json.optString("sha256").takeIf { it.isNotEmpty() },
++                )
++            }
++        } catch (e: JSONException) {
++            null
++        }
++
++        /**
++         * Numeric, component-wise: "153.0esr-2" > "153.0esr-1", "154.0" > "153.9.1".
++         * Strings with no digits never count as newer.
++         */
++        fun isNewer(latest: String, current: String): Boolean {
++            val a = numbers(latest)
++            val b = numbers(current)
++            if (a.isEmpty()) return false
++            val n = maxOf(a.size, b.size)
++            for (i in 0 until n) {
++                val x = a.getOrElse(i) { 0 }
++                val y = b.getOrElse(i) { 0 }
++                if (x != y) return x > y
++            }
++            return false
++        }
++
++        private fun numbers(version: String): List<Long> =
++            Regex("\\d+").findAll(version).map { it.value.toLongOrNull() ?: 0L }.toList()
++    }
++}
++
++/**
++ * The app half: the switch, the once-a-day gate, the prompt.
++ */
++object UpdateCheck {
++    @VisibleForTesting internal const val PREFS = "lw_update_check"
++    @VisibleForTesting internal const val KEY_LAST_RUN_MS = "last_run_ms"
++    @VisibleForTesting internal const val KEY_LAST_OFFERED = "last_offered_version"
++    val MIN_INTERVAL_MS: Long = TimeUnit.HOURS.toMillis(24)
++
++    /** True only on a build handed a verification key at build time. */
++    val isCompiledIn: Boolean
++        get() = BuildConfig.LW_UPDATE_CHECK_PUBKEY.isNotEmpty()
++
++    /** The user's switch, read from the same SharedPreferences the Settings screen writes. */
++    fun isEnabled(context: Context): Boolean =
++        isCompiledIn && context.settings().preferences.getBoolean(
++            context.getString(R.string.pref_key_lw_update_check),
++            false,
++        )
++
++    /**
++     * Called from HomeActivity.onResume. Returns without touching the network
++     * unless the check is compiled in, switched on, and at least
++     * [MIN_INTERVAL_MS] has passed since the last run.
++     */
++    fun maybeRun(activity: HomeActivity, scope: CoroutineScope) {
++        if (!isEnabled(activity)) return
++        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
++        val now = System.currentTimeMillis()
++        val last = prefs.getLong(KEY_LAST_RUN_MS, 0L)
++        if (now - last in 0 until MIN_INTERVAL_MS) return
++        prefs.edit().putLong(KEY_LAST_RUN_MS, now).apply()
++        scope.launch(Dispatchers.IO) {
++            val current = try {
++                activity.packageManager.getPackageInfo(activity.packageName, 0).versionName ?: ""
++            } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
++                ""
++            }
++            val result = UpdateChecker(
++                client = activity.components.core.client,
++                endpoint = BuildConfig.LW_UPDATE_CHECK_ENDPOINT,
++                publicKeySpkiBase64 = BuildConfig.LW_UPDATE_CHECK_PUBKEY,
++                currentVersion = current,
++            ).check()
++            if (result is UpdateCheckResult.UpdateAvailable &&
++                prefs.getString(KEY_LAST_OFFERED, null) != result.latestVersion
++            ) {
++                prefs.edit().putString(KEY_LAST_OFFERED, result.latestVersion).apply()
++                withContext(Dispatchers.Main) { offer(activity, result) }
++            }
++        }
++    }
++
++    private fun offer(activity: HomeActivity, result: UpdateCheckResult.UpdateAvailable) {
++        if (activity.isFinishing || activity.isDestroyed) return
++        AlertDialog.Builder(activity)
++            .setTitle(activity.getString(R.string.lw_update_check_available_title, result.latestVersion))
++            .setMessage(activity.getString(R.string.lw_update_check_available_message, result.downloadUrl))
++            .setPositiveButton(R.string.lw_update_check_open_download) { _, _ ->
++                activity.openToBrowserAndLoad(
++                    searchTermOrURL = result.downloadUrl,
++                    newTab = true,
++                    from = BrowserDirection.FromHome,
++                )
++            }
++            .setNegativeButton(R.string.lw_update_check_later, null)
++            .show()
++    }
++}
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+@@ -629,6 +629,12 @@
+             preferenceStartProfiler?.isVisible = showSecretDebugMenuThisSession &&
+                 (components.core.engine.profiler?.isProfilerActive() != null)
+         }
++        // LibreWolf (LW-M6-06): the update-check row exists only on builds that
++        // carry a verification key; a store build (F-Droid, Accrescent) has none
++        // and must not offer a second update channel.
++        findPreference<Preference>(
++            getPreferenceKey(R.string.pref_key_lw_update_check),
++        )?.isVisible = org.mozilla.fenix.lw.UpdateCheck.isCompiledIn
+         setupCookieBannerPreference(settings)
+         setupInstallAddonFromFilePreference(settings)
+         setLinkSharingPreference()
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/res/values/lw_update_check.xml
+@@ -0,0 +1,14 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- LibreWolf (LW-M6-06): the opt-in update check for the direct-APK
++     distribution. Kept out of strings.xml on purpose: that file is synced
++     from android-l10n on every rebase and would drop these. -->
++<resources>
++    <string name="pref_key_lw_update_check" translatable="false">pref_key_lw_update_check</string>
++
++    <string name="lw_update_check_title">Check for updates</string>
++    <string name="lw_update_check_summary">Off by default. When on, Redoubt asks redoubtbrowser.org at most once a day whether a newer version exists. It sends nothing that identifies you or this device — not even the version, which is compared on the device — and it never downloads or installs anything. Not needed if you installed from F-Droid or Accrescent.</string>
++    <string name="lw_update_check_available_title">Redoubt %1$s is available</string>
++    <string name="lw_update_check_available_message">A newer version was published at %1$s. Nothing has been downloaded; open the page to get it.</string>
++    <string name="lw_update_check_open_download">Open download page</string>
++    <string name="lw_update_check_later">Later</string>
++</resources>
+--- a/mobile/android/fenix/app/src/main/res/xml/preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
+@@ -257,6 +257,16 @@
+             app:iconSpaceReserved="false"
+             android:title="@string/preferences_about" />
+ 
++        <!-- LibreWolf (LW-M6-06): opt-in update check for the direct-APK build.
++             Off by default; hidden by SettingsFragment on builds compiled
++             without a verification key (F-Droid / Accrescent). -->
++        <androidx.preference.SwitchPreferenceCompat
++            android:key="@string/pref_key_lw_update_check"
++            android:defaultValue="false"
++            app:iconSpaceReserved="false"
++            android:title="@string/lw_update_check_title"
++            android:summary="@string/lw_update_check_summary" />
++
+         <androidx.preference.Preference
+             android:key="@string/pref_key_debug_settings"
+             app:iconSpaceReserved="false"
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt
+@@ -0,0 +1,140 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++// LibreWolf (LW-M6-06): pins the privacy contract of the update check where a
++// packet capture cannot see it -- inside the TLS request.
++
++package org.mozilla.fenix.lw
++
++import android.util.Base64
++import mozilla.components.concept.fetch.Client
++import mozilla.components.concept.fetch.MutableHeaders
++import mozilla.components.concept.fetch.Request
++import mozilla.components.concept.fetch.Response
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import java.io.ByteArrayInputStream
++import java.security.KeyPair
++import java.security.KeyPairGenerator
++import java.security.PrivateKey
++import java.security.Signature
++import java.security.spec.ECGenParameterSpec
++
++@RunWith(RobolectricTestRunner::class)
++class UpdateCheckerTest {
++
++    private class FakeClient(private val responses: Map<String, ByteArray>) : Client() {
++        val requests = mutableListOf<Request>()
++        override fun fetch(request: Request): Response {
++            requests += request
++            val body = responses[request.url]
++                ?: return Response(request.url, 404, MutableHeaders(), Response.Body.empty())
++            return Response(request.url, 200, MutableHeaders(), Response.Body(ByteArrayInputStream(body)))
++        }
++    }
++
++    private val endpoint = "https://redoubtbrowser.org/updates/android/latest.json"
++
++    private fun keyPair(): KeyPair = KeyPairGenerator.getInstance("EC").run {
++        initialize(ECGenParameterSpec("secp256r1"))
++        generateKeyPair()
++    }
++
++    private fun pub(kp: KeyPair): String = Base64.encodeToString(kp.public.encoded, Base64.NO_WRAP)
++
++    private fun sign(document: ByteArray, key: PrivateKey): String = Signature.getInstance("SHA256withECDSA").run {
++        initSign(key)
++        update(document)
++        Base64.encodeToString(sign(), Base64.NO_WRAP)
++    }
++
++    private val document = """
++        {"latest_version": "153.0esr-2",
++         "download_url": "https://redoubtbrowser.org/downloads/redoubt-153.0esr-2.apk",
++         "release_notes_url": "https://redoubtbrowser.org/releases/153.0esr-2/",
++         "sha256": "0123456789abcdef",
++         "published_at": "2026-09-02T00:00:00Z"}
++    """.trimIndent().toByteArray()
++
++    @Test
++    fun `a correctly signed document naming a newer version is offered`() {
++        val kp = keyPair()
++        val client = FakeClient(mapOf(endpoint to document, "$endpoint.sig" to sign(document, kp.private).toByteArray()))
++        val result = UpdateChecker(client, endpoint, pub(kp), "153.0esr-1").check()
++        assertTrue(result is UpdateCheckResult.UpdateAvailable)
++        result as UpdateCheckResult.UpdateAvailable
++        assertEquals("153.0esr-2", result.latestVersion)
++        assertEquals("https://redoubtbrowser.org/downloads/redoubt-153.0esr-2.apk", result.downloadUrl)
++        assertEquals("https://redoubtbrowser.org/releases/153.0esr-2/", result.releaseNotesUrl)
++    }
++
++    @Test
++    fun `the running version is up to date`() {
++        val kp = keyPair()
++        val client = FakeClient(mapOf(endpoint to document, "$endpoint.sig" to sign(document, kp.private).toByteArray()))
++        assertEquals(UpdateCheckResult.UpToDate, UpdateChecker(client, endpoint, pub(kp), "153.0esr-2").check())
++    }
++
++    @Test
++    fun `a document signed by another key is a no-result, not an update`() {
++        val kp = keyPair()
++        val other = keyPair()
++        val client = FakeClient(mapOf(endpoint to document, "$endpoint.sig" to sign(document, other.private).toByteArray()))
++        assertTrue(UpdateChecker(client, endpoint, pub(kp), "153.0esr-1").check() is UpdateCheckResult.NoResult)
++    }
++
++    @Test
++    fun `a tampered document is a no-result`() {
++        val kp = keyPair()
++        val tampered = String(document).replace("redoubtbrowser.org/downloads", "evil.example/downloads").toByteArray()
++        val client = FakeClient(mapOf(endpoint to tampered, "$endpoint.sig" to sign(document, kp.private).toByteArray()))
++        assertTrue(UpdateChecker(client, endpoint, pub(kp), "153.0esr-1").check() is UpdateCheckResult.NoResult)
++    }
++
++    @Test
++    fun `a missing signature or document is a no-result`() {
++        val kp = keyPair()
++        assertTrue(UpdateChecker(FakeClient(mapOf(endpoint to document)), endpoint, pub(kp), "1").check() is UpdateCheckResult.NoResult)
++        assertTrue(UpdateChecker(FakeClient(emptyMap()), endpoint, pub(kp), "1").check() is UpdateCheckResult.NoResult)
++    }
++
++    @Test
++    fun `an http download url is rejected even when signed`() {
++        val kp = keyPair()
++        val insecure = String(document).replace("https://redoubtbrowser.org/downloads", "http://redoubtbrowser.org/downloads").toByteArray()
++        val client = FakeClient(mapOf(endpoint to insecure, "$endpoint.sig" to sign(insecure, kp.private).toByteArray()))
++        assertTrue(UpdateChecker(client, endpoint, pub(kp), "153.0esr-1").check() is UpdateCheckResult.NoResult)
++    }
++
++    @Test
++    fun `the request carries the static user agent and nothing else`() {
++        val kp = keyPair()
++        val client = FakeClient(mapOf(endpoint to document, "$endpoint.sig" to sign(document, kp.private).toByteArray()))
++        UpdateChecker(client, endpoint, pub(kp), "153.0esr-1").check()
++        assertEquals(listOf(endpoint, "$endpoint.sig"), client.requests.map { it.url })
++        for (request in client.requests) {
++            assertEquals(Request.Method.GET, request.method)
++            assertEquals(listOf("User-Agent" to UpdateChecker.USER_AGENT), request.headers!!.map { it.name to it.value })
++            assertEquals(Request.CookiePolicy.OMIT, request.cookiePolicy)
++            assertEquals(Request.Redirect.MANUAL, request.redirect)
++            assertFalse(request.useCaches)
++            assertTrue(request.private)
++            assertEquals(null, request.body)
++        }
++    }
++
++    @Test
++    fun `version comparison is numeric and component-wise`() {
++        assertTrue(UpdateChecker.isNewer("153.0esr-2", "153.0esr-1"))
++        assertTrue(UpdateChecker.isNewer("154.0", "153.9.1"))
++        assertTrue(UpdateChecker.isNewer("153.1.0esr-1", "153.0esr-3"))
++        assertFalse(UpdateChecker.isNewer("153.0esr-1", "153.0esr-1"))
++        assertFalse(UpdateChecker.isNewer("153.0esr-1", "153.0esr-2"))
++        assertFalse(UpdateChecker.isNewer("latest", "153.0esr-1"))
++    }
++}

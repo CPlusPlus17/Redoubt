@@ -74,7 +74,7 @@ cat > "$DRIVER" <<'PYDRIVEREOF'
 # The Redoubt smoke harness.  Unpacked from
 # scripts/android-smoke.sh; do not edit this copy, edit the script.
 # ---------------------------------------------------------------------------
-import argparse, base64, glob, json, os, re, shutil, signal, socket, ssl, struct
+import argparse, base64, glob, html, json, os, re, shutil, signal, socket, ssl, struct
 import subprocess, sys, tempfile, threading, time, zipfile
 import http.server
 
@@ -1306,6 +1306,10 @@ PREF_LIST = [
     # misc surface
     "dom.security.https_only_mode", "geo.enabled", "browser.contentblocking.category",
     "devtools.debugger.remote-enabled", "app.update.auto",
+    # the autoconfig canary (LW-M3-08/LW-M3-11): lockPref'd by common.cfg, so a
+    # build whose packaged librewolf.cfg failed to evaluate reads "missing" here,
+    # and the one pref LW-M3-04's review moved to a real lock on Android.
+    "librewolf.cfg.version", "network.lna.block_trackers",
 ]
 
 JS_PREFDUMP = r"""
@@ -2424,7 +2428,7 @@ def apk_search_engines(apk):
     except KeyError:
         return None, []
 
-def check_search(m, res, adb, apk):
+def check_search(m, res, adb, apk, app=None, scheme=None):
     """LW-M4-06's acceptance says 'verified from a real query', and it has to be:
     Services.search DOES NOT EXIST in GeckoView (measured -- the chrome script
     raises "Services.search is undefined"), so the engine list is not readable
@@ -2469,31 +2473,335 @@ def check_search(m, res, adb, apk):
                 "the typed query never produced a URL containing %r -- search did not run" % token)
         return False
     codes = PARTNER_CODE_RE.findall(url)
-    engines, plugins = apk_search_engines(apk)
-    has_mojeek = any("mojeek" in p.lower() for p in plugins)
     host = re.sub(r"^https?://", "", url).split("/")[0]
-    ok = not codes and has_mojeek
+    # The legacy bundle (assets/search/list.json + searchplugins/*.xml) is what
+    # an APK scan sees, and since search-config.patch it is unreachable: Fenix
+    # builds its list from the app-services search-config-v2 dump.  Reported as
+    # context only; the engine set the user gets is read off the running app.
+    _engines, plugins = apk_search_engines(apk)
+    expected, expected_default = expected_engines()
+    shown, shown_default = [], None
+    if app is not None and scheme:
+        _deeplink(adb, app.pkg, scheme, "settings_search_engine")
+        sxml, spt = _find_row(adb, "Default search engine")
+        if spt:
+            after = sxml[sxml.find('text="Default search engine"') + 20:]
+            m2 = re.search(r'text="([^"]+)"', after)
+            shown_default = html.unescape(m2.group(1)) if m2 else None
+            adb.shell("input tap %d %d" % spt, timeout=60)
+            time.sleep(2.5)
+            shown = _ui_texts(_ui_dump(adb))
+            adb.shell("input keyevent 4", timeout=60)
+        adb.shell("input keyevent 4", timeout=60)
+    missing = [n for n in expected if n not in shown]
+    default_ok = bool(expected_default) and shown_default == expected_default
+    ok = not codes and not missing and default_ok
     res.add("check-search", ok,
-            ("real query went to %s with no partner/attribution parameter; Mojeek is in the "
-             "shipped engine set (%d plugins)" % (host, len(plugins)) if ok else
-             "real query URL %s carries %s and Mojeek present=%s (%d shipped searchplugins) "
-             "-- owned by LW-M4-06"
-             % (url[:160], ["%s=%s" % c for c in codes] or "no partner code", has_mojeek,
-                len(plugins))),
+            ("real query went to %s with no partner/attribution parameter; Settings > Search "
+             "lists every LibreWolf engine (%s) and the default is %r, as in "
+             "assets/search-config-v2.json" % (host, ", ".join(expected), shown_default))
+            if ok else
+            ("real query URL %s carries %s; engines missing from the running app's list: %s "
+             "(shown: %s); default shown=%r expected=%r -- owned by LW-M4-06"
+             % (url[:160], ["%s=%s" % c for c in codes] or "no partner code",
+                missing or "none", shown[:12], shown_default, expected_default)),
             {"url": url, "partner_codes": ["%s=%s" % c for c in codes],
-             "mojeek": has_mojeek, "plugins": plugins[:400]})
+             "expected_engines": expected, "expected_default": expected_default,
+             "shown_engine_screen": shown[:60], "shown_default": shown_default,
+             "legacy_bundle_plugins": len(plugins)})
+    return ok
+
+
+# --------------------------------------------------------------------------
+# Fenix UI helpers shared by the search gates (LW-M4-06 / LW-M4-11).  The
+# toolbar and the settings screens are Kotlin/Compose views: Marionette cannot
+# see them, so the evidence comes from uiautomator dumps and the packet capture.
+# --------------------------------------------------------------------------
+def _ui_dump(adb):
+    adb.shell("uiautomator dump /sdcard/lw-smoke-ui.xml", timeout=60)
+    return adb.shell("cat /sdcard/lw-smoke-ui.xml", timeout=60)
+
+def _text_bounds(xml, text):
+    m = re.search(r'text="%s"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"' % re.escape(text), xml)
+    if not m:
+        return None
+    return ((int(m.group(1)) + int(m.group(3))) // 2,
+            (int(m.group(2)) + int(m.group(4))) // 2)
+
+def _ui_texts(xml):
+    return [html.unescape(t) for t in re.findall(r'text="([^"]*)"', xml) if t]
+
+def _screen_size(adb):
+    m = re.search(r"(\d+)x(\d+)", adb.shell("wm size", timeout=30))
+    return (int(m.group(1)), int(m.group(2))) if m else (1080, 1920)
+
+def _find_row(adb, text, max_scrolls=6):
+    """(xml, centre) of the first node whose text is exactly `text`, scrolling the
+    screen down when it is below the fold.  centre is None when it never appears."""
+    w, h = _screen_size(adb)
+    xml = ""
+    for _ in range(max_scrolls + 1):
+        xml = _ui_dump(adb)
+        pt = _text_bounds(xml, text)
+        if pt:
+            return xml, pt
+        adb.shell("input swipe %d %d %d %d 300" % (w // 2, int(h * 0.78), w // 2, int(h * 0.3)),
+                  timeout=60)
+        time.sleep(1.2)
+    return xml, None
+
+def _switch_after(xml, text):
+    """Checked state of the first android.widget.Switch that follows the node
+    carrying `text` -- a SwitchPreferenceCompat row lays its widget out after
+    its title.  None when there is no such row."""
+    i = xml.find('text="%s"' % text)
+    if i < 0:
+        return None
+    m = re.search(r'class="android.widget.Switch"[^>]*checkable="true"[^>]*checked="(true|false)"',
+                  xml[i:])
+    return None if not m else (m.group(1) == "true")
+
+def _deeplink(adb, pkg, scheme, path):
+    """Same intent the strings walker uses: HomeDeepLinkIntentProcessor maps
+    <scheme>://settings_search_engine to the Search settings screen."""
+    adb.shell("am start -a android.intent.action.VIEW -d '%s://%s' %s" % (scheme, path, pkg),
+              timeout=90)
+    time.sleep(3)
+
+def deeplink_scheme(args, sdk, apk):
+    """The APK's own scheme when aapt2 is around to read it; otherwise the one
+    LW-M4-07's branding.patch registers, said out loud."""
+    if args.strings_scheme:
+        return args.strings_scheme
+    try:
+        return apk_deeplink_scheme(find_aapt2(args.aapt2, sdk), apk)
+    except HarnessError as e:
+        log("deep-link scheme: aapt2 unavailable (%s); assuming 'redoubt' (branding.patch). "
+            "If the deep link opens nothing the checks below FAIL, they do not pass." % e)
+        return "redoubt"
+
+def expected_engines():
+    """LibreWolf's engine set for an all-regions-and-locales user and its global
+    default, read from the SAME asset scripts/librewolf-patches.py ships into
+    the app-services dump -- so the gate compares the running app against what
+    the repository says, not against a list written into the harness."""
+    path = os.path.join(os.environ.get("LW_SMOKE_REPO", "."), "assets", "search-config-v2.json")
+    with open(path) as f:
+        cfg = json.load(f)
+    names, by_id, default_id = [], {}, None
+    for r in cfg["data"]:
+        if r.get("recordType") == "engine":
+            by_id[r["identifier"]] = r["base"]["name"]
+            if any((v.get("environment") or {}).get("allRegionsAndLocales")
+                   for v in r.get("variants", [])):
+                names.append(r["base"]["name"])
+        elif r.get("recordType") == "defaultEngines":
+            default_id = r.get("globalDefault")
+    return names, by_id.get(default_id)
+
+# Hosts of the sponsored top-sites feed.  In 153 "Contile" is the MARS / Mozilla
+# ads client at ads.mozilla.org (measured by LW-M4-10, see no-onboarding.patch);
+# the old contile host is kept so a rebase that brings it back is still caught.
+SPONSORED_TILE_HOSTS = ("ads.mozilla.org", "contile.services.mozilla.com")
+
+def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
+    """LW-M4-11.  Four things, each measured on the running build:
+      1. a query typed into the toolbar (input text, Enter NOT pressed) puts
+         nothing on the wire during a capture window;
+      2. pressing Enter then DOES put something on the wire -- the positive
+         control that proves the capture was alive, so a dead pcap cannot pass;
+      3. no sponsored-tile host anywhere in the capture since the app started;
+      4. the "Show search suggestions" switch exists in Settings > Search and
+         reads OFF -- acceptance line 3 (user-toggleable) and the default."""
+    require_pcap(pcap)
+    app.force_stop()
+    time.sleep(1)
+    guest = app.guest_ips()
+    off_all = pcap_size(pcap)
+    app.start_home()
+    time.sleep(8)
+    xml = _ui_dump(adb)
+    pt = None
+    for ident in URLBAR_IDS:
+        pt = _node_bounds(xml, ident)
+        if pt:
+            break
+    if not pt:
+        raise HarnessError("could not find the Fenix address bar in the UI tree (tried %s); "
+                           "without it nothing can be typed and this gate cannot run"
+                           % ", ".join(URLBAR_IDS))
+    adb.shell("input tap %d %d" % pt, timeout=60)
+    time.sleep(2)
+    token = "lwsmokeq%d" % int(time.time() % 100000)
+    off_typing = pcap_size(pcap)
+    for chunk in (token[:3], token[3:7], token[7:]):
+        adb.shell("input text %s" % chunk, timeout=60)
+        time.sleep(1.5)
+    log("check-no-suggest: typed %r into the toolbar; idling %ds WITHOUT pressing Enter "
+        "(device addresses: %s)" % (token, capture_seconds, ", ".join(sorted(guest))))
+    time.sleep(capture_seconds)
+    typing_rows = summarise_capture(pcap, off_typing, guest_ips=guest)
+    typing_app = [r for r in typing_rows if not r["os_noise"] and not r.get("harness")]
+    sys.stdout.write(render_capture(typing_rows))
+
+    off_enter = pcap_size(pcap)
+    adb.shell("input keyevent 66", timeout=60)
+    time.sleep(15)
+    enter_rows = summarise_capture(pcap, off_enter, guest_ips=guest)
+    enter_app = [r for r in enter_rows if not r["os_noise"] and not r.get("harness")]
+
+    all_rows = summarise_capture(pcap, off_all, guest_ips=guest)
+    sponsored = [r for r in all_rows
+                 if any(h in (r["detail"] or "").lower() for h in SPONSORED_TILE_HOSTS)]
+
+    _deeplink(adb, app.pkg, scheme, "settings_search_engine")
+    sxml, spt = _find_row(adb, "Show search suggestions")
+    switch = _switch_after(sxml, "Show search suggestions") if spt else None
+    adb.shell("input keyevent 4", timeout=60)
+
+    problems = []
+    if typing_app:
+        problems.append("%d outbound event(s) while the query sat in the toolbar, e.g. %s"
+                        % (len(typing_app),
+                           sorted({r["detail"] or r["dst"] for r in typing_app})[:6]))
+    if not enter_app:
+        problems.append("Enter produced NO outbound event in 15s -- the capture is dead or the "
+                        "search never ran, so the quiet typing window proves nothing")
+    if sponsored:
+        problems.append("%d event(s) to a sponsored-tile host: %s"
+                        % (len(sponsored), sorted({r["detail"] for r in sponsored})[:4]))
+    if switch is None:
+        problems.append("no 'Show search suggestions' switch found in Settings > Search "
+                        "(deep link %s://settings_search_engine) -- the setting must stay "
+                        "user-toggleable" % scheme)
+    elif switch:
+        problems.append("'Show search suggestions' reads ON by default")
+    ok = not problems
+    res.add("check-no-suggest", ok,
+            ("typed %r: 0 outbound events in %ds before Enter, %d after it (capture live); "
+             "no sponsored-tile host in %d app events since launch; 'Show search suggestions' "
+             "present in Settings > Search and OFF"
+             % (token, capture_seconds, len(enter_app),
+                len([r for r in all_rows if not r["os_noise"]]))) if ok else
+            "; ".join(problems) + " -- owned by LW-M4-11",
+            {"token": token, "typing_events": typing_app[:100], "enter_events": enter_app[:50],
+             "sponsored_events": sponsored[:50], "suggestions_switch": switch,
+             "capture_seconds": capture_seconds})
+    return ok
+
+# LW-M6-06.  The update host, overridable for a build made with
+# -PlwUpdateCheckEndpoint pointing somewhere else.
+UPDATE_CHECK_HOSTS = tuple(h for h in (os.environ.get("LW_SMOKE_UPDATE_HOST", ""), "redoubtbrowser.org") if h)
+
+def _switch_bounds_after(xml, text):
+    i = xml.find('text="%s"' % text)
+    if i < 0:
+        return None
+    m = re.search(r'class="android.widget.Switch"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml[i:])
+    if not m:
+        return None
+    return ((int(m.group(1)) + int(m.group(3))) // 2, (int(m.group(2)) + int(m.group(4))) // 2)
+
+def check_update_privacy(app, adb, pcap, capture_seconds, res, scheme):
+    """LW-M6-06.  Measured on the running build, from the emulator's own capture:
+      OFF  (the default): launch, idle, open Settings -- no event to an update
+           host.  This is the store-build invariant too: a build made without a
+           verification key has no "Check for updates" row at all.
+      ON   (only if the row exists; flipped through the UI like a user would):
+           relaunch and idle -- the update host is contacted, and NOTHING else
+           that was not already seen in the OFF window.  The endpoint need not
+           resolve: the DNS query alone shows the check ran and where it went."""
+    require_pcap(pcap)
+    app.force_stop()
+    time.sleep(1)
+    guest = app.guest_ips()
+
+    def hits(rows):
+        return [r for r in rows if not r["os_noise"] and not r.get("harness")
+                and any(h in (r["detail"] or "").lower() for h in UPDATE_CHECK_HOSTS)]
+
+    # ---- OFF ------------------------------------------------------------
+    off0 = pcap_size(pcap)
+    app.start_home()
+    time.sleep(max(15, capture_seconds // 2))
+    _deeplink(adb, app.pkg, scheme, "settings_privacy")
+    time.sleep(2)
+    sxml, spt = _find_row(adb, "Check for updates", max_scrolls=16)
+    compiled_in = spt is not None
+    time.sleep(5)
+    rows_off = summarise_capture(pcap, off0, guest_ips=guest)
+    app_off = [r for r in rows_off if not r["os_noise"] and not r.get("harness")]
+    off_hits = hits(rows_off)
+    seen_off = {(r["detail"] or r["dst"]) for r in app_off}
+    if not rows_off:
+        res.add("check-update-privacy", False,
+                "CAPTURE PRODUCED ZERO EVENTS in the OFF window -- a dead capture contains no "
+                "update host either, and this gate refuses to pass on that ambiguity",
+                {"total_events": 0})
+        return False
+
+    problems = []
+    evidence = {"compiled_in": compiled_in, "hosts_checked": list(UPDATE_CHECK_HOSTS),
+                "off_window_app_events": app_off[:100], "off_window_update_hits": off_hits[:20]}
+    if off_hits:
+        problems.append("%d event(s) to an update host with the check OFF (or absent): %s"
+                        % (len(off_hits), sorted({r["detail"] for r in off_hits})[:4]))
+
+    # ---- ON -------------------------------------------------------------
+    if compiled_in:
+        state = _switch_after(sxml, "Check for updates")
+        if state is None:
+            problems.append("'Check for updates' row found but no switch after it")
+        elif state:
+            problems.append("'Check for updates' reads ON by default")
+        else:
+            sw = _switch_bounds_after(sxml, "Check for updates")
+            adb.shell("input tap %d %d" % sw, timeout=60)
+            time.sleep(1.5)
+            now_on = _switch_after(_ui_dump(adb), "Check for updates")
+            evidence["switch_after_tap"] = now_on
+            if not now_on:
+                problems.append("tapping the switch did not turn it on")
+            else:
+                app.force_stop()
+                time.sleep(1)
+                off1 = pcap_size(pcap)
+                app.start_home()
+                log("check-update-privacy: switch ON, relaunched; idling %ds" % max(30, capture_seconds // 2))
+                time.sleep(max(30, capture_seconds // 2))
+                rows_on = summarise_capture(pcap, off1, guest_ips=guest)
+                app_on = [r for r in rows_on if not r["os_noise"] and not r.get("harness")]
+                on_hits = hits(rows_on)
+                new_hosts = sorted({(r["detail"] or r["dst"]) for r in app_on} - seen_off
+                                   - {r["detail"] for r in on_hits})
+                evidence["on_window_app_events"] = app_on[:100]
+                evidence["on_window_update_hits"] = on_hits[:20]
+                evidence["on_window_new_hosts_not_update"] = new_hosts
+                sys.stdout.write(render_capture(rows_on))
+                if not on_hits:
+                    problems.append("switch ON, relaunched, and NO event to an update host in the "
+                                    "window -- the check did not run, so nothing about it is proven")
+                if new_hosts:
+                    problems.append("with the check ON, %d host(s) appeared that the OFF window did not "
+                                    "have and that are not the update host: %s" % (len(new_hosts), new_hosts[:6]))
+                # leave the profile as we found it
+                _deeplink(adb, app.pkg, scheme, "settings_privacy")
+                sxml2, spt2 = _find_row(adb, "Check for updates", max_scrolls=16)
+                if spt2 and _switch_after(sxml2, "Check for updates"):
+                    adb.shell("input tap %d %d" % _switch_bounds_after(sxml2, "Check for updates"), timeout=60)
+    ok = not problems
+    res.add("check-update-privacy", ok,
+            (("update check compiled in: OFF by default, no update-host traffic across launch + "
+              "Settings (%d app events); switched ON through the UI, the update host was "
+              "contacted on relaunch and nothing else new" % len(app_off))
+             if compiled_in else
+             ("no 'Check for updates' row (compiled out, as a store build should be) and no "
+              "update-host traffic across launch + Settings (%d app events)" % len(app_off)))
+            if ok else "; ".join(problems) + " -- owned by LW-M6-06",
+            evidence)
     return ok
 
 NOT_IMPLEMENTED = {
-    "--check-no-suggest": (
-        "LW-M4-11. Needs keystroke-level evidence: type into the Fenix toolbar (a Kotlin view, "
-        "not a Gecko urlbar, so Marionette cannot reach it) and prove no request leaves before "
-        "Enter. Driving it with 'input text' plus a capture window is possible; a version that "
-        "only reads browser.search.suggest.enabled would pass on a build that still calls "
-        "merino, which is the failure this gate exists to catch."),
-    "--check-update-privacy": (
-        "LW-M6-06. There is no update-check implementation to test yet; the check has to be "
-        "written against the endpoint and the opt-in UI that task builds."),
 }
 
 # --------------------------------------------------------------------------
@@ -2579,7 +2887,8 @@ def main(argv):
     static_only = (args.check_no_gms or args.check_no_adjust or args.check_strings) and not (
         args.emulator or args.serial or args.pref_dump or args.network_capture
         or args.first_run_capture or args.check_ubo or args.check_search
-        or args.check_aboutconfig or args.self_test)
+        or args.check_aboutconfig or args.check_no_suggest or args.check_update_privacy
+        or args.self_test)
     if args.check_no_gms:
         check_no_gms(apk, res)
     if args.check_no_adjust:
@@ -2680,6 +2989,18 @@ def main(argv):
             ok = check_no_remote_settings(pcap, off, guest, args.capture_seconds, res)
             return finish(res, args, work)
 
+        # ---- --check-no-suggest: nothing leaves the toolbar before Enter ----
+        if args.check_no_suggest:
+            check_no_suggest(app, adb, pcap, args.capture_seconds, res,
+                             deeplink_scheme(args, sdk, apk))
+            return finish(res, args, work)
+
+        # ---- --check-update-privacy: opt-in, and silent when off (LW-M6-06) ----
+        if args.check_update_privacy:
+            check_update_privacy(app, adb, pcap, args.capture_seconds, res,
+                                 deeplink_scheme(args, sdk, apk))
+            return finish(res, args, work)
+
         # ---- the origin server and the browsing session -------------------
         ca_b64 = mint_certs(os.path.join(work, "harness"))
         video = base64.b64decode(open(os.path.join(HARNESS, "fixture-video.b64")).read())
@@ -2743,7 +3064,7 @@ def main(argv):
             check_ubo_preinstall(m, res)
             return finish(res, args, work)
         if args.check_search:
-            check_search(m, res, adb, apk)
+            check_search(m, res, adb, apk, app, deeplink_scheme(args, sdk, apk))
             return finish(res, args, work)
 
         # ---- the default suite --------------------------------------------

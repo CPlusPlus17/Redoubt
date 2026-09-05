@@ -653,6 +653,110 @@ REVIEWED_ORDER_FREE = (
      "measured order-free (LW-M4-02): both orders applied with zero rejects "
      "and produced byte-identical trees; disjoint but only 19-36 lines apart, "
      "so this is a measurement and not an eyeball"),
+
+    # LW-M4-11 (no-suggest) and LW-M4-06 (search-config), 2026-09-02. Every row
+    # below is a MEASUREMENT, not an eyeball: each shared file was extracted
+    # pristine from firefox-153.0esr.source.tar.xz and replayed through the
+    # android.txt sequence in list order, then once more per partner with the
+    # new patch moved in front of that partner. In every case patch exited 0
+    # both ways, wrote no .rej, and the two results were byte-identical; the
+    # only effect of the order is a line offset (quoted where non-zero). The
+    # script that did it is reproduced in docs/android/evidence/lw-m4-11/.
+    ("patches/android/no-nimbus.patch", "patches/android/no-suggest.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
+     "no-nimbus edits messaging/onboarding call sites; no-suggest deletes the "
+     "TopSitesRefresher observer (:595-603), the contile startPeriodicWork block "
+     "(:638-640) and stopPeriodicWork (:916). Byte-identical both ways "
+     "(sha256 cf447dd9...), no-suggest lands at offset -10 when first (LW-M4-11)"),
+    ("patches/android/no-adjust.patch", "patches/android/no-suggest.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt", "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt"),
+     "disjoint regions of both files; byte-identical both ways (HomeActivity.kt "
+     "sha256 cf447dd9..., Settings.kt db719ae5...), offsets of 1 and 5 lines "
+     "when swapped (LW-M4-11)"),
+    ("patches/android/no-onboarding.patch", "patches/android/no-suggest.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",
+      "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt"),
+     "no-onboarding edits the onboarding prefs (~:2220-2241) and three "
+     "SettingsTest assertions (~:850-891); no-suggest edits the search-suggestion "
+     "defaults (:1628-1653), showContileFeature (:2182) and the "
+     "showSearchSuggestions test (:440). Byte-identical both ways (Settings.kt "
+     "db719ae5..., SettingsTest.kt 0369a329...), offsets <= 17 lines (LW-M4-11)"),
+    ("patches/android/no-gms.patch", "patches/android/no-suggest.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
+     "no-gms edits ~:1961; no-suggest :1628-1653 and :2182. Byte-identical both "
+     "ways (sha256 db719ae5...), offset 5 when swapped (LW-M4-11)"),
+    ("patches/android/no-adjust.patch", "patches/android/search-config.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
+     "search-config's single Settings.kt hunk is useRemoteSearchConfiguration "
+     "(:2280-2283); no-adjust's is at ~:2297. Byte-identical both ways (sha256 "
+     "9d8ee639...), offset 14 when swapped (LW-M4-06)"),
+    ("patches/android/no-onboarding.patch", "patches/android/search-config.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
+     "disjoint (:2280-2283 vs ~:2220-2241); byte-identical both ways (sha256 "
+     "9d8ee639...), offset 14 when swapped (LW-M4-06)"),
+    ("patches/android/no-gms.patch", "patches/android/search-config.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
+     "disjoint (:2280-2283 vs ~:1961); byte-identical both ways (sha256 "
+     "9d8ee639...), offset 5 when swapped (LW-M4-06)"),
+    ("patches/android/no-suggest.patch", "patches/android/search-config.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
+     "disjoint (:2280-2283 vs :1628-1653 and :2182); byte-identical both ways "
+     "(sha256 9d8ee639...), no offset either way (LW-M4-06)"),
+    ("patches/android/no-glean.patch", "patches/android/search-config.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt",
+      "mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml"),
+     "no-glean removes the Glean debug rows; search-config removes the "
+     "remote-search-configuration switch (SecretSettingsFragment.kt :319-331, "
+     "secret_settings_preferences.xml :48-51). Byte-identical both ways "
+     "(sha256 502a232f... / 1545b5eb...), offsets 7 and -2 when swapped (LW-M4-06)"),
+    ("patches/android/rs-blocker-android.patch", "patches/android/search-config.patch",
+     ("third_party/application-services/components/remote_settings/src/client.rs",),
+     "rs-blocker-android edits fetch/sync/make_request (:377-, :639-); "
+     "search-config adds two ids (Mojeek, Startpage) to packaged_attachments! (:129). Byte-identical "
+     "both ways (sha256 918c0bd0...), rs-blocker lands at offset 12 when second "
+     "(LW-M4-06)"),
+
+    # LW-M6-06 (update-check), 2026-09-02, measured the same way as the rows above
+    # (pristine replay, list order and once per partner with update-check moved in
+    # front of it): exit 0 both ways, no .rej, byte-identical -- HomeActivity.kt
+    # sha256 dd8a1886..., app/build.gradle sha256 2ef204e5.... update-check adds one
+    # maybeRun() call in HomeActivity.onResume (~:760) and two buildConfigFields
+    # at the end of defaultConfig (build.gradle :88), regions none of the partners
+    # touch.
+    ("patches/android/no-nimbus.patch", "patches/android/update-check.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
+     "update-check adds one call in onResume (~:760), no-nimbus edits elsewhere; "
+     "byte-identical both ways (sha256 dd8a1886...) (LW-M6-06)"),
+    ("patches/android/no-adjust.patch", "patches/android/update-check.patch",
+     ("mobile/android/fenix/app/build.gradle", "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt"),
+     "update-check appends two buildConfigFields to defaultConfig (build.gradle :88) "
+     "and one call in HomeActivity.onResume (~:760); no-adjust edits the Adjust "
+     "dependency/config lines and other HomeActivity regions. Byte-identical both "
+     "ways (sha256 2ef204e5... / dd8a1886...) (LW-M6-06)"),
+    ("patches/android/no-suggest.patch", "patches/android/update-check.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
+     "update-check adds one call in onResume (~:760), no-suggest edits elsewhere; "
+     "byte-identical both ways (sha256 dd8a1886...) (LW-M6-06)"),
+    ("patches/android/no-glean.patch", "patches/android/update-check.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "update-check appends two buildConfigFields to defaultConfig (:88); no-glean edits the Glean dependency/config lines; "
+     "byte-identical both ways (sha256 2ef204e5...) (LW-M6-06)"),
+    ("patches/android/no-gms.patch", "patches/android/update-check.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "update-check appends two buildConfigFields to defaultConfig (:88); no-gms edits the GMS dependency/config lines; "
+     "byte-identical both ways (sha256 2ef204e5...) (LW-M6-06)"),
+    ("patches/android/no-crashreporter.patch", "patches/android/update-check.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "update-check appends two buildConfigFields to defaultConfig (:88); no-crashreporter edits the crash-reporter dependency lines; "
+     "byte-identical both ways (sha256 2ef204e5...) (LW-M6-06)"),
+    ("patches/android/fenix-abi-split.patch", "patches/android/update-check.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "update-check appends two buildConfigFields to defaultConfig (:88); fenix-abi-split edits the splits block; "
+     "byte-identical both ways (sha256 2ef204e5...) (LW-M6-06)"),
+    ("patches/android/branding.patch", "patches/android/update-check.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "update-check appends two buildConfigFields to defaultConfig (:88); branding edits applicationId / identity lines; "
+     "byte-identical both ways (sha256 2ef204e5...) (LW-M6-06)"),
 )
 
 

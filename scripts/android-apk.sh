@@ -184,6 +184,19 @@ SKIP_GECKO=0
 # unsigned, per the LW-M6-01 custody model. Empty by default: an unflagged
 # release build still carries the debug signature, exactly as before.
 DISABLE_DEBUG_SIGNING=""
+# LW-M6-06: the opt-in update check is compiled in only when the build is given
+# the base64 SubjectPublicKeyInfo of the key that signs the update document.
+# Read from the environment rather than a flag so the release workflow can pass
+# a checked-in PUBLIC key file without a new option; empty -> compiled out,
+# which is what the F-Droid and Accrescent builds want. The endpoint override is
+# for the smoke harness (docs/android/DISTRIBUTION.md).
+LW_UPDATE_CHECK_PROPS=""
+if [ -n "${LW_UPDATE_CHECK_PUBKEY:-}" ]; then
+    LW_UPDATE_CHECK_PROPS="-PlwUpdateCheckPubkey=${LW_UPDATE_CHECK_PUBKEY}"
+fi
+if [ -n "${LW_UPDATE_CHECK_ENDPOINT:-}" ]; then
+    LW_UPDATE_CHECK_PROPS="${LW_UPDATE_CHECK_PROPS} -PlwUpdateCheckEndpoint=${LW_UPDATE_CHECK_ENDPOINT}"
+fi
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -778,7 +791,7 @@ fi
 # --no-configuration-cache -- so this is a task-ordering race, not a broken
 # generator.  Pre-generating in a dedicated invocation puts the sources on
 # disk before the assemble graph runs, so the compile always sees them.
-./mach gradle fenix:generateSafeArgs$VARIANT_CAP $DISABLE_DEBUG_SIGNING
+./mach gradle fenix:generateSafeArgs$VARIANT_CAP $DISABLE_DEBUG_SIGNING $LW_UPDATE_CHECK_PROPS
 rc=\$?
 if [ \$rc -ne 0 ]; then
     date -u +'PASS apk END %Y-%m-%dT%H:%M:%SZ'
@@ -791,7 +804,7 @@ fi
 # container env for both passes, so reuse it; \$ keeps it for the container
 # shell, not the heredoc's host shell.  When unset (it is never unset here) the
 # build falls back to the original three-ABI split.
-./mach gradle fenix:assemble$VARIANT_CAP -PfenixSplitAbi="\$MOZ_ANDROID_FAT_AAR_ARCHITECTURES" $DISABLE_DEBUG_SIGNING
+./mach gradle fenix:assemble$VARIANT_CAP -PfenixSplitAbi="\$MOZ_ANDROID_FAT_AAR_ARCHITECTURES" $DISABLE_DEBUG_SIGNING $LW_UPDATE_CHECK_PROPS
 rc=\$?
 date -u +'PASS apk END %Y-%m-%dT%H:%M:%SZ'
 echo "MACH_EXIT=\$rc"

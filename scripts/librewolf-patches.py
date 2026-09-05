@@ -251,6 +251,152 @@ def delete_from_tree(path, description):
     exec('rm -vr {}'.format(path))
 
 
+#
+# LW-M4-06: the LibreWolf search configuration for Android.
+#
+# Fenix does not read services/settings/dumps/ (the copy a few lines below,
+# which is desktop's). Its engine list comes from the app-services `search`
+# component, which reads the `search-config-v2` and `search-config-icons`
+# Remote Settings collections from the dumps compiled INTO libmegazord.so by
+# third_party/application-services/components/remote_settings/src/client.rs
+# (packaged_collections! -> include_str!("dumps/main/<collection>.json"), plus
+# a .timestamp sidecar per collection and one include_bytes! per packaged icon
+# attachment, keyed by record id). With patches/android/rs-blocker-android.patch
+# those dumps are never refreshed over the network, so they ARE the shipped
+# configuration. This function puts LibreWolf's there. It is a plain copy of the
+# same assets desktop uses -- data, not diff hunks, so a rebase cannot reject on
+# a 150-record JSON hunk -- and every path it writes is asserted first, because
+# a `cp` into a directory upstream has renamed succeeds and changes nothing
+# (landmine L4, docs/android/AGENTS.md).
+#
+# Two transformations, both mechanical and both explained by the code that
+# consumes the result:
+#
+#   * icon records android-components cannot decode are dropped.
+#     SearchEngineReader.kt decodes image/svg+xml, image/x-icon, image/png and
+#     image/jpeg only, and SearchEngineSelectorRepository.findMatchingIcon
+#     returns the FIRST record whose engineIdentifiers prefix-matches. The
+#     shared assets/search-config-icons.json lists DuckDuckGo's application/pdf
+#     icon before its svg, so without this the default engine would get the
+#     generic icon.
+#   * the Mojeek attachment's hash/size, in both the record and the
+#     <id>.meta.json sidecar the Rust client compares it against
+#     (client.rs get_attachment: packaged data is served only when the record's
+#     attachment.hash/size equal the sidecar's), are computed from the file
+#     itself. assets/2c4b8834-...meta.json is desktop's full-record sidecar
+#     and its hash is not the sha256 of the file that ships next to it.
+#
+RS_DUMPS = "third_party/application-services/components/remote_settings/dumps/main"
+RS_ICONS_COLLECTION = "search-config-icons"
+ANDROID_ICON_MIMETYPES = ("image/svg+xml", "image/x-icon", "image/png", "image/jpeg")
+LW_ICON_ASSETS = ("2c4b8834-030c-4097-a887-c7506689095c",)   # mojeek-16.svg
+
+def android_search_config():
+    import hashlib, json
+    if options.no_execute:
+        print("# skipped under --no-execute: android search-config dump replacement ({})".format(RS_DUMPS))
+        sys.stdout.flush()
+        return
+    attach_dir = "{}/attachments/{}".format(RS_DUMPS, RS_ICONS_COLLECTION)
+    for path in ("{}/search-config-v2.json".format(RS_DUMPS),
+                 "{}/search-config-v2.timestamp".format(RS_DUMPS),
+                 "{}/{}.json".format(RS_DUMPS, RS_ICONS_COLLECTION),
+                 "{}/{}.timestamp".format(RS_DUMPS, RS_ICONS_COLLECTION),
+                 attach_dir):
+        if not os.path.exists(path):
+            print("fatal error: LW-M4-06 expects '{}' in the Firefox tree at {}".format(path, os.getcwd()))
+            print("  Nothing was written. Upstream has moved the app-services Remote Settings")
+            print("  dumps; find where they went and fix android_search_config() together with")
+            print("  patches/android/search-config.patch. See landmine L4 in docs/android/AGENTS.md.")
+            sys.stdout.flush()
+            script_exit(1)
+
+    with open("../assets/search-config-v2.json") as f:
+        cfg = json.load(f)
+    exec("cp -v ../assets/search-config-v2.json {}/search-config-v2.json".format(RS_DUMPS))
+    with open("{}/search-config-v2.timestamp".format(RS_DUMPS), "w") as f:
+        f.write("{}\n".format(cfg["timestamp"]))
+    print("write {}/search-config-v2.timestamp <- {}".format(RS_DUMPS, cfg["timestamp"]))
+
+    # Mojeek's attachment: file, sidecar, and the digest both must agree on.
+    digests = {}
+    for asset in LW_ICON_ASSETS:
+        src = "../assets/{}".format(asset)
+        with open(src, "rb") as f:
+            blob = f.read()
+        digests[asset] = (hashlib.sha256(blob).hexdigest(), len(blob))
+        exec("cp -v {} {}/{}".format(src, attach_dir, asset))
+
+    with open("../assets/search-config-icons.json") as f:
+        icons = json.load(f)
+    kept, dropped = [], []
+    for rec in icons["data"]:
+        att = rec.get("attachment") or {}
+        if att.get("mimetype") not in ANDROID_ICON_MIMETYPES:
+            dropped.append("{} ({}, {})".format(rec.get("id"), att.get("filename"), att.get("mimetype")))
+            continue
+        if rec["id"] in digests:
+            att["hash"], att["size"] = digests[rec["id"]]
+            with open("{}/{}.meta.json".format(attach_dir, rec["id"]), "w") as f:
+                json.dump({"location": att["location"], "hash": att["hash"], "size": att["size"]}, f, indent=2)
+                f.write("\n")
+            print("write {}/{}.meta.json <- sha256 {} size {}".format(attach_dir, rec["id"], att["hash"], att["size"]))
+        kept.append(rec)
+    # Three things must hold for every kept record, and a build that compiles
+    # proves none of them: the file and its sidecar exist; the sidecar's hash and
+    # size equal the record's (client.rs get_attachment serves packaged data only
+    # when they do); and the record id is in packaged_attachments! -- attachments
+    # are served from the binary by id and by nothing else, so a file that sits
+    # in the dumps directory unlisted (Startpage's, upstream) is not packaged.
+    # The list is read from the pristine client.rs plus the one patch that adds
+    # to it, because this runs before the patches are applied.
+    client_rs = "third_party/application-services/components/remote_settings/src/client.rs"
+    packaged = ""
+    for path in (client_rs, "../patches/android/search-config.patch"):
+        with open(path) as f:
+            packaged += f.read()
+    for rec in kept:
+        att = rec.get("attachment") or {}
+        for suffix in ("", ".meta.json"):
+            path = "{}/{}{}".format(attach_dir, rec["id"], suffix)
+            if not os.path.exists(path):
+                print("fatal error: search-config-icons record {} ({}) has no packaged attachment at {}".format(
+                    rec["id"], att.get("filename"), path))
+                print("  Every icon LibreWolf ships must be in the binary -- rs-blocker-android.patch makes the")
+                print("  network fetch fail by design. Add the file to assets/, list it in LW_ICON_ASSETS here,")
+                print("  and add its id to packaged_attachments! in patches/android/search-config.patch.")
+                sys.stdout.flush()
+                script_exit(1)
+        with open("{}/{}.meta.json".format(attach_dir, rec["id"])) as f:
+            meta = json.load(f)
+        if (meta.get("hash"), meta.get("size")) != (att.get("hash"), att.get("size")):
+            print("fatal error: search-config-icons record {} ({}) disagrees with its sidecar:".format(
+                rec["id"], att.get("filename")))
+            print("  record  hash={} size={}".format(att.get("hash"), att.get("size")))
+            print("  sidecar hash={} size={}".format(meta.get("hash"), meta.get("size")))
+            print("  client.rs get_attachment serves packaged data only when they agree, so this icon")
+            print("  would be a failed network fetch. Fix the asset or the record, not this check.")
+            sys.stdout.flush()
+            script_exit(1)
+        if '"{}"'.format(rec["id"]) not in packaged:
+            print("fatal error: search-config-icons record {} ({}) is not in packaged_attachments!".format(
+                rec["id"], att.get("filename")))
+            print("  Neither {} nor patches/android/search-config.patch lists it. The file being present in".format(client_rs))
+            print("  the dumps directory is not enough: include_bytes!() only packages listed ids, so the")
+            print("  engine would appear with no icon. Add the id to the patch's packaged_attachments! hunk.")
+            sys.stdout.flush()
+            script_exit(1)
+    with open("{}/{}.json".format(RS_DUMPS, RS_ICONS_COLLECTION), "w") as f:
+        json.dump({"data": kept, "timestamp": icons["timestamp"]}, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    with open("{}/{}.timestamp".format(RS_DUMPS, RS_ICONS_COLLECTION), "w") as f:
+        f.write("{}\n".format(icons["timestamp"]))
+    print("write {}/{}.json <- {} record(s) kept, {} dropped as undecodable on Android: {}".format(
+        RS_DUMPS, RS_ICONS_COLLECTION, len(kept), len(dropped), ", ".join(dropped) or "none"))
+    print("write {}/{}.timestamp <- {}".format(RS_DUMPS, RS_ICONS_COLLECTION, icons["timestamp"]))
+    sys.stdout.flush()
+
+
 PATCH_BIN = shutil.which("gpatch") or "patch"
 
 def patch(patchfile):
@@ -349,6 +495,11 @@ def librewolf_patches():
     # add mojeek
     exec('cp -v ../assets/2c4b8834-030c-4097-a887-c7506689095c services/settings/dumps/main/search-config-icons')
     exec('cp -v ../assets/2c4b8834-030c-4097-a887-c7506689095c.meta.json services/settings/dumps/main/search-config-icons')
+
+    # LW-M4-06: Fenix reads the app-services dumps, not services/settings/.
+    # See android_search_config() above.
+    if "android" in targets:
+        android_search_config()
 
     # apply common.txt, then one list per --targets. The lists are read from
     # PATCH_LIST_DIR (absolute), the patches themselves are applied from '../'

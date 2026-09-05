@@ -6,17 +6,18 @@ the contract for the one mechanism that fills that gap — an in-app version che
 against a signed, static endpoint — and for the two channels that already have
 their own updater (**F-Droid** and **Accrescent**), which must not double-notify.
 
-It is the **unblocked half of LW-M6-06**. The half that is still open is the code
-(`patches/android/update-check.patch`) and the endpoint itself; both depend on the
-distribution domain being decided. That domain is the open placeholder
-`redoubtbrowser.org` (`docs/android/IDENTITY.md`), and it is left literal here on
-purpose. **Nothing on this page is a real URL, hostname, or address.**
+It is the contract half of LW-M6-06. The code half is
+`patches/android/update-check.patch` (`org.mozilla.fenix.lw.UpdateCheck`, landed
+2026-09-02); the endpoint itself still depends on the distribution domain, which
+is the open placeholder `redoubtbrowser.org` (`docs/android/IDENTITY.md`) and is
+left literal here on purpose. **Nothing on this page is a real URL, hostname, or
+address**, and no verification key is checked in — a build made without one has
+the check compiled out (see "F-Droid and Accrescent do not double-notify").
 
-This page is a specification, not a shipped feature. It fixes the *shape* of the
-check and its privacy boundary so that when the domain exists and the patch is
-written, the decisions are already made — and so that the one thing a privacy
-browser must not do (a silent, always-on phone-home) is ruled out by design rather
-than by convention.
+This page fixes the *shape* of the check and its privacy boundary so that the one
+thing a privacy browser must not do (a silent, always-on phone-home) is ruled out
+by design rather than by convention. Where the implementation sharpened the
+contract, this page says so in place.
 
 ## What the check may do, and what it may not
 
@@ -26,7 +27,8 @@ Two lines from the task bound everything below:
   exists and links to the download. It does not download, install, or apply
   anything.
 - **Do not add a phone-home that runs without consent.** The check is off by
-  default and, when on, sends nothing but the current version string.
+  default and, when on, sends nothing that identifies the client — not even the
+  version string.
 
 The risk the task names is the one that sets the defaults: *"an always-on update
 ping is a periodic beacon with an IP address attached — exactly what users came
@@ -38,8 +40,9 @@ not a background timer.
 These are LW-M6-06's acceptance criteria, restated as things that must hold:
 
 1. **The check sends no identifier beyond the version string.** No device id, no
-   install id, no user id, no telemetry, no per-install value in any header. The
-   only thing in the request that identifies anything is the version string.
+   install id, no user id, no telemetry, no per-install value in any header. As
+   implemented it sends less than the acceptance wording allows: not even the
+   version string (see "What the client sends").
 2. **It is disclosed in the UI and can be turned off.** A visible setting, a
    plain description of what it sends and where, and a switch that stops it
    entirely.
@@ -71,9 +74,11 @@ there at all.
       "download_url":      "https://redoubtbrowser.org/downloads/redoubt-153.0.4-2.apk",
       "release_notes_url": "https://redoubtbrowser.org/releases/153.0.4-2/",
       "sha256":            "<hex digest of the APK the download link points to>",
-      "published_at":      "2026-08-22T00:00:00Z",
-      "signature":         "<base64 detached signature over this document>"
+      "published_at":      "2026-08-22T00:00:00Z"
     }
+
+    ENDPOINT.sig   base64 of the DER ECDSA P-256 / SHA-256 signature over the
+                   exact bytes of ENDPOINT
 
 - **latest_version** — the string the client compares against its own. This is
   the only thing the check needs to decide that a newer version exists.
@@ -84,8 +89,13 @@ there at all.
   artifact; the digest lives here so there is one source of truth rather than two.
 - **published_at** — so the client can treat a document that has not changed in an
   implausible amount of time as suspect rather than authoritative.
-- **signature** — a detached signature. An unsigned or mis-signed document is
-  refused, full stop — see below.
+- **the signature** lives *next to* the document, not inside it (`latest.json.sig`).
+  The first draft of this page put a `signature` field inside the JSON; a
+  signature over a JSON object needs a canonical form (whitespace, key order,
+  number formatting) agreed between the signing script and the Kotlin verifier,
+  and a mismatch there is a silent "no update" forever. Signing the served bytes
+  and shipping the signature beside them has nothing to get wrong. An unsigned or
+  mis-signed document is refused, full stop — see below.
 
 ### Signing
 
@@ -96,7 +106,15 @@ failure mode `docs/android/SECURITY.md` §2 exists to describe. So:
 
 - The document is signed with a key whose **public** half is embedded in the
   client at build time. The private half never leaves the signing host and never
-  appears in this page or in the patch.
+  appears in this page or in the patch. Concretely: ECDSA P-256 with SHA-256
+  (`SHA256withECDSA`, present on every Android release Fenix supports, unlike
+  Ed25519 which needs API 33); the client is handed the base64 DER
+  SubjectPublicKeyInfo through the Gradle property `lwUpdateCheckPubkey`, which
+  `scripts/android-apk.sh` forwards from the environment variable
+  `LW_UPDATE_CHECK_PUBKEY`. The maintainer's side is two openssl lines:
+
+      openssl ec -in update-key.pem -pubout -outform DER | base64 -w0     # -> LW_UPDATE_CHECK_PUBKEY
+      openssl dgst -sha256 -sign update-key.pem latest.json | base64 -w0 > latest.json.sig
 - The client verifies the signature before reading a single field. **On
   verification failure it behaves exactly as if the check had been turned off**:
   no prompt, no remote log, no crash. A bad signature is not an error the user is
@@ -109,16 +127,22 @@ failure mode `docs/android/SECURITY.md` §2 exists to describe. So:
 
 ## What the client sends
 
-Exactly one thing: the current version string. Nothing else identifies the client.
+Nothing that identifies the client — and, as implemented, not even the version
+string: the comparison happens on the device, so the server learns only that some
+Redoubt asked.
 
-    GET <ENDPOINT>   with the current version string and nothing else
+    GET <ENDPOINT>        User-Agent: Redoubt-UpdateCheck/1
+    GET <ENDPOINT>.sig    User-Agent: Redoubt-UpdateCheck/1
 
-- **In the request** — the version string (the same one shown on the About
-  screen) and nothing else: no device id, no install id, no user id, no add-on
-  list, no locale, no model. A static, non-identifying `User-Agent` is permitted
-  if the HTTP stack requires one; a per-install value in any header is not.
-- **In the response** — the document above. The client reads `latest_version`,
-  compares it to its own, and that is the whole transaction.
+- **In the request** — a static `User-Agent` that is the same literal on every
+  install, and nothing else: no device id, no install id, no user id, no add-on
+  list, no locale, no model, no cookies (`CookiePolicy.OMIT`), no cache validators
+  (`useCaches = false`, so no `ETag` / `If-Modified-Since` that could act as a
+  per-install token), no redirects followed. `UpdateCheckerTest` pins every one of
+  those request fields, because a packet capture cannot see inside TLS.
+- **In the response** — the document above and its signature. The client verifies
+  the signature, reads `latest_version`, compares it to its own, and that is the
+  whole transaction.
 - **On error** — any network failure, parse failure, or signature failure is
   handled locally and silently. There is no retry storm, no remote log, no
   telemetry of any kind. The most a failed check produces is an optional local log
@@ -146,7 +170,7 @@ Exactly one thing: the current version string. Nothing else identifies the clien
 - **A visible setting.** "Check for updates" as its own row in Settings, with a
   switch. Not buried, and not only on the About screen.
 - **A plain-language description** beside it, stating exactly: what is sent (the
-  version string, nothing else), where it goes (the endpoint on the distribution
+  nothing that identifies the device — not even the version string), where it goes (the endpoint on the distribution
   host), what it does (tells you a newer version exists and links to it), and what
   it never does (downloads, installs, or sends anything that identifies the device).
 - **The off switch stops everything.** Turning it off makes no request at all —
@@ -197,10 +221,14 @@ in-app prompt, or the same update is announced twice through two mechanisms.
 
 ## Status
 
-This is the specification and the invariants, and it is complete on its own terms:
-the check's privacy boundary, its frequency, its disclosure, and the channel split
-are all decided. What is not done is the half that needs the world — the domain
-(`redoubtbrowser.org`), the key (the skipped distribution tasks), the patch
-(`patches/android/update-check.patch`), and the smoke-test pass against a live
-endpoint. The domain is the load-bearing one: until it is decided, the endpoint is
-a contract, not an address.
+The contract and the code are done: `patches/android/update-check.patch` implements
+every invariant above (`org.mozilla.fenix.lw.UpdateCheck` / `UpdateChecker`, with
+`UpdateCheckerTest` pinning the request shape, the signature check and the version
+comparison), and `./scripts/android-smoke.sh --check-update-privacy` measures the
+network side on a running build: with the switch off, no traffic to the update host
+across launch and the settings screens; with it on, the update host and nothing
+else new. What still needs the world is the domain (`redoubtbrowser.org`) and the
+key (LW-M6-01's custody): until both exist, every build is made without a key and
+the check is compiled out — no row, no reachable code path — which is exactly the
+store-build configuration. The domain is the load-bearing one: until it is decided,
+the endpoint is a contract, not an address.

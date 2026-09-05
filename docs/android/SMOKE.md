@@ -331,14 +331,14 @@ task is genuinely done.
 |---|---|---|---|
 | `--check-no-gms` | LW-M4-05 | implemented | **FAIL** — 4,478 distinct `com.google.android.gms` strings in the dex string table |
 | `--check-no-adjust` | LW-M4-02 | implemented | **FAIL** — 324 `com.adjust.sdk` / `INSTALL_REFERRER` strings |
-| `--check-search` | LW-M4-06 | implemented | **FAIL** — a real typed query went to `https://www.google.com/search?client=firefox-b-m&q=…`; Mojeek absent from the 147 shipped searchplugins |
+| `--check-search` | LW-M4-06 | implemented | reads the engine list and the default off the running app's Settings > Search (deep link `settings_search_engine`), compares them with `assets/search-config-v2.json`, then runs a real typed query and inspects the landing URL for partner codes. On the stock build: **FAIL** (Google, `client=firefox-b-m`, no Mojeek) |
 | `--check-ubo` | LW-M4-04 | implemented | **FAIL** — no uBlock Origin among the 6 installed add-ons; `librewolf.uBO.assetsBootstrapLocation` unset |
 | `--first-run-capture` | LW-M4-10 | implemented | **FAIL** — 53–58 outbound events before any navigation |
 | `--network-capture` | LW-M4-01/03/08 | implemented | reports; the caller greps |
 | `--check-aboutconfig` | LW-M4-09 | implemented | exit 3 on a **debuggable** build (a pass there proves nothing); **PASS** on the release-configured APK — see below |
-| `--check-no-suggest` | LW-M4-11 | not implemented | exit 3 |
-| `--check-strings` | LW-M4-12 | not implemented | exit 3 |
-| `--check-update-privacy` | LW-M6-06 | not implemented | exit 3 |
+| `--check-no-suggest` | LW-M4-11 | implemented | types a query into the toolbar and idles with Enter NOT pressed: the capture window must be empty, then Enter must produce traffic (the positive control that proves the capture was alive), no sponsored-tile host (`ads.mozilla.org`) anywhere since launch, and the "Show search suggestions" switch must exist in Settings > Search and read OFF |
+| `--check-strings` | LW-M4-12 | implemented | two halves: the resource table (`aapt2` over the APK's `resources.arsc`, every locale) and a running-app traversal of the deep-linked settings screens (`--strings-locale`, `--strings-depth`, `--strings-max-taps`); a brand word in any string value that is not on the enumerated exception list fails it |
+| `--check-update-privacy` | LW-M6-06 | implemented | OFF window: launch, idle, open Settings — no event to an update host, and a dead capture (zero events) fails rather than passes. If the "Check for updates" row exists it must read OFF; the harness flips it, relaunches, and requires the update host to be contacted and nothing else new. A build without a row (compiled out, as a store build should be) passes the OFF half only |
 
 ### `--check-search` deserves a note
 
@@ -448,27 +448,32 @@ deliberate — when the pref is false the navigation never lands, and the failur
 has to come back as a check failure (exit 1) inside the Marionette socket's own
 120 s timeout rather than as a socket read error escaping as a traceback.
 
-### Why the last three are not implemented
+### How the last three checks were implemented
 
 Each of them has a version that would be easy to write and would go green while
 the defect it exists to catch is still present. That is the one outcome this
-harness must not produce, so they exit 3 with the reason instead:
+harness must not produce, so each stayed at exit 3 until it could be written the
+hard way:
 
-- **`--check-no-suggest`** needs keystroke-level evidence. The Fenix toolbar is
-  a Kotlin/Compose view, not a Gecko urlbar, so Marionette cannot see typing in
-  it; the proof has to be `input text` plus a capture window showing that
-  nothing leaves before Enter. A check that only read
-  `browser.search.suggest.enabled` would pass on a build that still calls
-  merino — which is exactly the failure. (The primitives now exist:
-  `--check-search` drives the same toolbar.)
-- **`--check-strings`** needs a traversal of the whole Fenix UI. A
-  `uiautomator dump` of the home screen and the settings root would pass today
-  on a build whose deeper screens still say Firefox. (For the record, one such
-  string is already visible from the `getusermedia` check: Android's own
-  permission dialog reads *"Allow **Firefox Fenix** to take pictures and record
+- **`--check-no-suggest`** — implemented 2026-09-02, the way this note asked for:
+  `input text` into the Compose toolbar, a capture window with Enter not
+  pressed, and a positive control (Enter must put the search on the wire) so a
+  dead capture cannot pass. It also refuses a build whose Settings > Search has
+  no "Show search suggestions" row, because LW-M4-11's third acceptance line is
+  that the setting stays user-toggleable.
+- **`--check-strings`** needed a traversal of the whole Fenix UI, because a
+  `uiautomator dump` of the home screen and the settings root would pass on a
+  build whose deeper screens still say Firefox. It now has two halves: the
+  resource table of the APK itself (every string value in every locale, read
+  with `aapt2`), and a deep-linked traversal of the settings screens on the
+  running app, repeatable per system locale. (For the record, one such string
+  was visible from the `getusermedia` check before LW-M4-12: Android's own
+  permission dialog read *"Allow **Firefox Fenix** to take pictures and record
   video?"*, which comes from the app label.)
-- **`--check-update-privacy`** has nothing to test yet. LW-M6-06 has to build
-  the endpoint and the opt-in UI first.
+- **`--check-update-privacy`** — implemented 2026-09-02 against LW-M6-06's
+  code. It measures the OFF state first and refuses to pass on a dead capture,
+  then, only when the row exists, turns the check on through the UI like a
+  user would and requires the update host to be the one new thing on the wire.
 
 ---
 
