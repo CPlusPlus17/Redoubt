@@ -1499,7 +1499,7 @@ tasks:
     title: Add caching and the real build job to CI
     milestone: M2
     depends_on: [LW-M2-03, LW-M0-09, LW-M0-16, LW-M2-06]
-    owns: [.forgejo/workflows/android-test.yaml, assets/Dockerfile.android]
+    owns: [.github/workflows/android-test.yaml, assets/Dockerfile.android]   # 2026-09-05: was .forgejo/ -- the repository is on GitHub and that copy is dead (android-test.yaml header)
     what: |
       Add sccache (or the tree's ccache support) and artifact caching so an
       incremental Android build fits the runner budget, then extend
@@ -3264,7 +3264,7 @@ tasks:
     title: Build the Android release pipeline
     milestone: M6
     depends_on: [LW-M6-02, LW-M2-08]
-    owns: [.forgejo/workflows/android-release.yaml]
+    owns: [.github/workflows/android-release.yaml]   # 2026-09-05: was .forgejo/, which does not exist -- the verify below grepped a missing file and passed
     reads: [.forgejo/workflows/source-release.yaml]
     what: |
       CI builds and publishes UNSIGNED artifacts plus their hashes; a maintainer
@@ -3276,7 +3276,7 @@ tasks:
       - "no signing key referenced anywhere in the workflow"
       - "unsigned artifacts carry published sha256 sums"
       - "publishing a release without a signature is blocked, not merely discouraged"
-    verify: "! grep -riE 'keystore|storepass|keypass' .forgejo/workflows/android-release.yaml"
+    verify: "test -f .github/workflows/android-release.yaml && ! grep -riE 'keystore|storepass|keypass' .github/workflows/android-release.yaml"
     effort_h: "6-12"
     skills: [ops, shell]
     agent_safe: yes

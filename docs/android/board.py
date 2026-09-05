@@ -746,9 +746,13 @@ def cmd_check_policies():
                       f"(matches version.android = {want})")
                 cands = preferred
     if not cands:
-        print("warn:  no extracted Firefox tree found — cannot check pref declarations")
-        print("       (extract one, or set LW_TREE=/path/to/firefox-<version>)")
-        return 0
+        # Exit 2, not 0: a check whose input is missing has no answer, and a gate
+        # that prints "warn" and exits 0 is the fail-open shape landmine L5 warns
+        # about — it was quoted as green from machines with no tree on disk.
+        print("error: no extracted Firefox tree found — cannot check pref declarations")
+        print("       (extract one with `make dir TARGETS=android`, or set LW_TREE=/path/to/tree)")
+        print("       An unanswerable check is not a pass: exit 2.")
+        return 2
     if len(cands) > 1:
         print("error: more than one extracted Firefox tree — refusing to guess which one "
               "this check should read:")
@@ -932,10 +936,15 @@ def cmd_check_fenix_tests(results_arg):
     else:
         cands = sorted(REPO.glob(FENIX_RESULTS_GLOB))
     if not cands:
-        print("warn:  no Fenix test results on disk — nothing to check")
+        # Exit 2, not 0. AGENTS.md makes "--check-fenix-tests exits 0" the
+        # Definition of done for every Kotlin change; with a 0 here it was met by
+        # never running the suite. An absent result is not a pass (same rule the
+        # function already applies to an empty XML directory below).
+        print("error: no Fenix test results on disk — nothing to check")
         print("       run `./mach gradle fenix:testDebugUnitTest` in the build container,")
         print("       or point at a results dir: --results <dir> / LW_FENIX_RESULTS=<dir>")
-        return 0
+        print("       An absent result is not a pass: exit 2.")
+        return 2
     if len(cands) > 1:
         # Same rule as --check-policies: never "whichever sorts first".
         print("error: more than one Fenix test-results directory — refusing to guess:")
