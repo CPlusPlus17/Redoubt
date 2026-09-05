@@ -34,7 +34,7 @@ and accepts the real cfg, so the gate is capable of failing.
 
 | Behaviour | Mechanism | Honoured on Android? |
 |---|---|---|
-| **DoH** | `[ANDROID: LOCK] GeckoRuntimeSettings.java` (common.cfg:259-260) | **Yes — code-locked**, independent of the cfg file |
+| **DoH** | cfg (common.cfg:259-260), then **overwritten at every cold start** by `Core.kt:190-191` → `GeckoEngine.kt:2032-2033` with Fenix's defaults (mode 0, empty URI) | **No — Fenix's DoH settings screen owns `network.trr.mode` / `network.trr.uri`**; our provider never reaches Gecko, and locking would leave that screen interactive while discarding every choice (`must-not-lock.txt`, commit 7c92b22). Corrected 2026-09-05; this row previously said "code-locked" |
 | **HTTPS-only** | cfg-only (no `[ANDROID: LOCK]`) | **At risk** — depends on the cfg being applied |
 | **CRLite/OCSP** | cfg-only (no `[ANDROID: LOCK]`) | **At risk** — depends on the cfg being applied |
 | **TLS floor** | cfg-only (no `[ANDROID: LOCK]`) | **At risk** — depends on the cfg being applied |
@@ -43,7 +43,9 @@ and accepts the real cfg, so the gate is capable of failing.
 `librewolf.cfg`, `local-settings.js`, or `policies.json` is packaged** — "the M3 gap
 LW-M3-08 exists to close." So the three cfg-only behaviours (HTTPS-only,
 CRLite/OCSP, TLS floor) are **not guaranteed to be honoured** in the reference
-build; only DoH is, because it is additionally locked in `GeckoRuntimeSettings`.
+build, and DoH — which this section once called the strongest of the four — is
+the one **known not to be**: Fenix rewrites both trr prefs on every cold start
+(row above). Net: none of the four is currently guaranteed on Android.
 
 **This is the honest divergence from desktop**: desktop LibreWolf ships the cfg
 (via `settings/distribution/` + autoconfig), so all four are applied; Android
@@ -78,8 +80,11 @@ must be read against that:
   running device **and** test servers. Neither is available here (only a 3072 MB
   AVD; no test servers). Parked per rule G, recorded, not faked. Next try: with a
   device, run the honoured layer against those four servers.
-- **DoH** is the one behaviour with a code path (`GeckoRuntimeSettings`) that does
-  not depend on the cfg, so it is the strongest of the four on Android.
+- **DoH** was thought to be the strongest of the four because `GeckoRuntimeSettings`
+  carries it; the code trace in commit 7c92b22 shows the opposite — Fenix's own
+  defaults overwrite ours at every cold start, and the setting belongs to a visible
+  screen, so it cannot be locked either. It is the weakest of the four until a
+  Fenix-side change makes our provider the screen's default.
 
 ## 5. Naming note (item e — the task's framing vs LibreWolf's mechanism)
 
