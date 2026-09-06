@@ -36,10 +36,10 @@ takes a hand-typed id list. Re-derive with `board.py --ready --done <ids>`.
 | `lint-patch-scope.py` | ok: 85 files, no violations |
 | `check-patch-order.py` | ok: 11/11 constraints, 78 shared-file pairs classified |
 | `check-patchfail.sh --targets=android` | exit 0 against the real ESR tarball |
-| `board.py --check-fenix-tests` | **exit 2 — never run.** The suite has no results on disk anywhere on this machine, and AGENTS.md makes this gate the Definition of done for every Kotlin change. It used to exit 0 on that. |
-| `android-pref-audit.sh` | **exit 2 — no baseline.** `docs/android/expected-prefs.txt` does not exist; LW-M3-05 owns it and it is required "from M3 onward". |
+| `board.py --check-fenix-tests` | **exit 0** — the suite was run for the first time on 2026-09-06: 598 classes / 5,426 tests, 93 failing = 90 environmental + 3 known-real + 0 unexpected. It found one unlisted class, which turned out to be the documented host-JVM/`libmegazord.so` cause and went back on the allowlist. Re-run it for any Kotlin change; results live in the objdir, so a wiped objdir means the gate has no input and exits 2. |
+| `android-pref-audit.sh` | **exit 0 with a device**, 2026-09-06 — `docs/android/expected-prefs.txt` now exists (60 rows, generated from a running build, LW-M3-05). Without a device it exits 2, which is correct rather than a pass. Regenerate the baseline for any build you intend to ship and read the diff. |
 | `make check-fuzz` | A report, not a gate: the recipe is `-`-prefixed so it always succeeds, and `fixfuzz` is the paired repair step. **The report has to be read.** Measured 2026-09-06 with `--fuzz=0 --targets=android`: **15 hunks in 13 patches** only apply because `patch` is allowed to fuzz, and **3 of them are in `webgl-permission-common.patch`** — more than any other patch, and the one landmine L1 is about. A rebase that shifts those three is how WebGL breaks silently. |
-| `android-smoke.sh` | needs a device. Static halves (`--check-no-gms`, `--check-no-adjust`) pass on the current APK. |
+| `android-smoke.sh` | needs an emulator for most checks. On the 2026-09-06 three-ABI artifact: `--check-search`, `--check-aboutconfig`, `--check-strings` (both halves), `--check-no-gms`, `--check-no-adjust` all pass; `--first-run-capture` and `--check-no-remote-settings` are red for the LW-M4-08 allowlist decision; `--check-no-suggest` fails its own capture-side positive control. See `evidence/lw-m7-06/README.md`. |
 
 ## The distinction that matters: LANDED is not VERIFIED
 
@@ -48,9 +48,11 @@ build**. In-repo device evidence exists for exactly two things: WebGL surviving
 landmine L1 (`evidence/lw-m6-07/smoke3/result.json`) and autoconfig loading with
 a lock surviving a Fenix toggle (`evidence/lw-m3-09`).
 
-The often-quoted "0 GMS / 0 Adjust / 14 first-run events" figure is **not current**.
-It was measured in `~/lw-fresh-2026-08-22/`, 46 commits ago, before the Remote
-Settings blocker landed. The current first-run count is unknown.
+The often-quoted "0 GMS / 0 Adjust / 14 first-run events" figure is superseded.
+Measured 2026-09-06 on the three-ABI build: **0 GMS, 0 Adjust, and 6 outbound events
+before any navigation** — all of them Remote Settings, permitted by LibreWolf's own
+33-collection allowlist rather than leaking past a patch. See LW-M4-08 and `BETA.md`
+entry criterion E12.
 
 Two findings worth carrying forward:
 
