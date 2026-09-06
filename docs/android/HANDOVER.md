@@ -397,6 +397,30 @@ Not hypotheticals. Each of these happened, and the pattern repeats.
   "five pairs" while the checker enforced nine; `check-patch-order.py`'s header
   claimed rows were missing that were present, so acting on it would have added
   duplicates. Both are now synced — keep them so.
+- **Patches that pass every gate and do not compile.** `update-check.patch`
+  (LW-M6-06) was written, reviewed, gated by `--check-scope`,
+  `check-patch-order`, `check-patchfail` and `lint-patch-scope`, and committed —
+  then failed `:fenix:compileReleaseKotlin` twice on the first build: an import
+  this tree does not have, and a `@Deprecated` call, which is fatal because Fenix
+  compiles Kotlin with `-Werror`. **No gate this project owns compiles anything.**
+  They check that a patch applies, is registered, is scoped and is ordered, which
+  is exactly what a file full of unresolvable symbols also does. `AGENTS.md`'s
+  Definition of done now says to build it (2026-09-06).
+- **Reading a stale artefact and believing it.** While chasing the first-run
+  Remote Settings traffic, `prefs-all.json` was read from
+  `~/.cache/librewolf-android-smoke/` *before* the run that regenerated it, and
+  the absence of every `librewolf.*` pref led to a confident, wrong conclusion
+  that the cfg layer was not applied on Android. The fresh dump has all ten of
+  them. The cache is flat and every run overwrites it in place — check the
+  mtime against the run you mean, or pass `--json` to a path of your own.
+- **Build state that is only reusable once.** The fat-AAR merge leaves the
+  `--fat-host-abi` objdir configured for the merge, so the *next* run's plain
+  per-ABI pass in that same objdir enters the `android-fat-aar-artifact` tier and
+  tries to **download** the other ABIs' `target.maven.zip` from Taskcluster
+  instead of building them — 16 seconds to fail, after the other ABIs have
+  already spent 17 minutes succeeding. Wiping that one objdir fixes it. Watch for
+  `ValueError: Must provide path to exactly one of hg and git` in the ABI log,
+  which is the download step failing, not a VCS problem.
 
 The common thread: on this project the failures are quiet. A build with the WebGL
 bug (landmine L1) installs, browses, and passes any smoke test that does not
