@@ -861,6 +861,20 @@ class App:
     def install(self, apk, reinstall=True):
         log("installing %s (%.0f MB)" % (os.path.basename(apk), os.path.getsize(apk) / 1e6))
         p = self.adb.run("install", "-r", apk, timeout=900)
+        # A rebuilt APK is usually signed by a DIFFERENT debug keystore: the build
+        # image ships none, so each container generates its own (REPRODUCIBLE.md).
+        # `adb install -r` then refuses with INSTALL_FAILED_UPDATE_INCOMPATIBLE
+        # against the copy an earlier run left on the AVD, and because the AVD
+        # persists in the work directory this hits every check on the first run
+        # after any rebuild -- eight of them in a row on 2026-09-06, each reported
+        # as "the harness could not run" with no hint that one uninstall fixes it.
+        # Uninstalling is safe here: the harness wipes app data anyway (`--keep-state`
+        # aside), so there is no state to preserve that a reinstall would not clear.
+        if "INSTALL_FAILED_UPDATE_INCOMPATIBLE" in (p.stdout + p.stderr):
+            log("existing %s was signed by a different key (rebuilt APK); "
+                "uninstalling it and installing again" % self.pkg)
+            self.adb.run("uninstall", self.pkg, timeout=300)
+            p = self.adb.run("install", "-r", apk, timeout=900)
         if "Success" not in p.stdout:
             raise HarnessError("adb install failed: %s%s" % (p.stdout, p.stderr))
         if self.pkg not in self.adb.shell("pm list packages %s" % self.pkg, timeout=60):
