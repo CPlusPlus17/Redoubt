@@ -2707,6 +2707,7 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
     sys.stdout.write(render_capture(typing_rows))
 
     off_enter = pcap_size(pcap)
+    rx0, tx0 = app.rx_tx()
     adb.shell("input keyevent 66", timeout=60)
     # POLL until the search shows up, do not sleep a fixed window and look once.
     # `emulator -tcpdump` buffers: on 2026-09-06 this control read an EMPTY window
@@ -2723,26 +2724,47 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
     # This matters more than one red check: the control exists so a dead capture
     # cannot be read as "nothing leaked". Deleting it to get a green is the one
     # repair that must not happen -- so it has to be able to pass honestly.
+    # The control is BYTES, not events, and that distinction is the whole bug.
+    # summarise_capture reports notable events -- a DNS query, a TCP SYN, a TLS
+    # SNI. Fenix warms a connection to the default engine when the toolbar opens,
+    # which is BEFORE this window starts, so pressing Enter reuses that
+    # connection and produces none of those three. The capture is not dead and
+    # never was: measured 2026-09-06 on this harness's own emulator, a launch
+    # added 773 KB to the pcap and one navigation added 2.6 MB, while the event
+    # count for a reused connection stayed at zero. A control that can only see
+    # handshakes calls a working search "no traffic" and fails a clean build.
+    #
+    # The kernel's per-uid accounting has no such blind spot, so the search is
+    # proven by the app's byte counters rising; events are still collected,
+    # because when they DO appear they name the host and that is worth having.
     enter_deadline = time.time() + max(180, capture_seconds * 3)
     enter_rows, enter_app = [], []
+    dtx = drx = 0
     while time.time() < enter_deadline:
         time.sleep(10)
         enter_rows = summarise_capture(pcap, off_enter, guest_ips=guest)
         enter_app = [r for r in enter_rows if not r["os_noise"] and not r.get("harness")]
-        if enter_app:
+        rx1, tx1 = app.rx_tx()
+        drx, dtx = rx1 - rx0, tx1 - tx0
+        # 2 KB of request plus response: comfortably above idle keep-alive noise
+        # and far below a real page load.
+        if enter_app or (dtx > 2048 and drx > 2048):
             break
-    log("check-no-suggest: post-Enter window closed after %ds with %d app event(s)"
-        % (int(time.time() - (enter_deadline - max(180, capture_seconds * 3))), len(enter_app)))
-    # Ask the UI whether the search actually ran. The failure message below names
-    # two possibilities -- "the capture is dead or the search never ran" -- and
-    # without this the reader cannot tell which, which is how three runs got
-    # spent on the wrong one. Leaving edit mode means Enter was accepted and the
-    # browser navigated; still being in it means the keystroke went nowhere.
+    searched = bool(enter_app) or (dtx > 2048 and drx > 2048)
+    log("check-no-suggest: post-Enter window closed after %ds with %d app event(s) and "
+        "app uid bytes rx+%d tx+%d"
+        % (int(time.time() - (enter_deadline - max(180, capture_seconds * 3))),
+           len(enter_app), drx, dtx))
+    # Whether Enter was consumed at all. NOT proof that a search ran: on
+    # 2026-09-06 the app left edit mode while both the packet capture and the
+    # kernel's per-uid byte counters recorded exactly zero traffic, so the query
+    # was never issued. Recorded because it separates "the keystroke went
+    # nowhere" from "the keystroke was taken and produced no request", which are
+    # different bugs to chase.
     post_xml = _ui_dump(adb)
-    navigated = "ADDRESSBAR_EDIT_MODE" not in post_xml
-    log("check-no-suggest: after Enter the app %s edit mode (%s)"
-        % ("left" if navigated else "is STILL IN",
-           "the search ran" if navigated else "the keystroke did not take"))
+    left_edit_mode = "ADDRESSBAR_EDIT_MODE" not in post_xml
+    log("check-no-suggest: after Enter the app %s edit mode"
+        % ("left" if left_edit_mode else "is STILL IN"))
 
     all_rows = summarise_capture(pcap, off_all, guest_ips=guest)
     sponsored = [r for r in all_rows
@@ -2758,16 +2780,18 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
         problems.append("%d outbound event(s) while the query sat in the toolbar, e.g. %s"
                         % (len(typing_app),
                            sorted({r["detail"] or r["dst"] for r in typing_app})[:6]))
-    if not enter_app:
+    if not searched:
         problems.append(
-            "Enter produced NO outbound event in %ds of polling, and the app %s -- so the "
-            "quiet typing window proves nothing. %s"
-            % (max(180, capture_seconds * 3),
-               "DID leave edit mode, i.e. the search ran and the capture missed it"
-               if navigated else
-               "is still in edit mode, i.e. the keystroke never took effect",
-               "Chase the capture, not the browser." if navigated else
-               "Chase the UI interaction, not the capture."))
+            "Enter produced NO outbound event and NO app traffic at all (uid bytes rx+%d "
+            "tx+%d) in %ds of polling, so the quiet typing window proves nothing. The app "
+            "%s. Two independent measurements agree here -- the packet capture and the "
+            "kernel's per-uid accounting -- so the search did not run; leaving edit mode "
+            "only means Enter was consumed, not that a query was issued. Chase the UI "
+            "interaction (does `input keyevent 66` commit this Compose field after a long "
+            "idle?), not the capture."
+            % (drx, dtx, max(180, capture_seconds * 3),
+               "did leave edit mode" if left_edit_mode
+               else "is still in edit mode, so the keystroke never took effect"))
     if sponsored:
         problems.append("%d event(s) to a sponsored-tile host: %s"
                         % (len(sponsored), sorted({r["detail"] for r in sponsored})[:4]))
@@ -2779,15 +2803,18 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
         problems.append("'Show search suggestions' reads ON by default")
     ok = not problems
     res.add("check-no-suggest", ok,
-            ("typed %r: 0 outbound events in %ds before Enter, %d after it (capture live); "
+            ("typed %r: 0 outbound events in %ds before Enter, then %d event(s) and "
+             "rx+%d/tx+%d app bytes after it (the search demonstrably ran); "
              "no sponsored-tile host in %d app events since launch; 'Show search suggestions' "
              "present in Settings > Search and OFF"
-             % (token, capture_seconds, len(enter_app),
+             % (token, capture_seconds, len(enter_app), drx, dtx,
                 len([r for r in all_rows if not r["os_noise"]]))) if ok else
             "; ".join(problems) + " -- owned by LW-M4-11",
-            {"token": token, "navigated_after_enter": navigated,
+            {"token": token, "left_edit_mode_after_enter": left_edit_mode,
              "typing_events": typing_app[:100], "enter_events": enter_app[:50],
              "sponsored_events": sponsored[:50], "suggestions_switch": switch,
+             "post_enter_rx_bytes": drx, "post_enter_tx_bytes": dtx,
+             "left_edit_mode_after_enter": left_edit_mode,
              "capture_seconds": capture_seconds})
     return ok
 

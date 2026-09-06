@@ -89,10 +89,29 @@ explanations applies:
 > mode, i.e. the search ran and the capture missed it** — so the quiet typing window
 > proves nothing. Chase the capture, not the browser.
 
-So this is a capture problem, confirmed from the UI rather than inferred. The same
-signature — a window containing *literally nothing* on a session where other windows
-are full — appears in the update-check ON window above. **LW-M4-11 stays unverified**,
-and the next person starts at `emulator -tcpdump`, not at the patch.
+That conclusion was **wrong**, and the correction is the useful part. Adding a second,
+independent measurement — the kernel's per-uid byte accounting, which has no view of
+handshakes and no parsing step — gives `rx+0 tx+0` across the same 180 seconds. So the
+capture was not missing anything: **no request was made at all.**
+
+Two other theories died on the way, both cheaply and both worth not re-running:
+
+- *"the emulator's pcap writer buffers."* It does not, measurably: on this harness's own
+  emulator a launch added **773 KB** to the capture and one navigation added **2.6 MB**,
+  in windows of 45 seconds.
+- *"Fenix warmed a connection when the toolbar opened, so Enter reused it and produced
+  no DNS/SYN/SNI."* Plausible, and ruled out by the byte counters — a reused connection
+  still moves bytes.
+
+What is left is that **Enter is consumed without issuing a query**. The app does leave
+`ADDRESSBAR_EDIT_MODE`, which is why this looked like a successful search from the UI,
+but leaving edit mode only means the keystroke was taken. Whether `input keyevent 66`
+commits this Compose field after a 60-second idle is the open question, and it is a
+question about driving the UI, not about the patch or the capture.
+
+**LW-M4-11 stays unverified.** Its subject still measures clean every time — nothing
+leaves while a query sits unsent, no sponsored-tile host, the switch present and OFF —
+and the control is right to refuse to pass on that alone.
 
 ---
 
