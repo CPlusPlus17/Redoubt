@@ -491,6 +491,56 @@ Android build succeed.
 
 ---
 
+## MOZ_BUILD_DATE is baked in per objdir, and a multi-ABI merge depends on it
+
+Measured 2026-09-06, after three failed fat-AAR merges.
+
+**The rule:** the build ID is fixed when an objdir is *configured*, not when it is
+built. `scripts/android-fat-aar.sh` picks one `MOZ_BUILD_DATE` per run and passes it
+to every ABI, but an objdir that already exists does not reconfigure — it keeps the
+date of its own first configure, and an incremental `mach build` happily relinks
+native code around it. Check it directly:
+
+```sh
+for d in armeabi-v7a arm64-v8a x86_64; do
+  printf '%-12s ' "$d"; grep -o '[0-9]\{14\}' librewolf-*/obj-$d/buildid.h
+done
+```
+
+**Why it matters:** the fat-AAR merger requires the non-native files in the per-ABI
+AARs to be byte-identical apart from a short upstream allowlist
+(`python/mozbuild/mozbuild/action/fat_aar.py`, which covers `AndroidManifest.xml`,
+`HardwareUtils.class`, `BuildConfig.class`, `buildconfig.html` and localized
+resources). `modules/AppConstants.sys.mjs` embeds the build ID and is **not** on that
+list, so objdirs configured on different days produce:
+
+```
+Disallowed: Path "modules/AppConstants.sys.mjs" has architecture-specific versions:
+  arm64-v8a   -> bb57fc95...
+  armeabi-v7a -> b8335dd3...
+  x86_64      -> 5979d6fa...
+gmake[3]: *** [Makefile:80: recurse_android-fat-aar-artifact] Error 1
+```
+
+Read that message carefully: it says *architecture-specific*, which invites the
+conclusion that 32-bit ARM is the problem. It was not. Three objdirs simply carried
+three build IDs — `20260906180741`, `20260905183254` and `20260906182608` — because
+each had been configured on a different run.
+
+**So:** a fat AAR spanning N ABIs needs all N objdirs configured with the same build
+date. Adding an ABI to an existing set does not work; either wipe the objdirs and
+build all of them in one run, or pass `--build-date` and make sure every objdir is
+reconfigured. Pinning the date with `--build-date` is also what makes a run
+reproducible (`REPRODUCIBLE.md`).
+
+**A second, related trap:** the merge leaves its `--fat-host-abi` objdir configured
+for the fat-AAR tier. A later run's plain per-ABI pass in that same objdir enters
+`android-fat-aar-artifact` and tries to *download* the other ABIs' `target.maven.zip`
+from Taskcluster rather than build them. It fails in about 16 seconds — but only after
+the other ABIs have finished — and the error it surfaces is `ValueError: Must provide
+path to exactly one of hg and git`, which looks like a version-control problem and is
+not. Remove that one objdir and re-run.
+
 ## Running the Fenix unit test suite (LW-M2-09)
 
 `AGENTS.md` requires `./mach gradle fenix:testDebugUnitTest` to pass for any
