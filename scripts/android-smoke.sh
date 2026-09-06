@@ -778,6 +778,17 @@ class Emulator:
         argv = [emu, "-avd", avd_name, "-no-window", "-no-audio", "-no-boot-anim",
                 "-gpu", "swiftshader_indirect", "-no-snapshot", "-no-metrics",
                 "-port", str(port), "-tcpdump", self.pcap]
+        # By default the emulator resolves through the HOST's resolvers, which is
+        # a measurement hazard rather than a convenience: this build machine's LAN
+        # resolver answers incoming.telemetry.mozilla.org and ads.mozilla.org with
+        # 0.0.0.0/::, so a capture taken here records the DNS question and never
+        # the connection that would have followed. A first-run count from such a
+        # run understates telemetry and must not be published. LW_SMOKE_DNS (or
+        # --dns-server) points the emulator at a resolver that answers honestly.
+        dns = os.environ.get("LW_SMOKE_DNS")
+        if dns:
+            argv += ["-dns-server", dns]
+            log("emulator DNS forced to %s (bypassing the host's resolvers)" % dns)
         logf = open(os.path.join(self.work, "emulator.log"), "w")
         log("booting emulator %s (%s/%s, x86_64), capture -> %s" % (avd_name, api, tag, self.pcap))
         self.proc = subprocess.Popen(argv, stdout=logf, stderr=subprocess.STDOUT, env=env,
@@ -2965,6 +2976,11 @@ def main(argv):
                          "deep-linked screen (default 1)")
     ap.add_argument("--strings-max-taps", type=int, default=14,
                     help="cap on rows the traversal opens per screen (default 14)")
+    ap.add_argument("--dns-server",
+                    help="resolver for the emulator to use, e.g. 9.9.9.9. Without it the "
+                         "emulator uses the host's resolvers, which on a machine whose LAN "
+                         "resolver sinkholes telemetry hosts silently understates a capture. "
+                         "Also settable as LW_SMOKE_DNS.")
     ap.add_argument("--keep-emulator", action="store_true", help="leave the emulator running")
     ap.add_argument("--keep-state", action="store_true",
                     help="do not wipe app data before the run")
@@ -2988,6 +3004,8 @@ def main(argv):
                   % (flag, why), file=sys.stderr)
             return EXIT_UNIMPLEMENTED
 
+    if args.dns_server:
+        os.environ["LW_SMOKE_DNS"] = args.dns_server
     work = args.work or WORK
     os.makedirs(work, exist_ok=True)
     res = Results()
