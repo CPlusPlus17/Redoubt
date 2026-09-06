@@ -101,8 +101,25 @@ were satisfied.
    `SHA256SUMS` as a workflow artifact.
 2. A holder downloads that artifact on an offline-capable machine.
 3. The holder verifies the artifact's sha256 against the CI-published sum.
-4. The holder signs with `apksigner`, using the keystore and passphrase.
-5. The holder verifies the signed APK reports the fingerprint above.
+4. The holder signs with `apksigner`, using the keystore and passphrase. Both
+   scheme v2 and v3 are required: Accrescent (LW-M6-04) rejects v2-only, and v3
+   is what carries a rotation lineage if one is ever needed. v1 is left off — it
+   is redundant on every supported API level and doubles the signing surface.
+
+       apksigner sign --ks redoubt-release.p12 --ks-type PKCS12 \
+           --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true \
+           --out fenix-<abi>-release-signed.apk fenix-<abi>-release-unsigned.apk
+
+5. The holder verifies the signed APK reports the fingerprint above and both
+   schemes:
+
+       apksigner verify --verbose --print-certs fenix-<abi>-release-signed.apk
+       # expect: Verified using v2 scheme (APK Signature Scheme v2): true
+       #         Verified using v3 scheme (APK Signature Scheme v3): true
+       #         Signer #1 certificate SHA-256 digest: 6414eb33...
+
+   Every APK built on the build machine so far is signed `CN=Android Debug`,
+   v2 only. None of them is a release artefact; do not hand one to a tester.
 6. The signed APK is published. CI never sees any of steps 2-6.
 
 ## If the key is compromised

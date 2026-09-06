@@ -146,7 +146,7 @@
          // More details here: https://github.com/mozilla-mobile/fenix/pull/27793#discussion_r1029892536
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,289 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -191,7 +191,6 @@
 +import org.mozilla.fenix.HomeActivity
 +import org.mozilla.fenix.R
 +import org.mozilla.fenix.ext.components
-+import org.mozilla.fenix.ext.settings
 +import java.io.IOException
 +import java.security.GeneralSecurityException
 +import java.security.KeyFactory
@@ -383,7 +382,7 @@
 +
 +    /** The user's switch, read from the same SharedPreferences the Settings screen writes. */
 +    fun isEnabled(context: Context): Boolean =
-+        isCompiledIn && context.settings().preferences.getBoolean(
++        isCompiledIn && context.components.settings.preferences.getBoolean(
 +            context.getString(R.string.pref_key_lw_update_check),
 +            false,
 +        )
