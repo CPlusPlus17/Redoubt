@@ -2709,6 +2709,16 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
             break
     log("check-no-suggest: post-Enter window closed after %ds with %d app event(s)"
         % (int(time.time() - (enter_deadline - max(180, capture_seconds * 3))), len(enter_app)))
+    # Ask the UI whether the search actually ran. The failure message below names
+    # two possibilities -- "the capture is dead or the search never ran" -- and
+    # without this the reader cannot tell which, which is how three runs got
+    # spent on the wrong one. Leaving edit mode means Enter was accepted and the
+    # browser navigated; still being in it means the keystroke went nowhere.
+    post_xml = _ui_dump(adb)
+    navigated = "ADDRESSBAR_EDIT_MODE" not in post_xml
+    log("check-no-suggest: after Enter the app %s edit mode (%s)"
+        % ("left" if navigated else "is STILL IN",
+           "the search ran" if navigated else "the keystroke did not take"))
 
     all_rows = summarise_capture(pcap, off_all, guest_ips=guest)
     sponsored = [r for r in all_rows
@@ -2725,9 +2735,15 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
                         % (len(typing_app),
                            sorted({r["detail"] or r["dst"] for r in typing_app})[:6]))
     if not enter_app:
-        problems.append("Enter produced NO outbound event in %ds of polling -- the capture is "
-                        "dead or the search never ran, so the quiet typing window proves "
-                        "nothing" % max(180, capture_seconds * 3))
+        problems.append(
+            "Enter produced NO outbound event in %ds of polling, and the app %s -- so the "
+            "quiet typing window proves nothing. %s"
+            % (max(180, capture_seconds * 3),
+               "DID leave edit mode, i.e. the search ran and the capture missed it"
+               if navigated else
+               "is still in edit mode, i.e. the keystroke never took effect",
+               "Chase the capture, not the browser." if navigated else
+               "Chase the UI interaction, not the capture."))
     if sponsored:
         problems.append("%d event(s) to a sponsored-tile host: %s"
                         % (len(sponsored), sorted({r["detail"] for r in sponsored})[:4]))
@@ -2745,7 +2761,8 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
              % (token, capture_seconds, len(enter_app),
                 len([r for r in all_rows if not r["os_noise"]]))) if ok else
             "; ".join(problems) + " -- owned by LW-M4-11",
-            {"token": token, "typing_events": typing_app[:100], "enter_events": enter_app[:50],
+            {"token": token, "navigated_after_enter": navigated,
+             "typing_events": typing_app[:100], "enter_events": enter_app[:50],
              "sponsored_events": sponsored[:50], "suggestions_switch": switch,
              "capture_seconds": capture_seconds})
     return ok
