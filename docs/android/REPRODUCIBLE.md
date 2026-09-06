@@ -37,7 +37,7 @@ The script exits `0` only if **both** builds succeed, **every** APK is
 byte-identical across the two runs, **every** APK is unsigned, and the
 negative control detects its injected difference.
 
-### Why unsigned, and why R8 off
+### Why unsigned, and why R8 was off (and no longer is)
 
 - **Unsigned** (`-PdisableDebugSigning`): the debug keystore is auto-generated
   per container (the image ships no `/root/.android/debug.keystore`), so any
@@ -45,6 +45,9 @@ negative control detects its injected difference.
   machine. `-PdisableDebugSigning` (fenix/app/build.gradle) is the same
   mechanism upstream uses for official automation builds, where signing happens
   in a separate service.
+- **R8** — the paragraph below describes the ORIGINAL run. Since 2026-09-06 the
+  script takes `--r8` and the R8-on configuration has been verified reproducible;
+  see residual item 2, which is now closed. The historical reasoning follows.
 - **R8 off** (`-PdisableOptimization`): in this tree the R8-minified release
   build crashes on launch (LW-M4-09: JNA field-order reflection vs R8
   renaming; the fix is LW-M6-07, not applied here), and every release APK this
@@ -200,10 +203,23 @@ reason for each.
      already neutralized by the pinned `MOZ_BUILD_DATE` / `GLEAN_BUILD_DATE`.
    This is stated plainly: **we have not, and on this hardware cannot, verify
    cross-machine byte-identity.**
-2. **R8 / minified release build — untested.** See section 1: the R8-on
-   configuration is currently broken on launch in this tree (LW-M4-09; fix
-   LW-M6-07 not applied), so the test exercises R8 off. R8's own
-   determinism is an unverified surface, not a verified pass.
+2. ~~**R8 / minified release build — untested.**~~ **Closed 2026-09-06.** The
+   premise expired: `r8-keep-rules.patch` (LW-M6-07) is in
+   `assets/patches/android.txt`, and R8-on release APKs built that day boot and
+   browse. `scripts/android-verify-repro.sh --r8` was run against the three-ABI
+   tree at `MOZ_BUILD_DATE=20260906190000`, and **two independent builds with R8
+   ON produced byte-identical unsigned APKs for all four artifacts** —
+   `armeabi-v7a`, `arm64-v8a`, `x86_64` and the universal — in 1,438 s. The
+   negative control detected an injected 1-byte difference, so the comparator is
+   not vacuous. Evidence: `docs/android/evidence/lw-m6-02/`.
+
+       fenix-arm64-v8a-release-unsigned.apk    e458419dd9aadb49…
+       fenix-armeabi-v7a-release-unsigned.apk  f2340a1e91850f04…
+       fenix-universal-release-unsigned.apk    c698a7feda552cc1…
+       fenix-x86_64-release-unsigned.apk       4a9a5d12dbbe91e1…
+
+   R8's determinism is therefore measured, not assumed. What is still not claimed
+   is cross-machine byte-identity (item 1) — this remains a same-machine result.
 3. **Gecko pass and per-ABI AAR inputs — out of scope.** The AARs
    (`target.maven.zip`) and the gecko build that produced them are shared
    prebuilt inputs here (LW-M2-03). Their reproducibility is a separate

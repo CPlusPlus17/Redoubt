@@ -2719,18 +2719,28 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
 
     off_enter = pcap_size(pcap)
     rx0, tx0 = app.rx_tx()
+    # Re-tap the field before committing. After the idle above the text is still
+    # there and the app is still in edit mode, but `input keyevent 66` alone was
+    # measured on 2026-09-06 to produce NO query at all -- zero packets AND zero
+    # bytes on the app's uid, while --check-search, which types and presses Enter
+    # with no pause, issues a real query on the same build. The difference is the
+    # wait, so the likeliest reading is that the IME connection to this Compose
+    # field does not survive it and the key goes to a view that no longer treats
+    # it as "go". Re-tapping restores focus without retyping, so the window above
+    # still measures exactly what it measured: a query sitting unsent for
+    # --capture-seconds with nothing on the wire.
+    if pt:
+        adb.shell("input tap %d %d" % pt, timeout=60)
+        time.sleep(1.5)
     adb.shell("input keyevent 66", timeout=60)
-    # POLL until the search shows up, do not sleep a fixed window and look once.
-    # `emulator -tcpdump` buffers: on 2026-09-06 this control read an EMPTY window
-    # three runs running on a build whose search demonstrably worked -- the same
-    # APK passed --check-search, and driving the identical sequence by hand (tap
-    # ADDRESSBAR_URL_BOX, input text, idle 60s, keyevent 66) reached the engine's
-    # results page every time. The tell was the *negative* window: it recorded
-    # zero app events across 60s, on a first launch that reliably contacts Remote
-    # Settings (--first-run-capture sees exactly that, same emulator, same build).
-    # A window with no traffic in it at all is a capture that has not been flushed
-    # yet, not a quiet app. Fixed sleeps cannot fix that; waiting until the bytes
-    # appear can, and it costs nothing on a run where they appear at once.
+    # POLL until the search shows up rather than sleeping once and looking. It
+    # costs nothing when the traffic lands immediately, and it removes a whole
+    # class of false red.
+    #
+    # (An earlier revision of this comment blamed `emulator -tcpdump` buffering.
+    # That was wrong and is recorded in evidence/lw-m7-06/README.md: a launch
+    # adds ~773 KB to the capture and one navigation ~2.6 MB, in 45s windows.
+    # The capture is not the problem.)
     #
     # This matters more than one red check: the control exists so a dead capture
     # cannot be read as "nothing leaked". Deleting it to get a green is the one
