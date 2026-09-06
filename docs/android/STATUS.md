@@ -1,73 +1,80 @@
-# Status snapshot — 2026-08-18
+# Status snapshot — 2026-09-06
 
-Written at a hard stop: the API began returning 529 Overloaded for every subagent
-spawn (three consecutive workflow resumes, `subagent_tokens: 0` each time, i.e.
-nothing ran). The tree is left in a green, self-consistent state. This file records
-what is true, what is merely landed, and what is not started, so the next session
-does not have to reconstruct it.
+What is true today, what is merely landed, and what is not started. Replaces the
+2026-08-18 snapshot, which had gone 19 days stale and said false things — it
+counted 82 tasks (there are 89), 12 android patches (there are 25), and listed
+LW-M4-05 as "produced nothing across three attempts" when `no-gms.patch` is
+landed and its removal measured on a built APK.
 
-## Gates — all ten green as of this snapshot
+**This file is a snapshot and will go stale the same way.** Re-derive rather than
+quote it: the numbers below come from the commands shown, and every one of them
+runs in under a minute.
 
-    board.py --check            82 tasks, 17 waves, 0 warnings
-    board.py --check-scope      72 listed patch files (24 common / 36 desktop / 12 android)
-    board.py --check-cfg-split  182 common / 85 desktop / 2 android; librewolf.cfg regenerates exactly
-    board.py --check-policies   101 GeckoView-declared prefs, 21 shipped by us, all acknowledged
-    board.py --diff-mozconfig   hardening parity holds
-    lint-patch-scope            72 patch files, no scope violations
-    check-patch-order           7/7 constraints, 40 shared-file pairs classified
-    check-patchfail             desktop 0, android (--use-desktop-tarball) 0
+## Milestone state — 67 / 89 done
 
-## Milestone state
+    M0 15/16 · M1 16/16 · M2 8/9 · M3 9/11 · M4 10/16 · M5 3/7 · M6 2/7 · M7 4/7
 
-M0 16/16 · M1 16/16 · M2 6/8 · M3 3/8 · M4 5/13 (see caveat) · M5 3/7 · M6 0/6 · M7 3/7
+Not done (22): LW-M0-07, M2-08\*, M3-05, M3-07, M4-04, M4-06\*, M4-08, M4-10,
+M4-11\*, M4-12, M5-01, M5-04, M5-05, M5-06, M6-01, M6-02, M6-03, M6-04, M6-06\*,
+M7-02, M7-04, M7-06.
 
-## The caveat that matters: LANDED IS NOT VERIFIED
+\* M4-06, M4-11, M6-06 and M2-08 landed code on 2026-09-05/06 and are awaiting
+device evidence or a CI run; they are counted not-done until their `verify`
+passes. The done-set was derived from git log, `docs/android/evidence/<id>/` and
+owned files, because **`tasks.yaml` has no status field** — `board.py --done`
+takes a hand-typed id list. Re-derive with `board.py --ready --done <ids>`.
 
-Batch 7 landed five patches but **every one of its six verifiers died**, as did the
-integrate step. So the following are *applied and gate-clean*, and nothing more:
+## Gates, as measured today
 
-    patches/android/no-glean.patch          LW-M4-01
-    patches/android/no-adjust.patch         LW-M4-02
-    patches/android/no-onboarding.patch     LW-M4-10
-    patches/android/no-nimbus.patch         LW-M4-13 (rewritten, incl. the test-casualty fix)
-    patches/android/no-nimbus-toolkit.patch LW-M4-13
-    patches/android/autoconfig-resource-fallback.patch  LW-M3-02 (now listed, no longer pending)
+| gate | result |
+|---|---|
+| `board.py --check` | ok: 89 tasks, 17 waves, 0 warnings |
+| `board.py --check-scope` | ok: 85 patch files (24 common / 36 desktop / 25 android); one declared-pending warning, `ubo-preinstall.patch` (LW-M3-07, parked) |
+| `board.py --check-cfg-split` | ok: 182 common / 85 desktop / 6 android; `librewolf.cfg` regenerates exactly |
+| `board.py --check-policies` | ok: 137 prefs declared by GeckoView, 26 shipped by us, every unlocked one classified. **Needs a tree**: `LW_TREE=librewolf-153.0esr-1` |
+| `board.py --diff-mozconfig` | ok: hardening parity holds |
+| `lint-patch-scope.py` | ok: 85 files, no violations |
+| `check-patch-order.py` | ok: 11/11 constraints, 78 shared-file pairs classified |
+| `check-patchfail.sh --targets=android` | exit 0 against the real ESR tarball |
+| `board.py --check-fenix-tests` | **exit 2 — never run.** The suite has no results on disk anywhere on this machine, and AGENTS.md makes this gate the Definition of done for every Kotlin change. It used to exit 0 on that. |
+| `android-pref-audit.sh` | **exit 2 — no baseline.** `docs/android/expected-prefs.txt` does not exist; LW-M3-05 owns it and it is required "from M3 onward". |
+| `make check-fuzz` | writes `patchfail-fuzz.out`; the recipe is `-`-prefixed, so it **cannot fail the build**. 14 android hunks apply with fuzz, `webgl-permission-common.patch` among them — the landmine-L1 patch. |
+| `android-smoke.sh` | needs a device. Static halves (`--check-no-gms`, `--check-no-adjust`) pass on the current APK. |
 
-What the gates DO prove: the patches apply, are correctly scoped for the android
-target, preserve the desktop applied-set, and satisfy the ordering constraints.
+## The distinction that matters: LANDED is not VERIFIED
 
-What NOTHING has proved yet, and what the M4 acceptance criteria actually demand:
-  1. that Glean and Adjust are absent from the BUILT dex, not merely deleted from
-     gradle files. Transitive inclusion survives exactly this kind of change.
-  2. that a first-run network capture is empty. M4's headline claim — zero outbound
-     requests between install and first navigation — has never been measured, and no
-     single task could measure it, because each only carries its own patch.
+Most of the tree is **landed and gated**. Very little is **verified on a running
+build**. In-repo device evidence exists for exactly two things: WebGL surviving
+landmine L1 (`evidence/lw-m6-07/smoke3/result.json`) and autoconfig loading with
+a lock surviving a Fenix toggle (`evidence/lw-m3-09`).
 
-Cheap evidence I did gather by hand, which is encouraging but not proof:
-  - `no-adjust` touches `gradle/libs.versions.toml` AND `app/build.gradle` (96 removed
-    lines mentioning the SDK), so the version-catalog coordinate is gone, not just its
-    usages. `no-glean` touches `app/build.gradle` (175 removed lines).
-  - Both touch 3 test files each, and `no-nimbus` touches 1 — so the unit-test
-    casualty class that LW-M4-03 shipped blind was handled proactively this time.
+The often-quoted "0 GMS / 0 Adjust / 14 first-run events" figure is **not current**.
+It was measured in `~/lw-fresh-2026-08-22/`, 46 commits ago, before the Remote
+Settings blocker landed. The current first-run count is unknown.
 
-## Not started
+Two findings worth carrying forward:
 
-**LW-M4-05 (strip Play Integrity, Firebase, GMS)** produced nothing across three
-attempts. There is no `patches/android/no-gms.patch` and no reference to one in
-`assets/patches/android.txt`. It is the only batch-7 task with zero work on disk.
+- **The gates do not check that code compiles.** `update-check.patch` (LW-M6-06)
+  passed scope, order, patchfail and review, and then failed
+  `:fenix:compileReleaseKotlin` twice on first build — an import this tree does
+  not have, then a deprecated call under `-Werror`. Every gate stayed green. The
+  answer is LW-M2-08's build job, added 2026-09-06.
+- **Captures taken on this build host under-count.** The LAN resolver returns
+  `0.0.0.0` for `incoming.telemetry.mozilla.org` and `ads.mozilla.org`, so only
+  the DNS query is ever visible. `firefox.settings.services.mozilla.com` is not
+  filtered. A first-run count from here is not publishable — see `BETA.md` E11.
 
-## Resume instructions
+## What is not started
 
-    Workflow({scriptPath: ".../librewolf-android-batch7-wf_fcc085c8-382.js",
-              resumeFromRunId: "wf_fcc085c8-382"})
+- **LW-M7-04**: `TRIAGE.md` §0 has no OWNER and no BACKUP. That document calls it
+  a LAUNCH BLOCKER in its own words.
+- **LW-M6-01 acceptance**: one key holder, two copies. `SIGNING.md` records the
+  gap rather than papering over it. Every APK built so far is `CN=Android Debug`,
+  v2-only; Accrescent needs v3.
+- **Sign-offs**: `TRACK.md` §8 (ESR track) and `PARITY.md` §5 (the public wording,
+  marked "Do not publish as-is") are both blank.
 
-Three agents replay from cache. Run LW-M4-05 ALONE first if the API is still
-flaky — it is the only task needing fresh implementation work, and a single agent
-has a better chance than ten concurrent ones.
+## Where to start
 
-## Human decisions still outstanding
-
-  LW-M4-07  the applicationId — irreversible after first release, blocks nothing else technically
-  LW-M6-01  signing key generation and custody
-  LW-M6-03/04  F-Droid repo and Accrescent accounts
-  LW-M7-06  closed-beta go/no-go
+`docs/android/BETA.md` is the ordered list — eleven entry criteria with their
+evidence and status. E7–E10 need a person; the rest is build-and-measure work.
