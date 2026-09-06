@@ -68,9 +68,11 @@ genuine difference, and it is not a reason to pretend the other gap away.
   are *Partial* or *Pending*, not *Equivalent*.
 - **It cannot carry LibreWolf's signing-key identity.** A fork is a distinct
   trust root — a platform fact, not a configuration choice.
-- **It is not published yet.** The applicationId and the hosting domain are still
-  open placeholders, and the current build still ships in the `org.mozilla`
-  namespace. Nothing here should be read as an available download.
+- **It is not published yet.** The applicationId and the hosting domain are
+  decided (`org.redoubtbrowser`, `redoubtbrowser.org` — `IDENTITY.md`, 2026-08-23),
+  the build does ship under that applicationId, and the domain is registered but
+  serves nothing. What is missing is a release-signed artefact, a download page and
+  a closed beta (`BETA.md`). Nothing here should be read as an available download.
 
 The full measured matrix, including the rows still pending on a live device, is
 in `docs/android/PARITY.md`.
@@ -84,8 +86,12 @@ project out of the LibreWolf name also keeps it out of the Firefox name.
 
 ## Status
 
-Not published. Before any public build: the `org.redoubtbrowser` applicationId and the
-`redoubtbrowser.org` hosting domain must be decided (both one-way, both still open
-placeholders), the branding must stop shipping as `org.mozilla`, and the final
-public wording above must be approved by the owner. Until then this page
-describes intent and measurement, not a product on a shelf.
+Not published. The `org.redoubtbrowser` applicationId and the `redoubtbrowser.org`
+domain were decided on 2026-08-23 (both one-way) and the build carries the
+applicationId — an earlier revision of this paragraph still called them open
+placeholders and said the build shipped as `org.mozilla`, and both had stopped being
+true. What remains before any public build: a release-signed artefact with a second
+key holder (`SIGNING.md`), the closed beta's entry and exit criteria met (`BETA.md`),
+and the final public wording above approved by the owner — still unsigned in
+`PARITY.md` §5. Until then this page describes intent and measurement, not a product
+on a shelf.

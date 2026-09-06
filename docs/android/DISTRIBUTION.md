@@ -9,9 +9,9 @@ their own updater (**F-Droid** and **Accrescent**), which must not double-notify
 It is the contract half of LW-M6-06. The code half is
 `patches/android/update-check.patch` (`org.mozilla.fenix.lw.UpdateCheck`, landed
 2026-09-02); the endpoint itself still depends on the distribution domain, which
-is the open placeholder `redoubtbrowser.org` (`docs/android/IDENTITY.md`) and is
-left literal here on purpose. **Nothing on this page is a real URL, hostname, or
-address**, and no verification key is checked in — a build made without one has
+is `redoubtbrowser.org` (`docs/android/IDENTITY.md`, decided 2026-08-23 — the
+domain is registered and resolves; what does not exist yet is anything served on
+it). **No path on this page is live**, and no verification key is checked in — a build made without one has
 the check compiled out (see "F-Droid and Accrescent do not double-notify").
 
 This page fixes the *shape* of the check and its privacy boundary so that the one
@@ -52,14 +52,17 @@ These are LW-M6-06's acceptance criteria, restated as things that must hold:
 ## The endpoint
 
 The endpoint is a single static document, served over TLS, on the distribution
-host. The host is the open placeholder:
+host:
 
     ENDPOINT  https://redoubtbrowser.org/updates/android/latest.json
 
-`redoubtbrowser.org` is **not a real hostname**. It is the placeholder from
-`docs/android/IDENTITY.md`, left literal on purpose — this page does not invent a
-domain, hostname, or URL. The path is a contract constant both the client and the
-server must implement (and can be renamed in one place when the domain is
+`redoubtbrowser.org` is the decided domain (`docs/android/IDENTITY.md`, 2026-08-23);
+it is registered and resolves to a parking page. **Nothing is served at this path
+yet** — that is the open half, not the hostname. Earlier revisions of this page
+called the domain "an open placeholder" and "not a real hostname", which
+contradicted IDENTITY.md's "no placeholders remain"; the contradiction is the thing
+to avoid restoring. The path is a contract constant both the client and the
+server must implement (and can be renamed in one place when the layout is
 decided); the host is the only undecided part, and the URL does not resolve until
 `redoubtbrowser.org` does.
 
@@ -205,9 +208,10 @@ in-app prompt, or the same update is announced twice through two mechanisms.
 
 ## What this page does not decide
 
-- **The domain.** `redoubtbrowser.org` is the open placeholder. The exact host, and
-  whether the endpoint is a separate origin, wait on that decision. This page names
-  the shape so that decision is smaller when it happens.
+- **The origin layout.** The domain itself is decided and registered
+  (`redoubtbrowser.org`). What is open is whether the update endpoint lives on that
+  host or a separate origin, and what actually gets served there. This page names the
+  shape so that decision is smaller when it happens.
 - **The key.** The signing key belongs to the skipped distribution tasks. This page
   states the requirement, not the key; no key material appears here or in the patch.
 - **The implementation.** `patches/android/update-check.patch` (the Kotlin, the
