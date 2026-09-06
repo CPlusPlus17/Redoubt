@@ -175,11 +175,20 @@ jobs:
     env:
       # Everything persistent lives here, outside the workspace.
       LW_CI_ROOT: ${{ github.workspace }}/../../../redoubt-ci
-      # x86_64 only in CI: it is the emulator ABI the smoke harness runs, and one
-      # ABI keeps a cold build near the measured 805 s compile + 476 s merge +
-      # 287 s gecko pass + 1365 s gradle (build-times.txt, 2026-09-02). Ship
-      # builds carry the ARM ABIs; see android-release.yaml.
-      LW_CI_ABIS: x86_64
+      # ALL THREE ABIs, and not as a nicety. scripts/android-apk.sh refuses to
+      # emit a universal APK whose ABI directories are not all backed by a
+      # libxul.so, and three AndroidX/JNA dependencies ship prebuilt .so files
+      # for armeabi-v7a whether or not that ABI was built -- so a one- or
+      # two-ABI run dies at that check with a message about the universal APK,
+      # which reads as a broken pipeline rather than the deliberate refusal it
+      # is. Measured 2026-09-06: exactly this killed a local two-ABI build after
+      # the Gradle stage had already succeeded.
+      #
+      # Cost, from build-times.txt: a COLD run is roughly 950 s per ABI plus a
+      # ~530 s merge plus the ~530 s Gradle stage, so about an hour -- inside the
+      # 360-minute timeout, and it is the price of the tree cache below being
+      # able to make every later run incremental.
+      LW_CI_ABIS: armeabi-v7a,arm64-v8a,x86_64
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -310,6 +319,17 @@ jobs:
           apk="$LW_CI_ROOT/out/apk/apk/fenix-x86_64-release.apk"
           test -f "$apk" || { echo "FATAL: $apk was not produced" >&2; exit 1; }
           LW_TREE="$tree" python3 docs/android/board.py --check-policies
+          # Every ABI directory in the universal APK must carry the engine. The
+          # build script already refuses otherwise; assert it here too, because a
+          # universal APK that installs on an ABI it has no libxul.so for is
+          # installable and dead on arrival, and that is the artifact a direct
+          # download hands people.
+          uni="$LW_CI_ROOT/out/apk/apk/fenix-universal-release.apk"
+          for a in armeabi-v7a arm64-v8a x86_64; do
+            unzip -l "$uni" "lib/$a/libxul.so" | grep -q libxul.so \
+              || { echo "FATAL: $uni has no libxul.so for $a" >&2; exit 1; }
+            echo "  universal: $a carries libxul.so"
+          done
           # Static halves of the smoke harness: dex string tables, no device needed.
           LW_SMOKE_REPO=. ./scripts/android-smoke.sh --apk "$apk" --check-no-gms --check-no-adjust \
             --json ci-smoke-static.json
