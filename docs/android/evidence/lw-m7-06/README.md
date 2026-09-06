@@ -109,9 +109,17 @@ but leaving edit mode only means the keystroke was taken. Whether `input keyeven
 commits this Compose field after a 60-second idle is the open question, and it is a
 question about driving the UI, not about the patch or the capture.
 
+One more fix was tried and did not work: re-tapping the field before Enter, to restore
+focus in case the idle drops the IME connection. Same result, `rx+0 tx+0`. It is not in
+the code, because an ineffective change with a confident comment beside it is worse than
+none.
+
 **LW-M4-11 stays unverified.** Its subject still measures clean every time — nothing
 leaves while a query sits unsent, no sponsored-tile host, the switch present and OFF —
-and the control is right to refuse to pass on that alone.
+and the control is right to refuse to pass on that alone. What is left is a UI-driving
+question: why `input keyevent 66` commits this Compose field immediately after typing
+but not after a 60-second wait. Do not shorten the idle to make it pass; the idle is the
+measurement.
 
 ---
 

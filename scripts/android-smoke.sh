@@ -2719,19 +2719,15 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
 
     off_enter = pcap_size(pcap)
     rx0, tx0 = app.rx_tx()
-    # Re-tap the field before committing. After the idle above the text is still
-    # there and the app is still in edit mode, but `input keyevent 66` alone was
-    # measured on 2026-09-06 to produce NO query at all -- zero packets AND zero
-    # bytes on the app's uid, while --check-search, which types and presses Enter
-    # with no pause, issues a real query on the same build. The difference is the
-    # wait, so the likeliest reading is that the IME connection to this Compose
-    # field does not survive it and the key goes to a view that no longer treats
-    # it as "go". Re-tapping restores focus without retyping, so the window above
-    # still measures exactly what it measured: a query sitting unsent for
-    # --capture-seconds with nothing on the wire.
-    if pt:
-        adb.shell("input tap %d %d" % pt, timeout=60)
-        time.sleep(1.5)
+    # KNOWN OPEN (2026-09-06): this commit does not make the search happen. After
+    # the idle above the text is still in the field and the app is still in edit
+    # mode, but `input keyevent 66` produces NO query -- zero packets AND zero
+    # bytes on the app's uid -- while --check-search, which types and presses
+    # Enter with no pause, issues a real query on the same build. Re-tapping the
+    # field first to restore focus was tried and changed nothing, so it is not
+    # here; the difference is the wait, and what it does to this Compose field's
+    # IME connection is not yet understood. Do not paper over it by shortening
+    # the idle: the idle IS the measurement.
     adb.shell("input keyevent 66", timeout=60)
     # POLL until the search shows up rather than sleeping once and looking. It
     # costs nothing when the traffic lands immediately, and it removes a whole
