@@ -37,6 +37,10 @@ A task is done when **all** of these hold:
 - `verify` runs and passes (or, for `manual:` verifies, the named human signed off
   and that is recorded in the PR)
 - `board.py --check` still exits 0
+- **if your patch inserts or edits code, it has been compiled.** Not "it applies" —
+  compiled, by a real build of the target it belongs to. `make android-apk
+  TARGETS=android` is the whole path; `--skip-gecko` reuses an existing objdir and
+  gets you the Gradle stage in minutes.
 - from M2 onward: `./scripts/android-smoke.sh` is green
 - from M3 onward: `./scripts/android-pref-audit.sh` is green
 - **if you touched the Kotlin layer: `./mach gradle fenix:testDebugUnitTest` passes.**
@@ -55,6 +59,16 @@ is not "its tests pass"** — that one has now shipped twice: LW-M4-03 broke fiv
 in NimbusSystemTest without noticing (LW-M4-13 exists to clean it up), and LW-M4-10
 then broke 31 more, in a batch whose brief explicitly warned about the first case.
 Run the tests.
+
+And the case below that one: **"it applies" is not "it compiles".** On 2026-09-06
+`update-check.patch` (LW-M6-06) was found to fail `:fenix:compileReleaseKotlin` twice
+— an `import org.mozilla.fenix.ext.settings` this tree does not have, then a call to a
+`@Deprecated` method, which is fatal because the Fenix Kotlin build sets `-Werror`. The
+patch had been written, reviewed, committed, and passed every gate the project owns:
+`--check-scope`, `check-patch-order`, `check-patchfail`, `lint-patch-scope`. Not one of
+them compiles anything; they check that a patch applies, is registered, is scoped and is
+ordered. A patch can insert a Kotlin file referring to symbols that do not exist and
+every light stays green. Build it.
 
 ## The five landmines
 
