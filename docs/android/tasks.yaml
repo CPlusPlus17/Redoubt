@@ -2430,6 +2430,39 @@ tasks:
       out-of-band. That is the same posture desktop takes, and it is the point, but
       it means a stale search config is a release-cadence problem now, not a
       remote-settings problem.
+      MEASURED 2026-09-06, on a device at last (the paragraph above says this was the
+      real gap). An emulator run of --first-run-capture against a build carrying the
+      current patch set recorded 10 outbound events before any navigation, all Remote
+      Settings: firefox.settings.services.mozilla.com, firefox-settings-attachments
+      .cdn.mozilla.net and content-signature-2.cdn.mozilla.net, 690 KB received.
+      Evidence: docs/android/evidence/lw-m7-06/.
+
+      That is NOT the blocker failing. Both halves are in the tree and working --
+      rs-blocker-android.patch returns an error from the Rust make_request and an empty
+      changeset from fetch_changes; the common rs-blocker.patch gates the JS client per
+      collection. What reaches the network is what the allowlist ALLOWS: read off the
+      running build, librewolf.services.settings.allowedCollections carries all 33
+      desktop entries (security-state/*, main/tracking-protection-lists,
+      blocklists/addons, ...) and allowedCollectionsFromDump all 11. The cfg layer is
+      applied on Android -- that was checked in the same dump, not assumed.
+
+      So acceptance line 2 is the whole remaining task, and it is a DECISION, not
+      debugging: "the two librewolf.services.settings.* prefs have Android-correct
+      values". They currently hold desktop's values because settings/common.cfg:709-715
+      ships one list for both targets, and that file's own comment says "these two lists
+      are Android's as well; LW-M4-08 owns their Android contents".
+
+      Whoever takes this decides, per collection, whether Android should sync it at all,
+      and writes the reason down. The consequence either way is already known: M4's
+      headline claim -- no outbound request between install and first navigation
+      (LW-M4-10) -- cannot hold while any collection is allowed to sync. Either Android
+      ships a narrower list, or that claim is dropped and the honest number is published
+      instead. It cannot be both, and BETA.md carries it as entry criterion E12.
+
+      One more thing the capture named: FenixApplication.kt:736 registers a 2-HOURLY
+      WorkManager sync ("DefaultRemoteSettingsChecker: Register sync work for Remote
+      Settings", in logcat on every launch). Narrowing the allowlist does not stop the
+      worker running; it stops it having anything to fetch.
     acceptance:
       - "a network capture shows only allowlisted collections syncing"
       - "the two librewolf.services.settings.* prefs have Android-correct values"
