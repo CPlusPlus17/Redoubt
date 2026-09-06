@@ -38,7 +38,7 @@ takes a hand-typed id list. Re-derive with `board.py --ready --done <ids>`.
 | `check-patchfail.sh --targets=android` | exit 0 against the real ESR tarball |
 | `board.py --check-fenix-tests` | **exit 2 — never run.** The suite has no results on disk anywhere on this machine, and AGENTS.md makes this gate the Definition of done for every Kotlin change. It used to exit 0 on that. |
 | `android-pref-audit.sh` | **exit 2 — no baseline.** `docs/android/expected-prefs.txt` does not exist; LW-M3-05 owns it and it is required "from M3 onward". |
-| `make check-fuzz` | writes `patchfail-fuzz.out`; the recipe is `-`-prefixed, so it **cannot fail the build**. 14 android hunks apply with fuzz, `webgl-permission-common.patch` among them — the landmine-L1 patch. |
+| `make check-fuzz` | A report, not a gate: the recipe is `-`-prefixed so it always succeeds, and `fixfuzz` is the paired repair step. **The report has to be read.** Measured 2026-09-06 with `--fuzz=0 --targets=android`: **15 hunks in 13 patches** only apply because `patch` is allowed to fuzz, and **3 of them are in `webgl-permission-common.patch`** — more than any other patch, and the one landmine L1 is about. A rebase that shifts those three is how WebGL breaks silently. |
 | `android-smoke.sh` | needs a device. Static halves (`--check-no-gms`, `--check-no-adjust`) pass on the current APK. |
 
 ## The distinction that matters: LANDED is not VERIFIED
