@@ -860,7 +860,13 @@ class App:
         self._set_debug_app = False
     def install(self, apk, reinstall=True):
         log("installing %s (%.0f MB)" % (os.path.basename(apk), os.path.getsize(apk) / 1e6))
-        p = self.adb.run("install", "-r", apk, timeout=900)
+        # -d allows a version DOWNGRADE. versionCode is derived from the build
+        # timestamp, so it moves every Gradle run: testing a variant build (say one
+        # carrying an update-check key) and then re-testing the shipping APK is a
+        # downgrade, and without -d adb refuses with INSTALL_FAILED_VERSION_DOWNGRADE.
+        # A smoke harness tests whichever artifact it is pointed at, in any order;
+        # monotonic versions are a store's concern, not a test device's.
+        p = self.adb.run("install", "-r", "-d", apk, timeout=900)
         # A rebuilt APK is usually signed by a DIFFERENT debug keystore: the build
         # image ships none, so each container generates its own (REPRODUCIBLE.md).
         # `adb install -r` then refuses with INSTALL_FAILED_UPDATE_INCOMPATIBLE
@@ -870,11 +876,15 @@ class App:
         # as "the harness could not run" with no hint that one uninstall fixes it.
         # Uninstalling is safe here: the harness wipes app data anyway (`--keep-state`
         # aside), so there is no state to preserve that a reinstall would not clear.
-        if "INSTALL_FAILED_UPDATE_INCOMPATIBLE" in (p.stdout + p.stderr):
-            log("existing %s was signed by a different key (rebuilt APK); "
-                "uninstalling it and installing again" % self.pkg)
+        blocked_by_existing = ("INSTALL_FAILED_UPDATE_INCOMPATIBLE",
+                               "INSTALL_FAILED_VERSION_DOWNGRADE",
+                               "INSTALL_FAILED_ALREADY_EXISTS")
+        hit = next((e for e in blocked_by_existing if e in (p.stdout + p.stderr)), None)
+        if hit:
+            log("install refused (%s) because of the copy an earlier run left on this "
+                "device; uninstalling %s and installing again" % (hit, self.pkg))
             self.adb.run("uninstall", self.pkg, timeout=300)
-            p = self.adb.run("install", "-r", apk, timeout=900)
+            p = self.adb.run("install", "-r", "-d", apk, timeout=900)
         if "Success" not in p.stdout:
             raise HarnessError("adb install failed: %s%s" % (p.stdout, p.stderr))
         if self.pkg not in self.adb.shell("pm list packages %s" % self.pkg, timeout=60):
