@@ -48,6 +48,18 @@ allowlist:
     reason: >
       Directly invokes a recorded NimbusApi event query, hitting the same
       missing native library.
+  - class: org.mozilla.fenix.settings.autofill.ui.AutofillSettingsMiddlewareTest
+    tests: 3
+    reason: >
+      Back on this list, which the note above predicted: it left when the
+      2026-08-25 run showed it passing, and the 2026-09-06 run -- the first full
+      suite this project has actually executed -- has it failing again with
+      "Could not initialize class mozilla.appservices.autofill.UniffiLib" on all
+      three. Same cause as the entries above, a different appservices component:
+      the autofill UniFFI binding loads libmegazord.so, which is an Android ELF
+      the host JVM cannot open. Note the class moved into the .ui package and the
+      count dropped from the 5 recorded in the LW-M4-14 baseline to 3, so this is
+      not a straight restore of the old entry.
 
 # Real failures that predate the change under test. NOT environmental: these are
 # tolerated only so a task can tell "already broken" from "I broke it". Every
