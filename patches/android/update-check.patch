@@ -146,7 +146,7 @@
          // More details here: https://github.com/mozilla-mobile/fenix/pull/27793#discussion_r1029892536
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt
-@@ -0,0 +1,289 @@
+@@ -0,0 +1,293 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -426,10 +426,14 @@
 +            .setTitle(activity.getString(R.string.lw_update_check_available_title, result.latestVersion))
 +            .setMessage(activity.getString(R.string.lw_update_check_available_message, result.downloadUrl))
 +            .setPositiveButton(R.string.lw_update_check_open_download) { _, _ ->
-+                activity.openToBrowserAndLoad(
++                // openToBrowserAndLoad is @Deprecated (HomeActivity.kt:1361) and the
++                // Fenix build compiles Kotlin with -Werror, so calling it fails the
++                // build. This is what that wrapper does (HomeActivity.kt:1377-1388)
++                // and what its deprecation message points at.
++                activity.openToBrowser(BrowserDirection.FromHome)
++                activity.components.useCases.fenixBrowserUseCases.loadUrlOrSearch(
 +                    searchTermOrURL = result.downloadUrl,
 +                    newTab = true,
-+                    from = BrowserDirection.FromHome,
 +                )
 +            }
 +            .setNegativeButton(R.string.lw_update_check_later, null)
