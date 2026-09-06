@@ -18,10 +18,10 @@ linked. "Green on the maintainer's machine" counts only where the line says so.
 
 | # | Criterion | Evidence | Status |
 |---|---|---|---|
-| E1 | The build carries all landed Android patches (`assets/patches/android.txt`), compiled from the pinned ESR tarball by `make android-apk TARGETS=android` — not a tree that was patched after the APK was built | `librewolf-android-apk-<v>/build-times.txt` + `logs/` naming the tree; `git log -1` of the commit built | not met (2026-09-05: build in progress against the committed tree) |
-| E2 | Both ARM ABIs (`arm64-v8a`, `armeabi-v7a`) are real Gecko builds, not an x86_64 universal APK with empty ARM directories | `unzip -l fenix-universal-release.apk \| grep lib/` shows `libxul.so` under each ABI | not met (2026-09-05: arm64-v8a + x86_64 building; armeabi-v7a not yet) |
-| E3 | Smoke suite green on the emulator against the beta build: `--check-search`, `--check-no-suggest`, `--check-update-privacy`, `--check-aboutconfig`, `--check-no-gms`, `--check-no-adjust`, `--check-strings`, `--first-run-capture` with the count recorded | `docs/android/evidence/lw-m7-06/smoke/result.json` | not met |
-| E4 | Runtime pref audit green (`./scripts/android-pref-audit.sh`, exit 0) with a committed `docs/android/expected-prefs.txt` generated from the beta build | the baseline's commit | not met (LW-M3-05: baseline never generated) |
+| E1 | The build carries all landed Android patches (`assets/patches/android.txt`), compiled from the pinned ESR tarball by `make android-apk TARGETS=android` — not a tree that was patched after the APK was built | `librewolf-android-apk-<v>/build-times.txt`, `logs/` naming the tree | **met 2026-09-06** — buildID `20260905183254`, read off the running app by the harness. Two compile errors in `update-check.patch` had to be fixed first; they had passed every gate. |
+| E2 | Both ARM ABIs (`arm64-v8a`, `armeabi-v7a`) are real Gecko builds, not an x86_64 universal APK with empty ARM directories | `unzip -l fenix-universal-release.apk \| grep lib/` shows `libxul.so` under each ABI | **partly met.** `arm64-v8a` and `x86_64` each carry a `libxul.so` byte-identical to their AAR input (`a5a5900c` / `43ffa61d`). `armeabi-v7a` building 2026-09-06. Note the universal APK gets an `armeabi-v7a` directory from three AndroidX/JNA prebuilts **whether or not that ABI was built**, so a two-ABI build produces a universal APK that installs on 32-bit ARM and has no engine — `android-apk.sh` refuses to emit it, which is why only the per-ABI APKs exist right now. |
+| E3 | Smoke suite green on the emulator against the beta build | `docs/android/evidence/lw-m7-06/` (README + per-check JSON) | **partly met, 2026-09-06.** Green: `--check-search` (all three LW-M4-06 lines), `--check-aboutconfig`, `--check-no-gms`, `--check-no-adjust`, `--check-strings` (resource table only). Red: `--first-run-capture` (10 Remote Settings events — see E12) and `--check-no-suggest` (fails its own positive control, not its subject). Half-covered: `--check-update-privacy` (store-build path only; the opt-in path needs a build with a verification key) and `--check-strings` (running-app traversal not run). |
+| E4 | Runtime pref audit green (`./scripts/android-pref-audit.sh`, exit 0) with a committed `docs/android/expected-prefs.txt` generated from the beta build | the baseline's commit | **met 2026-09-06** — baseline generated from this build (60 rows) and the audit exits 0. It must be **regenerated** for the actual beta build and the diff read, not carried over. |
 | E5 | Fenix unit tests subtract cleanly: `board.py --check-fenix-tests` exit 0 on results from this tree | results dir path in the evidence | not met |
 | E6 | Reproducible: `scripts/android-verify-repro.sh` exit 0 on the beta build's inputs, **with R8 on** (the earlier measurement in `REPRODUCIBLE.md` was R8 off) | `docs/android/evidence/lw-m7-06/repro/` | not met |
 | E7 | Signed with the release key, **v2 + v3**, fingerprint matches `SIGNING.md`; signed offline by a holder, never on the CI runner | `apksigner verify --verbose --print-certs` output in the evidence | not met (every APK built so far is `CN=Android Debug`, v2 only) |
@@ -30,8 +30,14 @@ linked. "Green on the maintainer's machine" counts only where the line says so.
 | E10 | A triage owner and backup are named (`TRIAGE.md` §0), and the bug-report form (LW-M7-04) exists, because beta reports go through it | `TRIAGE.md` §0 filled | not met |
 | E11 | A first-run network capture from a device **on a network whose resolver does not sinkhole Mozilla hosts**; the maintainer's LAN resolver returns `0.0.0.0` for `incoming.telemetry.mozilla.org` and `ads.mozilla.org`, so captures taken there under-count | pcap summary in the evidence, with the resolver named | not met |
 
-E7–E10 are human actions; nothing an agent does can meet them. E1–E6 and E11
-are build-and-measure work and are where the effort goes first.
+| E12 | The Remote Settings allowlist has been decided **for Android** | `LW-M4-08`, and the two prefs at `settings/common.cfg:709`/`:713` | not met. This is the reason `--first-run-capture` is red, and it is a decision rather than a defect: the shared cfg allow-lists 33 collections to sync (tracking-protection lists, addon blocklists, cert revocation) and `common.cfg:715` already says *"LW-M4-08 owns their Android contents"*. Either Android narrows the list, or M4's "zero outbound requests before first navigation" claim is dropped. It cannot be both. |
+
+E7–E10 are human actions; nothing an agent does can meet them. E1–E6, E11 and
+E12 are build-and-measure or decide-and-record work.
+
+**Where this stood on 2026-09-06:** E1 and E4 met, E2 and E3 partly, the rest
+open. The device evidence is in `docs/android/evidence/lw-m7-06/`, which also
+records what each passing check did *not* cover.
 
 ## 2. Device spread
 

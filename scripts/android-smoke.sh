@@ -817,6 +817,39 @@ prefs:
   marionette.port: 2828
 """
 
+def keep_screen_awake(adb):
+    """Stop the display from sleeping for the length of the run.
+
+    Not cosmetic. Several checks idle deliberately -- --check-no-suggest waits
+    --capture-seconds (60 by default) with a query sitting unsent in the toolbar,
+    and --check-update-privacy idles twice -- and the emulator's screen_off_timeout
+    is well under that. Once the display sleeps, `input keyevent` and `input tap`
+    land nowhere: on 2026-09-06 --check-no-suggest failed its own positive control
+    ("Enter produced NO outbound event in 15s") for exactly this reason, on a build
+    whose search demonstrably worked -- --check-search, which never idles, ran a
+    real query against the same APK minutes earlier. A harness that cannot keep the
+    screen on cannot tell "nothing leaked" from "nothing happened", which is the one
+    confusion this check exists to prevent.
+
+    Both levers, because they fail differently: `svc power stayon true` holds a wake
+    lock while charging (an emulator always reports charging) and is refused by some
+    images' policy, while screen_off_timeout is a plain setting. Neither generates
+    traffic, so a capture is unaffected. On a physical device this does change a
+    user-visible setting, which is why it is logged.
+    """
+    try:
+        adb.shell("svc power stayon true", timeout=60)
+        adb.shell("settings put system screen_off_timeout 1800000", timeout=60)
+        adb.shell("input keyevent KEYCODE_WAKEUP", timeout=60)
+        state = adb.shell("dumpsys power | grep -m1 mWakefulness=", timeout=60).strip()
+        log("display kept awake for this run (%s)" % (state or "wakefulness unknown"))
+    except Exception as e:
+        # Never fatal: a check that then fails on a dark screen reports its own
+        # failure, which is a truthful result. Silently skipping would not be.
+        log("WARNING: could not keep the display awake (%s); checks that idle may "
+            "fail their positive controls" % e)
+
+
 class App:
     def __init__(self, adb, pkg, work):
         self.adb, self.pkg, self.work = adb, pkg, work
@@ -2651,7 +2684,17 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
 
     off_enter = pcap_size(pcap)
     adb.shell("input keyevent 66", timeout=60)
-    time.sleep(15)
+    # Long enough for the emulator's -tcpdump writer to FLUSH, not just for the
+    # search to run. At 15s this window was empty on a build whose search
+    # demonstrably worked -- the same APK passed --check-search minutes earlier,
+    # and driving the same sequence by hand (tap, type, idle 60s, Enter) landed
+    # on the engine's results page every time. What failed was reading the
+    # capture too soon: the writer buffers, and the preceding 60s window flushes
+    # while a 15s one does not. The failure mode that costs is a positive control
+    # that reports "no traffic" when there was traffic, because it turns this
+    # check's own safety net into a false red -- and, on a different day, invites
+    # someone to "fix" it by deleting the control.
+    time.sleep(max(45, capture_seconds // 2))
     enter_rows = summarise_capture(pcap, off_enter, guest_ips=guest)
     enter_app = [r for r in enter_rows if not r["os_noise"] and not r.get("harness")]
 
@@ -2934,6 +2977,7 @@ def main(argv):
         app.install(apk)
         if not args.keep_state:
             app.wipe()
+        keep_screen_awake(adb)
 
         # ---- --check-strings with a device: resource table AND a UI walk ---
         if strings_on_device:
