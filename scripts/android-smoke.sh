@@ -2684,19 +2684,31 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
 
     off_enter = pcap_size(pcap)
     adb.shell("input keyevent 66", timeout=60)
-    # Long enough for the emulator's -tcpdump writer to FLUSH, not just for the
-    # search to run. At 15s this window was empty on a build whose search
-    # demonstrably worked -- the same APK passed --check-search minutes earlier,
-    # and driving the same sequence by hand (tap, type, idle 60s, Enter) landed
-    # on the engine's results page every time. What failed was reading the
-    # capture too soon: the writer buffers, and the preceding 60s window flushes
-    # while a 15s one does not. The failure mode that costs is a positive control
-    # that reports "no traffic" when there was traffic, because it turns this
-    # check's own safety net into a false red -- and, on a different day, invites
-    # someone to "fix" it by deleting the control.
-    time.sleep(max(45, capture_seconds // 2))
-    enter_rows = summarise_capture(pcap, off_enter, guest_ips=guest)
-    enter_app = [r for r in enter_rows if not r["os_noise"] and not r.get("harness")]
+    # POLL until the search shows up, do not sleep a fixed window and look once.
+    # `emulator -tcpdump` buffers: on 2026-09-06 this control read an EMPTY window
+    # three runs running on a build whose search demonstrably worked -- the same
+    # APK passed --check-search, and driving the identical sequence by hand (tap
+    # ADDRESSBAR_URL_BOX, input text, idle 60s, keyevent 66) reached the engine's
+    # results page every time. The tell was the *negative* window: it recorded
+    # zero app events across 60s, on a first launch that reliably contacts Remote
+    # Settings (--first-run-capture sees exactly that, same emulator, same build).
+    # A window with no traffic in it at all is a capture that has not been flushed
+    # yet, not a quiet app. Fixed sleeps cannot fix that; waiting until the bytes
+    # appear can, and it costs nothing on a run where they appear at once.
+    #
+    # This matters more than one red check: the control exists so a dead capture
+    # cannot be read as "nothing leaked". Deleting it to get a green is the one
+    # repair that must not happen -- so it has to be able to pass honestly.
+    enter_deadline = time.time() + max(180, capture_seconds * 3)
+    enter_rows, enter_app = [], []
+    while time.time() < enter_deadline:
+        time.sleep(10)
+        enter_rows = summarise_capture(pcap, off_enter, guest_ips=guest)
+        enter_app = [r for r in enter_rows if not r["os_noise"] and not r.get("harness")]
+        if enter_app:
+            break
+    log("check-no-suggest: post-Enter window closed after %ds with %d app event(s)"
+        % (int(time.time() - (enter_deadline - max(180, capture_seconds * 3))), len(enter_app)))
 
     all_rows = summarise_capture(pcap, off_all, guest_ips=guest)
     sponsored = [r for r in all_rows
@@ -2713,8 +2725,9 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
                         % (len(typing_app),
                            sorted({r["detail"] or r["dst"] for r in typing_app})[:6]))
     if not enter_app:
-        problems.append("Enter produced NO outbound event in 15s -- the capture is dead or the "
-                        "search never ran, so the quiet typing window proves nothing")
+        problems.append("Enter produced NO outbound event in %ds of polling -- the capture is "
+                        "dead or the search never ran, so the quiet typing window proves "
+                        "nothing" % max(180, capture_seconds * 3))
     if sponsored:
         problems.append("%d event(s) to a sponsored-tile host: %s"
                         % (len(sponsored), sorted({r["detail"] for r in sponsored})[:4]))
