@@ -413,6 +413,17 @@ Not hypotheticals. Each of these happened, and the pattern repeats.
   that the cfg layer was not applied on Android. The fresh dump has all ten of
   them. The cache is flat and every run overwrites it in place — check the
   mtime against the run you mean, or pass `--json` to a path of your own.
+- **Editing a shell script while it is running.** Not hypothetical: on
+  2026-09-06 `scripts/android-fat-aar.sh` was edited twice mid-run to add a
+  preflight check. `bash` reads a script incrementally by **byte offset**, so
+  inserting ~1,900 bytes near the top shifted everything after it. The three
+  per-ABI builds survived (a `for` loop is parsed as one compound command before
+  it executes) and then the run died with `syntax error near unexpected token
+  'done'` — after 18 minutes, with all three `target.maven.zip` files correctly
+  built and **the merge pass never run**. Restoring the file mid-flight did not
+  help; the offset was already wrong. These builds are 20-60 minutes long, which
+  is exactly why the temptation to edit "while we wait" is strong. Don't. Stage
+  the change somewhere else and apply it when the run is finished.
 - **Build state that is only reusable once.** The fat-AAR merge leaves the
   `--fat-host-abi` objdir configured for the merge, so the *next* run's plain
   per-ABI pass in that same objdir enters the `android-fat-aar-artifact` tier and
