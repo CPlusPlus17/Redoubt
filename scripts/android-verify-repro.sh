@@ -27,13 +27,17 @@
 # happens in a separate service.  This script asserts the result is actually
 # unsigned (apksigner must reject it) instead of trusting the flag.
 #
-# Why -PdisableOptimization (R8 off): in this tree the R8-minified release
-# build crashes on launch (LW-M4-09: JNA field-order reflection vs R8
-# renaming; the fix is LW-M6-07, not applied here), and every release APK
-# the project has actually built and booted used R8 off.  Testing a known
-# broken configuration would measure the determinism of a build nobody
-# ships.  R8's determinism is therefore a RESIDUAL, unverified surface,
-# listed with that reason in docs/android/REPRODUCIBLE.md.
+# R8: OFF by default, ON with --r8.  The original reason for off was that the
+# R8-minified release build crashed on launch (LW-M4-09: JNA field-order
+# reflection vs R8 renaming) and "the fix is LW-M6-07, not applied here", so
+# testing it would have measured the determinism of a build nobody ships.
+# THAT REASON HAS EXPIRED: r8-keep-rules.patch (LW-M6-07) is in
+# assets/patches/android.txt, and the release APKs built on 2026-09-06 ran R8
+# and booted -- the smoke harness drove searches, about:config and a settings
+# walk against them.  The configuration nobody ships is now the R8-off one, so
+# --r8 is what a release-representative run wants.  The default stays off only
+# so an existing invocation keeps measuring what it measured before; prefer
+# --r8 and say which you ran.
 #
 # Usage:
 #   scripts/android-verify-repro.sh [options]
@@ -45,6 +49,7 @@
 #     --engine NAME      podman | docker
 #     --image NAME       container image
 #     --jobs N           mach build -j
+#     --r8               keep R8 ON (default: off, see the note below)
 #     --skip-build       compare the existing out1/out2 APKs and run the
 #                        negative control, without building (evidence recheck)
 #
@@ -76,6 +81,7 @@ BASE="/home/mgysin/lw-m6-02"
 ENGINE="${CONTAINER_ENGINE:-podman}"
 IMAGE="localhost/librewolf-android-build:latest"
 JOBS=16
+R8=0
 SKIP_BUILD=0
 NO_CLEAN=0
 # SELinux label suffix for the bind mounts -- same as scripts/android-apk.sh.
@@ -102,12 +108,23 @@ while [ $# -gt 0 ]; do
         --image=*)     IMAGE=${1#*=}; shift ;;
         --jobs)        JOBS=${2:-}; shift 2 ;;
         --jobs=*)      JOBS=${1#*=}; shift ;;
+        --r8)          R8=1; shift ;;
         --skip-build)  SKIP_BUILD=1; shift ;;
         --no-clean)    NO_CLEAN=1; shift ;;
         -h|--help)     sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)             die "unknown option: $1 (see --help)" ;;
     esac
 done
+
+# Expanded by the HOST shell into the container command, like $GLEAN_BUILD_DATE.
+# Empty means R8 runs (Gradle's own default for the release build type).
+if [ "$R8" = "1" ]; then
+    R8_FLAG=""
+    log "R8 is ON -- measuring the configuration this project actually ships"
+else
+    R8_FLAG="-PdisableOptimization"
+    log "R8 is OFF (default). Pass --r8 to measure the shipped configuration."
+fi
 
 ABIS="armeabi-v7a arm64-v8a x86_64"
 HOST_ABI="x86_64"
@@ -289,7 +306,7 @@ fi
 # -PdisableOptimization: R8 off -- see the header (LW-M4-09 / LW-M6-07).
 # -PgleanBuildDate: pin the GleanBuildInfo build timestamp -- see the
 # GLEAN_BUILD_DATE comment in the defaults section (reproducibility).
-./mach gradle fenix:generateSafeArgsRelease -PdisableDebugSigning -PdisableOptimization -PgleanBuildDate=$GLEAN_BUILD_DATE
+./mach gradle fenix:generateSafeArgsRelease -PdisableDebugSigning $R8_FLAG -PgleanBuildDate=$GLEAN_BUILD_DATE
 rc=\$?
 if [ \$rc -ne 0 ]; then
     date -u +'PASS apk END %Y-%m-%dT%H:%M:%SZ'
@@ -302,7 +319,7 @@ fi
 # container, so a signed APK would differ between any two builds.)
 # -PgleanBuildDate: same pin as above; the Glean Kotlin translation task runs
 # in this invocation and is the one that embeds the timestamp.
-./mach gradle fenix:assembleRelease -PfenixSplitAbi=\"\$(printf '%s ' $ABIS | sed 's/ /,/g; s/,$//')\" -PdisableDebugSigning -PdisableOptimization -PgleanBuildDate=$GLEAN_BUILD_DATE
+./mach gradle fenix:assembleRelease -PfenixSplitAbi=\"\$(printf '%s ' $ABIS | sed 's/ /,/g; s/,$//')\" -PdisableDebugSigning $R8_FLAG -PgleanBuildDate=$GLEAN_BUILD_DATE
 rc=\$?
 date -u +'PASS apk END %Y-%m-%dT%H:%M:%SZ'
 echo \"MACH_EXIT=\$rc\"
