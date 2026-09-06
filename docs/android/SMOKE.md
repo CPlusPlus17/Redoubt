@@ -39,10 +39,12 @@ Against an emulator or device you already have running:
 | APK | a **debuggable** build. See "why debuggable" below. |
 | device | an emulator, for anything involving the network capture |
 
-The SDK is found from `--sdk`, then `$ANDROID_SDK_ROOT`, `$ANDROID_HOME`,
-`~/lw-m2-04/sdk`, `~/Android/Sdk`. The APK from `--apk`, `$LW_SMOKE_APK`, then
-`~/lw-m2-04/out-make/apk` and `~/lw-m2-04/out/apk`, preferring `--abi`
-(default `x86_64`). The applicationId is read from the `output-metadata.json`
+The SDK is found from `--sdk`, then `$ANDROID_SDK_ROOT`, `$ANDROID_HOME`, then
+`~/Android/Sdk`. The APK from `--apk`, `$LW_SMOKE_APK`, `$LW_SMOKE_APK_DIR`, then
+the directory `make android-package` writes — `librewolf-android-apk-<version.android>-<release.android>/apk`,
+in the repository and beside it — and `$REPO/out/apk`, preferring `--abi`
+(default `x86_64`). Neither list names anyone's scratch directory any more; both
+did, and both pointed at paths that had been deleted. The applicationId is read from the `output-metadata.json`
 Gradle writes next to the APK — never guessed — and the harness verifies the
 package is really present after `adb install` before it continues.
 
@@ -365,10 +367,10 @@ build"*, `GeckoProvider.kt` gates `aboutConfigEnabled` on
 about:config is already on for a reason that has nothing to do with that task.
 A pass there would mean nothing. Exit 3, and re-run against a release APK.
 
-**So this flag always needs `--apk`.** The default APK search only looks in
-`~/lw-m2-04/out-make/apk`, `~/lw-m2-04/out/apk` and `$REPO/out/apk`, all of
-which hold debug builds — a bare `./scripts/android-smoke.sh
---check-aboutconfig` therefore exits **3**, not 0. The command that passes is
+**So this flag needs a release APK.** The default search finds whatever
+`make android-package` last wrote, which is a *debug*-variant APK unless the
+build was run with `--variant=release` — and against a debuggable build this
+check exits **3**, not 0. The command that passes is
 
 ```sh
 ./mach gradle fenix:assembleRelease -PdisableOptimization    # inside the build container

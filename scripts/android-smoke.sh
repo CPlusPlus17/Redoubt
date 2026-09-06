@@ -597,8 +597,13 @@ class Results:
 # Device / emulator plumbing
 # --------------------------------------------------------------------------
 def find_sdk(explicit):
+    # No path from one contributor's machine in this list: ~/lw-m2-04/sdk was here
+    # and has been deleted for weeks, so the fallback was a trap -- the same defect
+    # apk_search_dirs() below was fixed for. ~/Android/Sdk is the location the
+    # Android Studio installer uses on every Linux machine, which is different from
+    # somebody's scratch directory. Anywhere else: --sdk or $ANDROID_SDK_ROOT.
     for c in [explicit, os.environ.get("ANDROID_SDK_ROOT"), os.environ.get("ANDROID_HOME"),
-              os.path.expanduser("~/lw-m2-04/sdk"), os.path.expanduser("~/Android/Sdk")]:
+              os.path.expanduser("~/Android/Sdk")]:
         if c and os.path.isdir(os.path.join(c, "platform-tools")):
             return c
     return None
