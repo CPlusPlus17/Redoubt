@@ -95,6 +95,21 @@ were satisfied.
    require approval from all external contributors, but the correct posture is
    that the key is not reachable there at all.
 
+   > **This rule is currently violated, and the violation is not the file mode.**
+   > Observed 2026-09-06 on the build host: the keystore is at
+   > `~/redoubt-release.p12`, and the GitHub Actions runner
+   > (`~/actions-runner`, agent `redoubt-fedora`, label `librewolf-android`)
+   > runs **as the same user that owns it**. Any job that reaches that runner can
+   > read the key — a `chmod 600` changes nothing about that, and would only make
+   > it look addressed. `/home` being `0700` with one account means the exposure
+   > is to *workflows*, not to other local users.
+   >
+   > What actually closes it is moving the key off this host, which is a
+   > maintainer action and deliberately not automated. Until then, treat every
+   > build this machine produces as coming from a host that holds the release
+   > key, and do not add a workflow trigger that a non-maintainer can fire.
+   > `BETA.md` carries this as entry criterion E7.
+
 ## Release procedure
 
 1. CI builds the release variant unsigned and publishes the APK plus
