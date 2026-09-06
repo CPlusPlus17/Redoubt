@@ -29,7 +29,6 @@ linked. "Green on the maintainer's machine" counts only where the line says so.
 | E9 | The parity wording (`PARITY.md` §5) is signed off, because testers will ask what the sandbox gap means and the answer must be the published one | sign-off line in `PARITY.md` | not met |
 | E10 | A triage owner and backup are named (`TRIAGE.md` §0), and the bug-report form (LW-M7-04) exists, because beta reports go through it | `TRIAGE.md` §0 filled | not met |
 | E11 | A first-run network capture from a device **on a network whose resolver does not sinkhole Mozilla hosts**; the maintainer's LAN resolver returns `0.0.0.0` for `incoming.telemetry.mozilla.org` and `ads.mozilla.org`, so captures taken there under-count | pcap summary in the evidence, with the resolver named | not met |
-
 | E12 | The Remote Settings allowlist has been decided **for Android** | `LW-M4-08`, and the two prefs at `settings/common.cfg:709`/`:713` | not met. This is the reason `--first-run-capture` is red, and it is a decision rather than a defect: the shared cfg allow-lists 33 collections to sync (tracking-protection lists, addon blocklists, cert revocation) and `common.cfg:715` already says *"LW-M4-08 owns their Android contents"*. Either Android narrows the list, or M4's "zero outbound requests before first navigation" claim is dropped. It cannot be both. |
 
 E7–E10 are human actions; nothing an agent does can meet them. E1–E6, E11 and
