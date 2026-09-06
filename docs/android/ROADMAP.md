@@ -7,7 +7,7 @@ Maintainer attention is.
 The task-level detail lives in [`tasks.yaml`](tasks.yaml); the rules for working on
 it live in [`AGENTS.md`](AGENTS.md). This file is the why and the shape.
 
-- **66 tasks, 328–638 hours, 15 dependency waves**
+- **89 tasks, 405–786 hours, 17 dependency waves** (2026-09-06; the 66/328–638/15 this line carried was the 2026-08-14 plan)
 - **13 agents** is the widest useful parallelism (wave 8)
 - **171 hours** on the critical path if every task on it runs long
 - **5 tasks need a human** — signing keys, the applicationId, distribution channels
@@ -227,10 +227,22 @@ through. Keep the track decision uncoupled from the applicationId and signing ke
 
 ## Forge
 
-Everything stays on **Codeberg**. Forgejo Actions, the `epsilon` runner, the
-package registry and the issue tracker are already there, and none of them have a
-GitHub dependency. Upstream is read *from* `github.com/mozilla-firefox/firefox`
-(canonical since `mozilla/gecko-dev` was archived) — reading is not hosting.
+**This decision was reversed in practice and this paragraph did not follow.**
+Redoubt is hosted on GitHub: `github.com/CPlusPlus17/Redoubt`, public, with a
+self-hosted Actions runner (`redoubt-fedora`, labelled `librewolf-android`) and
+the workflows in `.github/workflows/`. The `.forgejo/` copies are dead — GitHub
+Actions does not read them, as both android workflow headers say. Corrected
+2026-09-06; the text below is what it used to say and is kept because several
+task acceptance lines still name Codeberg and have to be re-read against this:
+
+> Everything stays on Codeberg. Forgejo Actions, the `epsilon` runner, the
+> package registry and the issue tracker are already there.
+
+What still has to change on the strength of this: LW-M6-04's "Obtainium resolves
+the Codeberg release" (it resolves a GitHub release), LW-M7-04's "a contact path
+that does not require a Codeberg account", and LW-M0-14's Dockerfile note.
+Upstream is read *from* `github.com/mozilla-firefox/firefox` (canonical since
+`mozilla/gecko-dev` was archived) — reading is not hosting, and that part stands.
 
 ## Running the board
 

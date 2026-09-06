@@ -39,8 +39,10 @@ meta:
   strategy: full parity — Gecko built from source, one shared patch set with desktop
   decided: 2026-08-14
   track: esr153 for Android while desktop stays on release (see LW-M0-07)
-  forge: codeberg.org (no GitHub mirror; upstream is read-only from
-    github.com/mozilla-firefox/firefox)
+  forge: github.com/CPlusPlus17/Redoubt (public; self-hosted Actions runner
+    'redoubt-fedora', label librewolf-android; workflows in .github/workflows/.
+    Corrected 2026-09-06 — this said codeberg.org, and .forgejo/ is dead here.
+    Upstream is read-only from github.com/mozilla-firefox/firefox)
   patch_scope_snapshot: 22 common / 23 desktop / 8 straddlers of 53 patch files
     (heuristic — LW-M1-01 produces the authoritative split)
 
@@ -3246,12 +3248,12 @@ tasks:
     what: |
       Accrescent requires signature scheme v3 and its own review process; direct
       APK downloads need a stable URL and a published hash; Obtainium needs a
-      predictable release-asset naming scheme on the Codeberg releases page. Set up
+      predictable release-asset naming scheme on the GitHub releases page. Set up
       all three so users are not funnelled into a single channel. Note the Play
       Store is out of scope — its signing model conflicts with LW-M6-01.
     acceptance:
       - "APKs are signed with v2 and v3, verified by apksigner"
-      - "Obtainium resolves the Codeberg release and offers the update"
+      - "Obtainium resolves the GitHub release and offers the update"
       - "each channel's fingerprint is documented and identical"
     verify: "apksigner verify --verbose --print-certs librewolf-*.apk"
     effort_h: "8-16"
@@ -3436,7 +3438,7 @@ tasks:
     acceptance:
       - "the process covers signature and channel compromise"
       - "a stated turnaround target for critical Gecko security releases on Android"
-      - "a contact path that does not require a Codeberg account"
+      - "a contact path that does not require a GitHub account"
     verify: "manual: maintainer review"
     effort_h: "3-5"
     skills: [docs, ops]

@@ -49,7 +49,7 @@ in-app check (see §5 and `docs/android/DISTRIBUTION.md`).
 
 | channel | what it is | how it updates | in-app check present? |
 |---|---|---|---|
-| **F-Droid** | the official F-Droid repository | F-Droid's own updater | **no** (compiled out) |
+| **F-Droid** | **Redoubt's own F-Droid repository**, not f-droid.org's main repo (LW-M6-03) | F-Droid's own updater, once our repo is added | **no** (compiled out) |
 | **Accrescent** | the Accrescent repository | Accrescent's own updater | **no** (compiled out) |
 | **direct APK** | the download on `redoubtbrowser.org` | the opt-in in-app version check (`DISTRIBUTION.md`) or the user's own tool (e.g. Obtainium) | **yes** (opt-in, off by default) |
 
@@ -95,9 +95,15 @@ you have, per `SECURITY.md`'s incident procedure.
 
 ## 5. Install guide, per channel
 
-- **F-Droid.** Install F-Droid. In F-Droid, add the official F-Droid repository (the
-  default). Search for **Redoubt**, install it. F-Droid tells you when a new build is on
-  the repository; there is no in-app check to configure.
+- **F-Droid.** Install F-Droid. Then **add Redoubt's own repository** — its URL and
+  fingerprint go in §3 when LW-M6-03 stands it up — and install **Redoubt** from it.
+  F-Droid tells you when a new build lands; there is no in-app check to configure.
+
+  Redoubt is **not** in f-droid.org's main repository and an earlier draft of this
+  page said to use it. Going through the main repo means f-droid.org builds and
+  signs the app with *their* key, which would break the single-fingerprint promise
+  in §3 and the custody model in `SIGNING.md`. That is the whole reason LW-M6-03
+  runs our own repo. Do not restore the shorter instruction.
 - **Accrescent.** Install Accrescent. Add the Accrescent repository. Search for **Redoubt**,
   install it. Accrescent handles updates; there is no in-app check to configure.
 - **direct APK.** Download the APK from `redoubtbrowser.org` (when it is live). In your
