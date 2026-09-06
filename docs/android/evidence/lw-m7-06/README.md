@@ -1,5 +1,10 @@
 # Device evidence — 2026-09-06 build
 
+> **Superseded in part.** Everything below the "Final artifact" section was measured
+> against a two-ABI build (`buildID 20260905183254`). The artifact a beta would ship
+> is the three-ABI one built later the same day, and the checks were re-run against
+> it — see the next section. Where the two disagree, the final one wins.
+
 The first device session run against a build that carries LW-M4-06, LW-M4-11 and
 LW-M6-06. Everything here was produced by `scripts/android-smoke.sh` against
 `fenix-x86_64-release.apk` from `librewolf-android-apk-153.0esr-1/`, on the
@@ -8,6 +13,88 @@ headless emulator the harness boots itself (android-30/default, x86_64, 3072 MB)
 Build under test, as the harness read it off the running app:
 
     Redoubt 153.0esr-1   buildID=20260905183254   applicationId org.redoubtbrowser
+
+
+## Final artifact — three ABIs, `buildID 20260906190000`
+
+The first build in this project's history carrying **all three shipped ABIs** in one
+fat AAR, and therefore the first universal APK whose every ABI directory holds a real
+Gecko engine.
+
+    fenix-armeabi-v7a-release.apk   117 MB
+    fenix-arm64-v8a-release.apk     121 MB
+    fenix-x86_64-release.apk        127 MB
+    fenix-universal-release.apk     278 MB   armeabi-v7a + arm64-v8a + x86_64,
+                                             libxul.so present under each
+
+It took four attempts. What blocked the first three is written up in `BUILD.md`
+("MOZ_BUILD_DATE is baked in per objdir"): the build ID is fixed when an objdir is
+*configured*, so three objdirs configured on three different runs produced AARs whose
+`modules/AppConstants.sys.mjs` differed, and the merger rejected them with a message
+about *architecture-specific* versions that points at 32-bit ARM and means nothing of
+the kind. All three objdirs were wiped and rebuilt in one run with `--build-date`.
+
+### Re-run against this artifact
+
+| check | task | exit | result |
+|---|---|---|---|
+| `--check-search` | LW-M4-06 | **0** | engine list, default and a real partner-code-free query — **verified on the shipping artifact** |
+| `--check-aboutconfig` | LW-M4-09 | **0** | reachable on a release-configured build, edit survives restart |
+| `--check-strings` | LW-M4-12 | **0** | **both halves now.** Resource table: 234,644 rows, 0 unexplained. Running-app traversal: 36 screen stops, **0 branded strings shipped by this APK** (1 more is remote content, reported and not attributed to the build) |
+| `--check-no-gms` / `--check-no-adjust` | LW-M4-05 / -02 | **0** | no GMS or Adjust strings in any dex |
+| `fenix:testDebugUnitTest` → `board.py --check-fenix-tests` | LW-M2-09 | **0** | see below |
+| `--first-run-capture` | LW-M4-10 | **1** | 6 outbound events before navigation, all Remote Settings |
+| `--check-no-remote-settings` | LW-M4-08 | **1** | 3 events, to the three Remote Settings hosts |
+| `--check-no-suggest` | LW-M4-11 | **1** | fails its positive control; see below |
+
+### The Fenix unit suite, run for the first time
+
+`AGENTS.md` has made `board.py --check-fenix-tests` the Definition of done for every
+Kotlin change since M2, and it had never run — the gate returned 0 on missing input and
+no results directory had ever existed here.
+
+    598 classes / 5,426 tests, 11m19s
+    93 failing = 90 environmental + 3 known-real + 0 unexpected  →  exit 0
+
+The first run surfaced one class that was not allow-listed,
+`settings.autofill.ui.AutofillSettingsMiddlewareTest` (3 tests). Checked rather than
+waved through: all three fail with `Could not initialize class
+mozilla.appservices.autofill.UniffiLib`, the same host-JVM/`libmegazord.so` cause as
+the three classes already listed. It is back on the allowlist — which
+`fenix-test-allowlist.yaml`'s own header predicted, since that is how it left.
+
+### `--check-update-privacy`, both halves
+
+The shipping APK is built **without** an update-check key, so the feature is compiled
+out: no row, no traffic, and that half passes. To exercise the other half a throwaway
+ECDSA P-256 key pair was generated (scratchpad only — no key material is in this
+repository) and a variant APK built with `LW_UPDATE_CHECK_PUBKEY`. On that build:
+
+- the **Check for updates** row appears — so `-PlwUpdateCheckPubkey` compiles it in;
+- it reads **OFF** by default, and flipping it through the UI works;
+- after relaunch, **no request to the update host was captured**, so the opt-in path is
+  still unproven. Note the endpoint is compiled in by default
+  (`https://redoubtbrowser.org/updates/android/latest.json`), so a missing endpoint is
+  not the explanation.
+
+### `--check-no-suggest`: now localised
+
+Three more runs, with the display kept awake and the post-Enter window polling for
+180 s instead of sleeping 15 s. The subject still measures clean — 0 events while a
+query sits unsent, no sponsored-tile host, the switch present and OFF — and the control
+still sees nothing. What changed is that the harness now says which of its two
+explanations applies:
+
+> Enter produced NO outbound event in 180s of polling, **and the app DID leave edit
+> mode, i.e. the search ran and the capture missed it** — so the quiet typing window
+> proves nothing. Chase the capture, not the browser.
+
+So this is a capture problem, confirmed from the UI rather than inferred. The same
+signature — a window containing *literally nothing* on a session where other windows
+are full — appears in the update-check ON window above. **LW-M4-11 stays unverified**,
+and the next person starts at `emulator -tcpdump`, not at the patch.
+
+---
 
 ## Results
 
