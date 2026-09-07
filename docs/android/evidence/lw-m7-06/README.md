@@ -109,17 +109,44 @@ but leaving edit mode only means the keystroke was taken. Whether `input keyeven
 commits this Compose field after a 60-second idle is the open question, and it is a
 question about driving the UI, not about the patch or the capture.
 
-One more fix was tried and did not work: re-tapping the field before Enter, to restore
-focus in case the idle drops the IME connection. Same result, `rx+0 tx+0`. It is not in
-the code, because an ineffective change with a confident comment beside it is worse than
-none.
+### Resolved: the control was blind, the browser was fine
 
-**LW-M4-11 stays unverified.** Its subject still measures clean every time — nothing
-leaves while a query sits unsent, no sponsored-tile host, the switch present and OFF —
-and the control is right to refuse to pass on that alone. What is left is a UI-driving
-question: why `input keyevent 66` commits this Compose field immediately after typing
-but not after a 60-second wait. Do not shorten the idle to make it pass; the idle is the
-measurement.
+**`--check-no-suggest` passes.** The search was working the whole time. Both
+measurements used as the positive control were blind to it, for different reasons,
+and the way to see that was to look at the screen:
+
+    text="lwmanual99 at DuckDuckGo"
+    text="Manfrotto Pro Light LW-99 V2 Professional Photography Roller ... - Manuals+"
+
+A real results page, after the idle, with `rx+0 tx+0` on the counters and no events in
+the capture summary. So:
+
+- **`summarise_capture` reports handshakes** — DNS, TCP SYN, TLS SNI. Fenix opens a
+  connection to the default engine *while the query is being typed*, so committing it
+  reuses that connection and produces none of the three. Zero events, megabytes moved.
+- **`dumpsys netstats` is not real-time.** Android polls it, so the counters sit still
+  and then jump. Measured: **+8.6 MB during a 60-second idle**, and **exactly zero**
+  across the search that rendered the page above.
+
+The capture *file* has neither blind spot: it grows as packets are written. The control
+now reads its size, and the check goes green with **1,940,422 bytes** after Enter, 0
+events, and the counters still at zero:
+
+    typed 'lwsmokeq58294': 0 outbound events in 60s before Enter, then 1940422 bytes
+    of capture and 0 event(s) after it, so the search ran and the quiet window means
+    something; no sponsored-tile host in 6 app events since launch; 'Show search
+    suggestions' present in Settings > Search and OFF
+
+**LW-M4-11 is verified.** Nothing leaves while a query sits unsent for 60 seconds, no
+sponsored-tile host appears, and the setting stays user-toggleable and off — with a
+positive control that can now actually see the search it is vouching for.
+
+Four fixes were tried before this and did not work: keeping the display awake, polling
+for 180 s instead of sleeping 15 s, re-tapping the field, and deleting and retyping the
+last character to rebuild the IME connection. The first two are kept because they are
+right anyway. The last two are not in the code. Two published conclusions were wrong
+along the way — "the capture is buffering" and "the search did not run" — and both are
+retracted here rather than quietly edited away.
 
 ---
 

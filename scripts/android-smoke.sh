@@ -2719,15 +2719,26 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
 
     off_enter = pcap_size(pcap)
     rx0, tx0 = app.rx_tx()
-    # KNOWN OPEN (2026-09-06): this commit does not make the search happen. After
-    # the idle above the text is still in the field and the app is still in edit
-    # mode, but `input keyevent 66` produces NO query -- zero packets AND zero
-    # bytes on the app's uid -- while --check-search, which types and presses
-    # Enter with no pause, issues a real query on the same build. Re-tapping the
-    # field first to restore focus was tried and changed nothing, so it is not
-    # here; the difference is the wait, and what it does to this Compose field's
-    # IME connection is not yet understood. Do not paper over it by shortening
-    # the idle: the idle IS the measurement.
+    # Re-establish the input-method connection before committing, by deleting the
+    # last character and retyping it. ENTER's "go" is an IME action delivered
+    # over the InputConnection, not a raw key the view handles, and that
+    # connection does not survive the idle above: measured 2026-09-06, Enter
+    # after a 60s wait produced NO query at all -- zero packets AND zero bytes on
+    # the app's uid -- while --check-search, which presses Enter one second after
+    # typing, issues a real query on the same build. Re-tapping the field was
+    # tried first and changed nothing, which is what ruled focus out and pointed
+    # at the connection.
+    #
+    # The query is unchanged by this (one character out, the same one back in),
+    # so the window above still measures exactly what it measured: the whole
+    # query sitting unsent for --capture-seconds with nothing on the wire. And a
+    # suggestion request provoked here could not be mistaken for the search
+    # anyway -- if suggestions were live, the 60s window would already have
+    # caught them and this check would have failed there.
+    adb.shell("input keyevent 67", timeout=60)      # DEL
+    time.sleep(0.5)
+    adb.shell("input text %s" % token[-1], timeout=60)
+    time.sleep(1)
     adb.shell("input keyevent 66", timeout=60)
     # POLL until the search shows up rather than sleeping once and looking. It
     # costs nothing when the traffic lands immediately, and it removes a whole
@@ -2763,15 +2774,29 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
         enter_app = [r for r in enter_rows if not r["os_noise"] and not r.get("harness")]
         rx1, tx1 = app.rx_tx()
         drx, dtx = rx1 - rx0, tx1 - tx0
-        # 2 KB of request plus response: comfortably above idle keep-alive noise
-        # and far below a real page load.
-        if enter_app or (dtx > 2048 and drx > 2048):
+        # THE capture file's own growth is the reliable signal -- the only one of
+        # the three that is both real-time and blind to how the traffic is shaped:
+        #   * summarise_capture reports NOTABLE events: DNS, TCP SYN, TLS SNI.
+        #     Fenix opens a connection to the default engine while the query is
+        #     being typed, so committing it REUSES that connection and produces
+        #     none of the three. Zero events, megabytes moved.
+        #   * dumpsys netstats is NOT real-time. Android polls it periodically, so
+        #     the counters sit still and then jump. Measured 2026-09-06: +8.6 MB
+        #     during a 60s idle, and exactly zero across a search that
+        #     demonstrably rendered a page of results.
+        # Both were tried as the control and both reported "no traffic" for a
+        # working search. The pcap grows as packets are written -- a launch adds
+        # ~773 KB, a page load ~2.6 MB -- so its size is the honest question.
+        dpcap = pcap_size(pcap) - off_enter
+        if enter_app or dpcap > 50000:
             break
-    searched = bool(enter_app) or (dtx > 2048 and drx > 2048)
-    log("check-no-suggest: post-Enter window closed after %ds with %d app event(s) and "
-        "app uid bytes rx+%d tx+%d"
+    dpcap = pcap_size(pcap) - off_enter
+    searched = bool(enter_app) or dpcap > 50000
+    log("check-no-suggest: post-Enter window closed after %ds -- capture grew %d bytes, "
+        "%d app event(s), uid counters rx+%d tx+%d (the last two can both read zero on a "
+        "working search; see the note above)"
         % (int(time.time() - (enter_deadline - max(180, capture_seconds * 3))),
-           len(enter_app), drx, dtx))
+           dpcap, len(enter_app), drx, dtx))
     # Whether Enter was consumed at all. NOT proof that a search ran: on
     # 2026-09-06 the app left edit mode while both the packet capture and the
     # kernel's per-uid byte counters recorded exactly zero traffic, so the query
@@ -2799,15 +2824,11 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
                            sorted({r["detail"] or r["dst"] for r in typing_app})[:6]))
     if not searched:
         problems.append(
-            "Enter produced NO outbound event and NO app traffic at all (uid bytes rx+%d "
-            "tx+%d) in %ds of polling, so the quiet typing window proves nothing. The app "
-            "%s. Two independent measurements agree here -- the packet capture and the "
-            "kernel's per-uid accounting -- so the search did not run; leaving edit mode "
-            "only means Enter was consumed, not that a query was issued. Chase the UI "
-            "interaction (does `input keyevent 66` commit this Compose field after a long "
-            "idle?), not the capture."
-            % (drx, dtx, max(180, capture_seconds * 3),
-               "did leave edit mode" if left_edit_mode
+            "Enter moved NOTHING: the capture grew %d bytes in %ds of polling, with %d "
+            "app event(s). The app %s. So the quiet typing window proves nothing -- a "
+            "window that saw no search cannot vouch for a window that saw no suggestion."
+            % (dpcap, max(180, capture_seconds * 3), len(enter_app),
+               "did leave edit mode, so Enter was accepted" if left_edit_mode
                else "is still in edit mode, so the keystroke never took effect"))
     if sponsored:
         problems.append("%d event(s) to a sponsored-tile host: %s"
@@ -2820,16 +2841,18 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
         problems.append("'Show search suggestions' reads ON by default")
     ok = not problems
     res.add("check-no-suggest", ok,
-            ("typed %r: 0 outbound events in %ds before Enter, then %d event(s) and "
-             "rx+%d/tx+%d app bytes after it (the search demonstrably ran); "
+            ("typed %r: 0 outbound events in %ds before Enter, then %d bytes of capture "
+             "and %d event(s) after it, so the search ran and the quiet window means "
+             "something; "
              "no sponsored-tile host in %d app events since launch; 'Show search suggestions' "
              "present in Settings > Search and OFF"
-             % (token, capture_seconds, len(enter_app), drx, dtx,
+             % (token, capture_seconds, dpcap, len(enter_app),
                 len([r for r in all_rows if not r["os_noise"]]))) if ok else
             "; ".join(problems) + " -- owned by LW-M4-11",
             {"token": token, "left_edit_mode_after_enter": left_edit_mode,
              "typing_events": typing_app[:100], "enter_events": enter_app[:50],
              "sponsored_events": sponsored[:50], "suggestions_switch": switch,
+             "post_enter_pcap_bytes": dpcap,
              "post_enter_rx_bytes": drx, "post_enter_tx_bytes": dtx,
              "left_edit_mode_after_enter": left_edit_mode,
              "capture_seconds": capture_seconds})
