@@ -53,9 +53,21 @@ if [ -z "$APKSIGNER" ]; then
     done
 fi
 [ -n "$APKSIGNER" ] || APKSIGNER="$(command -v apksigner 2>/dev/null || true)"
-[ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ] ||
-    die "no apksigner. Set APKSIGNER=/path/to/apksigner, or ANDROID_SDK_ROOT to an
-       SDK with build-tools installed."
+# apksigner is a thin shell wrapper around lib/apksigner.jar, and the jar is pure
+# Java: it runs anywhere a JDK does, with no SDK install. That matters because
+# signing happens on the KEY machine, which is deliberately not this one and has
+# no reason to carry an Android SDK. Accept either form.
+case "$APKSIGNER" in
+    *.jar)
+        command -v java >/dev/null 2>&1 || die "APKSIGNER points at a .jar but there is no java on PATH"
+        [ -f "$APKSIGNER" ] || die "no such jar: $APKSIGNER"
+        APKSIGNER_CMD="java -jar $APKSIGNER" ;;
+    *)
+        [ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ] ||
+            die "no apksigner. Set APKSIGNER to the binary OR to lib/apksigner.jar (which
+       needs only a JDK), or ANDROID_SDK_ROOT to an SDK with build-tools installed."
+        APKSIGNER_CMD="$APKSIGNER" ;;
+esac
 
 # The expected fingerprint is READ FROM SIGNING.md, not duplicated here: two
 # copies of a fingerprint is one copy that can go stale, and the document is
@@ -98,11 +110,11 @@ if [ "$SELF_TEST" = "1" ]; then
         -dname "CN=Redoubt Verifier Self Test, O=not a release key" >/dev/null 2>&1 ||
         die "keytool could not generate a throwaway key"
     cp "$src" "$tmp/unsigned.apk"
-    "$APKSIGNER" sign --ks "$tmp/t.p12" --ks-type PKCS12 --ks-pass pass:testtest \
+    $APKSIGNER_CMD sign --ks "$tmp/t.p12" --ks-type PKCS12 --ks-pass pass:testtest \
         --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true \
         --out "$tmp/signed.apk" "$tmp/unsigned.apk" >/dev/null 2>&1 ||
         die "apksigner could not sign the throwaway copy"
-    out=$("$APKSIGNER" verify --verbose --print-certs "$tmp/signed.apk" 2>&1)
+    out=$($APKSIGNER_CMD verify --verbose --print-certs "$tmp/signed.apk" 2>&1)
     st=0
     printf '%s' "$out" | grep -qi 'Verified using v2 scheme.*true' \
         && printf '  ok    self-test: v2 detected on a correctly signed APK\n' \
@@ -128,7 +140,7 @@ for apk in "$@"; do
     bad=0
     [ -f "$apk" ] || { fail "no such file"; rc=1; printf '\n'; continue; }
 
-    out=$("$APKSIGNER" verify --verbose --print-certs "$apk" 2>&1)
+    out=$($APKSIGNER_CMD verify --verbose --print-certs "$apk" 2>&1)
     if [ $? -ne 0 ]; then
         fail "apksigner could not verify it:"
         printf '%s\n' "$out" | sed 's/^/        /' >&2

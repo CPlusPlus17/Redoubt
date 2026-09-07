@@ -28,6 +28,32 @@ These are the same inputs the reproducibility check used, and that check passed
 with R8 on: two independent builds byte-identical, negative control good
 (`docs/android/evidence/lw-m6-02/`).
 
+## If the key machine has no `apksigner`
+
+It probably does not, and it should not need an Android SDK just to sign — the key
+machine is deliberately not a build machine. `apksigner` is a thin shell wrapper
+around `lib/apksigner.jar`, and **that jar is pure Java**: copy the one file and
+run it with any JDK 17+.
+
+A copy is staged on the build host at:
+
+    ~/redoubt-artifacts/signing-tools/apksigner.jar
+    sha256 3716d9311e55d2b0918a2fd9d54ba9e406c5f6abeea700b287f11259bc163dec
+    1,100,545 bytes   (from build-tools 36.0.0)
+
+Verified 2026-09-07 to sign a real Redoubt APK this way, producing exactly
+`v1=false, v2=true, v3=true`. Substitute `java -jar apksigner.jar` for `apksigner`
+in the loop below, and pass the same path to the verifier, which accepts a `.jar`
+as well as a binary:
+
+    APKSIGNER=~/redoubt-artifacts/signing-tools/apksigner.jar \
+      ./scripts/android-verify-signature.sh fenix-*-release.apk
+
+The alternative, if you would rather have the real thing: on macOS
+`brew install --cask android-commandlinetools`, then
+`sdkmanager "build-tools;36.0.0"`. That pulls an SDK onto the key machine, which
+is more than this needs.
+
 ## The remaining step, in full
 
 On a machine that is **not** this one, holding the keystore:
