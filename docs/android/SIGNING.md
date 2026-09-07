@@ -81,6 +81,31 @@ Closing it needs one of:
 The one thing not to do is leave this section reading as though the criterion
 were satisfied.
 
+### Decision: Redoubt ships single-holder
+
+    DECIDED       2026-09-06
+    DECIDED BY    Manuel Gysin (owner)
+    CHOICE        ship with one holder; do not block the release on finding a second
+
+Recorded here because this section offered exactly three ways out and one of them
+was "an explicit decision to ship single-holder, recorded here with a date". This
+is that decision, not an oversight and not a deferral.
+
+What it means, in the words this file already uses: **if the owner loses access
+to both machines and the passphrase, Redoubt ends under `org.redoubtbrowser`.**
+There is no co-holder to recover from, no authority to appeal to, and no
+key-recovery mechanism outside Play App Signing, which this project does not use.
+Every installed user would have to uninstall and reinstall, losing their profile.
+
+The LW-M6-01 acceptance criterion "at least two holders" is therefore **not met,
+and is not going to be met before launch**. It is an accepted risk of a solo
+project. Revisit it when there is a second maintainer, or when an offline copy in
+a third location becomes practical — that option is still open and still reduces
+the loss risk, and taking it later does not require re-deciding this.
+
+This decision says nothing about custody rule 3 below, which is a separate and
+still-open problem: the key is currently reachable by the CI runner.
+
 ### Rules that are already settled
 
 1. **The key never touches CI.** `.github/workflows/android-release.yaml`

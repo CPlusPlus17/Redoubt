@@ -19,11 +19,23 @@ tracked source.
 ## 0. Triage owner — LAUNCH BLOCKER
 
 ```
-OWNER:        __________________________     (launch-window triage owner)
-BACKUP:       __________________________     (covers when OWNER is unavailable)
+OWNER:        Manuel Gysin                  (launch-window triage owner)
+BACKUP:       -- none --                    (see the note below)
 WINDOW OPEN:  __________  (date the download page goes live — LW-M7-02)
 WINDOW CLOSE: __________  (OPEN + 14 days, or the exit condition in §5)
 ```
+
+**Named 2026-09-06.** BACKUP is deliberately empty: Redoubt is a solo project, and
+recording a second name that does not exist would be worse than the gap. Two things
+in this document assume cover that is not there, and both are now the owner's to
+carry alone or to relax:
+
+- the daily pass and the 30-day `Android Needs Repro` decay rule (§3) assume someone
+  is reading the queue every day, including the days the owner is not;
+- the launch-window rotation (§5) has no one to rotate with.
+
+Same decision shape as the single-holder key custody in `SIGNING.md`: an accepted
+risk of a solo project, written down rather than left blank.
 
 **Shipping with `OWNER` blank is a launch blocker.** Not a nice-to-have, not a
 follow-up: if this field is empty, the Android download page (LW-M7-02) does not go

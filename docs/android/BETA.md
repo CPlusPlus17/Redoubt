@@ -25,21 +25,26 @@ linked. "Green on the maintainer's machine" counts only where the line says so.
 | E5 | Fenix unit tests subtract cleanly: `board.py --check-fenix-tests` exit 0 on results from this tree | `docs/android/evidence/lw-m7-06/check-fenix-tests.out` | **met 2026-09-06** — 598 classes / 5,426 tests, 93 failing = 90 environmental + 3 known-real + 0 unexpected. First time the suite has ever been run here. **Note the results directory has since been wiped** by `android-verify-repro.sh`, which clears `obj-*/gradle/build` to force a real rebuild, so re-running the gate today exits 2 for want of input. That is correct fail-closed behaviour, not a regression; the passing output is in the evidence file. Re-run the suite for the actual beta build anyway. |
 | E6 | Reproducible: `scripts/android-verify-repro.sh` exit 0 on the beta build's inputs, **with R8 on** | `docs/android/evidence/lw-m6-02/summary.txt` | **met 2026-09-06.** Two independent builds with R8 **on**, from the three-ABI tree at a pinned build date, produced byte-identical unsigned APKs for all four artifacts, and the negative control caught an injected 1-byte change. Same-machine only; cross-machine identity is still not claimed. |
 | E7 | Signed with the release key, **v2 + v3**, fingerprint matches `SIGNING.md`; signed offline by a holder, never on the CI runner — and the key no longer readable by that runner | `apksigner verify --verbose --print-certs` output in the evidence | not met. Every APK built so far is `CN=Android Debug`, **v2 only** (verified 2026-09-06), and Accrescent rejects v2-only. Separately, the keystore is on the build host and the Actions runner runs as its owner, so "never on the CI runner" is not true of the key's *location* either — see `SIGNING.md` custody rule 3. |
-| E8 | A second key holder exists, or the single-holder decision is recorded with a date in `SIGNING.md` | `SIGNING.md` custody table | not met (`SIGNING.md`: 1 holder, 2 copies) |
-| E9 | The parity wording (`PARITY.md` §5) is signed off, because testers will ask what the sandbox gap means and the answer must be the published one | sign-off line in `PARITY.md` | not met |
-| E10 | A triage owner and backup are named (`TRIAGE.md` §0), and the bug-report form (LW-M7-04) exists, because beta reports go through it | `TRIAGE.md` §0 filled | not met |
+| E8 | A second key holder exists, or the single-holder decision is recorded with a date in `SIGNING.md` | `SIGNING.md`, "Decision: Redoubt ships single-holder" | **met 2026-09-06.** The owner decided to ship single-holder rather than block on finding a second, and the consequence is recorded in the file's own words: lose both machines and the passphrase and Redoubt ends under `org.redoubtbrowser`, with every user having to uninstall and reinstall. LW-M6-01's "at least two holders" is knowingly not met. An offline third copy remains available later and does not require re-deciding this. |
+| E9 | The parity wording (`PARITY.md` §5) is signed off | `PARITY.md` §5 | **met 2026-09-06.** Approved verbatim by the owner, unsoftened, as LW-M5-06 requires. LW-M7-02 must publish it word for word with a reachable link to the parity table, because the sentence promises "we publish exactly where" and that table is the where. |
+| E10 | A triage owner and backup are named (`TRIAGE.md` §0), and the bug-report form (LW-M7-04) exists | `TRIAGE.md` §0, `.github/ISSUE_TEMPLATE/android-bug.yml` | **met 2026-09-06.** Owner named. BACKUP deliberately left empty rather than filled with a name that does not exist, with the two things in `TRIAGE.md` that assume cover called out. The form was already live with all seven required fields. |
 | E11 | A first-run network capture taken through a resolver that does **not** sinkhole Mozilla hosts | `docs/android/evidence/lw-m7-06/first-run-capture-honest-dns.*` | **met 2026-09-06.** The build host's LAN resolver answers `incoming.telemetry.mozilla.org` and `ads.mozilla.org` with `0.0.0.0`/`::`, so every earlier capture here understated telemetry by construction. Re-run with the emulator pointed at Quad9 (`--dns-server 9.9.9.9`): **the same six events, all Remote Settings, and not one telemetry, Adjust, ads, crash-reporting or Google endpoint.** The sinkhole was not flattering the result. |
 | E12 | The Remote Settings allowlist has been decided **for Android** | `settings/android.cfg`, `docs/android/evidence/lw-m4-08/RESULT.md` | **met 2026-09-06.** Decided by the maintainer: keep the seven collections carrying security state, drop the twenty-six for features Redoubt does not ship. Landed and verified live (the device reads exactly seven). Measured effect: **52% less data received** on first run, and the **same six requests**, because one changes-endpoint poll serves whatever remains. Going to zero would freeze certificate revocation until the next release; that was put and refused. |
 
 E7–E10 are human actions; nothing an agent does can meet them. E1–E6, E11 and
 E12 are build-and-measure or decide-and-record work.
 
-**Where this stood at the end of 2026-09-06:** eight of twelve met — E1, E2, E3, E4,
-E5, E6, E11 and E12. Outstanding: **E7 to E10** only, and all four need a person: release signing with v2+v3, a second key holder or a dated
-decision to ship with one, the parity wording sign-off, and a named triage owner. The
-bug-report form E10 also asks for is already live at
-`.github/ISSUE_TEMPLATE/android-bug.yml` with all seven required fields, so only the
-name is missing there. The device evidence is in `docs/android/evidence/lw-m7-06/`, which also
+**Where this stood at the end of 2026-09-06:** eleven of twelve met. Everything
+except **E7**. Outstanding: **E7 alone** — a release-signed APK, v2+v3, signed offline by a holder on
+a machine that is not the CI runner host. It cannot be done from here and should not be:
+the keystore passphrase is the owner's, and `SIGNING.md` custody rule 3 says the signing
+machine must not be this one. `./scripts/android-verify-signature.sh` checks the result
+in one command and currently reports today's build NOT PUBLISHABLE, on two counts.
+
+One open problem is not an entry criterion and outranks several that are: **the keystore
+lives on the build host and the Actions runner executes as its owner**, so any workflow
+reaching that runner can read it (`SIGNING.md` custody rule 3). Moving it is a
+maintainer action. The device evidence is in `docs/android/evidence/lw-m7-06/`, which also
 records what each passing check did *not* cover.
 
 ## 2. Device spread

@@ -119,10 +119,23 @@ device-equipped session, not a documentation session.
 Quoted **verbatim** from ROADMAP.md and the LW-M5-06 task, which states: *"Do not
 soften it."*
 
-**Status of this wording: NEEDS OWNER SIGN-OFF. Do not publish it as-is.** The
-owner must approve the final wording and the `redoubtbrowser.org` that will host it
-before any external use (IDENTITY.md still carries `redoubtbrowser.org` as an open
-placeholder). This section records the agreed text; it is not a publication.
+**Status of this wording: SIGNED OFF, approved for publication as written.**
+
+    APPROVED      2026-09-06
+    APPROVED BY   Manuel Gysin (owner)
+    SCOPE         the wording above, verbatim, and its use on the download page
+
+Approved unchanged, which is what the task asked for — LW-M5-06 says *"Do not
+soften it"*, and it has not been softened. `redoubtbrowser.org` is the decided and
+registered domain (`IDENTITY.md`, 2026-08-23); an earlier revision of this
+paragraph called it an open placeholder, which it had stopped being.
+
+LW-M7-02 may now put this text on the download page **verbatim**, not paraphrased
+and not summarised. The sentence promises "we publish exactly where", and the
+thing it promises to publish is the table in section 1 of this file — including
+row 1's absent content-process sandbox and row 6's DoH, which Fenix overwrites on
+every cold start. Publishing the sentence without a reachable link to that table
+would make it false.
 
 ## 6. Sources
 
