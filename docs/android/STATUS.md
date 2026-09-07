@@ -76,15 +76,27 @@ Two findings worth carrying forward:
   the DNS query is ever visible. `firefox.settings.services.mozilla.com` is not
   filtered. A first-run count from here is not publishable — see `BETA.md` E11.
 
-## What is not started
+## What is left
 
-- **LW-M7-04**: `TRIAGE.md` §0 has no OWNER and no BACKUP. That document calls it
-  a LAUNCH BLOCKER in its own words.
-- **LW-M6-01 acceptance**: one key holder, two copies. `SIGNING.md` records the
-  gap rather than papering over it. Every APK built so far is `CN=Android Debug`,
-  v2-only; Accrescent needs v3.
-- **Sign-offs**: `TRACK.md` §8 (ESR track) and `PARITY.md` §5 (the public wording,
-  marked "Do not publish as-is") are both blank.
+`docs/android/BETA.md` tracks twelve entry criteria. **Eleven are met.** The one
+that is not:
+
+- **E7 — a release-signed APK, v2 + v3.** Every APK built so far is
+  `CN=Android Debug`, v2-only, and Accrescent rejects v2-only.
+  `./scripts/android-verify-signature.sh` checks all four properties in one
+  command and reports today's build NOT PUBLISHABLE on two counts. This cannot be
+  done on this machine and should not be: the passphrase is the owner's, and
+  `SIGNING.md` custody rule 3 says the signing machine is not the CI runner host.
+
+Decided on 2026-09-06 rather than left blank: Redoubt ships **single-holder**
+(`SIGNING.md`), the parity wording is **signed off verbatim** (`PARITY.md` §5),
+and the triage owner is **named** (`TRIAGE.md` §0, with BACKUP deliberately empty).
+`TRACK.md` §8's ESR-track sign-off is still blank and belongs to LW-M0-07.
+
+**One open problem is not an entry criterion and outranks several that are:** the
+release keystore is on this build host and the Actions runner executes as its
+owner, so any workflow reaching that runner can read it. The file mode is a red
+herring — `/home` is `0700` with one account. Only moving the key closes it.
 
 ## Where to start
 
