@@ -49,10 +49,20 @@ landmine L1 (`evidence/lw-m6-07/smoke3/result.json`) and autoconfig loading with
 a lock surviving a Fenix toggle (`evidence/lw-m3-09`).
 
 The often-quoted "0 GMS / 0 Adjust / 14 first-run events" figure is superseded.
-Measured 2026-09-06 on the three-ABI build: **0 GMS, 0 Adjust, and 6 outbound events
-before any navigation** — all of them Remote Settings, permitted by LibreWolf's own
-33-collection allowlist rather than leaking past a patch. See LW-M4-08 and `BETA.md`
-entry criterion E12.
+Measured 2026-09-06 on the three-ABI build, through a resolver that does **not**
+sinkhole Mozilla hosts: **0 GMS, 0 Adjust, 0 telemetry, 0 ads, 0 crash-reporting, and
+6 outbound events before any navigation.** All six are Remote Settings.
+
+LW-M4-08 has since been decided: Android keeps seven security collections
+(certificate revocation, the blocklists, tracking-protection lists) and drops
+twenty-six for features Redoubt does not ship. That cut the first-run data by
+**52%** (1,324,658 → 636,739 bytes received) and left the request count at six,
+because one poll of the changes endpoint serves whatever remains.
+
+So **M4's "zero outbound requests before first navigation" does not hold and is not
+going to.** Publishing the measured six, with the reason, is the decision — not a
+softening of it. `--first-run-capture` and `--check-no-remote-settings` are red by
+design and must not be weakened.
 
 Two findings worth carrying forward:
 
