@@ -126,7 +126,16 @@ were satisfied.
            --out fenix-<abi>-release-signed.apk fenix-<abi>-release-unsigned.apk
 
 5. The holder verifies the signed APK reports the fingerprint above and both
-   schemes:
+   schemes. **Use the script, not your eyes** — the three ways this goes wrong
+   are all silent, and one of them is a 64-character hex string:
+
+       ./scripts/android-verify-signature.sh <apk> [<apk> ...]
+
+   It reads the expected fingerprint out of this file (so there is only ever one
+   copy of it), and fails on a v2-only APK, on a missing v3, on an unexpected
+   v1, and on the wrong key. Run against a debug build it reports NOT
+   PUBLISHABLE, which is what every APK this project has produced so far is.
+   The underlying command, if you want to read the raw output:
 
        apksigner verify --verbose --print-certs fenix-<abi>-release-signed.apk
        # expect: Verified using v2 scheme (APK Signature Scheme v2): true
