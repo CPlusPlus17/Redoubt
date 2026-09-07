@@ -160,6 +160,19 @@ still-open problem: the key is currently reachable by the CI runner.
    copy of it), and fails on a v2-only APK, on a missing v3, on an unexpected
    v1, and on the wrong key. Run against a debug build it reports NOT
    PUBLISHABLE, which is what every APK this project has produced so far is.
+
+   **The checker has been checked**, because one that has only ever said no is
+   a habit rather than a test:
+
+       ./scripts/android-verify-signature.sh --self-test <any apk>
+
+   That signs a throwaway copy with a key generated on the spot and asserts both
+   halves — that a correctly signed APK is detected as v2 *and* v3, and that the
+   same APK is still rejected because the key is not the published one. The
+   second half is the one a release process cannot survive without. It passed on
+   2026-09-06, which also makes the `apksigner sign` invocation above a verified
+   command rather than an aspirational one.
+
    The underlying command, if you want to read the raw output:
 
        apksigner verify --verbose --print-certs fenix-<abi>-release-signed.apk

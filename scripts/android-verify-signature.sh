@@ -39,7 +39,10 @@ die()  { printf 'android-verify-signature: %s\n' "$1" >&2; exit 2; }
 fail() { printf '  FAIL  %s\n' "$1" >&2; bad=1; }
 ok()   { printf '  ok    %s\n' "$1"; }
 
-[ $# -ge 1 ] || die "usage: $0 <apk> [<apk> ...]"
+SELF_TEST=0
+if [ "${1:-}" = "--self-test" ]; then SELF_TEST=1; shift; fi
+
+[ $# -ge 1 ] || [ "$SELF_TEST" = "1" ] || die "usage: $0 [--self-test] <apk> [<apk> ...]"
 
 # apksigner: from $APKSIGNER, then the SDK, then $PATH. Never guessed silently.
 APKSIGNER="${APKSIGNER:-}"
@@ -66,6 +69,58 @@ EXPECTED_N=$(printf '%s' "$EXPECTED" | tr -d ':' | tr 'A-F' 'a-f')
 
 printf 'expected key (SIGNING.md): %s\n' "$EXPECTED"
 printf 'apksigner                : %s\n\n' "$APKSIGNER"
+
+# --------------------------------------------------------------------------
+# --self-test: prove this script can return BOTH answers.
+#
+# Until 2026-09-06 it had only ever printed NOT PUBLISHABLE, because the only
+# APKs that exist here are debug-signed. A checker that has never returned 0 is
+# not a checker, it is a habit -- so this signs a throwaway copy with a key
+# generated on the spot and asserts the two halves separately:
+#
+#   * a correctly signed APK is detected as v2 AND v3, no v1;
+#   * the SAME APK is still REJECTED, because the key is not the published one.
+#
+# That second half is the important one. It is what stops a well-formed
+# signature from a wrong key passing, which is the failure a release process
+# cannot survive. The throwaway keystore lives in a temp dir and is deleted;
+# it never touches the repo, and it is not and cannot be the release key.
+# --------------------------------------------------------------------------
+if [ "$SELF_TEST" = "1" ]; then
+    src="${1:-}"
+    [ -n "$src" ] && [ -f "$src" ] || die "--self-test needs an APK to copy: $0 --self-test <apk>"
+    command -v keytool >/dev/null 2>&1 || die "--self-test needs keytool"
+    tmp=$(mktemp -d) || die "cannot make a temp dir"
+    trap 'rm -rf "$tmp"' EXIT
+    printf 'self-test: signing a throwaway copy of %s\n' "$(basename "$src")"
+    keytool -genkeypair -keystore "$tmp/t.p12" -storetype PKCS12 -storepass testtest \
+        -keyalg RSA -keysize 2048 -validity 1 -alias t \
+        -dname "CN=Redoubt Verifier Self Test, O=not a release key" >/dev/null 2>&1 ||
+        die "keytool could not generate a throwaway key"
+    cp "$src" "$tmp/unsigned.apk"
+    "$APKSIGNER" sign --ks "$tmp/t.p12" --ks-type PKCS12 --ks-pass pass:testtest \
+        --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true \
+        --out "$tmp/signed.apk" "$tmp/unsigned.apk" >/dev/null 2>&1 ||
+        die "apksigner could not sign the throwaway copy"
+    out=$("$APKSIGNER" verify --verbose --print-certs "$tmp/signed.apk" 2>&1)
+    st=0
+    printf '%s' "$out" | grep -qi 'Verified using v2 scheme.*true' \
+        && printf '  ok    self-test: v2 detected on a correctly signed APK\n' \
+        || { printf '  FAIL  self-test: v2 NOT detected on a correctly signed APK\n' >&2; st=1; }
+    printf '%s' "$out" | grep -qi 'Verified using v3 scheme.*true' \
+        && printf '  ok    self-test: v3 detected on a correctly signed APK\n' \
+        || { printf '  FAIL  self-test: v3 NOT detected on a correctly signed APK\n' >&2; st=1; }
+    if "$0" "$tmp/signed.apk" >/dev/null 2>&1; then
+        printf '  FAIL  self-test: a WRONG key was accepted -- this script cannot be trusted\n' >&2
+        st=1
+    else
+        printf '  ok    self-test: correctly signed but wrong key is still rejected\n'
+    fi
+    [ "$st" -eq 0 ] && printf '\nself-test PASSED: the checker detects both schemes and refuses a wrong key.\n\n' \
+                    || { printf '\nself-test FAILED\n' >&2; exit 1; }
+    [ $# -gt 1 ] || exit 0
+    shift
+fi
 
 rc=0
 for apk in "$@"; do
