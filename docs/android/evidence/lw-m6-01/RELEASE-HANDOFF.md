@@ -28,7 +28,23 @@ These are the same inputs the reproducibility check used, and that check passed
 with R8 on: two independent builds byte-identical, negative control good
 (`docs/android/evidence/lw-m6-02/`).
 
-## If the key machine has no `apksigner`
+## Just run `sign.sh`
+
+`apksigner.jar` and a `sign.sh` now sit **in the artifact directory**, so they
+travel with the APKs and cannot go missing on the way. On the key machine:
+
+    ./sign.sh                       # keystore named redoubt-release.p12, here
+    ./sign.sh /path/to/redoubt-release.p12
+
+It verifies the checksums, signs all four with v1 off and v2+v3 on, and prints
+each result's schemes and fingerprint. It prompts for the passphrase rather than
+taking it on the command line, so the secret stays out of your shell history.
+Needs a JDK 17+ and nothing else.
+
+Rehearsed end to end on 2026-09-07 with a throwaway key: all four artifacts came
+out `v1=false, v2=true, v3=true`. A copy of the script is kept beside this file.
+
+## If you would rather do it by hand: `apksigner` is missing, and that is fine
 
 It probably does not, and it should not need an Android SDK just to sign — the key
 machine is deliberately not a build machine. `apksigner` is a thin shell wrapper
