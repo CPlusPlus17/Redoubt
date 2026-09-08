@@ -2072,6 +2072,8 @@ tasks:
     depends_on: [LW-M3-06, LW-M2-04, LW-M6-11, LW-M7-07]
     owns:
       - patches/android/ubo-preinstall.patch
+      - patches/android/ubo-readiness.patch
+      - scripts/tests/test-ubo-readiness.js
       - assets/ubo-extension.json
       - scripts/fetch-ubo-extension.py
       - scripts/tests/test-ubo-extension.py
@@ -2092,7 +2094,13 @@ tasks:
       - mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
       - mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
       - mobile/android/fenix/app/src/main/res/values/strings.xml
-      - mobile/android/fenix/app/src/main/assets/webextensions/ublock_origin.xpi
+      - mobile/android/fenix/app/src/main/assets/extensions/ublock_origin.xpi
+      - mobile/android/fenix/app/src/main/assets/extensions/ubo-extension.json
+      - toolkit/components/extensions/parent/ext-webRequest.js
+      - mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+      - mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+      - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
+      - mobile/android/geckoview/api.txt
     reads: [assets/uBOAssets.json, patches/custom-ubo-assets-bootstrap-location.patch]
     what: |
       Desktop preinstalls uBO via the ExtensionSettings policy. Android has no
