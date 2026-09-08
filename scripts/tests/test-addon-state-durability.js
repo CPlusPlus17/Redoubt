@@ -54,12 +54,12 @@ function fixture(platform='android') {
   f.db.updateAddonActive=function(addon,active){addon.active=active;this.saveChanges();};
   f.addon = (id='test@example.org',enabled=true) => {
     const loc = new Map();Object.assign(loc,{name:'app-profile',isTemporary:false,isSystem:false,scope:1,locked:false,hasStaged:false,toJSON(){return {addons:Object.fromEntries(this)};},removeAddon(id){this.delete(id);f.states.save();},installer:{uninstallAddon(id){f.operations.push('unlink:'+id);}}});
-    const addon={id,_key:'app-profile:'+id,type:'extension',inDatabase:true,location:loc,visible:true,active:enabled,userDisabled:!enabled,softDisabled:false,embedderDisabled:false,appDisabled:false,pendingUninstall:false,version:'1',defaultLocale:{name:'Test'},dependencies:[],get disabled(){return this.userDisabled||this.softDisabled||this.appDisabled||this.embedderDisabled;},get wrapper(){return {id:this.id};},toJSON(){return {id,location:loc.name,version:this.version,userDisabled:this.userDisabled,appDisabled:this.appDisabled,embedderDisabled:this.embedderDisabled,active:this.active,pendingUninstall:this.pendingUninstall};}};
+    const addon={id,_key:'app-profile:'+id,type:'extension',inDatabase:true,location:loc,visible:true,active:enabled,userDisabled:!enabled,softDisabled:false,embedderDisabled:false,appDisabled:false,pendingUninstall:false,version:'1',defaultLocale:{name:'Test'},dependencies:[],get disabled(){return this.userDisabled||this.softDisabled||this.appDisabled||this.embedderDisabled;},get wrapper(){return {id:this.id};},toJSON(){return {id,location:loc.name,version:this.version,userDisabled:this.userDisabled,visible:this.visible,appDisabled:this.appDisabled,embedderDisabled:this.embedderDisabled,active:this.active,pendingUninstall:this.pendingUninstall};}};
     addon.bootstrap={started:enabled,async disable(){if(f.bootstrapGate)await f.bootstrapGate();this.started=false;f.operations.push('disable:'+id);},async startup(){this.started=true;f.operations.push('enable:'+id);},async shutdown(){this.started=false;f.operations.push('shutdown:'+id);},async uninstall(){this.started=false;f.operations.push('uninstall:'+id);}};
     // Execute the actual synchronization method with minimal filesystem boundary.
     const syncSource=slice(providerSource,'  syncWithDB(aDBAddon, aUpdated = false) {','\n}\n\n/**\n * Manages the state');
     const state=vm.runInContext('({'+syncSource+'})',context);
-    Object.assign(state,{id,enabled,getModTime:()=>0,getTelemetryKey:()=>id,toJSON(){return {id,enabled:this.enabled,version:this.version};}});
+    Object.assign(state,{id,enabled,location:loc,getModTime:()=>0,getTelemetryKey:()=>id,toJSON(){return {id,enabled:this.enabled,version:this.version};}});
     loc.set(id,state);f.states.db.set(loc.name,loc);f.db.addonDB.set(addon._key,addon);return addon;
   };
   f.install = vm.runInContext('({'+slice(installSource,'  async uninstallAddon(aAddon, aForcePending) {','\n  DirectoryInstaller,')+'})',context);
@@ -150,9 +150,9 @@ test('desktop retains DeferredTask and JSONFile without Android writes',async()=
   const f=fixture('linux');f.addon();f.db.saveChanges();f.states.save();await f.states.flushAndroid();assert.equal(f.deferred.delay,20);assert.equal(f.armed,true);assert.equal(f.jsonArmed,true);assert.equal(f.writes.length,0);
 });
 test('cold start always loads DB before scan and reconciliation before cache scheduling',async()=>{
-  const f=fixture(),order=[];f.db.syncLoadDB=()=>order.push('db');f.states.scanForChanges=ignore=>{order.push('scan');assert.equal(ignore,false);return false;};
+  const f=fixture(),order=[];f.db.syncLoadDB=()=>order.push('db');f.states.scanForChanges=ignore=>{order.push('scan:'+ignore);return false;};
   f.context.XPIExports.XPIDatabaseReconcile={processFileChanges(){order.push('reconcile');return true;}};f.db.updateActiveAddons=()=>order.push('active');f.prefs.set('distro',false);f.prefs.set('schema',37);
-  f.checkForChanges.call({processPendingFileChanges:()=>false},false);order.push('background');assert.deepEqual(order,['db','scan','db','reconcile','active','background']);
+  f.checkForChanges.call({processPendingFileChanges:()=>false},false);order.push('background');assert.deepEqual(order,['scan:true','db','scan:false','db','reconcile','active','background']);
 });
 test('a failed Android startup reconciliation cannot fall through to backgrounds',async()=>{
   const f=fixture();f.db.syncLoadDB=()=>{};f.states.scanForChanges=()=>false;f.prefs.set('distro',false);f.context.XPIExports.XPIDatabaseReconcile={processFileChanges(){throw new Error('bad metadata');}};
@@ -215,6 +215,61 @@ test('install listener cancellation changes neither store nor add-on choice',asy
 
 test('enable while uninstall is pending records choice without restarting policy',async()=>{
   const f=fixture(),a=f.addon();await f.install.uninstallAddon(a,true);await f.setUserDisabled.call(a,true);await f.setUserDisabled.call(a,false);assert.equal(a.active,false);assert.equal(a.bootstrap.started,false);assert.equal(f.diskAddon(a.id).userDisabled,false);assert.equal(f.diskState(a.id).enabled,false);await f.install.cancelUninstallAddon(a);assert.equal(f.diskState(a.id).enabled,true);
+});
+
+async function rebuildFixture(kind) {
+  const f=fixture(),addon=f.addon(),loc=addon.location,state=loc.get(addon.id),c=f.context;
+  // Run real restore, asyncLoadDB, parseDB, rebuildDatabase and complete
+  // reconciliation. Only manifest verification and native file IO are bound.
+  const metric=new Proxy(()=>0,{get:()=>metric});c.Glean=metric;c.Services.blocklist={STATE_SOFTBLOCKED:1};addon.blocklistState=0;
+  c.DOMException=class extends DOMException {static isInstance(error){return error instanceof DOMException;}};
+  c.lazy.AddonManagerPrivate.recordTiming=(name,run)=>run();
+  c.lazy.AddonManagerPrivate.simpleTimer=()=>({done(){}});
+  c.lazy.AddonManagerPrivate.addStartupChange=()=>{};
+  c.lazy.ExtensionUtils={DefaultMap:class extends Map {constructor(make){super();this.make=make;}get(key){if(!this.has(key))this.set(key,this.make(key));return super.get(key);}}};
+  c.XPIExports.XPIProvider.addTelemetry=()=>{};c.XPIProvider=c.XPIExports.XPIProvider;
+  c.XPIExports.XPIInternal.resolveDBReady=()=>{};
+  c.XPIExports.XPIInstall.syncLoadManifest=()=>addon;
+  f.db.mustSign=()=>true;f.db._schemaVersionSet=true;
+  addon.isCorrectlySigned=true;addon.isWebExtension=true;addon.userDisabled=false;addon.visible=false;addon.active=false;
+  addon.addedToDatabase=function(){this.inDatabase=true;};
+  addon._sourceBundle=null;state.path=undefined;state.mtime=undefined;
+  loc._addState=(id,data)=>{Object.assign(state,data);loc.set(id,state);return state;};
+  loc.restore=vm.runInContext('(class {'+slice(providerSource,'  restore(saved) {','\n  /**\n   * Returns a JSON-compatible representation of this location')+'}).prototype',c).restore;
+  loc.clear();loc.restore({addons:{[addon.id]:{enabled:false}}});
+  assert.equal(state.wasRestored,true);assert.equal(f.states.size,1);
+  const system=new Map();Object.assign(system,{name:'app-system-addons',isTemporary:false,isSystem:true,installer:{getInvalidAddonIds:()=>null},toJSON(){return {addons:{}};}});f.states.db.set(system.name,system);
+  vm.runInContext(databaseSource.slice(databaseSource.indexOf('export const XPIDatabaseReconcile =')).replace('export const ','var ')+'\nglobalThis.XPIDatabaseReconcile=XPIDatabaseReconcile;',c);
+  c.XPIExports.XPIDatabaseReconcile=c.XPIDatabaseReconcile;
+  f.db.addonDB=null;f.db.initialized=false;f.db.syncLoadingDB=true;f.db.clearBlocklistAttentionAddonIdsSet=()=>{};
+  c.IOUtils.readJSON=async()=>{if(kind==='missing')throw new DOMException('missing','NotFoundError');if(kind==='syntax')throw new SyntaxError('broken JSON');return {};};
+  await f.db.asyncLoadDB(false);
+  // Invalid-but-parsed JSON rebuilt inside parseDB(true); missing/broken
+  // JSON defers the same reconciliation to checkForChanges, as upstream does.
+  c.XPIDatabaseReconcile.processFileChanges({},false);
+  await f.states.flushAndroid();
+  assert.equal(addon.userDisabled,true);assert.equal(addon.active,false);assert.equal(state.enabled,false);assert.equal([...f.states.enabledAddons()].length,0);
+  assert.equal(f.diskAddon(addon.id).userDisabled,true);assert.equal(f.diskState(addon.id).enabled,false);assert.equal(addon.foreignInstall,kind!=='malformed','retain upstream deferred versus immediate rebuild classification');
+  return f;
+}
+for (const kind of ['missing','syntax','malformed']) {
+  test('actual '+kind+' database recovery preserves restored disabled state',()=>rebuildFixture(kind));
+}
+
+function fallbackFixture(platform='android') {
+  const f=fixture(platform),current=f.addon('shared@example.org'),existing=f.addon('shared@example.org');
+  existing.location.name='app-builtin';existing._key='app-builtin:'+existing.id;existing.visible=false;existing.active=false;existing.location.get(existing.id).enabled=false;
+  f.states.db=new Map([['app-profile',current.location],['app-builtin',existing.location]]);f.db.addonDB=new Map([[current._key,current],[existing._key,existing]]);
+  f.db.getAddonInLocation=async()=>existing;
+  current.bootstrap.update=async(addon,enabled,callback)=>{current.bootstrap.started=false;const result=callback();if(platform!=='android')assert.equal(result,undefined,'desktop uninstall callback stays synchronous');await result;addon.bootstrap.started=enabled;};
+  return {f,current,existing};
+}
+test('shadowed fallback is durably visible and active before onInstalled',async()=>{
+  const {f,current,existing}=fallbackFixture();await f.install.uninstallAddon(current,false);
+  const event=f.events.find(e=>e.name==='onInstalled');assert.ok(event);const files=new Map(event.disk),db=files.get('/profile/extensions.json');assert.equal(db.addons.length,1);assert.equal(db.addons[0].visible,true);assert.equal(db.addons[0].active,true);assert.equal(files.get('/profile/addonStartup.json.lz4')['app-builtin'].addons[existing.id].enabled,true);assert.equal(existing.bootstrap.started,true);
+});
+test('desktop fallback keeps the original synchronous uninstall callback',async()=>{
+  const {f,current}=fallbackFixture('linux');await f.install.uninstallAddon(current,false);assert.ok(f.events.some(e=>e.name==='onInstalled'));assert.equal(f.writes.length,0);
 });
 
 (async()=>{let failed=0;for(const {name,run} of tests){let timer;try{await Promise.race([run(),new Promise((resolve,reject)=>{timer=setTimeout(()=>reject(new Error('test timed out; possible operation deadlock')),3000);})]);console.log('PASS '+name);}catch(error){failed++;console.error('FAIL '+name+'\n'+error.stack);}finally{clearTimeout(timer);}}console.log(`${tests.length-failed}/${tests.length} actual-source tests passed`);process.exitCode=failed?1:0;})();

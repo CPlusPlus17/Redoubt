@@ -429,30 +429,59 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
      if (!aAddon.inDatabase) {
        throw new Error(
          `Cannot uninstall addon ${aAddon.id} because it is not installed`
-@@ -5081,13 +5157,16 @@
-         );
-       }
- 
--      let uninstall = () => {
-+      let uninstall = async () => {
-         XPIExports.XPIInternal.XPIStates.disableAddon(aAddon.id);
-         if (aAddon.location.installer) {
-           aAddon.location.installer.uninstallAddon(aAddon.id);
+@@ -5088,36 +5164,51 @@
          }
          XPIExports.XPIDatabase.removeAddonMetadata(aAddon);
          aAddon.location.removeAddon(aAddon.id);
+-        AddonManagerPrivate.callAddonListeners("onUninstalled", wrapper);
+-
+-        if (existing) {
+-          XPIExports.XPIDatabase.makeAddonVisible(existing);
+-          AddonManagerPrivate.callAddonListeners(
+-            "onInstalling",
+-            existing.wrapper,
+-            false
+-          );
+-
+-          if (!existing.disabled) {
+-            XPIExports.XPIDatabase.updateAddonActive(existing, true);
++        const finish = () => {
++          AddonManagerPrivate.callAddonListeners("onUninstalled", wrapper);
++
++          if (existing) {
++            XPIExports.XPIDatabase.makeAddonVisible(existing);
++            AddonManagerPrivate.callAddonListeners(
++              "onInstalling",
++              existing.wrapper,
++              false
++            );
++
++            if (!existing.disabled) {
++              XPIExports.XPIDatabase.updateAddonActive(existing, true);
++            }
+           }
++        };
++        if (AppConstants.platform == "android") {
++          return XPIExports.XPIInternal.XPIStates.flushAndroid().then(finish);
+         }
++        finish();
+       };
+ 
+       // Migrate back to the existing addon, unless it was a builtin colorway theme.
+       if (existing) {
+         await bootstrap.update(existing, !existing.disabled, uninstall);
 +        if (AppConstants.platform == "android") {
 +          await XPIExports.XPIInternal.XPIStates.flushAndroid();
 +        }
-         AddonManagerPrivate.callAddonListeners("onUninstalled", wrapper);
- 
-         if (existing) {
-@@ -5111,13 +5190,16 @@
+         AddonManagerPrivate.callAddonListeners("onInstalled", existing.wrapper);
        } else {
          aAddon.location.removeAddon(aAddon.id);
          await bootstrap.uninstall();
 -        uninstall();
-+        await uninstall();
++        const removal = uninstall();
++        if (AppConstants.platform == "android") {
++          await removal;
++        }
        }
      } else if (aAddon.active) {
        XPIExports.XPIInternal.XPIStates.disableAddon(aAddon.id);
@@ -466,7 +495,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
        XPIExports.XPIDatabase.updateAddonActive(aAddon, false);
      }
  
-@@ -5135,6 +5217,21 @@
+@@ -5135,6 +5226,21 @@
     *        The DBAddonInternal to cancel uninstall for
     */
    cancelUninstallAddon(aAddon) {
@@ -488,7 +517,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
      if (!aAddon.inDatabase) {
        throw new Error("Can only cancel uninstall for installed addons.");
      }
-@@ -5162,13 +5259,18 @@
+@@ -5162,13 +5268,18 @@
        XPIExports.XPIDatabase.updateAddonActive(aAddon, true);
      }
  
@@ -677,7 +706,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
          compression: "lz4",
        });
        this._jsonFile.data = this;
-@@ -3336,12 +3393,28 @@
+@@ -3336,12 +3393,29 @@
  
      // Keep track of whether and why we need to open and update the database at
      // startup time.
@@ -694,20 +723,20 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
        updateReasons.push("appChanged");
      }
  
--    let installChanged = XPIStates.scanForChanges(aAppChanged === false);
++    // Preserve the original restoration before DB load: rebuilding a missing
++    // or corrupt database needs the cached disabled state and installed list.
+     let installChanged = XPIStates.scanForChanges(aAppChanged === false);
 +    if (AppConstants.platform == "android") {
-+      // Load authoritative identities before scanning. An acknowledged install
-+      // may be present in extensions.json but absent from an older cache. Only
-+      // those known identities qualify for recovery in non-sideload locations.
 +      XPIExports.XPIDatabase.syncLoadDB(false);
++      // Once identities are loaded, recover an acknowledged first install
++      // absent from an older cache, and notice missing files even with zero
++      // startup scan scopes. Unknown files keep the sideload restrictions.
++      installChanged = XPIStates.scanForChanges(false) || installChanged;
 +    }
-+    let installChanged = XPIStates.scanForChanges(
-+      AppConstants.platform == "android" ? false : aAppChanged === false
-+    );
      if (installChanged) {
        updateReasons.push("directoryState");
      }
-@@ -3412,6 +3485,9 @@
+@@ -3412,6 +3486,9 @@
              );
          } catch (e) {
            logger.error("Failed to process extension changes at startup", e);
@@ -717,7 +746,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
          }
        }
  
-@@ -3425,6 +3501,11 @@
+@@ -3425,6 +3502,11 @@
        logger.debug("No changes found");
      } catch (e) {
        logger.error("Error during startup file checks", e);
@@ -808,7 +837,7 @@ diff --git a/toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_fai
 diff --git a/toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js b/toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js
 --- /dev/null
 +++ b/toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,187 @@
 +/* Any copyright is dedicated to the Public Domain.
 + * http://creativecommons.org/publicdomain/zero/1.0/ */
 +
@@ -961,6 +990,40 @@ diff --git a/toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.j
 +  const disk = await diskState();
 +  Assert.equal(disk.addon, undefined);
 +  Assert.equal(disk.state, undefined);
++});
++
++add_task(async function missing_or_corrupt_database_preserves_cached_disable() {
++  for (const failure of ["missing", "syntax", "malformed"]) {
++    let addon = await installStateAddon();
++    await addon.disable();
++    await assertEnabled(false);
++    await promiseShutdownManager();
++    if (failure === "missing") {
++      await IOUtils.remove(DB_PATH);
++    } else {
++      await IOUtils.writeUTF8(DB_PATH, failure === "syntax" ? "{" : "{}");
++    }
++    Services.prefs.setBoolPref("extensions.pendingOperations", false);
++    const starts = [];
++    const listener = (event, data) => {
++      if (data.method === "startup" && data.params.id === STATE_ID) {
++        starts.push(data);
++      }
++    };
++    AddonTestUtils.on("bootstrap-method", listener);
++    try {
++      await promiseStartupManager();
++    } finally {
++      AddonTestUtils.off("bootstrap-method", listener);
++    }
++    addon = await promiseAddonByID(STATE_ID);
++    Assert.ok(addon, `${failure}: installed extension was recovered`);
++    Assert.ok(addon.userDisabled, `${failure}: recovered disabled choice`);
++    Assert.ok(!addon.isActive, `${failure}: no active registry entry`);
++    Assert.equal(starts.length, 0, `${failure}: no disabled background started`);
++    await assertEnabled(false);
++    await addon.uninstall();
++  }
 +});
 diff --git a/toolkit/mozapps/extensions/test/xpcshell/xpcshell.toml b/toolkit/mozapps/extensions/test/xpcshell/xpcshell.toml
 --- a/toolkit/mozapps/extensions/test/xpcshell/xpcshell.toml

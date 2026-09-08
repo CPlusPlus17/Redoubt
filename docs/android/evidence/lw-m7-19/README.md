@@ -53,8 +53,10 @@ the existing operation-cancelled notification after persistence; rejected work
 is reported with Cu.reportError. Theme selection retains its existing reentrant
 state-change behavior rather than sharing the extension operation queue.
 
-Before Android scans or schedules backgrounds it loads the database identities,
-scans the actual locations and runs the existing reconciliation. Only known
+Android first performs the original cache restoration/scan, then loads database
+identities and performs a full rescan before reconciliation or background
+scheduling. Restoring the cache first is essential: malformed database parsing
+can immediately rebuild from those locations and their saved disabled state. Only known
 installed identities can be recovered from an older cache in locations that do
 not accept sideloads; unknown files retain the original sideload restrictions.
 The scan also notices removed files even with startupScanScopes=0. Database/cache
@@ -83,20 +85,27 @@ python3 scripts/tests/test-addon-state-durability.py --apk /path/to/candidate.ap
 
 The replay validates the baseline hashes, applies the actual production patch
 with zero fuzz/no offsets, checks every resulting source hash, parses changed JS,
-and runs 31 tests against the actual writer, XPIStates and XPIDatabase objects,
+and runs 36 tests against the actual writer, XPIStates and XPIDatabase objects,
 and actual lifecycle/install/scan methods. Filesystem and bootstrap execution are
 explicit host-test boundaries; they are not a running Gecko engine. Each test has
 a bounded timeout, so an unresolved queue cannot silently exit as success.
 
-source-tests.txt records all 31 passes. They cover both-file completion and
+source-tests.txt records all 36 passes. They cover both-file completion and
 flush/atomic-write options; IO gates and concurrent writes; both-file failures,
 AbortError and same-choice retry; ordered disable/enable; removal and pending
 uninstall/cancellation; stale handles; retry after error; retained desktop
-writers; DB-before-scan/reconcile-before-background ordering; failure propagation;
+writers; restore-before-DB/full-rescan/reconcile-before-background ordering;
+failure propagation;
 both cache/DB directions; known first-install recovery versus unknown files;
 actual missing files; invalid/system/locked-location controls; first-install and
 listener cancellation; toggles while uninstall remains pending; and verified-update
-state propagation, write failure, removal race and same-version reentry.
+state propagation, write failure, removal race and same-version reentry. The
+missing, syntactically corrupt and malformed-but-parsed database cases run actual
+asyncLoadDB, parseDB, rebuildDatabase and full processFileChanges logic with the
+actual location restore method; they assert both preserved disabled state and
+upstream rebuild/detected-install classification. The shadowed-addon fallback
+checks durable visibility/activity before onInstalled, plus the synchronous
+desktop callback contract.
 
 The optional APK check compares all four production modules byte-for-byte inside
 assets/omni.ja and prints that APK's SHA256. It has not run on a new candidate.
@@ -116,7 +125,9 @@ install/disable/enable/concurrent toggle/update/removal, before any test flush o
 shutdown. It also tests write rejection/retry, injects old-profile mismatches in
 both directions after shutdown, captures attempted background startups, removes
 one known install from the cache, and removes an actual XPI while retaining old
-metadata. These Gecko test definitions are syntax-checked but **not run here**.
+metadata. Missing, syntactically corrupt and malformed database recovery also
+assert that no disabled background starts. These Gecko test definitions are
+syntax-checked but **not run here**.
 
 Root owns final target integration, compilation and runtime acceptance. Repeat
 the existing real extension blocking/allowed request controls with immediate
@@ -125,3 +136,15 @@ registry, XPI memory, disk state, policy/listeners and real network results; ver
 normal/private behavior and no browser hang after removal. Keep old inconsistent
 profile recovery separate from fresh successful-operation durability. Run the
 required browser smoke/pref gates and preserve exact candidate/source bindings.
+
+## Review follow-up
+
+The first private implementation loaded the database before the cache was
+restored. Independent root review identified that database reconstruction could
+then run against empty locations and lose the original recovery classification.
+The follow-up restores the original first scan before loading, then rescans with
+known identities. Review also found a missing barrier before onInstalled when
+uninstalling one location exposes a shadowed add-on; that notification now waits
+for the fallback's state to persist. The desktop uninstall callback remains
+synchronous. The 36-test receipt includes both corrections; the earlier private
+commit must not be integrated without its follow-up.
