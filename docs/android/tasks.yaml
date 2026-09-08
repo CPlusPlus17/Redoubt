@@ -3622,3 +3622,33 @@ tasks:
     agent_safe: yes
     isolation: none
     risk: Sharing the host home or retaining the old runner would preserve CI access to signing material.
+  - id: LW-M6-10
+    title: Reconcile beta signing custody after the QEMU migration
+    milestone: M6
+    depends_on: [LW-M6-09]
+    owns:
+      - docs/android/SIGNING.md
+      - docs/android/evidence/lw-m6-01/RELEASE-HANDOFF.md
+      - docs/android/evidence/lw-m6-08/beta-readiness.md
+      - docs/android/evidence/lw-m6-10/
+      - docs/android/BETA.md
+      - docs/android/STATUS.md
+    what: |
+      Recheck the returned release-signed candidate and reconcile stale custody
+      descriptions with the deployed QEMU runner. Prepare a candidate-specific
+      owner decision about signing before migration without claiming it was
+      offline. Preserve the existing E7 requirement until the owner supplies
+      matching custody evidence or explicitly accepts an exception. Record any
+      earlier distributed release-key version code before declaring upgrade
+      compatibility. Never access or operate the release private key.
+    acceptance:
+      - "current signing and runner evidence agrees with the custody documentation"
+      - "all four returned APKs match the candidate and published signing identity"
+      - "missing owner custody and distribution-history facts remain explicit"
+      - "an owner exception is recorded only after explicit approval"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "1-2"
+    skills: [ops, docs]
+    agent_safe: yes
+    isolation: none
+    risk: A new CI boundary cannot retroactively prove the circumstances of earlier signing.

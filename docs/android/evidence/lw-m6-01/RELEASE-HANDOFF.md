@@ -1,5 +1,14 @@
 # E7 offline signing handoff
 
+**Intake update 2026-09-08:** the holder has returned all four signed APKs to
+`~/redoubt-signed/`; published fingerprint, v2+v3/no-v1 and exact candidate
+payload checks pass. The holder reports signing on Fedora before CI moved into
+QEMU. The [migration](../lw-m6-09/README.md) removes current runner access to
+host files but does not establish earlier offline signing. E7 still requires
+matching custody evidence or an explicit owner exception; do not rerun `sign.sh`
+against its existing signed outputs. Prior release-key distribution history
+also remains unconfirmed. The instructions below describe the original handoff.
+
 The final candidate directory for this handoff is
 `librewolf-android-apk-153.0esr-1-beta-20260908/apk/`. Its build and validation
 status is recorded in `BETA.md`; transfer it after the candidate gates pass.

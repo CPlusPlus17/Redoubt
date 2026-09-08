@@ -103,8 +103,9 @@ project. Revisit it when there is a second maintainer, or when an offline copy i
 a third location becomes practical — that option is still open and still reduces
 the loss risk, and taking it later does not require re-deciding this.
 
-This decision says nothing about custody rule 3 below, which is a separate and
-still-open problem: the key is currently reachable by the CI runner.
+This decision says nothing about custody rule 3 below. The former host runner's
+key access was removed by the 2026-09-08 QEMU migration; the signing history and
+the rule's requirement to move the key off the physical build host remain separate.
 
 ### Rules that are already settled
 
@@ -120,20 +121,40 @@ still-open problem: the key is currently reachable by the CI runner.
    require approval from all external contributors, but the correct posture is
    that the key is not reachable there at all.
 
-   > **This rule is currently violated, and the violation is not the file mode.**
+   > **Historical violation, observed before the QEMU migration; not a file-mode issue.**
    > Observed 2026-09-06 on the build host: the keystore is at
    > `~/redoubt-release.p12`, and the GitHub Actions runner
    > (`~/actions-runner`, agent `redoubt-fedora`, label `librewolf-android`)
-   > runs **as the same user that owns it**. Any job that reaches that runner can
-   > read the key — a `chmod 600` changes nothing about that, and would only make
+   > ran **as the same user that owns it**. Any job that reached that runner could
+   > read the key — a `chmod 600` changed nothing about that, and would only make
    > it look addressed. `/home` being `0700` with one account means the exposure
    > is to *workflows*, not to other local users.
    >
-   > What actually closes it is moving the key off this host, which is a
-   > maintainer action and deliberately not automated. Until then, treat every
-   > build this machine produces as coming from a host that holds the release
-   > key, and do not add a workflow trigger that a non-maintainer can fire.
-   > `BETA.md` carries this as entry criterion E7.
+   The original rule requires moving the key off this physical host, which is a
+   maintainer action and has not been performed by this audit. No additional
+   external-contributor workflow trigger has been enabled. `BETA.md` carries
+   the unresolved signing history as entry criterion E7.
+
+### Verified update: CI moved to QEMU on 2026-09-08
+
+At the owner's request, the Fedora host runner `redoubt-fedora` (ID 2) was
+unregistered and its service stopped, disabled and masked. GitHub now reports
+only `redoubt-ci-qemu` (ID 22). The real Android release preflight passed on
+that guest. See the [migration evidence](evidence/lw-m6-09/README.md).
+
+The guest has fresh runner credentials and no host directory shares. QEMU's
+mount namespace has no `/home`, its IP network namespace is separate, and guest
+checks prove the host home and known keystore path are absent. Guest user
+`runner` has no sudo grant; new connections to a positively tested host-network
+listener are administratively rejected. The administration key is outside
+QEMU's namespace. These checks close the former runner's direct file access;
+they do not establish physical separation or erase earlier access.
+
+The four returned beta APKs were signed on Fedora before this migration,
+according to the owner. Their signatures and exact candidate payloads verify,
+but offline/off-runner signing was not established. The existing key was not
+read, moved, copied or used by the migration. An owner exception must be explicit
+before those facts can satisfy E7; the single-holder decision does not supply one.
 
 ## Release procedure
 

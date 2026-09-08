@@ -82,6 +82,10 @@ service is masked. Guest and QEMU checks confirm no host home or signing-key pat
 is exposed, and the guest cannot initiate connections to the private host network.
 The earlier host signing remains recorded as such; migration does not establish
 historical offline signing.
+A [candidate-specific custody proposal](evidence/lw-m6-10/proposed-custody-decision.md)
+is ready for the owner's decision and remains unapproved. Fresh signature and
+candidate checks pass for all four returned APKs. Prior distribution of any
+release-key APK, and its version code if applicable, still needs owner confirmation.
 
 **E10 is met:** the corrected form and private security contact are on default
 `main`; all eleven approved labels are live, and GitHub’s public preview renders

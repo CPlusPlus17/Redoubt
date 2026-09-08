@@ -77,9 +77,11 @@ higher-version-code APK was previously distributed under the release key.
 **E7 is open on custody.** The four signed APKs have been returned and copied to
 `~/redoubt-signed/`; signature, published fingerprint and exact candidate payload
 checks pass. The [intake record](returned-signing-intake.json) preserves their
-signed hashes. The user confirms signing happened on this Fedora build host,
-and the release key is still readable by the runner's user. The owner requested moving CI/CD into a QEMU VM. That migration is in
-progress; no off-host signing or custody claim is made for these APKs.
+signed hashes. The user confirms signing happened on Fedora before the
+[completed QEMU migration](../lw-m6-09/README.md). The old host runner is now
+unregistered and masked; its guest replacement has no host home or key path.
+The original requirement to sign offline and keep the key off the physical
+build host has not been waived. No earlier off-host signing claim is made.
 
 **E10 is met.** Following user approval, both form files are on default `main`
 at `c65d2e4`, and all eleven labels have the approved definitions. The
