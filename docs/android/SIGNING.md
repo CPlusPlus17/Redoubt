@@ -132,8 +132,9 @@ the rule's requirement to move the key off the physical build host remain separa
    >
    The original rule requires moving the key off this physical host, which is a
    maintainer action and has not been performed by this audit. No additional
-   external-contributor workflow trigger has been enabled. `BETA.md` carries
-   the unresolved signing history as entry criterion E7.
+   external-contributor workflow trigger has been enabled. The dated exception
+   below applies only to the four accepted 2026-09-08 beta APKs; the original
+   rule remains the default for future candidates and public releases.
 
 ### Verified update: CI moved to QEMU on 2026-09-08
 
@@ -153,8 +154,27 @@ they do not establish physical separation or erase earlier access.
 The four returned beta APKs were signed on Fedora before this migration,
 according to the owner. Their signatures and exact candidate payloads verify,
 but offline/off-runner signing was not established. The existing key was not
-read, moved, copied or used by the migration. An owner exception must be explicit
-before those facts can satisfy E7; the single-holder decision does not supply one.
+read, moved, copied or used by the migration. E7 is closed for this candidate by
+the owner's separate, explicit decision below; the single-holder decision alone
+does not supply that exception.
+
+### Decision: accept the 2026-09-08 beta candidate with the QEMU boundary
+
+**Approved 2026-09-08 by Manuel Gysin.** The owner answered **"yes"** to using
+the four existing signed APKs for this beta while accepting their pre-migration
+Fedora signing and retention of the key on Fedora outside the VM. The
+[decision and exact artifact hashes](evidence/lw-m6-10/custody-decision.md)
+are normative for this exception. The
+[owner confirmation](evidence/lw-m6-10/owner-confirmation.json) also records
+that no release-key APK has ever been distributed.
+
+This accepts the earlier custody risk and the present shared physical host for
+these four beta artifacts only. It does not establish historical offline signing,
+erase the former runner's access, authorize the agent to operate the key, or
+change the default signing procedure for later candidates/public releases.
+Cryptographic, exact-payload and current CI-isolation checks remain required and
+have passed. This is a dated custody exception, not an assertion that the original
+offline/physical-separation procedure was followed.
 
 ## Release procedure
 

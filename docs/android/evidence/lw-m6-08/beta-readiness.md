@@ -1,6 +1,7 @@
 # Beta candidate audit — 2026-09-08
 
-Eleven of twelve beta entry criteria are met; E7 remains open.
+All twelve beta entry criteria are satisfied, including the owner's 2026-09-08
+candidate-specific E7 custody exception.
 The authoritative entry decision is [BETA.md](../../BETA.md). The earlier claim
 that only release signing remained did not describe the actual candidate or
 GitHub's live reporting state. This audit rebuilt and checked the candidate,
@@ -74,14 +75,17 @@ the unsigned bundle and holder instructions. The
 [holder handoff](../lw-m6-01/RELEASE-HANDOFF.md) requires confirmation that no
 higher-version-code APK was previously distributed under the release key.
 
-**E7 is open on custody.** The four signed APKs have been returned and copied to
+**E7 is satisfied with the approved beta-only custody exception.** The four signed APKs have been returned and copied to
 `~/redoubt-signed/`; signature, published fingerprint and exact candidate payload
 checks pass. The [intake record](returned-signing-intake.json) preserves their
 signed hashes. The user confirms signing happened on Fedora before the
 [completed QEMU migration](../lw-m6-09/README.md). The old host runner is now
 unregistered and masked; its guest replacement has no host home or key path.
-The original requirement to sign offline and keep the key off the physical
-build host has not been waived. No earlier off-host signing claim is made.
+The owner explicitly accepted these four APKs and physical host key retention
+with the verified QEMU boundary in the
+[dated decision](../lw-m6-10/custody-decision.md). No earlier off-host signing
+claim is made. The exception does not alter future/public-release requirements.
+The owner also confirmed that no release-key APK has ever been distributed.
 
 **E10 is met.** Following user approval, both form files are on default `main`
 at `c65d2e4`, and all eleven labels have the approved definitions. The

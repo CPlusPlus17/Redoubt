@@ -3,14 +3,17 @@
 The preceding goal turn made progress by deploying and validating QEMU CI.
 This follow-up re-read the goal attachment and current entry requirements,
 rechecked returned APKs and live runner state, corrected stale custody claims,
-and prepared a concrete owner decision. **Beta entry remains 11/12; E7 is open.**
+and prepared a concrete owner decision. The owner subsequently approved it.
+**All twelve beta entry criteria are satisfied, with E7 closed by the dated
+candidate-specific custody exception.** See the
+[completion audit](completion-audit.md) and [approved decision](custody-decision.md).
 
 ## Fresh evidence
 
-- [Returned-candidate verification](returned-candidate-verification.txt): all four
+- [Final candidate verification](final-signature-verification.txt): all four
   current signed APKs pass v2, v3, no-v1, the published fingerprint and exact ZIP
   payload comparison against the final unsigned candidate.
-- [Signed checksums](signed-checksums.txt): the complete four-file manifest passes.
+- [Final signed checksums](final-signed-checksums.txt): the complete four-file manifest passes.
 - [Unchanged verification inputs](unchanged-candidate-verifiers.txt): frozen build,
   signing and runtime scripts, patch registration, expected prefs and Android
   configuration retain their audited hashes. No browser implementation changed
@@ -50,13 +53,14 @@ The actual sources for each retained result are linked from
 [runtime audit](../lw-m7-06/beta-audit-2026-09-08/final-candidate/README.md).
 The VM's workflow preflight is not used to claim a full VM build.
 
-## Required owner input
+## Owner decisions received
 
-The [candidate-specific custody proposal](proposed-custody-decision.md) is
-**unapproved**. It explicitly covers pre-migration signing and continued key
+The [candidate-specific custody decision](custody-decision.md) was
+**approved on 2026-09-08**. It explicitly covers pre-migration signing and continued key
 storage on the physical Fedora host for these four beta artifacts. It does not
 claim historical offline signing or change future/public-release requirements.
-The owner may instead follow the existing offline signing and key-custody rules.
+The original offline signing and key-custody rules remain the default for future
+candidates/public releases.
 
 On 2026-09-08 the owner answered the distribution question: **"no never
 distributed"**. The [confirmation](owner-confirmation.json) establishes that no
@@ -64,6 +68,8 @@ release-key APK has been distributed, so earlier higher debug/unsigned rehearsal
 codes do not block this first beta. This was reported by the owner, not inferred
 from local files.
 
-The owner asked what else is needed; the custody exception remains unapproved.
-No approval has been assumed. This is not a beta launch or a public-release
-GO/NO-GO decision.
+After asking what was needed, the owner answered **"yes"** to the explicit
+approval question reproduced in `owner-confirmation.json`. The four approved
+hashes match the final verified files. No beta entry decision remains outstanding.
+This completes preparation; it is not execution of the 14-day beta or a
+public-release GO/NO-GO decision.

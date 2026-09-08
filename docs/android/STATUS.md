@@ -1,10 +1,12 @@
 # Beta preparation — 2026-09-08
 
-The beta is **not ready to start: eleven of twelve entry criteria are met**.
-Release signing/custody (E7) remains open; live reporting (E10) is now verified. The entry audit is
-[`BETA.md`](BETA.md), which retains all twelve criteria. The previous claim that
-only signing remained was disproved by candidate-specific checks and GitHub's
-live state.
+The candidate is **ready for the closed beta: all twelve entry criteria are
+satisfied**, including the owner's dated, candidate-specific E7 custody exception.
+The entry audit is [`BETA.md`](BETA.md); the exact accepted signed artifacts and
+scope are in the [owner decision](evidence/lw-m6-10/custody-decision.md).
+No APK signed with the release key has previously been distributed, as confirmed
+by the owner. This preparation does not complete the beta's later device testing
+or public-release decision.
 
 ## Current candidate
 
@@ -71,22 +73,25 @@ checks remain red under the approved E12 decision.
 
 ## External entry work
 
-**E7 remains open on custody:** the four signed APKs are now in
+**E7 is satisfied with the approved beta-only custody exception:** the four signed APKs are in
 `~/redoubt-signed/`. All four verify against the published key, require v2+v3 with
 no v1, and contain exactly the tested candidate ZIP payloads. The user confirms
-signing happened on Fedora, the build host at that time. No off-host signing or custody
-confirmation is claimed. See [intake evidence](evidence/lw-m6-08/returned-signing-intake.json).
+signing happened on Fedora, the build host at that time. No historical offline
+or off-host signing is claimed. See [intake evidence](evidence/lw-m6-08/returned-signing-intake.json).
 The requested [QEMU migration](CI-VM.md) is complete: runner `redoubt-ci-qemu`
 passed the real Actions preflight; the old host runner is unregistered and its
 service is masked. Guest and QEMU checks confirm no host home or signing-key path
 is exposed, and the guest cannot initiate connections to the private host network.
 The earlier host signing remains recorded as such; migration does not establish
 historical offline signing.
-A [candidate-specific custody proposal](evidence/lw-m6-10/proposed-custody-decision.md)
-is ready for the owner's decision and remains unapproved. Fresh signature and
-candidate checks pass for all four returned APKs. The owner confirmed on
+The owner explicitly approved the
+[candidate-specific custody decision](evidence/lw-m6-10/custody-decision.md) on
+2026-09-08. It accepts these existing APKs and host key retention with QEMU CI
+isolation; it does not claim earlier offline signing or change later release
+requirements. Final signature and candidate checks pass for all four APKs.
+The owner confirmed on
 2026-09-08 that no release-key APK has ever been distributed; the version-code
-history question is resolved. Only the custody decision remains pending.
+history question is resolved. No beta entry decision remains pending.
 
 **E10 is met:** the corrected form and private security contact are on default
 `main`; all eleven approved labels are live, and GitHub’s public preview renders

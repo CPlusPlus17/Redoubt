@@ -4,17 +4,18 @@
 `~/redoubt-signed/`; published fingerprint, v2+v3/no-v1 and exact candidate
 payload checks pass. The holder reports signing on Fedora before CI moved into
 QEMU. The [migration](../lw-m6-09/README.md) removes current runner access to
-host files but does not establish earlier offline signing. E7 still requires
-matching custody evidence or an explicit owner exception; do not rerun `sign.sh`
-against its existing signed outputs. The owner subsequently confirmed on
-2026-09-08 that no release-key APK has ever been distributed. Only the custody
-decision remains pending. The instructions below describe the original handoff.
+host files but does not establish earlier offline signing. The owner explicitly
+approved the [candidate-specific custody exception](../lw-m6-10/custody-decision.md)
+on 2026-09-08; E7 is satisfied for these four hashes. Do not rerun `sign.sh`
+against its existing signed outputs. The owner also confirmed that no release-key
+APK has ever been distributed. The instructions below describe the original
+handoff and remain the default procedure for future candidates.
 
 The final candidate directory for this handoff is
 `librewolf-android-apk-153.0esr-1-beta-20260908/apk/`. Its build and validation
 status is recorded in `BETA.md`; transfer it after the candidate gates pass.
 The complete tools and current public signing document are staged there and
-both checksum manifests pass. E7 still requires the holder to
+both checksum manifests pass. Outside the dated exception above, E7 requires the holder to
 sign offline on a machine other than the CI runner, and to ensure the release key
 is no longer readable by that runner (`SIGNING.md`, custody rule 3). This handoff
 does not claim that the other beta entry criteria are complete; use the current
