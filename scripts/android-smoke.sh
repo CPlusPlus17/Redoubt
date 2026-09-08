@@ -1228,9 +1228,11 @@ class App:
         # clears it. A failed automation connection is not a browser verdict.
         for name, command in (
                 ("marionette-timeout-logcat.txt", ("logcat", "-d")),
-                ("marionette-timeout-ui.txt", ("shell", "uiautomator", "dump", "/dev/tty"))):
+                ("marionette-timeout-ui.txt", ("shell", "uiautomator", "dump", "/sdcard/lw-smoke-timeout.xml"))):
             try:
                 output = self.adb.out(*command, timeout=30)
+                if name == "marionette-timeout-ui.txt":
+                    output += self.adb.out("shell", "cat", "/sdcard/lw-smoke-timeout.xml", timeout=30)
                 with open(os.path.join(self.work, name), "w") as f:
                     f.write(output)
             except Exception as diagnostic_error:
@@ -1578,12 +1580,18 @@ def check_https_only(m, res, http_url, forcefail=False):
                      'locked:Services.prefs.prefIsLocked("dom.security.https_only_mode")};', chrome=True)
     m.cmd("Marionette:SetContext", {"value":"content"})
     navigation_error = None
+    # Fenix may replace the failed channel with its own error document. Bound
+    # WebDriver's load wait below the socket deadline, then inspect the actual
+    # page and exception control. A navigation timeout alone never passes.
+    m.cmd("WebDriver:SetTimeouts", {"pageLoad": 20000})
     try:
         m.cmd("WebDriver:Navigate", {"url":http_url})
     except MarionetteError as error:
         # Reaching a browser error page is expected. It must be the HTTPS-only
         # interstitial with its real exception control, not any navigation error.
         navigation_error = str(error)
+    finally:
+        m.cmd("WebDriver:SetTimeouts", {"pageLoad": 120000})
     probe = r"""
       const b = document.getElementById("continueHttp");
       return {url:location.href, uri:document.documentURI, title:document.title,
@@ -2901,11 +2909,28 @@ def read_ubo_addon(m):
         const a = await AddonManager.getAddonByID(arguments[0]);
         if (!a) return null;
         const p = WebExtensionPolicy.getByID(a.id);
+        // Observe startup persistence without flushing or changing it. Gecko
+        // saves the extension DB and its startup cache on different schedules.
+        let startupCache;
+        try {
+          const {XPIInternal} = ChromeUtils.importESModule(
+            "resource://gre/modules/addons/XPIProvider.sys.mjs");
+          const state = XPIInternal.XPIStates.findAddon(a.id);
+          const disk = await IOUtils.readJSON(PathUtils.join(
+            Services.dirsvc.get("ProfD", Ci.nsIFile).path, "addonStartup.json.lz4"
+          ), {decompress:true});
+          startupCache = {memoryEnabled:state?.enabled ?? null,
+            disk:Object.entries(disk).flatMap(([location, data]) => {
+              const record = data.addons?.[a.id];
+              return record ? [{location, enabled:record.enabled, version:record.version}] : [];
+            })};
+        } catch (error) { startupCache = {error:String(error)}; }
         return {id:a.id, version:a.version, active:a.isActive,
                 userDisabled:a.userDisabled, signedState:a.signedState,
                 amoSigned:a.signedState === AddonManager.SIGNEDSTATE_SIGNED,
                 isBuiltin:a.isBuiltin, privateBrowsingAllowed:p?.privateBrowsingAllowed,
-                blockingResponseListeners:p?.extension?.redoubtBlockingResponseListeners?.size || 0};
+                blockingResponseListeners:p?.extension?.redoubtBlockingResponseListeners?.size || 0,
+                startupCache};
       })();
     """, [UBO_ID], chrome=True)
 
@@ -2980,10 +3005,15 @@ def run_ubo_behavior(app, adb, apk, origin, res, lifecycle=False):
                 m.cmd("Marionette:SetContext", {"value":"content"})
                 m.cmd("WebDriver:Navigate", {"url":base + token})
             wait_for_initial_document(m, base + token)
-            measure_ubo_navigation(m, res, origin, token, False, label)
+            navigation_ok = measure_ubo_navigation(m, res, origin, token, False, label)
             a = read_ubo_addon(m)
-            res.add(label + "-state", bool(a) and a.get("userDisabled") is True and not a.get("active"),
+            state_ok = bool(a) and a.get("userDisabled") is True and not a.get("active")
+            res.add(label + "-state", state_ok,
                     "the installed add-on retains its disabled state", {"addon":a})
+            if not navigation_ok or not state_ok:
+                # Removal depends on a coherent disabled state. Preserve the
+                # first failure instead of mutating an already-broken profile.
+                return
 
         m.script(r"""
           return (async () => {
