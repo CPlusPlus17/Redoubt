@@ -350,6 +350,15 @@ class UboBehaviorGateTests(unittest.TestCase):
 
 
 class AppInstallStateTests(unittest.TestCase):
+    def test_failed_profile_clear_cannot_claim_a_fresh_install(self):
+        class Device:
+            def run(self, *args, **kwargs):
+                return types.SimpleNamespace(stdout="Failed", stderr="")
+        with tempfile.TemporaryDirectory() as work:
+            app = harness.App(Device(), "org.redoubtbrowser", work)
+            with self.assertRaises(harness.HarnessError):
+                app.wipe()
+
     def test_keep_state_never_uninstalls_after_signing_mismatch(self):
         class Device:
             calls = []

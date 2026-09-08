@@ -1102,7 +1102,10 @@ class App:
         # would be reported against this one.
         self.adb.run("logcat", "-b", "crash", "-c", timeout=60)
     def wipe(self):
-        self.adb.shell("pm clear %s" % self.pkg, timeout=180)
+        result = self.adb.run("shell", "pm", "clear", self.pkg, timeout=180, check=True)
+        if result.stdout.strip() != "Success":
+            raise HarnessError("pm clear did not confirm an empty app profile: %s%s"
+                               % (result.stdout, result.stderr))
     def debuggable(self):
         """Is the INSTALLED package flagged debuggable?  Read from the package
         manager, never from the APK path or the build command."""
