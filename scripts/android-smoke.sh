@@ -1364,7 +1364,7 @@ def png_center_pixel(png):
     pixel = list(previous[(width // 2) * channels:(width // 2 + 1) * channels])
     return pixel if channels == 4 else pixel + [255]
 
-def check_webgl(m, res, forcefail=False):
+def check_legacy_webgl(m, res, forcefail=False):
     """Compile, draw and verify composited pixels without bypassing RFP.
 
     readPixels intentionally returns placeholder data when canvas extraction
@@ -1396,8 +1396,8 @@ def check_webgl(m, res, forcefail=False):
                "See docs/android/AGENTS.md landmine L1.")
     elif lw.get("prompt") is True:
         ok = False
-        why = ("librewolf.webgl.prompt is TRUE on Android -- this is landmine L1 and every "
-               "WebGL context in the build is dead. Pixel readback: %s" % (r.get("pixel"),))
+        why = ("The legacy rendering check cannot validate an enabled permission bridge; "
+               "the real graphics consent runner is required.")
     elif ok:
         why = "%s ctx, shader+draw composited %s; protected readPixels=%s, renderer=%r" % (
             r.get("contextType"), rendered, r.get("pixel"), r.get("renderer"))
@@ -1409,6 +1409,62 @@ def check_webgl(m, res, forcefail=False):
     res.add("webgl", ok, why, {"gl": r, "composited_pixel": rendered,
                                "librewolf.webgl.prompt": lw})
     return ok
+
+def grade_graphics_acceptance(returncode, report, apk_sha256):
+    required = {"core-real-ui-consent-and-revoke", "session-exceptions-expire-on-process-restart",
+                "remembered-exceptions-survive-process-restart",
+                "private-choices-isolated-and-cleared-on-last-private-close", "frame-origin-port-and-revoke-isolation"}
+    checks = report.get("checks", [])
+    installed = report.get("installed", {}).get("apk", [])
+    return (returncode == 0 and report.get("status") == "PASS" and
+            report.get("acceptanceComplete") is True and report.get("suite") == "full" and
+            report.get("transportConfig", {}).get("transportOnly") is True and
+            required <= {row.get("name") for row in checks if row.get("status") == "PASS"} and
+            any(row.get("sha256") == apk_sha256 for row in installed))
+
+def check_webgl(m, res, app, adb, apk, bootstrap_url, forcefail=False):
+    """Use actual consent/render/lifetime behavior when the new bridge is enabled."""
+    prompt = m.script('return Services.prefs.getBoolPref("librewolf.webgl.prompt", false);', chrome=True)
+    if not prompt:
+        check_legacy_webgl(m, res, forcefail=forcefail)
+        return m
+    runner = os.path.join(os.environ.get("LW_SMOKE_REPO", ""), "scripts", "android-graphics-smoke.py")
+    if not os.path.isfile(runner):
+        raise HarnessError("Enabled graphics permission bridge requires android-graphics-smoke.py")
+    graphics_work = os.path.join(app.work, "graphics-acceptance")
+    os.makedirs(graphics_work, exist_ok=True)
+    m.cmd("WebDriver:DeleteSession")
+    m.close()
+    command = [sys.executable, runner, "--adb", adb.exe, "--serial", adb.serial,
+               "--package", app.pkg, "--apk", apk, "--dedicated-test-profile", "--work", graphics_work]
+    log("running full graphics consent, rendering and lifetime acceptance")
+    with open(os.path.join(graphics_work, "runner.log"), "w") as stderr:
+        result = subprocess.run(command, capture_output=False, stdout=subprocess.PIPE,
+                                stderr=stderr, text=True, timeout=1800)
+    with open(os.path.join(graphics_work, "summary.stdout"), "w") as output:
+        output.write(result.stdout)
+    try:
+        summary = json.loads(result.stdout)
+        report_path = os.path.realpath(summary["report"])
+        if os.path.commonpath([os.path.realpath(graphics_work), report_path]) != os.path.realpath(graphics_work):
+            raise ValueError("graphics report is outside its run directory")
+        with open(report_path) as source:
+            report = json.load(source)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise HarnessError("Graphics runner did not produce its bound report: %s" % error) from error
+    digest = hashlib.sha256(open(apk, "rb").read()).hexdigest()
+    ok = grade_graphics_acceptance(result.returncode, report, digest) and not forcefail
+    res.add("webgl", ok, report.get("reason", "Graphics acceptance incomplete"),
+            {"report": report_path, "report_sha256": hashlib.sha256(open(report_path, "rb").read()).hexdigest(),
+             "runner_exit": result.returncode, "graphics_status": report.get("status"),
+             "acceptanceComplete": report.get("acceptanceComplete"), "apk_sha256": digest})
+    if result.returncode == EXIT_UNIMPLEMENTED:
+        raise Unimplemented("Graphics runtime prerequisites or full acceptance remain pending: " + str(report.get("reason")))
+    # The graphics suite restarts the process and owns its own transport; resume
+    # the remaining baseline checks with a new ordinary tab/session.
+    m = open_session(app, bootstrap_url)
+    wait_for_initial_document(m, bootstrap_url)
+    return m
 
 JS_VIDEO = r"""
 var done = arguments[arguments.length-1];
@@ -3835,7 +3891,7 @@ def main(argv):
         # ---- the default suite --------------------------------------------
         ff = args.self_test
         check_pageload(m, res, origin, http_url, https_url, forcefail=ff)
-        check_webgl(m, res, forcefail=ff)
+        m = check_webgl(m, res, app, adb, apk, bootstrap_url, forcefail=ff)
         m.cmd("WebDriver:Navigate", {"url": https_url})
         check_video(m, res, origin, forcefail=ff)
         check_gum(m, res, app, adb, forcefail=ff)

@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Full Fenix plus relevant AC gates; never accept stale XML after compilation failure.
+set -euo pipefail
+[[ $(systemd-detect-virt --vm) == kvm && $(id -un) == runner ]]
+work=/home/runner/work/feature-parity-20260908
+apk_evidence="$work/evidence/parity-extended-apk"
+evidence="$work/evidence/parity-extended-tests"
+[[ $(cat "$apk_evidence/build-exit.txt") == 0 ]]
+[[ -s "$apk_evidence/finished.txt" ]]
+if [[ -d "$evidence" ]]; then
+  mv "$evidence" "$evidence-previous-$(date -u +%Y%m%dT%H%M%S)-$$"
+fi
+mkdir -p "$evidence/prior-results"
+cp "$apk_evidence/source-sha256.txt" "$evidence/source-sha256.txt"
+cd "$work/src"
+sha256sum -c "$evidence/source-sha256.txt" > "$evidence/source-before.txt"
+cd "$work/repo"
+date -u --iso-8601=seconds > "$evidence/started.txt"
+date +%s > "$evidence/started-epoch.txt"
+cat /proc/sys/kernel/random/boot_id > "$evidence/boot-id.txt"
+free -b > "$evidence/memory-before.txt"
+sha256sum docs/android/board.py docs/android/fenix-test-allowlist.yaml \
+  docs/android/evidence/lw-m7-12/run-extended-tests.sh \
+  docs/android/evidence/lw-m7-12/grade-extended-tests.py > "$evidence/driver-sha256.txt"
+results_root="$work/src/obj-x86_64/gradle/build/mobile/android"
+for pair in \
+  'fenix:fenix/app' \
+  'extensions:android-components/components/support/webextensions' \
+  'gecko:android-components/components/browser/engine-gecko' \
+  'state:android-components/components/browser/state'; do
+  name=${pair%%:*}
+  relative=${pair#*:}
+  path="$results_root/$relative/test-results/testDebugUnitTest"
+  if [[ -d "$path" ]]; then mv "$path" "$evidence/prior-results/$name"; fi
+done
+set +e
+podman run --rm --name parity-extended-tests \
+  --memory=14g --memory-swap=22g --cpus=6 \
+  -v "$work/src:/work/src:z" -v "$work/out:/work/out:z" \
+  -v "$evidence:/work/test-evidence:z" \
+  -v "$work/out/mozbuild-srcdirs:/root/.mozbuild/srcdirs:z" -w /work/src \
+  -e MOZCONFIG=/work/out/mozconfig.x86_64 -e MOZ_BUILD_DATE=20260906190000 \
+  -e GRADLE_USER_HOME=/work/out/gradle-home \
+  -e MOZ_ANDROID_FAT_AAR_ARCHITECTURES=armeabi-v7a,arm64-v8a,x86_64 \
+  -e MOZ_ANDROID_FAT_AAR_ARMEABI_V7A=/work/out/input/armeabi-v7a/target.maven.zip \
+  -e MOZ_ANDROID_FAT_AAR_ARM64_V8A=/work/out/input/arm64-v8a/target.maven.zip \
+  -e MOZ_ANDROID_FAT_AAR_X86_64=/work/out/input/x86_64/target.maven.zip \
+  librewolf-android-build bash -c '
+    ./mach gradle :fenix:testDebugUnitTest :components:support-webextensions:testDebugUnitTest --continue --no-daemon --max-workers=4 -PgleanBuildDate=2026-09-06T19:00:00
+    fenix_rc=$?
+    printf "%s\n" "$fenix_rc" > /work/test-evidence/fenix-gradle-exit.txt
+    ./mach gradle :components:browser-engine-gecko:testDebugUnitTest --tests mozilla.components.browser.engine.gecko.permission.OriginBoundPermissionRequestTest --tests mozilla.components.browser.engine.gecko.permission.OriginBoundPermissionsStorageTest --tests mozilla.components.browser.engine.gecko.permission.GeckoSitePermissionsStorageTest :components:browser-state:testDebugUnitTest --tests mozilla.components.browser.state.ext.PermissionRequestTest --continue --no-daemon --max-workers=4 -PgleanBuildDate=2026-09-06T19:00:00
+    ac_rc=$?
+    printf "%s\n" "$ac_rc" > /work/test-evidence/ac-gradle-exit.txt
+    cat /sys/fs/cgroup/memory.peak > /work/test-evidence/memory.peak
+    cat /sys/fs/cgroup/memory.events > /work/test-evidence/memory.events
+    exit "$ac_rc"
+  ' > "$evidence/target-tests.log" 2>&1
+container_rc=$?
+printf '%s\n' "$container_rc" > "$evidence/container-exit.txt"
+python3 docs/android/board.py --check-fenix-tests \
+  --results "$results_root/fenix/app/test-results/testDebugUnitTest" \
+  > "$evidence/fenix-gate.txt" 2>&1
+gate_rc=$?
+printf '%s\n' "$gate_rc" > "$evidence/fenix-gate-exit.txt"
+python3 docs/android/evidence/lw-m7-12/grade-extended-tests.py \
+  "$results_root" "$evidence" > "$evidence/fresh-results-gate.txt" 2>&1
+fresh_rc=$?
+printf '%s\n' "$fresh_rc" > "$evidence/fresh-results-gate-exit.txt"
+set -e
+cd "$work/src"
+sha256sum -c "$evidence/source-sha256.txt" > "$evidence/source-after.txt"
+free -b > "$evidence/memory-after.txt"
+date -u --iso-8601=seconds > "$evidence/finished.txt"
+cat "$evidence/fenix-gate.txt" "$evidence/fresh-results-gate.txt"
+[[ "$container_rc" == 0 && "$gate_rc" == 0 && "$fresh_rc" == 0 ]]

@@ -402,6 +402,44 @@ class HttpsOnlyBehaviorGateTests(unittest.TestCase):
         self.assertFalse(harness.grade_https_interstitial({"enabled":True, "locked":False}, {}))
 
 
+class GraphicsAcceptanceIntegrationTests(unittest.TestCase):
+    def report(self):
+        return {'status': 'PASS', 'acceptanceComplete': True, 'suite': 'full',
+                'transportConfig': {'transportOnly': True},
+                'installed': {'apk': [{'sha256': 'actual-apk'}]},
+                'checks': [{'name': name, 'status': 'PASS'} for name in (
+                    'core-real-ui-consent-and-revoke',
+                    'session-exceptions-expire-on-process-restart',
+                    'remembered-exceptions-survive-process-restart',
+                    'private-choices-isolated-and-cleared-on-last-private-close',
+                    'frame-origin-port-and-revoke-isolation')]}
+
+    def test_complete_bound_graphics_acceptance_passes(self):
+        self.assertTrue(harness.grade_graphics_acceptance(0, self.report(), 'actual-apk'))
+
+    def test_pending_subset_or_nonzero_exit_never_passes_baseline(self):
+        for code in (1, 2, 3):
+            self.assertFalse(harness.grade_graphics_acceptance(code, self.report(), 'actual-apk'))
+        for key, value in (('status', 'PENDING'), ('suite', 'core-only'), ('acceptanceComplete', False)):
+            report = self.report()
+            report[key] = value
+            self.assertFalse(harness.grade_graphics_acceptance(0, report, 'actual-apk'))
+
+    def test_missing_lifetime_or_failed_frame_cannot_pass(self):
+        report = self.report()
+        report['checks'].pop()
+        self.assertFalse(harness.grade_graphics_acceptance(0, report, 'actual-apk'))
+        report = self.report()
+        report['checks'][-1]['status'] = 'FAIL'
+        self.assertFalse(harness.grade_graphics_acceptance(0, report, 'actual-apk'))
+
+    def test_wrong_apk_or_injected_config_cannot_pass(self):
+        self.assertFalse(harness.grade_graphics_acceptance(0, self.report(), 'other-apk'))
+        report = self.report()
+        report['transportConfig']['transportOnly'] = False
+        self.assertFalse(harness.grade_graphics_acceptance(0, report, 'actual-apk'))
+
+
 class InterruptedEvidenceTests(unittest.TestCase):
     def test_socket_timeout_is_an_automation_failure_and_closes_transport(self):
         local, remote = socket.socketpair()
