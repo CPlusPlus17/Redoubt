@@ -15,7 +15,7 @@ read in full, every file it touches was traced to the `moz.build` / `jar.mn` /
 preprocessor guard that decides whether that file is built on Android, and the
 decision below follows from that guard rather than from the path.
 
-Current classification: **24 common / 28 android / 36 desktop-only / 0 straddlers = 88
+Current classification: **24 common / 29 android / 36 desktop-only / 0 straddlers = 89
 patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
@@ -26,7 +26,10 @@ No pending patches. On 2026-09-08 LW-M3-07 replaced the parked catalogue stub
 with a genuine signed-XPI installer and a separate filtering-readiness bridge.
 Both are registered in `android.txt`; source, packaging and lifecycle evidence is
 under `docs/android/evidence/lw-m3-07/completion-20260908/`. Registration records
-patch scope, not completion of the required APK build and runtime acceptance.
+patch scope, not completion of the required APK build and runtime acceptance. LW-M7-12
+also registers `privacy-defaults.patch`, with its shared-file ordering replay in
+`docs/android/evidence/lw-m7-12/patch-integration/`; build and behavior gates
+remain separate from this scope classification.
 
 A `- <path> (LW-…)` bullet in this section is the only way `board.py --check-scope`
 will tolerate a patch file that no list applies. Undeclared unlisted patches fail.
@@ -54,7 +57,7 @@ claimed an application order the build never uses.
 |---|---|---|
 | `common.txt` | 24 | 17 pure-common **+ the 7 common halves of the split straddlers** |
 | `desktop.txt` | 36 | 27 pure desktop + `msix` (not a straddler) **+ the 7 desktop halves** + `pref-pane/pref-pane-small` (moved in from its own call site by LW-M1-13) |
-| `android.txt` | 28 | the three Android-side patches the M1 splits pulled in, plus `build-fixes` (LW-M2-02), `appservices-logins-addmany` (LW-M2-04), `no-nimbus` (LW-M4-03), `no-nimbus-toolkit` (LW-M4-13), `isolated-process` (LW-M5-02), `autoconfig-resource-fallback` (LW-M3-08/LW-M3-02), `no-onboarding` (LW-M4-10), `no-gms` (LW-M4-05), `branding` (LW-M4-07), `gradle-no-config-cache` (LW-M3-13), `rs-blocker-android` (LW-M4-08), `no-suggest` (LW-M4-11), `search-config` (LW-M4-06), `update-check` (LW-M6-06), `deterministic-version-code` (LW-M6-08) and the M4 dependency removals landing alongside it — one row each in the table below. |
+| `android.txt` | 29 | the three Android-side patches the M1 splits pulled in, plus `build-fixes` (LW-M2-02), `appservices-logins-addmany` (LW-M2-04), `no-nimbus` (LW-M4-03), `no-nimbus-toolkit` (LW-M4-13), `isolated-process` (LW-M5-02), `autoconfig-resource-fallback` (LW-M3-08/LW-M3-02), `no-onboarding` (LW-M4-10), `no-gms` (LW-M4-05), `branding` (LW-M4-07), `gradle-no-config-cache` (LW-M3-13), `rs-blocker-android` (LW-M4-08), `no-suggest` (LW-M4-11), `search-config` (LW-M4-06), `update-check` (LW-M6-06), `deterministic-version-code` (LW-M6-08), `ubo-readiness` and `ubo-preinstall` (LW-M3-07), `privacy-defaults` (LW-M7-07/LW-M7-12) and the M4 dependency removals landing alongside it — one row each in the table below. |
 
 The arithmetic, and it is now boring on purpose: **every patch file on disk is in
 exactly one list**, so the three lists sum straight to the total, and
@@ -153,6 +156,7 @@ own line in this table.
 | `patches/android/deterministic-version-code.patch` | LW-M6-08 | Derives Fenix versionCode from the pinned UTC MOZ_BUILD_DATE, with strict date validation. The Android Gradle config plugin is never used by desktop; no other patch touches its source file. |
 | `patches/android/ubo-readiness.patch` | LW-M3-07 | Android GeckoView API waits for a real live blocking response listener, with ID/version/permission checks and bounded failure. Shared Gecko webRequest code records live registrations and removes them on unregister; primed startup listeners do not qualify. The API does not alter the signed XPI or claim arbitrary extension internals are ready. |
 | `patches/android/ubo-preinstall.patch` | LW-M3-07 | Fenix installs the hash-pinned genuine uBO XPI through ordinary Gecko signature verification from a private file. A one-shot exact local transaction receives install permission, including private mode; ordinary installs and updates retain their prompts. Durable state preserves removal/disable across upgrades. Browsing session creation waits for installation/reconciliation and actual filter-listener readiness; failures offer Retry/Close. The common Gecko filter-bootstrap pref is unchanged. Requires no-adjust before the HomeActivity hunk; seven other shared-file pairs replay byte-identically in both orders. |
+| `patches/android/privacy-defaults.patch` | LW-M7-07/LW-M7-12 | Fenix preference defaults and their settings screens agree on HTTPS-only, strict tracking protection, cookie/cache cleanup, disabled password/address/card autofill and DoH off with the LibreWolf provider catalog. Existing explicit choices remain effective; absent companion radio keys use the same fallback as the engine policy. The patch changes only Fenix Kotlin, XML preferences and tests. Five shared-file pairs with prior defaults patches are reviewed in the LW-M7-12 integration evidence; registration does not establish compiled or runtime behavior. |
 | `patches/android/update-check.patch` | LW-M6-06 | **The opt-in update check for the direct-APK distribution** (contract: `DISTRIBUTION.md`). A switch in Settings > About, off by default, whose summary names the host, the cadence and what is sent. When on, `HomeActivity.onResume` calls `org.mozilla.fenix.lw.UpdateCheck.maybeRun`: at most once per 24 h it fetches `latest.json` and `latest.json.sig`, verifies ECDSA P-256 / SHA-256 against a public key embedded at build time, and if a newer version is named shows a dialog offering the download page — never downloads, never installs, every failure is silent. The request carries a static User-Agent, no cookies, no cache validators, no redirects, and not even the version string (the comparison is local); `UpdateCheckerTest` pins each of those fields. Without `-PlwUpdateCheckPubkey` (forwarded from `LW_UPDATE_CHECK_PUBKEY` by `scripts/android-apk.sh`) the feature is compiled out: no row, no reachable code — which is how store builds (F-Droid, Accrescent) are told apart from the direct APK, by artifact rather than by runtime query. No key is checked in; no endpoint exists yet. Seven files, three new. Shares `fenix/app/build.gradle` with the ordered `no-adjust`…`branding` chain and `HomeActivity.kt` with `no-nimbus`/`no-adjust`/`no-suggest`; measured order-free. Verify: `android-smoke.sh --check-update-privacy`. |
 
 The first three rows are the ones the M1 splits pulled in; the rest are later

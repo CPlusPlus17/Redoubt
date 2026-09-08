@@ -114,17 +114,10 @@ OUT_OF_LIST_TAIL = ()
 # --------------------------------------------------------------------------
 # The declared constraints.
 #
-# ELEVEN rows. docs/android/AGENTS.md carries the same eleven; that table and
-# this tuple are kept in sync deliberately, and this file is the authority the CI
-# gate actually runs. LW-M4-04 added the last two (no-adjust -> no-crashreporter
-# and no-gms -> no-crashreporter) and updated the AGENTS.md table in the same
-# change - if you add a row here, do both.
-#
-# An earlier version of this header claimed AGENTS.md "does not have" several of
-# these rows and "currently says 'five pairs'". That was false when written -
-# AGENTS.md already carried the webgl-permission-common row - and acting on it
-# would have added a duplicate. Falsified by the skeptical verification of
-# LW-M3-02. If the two ever disagree, check before assuming which is stale.
+# The declarations below are the authority the CI gate runs. LW-M3-07 added
+# no-adjust -> ubo-preinstall because the HomeActivity startup gate requires
+# no-adjust's parameterless splash-screen method. The older AGENTS.md table
+# omits that row; each declaration here carries its own source/replay evidence.
 #
 # 'first' must apply before 'then'. 'file' is the tree file they share and is
 # re-checked against the patch contents on every run, so a split or a rebase
@@ -529,6 +522,30 @@ REVIEWED_ORDER_FREE = (
      ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',),
      "measured order-free 2026-09-08, byte-identical at fuzz=0; "
      "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
+
+    # LW-M7-12: each shared file replayed from the pristine Android archive,
+    # with all other enabled edits held constant. Both orders apply at fuzz=0
+    # and produce identical SHA256 values; the overlap hint does not decide.
+    ("patches/android/no-adjust.patch", "patches/android/privacy-defaults.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',),
+     "marketing-onboarding default vs HTTPS, tracking, cleanup, autofill and DoH defaults; measured both orders byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m7-12/patch-integration/privacy-pair-replay.json"),
+    ("patches/android/no-gms.patch", "patches/android/privacy-defaults.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',),
+     "push-server preference removal vs privacy defaults in different Settings properties; measured both orders byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m7-12/patch-integration/privacy-pair-replay.json"),
+    ("patches/android/no-onboarding.patch", "patches/android/privacy-defaults.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt', 'mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt'),
+     "onboarding function/flag and assertions vs privacy defaults and their assertions; measured both orders byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m7-12/patch-integration/privacy-pair-replay.json"),
+    ("patches/android/no-suggest.patch", "patches/android/privacy-defaults.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt', 'mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt'),
+     "suggestion/trending/Contile defaults and suggestion assertion vs privacy settings and assertions; neighboring hunks still commute; measured both orders byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m7-12/patch-integration/privacy-pair-replay.json"),
+    ("patches/android/search-config.patch", "patches/android/privacy-defaults.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',),
+     "remote-search-configuration constant vs privacy defaults in different Settings properties; measured both orders byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m7-12/patch-integration/privacy-pair-replay.json"),
 
     # Recorded in assets/patches/desktop.txt on the moz-official-desktop entry:
     # "different region, ~line 300 vs ~504".
