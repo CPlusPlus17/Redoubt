@@ -4074,3 +4074,35 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: A shared download permission could turn passive translation detection into unsolicited asset transfer.
+
+  - id: LW-M7-17
+    title: Map every desktop patch and policy to current Android behavior
+    milestone: M7
+    depends_on: [LW-M7-08, LW-M7-12]
+    owns:
+      - docs/android/evidence/lw-m7-17/
+    reads:
+      - assets/patches/desktop.txt
+      - settings/distribution/policies.json
+      - docs/android/FEATURE-PARITY.md
+      - docs/android/PATCH-SCOPE.md
+      - docs/android/POLICIES.md
+    what: |
+      Read every registered desktop patch and every shipped policy key, including
+      copied preference-pane assets and policy subkeys. Map each effect to an
+      actual Android implementation, desktop integration boundary or explicit
+      remaining gap. Recheck stale mechanism claims against current source and
+      preserve the distinction between implemented code and tested APK behavior.
+      Pin inputs and mechanically check complete coverage of the lists; a path
+      classification alone must never mark a functional requirement complete.
+    acceptance:
+      - "every current desktop patch and policy key has an input-bound effect mapping"
+      - "all meaningful policy subkeys and preference-pane controls are accounted for"
+      - "Android counterpart claims cite inspected source or matching runtime evidence"
+      - "missing functionality and unverified behavior remain explicit open items"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "4-8"
+    skills: [android, js, python]
+    agent_safe: yes
+    isolation: none
+    risk: Classifying a patch as desktop-only can conceal a missing mobile feature.
