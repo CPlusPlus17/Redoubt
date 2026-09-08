@@ -1,6 +1,334 @@
---- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfAddonsProvider.kt
-+++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfAddonsProvider.kt
-@@ -0,0 +1,96 @@
+# Redoubt LW-M3-07: preinstall the hash-pinned signed uBlock Origin XPI.
+#
+# Ordinary Gecko installation and the real add-on registry own extension state.
+# A one-shot trusted local permission callback permits the bundled transaction;
+# all other prompts remain ordinary user decisions. Durable provisioning state
+# preserves user removal/disable across restarts and updates. Engine sessions
+# wait for installation and a real blocking-listener readiness signal; failures
+# keep browsing paused and present Retry/Close. The filter bootstrap Gecko pref
+# remains independent of the APK asset path. Requires ubo-readiness.patch.
+#
+diff --git a/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt b/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
+--- a/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
++++ b/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
+@@ -183,6 +183,13 @@
+         onSelectTabOverride: ((WebExtension?, String) -> Unit)? = null,
+         onUpdatePermissionRequest: onUpdatePermissionRequest? = { _, _, _, _, _ -> },
+         onExtensionsLoaded: ((List<WebExtension>) -> Unit)? = null,
++        onInstallPermissionRequestOverride: ((
++            WebExtension,
++            List<String>,
++            List<String>,
++            List<String>,
++            (PermissionPromptResponse) -> Unit,
++        ) -> Boolean)? = null,
+     ) {
+         this.onUpdatePermissionRequest = onUpdatePermissionRequest
+         this.onExtensionsLoaded = onExtensionsLoaded
+@@ -337,6 +344,18 @@
+                     dataCollectionPermissions: List<String>,
+                     onConfirm: (PermissionPromptResponse) -> Unit,
+                 ) {
++                    // Embedders may handle a hash-verified bundled installation. Returning
++                    // false leaves normal installs and all update/optional prompts unchanged.
++                    if (onInstallPermissionRequestOverride?.invoke(
++                            extension,
++                            permissions,
++                            origins,
++                            dataCollectionPermissions,
++                            onConfirm,
++                        ) == true
++                    ) {
++                        return
++                    }
+                     store.dispatch(
+                         WebExtensionAction.UpdatePromptRequestWebExtensionAction(
+                             WebExtensionPromptRequest.AfterInstallation.Permissions.Required(
+diff --git a/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt b/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
+--- a/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
++++ b/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
+@@ -524,6 +524,73 @@
+     }
+
+     @Test
++    fun `handled bundled install permission request does not dispatch a second prompt`() {
++        val store = BrowserStore(middleware = listOf(captureMiddleware))
++        val engine: Engine = mock()
++        val extension: WebExtension = mock()
++        val confirm: (PermissionPromptResponse) -> Unit = mock()
++        val response = PermissionPromptResponse(true, true, false)
++        val delegateCaptor = argumentCaptor<WebExtensionDelegate>()
++        WebExtensionSupport.initialize(
++            engine,
++            store,
++            onInstallPermissionRequestOverride = { ext, permissions, origins, dataPermissions, onConfirm ->
++                assertSame(extension, ext)
++                assertEquals(listOf("storage"), permissions)
++                assertEquals(listOf("<all_urls>"), origins)
++                assertEquals(listOf("none"), dataPermissions)
++                onConfirm(response)
++                true
++            },
++        )
++        verify(engine).registerWebExtensionDelegate(delegateCaptor.capture())
++
++        delegateCaptor.value.onInstallPermissionRequest(
++            extension,
++            listOf("storage"),
++            listOf("<all_urls>"),
++            listOf("none"),
++            confirm,
++        )
++
++        verify(confirm).invoke(response)
++        assertNull(store.state.webExtensionPromptRequest)
++    }
++
++    @Test
++    fun `declined bundled install override retains normal permission prompt`() {
++        val store = BrowserStore(middleware = listOf(captureMiddleware))
++        val engine: Engine = mock()
++        val extension: WebExtension = mock()
++        val confirm: (PermissionPromptResponse) -> Unit = mock()
++        val delegateCaptor = argumentCaptor<WebExtensionDelegate>()
++        WebExtensionSupport.initialize(
++            engine,
++            store,
++            onInstallPermissionRequestOverride = { _, _, _, _, _ -> false },
++        )
++        verify(engine).registerWebExtensionDelegate(delegateCaptor.capture())
++
++        delegateCaptor.value.onInstallPermissionRequest(
++            extension,
++            listOf("storage"),
++            listOf("<all_urls>"),
++            emptyList(),
++            confirm,
++        )
++
++        verify(confirm, never()).invoke(any())
++        captureMiddleware.assertFirstAction(WebExtensionAction.UpdatePromptRequestWebExtensionAction::class) { action ->
++            assertEquals(
++                WebExtensionPromptRequest.AfterInstallation.Permissions.Required(
++                    extension, listOf("storage"), listOf("<all_urls>"), emptyList(), confirm,
++                ),
++                action.promptRequest,
++            )
++        }
++    }
++
++    @Test
+     fun `reacts to install permission request`() {
+         val store = BrowserStore(middleware = listOf(captureMiddleware))
+         val engine: Engine = mock()
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+@@ -786,10 +786,12 @@
+                     subscribeForNewAddonsIfNeeded(components.supportedAddonsChecker, extensions)
+                 },
+                 onUpdatePermissionRequest = components.addonUpdater::onUpdatePermissionRequest,
++                onInstallPermissionRequestOverride = components.uboPreinstaller::onInstallPermissionRequest,
+             )
+         } catch (e: UnsupportedOperationException) {
+             logger.error("Failed to initialize web extension support", e)
+         }
++        components.uboPreinstaller.start()
+     }
+
+     @VisibleForTesting
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+@@ -30,6 +30,7 @@
+ import androidx.annotation.IdRes
+ import androidx.annotation.VisibleForTesting
+ import androidx.appcompat.app.ActionBar
++import androidx.appcompat.app.AlertDialog
+ import androidx.appcompat.widget.Toolbar
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.core.app.NotificationManagerCompat
+@@ -37,7 +38,9 @@
+ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+ import androidx.core.text.layoutDirection
+ import androidx.core.view.doOnLayout
++import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.lifecycleScope
++import androidx.lifecycle.repeatOnLifecycle
+ import androidx.navigation.NavController
+ import androidx.navigation.NavDirections
+ import androidx.navigation.fragment.NavHostFragment
+@@ -48,6 +51,7 @@
+ import kotlinx.coroutines.Dispatchers.Main
+ import kotlinx.coroutines.Job
+ import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.collect
+ import kotlinx.coroutines.flow.distinctUntilChanged
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.withContext
+@@ -102,6 +106,7 @@
+ import org.mozilla.fenix.browser.browsingmode.BrowsingMode
+ import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
+ import org.mozilla.fenix.browser.browsingmode.DefaultBrowsingModeManager
++import org.mozilla.fenix.components.LibreWolfUboPreinstaller
+ import org.mozilla.fenix.components.appstate.AppAction
+ import org.mozilla.fenix.components.appstate.AppAction.ShareAction
+ import org.mozilla.fenix.components.appstate.OrientationMode
+@@ -443,6 +448,8 @@
+             super.onCreate(savedInstanceState)
+         }
+
++        observeUboStartup()
++
+         // Checks if Activity is currently in PiP mode if launched from external intents, then exits it
+         checkAndExitPiP()
+
+@@ -1267,6 +1274,35 @@
+             return it.getBooleanExtra(START_IN_RECENTS_SCREEN, false)
+         }
+         return false
++    }
++
++    private fun observeUboStartup() {
++        lifecycleScope.launch {
++            repeatOnLifecycle(Lifecycle.State.STARTED) {
++                var failureDialog: AlertDialog? = null
++                try {
++                    components.uboPreinstaller.state.collect { state ->
++                        failureDialog?.dismiss()
++                        failureDialog = null
++                        if (state is LibreWolfUboPreinstaller.State.Failed) {
++                            failureDialog = AlertDialog.Builder(this@HomeActivity)
++                                .setTitle(R.string.librewolf_ubo_setup_failed_title)
++                                .setMessage(R.string.librewolf_ubo_setup_failed_message)
++                                .setCancelable(false)
++                                .setPositiveButton(R.string.librewolf_ubo_setup_retry) { _, _ ->
++                                    components.uboPreinstaller.retry()
++                                }
++                                .setNegativeButton(R.string.librewolf_ubo_setup_close) { _, _ ->
++                                    finishAndRemoveTask()
++                                }
++                                .show()
++                        }
++                    }
++                } finally {
++                    failureDialog?.dismiss()
++                }
++            }
++        }
+     }
+
+     private fun createSplashScreenOperation(): SplashScreenOperation {
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+@@ -235,6 +235,8 @@
+         )
+     }
+
++    val uboPreinstaller by lazyMonitored { LibreWolfUboPreinstaller(context) }
++
+     val addonManager by lazyMonitored {
+         AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
+     }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+@@ -367,6 +367,7 @@
+
+         val middlewareList =
+             listOf(
++                LibreWolfUboPreinstallMiddleware(context.components.uboPreinstaller),
+                 ProfileMarkerMiddleware(markerName = "BrowserStore", profiler = engine.profiler),
+                 LogMiddleware(tag = "BrowserStore", shouldIncludeDetailedData = { Config.channel.isDebug }),
+                 LastAccessMiddleware(),
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt
+@@ -0,0 +1,77 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.components
++
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.launch
++import mozilla.components.browser.state.action.BrowserAction
++import mozilla.components.browser.state.action.EngineAction
++import mozilla.components.browser.state.state.BrowserState
++import mozilla.components.lib.state.Middleware
++import mozilla.components.lib.state.Store
++import java.util.IdentityHashMap
++
++/** Hold incoming URLs, restored tabs and custom tabs before an engine session can load them. */
++class LibreWolfUboPreinstallMiddleware(
++    private val gate: LibreWolfUboStartupGate,
++    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
++) : Middleware<BrowserState, BrowserAction> {
++    private val lock = Any()
++    private val pending = mutableListOf<EngineAction.CreateEngineSessionAction>()
++    private val replays = IdentityHashMap<EngineAction.CreateEngineSessionAction, Int>()
++    private var waiting = false
++
++    override fun invoke(
++        store: Store<BrowserState, BrowserAction>,
++        next: (BrowserAction) -> Unit,
++        action: BrowserAction,
++    ) {
++        if (action !is EngineAction.CreateEngineSessionAction) {
++            next(action)
++            return
++        }
++        val passThrough = synchronized(lock) {
++            val replayCount = replays[action] ?: 0
++            when {
++                replayCount > 0 -> {
++                    if (replayCount == 1) replays.remove(action) else replays[action] = replayCount - 1
++                    true
++                }
++                gate.state.value is LibreWolfUboPreinstaller.State.Ready &&
++                    !waiting && replays.isEmpty() -> true
++                else -> {
++                    pending.add(action)
++                    if (waiting) return
++                    waiting = true
++                    false
++                }
++            }
++        }
++        if (passThrough) {
++            next(action)
++            return
++        }
++        scope.launch {
++            gate.awaitReady()
++            // Dispatch through the store again; never retain or invoke a middleware next callback
++            // asynchronously. This also lets normal session creation discard removed tabs.
++            while (true) {
++                val actions = synchronized(lock) {
++                    if (pending.isEmpty()) {
++                        waiting = false
++                        return@launch
++                    }
++                    pending.toList().also { batch ->
++                        batch.forEach { replays[it] = (replays[it] ?: 0) + 1 }
++                        pending.clear()
++                    }
++                }
++                actions.forEach { store.dispatch(it) }
++            }
++        }
++    }
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
+@@ -0,0 +1,303 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -8,192 +336,961 @@
 +package org.mozilla.fenix.components
 +
 +import android.content.Context
-+import mozilla.components.feature.addons.Addon
-+import mozilla.components.feature.addons.AddonsProvider
++import android.net.Uri
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.TimeoutCancellationException
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.suspendCancellableCoroutine
++import kotlinx.coroutines.withContext
++import kotlinx.coroutines.withTimeout
++import mozilla.components.concept.engine.webextension.InstallationMethod
++import mozilla.components.concept.engine.webextension.PermissionPromptResponse
++import mozilla.components.concept.engine.webextension.WebExtension
 +import mozilla.components.support.base.log.logger.Logger
-+import org.mozilla.fenix.utils.Settings
++import mozilla.components.support.webextensions.WebExtensionSupport
++import org.json.JSONObject
++import org.mozilla.fenix.ext.components
 +import java.io.File
 +import java.io.IOException
++import java.io.InputStream
++import java.security.MessageDigest
++import kotlin.coroutines.resume
++import kotlin.coroutines.resumeWithException
++
++/** The session middleware uses this gate before creating any browsing engine session. */
++interface LibreWolfUboStartupGate {
++    val state: StateFlow<LibreWolfUboPreinstaller.State>
++    suspend fun awaitReady()
++}
 +
 +/**
-+ * LibreWolf: decorator for an [AddonsProvider] that preinstalls uBlock Origin from
-+ * the assets bundled with the APK.
-+ *
-+ * @param context A reference to the application context.
-+ * @param amoProvider The wrapped add-ons provider (typically
-+ * [mozilla.components.feature.addons.amo.AMOAddonsProvider]).
++ * Installs the signed APK asset once, independently of the online add-on catalogue.
++ * COMPLETE records a provisioning decision, not a promise that the user kept uBO enabled.
++ * ATTEMPTED is persisted before installation: after a crash, an absent add-on requires an
++ * explicit retry. In particular, an interrupted first run must never silently undo removal.
 + */
-+class LibreWolfAddonsProvider(
-+    private val context: Context,
-+    private val amoProvider: AddonsProvider,
-+) : AddonsProvider {
-+    private val logger = Logger("LibreWolfAddonsProvider")
++class LibreWolfUboPreinstaller internal constructor(
++    private val dependencies: Dependencies,
++    private val scope: CoroutineScope,
++    private val timeoutMillis: Long = ATTEMPT_TIMEOUT_MILLIS,
++) : LibreWolfUboStartupGate {
++    constructor(context: Context) : this(
++        AndroidDependencies(context.applicationContext),
++        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
++    )
 +
-+    override suspend fun getFeaturedAddons(
-+        allowCache: Boolean,
-+        readTimeoutInSeconds: Long?,
-+        language: String?,
-+    ): List<Addon> {
-+        val featuredAddons = amoProvider.getFeaturedAddons(allowCache, readTimeoutInSeconds, language)
-+        if (featuredAddons.any { it.id == UBO_ADDON_ID }) {
-+            return featuredAddons
-+        }
-+        return localUboAddon()?.let { featuredAddons + it } ?: featuredAddons
++    sealed interface State {
++        data object Preparing : State
++        data class Ready(val installed: Boolean, val enabled: Boolean) : State
++        data class Failed(val reason: String) : State
 +    }
 +
-+    override suspend fun getAddonByID(
-+        id: String,
-+        readTimeoutInSeconds: Long?,
-+        language: String?,
-+    ): Addon? {
-+        if (id == UBO_ADDON_ID) {
-+            return localUboAddon()
-+        }
-+        return amoProvider.getAddonByID(id, readTimeoutInSeconds, language)
++    internal data class Installed(val enabled: Boolean, val version: String = "1.74.0")
++
++    internal data class VerifiedAsset(
++        val id: String,
++        val version: String,
++        val url: String,
++        val file: File? = null,
++    )
++
++    internal interface Dependencies {
++        suspend fun readDecision(): String?
++        suspend fun writeDecision(decision: String)
++        suspend fun installed(): Installed?
++        suspend fun prepareAsset(): VerifiedAsset
++        suspend fun install(asset: VerifiedAsset)
++        suspend fun awaitFilteringReady(version: String)
 +    }
 +
-+    private fun localUboAddon(): Addon? {
-+        val location = Settings.getLibreWolfUboAssetsBootstrapLocation(context)
-+        if (location.isBlank() || !assetsExist(location)) {
-+            logger.info("uBlock Origin assets not found at $location; not offering the preinstalled add-on")
-+            return null
-+        }
++    private val mutableState = MutableStateFlow<State>(State.Preparing)
++    override val state = mutableState.asStateFlow()
++    private var started = false
++    private var attempt: Job? = null
++    private var trustedAsset: VerifiedAsset? = null
++    private var permissionGranted = false
 +
-+        return Addon(
-+            id = UBO_ADDON_ID,
-+            author = Addon.Author(name = "Raymond Hillemans", url = "https://github.com/gorhill/uBlock"),
-+            downloadUrl = location,
-+            version = UBO_VERSION,
-+            translatableName = mapOf(Addon.DEFAULT_LOCALE to UBO_NAME),
-+            translatableDescription = mapOf(Addon.DEFAULT_LOCALE to UBO_DESCRIPTION),
-+            translatableSummary = mapOf(Addon.DEFAULT_LOCALE to UBO_SUMMARY),
-+            installedState = Addon.InstalledState(
-+                id = UBO_ADDON_ID,
-+                version = UBO_VERSION,
-+                optionsPageUrl = null,
-+                enabled = true,
-+                supported = true,
++    fun start() {
++        if (started) return
++        started = true
++        launchAttempt(explicitRetry = false)
++    }
++
++    fun retry() {
++        if (state.value !is State.Failed || attempt?.isActive == true) return
++        launchAttempt(explicitRetry = true)
++    }
++
++    override suspend fun awaitReady() {
++        state.first { it is State.Ready }
++    }
++
++    /** Return false to retain the ordinary permission prompt for every other installation. */
++    @Suppress("UNUSED_PARAMETER")
++    fun onInstallPermissionRequest(
++        extension: WebExtension,
++        permissions: List<String>,
++        origins: List<String>,
++        dataCollectionPermissions: List<String>,
++        onConfirm: (PermissionPromptResponse) -> Unit,
++    ): Boolean {
++        val asset = trustedAsset ?: return false
++        if (permissionGranted || extension.id != ADDON_ID || extension.id != asset.id ||
++            extension.url != asset.url || extension.getMetadata()?.version != asset.version
++        ) {
++            return false
++        }
++        // The immutable bytes were hash-checked before this transaction was made active.
++        // Gecko has separately validated the manifest and AMO signature before prompting.
++        permissionGranted = true
++        onConfirm(
++            PermissionPromptResponse(
++                isPermissionsGranted = true,
++                isPrivateModeGranted = true,
++                isTechnicalAndInteractionDataGranted = false,
 +            ),
 +        )
++        return true
 +    }
 +
-+    private fun assetsExist(location: String): Boolean {
-+        return try {
-+            context.assets.open(location).use { true }
-+        } catch (e: IOException) {
-+            // Not an APK asset; the location may be an absolute file path.
-+            File(location).exists()
++    private fun launchAttempt(explicitRetry: Boolean) {
++        mutableState.value = State.Preparing
++        attempt = scope.launch {
++            try {
++                withTimeout(timeoutMillis) { reconcile(explicitRetry) }
++            } catch (exception: TimeoutCancellationException) {
++                fail(exception)
++            } catch (exception: CancellationException) {
++                throw exception
++            } catch (exception: Exception) {
++                fail(exception)
++            } finally {
++                trustedAsset = null
++                permissionGranted = false
++            }
 +        }
 +    }
 +
-+    companion object {
-+        const val UBO_ADDON_ID = "uBlock0@uvrove.com"
++    private fun fail(exception: Exception) {
++        trustedAsset = null
++        logger.error("uBlock Origin startup failed; browsing remains paused", exception)
++        mutableState.value = State.Failed(exception.message ?: exception.javaClass.simpleName)
++    }
 +
-+        private const val UBO_NAME = "uBlock Origin"
-+        private const val UBO_SUMMARY = "Fast, efficient, powerful ad blocker, with no tracking of its own."
-+        private const val UBO_DESCRIPTION =
-+            "uBlock Origin is a fast, efficient and powerful ad blocker, with no tracking of its own. " +
-+                "LibreWolf bundles it and ships it preinstalled."
-+        private const val UBO_VERSION = "1.62.0"
++    private suspend fun reconcile(explicitRetry: Boolean) {
++        val decision = dependencies.readDecision()
++        dependencies.installed()?.let { installed ->
++            // Never reinstall, downgrade, enable or change private permission on an existing copy.
++            dependencies.writeDecision(COMPLETE)
++            if (installed.enabled) dependencies.awaitFilteringReady(installed.version)
++            mutableState.value = State.Ready(installed = true, enabled = installed.enabled)
++            return
++        }
++        if (decision == COMPLETE) {
++            mutableState.value = State.Ready(installed = false, enabled = false)
++            return
++        }
++        if (decision != null && !explicitRetry) {
++            throw IOException("The earlier uBlock Origin installation did not finish. Retry is required.")
++        }
++
++        val asset = dependencies.prepareAsset()
++        try {
++            check(asset.id == ADDON_ID) { "Bundled extension ID does not match uBlock Origin" }
++            dependencies.writeDecision(ATTEMPTED)
++            permissionGranted = false
++            trustedAsset = asset
++            dependencies.install(asset)
++            trustedAsset = null
++            val installed = dependencies.installed()
++                ?: throw IOException("Installed uBlock Origin is missing from Gecko's add-on registry")
++            if (!installed.enabled) {
++                throw IOException("Gecko did not enable the installed uBlock Origin extension")
++            }
++            dependencies.awaitFilteringReady(installed.version)
++            dependencies.writeDecision(COMPLETE)
++            mutableState.value = State.Ready(installed = true, enabled = true)
++        } finally {
++            trustedAsset = null
++            asset.file?.delete()
++        }
++    }
++
++    private class AndroidDependencies(private val context: Context) : Dependencies {
++        private val preferences by lazy {
++            context.getSharedPreferences("librewolf_ubo_preinstall", Context.MODE_PRIVATE)
++        }
++
++        override suspend fun readDecision() = withContext(Dispatchers.IO) {
++            preferences.getString("decision", null)
++        }
++
++        override suspend fun writeDecision(decision: String) = withContext(Dispatchers.IO) {
++            if (!preferences.edit().putString("decision", decision).commit()) {
++                throw IOException("Could not persist the uBlock Origin provisioning decision")
++            }
++        }
++
++        override suspend fun installed(): Installed? {
++            WebExtensionSupport.awaitInitialization()
++            val extensions = suspendCancellableCoroutine<List<WebExtension>> { continuation ->
++                context.components.core.engine.listInstalledWebExtensions(
++                    onSuccess = { if (continuation.isActive) continuation.resume(it) },
++                    onError = { if (continuation.isActive) continuation.resumeWithException(it) },
++                )
++            }
++            return extensions.firstOrNull { it.id == ADDON_ID }?.let {
++                Installed(it.isEnabled(), it.getMetadata()?.version.orEmpty())
++            }
++        }
++
++        override suspend fun prepareAsset(): VerifiedAsset = withContext(Dispatchers.IO) {
++            val metadata = context.assets.open("extensions/ubo-extension.json").bufferedReader().use {
++                JSONObject(it.readText())
++            }
++            require(metadata.getInt("schema") == 1) { "Unsupported uBlock Origin asset metadata" }
++            require(metadata.getString("id") == ADDON_ID) { "Unexpected bundled extension ID" }
++            require(metadata.getString("asset") == "extensions/ublock_origin.xpi") {
++                "Unexpected bundled extension asset path"
++            }
++            val expectedHash = metadata.getString("sha256")
++            require(expectedHash.matches(Regex("[0-9a-f]{64}"))) { "Invalid extension hash pin" }
++            val file = File.createTempFile("ublock-origin-", ".xpi", context.noBackupFilesDir)
++            try {
++                context.assets.open("extensions/ublock_origin.xpi").use { input ->
++                    copyAndVerifyAsset(input, file, metadata.getLong("size"), expectedHash)
++                }
++                VerifiedAsset(ADDON_ID, metadata.getString("version"), Uri.fromFile(file).toString(), file)
++            } catch (exception: Exception) {
++                file.delete()
++                throw exception
++            }
++        }
++
++        override suspend fun install(asset: VerifiedAsset) = suspendCancellableCoroutine<Unit> { continuation ->
++            val operation = context.components.addonManager.installAddon(
++                url = asset.url,
++                installationMethod = InstallationMethod.FROM_FILE,
++                onSuccess = { if (continuation.isActive) continuation.resume(Unit) },
++                onError = { if (continuation.isActive) continuation.resumeWithException(it) },
++            )
++            continuation.invokeOnCancellation { operation.cancel() }
++        }
++
++        override suspend fun awaitFilteringReady(version: String): Unit = suspendCancellableCoroutine { continuation ->
++            val result = context.components.core.geckoRuntime.webExtensionController.awaitBlockingResponseListener(
++                ADDON_ID,
++                version,
++            )
++            result.accept(
++                { if (continuation.isActive) continuation.resume(Unit) },
++                { if (continuation.isActive) continuation.resumeWithException(it) },
++            )
++            continuation.invokeOnCancellation { result.cancel() }
++        }
++    }
++
++    internal companion object {
++        const val ADDON_ID = "uBlock0@raymondhill.net"
++        const val ATTEMPTED = "attempted"
++        const val COMPLETE = "complete"
++        internal fun copyAndVerifyAsset(
++            input: InputStream,
++            destination: File,
++            expectedSize: Long,
++            expectedHash: String,
++        ) {
++            val digest = MessageDigest.getInstance("SHA-256")
++            var size = 0L
++            destination.outputStream().use { output ->
++                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
++                while (true) {
++                    val count = input.read(buffer)
++                    if (count < 0) break
++                    digest.update(buffer, 0, count)
++                    output.write(buffer, 0, count)
++                    size += count
++                }
++            }
++            val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
++            require(size == expectedSize && actualHash == expectedHash) {
++                "Bundled uBlock Origin does not match its pinned size and SHA-256"
++            }
++            // Private, uniquely named, read-only file; the installed APK remains unchanged.
++            check(destination.setReadOnly()) { "Could not make the verified extension file read-only" }
++        }
++
++        private const val ATTEMPT_TIMEOUT_MILLIS = 30_000L
++        private val logger = Logger("LibreWolfUboPreinstaller")
 +    }
 +}
---- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-+++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-@@ -186,32 +186,34 @@
-     }
- 
-     val addonsProvider by lazyMonitored {
--        // Check if we have a customized (overridden) AMO collection (supported in Nightly & Beta)
--        if (FeatureFlags.customExtensionCollectionFeature && settings.amoCollectionOverrideConfigured()) {
--            AMOAddonsProvider(
--                context,
--                core.client,
--                collectionUser = settings.overrideAmoUser,
--                collectionName = settings.overrideAmoCollection,
--            )
--        }
--        // Use build config otherwise
--        else if (BuildConfig.AMO_COLLECTION_USER.isNotEmpty() &&
--            BuildConfig.AMO_COLLECTION_NAME.isNotEmpty()
--        ) {
--            AMOAddonsProvider(
--                context,
--                core.client,
--                serverURL = BuildConfig.AMO_SERVER_URL,
--                collectionUser = BuildConfig.AMO_COLLECTION_USER,
--                collectionName = BuildConfig.AMO_COLLECTION_NAME,
--                maxCacheAgeInMinutes = AMO_COLLECTION_MAX_CACHE_AGE,
--            )
--        }
--        // Fall back to defaults
--        else {
--            AMOAddonsProvider(context, core.client, maxCacheAgeInMinutes = AMO_COLLECTION_MAX_CACHE_AGE)
--        }
-+        val amoProvider =
-+            // Check if we have a customized (overridden) AMO collection (supported in Nightly & Beta)
-+            if (FeatureFlags.customExtensionCollectionFeature && settings.amoCollectionOverrideConfigured()) {
-+                AMOAddonsProvider(
-+                    context,
-+                    core.client,
-+                    collectionUser = settings.overrideAmoUser,
-+                    collectionName = settings.overrideAmoCollection,
-+                )
-+            }
-+            // Use build config otherwise
-+            else if (BuildConfig.AMO_COLLECTION_USER.isNotEmpty() && BuildConfig.AMO_COLLECTION_NAME.isNotEmpty()) {
-+                AMOAddonsProvider(
-+                    context,
-+                    core.client,
-+                    serverURL = BuildConfig.AMO_SERVER_URL,
-+                    collectionUser = BuildConfig.AMO_COLLECTION_USER,
-+                    collectionName = BuildConfig.AMO_COLLECTION_NAME,
-+                    maxCacheAgeInMinutes = AMO_COLLECTION_MAX_CACHE_AGE,
-+                )
-+            }
-+            // Fall back to defaults
-+            else {
-+                AMOAddonsProvider(context, core.client, maxCacheAgeInMinutes = AMO_COLLECTION_MAX_CACHE_AGE)
-+            }
+diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/android/fenix/app/src/main/res/values/strings.xml
+--- a/mobile/android/fenix/app/src/main/res/values/strings.xml
++++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
+@@ -4273,4 +4273,9 @@
+     <string name="firefox_labs_feature_disable_dialog_message">To turn off this feature, restart %s.</string>
+     <!-- Text displayed on the Firefox Labs screen when there are no Labs experimental features present. -->
+     <string name="firefox_labs_no_labs_available_description">No experimental features to try right now</string>
++    <!-- First-run signed uBlock Origin provisioning. Browsing stays paused on failure. -->
++    <string name="librewolf_ubo_setup_failed_title">uBlock Origin setup failed</string>
++    <string name="librewolf_ubo_setup_failed_message">Browsing is paused because uBlock Origin could not be prepared. Retry setup or close Redoubt.</string>
++    <string name="librewolf_ubo_setup_retry">Retry</string>
++    <string name="librewolf_ubo_setup_close">Close Redoubt</string>
+ </resources>
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt
+@@ -0,0 +1,138 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 +
-+        // LibreWolf: preinstall uBlock Origin on top of whatever AMO collection is configured.
-+        LibreWolfAddonsProvider(context, amoProvider)
-     }
- 
-     @Suppress("MagicNumber")
---- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-+++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -173,6 +173,24 @@
-          * Bug 1946867 - Currently "hardcoded" to the DoH TRR URI of Cloudflare
-          */
-         private const val CLOUDFLARE_URI = "https://mozilla.cloudflare-dns.com/dns-query"
++package org.mozilla.fenix.components
 +
-+        /**
-+         * Default bootstrap location of the uBlock Origin assets bundled with LibreWolf:
-+         * either an APK asset path or an absolute file path.
-+         */
-+        const val LIBREWOLF_UBO_ASSETS_BOOTSTRAP_LOCATION = "webextensions/ublock_origin.xpi"
++import io.mockk.every
++import io.mockk.mockk
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.runTest
++import mozilla.components.browser.state.action.BrowserAction
++import mozilla.components.browser.state.action.EngineAction
++import mozilla.components.browser.state.action.RestoreCompleteAction
++import mozilla.components.browser.state.state.BrowserState
++import mozilla.components.lib.state.Store
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.mozilla.fenix.components.LibreWolfUboPreinstaller.State
 +
-+        /**
-+         * Returns the bootstrap location of the bundled uBlock Origin assets, honoring the
-+         * pref_key_librewolf_ubo_assets_bootstrap_location preference and falling back to
-+         * [LIBREWOLF_UBO_ASSETS_BOOTSTRAP_LOCATION].
-+         */
-+        fun getLibreWolfUboAssetsBootstrapLocation(context: Context): String {
-+            val key = context.getPreferenceKey(R.string.pref_key_librewolf_ubo_assets_bootstrap_location)
-+            return context.getSharedPreferences(FENIX_PREFERENCES, MODE_PRIVATE)
-+                .getString(key, LIBREWOLF_UBO_ASSETS_BOOTSTRAP_LOCATION)
-+                ?: LIBREWOLF_UBO_ASSETS_BOOTSTRAP_LOCATION
++@OptIn(ExperimentalCoroutinesApi::class)
++class LibreWolfUboPreinstallMiddlewareTest {
++    @Test
++    fun `navigation queued through preparation and failure replays once in order after retry`() = runTest {
++        val gate = FakeGate()
++        val middleware = LibreWolfUboPreinstallMiddleware(gate, backgroundScope)
++        val store = mockk<Store<BrowserState, BrowserAction>>()
++        val dispatched = mutableListOf<BrowserAction>()
++        val delivered = mutableListOf<BrowserAction>()
++        every { store.dispatch(any()) } answers {
++            val action = firstArg<BrowserAction>()
++            dispatched.add(action)
++            middleware.invoke(store, { delivered.add(it) }, action)
 +        }
-     }
- 
-     private val logger = Logger("Settings")
---- a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
-+++ b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
-@@ -50,6 +50,7 @@
-     <string name="pref_key_install_local_addon" translatable="false">pref_key_install_local_addon</string>
-     <string name="pref_key_override_amo_user" translatable="false">pref_key_override_amo_user</string>
-     <string name="pref_key_override_amo_collection" translatable="false">pref_key_override_amo_collection</string>
-+    <string name="pref_key_librewolf_ubo_assets_bootstrap_location" translatable="false">pref_key_librewolf_ubo_assets_bootstrap_location</string>
-     <string name="pref_key_enable_gecko_logs" translatable="false">pref_key_enable_gecko_logs</string>
-     <string name="pref_key_rate" translatable="false">pref_key_rate</string>
-     <string name="pref_key_about" translatable="false">pref_key_about</string>
++        val incoming = EngineAction.CreateEngineSessionAction("incoming-url")
++        val restored = EngineAction.CreateEngineSessionAction("restored-tab", skipLoading = true)
++        val custom = EngineAction.CreateEngineSessionAction("custom-tab", includeParent = true)
++
++        middleware.invoke(store, { delivered.add(it) }, incoming)
++        middleware.invoke(store, { delivered.add(it) }, restored)
++        runCurrent()
++        assertTrue(delivered.isEmpty())
++        assertTrue(dispatched.isEmpty())
++        assertEquals(1, gate.waiters)
++
++        gate.state.value = State.Failed("installation needs retry")
++        middleware.invoke(store, { delivered.add(it) }, custom)
++        runCurrent()
++        assertTrue(delivered.isEmpty())
++        assertTrue(dispatched.isEmpty())
++        assertEquals(1, gate.waiters)
++
++        gate.state.value = State.Preparing
++        runCurrent()
++        assertTrue(delivered.isEmpty())
++        gate.state.value = State.Ready(installed = true, enabled = true)
++        runCurrent()
++
++        assertEquals(listOf(incoming, restored, custom), dispatched)
++        assertEquals(listOf(incoming, restored, custom), delivered)
++
++        gate.state.value = State.Ready(installed = false, enabled = false)
++        runCurrent()
++        assertEquals(listOf(incoming, restored, custom), dispatched)
++        assertEquals(listOf(incoming, restored, custom), delivered)
++    }
++
++    @Test
++    fun `creation arriving at readiness cannot overtake already queued navigation`() = runTest {
++        val gate = FakeGate()
++        val middleware = LibreWolfUboPreinstallMiddleware(gate, backgroundScope)
++        val store = mockk<Store<BrowserState, BrowserAction>>()
++        val delivered = mutableListOf<BrowserAction>()
++        every { store.dispatch(any()) } answers {
++            middleware.invoke(store, { delivered.add(it) }, firstArg())
++        }
++        val first = EngineAction.CreateEngineSessionAction("first")
++        val second = EngineAction.CreateEngineSessionAction("second")
++        val afterReady = EngineAction.CreateEngineSessionAction("arrived-before-replay")
++        middleware.invoke(store, { delivered.add(it) }, first)
++        middleware.invoke(store, { delivered.add(it) }, second)
++        runCurrent()
++
++        gate.state.value = State.Ready(installed = true, enabled = true)
++        // Intentionally invoke before the scheduled readiness waiter runs.
++        middleware.invoke(store, { delivered.add(it) }, afterReady)
++        runCurrent()
++
++        assertEquals(listOf(first, second, afterReady), delivered)
++    }
++
++    @Test
++    fun `non-session actions remain available while provisioning has failed`() = runTest {
++        val gate = FakeGate().apply { state.value = State.Failed("retry required") }
++        val middleware = LibreWolfUboPreinstallMiddleware(gate, backgroundScope)
++        val delivered = mutableListOf<BrowserAction>()
++        val store = mockk<Store<BrowserState, BrowserAction>>()
++
++        middleware.invoke(store, { delivered.add(it) }, RestoreCompleteAction)
++        runCurrent()
++
++        assertEquals(listOf(RestoreCompleteAction), delivered)
++        assertEquals(0, gate.waiters)
++    }
++
++    @Test
++    fun `ready state permits new sessions when the user removed or disabled the extension`() = runTest {
++        for (ready in listOf(
++            State.Ready(installed = false, enabled = false),
++            State.Ready(installed = true, enabled = false),
++        )) {
++            val gate = FakeGate().apply { state.value = ready }
++            val middleware = LibreWolfUboPreinstallMiddleware(gate, backgroundScope)
++            val store = mockk<Store<BrowserState, BrowserAction>>()
++            val delivered = mutableListOf<BrowserAction>()
++            val action = EngineAction.CreateEngineSessionAction("user-choice")
++
++            middleware.invoke(store, { delivered.add(it) }, action)
++            runCurrent()
++
++            assertEquals(listOf(action), delivered)
++            assertEquals(0, gate.waiters)
++        }
++    }
++
++    private class FakeGate : LibreWolfUboStartupGate {
++        override val state = MutableStateFlow<State>(State.Preparing)
++        var waiters = 0
++
++        override suspend fun awaitReady() {
++            waiters++
++            state.first { it is State.Ready }
++        }
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
+@@ -0,0 +1,501 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.components
++
++import io.mockk.every
++import io.mockk.mockk
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.async
++import kotlinx.coroutines.test.advanceTimeBy
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.runTest
++import mozilla.components.concept.engine.webextension.Metadata
++import mozilla.components.concept.engine.webextension.PermissionPromptResponse
++import mozilla.components.concept.engine.webextension.WebExtension
++import org.junit.Assert.assertArrayEquals
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Assert.fail
++import org.junit.Test
++import org.mozilla.fenix.components.LibreWolfUboPreinstaller.Installed
++import org.mozilla.fenix.components.LibreWolfUboPreinstaller.State
++import org.mozilla.fenix.components.LibreWolfUboPreinstaller.VerifiedAsset
++import java.io.File
++import java.io.IOException
++import java.nio.file.Files
++
++@OptIn(ExperimentalCoroutinesApi::class)
++class LibreWolfUboPreinstallerTest {
++    @Test
++    fun `runtime asset verifier preserves bytes matching the pinned size and hash`() = withTemporaryAsset { destination ->
++        val contents = "abc".toByteArray(Charsets.UTF_8)
++
++        contents.inputStream().use { input ->
++            LibreWolfUboPreinstaller.copyAndVerifyAsset(input, destination, 3L, ABC_SHA256)
++        }
++
++        assertArrayEquals(contents, destination.readBytes())
++    }
++
++    @Test
++    fun `runtime asset verifier rejects changed bytes with the same length`() = withTemporaryAsset { destination ->
++        try {
++            "abd".toByteArray(Charsets.UTF_8).inputStream().use { input ->
++                LibreWolfUboPreinstaller.copyAndVerifyAsset(input, destination, 3L, ABC_SHA256)
++            }
++            fail("The same-length replacement must fail SHA-256 verification")
++        } catch (exception: IllegalArgumentException) {
++            assertTrue(exception.message.orEmpty().contains("SHA-256"))
++        }
++    }
++
++    @Test
++    fun `runtime asset verifier rejects wrong length even with the correct hash`() = withTemporaryAsset { destination ->
++        try {
++            "abc".toByteArray(Charsets.UTF_8).inputStream().use { input ->
++                LibreWolfUboPreinstaller.copyAndVerifyAsset(input, destination, 2L, ABC_SHA256)
++            }
++            fail("A matching hash must not bypass the pinned length")
++        } catch (exception: IllegalArgumentException) {
++            assertTrue(exception.message.orEmpty().contains("size"))
++        }
++    }
++
++    @Test
++    fun `first launch installs once and holds navigation until filtering is ready`() = runTest {
++        val dependencies = FakeDependencies().apply {
++            installBarrier = CompletableDeferred()
++            filteringBarrier = CompletableDeferred()
++        }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        val navigation = backgroundScope.async { preinstaller.awaitReady() }
++
++        preinstaller.start()
++        preinstaller.start()
++        runCurrent()
++
++        assertEquals(1, dependencies.installCalls)
++        assertEquals(listOf("attempted"), dependencies.decisionsAtInstall)
++        assertEquals(State.Preparing, preinstaller.state.value)
++        assertFalse(navigation.isCompleted)
++
++        dependencies.installBarrier!!.complete(Unit)
++        runCurrent()
++
++        assertEquals(listOf(VERSION), dependencies.filteringVersions)
++        assertEquals("attempted", dependencies.decision)
++        assertFalse(navigation.isCompleted)
++
++        dependencies.filteringBarrier!!.complete(Unit)
++        runCurrent()
++
++        assertEquals(State.Ready(installed = true, enabled = true), preinstaller.state.value)
++        assertEquals("complete", dependencies.decision)
++        assertTrue(navigation.isCompleted)
++        preinstaller.start()
++        preinstaller.retry()
++        runCurrent()
++        assertEquals(1, dependencies.installCalls)
++    }
++
++    @Test
++    fun `existing disabled extension stays disabled without installation or a filtering wait`() = runTest {
++        val existing = Installed(enabled = false, version = "1.72.0")
++        val dependencies = FakeDependencies().apply { registry = existing }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++
++        preinstaller.start()
++        runCurrent()
++
++        assertEquals(State.Ready(installed = true, enabled = false), preinstaller.state.value)
++        assertEquals(existing, dependencies.registry)
++        assertEquals("complete", dependencies.decision)
++        assertEquals(0, dependencies.prepareCalls)
++        assertEquals(0, dependencies.installCalls)
++        assertTrue(dependencies.filteringVersions.isEmpty())
++        assertFalse(requestPermission(preinstaller, extension(), mutableListOf()))
++    }
++
++    @Test
++    fun `existing updated extension waits for its installed version without replacing it`() = runTest {
++        val dependencies = FakeDependencies().apply {
++            registry = Installed(enabled = true, version = "1.75.0")
++            filteringBarrier = CompletableDeferred()
++        }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++
++        preinstaller.start()
++        runCurrent()
++
++        assertEquals(State.Preparing, preinstaller.state.value)
++        assertEquals(listOf("1.75.0"), dependencies.filteringVersions)
++        assertEquals(0, dependencies.prepareCalls)
++        assertEquals(0, dependencies.installCalls)
++
++        dependencies.filteringBarrier!!.complete(Unit)
++        runCurrent()
++        assertEquals(State.Ready(installed = true, enabled = true), preinstaller.state.value)
++        assertEquals("1.75.0", dependencies.registry!!.version)
++    }
++
++    @Test
++    fun `completed removal survives restart and a different bundled version`() = runTest {
++        val dependencies = FakeDependencies().apply { decision = "complete" }
++        val first = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        first.start()
++        runCurrent()
++
++        dependencies.asset = dependencies.asset.copy(version = "1.75.0")
++        val upgraded = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        upgraded.start()
++        upgraded.retry()
++        runCurrent()
++
++        assertEquals(State.Ready(installed = false, enabled = false), first.state.value)
++        assertEquals(State.Ready(installed = false, enabled = false), upgraded.state.value)
++        assertEquals(0, dependencies.prepareCalls)
++        assertEquals(0, dependencies.installCalls)
++        assertTrue(dependencies.filteringVersions.isEmpty())
++        assertNull(dependencies.registry)
++    }
++
++    @Test
++    fun `interrupted absent installation requires an explicit retry even after restart`() = runTest {
++        val dependencies = FakeDependencies().apply { decision = "attempted" }
++        val first = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        first.start()
++        runCurrent()
++
++        assertFailed(first, "Retry is required")
++        first.start()
++        val restarted = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        restarted.start()
++        runCurrent()
++
++        assertFailed(restarted, "Retry is required")
++        assertEquals(0, dependencies.installCalls)
++
++        restarted.retry()
++        restarted.retry()
++        runCurrent()
++
++        assertEquals(State.Ready(installed = true, enabled = true), restarted.state.value)
++        assertEquals(1, dependencies.installCalls)
++        assertEquals("complete", dependencies.decision)
++    }
++
++    @Test
++    fun `asset hash denial blocks installation and never grants trusted permissions`() = runTest {
++        val dependencies = FakeDependencies().apply {
++            prepareFailure = IOException("Bundled uBlock Origin does not match its pinned size and SHA-256")
++        }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        val navigation = backgroundScope.async { preinstaller.awaitReady() }
++
++        preinstaller.start()
++        runCurrent()
++
++        assertFailed(preinstaller, "SHA-256")
++        assertFalse(navigation.isCompleted)
++        assertNull(dependencies.decision)
++        assertEquals(0, dependencies.installCalls)
++        assertFalse(requestPermission(preinstaller, extension(), mutableListOf()))
++    }
++
++    @Test
++    fun `wrong verified asset ID cannot activate an installation transaction`() = runTest {
++        val dependencies = FakeDependencies().apply { asset = asset.copy(id = "other@example.invalid") }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++
++        preinstaller.start()
++        runCurrent()
++
++        assertFailed(preinstaller, "ID does not match")
++        assertEquals(0, dependencies.installCalls)
++        assertNull(dependencies.decision)
++        assertFalse(requestPermission(preinstaller, extension(), mutableListOf()))
++    }
++
++    @Test
++    fun `registry query failures before and after installation remain visible and block readiness`() = runTest {
++        for (query in listOf(1, 2)) {
++            val dependencies = FakeDependencies().apply { failingRegistryQuery = query }
++            val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++            val navigation = backgroundScope.async { preinstaller.awaitReady() }
++
++            preinstaller.start()
++            runCurrent()
++
++            assertFailed(preinstaller, "registry unavailable")
++            assertFalse(navigation.isCompleted)
++            assertEquals(if (query == 1) 0 else 1, dependencies.installCalls)
++            assertEquals(if (query == 1) null else "attempted", dependencies.decision)
++            assertFalse(requestPermission(preinstaller, extension(), mutableListOf()))
++        }
++    }
++
++    @Test
++    fun `failed install remains failed until retry and never records completion`() = runTest {
++        val dependencies = FakeDependencies().apply { installFailure = IOException("signature rejected") }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++
++        preinstaller.start()
++        runCurrent()
++
++        assertFailed(preinstaller, "signature rejected")
++        assertEquals("attempted", dependencies.decision)
++        assertFalse(requestPermission(preinstaller, extension(), mutableListOf()))
++        preinstaller.start()
++        runCurrent()
++        assertEquals(1, dependencies.installCalls)
++
++        dependencies.installFailure = null
++        preinstaller.retry()
++        runCurrent()
++
++        assertEquals(2, dependencies.installCalls)
++        assertEquals(State.Ready(installed = true, enabled = true), preinstaller.state.value)
++    }
++
++    @Test
++    fun `install callback alone is insufficient when the registry is absent or disabled`() = runTest {
++        for (result in listOf(null, Installed(enabled = false, version = VERSION))) {
++            val dependencies = FakeDependencies().apply { installedResult = result }
++            val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++
++            preinstaller.start()
++            runCurrent()
++
++            assertTrue(preinstaller.state.value is State.Failed)
++            assertEquals("attempted", dependencies.decision)
++            assertTrue(dependencies.filteringVersions.isEmpty())
++        }
++    }
++
++    @Test
++    fun `filtering readiness failure keeps navigation blocked after a successful install`() = runTest {
++        val dependencies = FakeDependencies().apply { filteringFailure = IOException("filter engine not ready") }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        val navigation = backgroundScope.async { preinstaller.awaitReady() }
++
++        preinstaller.start()
++        runCurrent()
++
++        assertFailed(preinstaller, "filter engine not ready")
++        assertFalse(navigation.isCompleted)
++        assertEquals(Installed(enabled = true, version = VERSION), dependencies.registry)
++        assertEquals("attempted", dependencies.decision)
++    }
++
++    @Test
++    fun `timeout cancels the active install and revokes permission trust`() = runTest {
++        val dependencies = FakeDependencies().apply { installBarrier = CompletableDeferred() }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope, timeoutMillis = 1_000)
++        preinstaller.start()
++        runCurrent()
++
++        advanceTimeBy(1_000)
++        runCurrent()
++
++        assertTrue(preinstaller.state.value is State.Failed)
++        assertEquals(1, dependencies.cancelledInstalls)
++        assertEquals("attempted", dependencies.decision)
++        assertFalse(requestPermission(preinstaller, extension(), mutableListOf()))
++        dependencies.installBarrier!!.complete(Unit)
++        runCurrent()
++        assertNull(dependencies.registry)
++        assertTrue(preinstaller.state.value is State.Failed)
++    }
++
++    @Test
++    fun `restart recovers installation committed before completion marker without reinstalling`() = runTest {
++        val dependencies = FakeDependencies().apply { completionFailure = IOException("marker write interrupted") }
++        val first = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        first.start()
++        runCurrent()
++
++        assertFailed(first, "marker write interrupted")
++        assertEquals("attempted", dependencies.decision)
++        assertEquals(Installed(enabled = true, version = VERSION), dependencies.registry)
++
++        dependencies.completionFailure = null
++        val restarted = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        restarted.start()
++        runCurrent()
++
++        assertEquals(State.Ready(installed = true, enabled = true), restarted.state.value)
++        assertEquals("complete", dependencies.decision)
++        assertEquals(1, dependencies.prepareCalls)
++        assertEquals(1, dependencies.installCalls)
++        assertEquals(listOf(VERSION, VERSION), dependencies.filteringVersions)
++    }
++
++    @Test
++    fun `permission trust requires a verified active transaction and exact ID version and file URI`() = runTest {
++        val dependencies = FakeDependencies().apply {
++            prepareBarrier = CompletableDeferred()
++            installBarrier = CompletableDeferred()
++            filteringBarrier = CompletableDeferred()
++        }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        val approvals = mutableListOf<PermissionPromptResponse>()
++
++        assertFalse(requestPermission(preinstaller, extension(), approvals))
++        preinstaller.start()
++        runCurrent()
++        assertFalse(requestPermission(preinstaller, extension(), approvals))
++        dependencies.prepareBarrier!!.complete(Unit)
++        runCurrent()
++
++        for (untrusted in listOf(
++            extension(extensionId = "other@example.invalid"),
++            extension(extensionVersion = "1.73.0"),
++            extension(extensionVersion = null),
++            extension(extensionUrl = "file:///private/different.xpi"),
++            extension(extensionUrl = "https://addons.mozilla.org/ublock_origin.xpi"),
++        )) {
++            assertFalse(requestPermission(preinstaller, untrusted, approvals))
++        }
++        assertTrue(approvals.isEmpty())
++        assertTrue(requestPermission(preinstaller, extension(), approvals))
++        assertEquals(
++            listOf(
++                PermissionPromptResponse(
++                    isPermissionsGranted = true,
++                    isPrivateModeGranted = true,
++                    isTechnicalAndInteractionDataGranted = false,
++                ),
++            ),
++            approvals,
++        )
++        assertFalse(requestPermission(preinstaller, extension(), approvals))
++        assertEquals(1, approvals.size)
++
++        dependencies.installBarrier!!.complete(Unit)
++        runCurrent()
++        assertEquals(State.Preparing, preinstaller.state.value)
++        assertFalse(requestPermission(preinstaller, extension(), approvals))
++        dependencies.filteringBarrier!!.complete(Unit)
++        runCurrent()
++        assertFalse(requestPermission(preinstaller, extension(), approvals))
++        assertEquals(1, approvals.size)
++    }
++
++    private fun withTemporaryAsset(test: (File) -> Unit) {
++        val directory = Files.createTempDirectory("librewolf-ubo-verifier-").toFile()
++        val destination = File(directory, "asset.xpi")
++        try {
++            test(destination)
++        } finally {
++            destination.setWritable(true)
++            directory.deleteRecursively()
++        }
++    }
++
++    private fun assertFailed(preinstaller: LibreWolfUboPreinstaller, reason: String) {
++        val state = preinstaller.state.value
++        assertTrue("Expected a visible failure, got $state", state is State.Failed)
++        assertTrue((state as State.Failed).reason.contains(reason))
++    }
++
++    private fun extension(
++        extensionId: String = ID,
++        extensionUrl: String = FILE_URI,
++        extensionVersion: String? = VERSION,
++    ): WebExtension {
++        val metadata = extensionVersion?.let { value ->
++            mockk<Metadata> { every { version } returns value }
++        }
++        return mockk {
++            every { id } returns extensionId
++            every { url } returns extensionUrl
++            every { getMetadata() } returns metadata
++        }
++    }
++
++    private fun requestPermission(
++        preinstaller: LibreWolfUboPreinstaller,
++        extension: WebExtension,
++        approvals: MutableList<PermissionPromptResponse>,
++    ) = preinstaller.onInstallPermissionRequest(
++        extension = extension,
++        permissions = listOf("webRequest", "webRequestBlocking"),
++        origins = listOf("<all_urls>"),
++        dataCollectionPermissions = emptyList(),
++        onConfirm = { approvals.add(it) },
++    )
++
++    /** Models durable decisions and Gecko registry state across coordinator instances. */
++    private class FakeDependencies : LibreWolfUboPreinstaller.Dependencies {
++        var decision: String? = null
++        var registry: Installed? = null
++        var asset = VerifiedAsset(ID, VERSION, FILE_URI)
++        var installedResult: Installed? = Installed(enabled = true, version = VERSION)
++        var prepareBarrier: CompletableDeferred<Unit>? = null
++        var installBarrier: CompletableDeferred<Unit>? = null
++        var filteringBarrier: CompletableDeferred<Unit>? = null
++        var prepareFailure: Exception? = null
++        var installFailure: Exception? = null
++        var filteringFailure: Exception? = null
++        var completionFailure: Exception? = null
++        var failingRegistryQuery: Int? = null
++        var prepareCalls = 0
++        var installCalls = 0
++        var cancelledInstalls = 0
++        private var registryQueries = 0
++        val decisionsAtInstall = mutableListOf<String?>()
++        val filteringVersions = mutableListOf<String>()
++
++        override suspend fun readDecision() = decision
++
++        override suspend fun writeDecision(decision: String) {
++            if (decision == "complete") completionFailure?.let { throw it }
++            this.decision = decision
++        }
++
++        override suspend fun installed(): Installed? {
++            registryQueries++
++            if (registryQueries == failingRegistryQuery) throw IOException("registry unavailable")
++            return registry
++        }
++
++        override suspend fun prepareAsset(): VerifiedAsset {
++            prepareCalls++
++            prepareBarrier?.await()
++            prepareFailure?.let { throw it }
++            return asset
++        }
++
++        override suspend fun install(asset: VerifiedAsset) {
++            installCalls++
++            decisionsAtInstall.add(decision)
++            try {
++                installBarrier?.await()
++                installFailure?.let { throw it }
++                registry = installedResult
++            } catch (exception: CancellationException) {
++                cancelledInstalls++
++                throw exception
++            }
++        }
++
++        override suspend fun awaitFilteringReady(version: String) {
++            filteringVersions.add(version)
++            filteringBarrier?.await()
++            filteringFailure?.let { throw it }
++        }
++    }
++
++    private companion object {
++        const val ABC_SHA256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
++        const val ID = "uBlock0@raymondhill.net"
++        const val VERSION = "1.74.0"
++        const val FILE_URI = "file:///private/verified-ublock-origin.xpi"
++    }
++}

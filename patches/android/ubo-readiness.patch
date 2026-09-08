@@ -1,0 +1,300 @@
+# Redoubt LW-M3-07: wait for a live blocking response listener before first navigation.
+#
+# A ready background page is not a filtering-readiness signal: uBO 1.74.0
+# starts filters in an asynchronous IIFE and explicitly unsuspends requests
+# during first installation. In its pinned start.js/traffic.js, live blocking
+# onHeadersReceived registration happens only after filter initialization.
+# Track real registrations, not primed persistent listeners; expose a bounded,
+# version-bound GeckoView wait without modifying the signed XPI or its trust.
+# This API proves listener activation, not arbitrary extension internals.
+# UUID-bound cancellation immediately removes timer/listeners and cannot affect
+# unrelated requests or a later request reusing a completed identifier.
+#
+diff --git a/mobile/android/geckoview/api.txt b/mobile/android/geckoview/api.txt
+index 9f87309..96ce621 100644
+--- a/mobile/android/geckoview/api.txt
++++ b/mobile/android/geckoview/api.txt
+@@ -3159,6 +3159,7 @@ package org.mozilla.geckoview {
+
+   public class WebExtensionController {
+     method @HandlerThread @NonNull public GeckoResult<WebExtension> addOptionalPermissions(@NonNull String, @NonNull String[], @NonNull String[], @NonNull String[]);
++    method @HandlerThread @NonNull public GeckoResult<Void> awaitBlockingResponseListener(@NonNull String, @NonNull String);
+     method @Nullable @UiThread public WebExtension.Download createDownload(int);
+     method @HandlerThread @NonNull public GeckoResult<WebExtension> disable(@NonNull WebExtension, int);
+     method @AnyThread public void disableExtensionProcessSpawning();
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
+index 30381ff..5bdfa93 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
+@@ -906,6 +906,45 @@ public class WebExtensionController {
+         .accept(result -> unregisterWebExtension(extension));
+   }
+
++  /**
++   * Wait for an active extension to register a live blocking response listener.
++   *
++   * <p>Unlike extension startup or a primed persistent listener, this waits for
++   * actual registration of a blocking onHeadersReceived listener by the running
++   * extension. It does not guarantee that arbitrary extension internals are ready.
++   * The embedding app must establish that relationship for its selected extension.
++   *
++   * @param extensionId The ID of an already-installed and enabled extension.
++   * @param expectedVersion The version whose readiness the caller is awaiting.
++   * @return A result resolving on listener activation, or failing if the extension
++   *     is unavailable, changes, stops, or does not register within 30 seconds.
++   */
++  @HandlerThread
++  @NonNull
++  public GeckoResult<Void> awaitBlockingResponseListener(
++      final @NonNull String extensionId, final @NonNull String expectedVersion) {
++    ThreadUtils.assertOnHandlerThread();
++    final String requestId = UUID.randomUUID().toString();
++    final GeckoBundle bundle = new GeckoBundle(3);
++    bundle.putString("webExtensionId", extensionId);
++    bundle.putString("expectedVersion", expectedVersion);
++    bundle.putString("requestId", requestId);
++    final GeckoResult<Void> result =
++        EventDispatcher.getInstance()
++            .queryBundle("GeckoView:WebExtension:AwaitBlockingResponseListener", bundle)
++            .accept(response -> {});
++    result.setCancellationDelegate(
++        new GeckoResult.CancellationDelegate() {
++          @Override
++          public GeckoResult<Boolean> cancel() {
++            return EventDispatcher.getInstance()
++                .queryBundle("GeckoView:WebExtension:CancelBlockingResponseListener", bundle)
++                .map(response -> response.getBoolean("cancelled"));
++          }
++        });
++    return result;
++  }
++
+   /** Defines the possible sources that can enable or disable a WebExtension. */
+   @Retention(RetentionPolicy.SOURCE)
+   @IntDef({EnableSource.USER, EnableSource.APP})
+diff --git a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+index 3d46ebe..42bba85 100644
+--- a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
++++ b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+@@ -190,6 +190,8 @@ export class GeckoViewStartup {
+               "GeckoView:WebExtension:Install",
+               "GeckoView:WebExtension:InstallBuiltIn",
+               "GeckoView:WebExtension:List",
++              "GeckoView:WebExtension:AwaitBlockingResponseListener",
++              "GeckoView:WebExtension:CancelBlockingResponseListener",
+               "GeckoView:WebExtension:PortDisconnect",
+               "GeckoView:WebExtension:PortMessageFromApp",
+               "GeckoView:WebExtension:SetPBAllowed",
+diff --git a/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+index 2f2120d..9a0d0a4 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+@@ -32,6 +32,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
+   ExtensionProcessCrashObserver: "resource://gre/modules/Extension.sys.mjs",
+   GeckoViewTabBridge: "resource://gre/modules/GeckoViewTab.sys.mjs",
+   Management: "resource://gre/modules/Extension.sys.mjs",
++  setTimeout: "resource://gre/modules/Timer.sys.mjs",
++  clearTimeout: "resource://gre/modules/Timer.sys.mjs",
+   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
+ });
+
+@@ -1023,6 +1025,105 @@ export var GeckoViewWebExtension = {
+     return exportExtension(addon, /* aSourceURI */ null);
+   },
+
++  async awaitBlockingResponseListener(aId, aExpectedVersion, aRequestId) {
++    if (
++      typeof aRequestId !== "string" ||
++      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(aRequestId)
++    ) {
++      throw new Error("Invalid blocking-listener request ID");
++    }
++    this.blockingResponseRequestIds ??= new Set();
++    if (this.blockingResponseRequestIds.has(aRequestId)) {
++      throw new Error("Blocking-listener request ID was already used");
++    }
++    // Keep issued IDs for this runtime's lifetime. A delayed cancellation must
++    // never target a new waiter that reused a completed request's ID.
++    this.blockingResponseRequestIds.add(aRequestId);
++    this.blockingResponseWaiters ??= new Map();
++
++    // This is a listener-registration barrier, not a promise about arbitrary
++    // extension internals. In pinned uBO 1.74.0, traffic.js registers this live
++    // listener only after start.js has loaded filters and set readyToFilter.
++    await new Promise((resolve, reject) => {
++      let timer;
++      let extension;
++      let onListener;
++      let settled = false;
++      const finish = error => {
++        if (settled) {
++          return false;
++        }
++        settled = true;
++        lazy.clearTimeout(timer);
++        extension?.off("redoubt-blocking-response-listener", onListener);
++        extension?.off("shutdown", onShutdown);
++        this.blockingResponseWaiters.delete(aRequestId);
++        if (error) {
++          reject(error);
++        } else {
++          resolve();
++        }
++        return true;
++      };
++      const onShutdown = () =>
++        finish(new Error("Blocking extension stopped before becoming ready"));
++      this.blockingResponseWaiters.set(aRequestId, {
++        extensionId: aId,
++        expectedVersion: aExpectedVersion,
++        cancel: () => finish(new Error("Blocking response listener wait cancelled")),
++      });
++      timer = lazy.setTimeout(
++        () => finish(new Error("Timed out awaiting blocking response listener")),
++        30000
++      );
++
++      // Register the cancellable request before the first asynchronous lookup.
++      // Cancellation during lookup must not later attach listeners or resolve.
++      this.extensionById(aId).then(addon => {
++        if (settled) {
++          return;
++        }
++        const policy = WebExtensionPolicy.getByID(aId);
++        const currentExtension = policy?.extension;
++        if (
++          !addon?.isActive ||
++          addon.version !== aExpectedVersion ||
++          !currentExtension?.hasPermission("webRequestBlocking")
++        ) {
++          finish(new Error("No matching active blocking extension"));
++          return;
++        }
++        extension = currentExtension;
++        onListener = () => {
++          if (
++            WebExtensionPolicy.getByID(aId) !== policy ||
++            !addon.isActive ||
++            addon.version !== aExpectedVersion
++          ) {
++            finish(new Error("Blocking extension changed while awaiting readiness"));
++          } else if (extension.redoubtBlockingResponseListeners?.size > 0) {
++            finish();
++          }
++        };
++        extension.on("redoubt-blocking-response-listener", onListener);
++        extension.on("shutdown", onShutdown);
++        onListener();
++      }).catch(finish);
++    });
++  },
++
++  cancelBlockingResponseListener(aId, aExpectedVersion, aRequestId) {
++    const request = this.blockingResponseWaiters?.get(aRequestId);
++    if (
++      !request ||
++      request.extensionId !== aId ||
++      request.expectedVersion !== aExpectedVersion
++    ) {
++      return false;
++    }
++    return request.cancel();
++  },
++
+   async uninstallWebExtension(aId) {
+     const extension = await this.extensionById(aId);
+     if (!extension) {
+@@ -1418,6 +1519,31 @@ export var GeckoViewWebExtension = {
+         break;
+       }
+
++      case "GeckoView:WebExtension:CancelBlockingResponseListener": {
++        aCallback.onSuccess({
++          cancelled: this.cancelBlockingResponseListener(
++            aData.webExtensionId,
++            aData.expectedVersion,
++            aData.requestId
++          ),
++        });
++        break;
++      }
++
++      case "GeckoView:WebExtension:AwaitBlockingResponseListener": {
++        try {
++          await this.awaitBlockingResponseListener(
++            aData.webExtensionId,
++            aData.expectedVersion,
++            aData.requestId
++          );
++          aCallback.onSuccess({});
++        } catch (ex) {
++          aCallback.onError(`Blocking response listener unavailable: ${ex}`);
++        }
++        break;
++      }
++
+       case "GeckoView:WebExtension:List": {
+         try {
+           await lazy.AddonManager.readyPromise;
+diff --git a/toolkit/components/extensions/parent/ext-webRequest.js b/toolkit/components/extensions/parent/ext-webRequest.js
+index da2b96f..e7855e4 100644
+--- a/toolkit/components/extensions/parent/ext-webRequest.js
++++ b/toolkit/components/extensions/parent/ext-webRequest.js
+@@ -39,7 +39,8 @@ function registerEvent(
+   fire,
+   filter,
+   info,
+-  remoteTab = null
++  remoteTab = null,
++  isLiveListener = false
+ ) {
+   let listener = async data => {
+     let event = data.serialize(eventName);
+@@ -116,13 +117,35 @@ function registerEvent(
+   };
+   WebRequest[eventName].addListener(listener, filter2, info2, listenerDetails);
+
++  // Redoubt: primed listeners can wake a background page before its filters
++  // have initialized. Signal only an actual blocking response listener from
++  // the live extension context, including conversion of a primed listener.
++  const isBlockingResponse =
++    eventName === "onHeadersReceived" && info2.includes("blocking");
++  const registration = {};
++  let registered = true;
++  const markLive = () => {
++    if (!registered || !isBlockingResponse) {
++      return;
++    }
++    extension.redoubtBlockingResponseListeners ??= new Set();
++    extension.redoubtBlockingResponseListeners.add(registration);
++    extension.emit("redoubt-blocking-response-listener");
++  };
++  if (isLiveListener) {
++    markLive();
++  }
++
+   return {
+     unregister: () => {
++      registered = false;
++      extension.redoubtBlockingResponseListeners?.delete(registration);
+       WebRequest[eventName].removeListener(listener);
+     },
+     convert(_fire, context) {
+       fire = _fire;
+       remoteTab = context.xulBrowser.frameLoader.remoteTab;
++      markLive();
+     },
+   };
+ }
+@@ -154,7 +177,9 @@ function makeWebRequestEventRegistrar(event) {
+       remoteTab = context.xulBrowser.frameLoader.remoteTab;
+     }
+
+-    return registerEvent(extension, event, fire, filter, info, remoteTab);
++    return registerEvent(
++      extension, event, fire, filter, info, remoteTab, !!context
++    );
+   };
+ }
+
+# End of patch.

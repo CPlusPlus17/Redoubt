@@ -6,9 +6,12 @@
 
 
 import hashlib
+from contextlib import nullcontext
 import os
 import re
+import shlex
 import shutil
+import subprocess
 import sys
 import optparse
 import time
@@ -399,6 +402,22 @@ def android_search_config():
 
 PATCH_BIN = shutil.which("gpatch") or "patch"
 
+
+def android_ubo_extension():
+    # Keep the signed XPI intact. The fetcher checks the pinned size, hash and
+    # manifest even for an offline cache or LIBREWOLF_UBO_XPI input, then copies
+    # it and its runtime metadata into Fenix's standard Gradle assets directory.
+    command = [sys.executable, str(REPO_DIR / "scripts/fetch-ubo-extension.py"),
+               "--asset-dir", "mobile/android/fenix/app/src/main/assets"]
+    print(shlex.join(command), flush=True)
+    if options.no_execute:
+        return
+    try:
+        subprocess.run(command, check=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        print("fatal error: could not package the pinned uBO extension: {}".format(error), flush=True)
+        script_exit(1)
+
 def patch(patchfile):
     cmd = "{} -p1 -i {}".format(PATCH_BIN, patchfile)
     print("\n*** -> {}".format(cmd))
@@ -500,6 +519,7 @@ def librewolf_patches():
     # See android_search_config() above.
     if "android" in targets:
         android_search_config()
+        android_ubo_extension()
 
     # apply common.txt, then one list per --targets. The lists are read from
     # PATCH_LIST_DIR (absolute), the patches themselves are applied from '../'
@@ -617,7 +637,7 @@ def librewolf_patches():
 
     l10n_commit, l10n_sha256 = read_l10n_pin()
     print(f"-> Downloading locales from https://github.com/mozilla-l10n/firefox-l10n at {l10n_commit}")
-    with TemporaryDirectory() as tmpdir:
+    with (nullcontext("<l10n-temporary-directory>") if options.no_execute else TemporaryDirectory()) as tmpdir:
         zip_path = f"{tmpdir}/l10n.zip"
         # -f so an HTTP error is an error instead of a saved error page.
         exec(f"curl -sfL -o {zip_path} 'https://codeload.github.com/mozilla-l10n/firefox-l10n/zip/{l10n_commit}'")

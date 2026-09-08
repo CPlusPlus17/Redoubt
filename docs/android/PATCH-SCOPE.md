@@ -15,45 +15,21 @@ read in full, every file it touches was traced to the `moz.build` / `jar.mn` /
 preprocessor guard that decides whether that file is built on Android, and the
 decision below follows from that guard rather than from the path.
 
-Current classification: **24 common / 26 android / 36 desktop-only / 0 straddlers = 86
+Current classification: **24 common / 28 android / 36 desktop-only / 0 straddlers = 88
 patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
 
 ## Pending — on disk, deliberately in no list
 
-**One entry: `patches/android/ubo-preinstall.patch` (LW-M3-07).**
+No pending patches. On 2026-09-08 LW-M3-07 replaced the parked catalogue stub
+with a genuine signed-XPI installer and a separate filtering-readiness bridge.
+Both are registered in `android.txt`; source, packaging and lifecycle evidence is
+under `docs/android/evidence/lw-m3-07/completion-20260908/`. Registration records
+patch scope, not completion of the required APK build and runtime acceptance.
 
-- patches/android/ubo-preinstall.patch (LW-M3-07) — parked 2026-08-27, NOT applied.
-  It applies cleanly and its ordering is measured
-  (`docs/android/evidence/lw-m3-07/order-free.txt`), so this is not a build problem —
-  it is parked because shipping it would make a **false privacy claim**. Three defects,
-  each verified against the files:
-  (a) the add-on ID is `uBlock0@raymondhill.net` everywhere in this project
-  (`settings/distribution/policies.json:50`) but the patch declares
-  `uBlock0@uvrove.com`, an ID that exists nowhere else;
-  (b) the XPI it reads, `webextensions/ublock_origin.xpi`, does not exist in the repo
-  and nothing fetches or packages one, so the feature cannot work at all today;
-  (c) `LibreWolfAddonsProvider.localUboAddon()` returns an `Addon` carrying a
-  fabricated `Addon.InstalledState(enabled = true)` while performing **no install** —
-  there is no `installAddon`/`installWebExtension` call in the patch. It decorates the
-  AMO catalogue only. So the moment anyone drops an XPI into assets/, the Add-ons UI
-  reports uBlock Origin as installed and enabled with no content blocking behind it.
-  That is worse than the feature being absent.
-  Un-park by fixing the ID, sourcing and packaging a hash-pinned XPI, and performing a
-  real install — then re-add the `android.txt` line and the four ordering rows.
-
-The mechanism stays documented because it is load-bearing: a `- <path> (LW-…)`
-bullet in this section is the *only* way `board.py --check-scope` will tolerate a
-patch file that no list applies. It prints such a patch as a warning on every run,
-so the exemption is visible and attributable; an **undeclared** unlisted patch is a
-hard error, which is the case the check exists for.
-
-The section's last occupant was `patches/android/autoconfig-resource-fallback.patch`
-(LW-M3-08's spike artefact). **LW-M3-02 landed it** — it is in
-`assets/patches/android.txt`, its `xmas-common` ordering constraint is declared in
-`scripts/check-patch-order.py`, and both `check-patchfail` runs now *apply* it
-instead of passing vacuously with respect to it. Do not re-add it here.
+A `- <path> (LW-…)` bullet in this section is the only way `board.py --check-scope`
+will tolerate a patch file that no list applies. Undeclared unlisted patches fail.
 
 ---
 
@@ -78,7 +54,7 @@ claimed an application order the build never uses.
 |---|---|---|
 | `common.txt` | 24 | 17 pure-common **+ the 7 common halves of the split straddlers** |
 | `desktop.txt` | 36 | 27 pure desktop + `msix` (not a straddler) **+ the 7 desktop halves** + `pref-pane/pref-pane-small` (moved in from its own call site by LW-M1-13) |
-| `android.txt` | 26 | the three Android-side patches the M1 splits pulled in, plus `build-fixes` (LW-M2-02), `appservices-logins-addmany` (LW-M2-04), `no-nimbus` (LW-M4-03), `no-nimbus-toolkit` (LW-M4-13), `isolated-process` (LW-M5-02), `autoconfig-resource-fallback` (LW-M3-08/LW-M3-02), `no-onboarding` (LW-M4-10), `no-gms` (LW-M4-05), `branding` (LW-M4-07), `gradle-no-config-cache` (LW-M3-13), `rs-blocker-android` (LW-M4-08), `no-suggest` (LW-M4-11), `search-config` (LW-M4-06), `update-check` (LW-M6-06), `deterministic-version-code` (LW-M6-08) and the M4 dependency removals landing alongside it — one row each in the table below. |
+| `android.txt` | 28 | the three Android-side patches the M1 splits pulled in, plus `build-fixes` (LW-M2-02), `appservices-logins-addmany` (LW-M2-04), `no-nimbus` (LW-M4-03), `no-nimbus-toolkit` (LW-M4-13), `isolated-process` (LW-M5-02), `autoconfig-resource-fallback` (LW-M3-08/LW-M3-02), `no-onboarding` (LW-M4-10), `no-gms` (LW-M4-05), `branding` (LW-M4-07), `gradle-no-config-cache` (LW-M3-13), `rs-blocker-android` (LW-M4-08), `no-suggest` (LW-M4-11), `search-config` (LW-M4-06), `update-check` (LW-M6-06), `deterministic-version-code` (LW-M6-08) and the M4 dependency removals landing alongside it — one row each in the table below. |
 
 The arithmetic, and it is now boring on purpose: **every patch file on disk is in
 exactly one list**, so the three lists sum straight to the total, and
@@ -175,6 +151,8 @@ own line in this table.
 | `patches/android/no-suggest.patch` | LW-M4-11 | **Search suggestions and trending searches off by default; the sponsored top-sites feed removed.** Two Fenix defaults flip (`Settings.shouldShowSearchSuggestions`, `trendingSearchSuggestionsEnabled`): a default, not a lock — both rows stay in Settings > Search, which is acceptance line 3. The sponsored tiles ("Contile", in 153 the MARS / Mozilla ads client feed at `ads.mozilla.org`, measured by LW-M4-10) are removed rather than switched off: `Settings.showContileFeature` becomes a constant `false` getter (no preference, so no settings write, Nimbus experiment or upstream default flip can revive it), the `TopSitesRefresher` observer and the `ContileTopSitesUpdater` periodic work are deleted from `HomeActivity.kt`, and the "Sponsored shortcuts" checkbox leaves Settings > Homepage. `Core.kt`'s MARS/MAC providers stay but have no caller (`lazyMonitored`, never constructed). Five files incl. `SettingsTest.kt`. Shares `Settings.kt` with `no-adjust`/`no-onboarding`/`no-gms`, `HomeActivity.kt` with `no-nimbus`/`no-adjust`, `SettingsTest.kt` with `no-onboarding`; every pair replayed from the pristine file in both orders, byte-identical (check-patch-order rows). Verify: `android-smoke.sh --check-no-suggest`. |
 | `patches/android/search-config.patch` | LW-M4-06 | **The LibreWolf engine set on Android.** Fenix never reads `services/settings/dumps/`; its engines come from the app-services `search` component reading the `search-config-v2` / `search-config-icons` Remote Settings dumps compiled into `libmegazord.so` (`remote_settings/src/client.rs` `packaged_collections!`), which `rs-blocker-android` freezes for the life of the build. The data half is a plain copy, like desktop: `scripts/librewolf-patches.py` `android_search_config()` puts `assets/search-config-v2.json` (DuckDuckGo No-AI default, Startpage, Mojeek, Wikipedia) and the icons dump into `third_party/application-services/components/remote_settings/dumps/main/`, rewrites the `.timestamp` sidecars, drops icon records android-components cannot decode (the DuckDuckGo *pdf* record would be the first match for `ddg`), and writes the Mojeek attachment plus a sidecar whose hash/size are computed from the file. The diff half: the Mojeek and Startpage record ids join `packaged_attachments!` in `client.rs` (attachments are served from the binary by record id, nothing else; upstream ships Startpage's file but never lists it, and the patcher now asserts every kept icon id is listed), `Settings.useRemoteSearchConfiguration` is pinned to `true` so the legacy `assets/search/list.json` bundle (Google default, partner codes) stays unreachable across a rebase, and the hidden debug switch for it is removed. Shares `Settings.kt` with `no-adjust`/`no-onboarding`/`no-gms`/`no-suggest` and `client.rs` with `rs-blocker-android`; measured order-free. Verify: `android-smoke.sh --check-search` (engine list read off the running Settings screen + a real query). |
 | `patches/android/deterministic-version-code.patch` | LW-M6-08 | Derives Fenix versionCode from the pinned UTC MOZ_BUILD_DATE, with strict date validation. The Android Gradle config plugin is never used by desktop; no other patch touches its source file. |
+| `patches/android/ubo-readiness.patch` | LW-M3-07 | Android GeckoView API waits for a real live blocking response listener, with ID/version/permission checks and bounded failure. Shared Gecko webRequest code records live registrations and removes them on unregister; primed startup listeners do not qualify. The API does not alter the signed XPI or claim arbitrary extension internals are ready. |
+| `patches/android/ubo-preinstall.patch` | LW-M3-07 | Fenix installs the hash-pinned genuine uBO XPI through ordinary Gecko signature verification from a private file. A one-shot exact local transaction receives install permission, including private mode; ordinary installs and updates retain their prompts. Durable state preserves removal/disable across upgrades. Browsing session creation waits for installation/reconciliation and actual filter-listener readiness; failures offer Retry/Close. The common Gecko filter-bootstrap pref is unchanged. Requires no-adjust before the HomeActivity hunk; seven other shared-file pairs replay byte-identically in both orders. |
 | `patches/android/update-check.patch` | LW-M6-06 | **The opt-in update check for the direct-APK distribution** (contract: `DISTRIBUTION.md`). A switch in Settings > About, off by default, whose summary names the host, the cadence and what is sent. When on, `HomeActivity.onResume` calls `org.mozilla.fenix.lw.UpdateCheck.maybeRun`: at most once per 24 h it fetches `latest.json` and `latest.json.sig`, verifies ECDSA P-256 / SHA-256 against a public key embedded at build time, and if a newer version is named shows a dialog offering the download page — never downloads, never installs, every failure is silent. The request carries a static User-Agent, no cookies, no cache validators, no redirects, and not even the version string (the comparison is local); `UpdateCheckerTest` pins each of those fields. Without `-PlwUpdateCheckPubkey` (forwarded from `LW_UPDATE_CHECK_PUBKEY` by `scripts/android-apk.sh`) the feature is compiled out: no row, no reachable code — which is how store builds (F-Droid, Accrescent) are told apart from the direct APK, by artifact rather than by runtime query. No key is checked in; no endpoint exists yet. Seven files, three new. Shares `fenix/app/build.gradle` with the ordered `no-adjust`…`branding` chain and `HomeActivity.kt` with `no-nimbus`/`no-adjust`/`no-suggest`; measured order-free. Verify: `android-smoke.sh --check-update-privacy`. |
 
 The first three rows are the ones the M1 splits pulled in; the rest are later

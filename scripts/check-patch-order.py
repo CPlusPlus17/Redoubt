@@ -142,6 +142,18 @@ OUT_OF_LIST_TAIL = ()
 
 CONSTRAINTS = (
     (
+        "patches/android/no-adjust.patch",
+        "patches/android/ubo-preinstall.patch",
+        (
+            "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt",
+            "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",
+            "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt",
+        ),
+        "ubo error UI requires no-adjust's parameterless createSplashScreenOperation in HomeActivity; "
+        "the other shared files are disjoint; pristine forward replay passes and reverse fails at fuzz=0; "
+        "docs/android/evidence/lw-m3-07/completion-20260908/order-replay-pristine.json",
+    ),
+    (
         "patches/autoconfig-setEnv.patch",
         "patches/profile-directory.patch",
         "extensions/pref/autoconfig/src/prefcalls.js",
@@ -487,31 +499,36 @@ REVIEWED_ORDER_FREE = (
      ("mobile/android/fenix/app/build.gradle",),
      "disjoint regions of fenix app/build.gradle: branding's defaultConfig+buildTypes (~:55-175) vs fenix-abi-split's splits block (~:239-256); order only shifts offsets (LW-M4-07)"),
 
-    # LW-M3-07. ubo-preinstall preinstalls uBlock Origin from the APK's assets:
-    # it creates LibreWolfAddonsProvider.kt (no other patch touches that file)
-    # and edits Components.kt, Settings.kt and preference_keys.xml in regions
-    # disjoint from the four partners below, so each pair is order-free.
-    ("patches/android/no-adjust.patch", "patches/android/ubo-preinstall.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt",
-      "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt"),
-     "measured order-free 2026-08-27, byte-identical either way "
-     "(sha256 b50fc74c6d090b46... / cb28fc2a96eb3061...); "
-     "docs/android/evidence/lw-m3-07/order-free.txt (LW-M3-07)"),
-    ("patches/android/no-crashreporter.patch", "patches/android/ubo-preinstall.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt",),
-     "measured order-free 2026-08-27, byte-identical either way "
-     "(sha256 79d065db3420ed25...); evidence/lw-m3-07/order-free.txt (LW-M3-07)"),
-    ("patches/android/no-gms.patch", "patches/android/ubo-preinstall.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt",
-      "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",
-      "mobile/android/fenix/app/src/main/res/values/preference_keys.xml"),
-     "measured order-free 2026-08-27, byte-identical either way "
-     "(sha256 4e2409623edde8ad... / 95fccba01ade3d5f... / 40408bbca3af5f52...); "
-     "docs/android/evidence/lw-m3-07/order-free.txt (LW-M3-07)"),
-    ("patches/android/no-onboarding.patch", "patches/android/ubo-preinstall.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
-     "measured order-free 2026-08-27, byte-identical either way "
-     "(sha256 c7abba958c792bab...); evidence/lw-m3-07/order-free.txt (LW-M3-07)"),
+    # LW-M3-07 replacement: seven shared-file pairs replayed at fuzz=0 in both
+    # orders, byte-identical; the old fabricated-provider measurements are retired.
+    ('patches/android/fission-isolation.patch', "patches/android/ubo-preinstall.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt',),
+     "measured order-free 2026-09-08, byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
+    ('patches/android/no-crashreporter.patch', "patches/android/ubo-preinstall.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt', 'mobile/android/fenix/app/src/main/res/values/strings.xml'),
+     "measured order-free 2026-09-08, byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
+    ('patches/android/no-glean.patch', "patches/android/ubo-preinstall.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',),
+     "measured order-free 2026-09-08, byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
+    ('patches/android/no-gms.patch', "patches/android/ubo-preinstall.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt'),
+     "measured order-free 2026-09-08, byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
+    ('patches/android/no-nimbus.patch', "patches/android/ubo-preinstall.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',),
+     "measured order-free 2026-09-08, byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
+    ('patches/android/no-suggest.patch', "patches/android/ubo-preinstall.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',),
+     "measured order-free 2026-09-08, byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
+    ('patches/android/update-check.patch', "patches/android/ubo-preinstall.patch",
+     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',),
+     "measured order-free 2026-09-08, byte-identical at fuzz=0; "
+     "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
 
     # Recorded in assets/patches/desktop.txt on the moz-official-desktop entry:
     # "different region, ~line 300 vs ~504".
