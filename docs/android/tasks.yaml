@@ -3875,3 +3875,34 @@ tasks:
     agent_safe: yes
     isolation: none
     risk: A delayed add-on registry check misses an unprotected first navigation.
+
+  - id: LW-M7-12
+    title: Integrate and verify the LibreWolf feature candidate in isolated CI
+    milestone: M7
+    depends_on: [LW-M7-11]
+    owns:
+      - scripts/check-patch-order.py
+      - docs/android/PATCH-SCOPE.md
+      - docs/android/evidence/lw-m7-12/
+    shared_edit: [assets/patches/android.txt]
+    what: |
+      Integrate the uBO installer, Gecko readiness bridge, privacy defaults and
+      runtime harness. Register new patch ordering with actual shared-file review.
+      Compile inside the isolated QEMU runner with recorded source/asset hashes,
+      run the complete Fenix suite through the checked-in subtraction gate, and
+      build development-signed release-type APKs for smoke and behavior checks.
+      Preserve old release tags/assets and keep release signing with the owner.
+      This candidate verifies the implemented feature increment; other inventory
+      gaps remain open until their implementation and behavior are verified.
+    acceptance:
+      - "the complete Android patch sequence applies with declared ordering and scope"
+      - "Gecko and Fenix compile from the recorded final source and pinned assets"
+      - "the full Fenix XML gate passes without increasing the failure allowlist"
+      - "release-type APKs pass smoke, pref audit and implemented feature behavior checks"
+      - "evidence binds each result to its source, toolchain, APK and test inputs"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "8-16"
+    skills: [android, shell, python]
+    agent_safe: yes
+    isolation: worktree
+    risk: A successful build of an earlier source snapshot does not validate the final candidate.
