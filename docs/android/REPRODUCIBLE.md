@@ -5,10 +5,26 @@ what was measured, what is known to be nondeterministic (and why), and what
 could *not* be verified. It accompanies the check script
 [`scripts/android-verify-repro.sh`](../../scripts/android-verify-repro.sh).
 
-**Verdict (measured):** with the Glean build timestamp pinned, two independent
-same-machine builds of the unsigned release APK produce **byte-identical**
-APKs for all four artifacts (arm64-v8a, armeabi-v7a, universal, x86_64). See
-the evidence section below.
+**Audit reopened 2026-09-08 (LW-M6-08).** The historical identical builds below
+ran within one hour and did not establish deterministic version codes. The final
+unsigned handoff differed from them in its manifest and generated Glean version
+string. Fenix's config plugin used `Date()` instead of `MOZ_BUILD_DATE`; the normal
+APK builder omitted `gleanBuildDate`; and the repro script computed that property
+before parsing `--build-date`, so it retained its old default date.
+
+All three inputs are now corrected. `deterministic-version-code.patch` uses strict
+UTC parsing of `MOZ_BUILD_DATE`, preserves the ABI bit layout, and rejects missing
+or impossible dates. Both build scripts pass the same Glean date derived after
+argument parsing. The compiled Config regression probe rejects the old plugin
+(22 failed assertions) and passes with the patched plugin.
+
+The two fresh R8-on builds completed on 2026-09-08; the script exits 0. All four
+APKs match each other **and the normal candidate build** by SHA-256 and `cmp`.
+The one-byte negative control was detected. See the
+[current reproduction evidence](evidence/lw-m6-08/repro/README.md) and
+[unsigned candidate manifest](evidence/lw-m6-08/SHA256SUMS.candidate). The
+historical hashes below are not the current candidate reference. This remains a
+same-machine APK assembly result using shared prebuilt Gecko/AAR inputs.
 
 ---
 
@@ -24,8 +40,9 @@ unsigned release APK and compares the results byte for byte:
   `GRADLE_USER_HOME`**, and the shared Gradle intermediate outputs
   (`obj-*/gradle/build`) are wiped between the two, so the second build is a
   real rebuild, not an up-to-date no-op.
-- Gradle configuration-cache, dependency-cache and build-cache are disabled in
-  `gradle.properties` so no cross-run state leaks between the builds.
+- Gradle configuration-cache and build-cache are disabled in `gradle.properties`.
+  Each Gradle home is seeded with the same downloaded dependency artifacts;
+  dependency resolution still runs, and APK build outputs are rebuilt.
 - The result is asserted to be **unsigned**: `apksigner verify` must *reject*
   every APK (return non-zero). This is checked rather than trusted, because
   the debug keystore is generated per container and would otherwise guarantee
@@ -71,7 +88,7 @@ that a second, independent machine could surface are enumerated in section 4.
 
 ---
 
-## 2. The one nondeterminism source found (and fixed)
+## 2. Historical Glean timestamp investigation
 
 ### Symptom (run 1, Glean timestamp *not* pinned)
 
@@ -186,9 +203,9 @@ All artifacts are preserved (never deleted). Two runs:
 
 The acceptance criterion "any residual nondeterminism is listed with the
 reason" is satisfied by the following honest list. Within the scope actually
-tested (section 1), **no residual nondeterminism remains after the Glean pin**;
-the items below are things the test deliberately does not cover, with the
-reason for each.
+tested in the old runs, the Glean pin removed the observed differences within
+one hour. The 2026-09-08 audit above supersedes the broader claim that this fixed
+all nondeterminism. The items below describe additional limits of the test.
 
 1. **Cross-machine reproducibility — UNVERIFIED.** Only one machine exists in
    this environment, so the "two builds on different machines" criterion cannot
@@ -233,9 +250,13 @@ reason for each.
 
 ## 5. Third-party verification of a published release
 
-A third party can independently verify a published release APK against the
-published hashes with the check script (which re-runs the two-build comparison
-and the unsigned + negative-control assertions) plus a hash comparison:
+The build comparison produces **unsigned** APKs. Compare those only with the
+unsigned candidate manifest, currently
+[`SHA256SUMS.candidate`](evidence/lw-m6-08/SHA256SUMS.candidate). Release signing
+changes the archive bytes, so a signed download has a separate
+`SHA256SUMS.signed`. It cannot match the unsigned manifest.
+
+Rebuild and compare the unsigned candidate:
 
 ```sh
 # 1) Re-run the two independent builds and confirm they are byte-identical,
@@ -244,25 +265,34 @@ and the unsigned + negative-control assertions) plus a hash comparison:
 scripts/android-verify-repro.sh \
   --srcdir <source tree with configured obj-x86_64> \
   --aar-dir <per-ABI target.maven.zip inputs> \
-  --build-date <pinned MOZ_BUILD_DATE, e.g. 20260816204534> \
-  --base <scratch dir for out1/ out2/ evidence/>
+  --build-date 20260906190000 \
+  --base <scratch dir for out1/ out2/ evidence/> --r8
 
-# 2) Compare the produced APKs against the published sha256 values:
+# 2) Compare against the unsigned candidate manifest:
 cd <scratch dir>/out1/apk
-sha256sum -c - <<'EOF'
-<expected>  fenix-arm64-v8a-release-unsigned.apk
-<expected>  fenix-armeabi-v7a-release-unsigned.apk
-<expected>  fenix-universal-release-unsigned.apk
-<expected>  fenix-x86_64-release-unsigned.apk
-EOF
-
-# 3) Confirm the artifact is genuinely unsigned (apksigner must reject it):
-$ANDROID_BUILD_TOOLS/apksigner verify fenix-arm64-v8a-release-unsigned.apk \
-  && echo "UNEXPECTED: signed" || echo "OK: unsigned (rc=$?)"
+sha256sum -c <trusted-checkout>/docs/android/evidence/lw-m6-08/SHA256SUMS.candidate
 ```
 
-The run-2 sha256 values in section 3 are the reference set produced by this
-process for the pinned build date.
+The historical run-2 values in section 3 describe that earlier experiment. They
+are not the current candidate reference.
+
+For a returned or published **signed** APK, check its signed checksum manifest,
+then verify the release fingerprint and required schemes. The optional intake
+comparison binds all signed ZIP payloads to the rebuilt unsigned APKs:
+
+```sh
+APKSIGNER=/path/to/apksigner.jar scripts/android-verify-signature.sh \
+  --unsigned-dir <scratch-dir>/out1/apk \
+  /path/to/fenix-arm64-v8a-release.apk \
+  /path/to/fenix-armeabi-v7a-release.apk \
+  /path/to/fenix-universal-release.apk \
+  /path/to/fenix-x86_64-release.apk
+```
+
+That verifier needs a trusted `SHA256SUMS` in the unsigned directory. Copy the
+candidate manifest there after the rebuild hash comparison above succeeds.
+Signature and payload checks do not establish offline key custody; see the
+[holder handoff](evidence/lw-m6-01/RELEASE-HANDOFF.md).
 
 ---
 

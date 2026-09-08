@@ -1,106 +1,112 @@
-# E7 hand-off — the unsigned artifacts are built and waiting
+# E7 offline signing handoff
 
-**Everything up to the signature is done.** This file exists so the remaining step
-is a command rather than a project.
+The final candidate directory for this handoff is
+`librewolf-android-apk-153.0esr-1-beta-20260908/apk/`. Its build and validation
+status is recorded in `BETA.md`; transfer it after the candidate gates pass.
+The complete tools and current public signing document are staged there and
+both checksum manifests pass. E7 still requires the holder to
+sign offline on a machine other than the CI runner, and to ensure the release key
+is no longer readable by that runner (`SIGNING.md`, custody rule 3). This handoff
+does not claim that the other beta entry criteria are complete; use the current
+`BETA.md` audit for their evidence.
 
-E7 is the last of `BETA.md`'s twelve entry criteria. It cannot be completed on the
-build machine and should not be: the passphrase is the owner's, and `SIGNING.md`
-custody rule 3 puts the signing machine somewhere other than the host running the
-CI runner. So the work was taken as far as it goes without the key.
+## Bundle contents
 
-## What is ready
+```text
+fenix-arm64-v8a-release-unsigned.apk
+fenix-armeabi-v7a-release-unsigned.apk
+fenix-universal-release-unsigned.apk
+fenix-x86_64-release-unsigned.apk
+SHA256SUMS
+apksigner.jar
+sign.sh
+android-verify-signature.sh
+SIGNING.md
+SHA256SUMS.tools
+```
 
-Built 2026-09-06 from the three-ABI tree, `MOZ_BUILD_DATE=20260906190000`, with R8
-on and `--disable-debug-signing`, in `librewolf-android-apk-153.0esr-1-unsigned/apk/`:
+`SHA256SUMS` covers exactly the four APKs. `SHA256SUMS.tools` covers exactly the
+signing script, verifier, public signing document, and apksigner JAR. Transfer the
+whole directory; no keystore or passphrase belongs in that transferred bundle.
+Compare its manifests with the copies obtained from the trusted build handoff.
+Checksums establish transfer integrity; build provenance and reproducibility are
+separate beta gates.
 
-    fenix-armeabi-v7a-release-unsigned.apk   117 MB
-    fenix-arm64-v8a-release-unsigned.apk     121 MB
-    fenix-x86_64-release-unsigned.apk        127 MB
-    fenix-universal-release-unsigned.apk     278 MB
-    SHA256SUMS
+The apksigner JAR is from Android build-tools 36.0.0:
 
-Verified to carry **no signature at all** — no v1 block, no v2/v3 signing block —
-which is what the CI custody model publishes and what a holder then signs.
-Checksums are copied next to this file so a transfer can be checked at the other
-end.
+```text
+3716d9311e55d2b0918a2fd9d54ba9e406c5f6abeea700b287f11259bc163dec  apksigner.jar
+```
 
-These are the same inputs the reproducibility check used, and that check passed
-with R8 on: two independent builds byte-identical, negative control good
-(`docs/android/evidence/lw-m6-02/`).
+## On the offline key machine
 
-## Just run `sign.sh`
+This candidate is intended as the **first release-key beta**. Its pinned build
+date gives x86_64 versionCode `2016183070`; the earlier debug/unsigned rehearsals
+used wall-clock codes as high as `2016183238`. Confirm that no higher-code APK
+signed with the release key has already been distributed. If one has, report its
+version code before signing this candidate so a newer candidate can be built.
+Subsequent beta releases must use a later UTC build hour; builds within one hour
+intentionally keep the same version code.
 
-`apksigner.jar` and a `sign.sh` now sit **in the artifact directory**, so they
-travel with the APKs and cannot go missing on the way. On the key machine:
+Required tools: Java 17+, Bash, `unzip` or the JDK `jar` command, and `sha256sum`
+or `shasum`. No Android SDK is required. Check the files before execution:
 
-    ./sign.sh                       # keystore named redoubt-release.p12, here
-    ./sign.sh /path/to/redoubt-release.p12
+```sh
+cd /path/to/the/copied/apk
+sha256sum -c SHA256SUMS
+sha256sum -c SHA256SUMS.tools
+# On macOS without sha256sum, use: shasum -a 256 -c <manifest>
+./sign.sh /path/to/redoubt-release.p12
+```
 
-It verifies the checksums, signs all four with v1 off and v2+v3 on, and prints
-each result's schemes and fingerprint. It prompts for the passphrase rather than
-taking it on the command line, so the secret stays out of your shell history.
-Needs a JDK 17+ and nothing else.
+The script can also be called by its path from another directory. A relative
+keystore argument is resolved from the caller's directory. Without an argument it
+looks for `redoubt-release.p12` beside itself, but the key must never be included
+when transferring this directory back to the build host.
 
-Rehearsed end to end on 2026-09-07 with a throwaway key: all four artifacts came
-out `v1=false, v2=true, v3=true`. A copy of the script is kept beside this file.
+The script prompts for the passphrase for each APK; it is not a command-line
+argument. It verifies both complete manifests, signs each APK with v1 and v4 off
+and v2 and v3 on, and verifies the published fingerprint, exactly one signer, and
+absence of v1 signature entries. APKs stay in a temporary directory until all four
+pass. Existing signed outputs are refused rather than overwritten. On success it
+writes four `fenix-*-release.apk` files and `SHA256SUMS.signed` beside the inputs.
 
-## If you would rather do it by hand: `apksigner` is missing, and that is fine
+The verifier checks archive entries because apksigner's default report can say
+`v1=false` even when v1 signatures are present on a minSdk 26 APK. Real signatures,
+including this negative control, are covered by
+`docs/android/evidence/lw-m6-08/signing-tests.out`.
 
-It probably does not, and it should not need an Android SDK just to sign — the key
-machine is deliberately not a build machine. `apksigner` is a thin shell wrapper
-around `lib/apksigner.jar`, and **that jar is pure Java**: copy the one file and
-run it with any JDK 17+.
+## Return and verify
 
-A copy is staged on the build host at:
+Copy only the four signed APKs and `SHA256SUMS.signed` to `~/redoubt-signed/` on
+the build host. Keep the unsigned files and tool manifests unchanged. Intake from
+this repository is:
 
-    ~/redoubt-artifacts/signing-tools/apksigner.jar
-    sha256 3716d9311e55d2b0918a2fd9d54ba9e406c5f6abeea700b287f11259bc163dec
-    1,100,545 bytes   (from build-tools 36.0.0)
+```sh
+(cd ~/redoubt-signed && sha256sum -c SHA256SUMS.signed)
+candidate_apk_dir="$PWD/librewolf-android-apk-153.0esr-1-beta-20260908/apk"
+APKSIGNER="$candidate_apk_dir/apksigner.jar" ./scripts/android-verify-signature.sh \
+  --unsigned-dir "$candidate_apk_dir" \
+  ~/redoubt-signed/fenix-arm64-v8a-release.apk \
+  ~/redoubt-signed/fenix-armeabi-v7a-release.apk \
+  ~/redoubt-signed/fenix-universal-release.apk \
+  ~/redoubt-signed/fenix-x86_64-release.apk
+```
 
-Verified 2026-09-07 to sign a real Redoubt APK this way, producing exactly
-`v1=false, v2=true, v3=true`. Substitute `java -jar apksigner.jar` for `apksigner`
-in the loop below, and pass the same path to the verifier, which accepts a `.jar`
-as well as a binary:
+The explicit `APKSIGNER` path works on a host without an SDK signer on `PATH`.
+`--unsigned-dir` additionally needs Python 3 on the intake host. It verifies the
+complete candidate checksum manifest, then checks every ZIP entry's name, size,
+compression method, and uncompressed bytes against the corresponding unsigned
+APK. Duplicate entries, missing counterparts, and changed payloads fail. A stale
+APK signed by the correct release key therefore cannot pass intake for this
+candidate. The optional check is not used by the offline signing helper, which
+does not need Python.
 
-    APKSIGNER=~/redoubt-artifacts/signing-tools/apksigner.jar \
-      ./scripts/android-verify-signature.sh fenix-*-release.apk
+Retain the command output with the signed artifact hashes. The holder must also
+record the signing date, holder name, that signing happened offline on a machine
+other than the CI runner, and that the release key is no longer readable on the
+build host. A correct APK signature cannot prove either custody fact.
 
-The alternative, if you would rather have the real thing: on macOS
-`brew install --cask android-commandlinetools`, then
-`sdkmanager "build-tools;36.0.0"`. That pulls an SDK onto the key machine, which
-is more than this needs.
-
-## The remaining step, in full
-
-On a machine that is **not** this one, holding the keystore:
-
-    # 1. check what you received
-    sha256sum -c SHA256SUMS
-
-    # 2. sign each artifact -- v1 off, v2 on, v3 on
-    for a in fenix-*-release-unsigned.apk; do
-      apksigner sign --ks redoubt-release.p12 --ks-type PKCS12 \
-        --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true \
-        --out "${a%-unsigned.apk}.apk" "$a"
-    done
-
-    # 3. check the result -- one command, all four properties
-    ./scripts/android-verify-signature.sh fenix-*-release.apk
-
-Step 3 passes only when every APK is v2 **and** v3, has no v1, and reports the
-fingerprint published in `SIGNING.md`. It reads that fingerprint out of the
-document rather than carrying a copy, and its own `--self-test` has confirmed it
-both detects a correct signature and rejects a correctly-signed APK bearing the
-wrong key.
-
-Accrescent (LW-M6-04) rejects v2-only, which is why v3 is not optional.
-
-## Two things to carry into that session
-
-1. **The key is currently readable by CI.** It lives on the build host and the
-   Actions runner executes as its owner, so any job reaching that runner can read
-   it (`SIGNING.md` custody rule 3, which records the violation). Moving it is the
-   fix; signing elsewhere while it still sits there addresses only half.
-2. **Redoubt ships single-holder**, decided 2026-09-06. Losing both machines and
-   the passphrase ends the app under `org.redoubtbrowser`. The signing session is
-   a reasonable moment to make the offline third copy that decision left open.
+The 2026-09-06 single-holder decision remains in force. It does not waive the
+separate rule excluding the release key from the build host. The test suite uses
+only generated temporary keys and does not perform the release-signing step.

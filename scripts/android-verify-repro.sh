@@ -75,7 +75,6 @@ BUILD_DATE="20260816204534"
 # org.mozilla.fenix.GleanMetrics.GleanBuildInfo).  glean_parser accepts
 # "0" (unix epoch) or an ISO8601 string; we pin the same instant as
 # MOZ_BUILD_DATE so the app-visible build date and the Glean one agree.
-GLEAN_BUILD_DATE="${BUILD_DATE:0:4}-${BUILD_DATE:4:2}-${BUILD_DATE:6:2}T${BUILD_DATE:8:2}:${BUILD_DATE:10:2}:${BUILD_DATE:12:2}"
 GRADLE_SEED="/home/mgysin/lw-m4-10/out-combined/gradle-home"
 BASE="/home/mgysin/lw-m6-02"
 ENGINE="${CONTAINER_ENGINE:-podman}"
@@ -115,6 +114,10 @@ while [ $# -gt 0 ]; do
         *)             die "unknown option: $1 (see --help)" ;;
     esac
 done
+
+# Compute this after argument parsing: --build-date must update both clocks.
+[[ "$BUILD_DATE" =~ ^[0-9]{14}$ ]] || die "--build-date must be YYYYMMDDHHMMSS"
+GLEAN_BUILD_DATE="${BUILD_DATE:0:4}-${BUILD_DATE:4:2}-${BUILD_DATE:6:2}T${BUILD_DATE:8:2}:${BUILD_DATE:10:2}:${BUILD_DATE:12:2}"
 
 # Expanded by the HOST shell into the container command, like $GLEAN_BUILD_DATE.
 # Empty means R8 runs (Gradle's own default for the release build type).

@@ -3,16 +3,16 @@
 Task: **LW-M7-04**. Wave 0, on purpose: the first week after launch is when triage
 is most needed and least likely to get written.
 
-This document is a **specification plus the literal files a maintainer commits**.
-Nothing in it has been applied — creating the labels and enabling the issue form
-are actions a maintainer performs on the repository, which is a maintainer action.
-Everything needed to execute it is here; [§6](#6-maintainer-checklist) is the
-ordered checklist and should take about ten minutes.
+This document describes the triage process and the local issue-template files.
+**Live state checked 2026-09-08:** the form and configuration exist in this
+worktree, but neither is on the GitHub default branch. The planned Android labels
+are also absent. Publication and the test-issue verification in
+[§6](#6-maintainer-checklist) remain outstanding; see the
+[read-only audit](evidence/lw-m7-06/beta-audit-2026-09-08/human-criteria.md).
 
 The issue tracker is **this repository's own GitHub tracker**
-(`github.com/CPlusPlus17/Redoubt/issues`). Labels and the issue form live on the
-default branch of that same repository. Nothing in this document changes the
-tracked source.
+(`github.com/CPlusPlus17/Redoubt/issues`). GitHub reads issue templates from that
+repository's default branch; labels are repository settings.
 
 ---
 
@@ -25,14 +25,12 @@ WINDOW OPEN:  __________  (date the download page goes live — LW-M7-02)
 WINDOW CLOSE: __________  (OPEN + 14 days, or the exit condition in §5)
 ```
 
-**Named 2026-09-06.** BACKUP is deliberately empty: Redoubt is a solo project, and
-recording a second name that does not exist would be worse than the gap. Two things
-in this document assume cover that is not there, and both are now the owner's to
-carry alone or to relax:
+**Named 2026-09-06.** The recorded owner decision is to operate without a backup.
+Redoubt is a solo project. The owner carries both responsibilities below; there is
+no automatic cover when the owner is unavailable:
 
-- the daily pass and the 30-day `Android Needs Repro` decay rule (§3) assume someone
-  is reading the queue every day, including the days the owner is not;
-- the launch-window rotation (§5) has no one to rotate with.
+- the daily pass and the 30-day `Android Needs Repro` decay rule (§3);
+- triage throughout the launch window (§5).
 
 Same decision shape as the single-holder key custody in `SIGNING.md`: an accepted
 risk of a solo project, written down rather than left blank.
@@ -50,18 +48,27 @@ issue. A tracker with 40 unsorted Android issues and no owner is
 indistinguishable from a tracker with 39 duplicates and one exploitable Gecko bug,
 and that is the failure this task exists to prevent.
 
-"The maintainers, collectively" is not an owner. One name, one backup, both able to
-do a daily pass ([§5](#5-the-launch-window-rotation)).
+The named owner performs the daily pass ([§5](#5-the-launch-window-rotation)).
+If a backup joins later, record that person's name here. The dated solo-owner
+decision above is the accepted exception to having a backup.
+
+The closed beta starts its own 14-day feedback period at the first install
+(`BETA.md` §3). The public-launch dates above begin when the download page goes
+live; they do not start the beta or replace its results log.
 
 ---
 
 ## 1. Labels
 
-### 1.1 Naming: house style, not the board's shorthand
+### 1.1 Naming: proposed vocabulary and current live state
 
-`tasks.yaml` names these labels `android`, `android-build`, `android-prefs`,
-`android-security`. The live tracker does **not** use lowercase-hyphenated names.
-Its 48 existing labels are space-separated and capitalised, in families:
+The earlier claim that this repository already had 48 capitalised labels was
+incorrect. On 2026-09-08 its live labels were `accessibility`, `bug`,
+`documentation`, `duplicate`, `enhancement`, `good first issue`, `help wanted`,
+`invalid`, `question`, and `wontfix`. None of the Android labels below exists yet.
+
+The capitalised names below retain this plan's proposed vocabulary. These are
+planned families, not an inventory of live repository settings:
 
 | family | examples |
 |---|---|
@@ -70,8 +77,7 @@ Its 48 existing labels are space-separated and capitalised, in families:
 | area | `Component Builds`, `Component Patches`, `Component Settings`, `Component UI`, `Component Website` |
 | workflow | `Type Bug`, `Status Upstream`, `Prio High`, `Needed Info`, `Flag Caution`, … |
 
-So the labels below are created with house-style names. The board ids are kept as an
-explicit mapping so that commit messages and task references still resolve:
+The shorthand-to-proposed-name mapping is:
 
 | board id | label to create |
 |---|---|
@@ -80,8 +86,8 @@ explicit mapping so that commit messages and task references still resolve:
 | `android-prefs` | **`Android Prefs`** |
 | `android-security` | **`Android Security`** |
 
-This is a deviation from the board text and is recorded in [§7](#7-what-this-document-does-not-decide).
-If a maintainer prefers the lowercase names, rename all four consistently and change
+The naming choice remains part of the publication checklist in [§6](#6-maintainer-checklist).
+If the maintainer chooses lowercase names, rename all four consistently and change
 the `labels:` lists in [§2](#2-the-issue-template) to match — the tracker will not
 create a label from a template reference, so a mismatch produces unlabelled issues
 with no error anywhere.
@@ -225,16 +231,21 @@ re-reported).
 
 ### 1.3 Channel labels (strongly recommended)
 
-Android ships through three channels with three different update paths and three
+The public-release plan has three channels with three different update paths and three
 different ways to be broken while the APK is fine. Without these, "everyone on
 Accrescent is stuck on the old version" reads as thirty unrelated bug reports. They
-follow the existing `Build *` family exactly.
+use the proposed `Build *` family.
 
 | label | colour | description |
 |---|---|---|
 | `Build F-Droid` | `#1976D2` | `Issues specific to the Redoubt F-Droid repository` |
 | `Build Accrescent` | `#5E35B1` | `Issues specific to the Accrescent release of Redoubt` |
 | `Build APK` | `#455A64` | `Issues specific to the direct APK download or Obtainium updates` |
+
+The closed beta uses direct APKs from a private link. Its source option in the
+form maps to `Build APK` when channel labelling is relevant, and the maintainer
+adds `beta` to identify beta findings. That label also needs to be created before
+the form is used for beta triage.
 
 Apply the channel label whenever the reporter's answer to the channel question
 ([§2](#2-the-issue-template)) is plausibly relevant: install failures, update
@@ -256,16 +267,21 @@ issues are closed, not tracked.
 This one is load-bearing and [§3.5](#35-needs-a-build-to-reproduce-when-nobody-can-build)
 explains why. In short: it is a claim on **maintainer** time, and it is the only
 correct alternative to `Needed Info` for a report that is complete but unverified.
-Without it, complete reports get `Needed Info` (whose description on this tracker is
+Without it, complete reports get `Needed Info` (whose proposed policy is
 *"Closing in ten days if no details are provided"*) and auto-die at day ten with
 nothing more the reporter could have supplied.
 
 ### 1.5 Everything else composes
 
-No other new labels. `Type *`, `Prio *`, `Status *`, `Needed *`, `Flag *`,
-`Component *`, `Broken Upstream` and `Docs *` already exist and mean the same thing
-on Android. Resist adding `Android UI`, `Android Performance`, `Android Extensions`
-and the rest — `Android` + the existing `Component *` label already expresses each
+`Type *`, `Prio *`, `Status *`, `Needed *`, `Flag *`, `Component *`,
+`Broken Upstream` and `Docs *` are proposed shared labels; they do not currently
+exist on this tracker. Before applying the rules below, create the names used by
+the chosen workflow or consistently map them to existing labels. The form itself
+needs `Android` and `Type Bug`; beta findings also need `beta`, and retained beta
+issues need `Status Known issue` (`BETA.md` G3).
+
+Avoid adding `Android UI`, `Android Performance`, `Android Extensions`
+and the rest — `Android` + a shared `Component *` label already expresses each
 of those, and a label set nobody can hold in their head stops being applied in week
 three.
 
@@ -296,10 +312,9 @@ Why, given that a Markdown template is simpler:
 3. **`labels:` auto-applies `Android` and `Type Bug` on submit.** The one label that
    must never be missing stops depending on a human remembering.
 
-The costs, stated honestly: forms cannot be edited as a whole body afterwards, some
-reporters dislike them, and a reporter who wants to paste a long analysis has only
-the textarea fields provided. Item 3 of `config.yaml` below keeps blank issues
-enabled so that path stays open.
+Some reporters prefer a single freeform report. `blank_issues_enabled: true` in
+`config.yml` below keeps that path open. Submitted form responses become a normal
+Markdown issue body and can be edited after submission.
 
 A Markdown fallback is in [Appendix A](#appendix-a--markdown-fallback-template) for
 the case where the form is rejected or a maintainer prefers it.
@@ -312,7 +327,7 @@ simply not applied.
 
 ```yaml
 name: Android bug report
-about: Something is wrong in Redoubt
+description: Something is wrong in Redoubt
 title: "[Android] "
 labels:
   - Android
@@ -355,6 +370,16 @@ body:
       required: true
 
   - type: input
+    id: total-ram
+    attributes:
+      label: Total device RAM (optional)
+      description: >-
+        Especially useful for slowdowns, background kills, or crashes during the
+        closed beta. Give the device's total RAM, not currently free memory.
+        Leave this blank if you do not know.
+      placeholder: "3 GB / 4 GB / 8 GB"
+
+  - type: input
     id: android-version
     attributes:
       label: Android version
@@ -375,6 +400,7 @@ body:
         Obtainium and F-Droid both show the source repository in the app's detail
         page.
       options:
+        - Closed beta APK from the maintainer's private link
         - The Redoubt F-Droid repository
         - Accrescent
         - Direct APK download from our site
@@ -509,25 +535,25 @@ body:
 blank_issues_enabled: true
 contact_links:
   - name: Security vulnerability — do NOT open a public issue
-    url: https://example.com/
+    url: https://github.com/CPlusPlus17/Redoubt/security/advisories/new
     about: >-
       Memory-safety bugs, APK signature mismatches, or anything suggesting a
-      distribution channel served a build we did not sign. Report these privately,
-      using the contact path in docs/android/SECURITY.md.
+      distribution channel served a build we did not sign. Report these privately
+      through GitHub's security advisories. The full process, including the
+      signature- and channel-compromise cases, is in docs/android/SECURITY.md.
   - name: Questions, support and general chat
-    url: https://example.com/
+    url: https://github.com/CPlusPlus17/Redoubt/issues
     about: >-
-      "How do I …" and "why does Redoubt …" are answered faster in the FAQ and
-      the chat rooms than in the issue tracker.
+      "How do I …" and "why does Redoubt …" — open a normal issue for now.
+      Update this link when a public support page or chat room is available.
 ```
 
-> **Before committing:** replace both `url:` values — both are
-> `https://example.com/`, a valid placeholder (RFC 2606 reserved domain) so the
-> file always parses, but it is not the right one. The security link must point at
-> the private contact path in `docs/android/SECURITY.md` (**LW-M7-05**): GitHub's
-> private vulnerability reporting for this repository, or its out-of-band channel.
-> The questions link must point at the real FAQ and chat rooms. This substitution
-> is step 6 of the checklist and is the one step that must not be skipped.
+The security URL is this repository's private vulnerability-reporting page;
+`gh api repos/CPlusPlus17/Redoubt/private-vulnerability-reporting` returned
+`{"enabled":true}` on 2026-09-08. The questions link uses the existing issue
+tracker until a public support page is available. Neither link requires a
+placeholder substitution. The configuration still needs publication to the default
+branch and a live chooser check (steps 6–7 below).
 
 `blank_issues_enabled: true` is deliberate. Forcing every report through a form
 also blocks the person who has read the code and wants to explain a race condition
@@ -910,9 +936,10 @@ new Android issues per day, and nothing open in `Android Security` or
 `Android Needs Repro` untouched for more than three days. Otherwise it extends a
 week at a time.
 
-**Roles:** one `OWNER`, one `BACKUP`. Both named in [§0](#0-triage-owner--launch-blocker)
-before launch. The backup exists because the window is 14 continuous days and nobody
-gets 14 continuous days.
+**Roles:** the `OWNER` named in [§0](#0-triage-owner--launch-blocker) carries this
+window alone under the recorded 2026-09-06 decision. `BACKUP` remains empty until
+someone accepts that role. Response targets below still apply; the solo-owner
+decision does not provide coverage during an absence or change those targets.
 
 **The daily commitment:** one pass ([§3.1](#31-the-daily-pass)), ten to twenty
 minutes at expected volume. Not "monitor the tracker" — one pass, at a time of day
@@ -930,7 +957,7 @@ the owner picks and keeps.
 Post-window these relax to whatever the tracker's normal cadence is. The point of
 the window is the first fortnight specifically.
 
-**Handover** (owner → backup, or window → normal): a comment on the tracking issue
+**Handover** (owner → backup if one is appointed, or window → normal): a comment on the tracking issue
 listing what is open in `Android Security` and `Android Needs Repro`, anything
 promised to a reporter and not delivered, and any pattern seen more than twice.
 That last item is the output that outlives the rotation — three reports of the same
@@ -945,15 +972,20 @@ three, expensive in month six.
 
 ## 6. Maintainer checklist
 
-Everything below happens on `github.com/CPlusPlus17/Redoubt` and needs write
-access to that repository. Nothing has been done. Order matters: labels before
-templates, because GitHub will not create a label from a template reference.
+The local files and owner decision are prepared. Publishing templates and creating
+labels need write access to `github.com/CPlusPlus17/Redoubt` and remain pending
+as of 2026-09-08. Order matters: labels before templates, because GitHub will not
+create a label from a template reference.
 
 1. **Create the four required labels** ([§1.2](#12-the-required-four)). Repository →
    Issues → Labels → New label. Name, description and colour are given verbatim for
    each:
    `Android` `#0B6E4F` · `Android Build` `#3F9E7C` · `Android Prefs` `#8FCFB6` ·
    `Android Security` `#B60205`
+   Reconcile the proposed shared labels with the current defaults first (§1.1).
+   The current form additionally requires `Type Bug`. For the beta, create `beta`
+   and `Status Known issue`; create or map every shared label used by the triage
+   rules before relying on those rules.
 2. **Create the three channel labels** ([§1.3](#13-channel-labels-strongly-recommended)):
    `Build F-Droid` `#1976D2` · `Build Accrescent` `#5E35B1` · `Build APK` `#455A64`
 3. **Create `Android Needs Repro`** `#D9A441` ([§1.4](#14-one-more-recommended)).
@@ -962,21 +994,23 @@ templates, because GitHub will not create a label from a template reference.
 4. **Confirm the repository has a default branch with at least one commit.** Issue
    templates are read from the default branch only. (This repository is the source
    tree, so it already has one — this step is a guard, not a gap.)
-5. **Commit `.github/ISSUE_TEMPLATE/android-bug.yml`** ([§2.2](#22-githubissue_templateandroid-bugyml)),
-   copied verbatim.
-6. **Commit `.github/ISSUE_TEMPLATE/config.yml`** ([§2.3](#23-githubissue_templateconfigyml)),
-   **after replacing the placeholder security URL** with the real private contact.
-   Do not skip this substitution — the placeholder (`https://example.com/`) is a
-   reserved domain, not a disclosure channel.
+5. **Publish `.github/ISSUE_TEMPLATE/android-bug.yml` on the default branch**
+   ([§2.2](#22-githubissue_templateandroid-bugyml)). It already exists locally;
+   a local commit or a feature-branch push does not make the form live.
+6. **Publish `.github/ISSUE_TEMPLATE/config.yml` on the default branch**
+   ([§2.3](#23-githubissue_templateconfigyml)). The local configuration points to
+   this repository's private vulnerability reporting, which was enabled when
+   checked on 2026-09-08. Recheck the security contact before publication.
 7. **File a test issue through the new template** and confirm: the chooser shows
    "Android bug report"; the security contact link appears above the templates;
    `Android` and `Type Bug` are applied automatically on submit; the form refuses to
    submit with device, Android version, channel, app version, about:config,
    fresh-profile or the Firefox-comparison field empty. Then delete the test issue.
    This is the `verify` for LW-M7-04.
-8. **Fill in `OWNER` and `BACKUP`** in [§0](#0-triage-owner--launch-blocker) and
-   commit that change to this file. **Until this is done the Android launch is
-   blocked.**
+8. **Confirm the named `OWNER` and recorded solo-owner decision** in
+   [§0](#0-triage-owner--launch-blocker). Both were recorded on 2026-09-06.
+   Appointing a backup later does not require revisiting that decision. An empty
+   owner field would still block the Android launch.
 9. **Record who holds which device** from the LW-M7-06 beta fleet, next to the OWNER
    block. The `Android Needs Repro` queue is unworkable without it.
 10. *(optional)* Create an `android-launch` milestone on the tracker and put the
@@ -996,24 +1030,16 @@ disclosure process is **LW-M7-05**; `PARITY.md` is **LW-M5-06**.
 
 ## 7. What this document does not decide
 
-- **Label naming deviates from the board.** `tasks.yaml` says `android`,
-  `android-build`, `android-prefs`, `android-security`; this document specifies
-  `Android`, `Android Build`, `Android Prefs`, `Android Security` to match the 48
-  labels already on the tracker, none of which are lowercase-hyphenated. The mapping
-  is in [§1.1](#11-naming-house-style-not-the-boards-shorthand). A maintainer who
-  prefers the board's names should rename all four and update the template's
-  `labels:` list. Either choice is fine; a mix is not.
-- **Colours are proposals.** They are internally coherent (family in green, security
-  breaking to red) but the hex values of the existing 48 labels were not readable
-  from outside, so a clash with an existing label is possible. Adjust on sight.
-- **The security contact URL is a placeholder.** It becomes real when LW-M7-05
-  publishes `docs/android/SECURITY.md`. Checklist step 6.
-- **`PARITY.md` does not exist yet.** LW-M5-06 produces it. Boilerplate **B2**
-  references it and carries an inline substitution for use before it lands.
-- **Nothing here was verified against the live tracker's file tree.** The label
-  inventory in [§1.1](#11-naming-house-style-not-the-boards-shorthand) was read from
-  the repository's public labels page; the repository's default-branch contents were
-  not readable, which is why checklist step 4 exists.
+- **Label names and colours are a publication plan.** The live tracker has the
+  default labels listed in §1.1. Reconcile the proposed vocabulary consistently
+  before publishing the form; no labels were changed by this audit.
+- **The security contact is configured locally.** Private vulnerability reporting
+  was enabled on 2026-09-08, but the issue chooser configuration is not published.
+- **The parity wording is approved.** `PARITY.md` §5 records owner signoff dated
+  2026-09-06. Its publication with the parity table is separate public-release work.
+- **Live form verification remains outstanding.** Read-only API checks proved the
+  template is absent from the default branch. No issue was submitted, and local
+  schema checks do not satisfy LW-M7-04's manual verification.
 
 ---
 
@@ -1051,8 +1077,10 @@ labels:
 ### Device and build
 
 - **Device model:**              <!-- e.g. Pixel 6a — Settings → About phone -->
+- **Total device RAM (optional):** <!-- total RAM, e.g. 3 GB / 4 GB / 8 GB -->
 - **Android version:**           <!-- e.g. Android 14, One UI 6.1 / GrapheneOS -->
-- **Installed from:**            <!-- Redoubt F-Droid repo / Accrescent / direct APK
+- **Installed from:**            <!-- closed beta APK from private link /
+                                      Redoubt F-Droid repo / Accrescent / direct APK
                                       from our site / Obtainium / another F-Droid
                                       repo (which?) / built from source / not sure -->
 - **Redoubt version + build ID:**  <!-- Settings → About Redoubt, whole line -->

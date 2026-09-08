@@ -1,0 +1,165 @@
+{
+ "checks": [
+  {
+   "check": "page-load-http",
+   "ok": true,
+   "detail": "http://10.0.2.2:60125/ ready=complete secure=False marker='lw-smoke-page-ok', origin logged 3 request(s)",
+   "evidence": {
+    "page": {
+     "url": "http://10.0.2.2:60125/",
+     "proto": "http:",
+     "secure": false,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 3
+   }
+  },
+  {
+   "check": "page-load-https",
+   "ok": true,
+   "detail": "https://10.0.2.2:55473/ ready=complete secure=True marker='lw-smoke-page-ok', origin logged 5 request(s)",
+   "evidence": {
+    "page": {
+     "url": "https://10.0.2.2:55473/",
+     "proto": "https:",
+     "secure": true,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 5
+   }
+  },
+  {
+   "check": "webgl",
+   "ok": true,
+   "detail": "webgl2 ctx, shader+draw composited [51, 102, 153, 255]; protected readPixels=[175, 71, 111, 156], renderer='Mozilla'",
+   "evidence": {
+    "gl": {
+     "ok": true,
+     "stage": "readPixels",
+     "creationErrors": [],
+     "contextType": "webgl2",
+     "vendor": "Mozilla",
+     "renderer": "Mozilla",
+     "version": "WebGL 2.0",
+     "pixel": [
+      175,
+      71,
+      111,
+      156
+     ],
+     "glError": 0
+    },
+    "composited_pixel": [
+     51,
+     102,
+     153,
+     255
+    ],
+    "librewolf.webgl.prompt": {
+     "prompt": false,
+     "type": 128,
+     "locked": false
+    }
+   }
+  },
+  {
+   "check": "video",
+   "ok": true,
+   "detail": "decoded 13 frames, currentTime=0.455 readyState=4 64x64, origin served the file 2 time(s)",
+   "evidence": {
+    "video": {
+     "events": [],
+     "ok": true,
+     "play": "resolved",
+     "currentTime": 0.455459,
+     "readyState": 4,
+     "videoWidth": 64,
+     "videoHeight": 64,
+     "paused": false,
+     "decoded": 13,
+     "dropped": 0,
+     "mediaError": null,
+     "autoplay_prefs": {
+      "default": 5,
+      "policy": 0
+     }
+    },
+    "origin_requests": 2
+   }
+  },
+  {
+   "check": "getusermedia",
+   "ok": true,
+   "detail": "prompt(s) raised ['com.android.permissioncontroller:id/permission_deny_button'], harness tapped deny 2 time(s), getUserMedia rejected with NotAllowedError in 4633ms",
+   "evidence": {
+    "gum": {
+     "t0": 1788877099476,
+     "hasMediaDevices": true,
+     "hasRTCPeerConnection": true,
+     "state": "rejected",
+     "error": "NotAllowedError",
+     "message": "The request is not allowed by the user agent or the platform in the current context.",
+     "ms": 4633
+    },
+    "prompt_seen": true,
+    "taps": 2,
+    "dialogs": [
+     "com.android.permissioncontroller:id/permission_deny_button"
+    ],
+    "alive": true,
+    "crashed": false
+   }
+  },
+  {
+   "check": "extension",
+   "ok": true,
+   "detail": "installed smoke-probe@librewolf.invalid and its content script ran on a real page (marker='alive-webext'); 5 extensions active",
+   "evidence": {
+    "id": "smoke-probe@librewolf.invalid",
+    "marker": "alive-webext",
+    "addons": [
+     {
+      "id": "icons@mozac.org",
+      "name": "Mozilla Android Components - Browser Icons",
+      "active": true
+     },
+     {
+      "id": "ads@mozac.org",
+      "name": "Mozilla Android Components - Ads Telemetry",
+      "active": true
+     },
+     {
+      "id": "cookies@mozac.org",
+      "name": "Mozilla Android Components - Search Telemetry",
+      "active": true
+     },
+     {
+      "id": "webcompat@mozilla.org",
+      "name": "Web Compatibility Interventions",
+      "active": true
+     },
+     {
+      "id": "smoke-probe@librewolf.invalid",
+      "name": "LibreWolf smoke probe",
+      "active": true
+     }
+    ]
+   }
+  },
+  {
+   "check": "pref-dump",
+   "ok": true,
+   "detail": "written to /tmp/redoubt-beta-audit-20260908/runtime/smoke/prefs.txt (58 prefs; librewolf.webgl.prompt=False)",
+   "evidence": {
+    "path": "/tmp/redoubt-beta-audit-20260908/runtime/smoke/prefs.txt"
+   }
+  }
+ ],
+ "work": "/tmp/redoubt-beta-audit-20260908/runtime/smoke",
+ "injected_prefs": {},
+ "tainted": false
+}

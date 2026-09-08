@@ -1,104 +1,85 @@
-# Status snapshot — 2026-09-06
+# Beta preparation — 2026-09-08
 
-What is true today, what is merely landed, and what is not started. Replaces the
-2026-08-18 snapshot, which had gone 19 days stale and said false things — it
-counted 82 tasks (there are 89), 12 android patches (there are 25), and listed
-LW-M4-05 as "produced nothing across three attempts" when `no-gms.patch` is
-landed and its removal measured on a built APK.
+The beta is **not ready to start: ten of twelve entry criteria are met**.
+Release signing/custody (E7) and live reporting (E10) remain open. The entry audit is
+[`BETA.md`](BETA.md), which retains all twelve criteria. The previous claim that
+only signing remained was disproved by candidate-specific checks and GitHub's
+live state.
 
-**This file is a snapshot and will go stale the same way.** Re-derive rather than
-quote it: the numbers below come from the commands shown, and every one of them
-runs in under a minute.
+## Current candidate
 
-## Milestone state — 67 / 89 done
+`librewolf-android-apk-153.0esr-1-beta-20260908/apk/` contains four unsigned release
+APKs, built with R8 enabled and `MOZ_BUILD_DATE=20260906190000`. The normal
+`make android-apk TARGETS=android` run completed in 505 seconds using the existing
+three-ABI native inputs. ARM32, ARM64 and x86_64 ELF engines are present; the
+universal contains all three. The source matches all 248 paths touched by the
+50 common/Android patches applied to the pinned ESR tarball.
 
-    M0 15/16 · M1 16/16 · M2 8/9 · M3 9/11 · M4 10/16 · M5 3/7 · M6 2/7 · M7 4/7
+The new candidate replaces the earlier `...-unsigned/apk/` handoff for beta
+verification. Its manifest is
+[`evidence/lw-m6-08/SHA256SUMS.candidate`](evidence/lw-m6-08/SHA256SUMS.candidate).
+The older artifacts are preserved, but their previous test reports do not prove
+this candidate ready.
 
-Not done (22): LW-M0-07, M2-08\*, M3-05, M3-07, M4-04, M4-06\*, M4-08, M4-10,
-M4-11\*, M4-12, M5-01, M5-04, M5-05, M5-06, M6-01, M6-02, M6-03, M6-04, M6-06\*,
-M7-02, M7-04, M7-06.
+## Corrections and evidence
 
-\* M4-06, M4-11, M6-06 and M2-08 landed code on 2026-09-05/06 and are awaiting
-device evidence or a CI run; they are counted not-done until their `verify`
-passes. The done-set was derived from git log, `docs/android/evidence/<id>/` and
-owned files, because **`tasks.yaml` has no status field** — `board.py --done`
-takes a hand-typed id list. Re-derive with `board.py --ready --done <ids>`.
+- Version codes now derive from the pinned UTC build date. The old implementation
+  used the current hour, so two builds within one hour could pass reproducibility
+  while later builds changed. Compiled-class regression tests fail against the old
+  plugin and pass against the new one. Both normal and repro builds now also pin
+  the Glean timestamp consistently.
+- Two independent R8-on rebuilds completed in 1,426 seconds. The script exits 0,
+  all four APKs match the normal candidate byte for byte, and its one-byte
+  negative control is detected. [Logs and comparison](evidence/lw-m6-08/repro/README.md)
+  retain the same-machine APK assembly scope; Gecko/AAR and cross-machine
+  reproducibility remain unverified.
+- The full patched-source Fenix suite produced 598 classes / 5,426 tests;
+  `board.py --check-fenix-tests` exits 0: 93 failures = 90 environmental + 3
+  known-real + 0 unexpected. Seven explicitly ignored tests are unchanged. XML,
+  source hashes, and APK linkage are archived in the
+  [candidate audit](evidence/lw-m7-06/beta-audit-2026-09-08/fenix-README.md).
+- Signing helpers enforce complete manifests and signature checks. The verifier
+  detects actual v1 signature entries, requires the published key and v2+v3,
+  and optionally compares every returned APK payload with the exact unsigned
+  candidate. The 29 real-signature integration tests pass.
+- The local issue form now uses GitHub's required YAML schema and includes a
+  closed-beta source and RAM field. Its public deployment and label definitions
+  are prepared for review in
+  [the publication handoff](evidence/lw-m6-08/github-publication.md).
+- Scope, patch order, patch application, configuration split, pref policy and
+  hardening checks pass. There are 90 board tasks and 86 listed patches:
+  24 common, 26 Android and 36 desktop. `ubo-preinstall.patch` remains explicitly
+  parked; no patch was dropped to make the build pass.
 
-## Gates, as measured today
+The [final runtime audit](evidence/lw-m7-06/beta-audit-2026-09-08/final-candidate/README.md)
+passes the baseline 7/7, search, branding/UI, suggestion toggle/traffic,
+update-privacy, release about:config edit/restart, no-GMS and no-Adjust checks.
+The 23 harness regressions and deliberately wrong baseline controls pass.
+The regenerated 58-row pref baseline is unchanged; the pref audit reports zero
+violations and the effective seven-entry Remote Settings allowlist matches.
 
-| gate | result |
-|---|---|
-| `board.py --check` | ok: 89 tasks, 17 waves, 0 warnings |
-| `board.py --check-scope` | ok: 85 patch files (24 common / 36 desktop / 25 android); one declared-pending warning, `ubo-preinstall.patch` (LW-M3-07, parked) |
-| `board.py --check-cfg-split` | ok: 182 common / 85 desktop / 6 android; `librewolf.cfg` regenerates exactly |
-| `board.py --check-policies` | ok: 137 prefs declared by GeckoView, 26 shipped by us, every unlocked one classified. **Needs a tree**: `LW_TREE=librewolf-153.0esr-1` |
-| `board.py --diff-mozconfig` | ok: hardening parity holds |
-| `lint-patch-scope.py` | ok: 85 files, no violations |
-| `check-patch-order.py` | ok: 11/11 constraints, 78 shared-file pairs classified |
-| `check-patchfail.sh --targets=android` | exit 0 against the real ESR tarball |
-| `board.py --check-fenix-tests` | **exit 0** — the suite was run for the first time on 2026-09-06: 598 classes / 5,426 tests, 93 failing = 90 environmental + 3 known-real + 0 unexpected. It found one unlisted class, which turned out to be the documented host-JVM/`libmegazord.so` cause and went back on the allowlist. Re-run it for any Kotlin change; results live in the objdir, so a wiped objdir means the gate has no input and exits 2. |
-| `android-pref-audit.sh` | **exit 0 with a device**, 2026-09-06 — `docs/android/expected-prefs.txt` now exists (60 rows, generated from a running build, LW-M3-05). Without a device it exits 2, which is correct rather than a pass. Regenerate the baseline for any build you intend to ship and read the diff. |
-| `make check-fuzz` | A report, not a gate: the recipe is `-`-prefixed so it always succeeds, and `fixfuzz` is the paired repair step. **The report has to be read.** Measured 2026-09-06 with `--fuzz=0 --targets=android`: **15 hunks in 13 patches** only apply because `patch` is allowed to fuzz, and **3 of them are in `webgl-permission-common.patch`** — more than any other patch, and the one landmine L1 is about. A rebase that shifts those three is how WebGL breaks silently. |
-| `android-smoke.sh` | needs an emulator for most checks. On the 2026-09-06 three-ABI artifact: `--check-search`, `--check-aboutconfig`, `--check-strings` (both halves), `--check-no-gms`, `--check-no-adjust` all pass; `--first-run-capture` and `--check-no-remote-settings` are red for the LW-M4-08 allowlist decision; `--check-no-suggest` fails its own capture-side positive control. See `evidence/lw-m7-06/README.md`. |
+The final first-run capture through Quad9 records 11 outbound transport events,
+including three complete security-host SNI names. The earlier 14-event capture is
+a separate run. IPv4/IPv6 address refresh and payload counting fix the prior
+capture gaps. These are transport observations; they do not decrypt requests or
+provide complete app-UID attribution. A local control measured QEMU pcap timestamps
+about one hour behind the agreeing host/guest clocks; byte offsets and command
+records bind each captured window to its run. Both strict zero-Remote-Settings
+checks remain red under the approved E12 decision.
 
-## The distinction that matters: LANDED is not VERIFIED
+## External entry work
 
-Most of the tree is **landed and gated**. Very little is **verified on a running
-build**. In-repo device evidence exists for exactly two things: WebGL surviving
-landmine L1 (`evidence/lw-m6-07/smoke3/result.json`) and autoconfig loading with
-a lock surviving a Fenix toggle (`evidence/lw-m3-09`).
+**E7 remains open:** no returned signed APKs are in `~/redoubt-signed/`.
+`~/redoubt-release.p12` remains on the build host, owned by the same user running
+the live Actions runner. The holder must sign offline elsewhere and remove that
+build-host copy after confirming the offline copy. No release key was used by
+this audit. See the [signing handoff](evidence/lw-m6-01/RELEASE-HANDOFF.md).
 
-The often-quoted "0 GMS / 0 Adjust / 14 first-run events" figure is superseded.
-Measured 2026-09-06 on the three-ABI build, through a resolver that does **not**
-sinkhole Mozilla hosts: **0 GMS, 0 Adjust, 0 telemetry, 0 ads, 0 crash-reporting, and
-6 outbound events before any navigation.** All six are Remote Settings.
+**E10 remains open:** the corrected form and required labels are absent from the
+live GitHub default branch/settings. Publication approval is pending, and live
+form verification has not been performed.
 
-LW-M4-08 has since been decided: Android keeps seven security collections
-(certificate revocation, the blocklists, tracking-protection lists) and drops
-twenty-six for features Redoubt does not ship. That cut the first-run data by
-**52%** (1,324,658 → 636,739 bytes received) and left the request count at six,
-because one poll of the changes endpoint serves whatever remains.
-
-So **M4's "zero outbound requests before first navigation" does not hold and is not
-going to.** Publishing the measured six, with the reason, is the decision — not a
-softening of it. `--first-run-capture` and `--check-no-remote-settings` are red by
-design and must not be weakened.
-
-Two findings worth carrying forward:
-
-- **The gates do not check that code compiles.** `update-check.patch` (LW-M6-06)
-  passed scope, order, patchfail and review, and then failed
-  `:fenix:compileReleaseKotlin` twice on first build — an import this tree does
-  not have, then a deprecated call under `-Werror`. Every gate stayed green. The
-  answer is LW-M2-08's build job, added 2026-09-06.
-- **Captures taken on this build host under-count.** The LAN resolver returns
-  `0.0.0.0` for `incoming.telemetry.mozilla.org` and `ads.mozilla.org`, so only
-  the DNS query is ever visible. `firefox.settings.services.mozilla.com` is not
-  filtered. A first-run count from here is not publishable — see `BETA.md` E11.
-
-## What is left
-
-`docs/android/BETA.md` tracks twelve entry criteria. **Eleven are met.** The one
-that is not:
-
-- **E7 — a release-signed APK, v2 + v3.** Every APK built so far is
-  `CN=Android Debug`, v2-only, and Accrescent rejects v2-only.
-  `./scripts/android-verify-signature.sh` checks all four properties in one
-  command and reports today's build NOT PUBLISHABLE on two counts. This cannot be
-  done on this machine and should not be: the passphrase is the owner's, and
-  `SIGNING.md` custody rule 3 says the signing machine is not the CI runner host.
-
-Decided on 2026-09-06 rather than left blank: Redoubt ships **single-holder**
-(`SIGNING.md`), the parity wording is **signed off verbatim** (`PARITY.md` §5),
-and the triage owner is **named** (`TRIAGE.md` §0, with BACKUP deliberately empty).
-`TRACK.md` §8's ESR-track sign-off is still blank and belongs to LW-M0-07.
-
-**One open problem is not an entry criterion and outranks several that are:** the
-release keystore is on this build host and the Actions runner executes as its
-owner, so any workflow reaching that runner can read it. The file mode is a red
-herring — `/home` is `0700` with one account. Only moving the key closes it.
-
-## Where to start
-
-`docs/android/BETA.md` is the ordered list — eleven entry criteria with their
-evidence and status. E7–E10 need a person; the rest is build-and-measure work.
+The dated single-holder, parity-wording and solo-triage decisions remain as
+recorded on 2026-09-06. The approved seven-entry Remote Settings security allowlist
+also remains in force. Completing preparation does not complete the 14-day beta,
+its device coverage, second-build upgrade test, or final public-release GO/NO-GO.

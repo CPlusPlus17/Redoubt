@@ -1,0 +1,54 @@
+$ python3 docs/android/board.py --check
+ok: 90 tasks, 17 waves, 0 warning(s)
+EXIT=0
+
+$ python3 docs/android/board.py --check-scope
+warn:  pending, not in any list: patches/android/ubo-preinstall.patch (LW-M3-07 lands it)
+ok: 86 listed patch files — 24 common, 36 desktop, 26 android, 0 straddlers parked; PATCH-SCOPE.md agrees
+EXIT=0
+
+$ python3 docs/android/board.py --check-cfg-split
+ok: 182 common / 85 desktop / 7 android calls; librewolf.cfg regenerates exactly
+EXIT=0
+
+$ python3 docs/android/board.py --check-policies
+# reading pref declarations from librewolf-153.0esr-1-beta-20260908
+ok: 137 prefs declared by GeckoView; 26 of them shipped by us, every unlocked one classified in must-not-lock.txt
+EXIT=0
+
+$ python3 docs/android/board.py --diff-mozconfig
+ok: hardening parity holds (0 documented difference(s))
+EXIT=0
+
+$ python3 scripts/lint-patch-scope.py
+lint-patch-scope: OK - 86 patch file(s), no scope violations
+EXIT=0
+
+$ python3 scripts/check-patch-order.py
+patch order ok: 11/11 declared constraint(s) enforced across 2 target sequence(s); 78 shared-file pair(s) derived and classified.
+EXIT=0
+
+$ bash -n scripts/android-apk.sh
+EXIT=0
+
+$ bash -n scripts/android-verify-repro.sh
+EXIT=0
+
+$ bash -n scripts/android-verify-signature.sh
+EXIT=0
+
+$ sh -n docs/android/evidence/lw-m6-01/sign.sh
+EXIT=0
+
+$ git diff --check
+EXIT=0
+
+$ bash -n scripts/android-smoke.sh
+EXIT=0
+
+Staged evidence review: git diff --cached --check reports eight trailing-space lines.
+Four are mandatory blank unified-diff context lines in deterministic-version-code.patch;
+four are literal apksigner password prompts in the captured signing transcript.
+Both artifacts are preserved verbatim. No source-code whitespace finding remains.
+$ git diff --cached --check -- . :!patches/android/deterministic-version-code.patch :!docs/android/evidence/lw-m6-08/full-bundle-rehearsal.txt
+EXIT=0

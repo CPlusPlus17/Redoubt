@@ -545,8 +545,8 @@ not. Remove that one objdir and re-run.
 
 `AGENTS.md` requires `./mach gradle fenix:testDebugUnitTest` to pass for any
 Kotlin-layer change. This section explains how to run it, what a clean result
-looks like, and why ~92 tests fail for environmental reasons that have nothing
-to do with the code under test.
+looks like, and why the current baseline has 90 environmental failures and
+three separately documented known failures.
 
 ### How to run
 
@@ -566,9 +566,11 @@ the host JVM, not on an Android device.
 
 ### What a clean result looks like
 
-A **clean** run has **zero failures beyond the documented environmental set**.
+A **clean** run passes the board's subtraction gate: **zero failures beyond the
+documented environmental and known-real lists**, with no listed count exceeding
+its ceiling and every listed class present in the results.
 
-The environmental set is **87 tests in 3 classes**, all failing because
+The environmental set is **90 tests in 4 classes**, all failing because
 `libmegazord.so` (the appservices UniFFI native library) cannot be loaded on
 the host JVM. It is built as an **Android** native library (cross-compiled ELF
 for ARM/x86 Android) and bundled in the APK under `lib/<abi>/libmegazord.so`,
@@ -582,18 +584,26 @@ Android `.so` is not loadable.
 | `org.mozilla.fenix.search.awesomebar.SearchSuggestionsProvidersBuilderTest` | 70 | `UnsatisfiedLinkError: Unable to load library 'megazord'` — every test constructs a suggestion provider that calls into appservices via UniFFI |
 | `org.mozilla.fenix.reviewprompt.ReviewPromptMiddlewareTriggerCriteriaTest` | 16 | every test calls `NimbusApi` methods that route through `UniffiLib`, whose static initializer loads `libmegazord.so`. Surfaces as `UnsatisfiedLinkError` **or** `NoClassDefFoundError: Could not initialize class ...UniffiLib` — see the note on `forkEvery` below |
 | `org.mozilla.fenix.experiments.RecordedNimbusContextTest` | 1 | `UnsatisfiedLinkError: Unable to load library 'megazord'` — directly invokes a recorded `NimbusApi` event query |
+| `org.mozilla.fenix.settings.autofill.ui.AutofillSettingsMiddlewareTest` | 3 | `NoClassDefFoundError: Could not initialize class mozilla.appservices.autofill.UniffiLib` — the autofill binding loads the same Android native library |
 
-**Total: 87 tests.** Full evidence: `docs/android/evidence/lw-m2-09/expected-failures.md`.
+**Total: 90 environmental failures.** The final 2026-09-08 candidate run reported
+598 classes / 5,426 cases: 5,326 passed, 90 environmental failures, 3 known-real
+failures and 7 explicitly ignored cases. The ignored cases are unchanged from
+the prepatch run. The subtraction gate exits 0. Its output, original JUnit XML
+and source/candidate linkage are retained in the
+[final beta evidence](evidence/lw-m7-06/beta-audit-2026-09-08/fenix-README.md).
 
-Note: the LW-M4-14 baseline (2026-08-22) also had
-`AutofillSettingsMiddlewareTest` (5 tests) in this set. As of 2026-08-25 it
-passes; if it regresses, add it back with the same reason (UniFFI binding
-cannot initialize on host JVM).
+`AutofillSettingsMiddlewareTest` had five environmental failures in the
+2026-08-22 baseline and passed on 2026-08-25. It returned to the allowlist on
+2026-09-06 under the `.ui` package with three failures; the final 2026-09-08 run
+confirms that count. The checked-in allowlist is authoritative for the current
+classes and ceilings.
 
 #### Non-environmental failures (NOT expected — real signal)
 
 Failures in **any other class** are real regressions and must be investigated.
-Three known non-environmental failures (as of 2026-08-25) are:
+Three known non-environmental failures, also present in the final 2026-09-08
+run, are:
 
 | Test class | Tests | Error |
 |---|---|---|
@@ -649,7 +659,7 @@ grep "TEST-UNEXPECTED-FAIL" /tmp/test-run.log \
   | sort | uniq -c | sort -rn
 ```
 
-A **clean** result shows **only** the 3 environmental classes (87 tests), plus
+A **clean** result shows **only** the 4 environmental classes (90 tests), plus
 possibly the 3 known non-environmental failures. Any **new** class, or a **count
 increase** in an existing environmental class, is a real regression. Note this
 form cannot detect a partial run — prefer `--check-fenix-tests`.

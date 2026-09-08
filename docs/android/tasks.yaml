@@ -3435,17 +3435,17 @@ tasks:
     title: Set up Android issue triage on github.com/CPlusPlus17/Redoubt/issues
     milestone: M7
     depends_on: []
-    owns: [docs/android/TRIAGE.md]
+    owns: [docs/android/TRIAGE.md, .github/ISSUE_TEMPLATE/android-bug.yml, .github/ISSUE_TEMPLATE/config.yml]
     what: |
       Labels, an issue template that asks for device, Android version, APK source
       and channel, and a triage rotation. Do this BEFORE launch — the first week of
       reports is when the process is most needed and least likely to get written.
-      Match the tracker's existing house style: the live labels on
-      github.com/CPlusPlus17/Redoubt/issues are space-separated and capitalised (`Linux`,
-      `Build Flatpak`, `Status Upstream`, `Needed Info`), NOT kebab-case. Compose
-      with the existing ones rather than duplicating them — `Needed Info` already
-      means "closing in ten days without details", which is why a complete but
-      unreproduced Android report needs a different bucket or it auto-dies.
+      TRIAGE.md proposes space-separated, capitalised Android labels. A live
+      API audit on 2026-09-08 found only GitHub's default lowercase labels;
+      the earlier claim that this vocabulary already existed was incorrect.
+      Publish the proposed labels with the form and verify their presence.
+      Keep incomplete reports (Needed Info) separate from complete but
+      unreproduced reports so the latter do not expire for missing details.
     acceptance:
       - "labels follow the tracker's existing naming style and the Android issue template is live"
       - "the template asks for device, OS version, APK source and channel"
@@ -3547,3 +3547,49 @@ tasks:
     agent_safe: no
     isolation: none
     risk: The memory cost of fission plus isolatedProcess is invisible on a flagship and decisive on a budget phone.
+  - id: LW-M6-08
+    title: Bind beta artifacts and signing checks to verified release inputs
+    milestone: M6
+    depends_on: [LW-M6-06, LW-M6-07, LW-M6-02, LW-M7-06]
+    owns:
+      - patches/android/deterministic-version-code.patch
+      - scripts/android-apk.sh
+      - scripts/android-verify-repro.sh
+      - scripts/android-verify-signature.sh
+      - scripts/android-smoke.sh
+      - scripts/tests/test-android-signing.py
+      - scripts/tests/test-android-version-code.py
+      - scripts/tests/test-android-smoke.py
+      - docs/android/evidence/lw-m6-01/sign.sh
+      - docs/android/evidence/lw-m6-01/RELEASE-HANDOFF.md
+      - docs/android/evidence/lw-m6-08/
+      - docs/android/evidence/lw-m7-06/beta-audit-2026-09-08/
+      - docs/android/BETA.md
+      - docs/android/BUILD.md
+      - docs/android/STATUS.md
+      - docs/android/PATCH-SCOPE.md
+      - docs/android/REPRODUCIBLE.md
+      - docs/android/SIGNING.md
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - mobile/android/android-components/plugins/config/src/main/java/ConfigPlugin.kt
+    what: |
+      Revalidate the beta against its actual APKs. Version codes currently use
+      the wall clock even when MOZ_BUILD_DATE is pinned, and the normal APK
+      build omits the Glean timestamp pin used only by the repro script.
+      Make both build paths deterministic, compile the change and exercise
+      the real candidate. Harden the offline handoff so a wrong signature or
+      missing artifact cannot be reported as success. Never use the release
+      key on the build host; record pending custody and publication separately.
+    acceptance:
+      - "version codes derive from the pinned UTC build date; a later UTC build hour advances them"
+      - "normal and reproducibility builds pin the same Glean timestamp"
+      - "R8-on candidate matches two independent unsigned builds"
+      - "signing integration checks accept the full set and reject wrong keys, schemes, corrupt APKs and missing inputs"
+      - "BETA.md links candidate-specific evidence and accurately records unmet entry criteria"
+    verify: "python3 scripts/tests/test-android-signing.py && python3 docs/android/board.py --check"
+    effort_h: "4-8"
+    skills: [android, kotlin, gradle, shell, python, docs]
+    agent_safe: yes
+    isolation: worktree
+    risk: Old evidence and same-hour rebuilds can hide a different candidate or nondeterministic version code.

@@ -514,6 +514,9 @@ fi
 printf '%s' "$BUILD_DATE" | grep -Eq '^[0-9]{14}$' ||
     die "--build-date '$BUILD_DATE' is not 14 digits (YYYYMMDDHHMMSS); build/variables.py:23-25
        would ignore it and this pass would stamp a different buildid from the AAR's"
+# Glean otherwise embeds the wall clock in generated Kotlin. Use the same
+# release input here and in android-verify-repro.sh, including --skip-gecko.
+GLEAN_BUILD_DATE="${BUILD_DATE:0:4}-${BUILD_DATE:4:2}-${BUILD_DATE:6:2}T${BUILD_DATE:8:2}:${BUILD_DATE:10:2}:${BUILD_DATE:12:2}"
 
 # Container engine and image.
 command -v "$ENGINE" >/dev/null 2>&1 ||
@@ -791,7 +794,7 @@ fi
 # --no-configuration-cache -- so this is a task-ordering race, not a broken
 # generator.  Pre-generating in a dedicated invocation puts the sources on
 # disk before the assemble graph runs, so the compile always sees them.
-./mach gradle fenix:generateSafeArgs$VARIANT_CAP $DISABLE_DEBUG_SIGNING $LW_UPDATE_CHECK_PROPS
+./mach gradle fenix:generateSafeArgs$VARIANT_CAP $DISABLE_DEBUG_SIGNING $LW_UPDATE_CHECK_PROPS -PgleanBuildDate=$GLEAN_BUILD_DATE
 rc=\$?
 if [ \$rc -ne 0 ]; then
     date -u +'PASS apk END %Y-%m-%dT%H:%M:%SZ'
@@ -804,7 +807,7 @@ fi
 # container env for both passes, so reuse it; \$ keeps it for the container
 # shell, not the heredoc's host shell.  When unset (it is never unset here) the
 # build falls back to the original three-ABI split.
-./mach gradle fenix:assemble$VARIANT_CAP -PfenixSplitAbi="\$MOZ_ANDROID_FAT_AAR_ARCHITECTURES" $DISABLE_DEBUG_SIGNING $LW_UPDATE_CHECK_PROPS
+./mach gradle fenix:assemble$VARIANT_CAP -PfenixSplitAbi="\$MOZ_ANDROID_FAT_AAR_ARCHITECTURES" $DISABLE_DEBUG_SIGNING $LW_UPDATE_CHECK_PROPS -PgleanBuildDate=$GLEAN_BUILD_DATE
 rc=\$?
 date -u +'PASS apk END %Y-%m-%dT%H:%M:%SZ'
 echo "MACH_EXIT=\$rc"

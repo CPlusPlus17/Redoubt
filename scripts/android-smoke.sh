@@ -75,7 +75,7 @@ cat > "$DRIVER" <<'PYDRIVEREOF'
 # scripts/android-smoke.sh; do not edit this copy, edit the script.
 # ---------------------------------------------------------------------------
 import argparse, base64, glob, html, json, os, re, shutil, signal, socket, ssl, struct
-import subprocess, sys, tempfile, threading, time, zipfile
+import subprocess, sys, tempfile, threading, time, zipfile, zlib
 import http.server
 
 EXIT_OK, EXIT_FAIL, EXIT_HARNESS, EXIT_UNIMPLEMENTED = 0, 1, 2, 3
@@ -324,22 +324,41 @@ def _tls_sni(pl):
     if len(pl) < 45 or pl[0] != 0x16 or pl[5] != 0x01:
         return None
     try:
+        record_end = 5 + struct.unpack(">H", pl[3:5])[0]
+        hello_end = 9 + int.from_bytes(pl[6:9], "big")
+        if hello_end > record_end or hello_end < 43:
+            return None
+        pl = pl[:hello_end]
         p = 43
         p += 1 + pl[p]
         p += 2 + struct.unpack(">H", pl[p:p + 2])[0]
         p += 1 + pl[p]
         if p + 2 > len(pl):
             return None
-        end = min(p + 2 + struct.unpack(">H", pl[p:p + 2])[0], len(pl))
+        end = p + 2 + struct.unpack(">H", pl[p:p + 2])[0]
+        if end > hello_end:
+            return None
         p += 2
-        while p + 4 <= end:
+        while p + 4 <= min(end, len(pl)):
             et, el = struct.unpack(">HH", pl[p:p + 4])
             p += 4
+            if p + el > end:
+                return None
             if et == 0:
+                # A complete SNI is sufficient even when later ClientHello
+                # extensions span another TCP segment. A truncated hostname
+                # must never turn an attacker-controlled suffix into an
+                # apparently allowlisted prefix.
+                if p + el > len(pl) or el < 5 or pl[p + 2] != 0:
+                    return None
+                if struct.unpack(">H", pl[p:p + 2])[0] + 2 != el:
+                    return None
                 q = p + 3
                 nl = struct.unpack(">H", pl[q:q + 2])[0]
                 q += 2
-                return pl[q:q + nl].decode("latin1")
+                if not nl or q + nl > p + el:
+                    return None
+                return pl[q:q + nl].decode("ascii")
             p += el
     except Exception:
         return None
@@ -351,6 +370,26 @@ def pcap_size(path):
     except OSError:
         return 0
 
+def ipv6_transport(ip):
+    """Walk IPv6 extension headers; never silently discard a fragmented flow."""
+    proto = ip[6]
+    rest = ip[40:40 + struct.unpack(">H", ip[4:6])[0]]
+    for _ in range(16):
+        if proto in (0, 43, 60, 51):
+            if len(rest) < 2:
+                raise HarnessError("truncated IPv6 extension header")
+            size = (rest[1] + 2) * 4 if proto == 51 else (rest[1] + 1) * 8
+            if size > len(rest):
+                raise HarnessError("truncated IPv6 extension body")
+            proto, rest = rest[0], rest[size:]
+        elif proto == 44:
+            if len(rest) < 8 or struct.unpack(">H", rest[2:4])[0] & 0xfff9:
+                raise HarnessError("fragmented IPv6 prevents payload attribution")
+            proto, rest = rest[0], rest[8:]
+        else:
+            return proto, rest
+    raise HarnessError("excessive IPv6 extension headers")
+
 def pcap_events(path, start_offset=0):
     """Yield (ts, kind, detail, src_ip, dst_ip, dst_port).  kind is one of
     dns / sni / http / tcp-syn / udp.  The capture is taken at the virtual NIC
@@ -359,27 +398,48 @@ def pcap_events(path, start_offset=0):
     with open(path, "rb") as f:
         gh = f.read(24)
         if len(gh) < 24:
-            return
-        endian = "<" if gh[:4] in (b"\xd4\xc3\xb2\xa1", b"\x4d\x3c\xb2\xa1") else ">"
-        if start_offset > 24:
-            f.seek(start_offset)
-        while True:
+            raise HarnessError("capture has no complete pcap header")
+        if gh[:4] not in (b"\xd4\xc3\xb2\xa1", b"\xa1\xb2\xc3\xd4"):
+            raise HarnessError("unsupported pcap format for event audit")
+        endian = "<" if gh[:4] == b"\xd4\xc3\xb2\xa1" else ">"
+        if struct.unpack(endian + "I", gh[20:24])[0] != 1:
+            raise HarnessError("event audit requires an Ethernet pcap")
+        limit = os.fstat(f.fileno()).st_size
+        while f.tell() < limit:
+            if f.tell() + 16 > limit:
+                raise HarnessError("capture ends inside a packet header")
             h = f.read(16)
             if len(h) < 16:
-                break
+                raise HarnessError("capture packet header is incomplete")
             ts, tu, cl, _ol = struct.unpack(endian + "IIII", h)
+            if cl != _ol or f.tell() + cl > limit:
+                raise HarnessError("capture contains an incomplete packet")
             data = f.read(cl)
             if len(data) < cl:
-                break
-            if len(data) < 34 or struct.unpack(">H", data[12:14])[0] != 0x0800:
+                raise HarnessError("capture packet data is incomplete")
+            if f.tell() <= start_offset:
                 continue
+            if len(data) < 34:
+                continue
+            ethernet_type = struct.unpack(">H", data[12:14])[0]
+            if ethernet_type in (0x8100, 0x88a8):
+                raise HarnessError("VLAN-tagged capture is unsupported; cannot audit all traffic")
             ip = data[14:]
-            ihl = (ip[0] & 0x0F) * 4
-            proto = ip[9]
-            src = socket.inet_ntoa(ip[12:16])
-            dst = socket.inet_ntoa(ip[16:20])
-            rest = ip[ihl:]
             t = ts + tu / 1e6
+            if ethernet_type == 0x0800:
+                ihl = (ip[0] & 0x0F) * 4
+                proto = ip[9]
+                src = socket.inet_ntoa(ip[12:16])
+                dst = socket.inet_ntoa(ip[16:20])
+                rest = ip[ihl:]
+            elif ethernet_type == 0x86dd and len(ip) >= 40:
+                src = socket.inet_ntop(socket.AF_INET6, ip[8:24])
+                dst = socket.inet_ntop(socket.AF_INET6, ip[24:40])
+                proto, rest = ipv6_transport(ip)
+                if proto not in (6, 17, 58):
+                    yield (t, "ipv6-unparsed", "next-header=%d" % proto, src, dst, 0)
+            else:
+                continue
             if proto == 17 and len(rest) >= 8:
                 dp = struct.unpack(">H", rest[2:4])[0]
                 pl = rest[8:]
@@ -433,10 +493,109 @@ def is_os_noise(kind, detail, dst, port):
         h = detail.split(" ")[0].lower()
         return h in OS_NOISE_HOSTS
     if kind == "udp":
-        return dst in OS_NOISE_IPS or port in (67, 68, 5353, 123)
+        return dst in OS_NOISE_IPS or port in (67, 68, 5353, 123, 546, 547)
     if kind == "tcp-syn":
         return dst in OS_NOISE_IPS
     return False
+
+# These hosts carry the security collections explicitly retained by BETA.md
+# E12. Exemption is by a connection's SNI, never by its CDN's shared IP address.
+SECURITY_SETTINGS_HOSTS = (
+    "firefox.settings.services.mozilla.com",
+    "firefox-settings-attachments.cdn.mozilla.net",
+    "content-signature-2.cdn.mozilla.net",
+)
+
+def pcap_payloads(path, start_offset, guest_ips, end_offset=None):
+    """Outbound transport payloads, including data on already-open TLS flows.
+
+    Scan from the header to retain earlier SNI and complete packet boundaries.
+    A snapshot can end halfway through a packet; that packet belongs to the
+    next snapshot once complete. Unknown flows remain visible and cannot pass
+    as background merely because their destination shares an allowed CDN IP.
+    """
+    names, rows = {}, []
+    with open(path, "rb") as f:
+        gh = f.read(24)
+        if len(gh) != 24:
+            raise HarnessError("capture has no complete pcap header")
+        magic = gh[:4]
+        if magic not in (b"\xd4\xc3\xb2\xa1", b"\xa1\xb2\xc3\xd4"):
+            raise HarnessError("unsupported pcap format for payload audit")
+        endian = "<" if magic == b"\xd4\xc3\xb2\xa1" else ">"
+        if struct.unpack(endian + "I", gh[20:24])[0] != 1:
+            raise HarnessError("payload audit requires an Ethernet pcap")
+        limit = os.fstat(f.fileno()).st_size if end_offset is None else end_offset
+        while f.tell() + 16 <= limit:
+            offset = f.tell()
+            ts, us, size, original = struct.unpack(endian + "IIII", f.read(16))
+            if f.tell() + size > limit:
+                if end_offset is not None:
+                    raise HarnessError("typing window ends inside a packet; attribution is inconclusive")
+                break
+            frame = f.read(size)
+            if len(frame) != size:
+                break
+            packet_end = f.tell()
+            if size != original:
+                raise HarnessError("truncated packet prevents a complete payload audit")
+            if len(frame) < 14:
+                continue
+            ether = struct.unpack(">H", frame[12:14])[0]
+            if ether in (0x8100, 0x88a8):
+                raise HarnessError("VLAN-tagged capture is unsupported; cannot audit all payloads")
+            ip = frame[14:]
+            if ether == 0x0800 and len(ip) >= 20:
+                src, dst = socket.inet_ntoa(ip[12:16]), socket.inet_ntoa(ip[16:20])
+                if src not in guest_ips:
+                    continue
+                if struct.unpack(">H", ip[6:8])[0] & 0x3fff:
+                    raise HarnessError("fragmented outbound IPv4 prevents payload attribution")
+                proto = ip[9]
+                rest = ip[(ip[0] & 15) * 4:struct.unpack(">H", ip[2:4])[0]]
+            elif ether == 0x86dd and len(ip) >= 40:
+                src = socket.inet_ntop(socket.AF_INET6, ip[8:24])
+                dst = socket.inet_ntop(socket.AF_INET6, ip[24:40])
+                if src not in guest_ips:
+                    continue
+                proto, rest = ipv6_transport(ip)
+                if proto not in (6, 17, 58):
+                    raise HarnessError("outbound IPv6 extension header prevents payload attribution")
+            else:
+                continue
+            if proto == 6 and len(rest) >= 20:
+                sp, dp = struct.unpack(">HH", rest[:4])
+                data = rest[(rest[12] >> 4) * 4:]
+                flow = (src, sp, dst, dp)
+                # A reused four-tuple starts a new connection when SYN appears.
+                if rest[13] & 2 and not rest[13] & 16:
+                    names.pop(flow, None)
+                host = _tls_sni(data)
+                if host:
+                    names[flow] = host.lower().rstrip(".")
+                host = names.get(flow)
+            elif proto == 17 and len(rest) >= 8:
+                sp, dp = struct.unpack(">HH", rest[:4])
+                data, host = rest[8:], None
+                if dp == 53 and len(data) > 12:
+                    host = _dns_name(data, 12)[0].lower().rstrip(".")
+            else:
+                continue  # ICMP and pure link management carry no browser query.
+            if not data or packet_end <= start_offset:
+                continue
+            background = (host in SECURITY_SETTINGS_HOSTS or host in OS_NOISE_HOSTS)
+            if proto == 17 and dp != 53:
+                # Port number alone does not establish OS ownership. Unknown
+                # public unicast UDP stays suspect even on NTP/mDNS ports.
+                background = background or (dst.lower() in ("224.0.0.251", "ff02::fb") and dp == 5353)
+                background = background or (dst.lower() in ("255.255.255.255", "ff02::1:2")
+                                             and dp in (67, 68, 546, 547))
+            rows.append({"ts": ts + us / 1e6, "protocol": "tcp" if proto == 6 else "udp",
+                         "src": src, "src_port": sp, "dst": dst, "port": dp,
+                         "host": host, "bytes": len(data), "background": background})
+        if end_offset is not None and f.tell() != limit:
+            raise HarnessError("typing window ends inside a packet header; attribution is inconclusive")
+    return rows
 
 # --------------------------------------------------------------------------
 # DEX string table -- for the APK static checks.  Reads the real string_ids
@@ -956,11 +1115,17 @@ class App:
     def guest_ips(self):
         out = self.adb.shell("ip -o -4 addr", timeout=60)
         ips = set(re.findall(r"inet (\d+\.\d+\.\d+\.\d+)/", out))
+        out6 = self.adb.shell("ip -o -6 addr", timeout=60)
+        ips.update(re.findall(r"inet6 ([0-9a-fA-F:]+)/", out6))
         ips.discard("127.0.0.1")
+        ips.discard("::1")
         if not ips:
             raise HarnessError("could not read the device's own IPv4 addresses; "
                                "without them the capture cannot tell a request from a reply")
-        return ips
+        # An AVD can acquire wlan0 after radio0 and route the search through its
+        # new address. Keep both ends of every window, including retired IPs.
+        self._guest_ip_history = getattr(self, "_guest_ip_history", set()) | ips
+        return set(self._guest_ip_history)
 
     def alive(self):
         return bool(self.adb.shell("pidof %s" % self.pkg, timeout=30).strip())
@@ -1061,23 +1226,93 @@ try {
   gl.readPixels(16,16,1,1, gl.RGBA, gl.UNSIGNED_BYTE, px);
   out.pixel = [px[0],px[1],px[2],px[3]];
   out.glError = gl.getError();
+  c.id = "lw-smoke-webgl-render";
+  c.style.cssText = "position:fixed;left:0;top:0;width:128px;height:128px;z-index:2147483647";
+  document.body.appendChild(c);
   out.stage = "readPixels";
   out.ok = true;
 } catch (e) { out.reason = "exception: " + e; }
 return out;
 """
 
+def png_center_pixel(png):
+    """Decode an 8-bit RGB/RGBA WebDriver screenshot with the standard library."""
+    if png[:8] != b"\x89PNG\r\n\x1a\n":
+        raise HarnessError("WebDriver screenshot is not a PNG")
+    pos, compressed, header = 8, bytearray(), None
+    while pos + 12 <= len(png):
+        size = struct.unpack(">I", png[pos:pos + 4])[0]
+        kind, data = png[pos + 4:pos + 8], png[pos + 8:pos + 8 + size]
+        if len(data) != size:
+            raise HarnessError("truncated screenshot PNG")
+        if kind == b"IHDR":
+            header = struct.unpack(">IIBBBBB", data)
+        elif kind == b"IDAT":
+            compressed.extend(data)
+        pos += size + 12
+        if kind == b"IEND":
+            break
+    if not header:
+        raise HarnessError("screenshot has no PNG image header")
+    width, height, depth, color, compression, filtering, interlace = header
+    if (not width or not height or depth != 8 or color not in (2, 6) or
+            compression or filtering or interlace):
+        raise HarnessError("unsupported screenshot PNG format: %r" % (header,))
+    channels = 4 if color == 6 else 3
+    stride = width * channels
+    raw = zlib.decompress(compressed)
+    if len(raw) != (stride + 1) * height:
+        raise HarnessError("screenshot pixel data is incomplete")
+    previous = bytearray(stride)
+    for y in range(height // 2 + 1):
+        offset = y * (stride + 1)
+        method = raw[offset]
+        row = bytearray(raw[offset + 1:offset + 1 + stride])
+        if method not in range(5):
+            raise HarnessError("unknown PNG row filter")
+        for x in range(stride):
+            a = row[x - channels] if x >= channels else 0
+            b = previous[x]
+            c = previous[x - channels] if x >= channels else 0
+            if method == 1: predictor = a
+            elif method == 2: predictor = b
+            elif method == 3: predictor = (a + b) // 2
+            elif method == 4:
+                p = a + b - c
+                distances = (abs(p - a), abs(p - b), abs(p - c))
+                predictor = (a, b, c)[distances.index(min(distances))]
+            else: predictor = 0
+            row[x] = (row[x] + predictor) & 255
+        previous = row
+    pixel = list(previous[(width // 2) * channels:(width // 2 + 1) * channels])
+    return pixel if channels == 4 else pixel + [255]
+
 def check_webgl(m, res, forcefail=False):
-    """The L1 canary.  A live context is not enough -- the whole point of L1 is
-    that a broken build still creates objects and silently renders nothing, so
-    this compiles a shader, draws, and reads the pixel back."""
+    """Compile, draw and verify composited pixels without bypassing RFP.
+
+    readPixels intentionally returns placeholder data when canvas extraction
+    is blocked. WebDriver's privileged element screenshot sees the actual
+    rendered canvas; no content permission or privacy pref is changed.
+    """
     lw = m.script('return {prompt: Services.prefs.getPrefType("librewolf.webgl.prompt") ? '
                   'Services.prefs.getBoolPref("librewolf.webgl.prompt") : null, '
                   'type: Services.prefs.getPrefType("librewolf.webgl.prompt"), '
                   'locked: Services.prefs.prefIsLocked("librewolf.webgl.prompt")};', chrome=True)
     r = m.script(JS_WEBGL)
     expect = [51, 102, 153, 255] if not forcefail else [1, 2, 3, 4]
-    ok = bool(r.get("ok")) and r.get("pixel") == expect
+    rendered = None
+    try:
+        if r.get("ok") and r.get("glError") == 0:
+            element = m.script('return document.getElementById("lw-smoke-webgl-render");')
+            element_id = element["element-6066-11e4-a52e-4f735466cecf"]
+            screenshot = m.cmd("WebDriver:TakeScreenshot", {"id": element_id, "full": False})
+            png = base64.b64decode(screenshot["value"])
+            with open(os.path.join(WORK, "webgl-render.png"), "wb") as f:
+                f.write(png)
+            rendered = png_center_pixel(png)
+    finally:
+        m.script('document.getElementById("lw-smoke-webgl-render")?.remove(); return true;')
+    ok = bool(r.get("ok")) and r.get("glError") == 0 and rendered == expect
     if lw.get("type") == 0:
         ok = False
         why = ("librewolf.webgl.prompt DOES NOT EXIST in this build -- the L1 guard is gone. "
@@ -1087,15 +1322,15 @@ def check_webgl(m, res, forcefail=False):
         why = ("librewolf.webgl.prompt is TRUE on Android -- this is landmine L1 and every "
                "WebGL context in the build is dead. Pixel readback: %s" % (r.get("pixel"),))
     elif ok:
-        why = "%s ctx, shader+draw+readPixels gave %s, renderer=%r" % (
-            r.get("contextType"), r.get("pixel"), r.get("renderer"))
+        why = "%s ctx, shader+draw composited %s; protected readPixels=%s, renderer=%r" % (
+            r.get("contextType"), rendered, r.get("pixel"), r.get("renderer"))
     else:
-        why = ("no verified pixel (stage=%s reason=%s creationErrors=%s pixel=%s). "
-               "librewolf.webgl.prompt=%s -- if that is false the cause is the GL stack "
-               "under the emulator, not L1." % (
+        why = ("no verified rendered pixel (stage=%s reason=%s creationErrors=%s rendered=%s). "
+               "librewolf.webgl.prompt=%s" % (
                    r.get("stage"), r.get("reason"), r.get("creationErrors"),
-                   r.get("pixel"), lw.get("prompt")))
-    res.add("webgl", ok, why, {"gl": r, "librewolf.webgl.prompt": lw})
+                   rendered, lw.get("prompt")))
+    res.add("webgl", ok, why, {"gl": r, "composited_pixel": rendered,
+                               "librewolf.webgl.prompt": lw})
     return ok
 
 JS_VIDEO = r"""
@@ -2234,7 +2469,7 @@ JS_ABOUTCONFIG_PAGE = r"""
 # then drive the search box the way a user does: config.xhtml wires
 # oninput="AboutConfig.bufferFilterInput()", which settles after
 # FILTER_CHANGE_TRIGGER (200 ms) and rebuilds the list.
-JS_ABOUTCONFIG_TOGGLE = r"""
+JS_ABOUTCONFIG_FILTER = r"""
   const done = arguments[arguments.length-1];
   const name = arguments[0];
   const t0 = Date.now();
@@ -2246,15 +2481,13 @@ JS_ABOUTCONFIG_TOGGLE = r"""
     if (li && li.querySelector(".pref-button.toggle")) {
       const val = li.querySelector(".pref-value");
       const before = val ? val.value : null;
-      li.querySelector(".pref-button.toggle").click();
-      setTimeout(function(){
-        const nameDiv = li.querySelector(".pref-name");
-        done({found: true, before: before, after: val ? val.value : null,
-              locked: nameDiv.hasAttribute("locked"),
-              lockIcon: getComputedStyle(nameDiv).backgroundImage,
-              disabled: val ? val.hasAttribute("disabled") : null,
-              waitedMs: Date.now() - t0});
-      }, 600);
+      const nameDiv = li.querySelector(".pref-name");
+      const state = {found: true, before: before,
+                     locked: nameDiv.hasAttribute("locked"),
+                     lockIcon: getComputedStyle(nameDiv).backgroundImage,
+                     disabled: val ? val.hasAttribute("disabled") : null,
+                     waitedMs: Date.now() - t0};
+      done(state);
     } else if (Date.now() - t0 > 30000) {
       done({found: false, waitedMs: Date.now() - t0,
             rows: document.querySelectorAll("#prefs-container .pref-item").length});
@@ -2272,6 +2505,43 @@ JS_PREF_FACTS = r"""
           cfgVersion: S.getCharPref("librewolf.cfg.version", "ABSENT")};
 """
 
+def probe_aboutconfig_readonly(m, script, args=None):
+    # GeckoView can replace the initial document just after Navigate returns.
+    # Only this read-only probe is safe to retry; never replay a toggle whose
+    # first invocation may already have changed the preference.
+    unloaded = []
+    for attempt in range(3):
+        try:
+            page = m.async_script(script, args)
+            page["documentUnloadRetries"] = unloaded
+            return page
+        except MarionetteError as e:
+            if "javascript error: Document was unloaded" not in str(e) or attempt == 2:
+                raise
+            unloaded.append(str(e))
+            time.sleep(0.5)
+
+def probe_aboutconfig_page(m):
+    return probe_aboutconfig_readonly(m, JS_ABOUTCONFIG_PAGE)
+
+def wait_for_initial_document(m, url):
+    # NewSession only promises a Gecko window. Fenix's launch intent can still
+    # be loading its first URL, which would overwrite a subsequent navigation.
+    # Wait for that actual document before exercising about:config.
+    last = None
+    for _attempt in range(60):
+        try:
+            last = m.script('return {url: location.href, uri: document.documentURI, '
+                            'ready: document.readyState};')
+            if last.get("url") == url and last.get("uri") == url and last.get("ready") == "complete":
+                return last
+        except MarionetteError as e:
+            if "javascript error: Document was unloaded" not in str(e):
+                raise
+            last = {"error": str(e)}
+        time.sleep(0.25)
+    raise HarnessError("initial browser document did not finish loading before about:config: %s" % last)
+
 def check_aboutconfig(m, res, app, apk, reopen_url):
     """See the block comment above.  Returns (ok, marionette) -- the session is
     replaced part-way through, because acceptance asks that an edit survive a
@@ -2287,7 +2557,7 @@ def check_aboutconfig(m, res, app, apk, reopen_url):
             "APK (./mach gradle fenix:assembleRelease -PdisableOptimization) and point this run "
             "at it with --apk or LW_SMOKE_APK -- the default APK search only ever finds the "
             "debug build. (%s)" % os.path.basename(apk))
-    ev = {}
+    ev = {"initialDocument": wait_for_initial_document(m, reopen_url)}
     # Created BEFORE the page loads -- see the edit step below for why.  The name
     # carries the epoch so it is unique per run, and so that it is a name
     # GeckoView cannot be declaring (landmine L2b: GeckoView:ResetUserPrefs
@@ -2322,7 +2592,7 @@ def check_aboutconfig(m, res, app, apk, reopen_url):
                 {"navigate_error": str(e), "pref": facts})
         return False, m
     try:
-        page = m.async_script(JS_ABOUTCONFIG_PAGE)
+        page = probe_aboutconfig_page(m)
         ev["page"] = page
         facts = m.script(JS_PREF_FACTS, chrome=True)
         ev["pref"] = facts
@@ -2349,14 +2619,27 @@ def check_aboutconfig(m, res, app, apk, reopen_url):
     # It was created before the navigation above, because AboutConfig.init()
     # builds its list once from Services.prefs.getChildList("") at load time.
     try:
-        toggled = m.async_script(JS_ABOUTCONFIG_TOGGLE, [name])
+        toggled = probe_aboutconfig_readonly(m, JS_ABOUTCONFIG_FILTER, [name])
+        # Filtering can be repeated after a document replacement because it
+        # does not edit a pref. Keep the actual UI click separate and single
+        # shot, so a retry can never silently undo an edit that already landed.
+        toggled["clicked"] = m.script('const row = document.querySelector('
+                    '\'#prefs-container .pref-item[name="\' + arguments[0] + \'"]\');'
+                    'const button = row && row.querySelector(".pref-button.toggle");'
+                    'if (!button) return false; button.click(); return true;', [name])
         ev["edit"] = toggled
         after = m.script('return Services.prefs.getBoolPref(arguments[0], null);',
                          [name], chrome=True)
     except MarionetteError as e:
-        raise HarnessError("the edit probe could not run on a loaded about:config: %s" % e)
+        try:
+            ev["atEditError"] = m.script('return {url: location.href, uri: document.documentURI};')
+            ev["prefAtEditError"] = m.script('return Services.prefs.getBoolPref(arguments[0], null);',
+                                            [name], chrome=True)
+        except Exception:
+            pass
+        raise HarnessError("the edit probe could not run on a loaded about:config: %s; evidence=%s" % (e, ev))
     ev["edit"]["prefAfterToggle"] = after
-    edit_ok = bool(toggled.get("found")) and after is True
+    edit_ok = bool(toggled.get("found")) and toggled.get("clicked") is True and after is True
 
     # ...and it has to survive a restart.  savePrefFile is the flush a clean
     # shutdown does; force-stop is a kill, and this check is about the edit, not
@@ -2678,15 +2961,19 @@ def expected_engines():
 SPONSORED_TILE_HOSTS = ("ads.mozilla.org", "contile.services.mozilla.com")
 
 def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
-    """LW-M4-11.  Four things, each measured on the running build:
-      1. a query typed into the toolbar (input text, Enter NOT pressed) puts
-         nothing on the wire during a capture window;
-      2. pressing Enter then DOES put something on the wire -- the positive
-         control that proves the capture was alive, so a dead pcap cannot pass;
-      3. no sponsored-tile host anywhere in the capture since the app started;
-      4. the "Show search suggestions" switch exists in Settings > Search and
-         reads OFF -- acceptance line 3 (user-toggleable) and the default."""
+    """Check typing payloads as well as handshakes, with a real search control."""
+    from urllib.parse import urlsplit, parse_qs
     require_pcap(pcap)
+    with open(os.path.join(os.environ.get("LW_SMOKE_REPO", "."),
+                           "assets", "search-config-v2.json")) as f:
+        config = json.load(f)["data"]
+    default_id = next(r["globalDefault"] for r in config
+                      if r.get("recordType") == "defaultEngines")
+    search = next(r["base"]["urls"]["search"] for r in config
+                  if r.get("identifier") == default_id)
+    search_host = urlsplit(search["base"]).hostname
+    search_param = search.get("searchTermParamName", "q")
+    app.push_debug_config()
     app.force_stop()
     time.sleep(1)
     guest = app.guest_ips()
@@ -2694,15 +2981,9 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
     app.start_home()
     time.sleep(8)
     xml = _ui_dump(adb)
-    pt = None
-    for ident in URLBAR_IDS:
-        pt = _node_bounds(xml, ident)
-        if pt:
-            break
+    pt = next((p for ident in URLBAR_IDS for p in [_node_bounds(xml, ident)] if p), None)
     if not pt:
-        raise HarnessError("could not find the Fenix address bar in the UI tree (tried %s); "
-                           "without it nothing can be typed and this gate cannot run"
-                           % ", ".join(URLBAR_IDS))
+        raise HarnessError("could not find the Fenix address bar; typing check cannot run")
     adb.shell("input tap %d %d" % pt, timeout=60)
     time.sleep(2)
     token = "lwsmokeq%d" % int(time.time() % 100000)
@@ -2713,148 +2994,120 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
     log("check-no-suggest: typed %r into the toolbar; idling %ds WITHOUT pressing Enter "
         "(device addresses: %s)" % (token, capture_seconds, ", ".join(sorted(guest))))
     time.sleep(capture_seconds)
+    off_enter = pcap_size(pcap)
+    guest.update(app.guest_ips())
     typing_rows = summarise_capture(pcap, off_typing, guest_ips=guest)
     typing_app = [r for r in typing_rows if not r["os_noise"] and not r.get("harness")]
+    typing_payloads = pcap_payloads(pcap, off_typing, guest, off_enter)
+    suspect_payloads = [r for r in typing_payloads if not r["background"]]
     sys.stdout.write(render_capture(typing_rows))
 
-    off_enter = pcap_size(pcap)
-    rx0, tx0 = app.rx_tx()
-    # Re-establish the input-method connection before committing, by deleting the
-    # last character and retyping it. ENTER's "go" is an IME action delivered
-    # over the InputConnection, not a raw key the view handles, and that
-    # connection does not survive the idle above: measured 2026-09-06, Enter
-    # after a 60s wait produced NO query at all -- zero packets AND zero bytes on
-    # the app's uid -- while --check-search, which presses Enter one second after
-    # typing, issues a real query on the same build. Re-tapping the field was
-    # tried first and changed nothing, which is what ruled focus out and pointed
-    # at the connection.
-    #
-    # The query is unchanged by this (one character out, the same one back in),
-    # so the window above still measures exactly what it measured: the whole
-    # query sitting unsent for --capture-seconds with nothing on the wire. And a
-    # suggestion request provoked here could not be mistaken for the search
-    # anyway -- if suggestions were live, the 60s window would already have
-    # caught them and this check would have failed there.
-    adb.shell("input keyevent 67", timeout=60)      # DEL
-    time.sleep(0.5)
-    adb.shell("input text %s" % token[-1], timeout=60)
-    time.sleep(1)
+    # Enter alone commits the original query. Retyping a character here could
+    # turn an accidental suggestion request into the supposed search control.
     adb.shell("input keyevent 66", timeout=60)
-    # POLL until the search shows up rather than sleeping once and looking. It
-    # costs nothing when the traffic lands immediately, and it removes a whole
-    # class of false red.
-    #
-    # (An earlier revision of this comment blamed `emulator -tcpdump` buffering.
-    # That was wrong and is recorded in evidence/lw-m7-06/README.md: a launch
-    # adds ~773 KB to the capture and one navigation ~2.6 MB, in 45s windows.
-    # The capture is not the problem.)
-    #
-    # This matters more than one red check: the control exists so a dead capture
-    # cannot be read as "nothing leaked". Deleting it to get a green is the one
-    # repair that must not happen -- so it has to be able to pass honestly.
-    # The control is BYTES, not events, and that distinction is the whole bug.
-    # summarise_capture reports notable events -- a DNS query, a TCP SYN, a TLS
-    # SNI. Fenix warms a connection to the default engine when the toolbar opens,
-    # which is BEFORE this window starts, so pressing Enter reuses that
-    # connection and produces none of those three. The capture is not dead and
-    # never was: measured 2026-09-06 on this harness's own emulator, a launch
-    # added 773 KB to the pcap and one navigation added 2.6 MB, while the event
-    # count for a reused connection stayed at zero. A control that can only see
-    # handshakes calls a working search "no traffic" and fails a clean build.
-    #
-    # The kernel's per-uid accounting has no such blind spot, so the search is
-    # proven by the app's byte counters rising; events are still collected,
-    # because when they DO appear they name the host and that is worth having.
-    enter_deadline = time.time() + max(180, capture_seconds * 3)
-    enter_rows, enter_app = [], []
-    dtx = drx = 0
-    while time.time() < enter_deadline:
-        time.sleep(10)
-        enter_rows = summarise_capture(pcap, off_enter, guest_ips=guest)
-        enter_app = [r for r in enter_rows if not r["os_noise"] and not r.get("harness")]
-        rx1, tx1 = app.rx_tx()
-        drx, dtx = rx1 - rx0, tx1 - tx0
-        # THE capture file's own growth is the reliable signal -- the only one of
-        # the three that is both real-time and blind to how the traffic is shaped:
-        #   * summarise_capture reports NOTABLE events: DNS, TCP SYN, TLS SNI.
-        #     Fenix opens a connection to the default engine while the query is
-        #     being typed, so committing it REUSES that connection and produces
-        #     none of the three. Zero events, megabytes moved.
-        #   * dumpsys netstats is NOT real-time. Android polls it periodically, so
-        #     the counters sit still and then jump. Measured 2026-09-06: +8.6 MB
-        #     during a 60s idle, and exactly zero across a search that
-        #     demonstrably rendered a page of results.
-        # Both were tried as the control and both reported "no traffic" for a
-        # working search. The pcap grows as packets are written -- a launch adds
-        # ~773 KB, a page load ~2.6 MB -- so its size is the honest question.
-        dpcap = pcap_size(pcap) - off_enter
-        if enter_app or dpcap > 50000:
+    deadline = time.time() + max(90, capture_seconds * 2)
+    search_bytes, enter_payloads = 0, []
+    while time.time() < deadline:
+        time.sleep(3)
+        guest.update(app.guest_ips())
+        enter_payloads = pcap_payloads(pcap, off_enter, guest)
+        search_bytes = sum(r["bytes"] for r in enter_payloads
+                           if r["host"] == search_host and r["protocol"] == "tcp")
+        if search_bytes:
             break
     dpcap = pcap_size(pcap) - off_enter
-    searched = bool(enter_app) or dpcap > 50000
-    log("check-no-suggest: post-Enter window closed after %ds -- capture grew %d bytes, "
-        "%d app event(s), uid counters rx+%d tx+%d (the last two can both read zero on a "
-        "working search; see the note above)"
-        % (int(time.time() - (enter_deadline - max(180, capture_seconds * 3))),
-           dpcap, len(enter_app), drx, dtx))
-    # Whether Enter was consumed at all. NOT proof that a search ran: on
-    # 2026-09-06 the app left edit mode while both the packet capture and the
-    # kernel's per-uid byte counters recorded exactly zero traffic, so the query
-    # was never issued. Recorded because it separates "the keystroke went
-    # nowhere" from "the keystroke was taken and produced no request", which are
-    # different bugs to chase.
-    post_xml = _ui_dump(adb)
-    left_edit_mode = "ADDRESSBAR_EDIT_MODE" not in post_xml
-    log("check-no-suggest: after Enter the app %s edit mode"
-        % ("left" if left_edit_mode else "is STILL IN"))
+    log("check-no-suggest: post-Enter window closed -- %d outbound payload bytes on "
+        "%s connections, %d total capture bytes" % (search_bytes, search_host, dpcap))
+    # Payload bytes alone can be unrelated traffic. Marionette must also read
+    # the submitted token from the actual default engine's query URL.
+    url, document = "", {}
+    if search_bytes:
+        session = app.connect_marionette()
+        try:
+            deadline = time.time() + 30
+            while time.time() < deadline:
+                url = session.cmd("WebDriver:GetCurrentURL").get("value", "")
+                parsed = urlsplit(url)
+                document = session.script('return {uri: document.documentURI, '
+                                          'ready: document.readyState, title: document.title};')
+                document_url = urlsplit(document.get("uri", ""))
+                if (parsed.hostname == search_host and
+                        token in parse_qs(parsed.query).get(search_param, []) and
+                        document_url.hostname == search_host and
+                        token in parse_qs(document_url.query).get(search_param, []) and
+                        document.get("ready") == "complete"):
+                    break
+                time.sleep(1)
+        finally:
+            session.close()
+    parsed = urlsplit(url)
+    document_url = urlsplit(document.get("uri", ""))
+    searched = (search_bytes > 0 and parsed.hostname == search_host and
+                token in parse_qs(parsed.query).get(search_param, []) and
+                document_url.hostname == search_host and
+                token in parse_qs(document_url.query).get(search_param, []) and
+                document.get("ready") == "complete")
+    log("check-no-suggest: post-Enter navigation %r" % url)
 
+    guest.update(app.guest_ips())
     all_rows = summarise_capture(pcap, off_all, guest_ips=guest)
     sponsored = [r for r in all_rows
                  if any(h in (r["detail"] or "").lower() for h in SPONSORED_TILE_HOSTS)]
-
     _deeplink(adb, app.pkg, scheme, "settings_search_engine")
     sxml, spt = _find_row(adb, "Show search suggestions")
     switch = _switch_after(sxml, "Show search suggestions") if spt else None
+    toggled = {}
+    if switch is False:
+        position = _switch_bounds_after(sxml, "Show search suggestions")
+        if position:
+            try:
+                adb.shell("input tap %d %d" % position, timeout=60)
+                time.sleep(1.5)
+                toggled["on"] = _switch_after(_ui_dump(adb), "Show search suggestions")
+            finally:
+                current = _ui_dump(adb)
+                if _switch_after(current, "Show search suggestions") is True:
+                    position = _switch_bounds_after(current, "Show search suggestions")
+                    if position:
+                        adb.shell("input tap %d %d" % position, timeout=60)
+                        time.sleep(1.5)
+                toggled["restored_off"] = _switch_after(_ui_dump(adb), "Show search suggestions") is False
     adb.shell("input keyevent 4", timeout=60)
 
     problems = []
-    if typing_app:
-        problems.append("%d outbound event(s) while the query sat in the toolbar, e.g. %s"
-                        % (len(typing_app),
-                           sorted({r["detail"] or r["dst"] for r in typing_app})[:6]))
+    if suspect_payloads:
+        problems.append("typing emitted %d outbound payload bytes on %d packet(s), "
+                        "including reused TLS connections; quiet typing is unproven: %s"
+                        % (sum(r["bytes"] for r in suspect_payloads), len(suspect_payloads),
+                           sorted({r["host"] or r["dst"] for r in suspect_payloads})[:6]))
     if not searched:
-        problems.append(
-            "Enter moved NOTHING: the capture grew %d bytes in %ds of polling, with %d "
-            "app event(s). The app %s. So the quiet typing window proves nothing -- a "
-            "window that saw no search cannot vouch for a window that saw no suggestion."
-            % (dpcap, max(180, capture_seconds * 3), len(enter_app),
-               "did leave edit mode, so Enter was accepted" if left_edit_mode
-               else "is still in edit mode, so the keystroke never took effect"))
+        problems.append("search control unproven: %d payload bytes to %s, current URL=%r"
+                        % (search_bytes, search_host, url))
     if sponsored:
         problems.append("%d event(s) to a sponsored-tile host: %s"
                         % (len(sponsored), sorted({r["detail"] for r in sponsored})[:4]))
     if switch is None:
-        problems.append("no 'Show search suggestions' switch found in Settings > Search "
-                        "(deep link %s://settings_search_engine) -- the setting must stay "
-                        "user-toggleable" % scheme)
+        problems.append("no 'Show search suggestions' switch found in Settings > Search")
     elif switch:
         problems.append("'Show search suggestions' reads ON by default")
+    elif toggled.get("on") is not True or toggled.get("restored_off") is not True:
+        problems.append("'Show search suggestions' ON/OFF round trip failed: %r" % toggled)
     ok = not problems
     res.add("check-no-suggest", ok,
-            ("typed %r: 0 outbound events in %ds before Enter, then %d bytes of capture "
-             "and %d event(s) after it, so the search ran and the quiet window means "
-             "something; "
-             "no sponsored-tile host in %d app events since launch; 'Show search suggestions' "
-             "present in Settings > Search and OFF"
-             % (token, capture_seconds, dpcap, len(enter_app),
-                len([r for r in all_rows if not r["os_noise"]]))) if ok else
+            ("typed %r: no outbound transport payload outside explicitly identified "
+             "security-settings/OS background flows for %ds; Enter produced %d payload "
+             "bytes to %s and the actual URL contains the submitted query; no sponsored "
+             "host; 'Show search suggestions' OFF by default and ON/OFF round trip verified"
+             % (token, capture_seconds, search_bytes, search_host)) if ok else
             "; ".join(problems) + " -- owned by LW-M4-11",
-            {"token": token, "left_edit_mode_after_enter": left_edit_mode,
-             "typing_events": typing_app[:100], "enter_events": enter_app[:50],
+            {"token": token, "url_after_enter": url, "search_document": document,
+             "typing_events": typing_app[:100],
+             "typing_payloads": typing_payloads, "enter_payloads": enter_payloads,
              "sponsored_events": sponsored[:50], "suggestions_switch": switch,
-             "post_enter_pcap_bytes": dpcap,
-             "post_enter_rx_bytes": drx, "post_enter_tx_bytes": dtx,
-             "left_edit_mode_after_enter": left_edit_mode,
+             "suggestions_toggle_round_trip": toggled,
+             "typing_capture_offset": off_typing, "enter_capture_offset": off_enter,
+             "app_capture_offset": off_all, "guest_ips": sorted(guest),
+             "post_enter_pcap_bytes": dpcap, "post_enter_search_payload_bytes": search_bytes,
              "capture_seconds": capture_seconds})
     return ok
 
@@ -2898,6 +3151,7 @@ def check_update_privacy(app, adb, pcap, capture_seconds, res, scheme):
     sxml, spt = _find_row(adb, "Check for updates", max_scrolls=16)
     compiled_in = spt is not None
     time.sleep(5)
+    guest.update(app.guest_ips())
     rows_off = summarise_capture(pcap, off0, guest_ips=guest)
     app_off = [r for r in rows_off if not r["os_noise"] and not r.get("harness")]
     off_hits = hits(rows_off)
@@ -2938,6 +3192,7 @@ def check_update_privacy(app, adb, pcap, capture_seconds, res, scheme):
                 app.start_home()
                 log("check-update-privacy: switch ON, relaunched; idling %ds" % max(30, capture_seconds // 2))
                 time.sleep(max(30, capture_seconds // 2))
+                guest.update(app.guest_ips())
                 rows_on = summarise_capture(pcap, off1, guest_ips=guest)
                 app_on = [r for r in rows_on if not r["os_noise"] and not r.get("harness")]
                 on_hits = hits(rows_on)
@@ -3133,6 +3388,9 @@ def main(argv):
                 "(device addresses: %s)" % (args.capture_seconds, ", ".join(sorted(guest))))
             app.start_home()
             time.sleep(args.capture_seconds)
+            guest.update(app.guest_ips())
+            if pcap_size(pcap) <= off:
+                raise HarnessError("no captured packets in first-run window; capture readiness is unproven")
             rows = summarise_capture(pcap, off, guest_ips=guest)
             rb1, tb1 = app.rx_tx()
             app_rows = [r for r in rows if not r["os_noise"] and not r.get("harness")]
@@ -3146,7 +3404,9 @@ def main(argv):
                      "rx+%d tx+%d) -- owned by LW-M4-10"
                      % (len(app_rows), sorted({r["detail"] or r["dst"] for r in app_rows})[:8],
                         rb1 - rb0, tb1 - tb0)),
-                    {"events": app_rows[:200], "uid_rx": rb1 - rb0, "uid_tx": tb1 - tb0})
+                    {"events": app_rows[:200], "uid_rx": rb1 - rb0, "uid_tx": tb1 - tb0,
+                     "capture_offset": off, "capture_end": pcap_size(pcap),
+                     "guest_ips": sorted(guest)})
             return finish(res, args, work)
 
         # ---- --check-no-remote-settings: the three RS hosts must be absent ----
@@ -3161,9 +3421,15 @@ def main(argv):
                 "(device addresses: %s)" % (args.capture_seconds, ", ".join(sorted(guest))))
             app.start_home()
             time.sleep(args.capture_seconds)
+            guest.update(app.guest_ips())
+            if pcap_size(pcap) <= off:
+                raise HarnessError("no captured packets in Remote Settings window; capture readiness is unproven")
             sys.stdout.write(render_capture(
                 summarise_capture(pcap, off, guest_ips=guest)))
             ok = check_no_remote_settings(pcap, off, guest, args.capture_seconds, res)
+            res.rows[-1]["evidence"].update({"capture_offset": off,
+                                          "capture_end": pcap_size(pcap),
+                                          "guest_ips": sorted(guest)})
             return finish(res, args, work)
 
         # ---- --check-no-suggest: nothing leaves the toolbar before Enter ----

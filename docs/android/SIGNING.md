@@ -159,7 +159,8 @@ still-open problem: the key is currently reachable by the CI runner.
    It reads the expected fingerprint out of this file (so there is only ever one
    copy of it), and fails on a v2-only APK, on a missing v3, on an unexpected
    v1, and on the wrong key. Run against a debug build it reports NOT
-   PUBLISHABLE, which is what every APK this project has produced so far is.
+   PUBLISHABLE. The unsigned beta candidate also needs the offline signing step;
+   its build and test evidence is linked from `BETA.md`.
 
    **The checker has been checked**, because one that has only ever said no is
    a habit rather than a test:
@@ -180,8 +181,11 @@ still-open problem: the key is currently reachable by the CI runner.
        #         Verified using v3 scheme (APK Signature Scheme v3): true
        #         Signer #1 certificate SHA-256 digest: 6414eb33...
 
-   Every APK built on the build machine so far is signed `CN=Android Debug`,
-   v2 only. None of them is a release artefact; do not hand one to a tester.
+   Debug and throwaway-key rehearsal APKs are not release artifacts; do not hand
+   them to testers. The candidate handoff contains unsigned APKs. After signing,
+   use `--unsigned-dir <candidate apk directory>` on the build host to verify
+   that the returned APK payloads match that exact candidate as well as its
+   published signing identity. See `evidence/lw-m6-01/RELEASE-HANDOFF.md`.
 6. The signed APK is published. CI never sees any of steps 2-6.
 
 ## If the key is compromised

@@ -3,8 +3,8 @@
 Owner: LW-M7-06. This file is written **before** the beta starts, as the task's
 first acceptance line requires. It fixes the entry criteria, the device spread,
 what is collected, the exit criteria, and holds the go/no-go decision at the end.
-Nothing below is a result yet; §6 records results as they arrive and §7 is blank
-until the owner signs it.
+The entry table records preparation evidence. §6 records tester results as they
+arrive; §7 stays blank until the owner makes the public-release decision.
 
 The beta exists for one reason above all others: the memory cost of site
 isolation (LW-M5-01) plus `isolatedProcess` (LW-M5-02) is invisible on a flagship
@@ -18,34 +18,34 @@ linked. "Green on the maintainer's machine" counts only where the line says so.
 
 | # | Criterion | Evidence | Status |
 |---|---|---|---|
-| E1 | The build carries all landed Android patches (`assets/patches/android.txt`), compiled from the pinned ESR tarball by `make android-apk TARGETS=android` — not a tree that was patched after the APK was built | `librewolf-android-apk-<v>/build-times.txt`, `logs/` naming the tree | **met 2026-09-06** — buildID `20260905183254`, read off the running app by the harness. Two compile errors in `update-check.patch` had to be fixed first; they had passed every gate. |
-| E2 | Both ARM ABIs (`arm64-v8a`, `armeabi-v7a`) are real Gecko builds, not an x86_64 universal APK with empty ARM directories | `unzip -l fenix-universal-release.apk \| grep lib/` shows `libxul.so` under each ABI | **met 2026-09-06.** All three ABIs built into one fat AAR (`buildID 20260906190000`) and the universal APK carries `libxul.so` under `armeabi-v7a`, `arm64-v8a` and `x86_64`. Four APKs: 117/121/127 MB per-ABI plus a 278 MB universal. Note the universal APK gets an `armeabi-v7a` directory from three AndroidX/JNA prebuilts **whether or not that ABI was built**, so a two-ABI build produces a universal APK that installs on 32-bit ARM and has no engine — `android-apk.sh` refuses to emit it, which is why only the per-ABI APKs exist right now. |
-| E3 | Smoke suite green on the emulator against the beta build, **except the two checks E12's decision deliberately leaves red** | `docs/android/evidence/lw-m7-06/` | **met 2026-09-06.** Green on the shipping artifact: `--check-search`, `--check-aboutconfig`, `--check-strings` (both halves), `--check-no-suggest`, `--check-update-privacy`, `--check-no-gms`, `--check-no-adjust`. Red *by design*: `--first-run-capture` and `--check-no-remote-settings`, which assert zero Remote Settings traffic that E12 decided to keep — do not weaken them. One gap remains inside a passing check: `--check-update-privacy` proves the store-build path (feature compiled out, no traffic); its opt-in path needs a build carrying a real update-signing key. |
-| E4 | Runtime pref audit green (`./scripts/android-pref-audit.sh`, exit 0) with a committed `docs/android/expected-prefs.txt` generated from the beta build | the baseline's commit | **met 2026-09-06** — baseline generated from this build (60 rows) and the audit exits 0. It must be **regenerated** for the actual beta build and the diff read, not carried over. |
-| E5 | Fenix unit tests subtract cleanly: `board.py --check-fenix-tests` exit 0 on results from this tree | `docs/android/evidence/lw-m7-06/check-fenix-tests.out` | **met 2026-09-06** — 598 classes / 5,426 tests, 93 failing = 90 environmental + 3 known-real + 0 unexpected. First time the suite has ever been run here. **Note the results directory has since been wiped** by `android-verify-repro.sh`, which clears `obj-*/gradle/build` to force a real rebuild, so re-running the gate today exits 2 for want of input. That is correct fail-closed behaviour, not a regression; the passing output is in the evidence file. Re-run the suite for the actual beta build anyway. |
-| E6 | Reproducible: `scripts/android-verify-repro.sh` exit 0 on the beta build's inputs, **with R8 on** | `docs/android/evidence/lw-m6-02/summary.txt` | **met 2026-09-06.** Two independent builds with R8 **on**, from the three-ABI tree at a pinned build date, produced byte-identical unsigned APKs for all four artifacts, and the negative control caught an injected 1-byte change. Same-machine only; cross-machine identity is still not claimed. |
-| E7 | Signed with the release key, **v2 + v3**, fingerprint matches `SIGNING.md`; signed offline by a holder, never on the CI runner — and the key no longer readable by that runner | `docs/android/evidence/lw-m6-01/RELEASE-HANDOFF.md` | **not met, and everything except the ceremony is done.** The four release APKs are built with R8 on, verified to carry *no* signature (no v1, no v2/v3 block), with `SHA256SUMS` beside them. `android-verify-signature.sh` checks all four properties in one command and its `--self-test` proves it both accepts a correct signature and rejects a correctly-signed APK bearing the wrong key. The **upgrade path** N5 depends on is proven too: two builds signed with one throwaway key, the second installing over the first with a plain `adb install -r` and launching (`upgrade-path.md`). What is left needs the passphrase and a machine that is not this one — which this criterion's own wording requires, so it cannot be closed from the build host by any means. |
-| E8 | A second key holder exists, or the single-holder decision is recorded with a date in `SIGNING.md` | `SIGNING.md`, "Decision: Redoubt ships single-holder" | **met 2026-09-06.** The owner decided to ship single-holder rather than block on finding a second, and the consequence is recorded in the file's own words: lose both machines and the passphrase and Redoubt ends under `org.redoubtbrowser`, with every user having to uninstall and reinstall. LW-M6-01's "at least two holders" is knowingly not met. An offline third copy remains available later and does not require re-deciding this. |
-| E9 | The parity wording (`PARITY.md` §5) is signed off | `PARITY.md` §5 | **met 2026-09-06.** Approved verbatim by the owner, unsoftened, as LW-M5-06 requires. LW-M7-02 must publish it word for word with a reachable link to the parity table, because the sentence promises "we publish exactly where" and that table is the where. |
-| E10 | A triage owner and backup are named (`TRIAGE.md` §0), and the bug-report form (LW-M7-04) exists | `TRIAGE.md` §0, `.github/ISSUE_TEMPLATE/android-bug.yml` | **met 2026-09-06.** Owner named. BACKUP deliberately left empty rather than filled with a name that does not exist, with the two things in `TRIAGE.md` that assume cover called out. The form was already live with all seven required fields. |
-| E11 | A first-run network capture taken through a resolver that does **not** sinkhole Mozilla hosts | `docs/android/evidence/lw-m7-06/first-run-capture-honest-dns.*` | **met 2026-09-06.** The build host's LAN resolver answers `incoming.telemetry.mozilla.org` and `ads.mozilla.org` with `0.0.0.0`/`::`, so every earlier capture here understated telemetry by construction. Re-run with the emulator pointed at Quad9 (`--dns-server 9.9.9.9`): **the same six events, all Remote Settings, and not one telemetry, Adjust, ads, crash-reporting or Google endpoint.** The sinkhole was not flattering the result. |
-| E12 | The Remote Settings allowlist has been decided **for Android** | `settings/android.cfg`, `docs/android/evidence/lw-m4-08/RESULT.md` | **met 2026-09-06.** Decided by the maintainer: keep the seven collections carrying security state, drop the twenty-six for features Redoubt does not ship. Landed and verified live (the device reads exactly seven). Measured effect: **52% less data received** on first run, and the **same six requests**, because one changes-endpoint poll serves whatever remains. Going to zero would freeze certificate revocation until the next release; that was put and refused. |
+| E1 | The build carries all landed Android patches (`assets/patches/android.txt`), compiled from the pinned ESR tarball by `make android-apk TARGETS=android` | Candidate build log, source/input manifest and `build-times.txt` | **Met 2026-09-08.** `make android-apk TARGETS=android` completed with R8 on (505 s); the isolated candidate source matches all 248 paths touched by the 50 common/Android patches applied to the pinned tarball. See `evidence/lw-m6-08/candidate-build-times.txt` and `patch-source-comparison.json`. Native AARs are the existing three-ABI inputs; the new patch changes Gradle tooling only. |
+| E2 | Both ARM ABIs are real Gecko builds; every ABI directory in the universal APK carries its engine | Candidate APK entry list and ELF headers for each `libxul.so` | **Met 2026-09-08.** Inspected all four candidate ZIPs and ELF headers: ARM32, ARM64 and x86_64 are real engines, every native ABI directory is expected, and the universal carries all three. `evidence/lw-m6-08/candidate-native-abis.json` binds this check to each APK hash. |
+| E3 | Smoke suite green on the emulator against the beta payload, except the two strict zero-Remote-Settings checks E12 deliberately leaves red | [Candidate audit](evidence/lw-m7-06/beta-audit-2026-09-08/) | **Met 2026-09-08.** Exact x86_64 candidate payload: baseline 7/7; search, branding/UI, suggestions OFF→ON→OFF, update privacy, release `about:config` edit/restart, no-GMS and no-Adjust checks pass. Baseline negative controls and 23 harness regression tests pass. [Final runtime evidence](evidence/lw-m7-06/beta-audit-2026-09-08/final-candidate/README.md). Update checks are compiled out; an enabled update path is untested. The two E12 exceptions remain red. |
+| E4 | Runtime pref audit exits 0, with `expected-prefs.txt` generated from the beta build and its diff reviewed | Candidate pref dump, baseline comparison and audit output | **Met 2026-09-08.** Ran the baseline generator against the final candidate: generator, reviewed diff and audit exit 0. All 58 baseline rows are unchanged (SHA-256 `2ac8b4f9…`). The audit reports zero violations and zero other differences. See `final-candidate/pref-baseline-regeneration.json`, archived before/generated baselines and `pref-audit-final.out` in the candidate audit. Of 137 must-lock keys, 20 are covered by this runtime dump; the generated lock/policy gate covers the rest. |
+| E5 | `board.py --check-fenix-tests` exits 0 on a full Fenix suite from the candidate's source | Archived JUnit XML, source hashes and subtraction output | **Met 2026-09-08.** Full patched-source run: 598 classes / 5,426 tests; 93 failures = 90 environmental + 3 known-real + 0 unexpected; subtraction exit 0. Final JUnit XML and exact source/candidate linkage are archived in the candidate audit (`fenix-gate.txt`, `fenix-junit-xml.tar.gz`, `fenix-final-candidate.json`). |
+| E6 | `scripts/android-verify-repro.sh --r8` exits 0 for the candidate inputs and both outputs match the candidate | Two independent build logs, hashes and negative control | **Met 2026-09-08.** Corrected version and Glean timestamps; `--r8` exits 0 after two independent builds (1,426 s total). All four outputs match each other and the normal candidate byte for byte; the negative control detects its one-byte corruption. [Logs and comparison](evidence/lw-m6-08/repro/README.md). Same-machine APK assembly only; Gecko/AAR and cross-machine reproducibility remain unverified. |
+| E7 | Signed with the release key, **v2 + v3, no v1**, fingerprint matches `SIGNING.md`; signed offline by a holder, never on the CI runner, and the key is no longer readable by that runner | [Signing handoff](evidence/lw-m6-01/RELEASE-HANDOFF.md), signed APK verification, custody confirmation | **Not met.** `~/redoubt-signed/` is empty. On 2026-09-08 `~/redoubt-release.p12` still exists, owned by the user running the live Actions runner. The holder must sign the verified candidate elsewhere and remove the build-host copy after confirming the offline copy. |
+| E8 | A second key holder exists, or the single-holder decision is recorded with a date in `SIGNING.md` | `SIGNING.md`, “Decision: Redoubt ships single-holder” | **Met.** Manuel Gysin's dated 2026-09-06 decision is recorded in commit `aca09eb`. This does not satisfy LW-M6-01's separate two-holder criterion. |
+| E9 | The parity wording (`PARITY.md` §5) is signed off | `PARITY.md` §5, commit `aca09eb` | **Met.** Owner approved the wording verbatim on 2026-09-06. Publication belongs to the public release. |
+| E10 | A triage owner and backup are named, or the dated solo-owner decision is recorded, and the Android bug-report form (LW-M7-04) is live | `TRIAGE.md` §0, local form, [live repository audit](evidence/lw-m7-06/beta-audit-2026-09-08/human-criteria.md) | **Not met.** The owner and accepted solo arrangement are recorded. The local YAML schema is repaired, but the form is absent from GitHub's default branch, required labels are absent, and live submission has not been verified. |
+| E11 | First-run network capture uses a resolver that does **not** sinkhole Mozilla hosts | Candidate pcap, DNS control and parsed events | **Met 2026-09-08.** The final candidate was captured with emulator DNS `9.9.9.9`; direct controls return public addresses for telemetry, ads and security hosts. The authoritative `final-candidate/first-run-capture-final.json` records 11 outbound transport events, including three complete security-host SNI names. Raw pcap and DNS controls are retained. These are transport observations, not decrypted requests or complete app-UID attribution. |
+| E12 | The Remote Settings allowlist has been decided **for Android**, and the beta carries that decision | `settings/android.cfg`, `evidence/lw-m4-08/RESULT.md`, candidate pref dump | **Met 2026-09-08.** The final candidate’s effective `librewolf.services.settings.allowedCollections` matches all seven approved entries in `settings/android.cfg`; the eleven local `allowedCollectionsFromDump` entries are unchanged. See the candidate audit’s `final-candidate/prefs-all.json`. The two strict zero-traffic checks remain red and retain their original assertions; hostnames alone cannot establish which encrypted collections were requested. |
 
-E7–E10 are human actions; nothing an agent does can meet them. E1–E6, E11 and
-E12 are build-and-measure or decide-and-record work.
+**Current result: ten of twelve entry criteria met. E7 and E10 remain open.**
 
-**Where this stood at the end of 2026-09-06:** eleven of twelve met. Everything
-except **E7**. Outstanding: **E7 alone**, and it is now one offline command rather than a task. The
-unsigned artifacts are built and checksummed, the signing invocation is verified, and
-the checker that judges the result has been checked in both directions. The step that
-remains needs the passphrase and a machine that is not this one — see
-`docs/android/evidence/lw-m6-01/RELEASE-HANDOFF.md`.
+**Audit reopened 2026-09-08.** The previous “eleven of twelve met” summary was
+not supported for the final unsigned APKs. Their hashes and version codes differed
+from the old reproducibility and runtime evidence, and the bug form was never live
+on the default branch. The current audit binds each result to the actual candidate.
 
-One open problem is not an entry criterion and outranks several that are: **the keystore
-lives on the build host and the Actions runner executes as its owner**, so any workflow
-reaching that runner can read it (`SIGNING.md` custody rule 3). Moving it is a
-maintainer action. The device evidence is in `docs/android/evidence/lw-m7-06/`, which also
-records what each passing check did *not* cover.
+Key custody is part of **E7**, not an optional issue outside these criteria.
+Signature verification cannot establish where signing occurred or whether the
+runner can still read the key. Those facts need separate holder confirmation and
+build-host verification. No release key or passphrase is used by this audit.
+
+Preparing entry does not complete the 14-day beta. Device assignments, tester
+results, the second-build upgrade and the public-release GO/NO-GO below remain
+required at their respective stages.
 
 ## 2. Device spread
 
@@ -66,8 +66,8 @@ asks for exactly this ("who holds which device").
 
 ## 3. Duration and channel
 
-- **Length:** 14 days from the first install, matching the launch-window rotation
-  in `TRIAGE.md` §5, so one calendar drives both.
+- **Length:** 14 days from the first install. The public-launch rotation in
+  `TRIAGE.md` §5 starts separately when the public download page goes live.
 - **Channel:** direct APK only, from a private link, signed with the release key
   (E7). Not the F-Droid repo, not Accrescent: those channels are M6-03/M6-04 and
   come after the beta, and a beta build in a public repo is a public release.
@@ -97,7 +97,7 @@ that identifies a person:
 5. **Privacy posture, from the UI:** Settings > Search lists DuckDuckGo (default),
    Startpage, Mojeek, Wikipedia — with icons; "Show search suggestions" is off;
    Settings > About shows no "Check for updates" row (compiled out) or shows it
-   off (compiled in); `about:config` is not reachable in the release build.
+   off (compiled in); `about:config` is reachable in the release build; privacy locks remain enforced.
 6. **Sites that break** with RFP/ETP strict, listed by URL; whether stock Firefox
    for Android breaks them too.
 7. **Anything that says "Firefox" or "Mozilla" in the UI**, with a screenshot —
@@ -106,9 +106,10 @@ that identifies a person:
 8. **Battery**: subjective only, unless the tester volunteers `dumpsys batterystats`.
 
 How: one issue per finding through the Android bug-report form (LW-M7-04) with the
-`beta` label, or one summary message per tester at day 7 and day 14 if the form is
-not yet live. `adb logcat` is asked for only on crashes, with the warning that it
-contains visited URLs.
+`beta` label. The form must be live before the beta starts (E10). If it becomes
+unavailable during the beta, testers may provide summary messages at day 7 and
+day 14; this fallback does not waive E10. `adb logcat` is asked for only on
+crashes, with the warning that it contains visited URLs.
 
 ## 5. Exit criteria — go / no-go for the public release
 
@@ -119,9 +120,11 @@ contains visited URLs.
   inside the window.
 - N2. Any outbound connection in a first-run capture (E11) to a Mozilla telemetry,
   experiments, ads, or crash-reporting host, or to any Google host from the app
-  itself. Remote Settings traffic (`firefox.settings.services.mozilla.com`) is a
-  no-go too: `rs-blocker-android.patch` exists to stop it, and the 2026-09-02/04
-  capture on the maintainer's host showed a real sync from an unknown build.
+  itself. Remote Settings sync outside E12's approved Android allowlist is also a no-go.
+  The seven entries in `settings/android.cfg` are the recorded exception for
+  security updates; log their traffic and verify the effective allowlist. A
+  Mozilla hostname alone does not prove the traffic is approved, and the strict
+  zero-Remote-Settings harness checks remain unchanged.
 - N3. WebGL broken on any device (L1).
 - N4. A search from the toolbar carrying a partner or attribution code, or going
   to an engine that is not in `assets/search-config-v2.json`.
