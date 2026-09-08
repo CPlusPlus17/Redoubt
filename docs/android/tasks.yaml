@@ -4309,3 +4309,61 @@ tasks:
     agent_safe: yes
     isolation: none
     risk: Native compiler working memory must fit without recreating the earlier host OOM.
+
+  - id: LW-M7-20
+    title: Make Android accounts and Sync opt-in with a restart boundary
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-14, LW-M7-17]
+    owns:
+      - patches/android/sync-opt-in.patch
+      - docs/android/evidence/lw-m7-20/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/AccountServices.kt
+      - mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/manager/FxaAccountManager.kt
+      - mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/sync/WorkManagerSyncManager.kt
+      - mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushScheduler.kt
+      - mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushWorker.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/relay/RelayFeatureIntegration.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/accounts/FxaWebChannelIntegration.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/AccountServicesPreference.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/TurnOnSyncFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/AuthIntentReceiverActivity.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/AuthCustomTabActivity.kt
+      - mobile/android/fenix/app/src/main/res/values/account_services_strings.xml
+      - mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesTest.kt
+      - mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesDisabledTest.kt
+      - mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/sync/AccountServicesWorkerTest.kt
+      - mobile/android/android-components/components/feature/syncedtabs/src/test/java/mozilla/components/feature/syncedtabs/commands/AccountServicesFlushWorkerTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/AccountServicesPreferenceTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
+    reads:
+      - patches/pref-pane/librewolf.js
+      - docs/android/evidence/lw-m7-17/coverage.json
+    what: |
+      Default Android account services off through actual FxA, Sync worker and
+      Relay gates. Provide explicit enable/disable-and-restart controls, commit
+      the choice synchronously, preserve account data and engine choices, and
+      use the process boundary to terminate blocking native work. Gate startup,
+      persisted workers/providers and deep-link callbacks before service work;
+      visiting a login link must never opt in. Preserve existing custom server
+      configuration and logout controls. Register exact source/test paths before
+      implementation; root owns target builds and runtime validation.
+    acceptance:
+      - "fresh and persisted-off starts do not initialize FxA, Sync or Relay service work"
+      - "explicit enable/disable commits the selected state and genuinely restarts; failed persistence leaves the current state and reports an error"
+      - "switch-off cancels account work and terminates native operations without logout or deleting account/engine data"
+      - "workers, delayed callbacks and deep links cannot opt in or revive service work while off"
+      - "explicit opt-in supports actual login/sync/logout with existing custom endpoints and survives process death"
+      - "affected targets compile, meaningful unit gates pass and source-bound APK lifecycle/network tests pass"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "8-16"
+    skills: [android, kotlin]
+    agent_safe: yes
+    isolation: worktree
+    risk: An inert frontend setting or cancelled WorkManager job can leave synchronous native account traffic running.
