@@ -2069,8 +2069,30 @@ tasks:
   - id: LW-M3-07
     title: Preinstall uBlock Origin on Android
     milestone: M3
-    depends_on: [LW-M3-06, LW-M2-04]
-    owns: [patches/android/ubo-preinstall.patch]
+    depends_on: [LW-M3-06, LW-M2-04, LW-M6-11, LW-M7-07]
+    owns:
+      - patches/android/ubo-preinstall.patch
+      - assets/ubo-extension.json
+      - scripts/fetch-ubo-extension.py
+      - scripts/tests/test-ubo-extension.py
+      - scripts/librewolf-patches.py
+      - scripts/check-patch-order.py
+      - docs/android/PATCH-SCOPE.md
+      - docs/android/evidence/lw-m3-07/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt
+      - mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
+      - mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
+      - mobile/android/fenix/app/src/main/res/values/strings.xml
+      - mobile/android/fenix/app/src/main/assets/webextensions/ublock_origin.xpi
     reads: [assets/uBOAssets.json, patches/custom-ubo-assets-bootstrap-location.patch]
     what: |
       Desktop preinstalls uBO via the ExtensionSettings policy. Android has no
@@ -2080,6 +2102,15 @@ tasks:
       custom-ubo-assets-bootstrap-location.patch must keep working — check whether
       that patch is in common.txt and whether its code path is reachable on
       Android.
+
+      REOPENED 2026-09-08 for the owner's feature-completeness goal. Replace the
+      fabricated provider with a hash-pinned genuine XPI, ordinary Gecko-verified
+      file installation and a narrow trusted local install-permission callback.
+      Gate engine-session creation until first installation/reconciliation succeeds
+      so incoming URLs cannot race protection. Persist successful initialization;
+      preserve user removal, disabling and existing installations on later starts.
+      Keep the Gecko filter-assets pref independent of the XPI installation path.
+      The following dated findings describe the old patch, not completed work.
 
       NOT DONE — patch written, measured, and PARKED 2026-08-27. It is on disk and applies
       cleanly (check-patchfail --targets=android exit 0) with its ordering measured against
@@ -2122,6 +2153,10 @@ tasks:
       - "uBO is present and enabled on first launch with no network fetch from Mozilla's collection"
       - "librewolf.uBO.assetsBootstrapLocation is honoured on Android"
       - "the user can uninstall it (we preinstall, we do not force)"
+      - "first navigation waits for real installation; errors are visible and retryable"
+      - "ordinary add-on signature verification and untrusted permission prompts remain enforced"
+      - "user removal and disabling survive restart and application upgrade"
+      - "blocking, custom filter bootstrap and update behavior are verified on a built APK"
     verify: "./scripts/android-smoke.sh --check-ubo"
     effort_h: "8-14"
     skills: [kotlin, android, js]
@@ -3681,3 +3716,38 @@ tasks:
     agent_safe: yes
     isolation: none
     risk: A release tag pointing at older source or a missing submodule would misrepresent the published APKs.
+
+  - id: LW-M7-08
+    title: Audit Android feature completeness against LibreWolf
+    milestone: M7
+    depends_on: [LW-M6-11]
+    owns:
+      - docs/android/FEATURE-PARITY.md
+      - docs/android/evidence/lw-m7-08/
+    reads:
+      - docs/android/PARITY.md
+      - docs/android/POLICIES.md
+      - docs/android/PATCH-SCOPE.md
+      - settings/
+      - patches/
+    what: |
+      The owner requests "get feature complete with librewolf" after installing
+      the first Android beta and identifying the missing default uBlock Origin
+      installation. Derive the complete functional/default/control inventory
+      from current LibreWolf documentation and this repository's desktop build.
+      Check the current Android source and artifacts instead of accepting stale
+      parity reports. Assign implementation and runtime verification work for
+      every gap; distinguish platform differences without counting an explained
+      gap or untested behavior as implemented. This audit is a step toward the
+      full goal, not a substitute for completing and verifying the features.
+    acceptance:
+      - "the inventory covers LibreWolf features, defaults, controls, policies and desktop patch counterparts"
+      - "each item has current evidence and explicit implementation and verification status"
+      - "missing behavior has a concrete follow-up task and acceptance evidence"
+      - "platform constraints and earlier owner decisions remain explicit"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "3-6"
+    skills: [docs, android, kotlin, js]
+    agent_safe: yes
+    isolation: none
+    risk: Stale reports or a narrow privacy-only checklist can hide missing user features.
