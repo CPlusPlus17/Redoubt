@@ -27,7 +27,7 @@ CI workflows or published the local Android implementation commits. A preflight
 on that older remote commit does not validate the newer local beta code.
 
 No full Android build has been demonstrated in this VM. Its allocation is eight
-virtual CPUs, 24 GiB RAM, and a 400 GiB thin qcow2 disk. The guest has a 16 GiB
+virtual CPUs, 16 GiB RAM, and a 400 GiB thin qcow2 disk. The guest has a 16 GiB
 disk swap file plus 8 GiB zram; zram consumes RAM and is not additional physical
 memory. The imported Android image contains Clang 21 and JDK 17; the guest's
 default Java outside the container reports version 25 and is used by the preflight
@@ -35,6 +35,20 @@ tool-presence check. This does not change the Android container's JDK selection.
 The 400 GiB virtual capacity does not reserve 400 GiB on the host. Monitor
 both filesystems' actual free space. Full-build peak RAM, elapsed time, and
 performance remain unverified; the QEMU process also needs host memory overhead.
+
+On 2026-09-08 the host kernel killed the original 24 GiB QEMU process during a
+Fenix unit run; the service had reached a 28.1 GiB memory peak. The allocation
+was reduced to 16 GiB, and the complete host/guest isolation check passed after
+restart. The interrupted suite is not a test pass. Its logs and the kernel
+evidence are retained under `evidence/lw-m7-15/`.
+
+Long manual jobs should run under a named guest `systemd-run --user` service,
+as runner with `XDG_RUNTIME_DIR=/run/user/1001`. An SSH disconnect then leaves
+the job running. Keep a bounded runtime, full logs, source hashes, start/end and
+boot records, and separate Gradle and board-gate exit codes. The recorded
+`evidence/lw-m7-15/run-fenix-suite.sh` uses a 14 GiB container memory limit and
+22 GiB combined memory/swap limit. These limits do not establish that a full
+APK build fits; measure that separately before changing its build resources.
 
 The VM is persistent across jobs. It is not recreated for every job, so workspaces
 and container caches can carry state between jobs. The host kernel, KVM, QEMU,

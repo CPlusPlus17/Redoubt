@@ -3994,3 +3994,32 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: An incomplete permission bridge can disable all WebGL or persist permission for the wrong origin.
+
+  - id: LW-M7-15
+    title: Bound CI memory after a measured host OOM interruption
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M6-09]
+    owns:
+      - scripts/ci-vm/inside.sh
+      - scripts/ci-vm/verify-guest.sh
+      - docs/android/CI-VM.md
+      - docs/android/evidence/lw-m7-15/
+    what: |
+      The host kernel killed the 24 GiB QEMU process during the combined Fenix
+      suite, and systemd restarted the VM. Preserve the failed-run evidence.
+      Reduce guest RAM to 16 GiB with the existing disk swap, verify the resource
+      and isolation contract after a controlled restart, and run long manual
+      validation jobs under the guest service manager with terminal exit receipts.
+      Leave unrelated host applications alone. Measure the subsequent build and
+      tests before claiming the new allocation is sufficient.
+    acceptance:
+      - "host OOM and interrupted-suite evidence is preserved without a false test pass"
+      - "the VM boots with 16 GiB RAM, unchanged isolation and usable disk swap"
+      - "validation jobs survive SSH disconnects and record terminal status"
+      - "subsequent full-suite and APK-build resource results are recorded"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "2-4"
+    skills: [ops, shell]
+    agent_safe: yes
+    isolation: none
+    risk: An oversized guest can kill the CI process and stall the user's host.

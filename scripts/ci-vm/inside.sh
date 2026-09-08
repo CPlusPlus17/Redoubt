@@ -23,7 +23,7 @@ done
 # their pathname Unix socket crosses this additional network namespace.
 bwrap --unshare-net --bind / / --dev-bind /dev /dev --die-with-parent \
   qemu-system-x86_64 -name redoubt-ci -machine q35,accel=kvm \
-  -cpu host -smp 8 -m 24576 -display none -nodefaults \
+  -cpu host -smp 8 -m 16384 -display none -nodefaults \
   -drive if=pflash,format=raw,unit=0,readonly=on,file=/usr/share/edk2/ovmf/OVMF_CODE.fd \
   -drive if=pflash,format=raw,unit=1,file=/vm/OVMF_VARS.fd \
   -drive file=/vm/system.qcow2,if=virtio,format=qcow2,discard=unmap \

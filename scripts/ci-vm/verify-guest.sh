@@ -46,7 +46,8 @@ disk = os.statvfs('/home')
 free = disk.f_bavail * disk.f_frsize
 gib = 1024**3
 require(cpus == 8, f'expected 8 CPUs, found {cpus}')
-require(mem['MemTotal'] >= 23*gib, f'RAM below 23 GiB: {mem["MemTotal"]} bytes')
+require(15*gib <= mem['MemTotal'] <= 16*gib,
+        f'RAM outside the 16 GiB guest allocation: {mem["MemTotal"]} bytes')
 require(free >= 150*gib, f'/home free space below 150 GiB: {free} bytes')
 # A 16 GiB swap file reserves one page for its header.
 require(mem['SwapTotal'] >= 16*gib-os.sysconf('SC_PAGE_SIZE'),
