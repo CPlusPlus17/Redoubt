@@ -28,5 +28,16 @@ service `redoubt-parity-fenix-20260909.service`, invocation
 container to 14 GiB RAM and 22 GiB combined RAM/swap. It records boot ID,
 start/finish, logs, memory statistics, XML and separate Gradle/board exit codes
 under guest `evidence/parity-third-combined/`. The service continued running
-after its launch SSH connection closed. Its terminal result and the subsequent
-APK build remain pending.
+after its launch SSH connection closed and completed at 22:16:20 UTC. The full
+Fenix gate passed: 602 classes / 5,468 tests; 90 failures = 87 environmental +
+3 known-real + 0 unexpected, with seven skipped tests. Gradle itself exits 1
+for those documented failures; the subtraction gate exits 0. The allowlist was
+not expanded. The container recorded a 10,746,257,408-byte memory peak and zero
+OOM or OOM-kill events. The complete log, XML and terminal receipts are preserved
+in `parity-third-combined/`.
+
+Source binding and the separately preserved extension-support XML are in
+`../lw-m7-12/completed-fenix/`. The subsequent APK build started at 22:18:32 UTC
+as `redoubt-parity-apk-20260909.service`, invocation
+`92173718935e4060add560c011f667ae`, using the checked-in `run-feature-apk.sh`
+and `podman-bounded.sh`. Its result remains pending.
