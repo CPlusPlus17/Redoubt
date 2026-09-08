@@ -74,11 +74,14 @@ checks remain red under the approved E12 decision.
 **E7 remains open on custody:** the four signed APKs are now in
 `~/redoubt-signed/`. All four verify against the published key, require v2+v3 with
 no v1, and contain exactly the tested candidate ZIP payloads. The user confirms
-signing happened on Fedora, the build host. `~/redoubt-release.p12` remains there,
-owned by the same user as the Actions runner. No off-host signing or custody
+signing happened on Fedora, the build host at that time. No off-host signing or custody
 confirmation is claimed. See [intake evidence](evidence/lw-m6-08/returned-signing-intake.json).
-The owner instead requested moving CI/CD into a QEMU VM. That migration is
-in progress; the earlier host signing remains recorded as such.
+The requested [QEMU migration](CI-VM.md) is complete: runner `redoubt-ci-qemu`
+passed the real Actions preflight; the old host runner is unregistered and its
+service is masked. Guest and QEMU checks confirm no host home or signing-key path
+is exposed, and the guest cannot initiate connections to the private host network.
+The earlier host signing remains recorded as such; migration does not establish
+historical offline signing.
 
 **E10 is met:** the corrected form and private security contact are on default
 `main`; all eleven approved labels are live, and GitHub’s public preview renders
