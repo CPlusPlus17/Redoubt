@@ -1537,8 +1537,57 @@ def check_gum(m, res, app, adb, forcefail=False):
              "dialogs": tapper.dialogs, "alive": alive, "crashed": crashed})
     return ok
 
+def grade_https_interstitial(prefs, info):
+    return (prefs.get("enabled") is True and prefs.get("locked") is False
+            and info.get("ready") == "complete" and info.get("marker") is None
+            and info.get("continueVisible") is True and info.get("canAddException") is True)
+
+def check_https_only(m, res, http_url, forcefail=False):
+    prefs = m.script('return {enabled:Services.prefs.getBoolPref("dom.security.https_only_mode", false), '
+                     'locked:Services.prefs.prefIsLocked("dom.security.https_only_mode")};', chrome=True)
+    m.cmd("Marionette:SetContext", {"value":"content"})
+    navigation_error = None
+    try:
+        m.cmd("WebDriver:Navigate", {"url":http_url})
+    except MarionetteError as error:
+        # Reaching a browser error page is expected. It must be the HTTPS-only
+        # interstitial with its real exception control, not any navigation error.
+        navigation_error = str(error)
+    probe = r"""
+      const b = document.getElementById("continueHttp");
+      return {url:location.href, uri:document.documentURI, title:document.title,
+              ready:document.readyState,
+              marker:(document.getElementById("marker")||{}).textContent || null,
+              continueVisible:!!b && b.getClientRects().length > 0,
+              canAddException:typeof document.reloadWithHttpsOnlyException === "function"};
+    """
+    info = {}
+    for _attempt in range(60):
+        try:
+            info = m.script(probe) or {}
+            if info.get("ready") == "complete" and (
+                info.get("marker") is not None or info.get("continueVisible") is True
+            ):
+                break
+        except MarionetteError as error:
+            if "Document was unloaded" not in str(error):
+                raise
+            info = {"transient_error":str(error)}
+        time.sleep(0.25)
+    enforced = grade_https_interstitial(prefs, info)
+    res.add("https-only-interstitial", enforced and not forcefail,
+            "HTTP must reach the HTTPS-only interstitial before the user grants an exception",
+            {"prefs":prefs, "page":info, "navigation_error":navigation_error})
+    if enforced:
+        # A real user action, without setting a pref or adding a permission from
+        # chrome script. The following HTTP page-load is the positive control.
+        click_page(m, "#continueHttp")
+        wait_for_initial_document(m, http_url)
+    return enforced and not forcefail
+
 def check_pageload(m, res, origin, http_url, https_url, forcefail=False):
-    ok_all = True
+    http_url += "?https-only-" + os.urandom(8).hex()
+    ok_all = check_https_only(m, res, http_url, forcefail)
     for label, url, want_secure in (("page-load-http", http_url, False),
                                     ("page-load-https", https_url, True)):
         since = time.time()
@@ -3454,7 +3503,7 @@ def main(argv):
                     help="prove the harness reports failure when a probe fails")
     for f in ("ubo", "ubo-preinstall", "ubo-lifecycle", "search", "no-gms", "no-adjust",
               "aboutconfig", "no-suggest", "strings", "update-privacy",
-              "no-remote-settings"):
+              "no-remote-settings", "https-only"):
         ap.add_argument("--check-" + f, action="store_true")
     args = ap.parse_args(argv)
     if (args.check_ubo_preinstall or args.check_ubo_lifecycle) and args.keep_state:
@@ -3505,7 +3554,7 @@ def main(argv):
         args.emulator or args.serial or args.pref_dump or args.network_capture
         or args.first_run_capture or args.check_ubo or args.check_search
         or args.check_aboutconfig or args.check_no_suggest or args.check_update_privacy
-        or args.check_ubo_preinstall or args.check_ubo_lifecycle or args.self_test)
+        or args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_https_only or args.self_test)
     if args.check_no_gms:
         check_no_gms(apk, res)
     if args.check_no_adjust:
@@ -3542,6 +3591,7 @@ def main(argv):
     app.extra_prefs = extra_prefs
     origin = None
     m = None
+    bootstrap_reverse = None
     try:
         app.install(apk, preserve_state=args.keep_state)
         if not args.keep_state:
@@ -3643,8 +3693,15 @@ def main(argv):
             run_ubo_behavior(app, adb, apk, origin, res, lifecycle=args.check_ubo_lifecycle)
             return finish(res, args, work)
 
+        # Start on loopback so a secure-by-default browser can create its first
+        # session without a certificate exception or weakening HTTPS-only.
+        bootstrap_reverse = "tcp:%d" % http_port
+        adb.run("reverse", bootstrap_reverse, bootstrap_reverse, check=True)
+        bootstrap_url = "http://127.0.0.1:%d/empty" % http_port
+
         cap_off = pcap_size(pcap) if pcap else 0
-        m = open_session(app, http_url)
+        m = open_session(app, bootstrap_url)
+        wait_for_initial_document(m, bootstrap_url)
         build = m.script('return {version: Services.appinfo.version, '
                          'buildID: Services.appinfo.appBuildID, name: Services.appinfo.name, '
                          'os: Services.appinfo.OS};', chrome=True)
@@ -3688,7 +3745,10 @@ def main(argv):
         if args.check_aboutconfig:
             # The session is replaced by the restart this check performs, so the
             # finally block below cleans up the live one.
-            _ok, m = check_aboutconfig(m, res, app, apk, http_url)
+            _ok, m = check_aboutconfig(m, res, app, apk, bootstrap_url)
+            return finish(res, args, work)
+        if args.check_https_only:
+            check_pageload(m, res, origin, http_url, https_url)
             return finish(res, args, work)
         if args.check_ubo:
             check_ubo(m, res)
@@ -3748,6 +3808,8 @@ def main(argv):
             pass
         if origin:
             origin.stop()
+        if bootstrap_reverse:
+            adb.run("reverse", "--remove", bootstrap_reverse)
         if emu and not args.keep_emulator:
             emu.stop()
         elif emu:

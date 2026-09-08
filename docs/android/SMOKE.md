@@ -128,6 +128,14 @@ rule, the installed add-on's signature state, the DOM observations, and origin
 requests. The gate never adds test filters or installs a test uBO extension.
 Runtime evidence is still required before claiming that a candidate passes.
 
+`--check-https-only` exercises the new default and is also part of the baseline
+page-load suite. HTTP to the local non-loopback fixture must show the browser's
+HTTPS-only interstitial. The test uses its actual Continue button, then requires
+the HTTP page to load; valid HTTPS must also load with a real trusted throwaway
+chain. A generic network error, a pref value alone, a hidden button, or a page
+loaded before the exception cannot pass. Normal smoke sessions bootstrap over
+ADB loopback before trusting the fixture CA, without changing HTTPS-only prefs.
+
 `--keep-state` now refuses to uninstall an incompatible existing app when APK
 installation fails. This preserves the state whose retention the caller intends
 to test instead of silently turning the run into a fresh installation.

@@ -376,5 +376,22 @@ class AppInstallStateTests(unittest.TestCase):
         self.assertEqual(device.calls[0][0], "install")
 
 
+class HttpsOnlyBehaviorGateTests(unittest.TestCase):
+    def test_requires_active_default_and_real_visible_exception_control(self):
+        prefs = {"enabled":True, "locked":False}
+        info = {"ready":"complete", "marker":None, "continueVisible":True, "canAddException":True}
+        self.assertTrue(harness.grade_https_interstitial(prefs, info))
+        for key, value in (("continueVisible", False), ("canAddException", False),
+                           ("ready", "loading"), ("marker", "lw-smoke-page-ok")):
+            with self.subTest(key=key):
+                self.assertFalse(harness.grade_https_interstitial(prefs, {**info, key:value}))
+        for key, value in (("enabled", False), ("locked", True)):
+            with self.subTest(key=key):
+                self.assertFalse(harness.grade_https_interstitial({**prefs, key:value}, info))
+
+    def test_missing_error_page_evidence_cannot_pass_from_pref_alone(self):
+        self.assertFalse(harness.grade_https_interstitial({"enabled":True, "locked":False}, {}))
+
+
 if __name__ == '__main__':
     unittest.main()
