@@ -22,8 +22,8 @@ error. The whole harness exists so that build fails.
 ```
 
 That boots a headless x86_64 emulator with packet capture, installs the APK,
-wipes the app's data, runs the seven baseline checks and kills the emulator
-again. **Measured end to end: 33 s** on the reference host, cold boot included.
+wipes the app's data, runs the eight baseline checks and kills the emulator
+again. Runtime depends on the host, nested virtualization and candidate startup.
 
 Against an emulator or device you already have running:
 
@@ -36,7 +36,7 @@ Against an emulator or device you already have running:
 | | |
 |---|---|
 | host | `python3` >= 3.8, `openssl`, an Android SDK with `platform-tools` (and `emulator` + an x86_64 system image for `--emulator`) |
-| APK | a **debuggable** build. See "why debuggable" below. |
+| APK | a debug or release-configured build; the harness temporarily names a release package as the debug app to enable Gecko's test connection, then clears that setting |
 | device | an emulator, for anything involving the network capture |
 
 The SDK is found from `--sdk`, then `$ANDROID_SDK_ROOT`, `$ANDROID_HOME`, then
@@ -95,7 +95,7 @@ the pref dump, or the capture table. That is what makes
 
 ## How it works
 
-Three independent channels, chosen so that no check has to trust the thing it
+Four independent channels, chosen so that no check has to trust the thing it
 is testing.
 
 ### First-navigation uBlock Origin checks
@@ -343,7 +343,9 @@ The probe extension is uninstalled again at the end.
 **Does not prove:** that a *signed* XPI installs, or that permanent (non-
 temporary) installation works. `xpinstall.signatures.required` is `true` in
 this build; the check uses a temporary install, which bypasses that. The uBO
-preinstall path is a different mechanism and is `--check-ubo`'s problem.
+preinstall path is exercised by `--check-ubo-preinstall` and
+`--check-ubo-lifecycle`, including genuine signature and first-page blocking
+assertions. The older `--check-ubo` flag checks the registry only.
 
 ### `pref-dump`
 
