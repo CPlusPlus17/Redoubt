@@ -72,9 +72,13 @@ asks for exactly this ("who holds which device").
 
 - **Length:** 14 days from the first install. The public-launch rotation in
   `TRIAGE.md` §5 starts separately when the public download page goes live.
-- **Channel:** direct APK only, from a private link, signed with the release key
-  (E7). Not the F-Droid repo, not Accrescent: those channels are M6-03/M6-04 and
-  come after the beta, and a beta build in a public repo is a public release.
+- **Channel:** direct signed APKs on a **public GitHub prerelease**. On
+  2026-09-08, after approving the exact E7 beta candidate, the owner requested
+  adding its APKs to GitHub Releases. That request supersedes the earlier
+  private-link-only plan for this beta. The release is clearly marked as a
+  prerelease; it does not supply the later stable-release GO/NO-GO decision.
+  F-Droid and Accrescent remain separate M6-03/M6-04 work. Publication target:
+  [`android-153.0esr-1-beta.1`](https://github.com/CPlusPlus17/Redoubt/releases/tag/android-153.0esr-1-beta.1).
 - **Update path test:** at least one **second** beta build is shipped during the
   window, signed with the same key, and every tester installs it over the first.
   A beta that never exercises the upgrade path has not tested the one thing the

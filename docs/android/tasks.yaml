@@ -3652,3 +3652,32 @@ tasks:
     agent_safe: yes
     isolation: none
     risk: A new CI boundary cannot retroactively prove the circumstances of earlier signing.
+  - id: LW-M6-11
+    title: Publish the approved Android beta APKs on GitHub Releases
+    milestone: M6
+    depends_on: [LW-M6-10, LW-M6-06]
+    owns:
+      - docs/android/BETA.md
+      - docs/android/STATUS.md
+      - docs/android/DISTRIBUTION.md
+      - docs/android/evidence/lw-m6-11/
+    what: |
+      The owner requests adding the approved signed APKs to a GitHub release.
+      Publish the first Android prerelease with all four exact approved APKs
+      and their signed checksum manifest. Publish matching source tags and the
+      pinned settings commit so recursive source checkout works. Preserve the
+      default branches. Verify uploaded assets before publishing the draft.
+      Record that this public beta channel supersedes the earlier private-link
+      plan; it is not the later stable-release GO/NO-GO decision.
+    acceptance:
+      - "the GitHub prerelease contains exactly the four approved APKs and signed checksum manifest"
+      - "remote asset digests match local approved files and downloaded assets verify"
+      - "the release source tag and settings gitlink are publicly available"
+      - "release notes state APK selection, requirements, verification and beta limitations"
+      - "publication evidence and the public beta channel are recorded"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "1-2"
+    skills: [ops, docs]
+    agent_safe: yes
+    isolation: none
+    risk: A release tag pointing at older source or a missing submodule would misrepresent the published APKs.

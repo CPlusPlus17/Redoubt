@@ -8,6 +8,12 @@ No APK signed with the release key has previously been distributed, as confirmed
 by the owner. This preparation does not complete the beta's later device testing
 or public-release decision.
 
+The owner subsequently requested adding the four approved APKs to GitHub
+Releases. A public prerelease, `android-153.0esr-1-beta.1`, is being prepared with
+the exact signed files and checksum manifest. This changes the beta's earlier
+private-link channel; it does not declare a stable release or completed device
+testing. See [publication notes](evidence/lw-m6-11/release-notes.md).
+
 ## Current candidate
 
 `librewolf-android-apk-153.0esr-1-beta-20260908/apk/` contains four unsigned release

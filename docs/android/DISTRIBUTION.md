@@ -1,5 +1,20 @@
 # Distribution and the update-check contract — Redoubt (Android)
 
+## First Android beta on GitHub
+
+The owner requested GitHub Releases distribution on 2026-09-08 for the four
+approved signed beta APKs. The publication target is the public prerelease
+[`android-153.0esr-1-beta.1`](https://github.com/CPlusPlus17/Redoubt/releases/tag/android-153.0esr-1-beta.1).
+It contains the ARM64, ARM32, x86_64 and universal APKs under their existing
+`fenix-*-release.apk` filenames, plus `SHA256SUMS.signed`. The release notes
+include the signing fingerprint and verification commands.
+
+This beta has no in-app update check or update notification; later APKs must be
+obtained from Releases and installed over the current build. Obtainium integration
+has not been verified. F-Droid and Accrescent publication remain separate work.
+The following sections describe the future signed-endpoint contract; no such
+endpoint is supplied by publishing a GitHub prerelease.
+
 Redoubt is a fork that ships on the Firefox **ESR** track, and the direct-APK
 distribution has no app store to tell its users an update is out. This page is
 the contract for the one mechanism that fills that gap — an in-app version check
