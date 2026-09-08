@@ -1,0 +1,1973 @@
+{
+  "schema_version": 1,
+  "task": "LW-M7-17",
+  "snapshot_commit": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae",
+  "scope": "All pinned desktop patches, all policy leaves and all copied pane settings/buttons/registrations. Human semantic review plus mechanical enumeration; not a build/runtime parity gate.",
+  "runtime_verdict": "NOT RUN by this audit; no counterpart is certified feature-complete.",
+  "counterparts": {
+    "platform": {
+      "status": "desktop_boundary",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Android app.mozbuild includes toolkit, its branding directory, and mobile/android. It does not include the desktop browser frontend. D-Bus remote command routing, Windows MSIX/COM/EXE manifests, NSWorkspace relaunch, macOS Assets.car, GTK XDG profile migration, XUL toolbars, and desktop CSS therefore need platform treatment. This boundary does not dispose of cross-platform behavior such as permission decisions, settings or cleanup.",
+      "evidence": [
+        "source:android-build",
+        "source:android-config",
+        "source:app-manifest"
+      ],
+      "remaining": "Android intents, app identity, lifecycle, accessibility and private app storage must be checked as Android behavior; no desktop OS parity claim is made."
+    },
+    "branding": {
+      "status": "source_implemented_runtime_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Android branding.patch sets the Redoubt application ID and app name and replaces Android launcher assets. Desktop SVG dimensions and XUL icon placement are not Android rendering inputs.",
+      "evidence": [
+        "repo:patches/android/branding.patch",
+        "source:app-manifest",
+        "source:android-build"
+      ],
+      "remaining": "Check all Android surfaces, release-channel names, icon variants and locale fallbacks. Desktop LibreWolf branding is not copied blindly to the authorized Redoubt product."
+    },
+    "telemetry": {
+      "status": "source_implemented_runtime_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Android MOZ_SERVICES_HEALTHREPORT and MOZ_NORMANDY are false. Android no-glean removes initialization/transport integration, and Analytics retains FirstSessionMetricsService rather than Glean upload services. CrashReporter uses an empty service list and Prompt.NEVER; no-adjust/no-gms remove their integrations. The presence of generated metric classes or a UI submit call alone is not evidence of upload, nor is a false pref alone evidence of absence.",
+      "evidence": [
+        "source:android-config",
+        "source:analytics",
+        "repo:patches/android/disable-data-reporting-android.patch",
+        "repo:patches/disable-data-reporting-common.patch",
+        "repo:patches/android/no-glean.patch",
+        "repo:patches/android/no-adjust.patch",
+        "repo:patches/android/no-gms.patch",
+        "repo:patches/android/no-crashreporter.patch"
+      ],
+      "remaining": "Final APK dependency/manifest inventory and negative network evidence on all relevant entry points remain required. This audit ran neither APK nor network tests."
+    },
+    "eme": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "settings/android.cfg supplies defaultPref(media.eme.enabled,false), the policy effect absent from common/desktop cfg. GeckoView routes media-key-system-access to PERMISSION_MEDIA_KEY_SYSTEM_ACCESS; Fenix PhoneFeature and SitePermissionsRules retain an ASK_TO_ALLOW path. The frozen generic GeckoView prompt writes EXPIRE_NEVER, so desktop private/session lifetime behavior must not be assumed from the type mapping. Common EME patches also gate Clear Key separately.",
+      "evidence": [
+        "source:settings-android.cfg",
+        "source:gv-permission",
+        "source:gv-session",
+        "source:phone-feature",
+        "source:site-rules",
+        "repo:patches/eme-permission-common.patch"
+      ],
+      "remaining": "Measure global default-off, user opt-in, actual DRM playback, deny, exact origin exceptions/revocation, and private/session lifetimes. A site permission row is not a global EME enable switch; the desktop global control still needs an Android counterpart or explicit usable pref control."
+    },
+    "translations": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Fenix already has a global translation feature switch and a separate Offer to translate switch. TranslationSettingsFragment calls translationsFeature.set and dispatches UpdateGlobalOfferTranslateSettingAction, persisting offerTranslation. TranslationsEnabledSettings stores is_enabled_key with default true; Core reads its first value before initializing TranslationsMiddleware. MenuDialogFragment routes Translate Page into the existing translation flow. Model/download/status UI presence does not repair the denied Remote Settings asset path.",
+      "evidence": [
+        "source:translation-settings",
+        "source:translation-store",
+        "source:core",
+        "source:menu",
+        "repo:patches/android/rs-blocker-android.patch"
+      ],
+      "remaining": "LW-M7-16 is separate work in progress at this snapshot: verified explicit asset download/cache and offline translation are not established here. Test global switch and offer switch separately across restart, menu availability, supported hardware/languages, cancel/delete, private mode and stale-document behavior. Desktop context-specific hiding is not identical to a mobile menu."
+    },
+    "password": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "privacy-defaults.patch changes Fenix password-save and login/card/address autofill defaults while preserving stored choices. The separate desktop librewolf.hidePasswdmgr option removes password menu/settings entries; the bounded Fenix/engine-gecko search has no reader for that option. Disabling saving does not implement hiding the manager.",
+      "evidence": [
+        "repo:patches/android/privacy-defaults.patch",
+        "source:settings-desktop.cfg",
+        "search:hide-password-control"
+      ],
+      "remaining": "Implement or explicitly resolve the optional hide-manager behavior. Verify actual save/autofill off and opt-in behavior, UI consistency, stored choices and upgrade; old defaults persisted into XML keys cannot automatically be distinguished from explicit choices."
+    },
+    "locale": {
+      "status": "open_gap",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Desktop languages.patch adds ku to shipped-locales. Frozen Fenix resources contain values-ckb and no values-ku directory; these are distinct locale codes, so the Sorani resource does not prove the ku requirement.",
+      "evidence": [
+        "search:fenix-locales",
+        "repo:scripts/librewolf-patches.py"
+      ],
+      "remaining": "Determine and implement the correct Android ku/Kurmanji locale coverage and selection; verify UI resources and locale fallback on the APK. A resource-directory check alone cannot prove runtime locale completeness."
+    },
+    "link-preview": {
+      "status": "open_gap",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Desktop link-preview.patch separates ordinary preview enablement from AI key-points eligibility. The bounded Fenix browser source search has no browser.ml.linkPreview or LinkPreview counterpart; Android context menus are a separate implementation.",
+      "evidence": [
+        "search:preview-control",
+        "source:android-build"
+      ],
+      "remaining": "Inspect/implement an equivalent optional non-AI page preview where appropriate. Do not claim that disabling all ML delivers the positive preview feature, or infer absence throughout Android from this bounded search."
+    },
+    "graphics": {
+      "status": "open_gap",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "At the frozen source and audit base, webgl-prompt-default.patch deliberately defaults librewolf.webgl.prompt to false on Android because the old desktop observer/UI cannot answer Android requests. This preserves usable WebGL but does not implement desktop per-site protection. LW-M7-14 is concurrent implementation, not part of this pinned snapshot.",
+      "evidence": [
+        "repo:patches/android/webgl-prompt-default.patch",
+        "repo:patches/webgl-permission-common.patch",
+        "source:gv-permission"
+      ],
+      "remaining": "Integrate and compile LW-M7-14, then measure canvas/WebGL protection before choice, actual Android prompt/quiet indicator, allow/deny, session/permanent/private lifetimes, exact-origin exceptions, revoke and real pixels after reload, including workers/iframes. Also provide global/quiet controls; a native permission constant is not sufficient."
+    },
+    "app-update": {
+      "status": "source_implemented_runtime_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Android has no desktop updater UI/agent to relabel. update-check.patch adds an optional Android notification checker: off by default, hidden without its compiled public key, signature-verifies bounded metadata and opens a download only after a user action. It does not automatically install an APK.",
+      "evidence": [
+        "repo:patches/android/update-check.patch",
+        "source:android-build"
+      ],
+      "remaining": "Test off-state network silence, enabled checks, bad signature and correct external release/download routes on the shipping configuration. This optional Android checker is distinct from the disabled Mozilla desktop updater."
+    },
+    "home": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "no-onboarding makes the Pocket recommendation/sponsored-story eligibility functions false; no-suggest removes the sponsored top-site feed and defaults search/trending suggestions off. But the frozen FML homescreen defaults still enable top-sites, jump-back-in, bookmarks and recent-explorations, and Fenix Settings reads them. Desktop FirefoxHome.TopSites=false and Highlights=false therefore have remaining ordinary-content counterparts. No Weather symbol was found in the bounded home Kotlin search.",
+      "evidence": [
+        "source:home-fml",
+        "source:settings",
+        "source:pocket",
+        "repo:patches/android/no-onboarding.patch",
+        "repo:patches/android/no-suggest.patch",
+        "search:weather-home"
+      ],
+      "remaining": "Resolve ordinary home sections/default shortcuts and Highlights equivalents, preserve user bookmarks/history rather than deleting them, and test fresh/restart/upgrade home. Weather absence is a bounded source observation, not a full APK proof. Recheck all advertisement/recommendation network paths."
+    },
+    "extension-types": {
+      "status": "open_gap",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Android enterprise-policy service is not compiled, so ExtensionSettings.allowed_types and blocked_install_message are not enforced merely by packaging policies.json. The bounded mobile search found no allowed_types/blocked_install_message or desktop-style locale-addon removal loop. Desktop remove-language-packs additionally uninstalls already-installed locale add-ons at startup.",
+      "evidence": [
+        "source:policy-build",
+        "search:language-pack-removal"
+      ],
+      "remaining": "Trace all GeckoView/AMO/file/extension API install routes and implement exact allowed types and useful error handling. Cover existing locale add-ons at upgrade/startup separately from rejecting new installs; preserve dictionary, extension, sitepermission and theme choices where supported. Do not treat an AMO curated list as policy enforcement."
+    },
+    "ubo": {
+      "status": "source_implemented_runtime_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Current ubo-preinstall and ubo-readiness patches bundle a pinned signed uBO XPI, use ordinary AddonManager installation, provision private access initially, and gate engine-session creation on first installation and the real blocking listener. Durable state is designed to preserve user disabling/removal. This is the Android counterpart of normal_installed rather than a permanently forced built-in.",
+      "evidence": [
+        "repo:patches/android/ubo-preinstall.patch",
+        "repo:patches/android/ubo-readiness.patch",
+        "repo:scripts/fetch-ubo-extension.py"
+      ],
+      "remaining": "Full first-navigation, private, disable/remove, update, crash/retry and install-entry matrix remains a runtime obligation. Root is running candidate checks separately; this source audit imports no live success claim. The desktop latest-XPI URL is deliberately represented by a pinned verified build input, with later user-managed extension updates."
+    },
+    "cookie-exemption": {
+      "status": "open_gap",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Desktop site panels store cookie ALLOW on the exact content principal with EXPIRE_NEVER and remove exactly that permission when toggled off. Fenix cleanup deletes COOKIES/AUTH_SESSIONS and DOM_STORAGES without a host argument. GeckoEngine routes unscoped clearData to GeckoViewStorageController, which calls Services.clearData.deleteData. This inspected path does not implement an exemption list. ETP exceptions and clearing site data are different actions.",
+      "evidence": [
+        "source:cleanup",
+        "source:gecko-engine",
+        "source:gv-cleanup",
+        "repo:patches/android/privacy-defaults.patch"
+      ],
+      "remaining": "Add a site-data retention permission/control and ensure automatic cleanup respects it without broad host/subdomain grants. Test retained/nonretained cookies and storage across quit, restart, private sessions and upgrade. Existing explicit Clear all data semantics may differ from automatic cleanup and must be specified."
+    },
+    "onboarding": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "no-onboarding hard-disables first-run and continuous onboarding plus ToS prompts and recommendation scheduling. Desktop default-browser polling/UI is XUL; Android still offers a user-initiated system default-browser setting. The desktop patch removes even that preferences group, so exact UI matching is a conscious platform/product boundary, not automatically a pass.",
+      "evidence": [
+        "repo:patches/android/no-onboarding.patch",
+        "source:settings",
+        "source:app-manifest",
+        "source:android-build"
+      ],
+      "remaining": "Verify no default-browser/ToS/setup/review prompts on fresh install and later days, and decide whether the explicit Android default-app affordance remains. Do not confuse no unsolicited prompt with removal of all default-browser controls."
+    },
+    "neterror": {
+      "status": "source_implemented_runtime_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "The Android neterror-jar patch packages warning.svg through the mobile toolkit manifest; common neterror code points to it. Android Fenix also supplies its own error documents, so packaging the SVG proves only resource availability.",
+      "evidence": [
+        "repo:patches/android/neterror-jar.patch",
+        "repo:patches/ui-patches/neterror-common.patch",
+        "source:error-pages"
+      ],
+      "remaining": "Exercise actual cert/network/HTTPS-only error pages and resources on the final APK; the desktop illustration is not assumed to be the visible Fenix page."
+    },
+    "support": {
+      "status": "open_gap",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Frozen AboutFragment links Whats New through SupportUtils.WHATS_NEW_URL (Mozilla Firefox Android notes) and Support via a Mozilla SUMO URL. These do not implement the shipped LibreWolf Issue Tracker SupportMenu or the desktop Visit the repositories label. The Android menu has a distinct WebCompatReporter route and cookie-banner reporting UI; bundled WebCompatFeature instead installs website compatibility interventions and must be preserved.",
+      "evidence": [
+        "source:about",
+        "source:support",
+        "source:menu",
+        "source:more-menu",
+        "source:menu-state",
+        "source:webcompat"
+      ],
+      "remaining": "Provide correct product support/repository/release-note routes and audit feedback/report affordances. Disabled Glean upload does not make a visible reporter truthful. Preserve compatibility interventions while handling the separate reporter, and inspect gating/reachability before deleting UI."
+    },
+    "privacy-defaults": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "privacy-defaults.patch aligns Fenix HTTPS-only, Strict tracking protection, cookie/site-data+cache cleanup, DoH-off/provider catalog and password/autofill defaults, including settings XML and persisted-choice fallbacks. Standard/Custom remain deliberate choices in Android. This is broader than setting Gecko prefs but does not implement desktop strict-only UI literally.",
+      "evidence": [
+        "repo:patches/android/privacy-defaults.patch",
+        "source:cleanup"
+      ],
+      "remaining": "Test positive/negative browser behavior, settings transitions and restarts; preserve explicit choices and existing history. Cleanup on process death and exact retention exceptions are unimplemented/unproven. Ambiguous old persisted defaults need an explicit apply-defaults path or another justified migration design."
+    },
+    "rfp-controls": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "common.cfg defaults privacy.resistFingerprinting true. Desktop letterboxing defaults false and is optional. The bounded Fenix search has no letterboxing pref reader/control, and a browser-window resizing implementation cannot be inferred from the pref. Desktop website appearance UI disables its chooser under RFP; Android theme code is a different frontend, so its effective page color scheme and opt-out controls need checking.",
+      "evidence": [
+        "source:settings-common.cfg",
+        "source:settings-desktop.cfg",
+        "search:mobile-specific-pane-controls",
+        "source:core"
+      ],
+      "remaining": "Implement optional mobile letterboxing and accessible RFP controls as appropriate, then measure coherent viewport/screen/color scheme/timezone/language behavior across devices and opt-out/restart. A pref value alone cannot prove fingerprinting parity."
+    },
+    "addon-updates": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Fenix constructs DefaultAddonUpdater at 12-hour frequency, registers WorkManager periodic jobs and calls AddonManager.updateAddon -> GeckoEngine.updateWebExtension. GeckoViewWebExtension refreshes stale AddonRepository metadata first, then honors AddonManager.updateEnabled before checking/installing updates. This path does not consult autoUpdateDefault before install. Thus extensions.update.enabled is honored; saying both Gecko prefs are simply ignored would be wrong. The desktop combined checkbox writes both prefs.",
+      "evidence": [
+        "source:addon-scheduler",
+        "source:addon-worker",
+        "source:addon-manager",
+        "source:gecko-engine",
+        "source:gv-addons",
+        "source:gecko-addon-manager"
+      ],
+      "remaining": "Add the Android combined control and align scheduler, metadata traffic and per-addon semantics; prove disabled means the intended network silence and enabled ordinary updates still work. Do not count the pref as an Android settings UI or assume the metadata request is prevented by the later updateEnabled guard."
+    },
+    "sync": {
+      "status": "open_gap",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Desktop librewolfSync writes identity.fxaccounts.enabled and requests a restart; desktop.cfg defaults it false. Frozen Fenix BackgroundServices creates FxaAccountManager and starts it when the lazy property is resolved. The bounded Fenix search has no reader of identity.fxaccounts.enabled. Turning off onboarding sign-in cards therefore does not gate the account component or established accounts. no-gms removes push, with polling behavior separate.",
+      "evidence": [
+        "source:settings-desktop.cfg",
+        "source:sync",
+        "search:mobile-specific-pane-controls",
+        "repo:patches/android/no-gms.patch"
+      ],
+      "remaining": "Implement explicit Sync-off/opt-in behavior at actual Fenix component/network boundaries with safe logout/disable semantics. Test fresh, existing account, restart, disabled traffic, manual sync, send/receive tabs and polling limitations; do not erase user data to implement the default."
+    },
+    "network-controls": {
+      "status": "open_gap",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Desktop pane provides IPv6 enablement through network.dns.disableIPv6 inversion and a strict cross-origin referrer checkbox setting XOriginPolicy to 2 or 0. The bounded Fenix source search has no readers of those prefs. common.cfg supplies engine defaults, but a default is not a matching Android control. Safe Browsing pref registrations in the pane are largely leftover registrations, not a visible opt-in checkbox.",
+      "evidence": [
+        "source:settings-common.cfg",
+        "search:mobile-specific-pane-controls",
+        "repo:patches/pref-pane/librewolf.js"
+      ],
+      "remaining": "Provide usable IPv6/referrer controls and verify network effects plus restarts. Audit locked/runtime-written preferences separately; an [ANDROID: LOCK] comment is not lockPref."
+    },
+    "profile-config": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Android about-config.patch forces GeckoProvider.aboutConfigEnabled(true), giving the release frontend its GeckoView config page. The desktop pane also exposes ProfD.reveal; Android app-private storage and an external file manager cannot be assumed to support this desktop action.",
+      "evidence": [
+        "repo:patches/android/about-config.patch",
+        "source:gecko-provider",
+        "source:app-manifest",
+        "repo:patches/pref-pane/librewolf.js"
+      ],
+      "remaining": "Verify release about:config editing, locks and persistence; decide a safe Android profile/config export/access counterpart rather than claiming desktop reveal works. Optional desktop userChrome styling targets XUL; no equivalent Kotlin UI stylesheet feature is implemented."
+    },
+    "ai": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "common.cfg disables browser.ml.enable and locks browser.ai.control.default to blocked, while policies.json separately allows translations. The shared remove-openai patch and asserted patcher deletion remove that integration. Android does not run the enterprise policy service, and Fenix has its own AI-controllable translation and summarization surfaces. A global blocked default cannot by itself prove the per-feature exception works or that all Kotlin features obey it.",
+      "evidence": [
+        "source:settings-common.cfg",
+        "source:policy-build",
+        "source:translation-settings",
+        "source:menu",
+        "repo:patches/remove-openai.patch",
+        "repo:scripts/librewolf-patches.py"
+      ],
+      "remaining": "Verify every AIControls leaf: translations remains available via the verified offline path; PDF alt text, smart tab groups, link key points, chatbot and SmartWindow stay unavailable through all Android entry points. Separate unavailable desktop UI from equivalent Android positive/negative behavior."
+    },
+    "lna": {
+      "status": "source_implemented_runtime_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Static prefs network.lna.enabled and blocking are true. settings/android.cfg actually lockPrefs network.lna.block_trackers true (unlike the stale earlier prose in that file). GeckoSession maps local-network permission and Fenix PhoneFeature/SitePermissionsRules provide the Android permission path. This matches the three policy inputs in source.",
+      "evidence": [
+        "source:static-prefs",
+        "source:settings-android.cfg",
+        "source:gv-session",
+        "source:phone-feature",
+        "source:site-rules"
+      ],
+      "remaining": "Measure local-network requests, tracker blocking, prompt/deny/allow, origin scope, private behavior, revocation and restarts. A permission enum and locked pref do not demonstrate the runtime request is guarded."
+    },
+    "remote-improvements": {
+      "status": "source_implemented_runtime_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Fenix NimbusSetup uses serverSettings=null, initialExperiments=null, setFetchEnabled(false), and no-op maybeFetchExperiments. no-nimbus-toolkit also makes Gecko ExperimentAPI Android initialization return false and enabled-state computation return without enabling features. Rust/JS Remote Settings blockers are separate from this experiment disablement.",
+      "evidence": [
+        "source:nimbus",
+        "repo:patches/android/no-nimbus.patch",
+        "repo:patches/android/no-nimbus-toolkit.patch",
+        "repo:patches/android/rs-blocker-android.patch",
+        "repo:patches/rs-blocker.patch"
+      ],
+      "remaining": "Test negative network/runtime experiment state in the final APK; static FML defaults still feed Android features and can be true. Firefox Labs UI and feedback controls require a separate reachability audit."
+    },
+    "search": {
+      "status": "source_implemented_runtime_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Android search-config.patch forces the packaged configuration path, includes Mojeek/Startpage icon attachments in Rust, and the patcher copies/validates matching search dumps. rs-blocker-android retains local dump reads while denying network fetches. This provides the counterpart to desktop add-mojeek packaging.",
+      "evidence": [
+        "repo:patches/android/search-config.patch",
+        "repo:scripts/librewolf-patches.py",
+        "repo:assets/search-config-v2.json",
+        "repo:patches/android/rs-blocker-android.patch"
+      ],
+      "remaining": "Verify final APK engine list/default/icon, actual searches and private/upgrade choices without remote configuration. Search suggestions off is distinct from Firefox Suggest web/sponsored data feeds."
+    },
+    "jxl": {
+      "status": "open_gap",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "settings-redesign adds an optional image.jxl.enabled control. Frozen toolkit/moz.configure enables MOZ_JXL unless disabled; image/moz.build includes the decoder only with that flag. StaticPrefList defines image.jxl.enabled only under MOZ_JXL and defaults it to IS_NIGHTLY_BUILD. The bounded Fenix search has no direct JXL setting.",
+      "evidence": [
+        "source:toolkit-config",
+        "source:image-build",
+        "source:static-prefs",
+        "search:mobile-specific-pane-controls"
+      ],
+      "remaining": "Confirm the actual release native configuration and decode a known JXL with opt-in enabled and default disabled as specified; implement a usable Android control. A compiled flag or pref existence alone is not actual image decoding."
+    },
+    "policy-engine": {
+      "status": "desktop_boundary",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "toolkit/components/enterprisepolicies/moz.build omits EnterprisePolicies JS modules and components.conf on Android. Shipping the JSON does not enforce its keys. Effects must come from common engine config/patches or Fenix implementations; this map treats each leaf separately.",
+      "evidence": [
+        "source:policy-build",
+        "repo:patches/android/autoconfig-resource-fallback.patch"
+      ],
+      "remaining": "No Android policy engine or generic policy enforcement is claimed. Keep autoconfig loading/locks and policy translation mechanisms distinct."
+    },
+    "firefox-suggest": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Frozen Fenix FeatureFlags.FX_SUGGEST is true; its fx-suggest FML default is false for the release configuration but true for developer/nightly. Settings.enableFxSuggest, showSponsoredSuggestions and showNonSponsoredSuggestions are persisted independently from ordinary search suggestions. Android Remote Settings network is blocked, but local packaged results and stored preferences require separate evaluation. Desktop ImproveSuggest now maps to browser.urlbar.quicksuggest.online.enabled.",
+      "evidence": [
+        "source:feature-flags",
+        "source:home-fml",
+        "source:settings",
+        "source:desktop-policy-effects",
+        "repo:patches/android/no-suggest.patch",
+        "repo:patches/android/rs-blocker-android.patch"
+      ],
+      "remaining": "Verify WebSuggestions, SponsoredSuggestions and ImproveSuggest/online collection separately in the final release APK and on upgrade. Do not equate no-suggest search-engine query defaults with Firefox Suggest policy enforcement."
+    },
+    "website-filter": {
+      "status": "desktop_boundary",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "The desktop WebsiteFilter helper checks exception patterns before blocking a matching URL. The shipped Block and Exceptions arrays contain the same https://localhost/* pattern, so these rules produce no effective website denial. Android omits this policy service and need not add a localhost ban to copy a no-op configuration.",
+      "evidence": [
+        "source:website-filter",
+        "source:desktop-policy-effects",
+        "source:settings-distribution/policies.json"
+      ],
+      "remaining": "This inference concerns exactly the pinned policy values. Re-audit if either array changes; do not claim Android supports arbitrary WebsiteFilter policies."
+    },
+    "default-bookmarks": {
+      "status": "mixed_open",
+      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
+      "android": "Desktop NoDefaultBookmarks disallows the defaultBookmarks feature. Android has a separate initial_shortcuts.json containing Google/Wikipedia and region-specific entries. Those are home shortcuts, not evidence of bookmark-database insertion. Android policy service is absent, and bookmark-seeding equivalence has not been established by the inspected files.",
+      "evidence": [
+        "source:desktop-policy-effects",
+        "source:initial-shortcuts",
+        "source:policy-build"
+      ],
+      "remaining": "Check a fresh bookmark database and startup seeding path. Keep NoDefaultBookmarks separate from the FirefoxHome.TopSites issue and preserve all user-created bookmarks."
+    }
+  },
+  "desktop_patches": [
+    {
+      "path": "patches/add-mojeek.patch",
+      "sha256": "a992b4b42ef37659d362f0c2a95a5da76de5cf0cd89399fd3700cea6be7bfdcb",
+      "lines": 13,
+      "tree_paths": [
+        "services/settings/dumps/main/moz.build"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Package the added Mojeek search icon and metadata for desktop search.",
+          "counterparts": [
+            "search"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/dbus_name.patch",
+      "sha256": "9f672c544df0769ec14c59926a416f76f98b158b7c64c202573571d445dee7ce",
+      "lines": 70,
+      "tree_paths": [
+        "toolkit/components/remote/nsDBusRemoteClient.cpp",
+        "toolkit/components/remote/nsDBusRemoteServer.cpp"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Change D-Bus destination/interface namespaces, fallback name and OpenURL routing from org.mozilla to io.gitlab.",
+          "counterparts": [
+            "platform",
+            "branding"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/disable-data-reporting-desktop.patch",
+      "sha256": "ba682014a7e4738d2cee1d05d7fd69bd8916a3ea5a0bad6f71bfc4cee0462f3e",
+      "lines": 67,
+      "tree_paths": [
+        "browser/components/tabbrowser/content/tabbrowser.js",
+        "browser/moz.configure"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Compile out desktop healthreport and Normandy inputs; remove tab-opening UserInteraction probes.",
+          "counterparts": [
+            "telemetry"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/eme-permission-desktop.patch",
+      "sha256": "d99ee539996d6056fc211fb07e0eafc6fafe522b7f2b57fc6a062736f16d60c9",
+      "lines": 160,
+      "tree_paths": [
+        "browser/components/permissions/ContentPermissionPrompt.sys.mjs",
+        "browser/modules/EMEPermissionPrompt.sys.mjs"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Route media-key-system-access to a doorhanger; allow/block, remember only outside private browsing, honor browser.eme.ui.enabled, and show branded explanatory URL.",
+          "counterparts": [
+            "eme",
+            "support"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/fullpage-translations-customization.patch",
+      "sha256": "d3f18bc4cb2dd146a9c9b92204ae9653e6b1d40dff6d9a4bd5fbe5cf3cc7535e",
+      "lines": 162,
+      "tree_paths": [
+        "browser/base/content/main-popupset.inc.xhtml",
+        "browser/base/content/main-popupset.js",
+        "browser/components/preferences/config/languages.mjs",
+        "browser/components/preferences/main.inc.xhtml",
+        "browser/components/preferences/main.js",
+        "browser/components/translations/content/fullPageTranslationsPanel.js"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Expose global translation enable and separate automatic-popup settings; initialize/download UI only when enabled and add a disable-translations route from the page panel.",
+          "counterparts": [
+            "translations"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/hide-passwordmgr.patch",
+      "sha256": "a08342fb9557dc3c952cf815ea956a7fad2e1a616991cabcef45dd390546f1e8",
+      "lines": 29,
+      "tree_paths": [
+        "browser/base/content/browser-init.js",
+        "browser/components/preferences/privacy.js"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Optional librewolf.hidePasswdmgr removes the app password command and preferences group.",
+          "counterparts": [
+            "password"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/languages.patch",
+      "sha256": "0c1ae943e4580d46edcb2dba1a1e3736e0e3cb6067d771e37ddc037d93359b76",
+      "lines": 12,
+      "tree_paths": [
+        "browser/locales/shipped-locales"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Include ku in shipped desktop locales.",
+          "counterparts": [
+            "locale"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/link-preview.patch",
+      "sha256": "c440bb0e38598e97a12031837ff994df8fb05c590bea338a631213fea1e01b8b",
+      "lines": 33,
+      "tree_paths": [
+        "browser/components/preferences/config/tabs-browsing.mjs"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Keep ordinary link-preview enable independent from AI key-points opt-in/visibility.",
+          "counterparts": [
+            "link-preview",
+            "ai"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/lw-permissions.patch",
+      "sha256": "c43aa9002d72e4c755f989bffd301801faa4d042e4b2a1b726038367a5450ef5",
+      "lines": 237,
+      "tree_paths": [
+        "browser/base/content/navigator-toolbox.inc.xhtml",
+        "browser/components/preferences/config/permissions-data.mjs",
+        "browser/components/preferences/dialogs/sitePermissions.js",
+        "browser/modules/SitePermissions.sys.mjs",
+        "browser/modules/moz.build",
+        "browser/themes/shared/preferences/privacy.css"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Expose global EME approval/UI and WebGL gates, visible exception editors, allow/block site entries and disabled-state invalidation.",
+          "counterparts": [
+            "eme",
+            "graphics"
+          ]
+        },
+        {
+          "effect": "Package EME/WebGL prompt modules and show their blocked/notification icons and permission labels.",
+          "counterparts": [
+            "eme",
+            "graphics",
+            "platform"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/macos-relaunch-without-updater.patch",
+      "sha256": "099547c04ea488574e817d1cff575f9f2d75be4441309a6ba39afe7e6c29bbe8",
+      "lines": 17,
+      "tree_paths": [
+        "toolkit/xre/nsCommandLineServiceMac.mm"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Use updater.app for relaunch only when it exists; otherwise permit direct NSWorkspace app relaunch.",
+          "counterparts": [
+            "platform"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/moz-official-desktop.patch",
+      "sha256": "9c99bf15c82c9e1826a633142df326328bafbf22fa09b635cb348d4aafdab321",
+      "lines": 135,
+      "tree_paths": [
+        "browser/base/content/browser-init.js",
+        "browser/base/content/browser-main.js",
+        "browser/base/jar.mn"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Keep XUL quick-restart development helper packaged and load/init it only with optional librewolf.devHelpers, even in official builds.",
+          "counterparts": [
+            "platform",
+            "profile-config"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/msix.patch",
+      "sha256": "063a0c4d985be68f984aadbf405b8755b9e4cf43a7879008e5650f9f2c62eeba",
+      "lines": 268,
+      "tree_paths": [
+        "browser/installer/windows/msix/AppxManifest.xml.in",
+        "python/mozbuild/mozbuild/mach_commands.py",
+        "python/mozbuild/mozbuild/repackaging/msix.py"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Set Windows package runtime dependency/tile background and remove MSAA COM proxy registrations; correct LibreWolf version encoding, vendor/identity/display name and distribution-directory handling during MSIX repackaging.",
+          "counterparts": [
+            "platform",
+            "branding"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/newtab-fix.patch",
+      "sha256": "623bb64440211662d2ad193c46c11cf6295e177d2593adc4f1b54f90fc446e69",
+      "lines": 12,
+      "tree_paths": [
+        "browser/modules/AboutNewTab.sys.mjs"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Stop desktop new-tab initialization awaiting trainhopFeatureReady after experiment removal.",
+          "counterparts": [
+            "remote-improvements",
+            "home"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/remove-language-packs.patch",
+      "sha256": "df9894854c7d3198d53ce5af2c23022a84075f649a0b9f23010bd4c17801ea75",
+      "lines": 21,
+      "tree_paths": [
+        "browser/components/BrowserGlue.sys.mjs"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "On browser startup uninstall every existing locale-type add-on and log failures, separately from rejecting future installs.",
+          "counterparts": [
+            "extension-types"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/remove-pingsender-desktop.patch",
+      "sha256": "adecb7ecbdbcf7df397e709121c9fe38739b2570d68720e827558796af12a97c",
+      "lines": 39,
+      "tree_paths": [
+        "browser/app/macbuild/Contents/MacOS-files.in",
+        "browser/installer/package-manifest.in",
+        "browser/installer/windows/nsis/shared.nsh"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Remove pingsender from macOS package inputs, main installer manifest and Windows executable handling; common code removes its build entry.",
+          "counterparts": [
+            "telemetry",
+            "platform"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/temp-macos-fix.patch",
+      "sha256": "eae164337c12fc3e1543aa3896fa0381b747c68805e4c8bf2b74d16754a395f7",
+      "lines": 37,
+      "tree_paths": [
+        "browser/app/Makefile.in",
+        "browser/app/macbuild/Contents/Info.plist.in",
+        "browser/installer/package-manifest.in"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Use legacy icns icons instead of CFBundleIconName/AppIcon/Assets.car and stop copying/packaging Assets.car.",
+          "counterparts": [
+            "platform",
+            "branding"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/add-translate-page-context-menu.patch",
+      "sha256": "029d604f74d976b70f70b2f6f81e82f0c13776d478cdc9934ac191c156966385",
+      "lines": 82,
+      "tree_paths": [
+        "browser/base/content/browser-context.inc.xhtml",
+        "browser/base/content/browser-context.js",
+        "browser/base/content/nsContextMenu.sys.mjs"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Add Translate Page action with enable/hardware/about-page/context guards, distinct from selection translation.",
+          "counterparts": [
+            "translations"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/allow_cookies_for_site.patch",
+      "sha256": "62cb58d860336f048855190a27a6a407f254620f9cf1f8cc014f9b2636dc275d",
+      "lines": 144,
+      "tree_paths": [
+        "browser/base/content/browser-siteIdentity.js",
+        "browser/base/content/browser-trustPanel.js",
+        "browser/components/controlcenter/content/identityPanel.inc.xhtml",
+        "browser/components/controlcenter/content/trustPanel.inc.xhtml"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Both identity and trust panels expose current exact-principal cookie ALLOW state, set persistent EXPIRE_NEVER permission and remove exactly that permission when switched off.",
+          "counterparts": [
+            "cookie-exemption"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/firefox-view.patch",
+      "sha256": "465c07f9a9999b4002d8a70e30644bcc74b169f4a23ff486e9c4b0ea7a1f1fa8",
+      "lines": 64,
+      "tree_paths": [
+        "browser/base/content/navigator-toolbox.inc.xhtml",
+        "browser/components/customizableui/CustomizableUI.sys.mjs"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Keep Firefox View available in customization but remove default toolbar placement and automatic migration insertion.",
+          "counterparts": [
+            "platform",
+            "home"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/hide-default-browser.patch",
+      "sha256": "3827b8f15199c53b124cd6f7ce5e0fe767d1b3e5026aab9c6d17ec30bd949cb4",
+      "lines": 108,
+      "tree_paths": [
+        "browser/components/preferences/main.inc.xhtml",
+        "browser/components/preferences/main.js"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Remove default-browser settings group, polling and state/button controls, and startup always-check option.",
+          "counterparts": [
+            "onboarding",
+            "platform"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/hide-finish-setup-bookmark.patch",
+      "sha256": "18f1b3ea14f4492db0faadd3c3f870715942a709be73c453c197a95ed50ee6db",
+      "lines": 22,
+      "tree_paths": [
+        "browser/components/asrouter/modules/OnboardingMessageProvider.sys.mjs"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Make both onboarding/easy-checklist message targeting expressions false.",
+          "counterparts": [
+            "onboarding"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/home-preferences.patch",
+      "sha256": "aff03284db4ba78b550675a528da3f92a15bcf1111a33a2e7d33cb44c76b232f",
+      "lines": 16,
+      "tree_paths": [
+        "browser/themes/shared/preferences/preferences.css"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Hide Support Firefox sponsored-content marketing and mission message in desktop settings.",
+          "counterparts": [
+            "home",
+            "support"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/lw-logo-devtools.patch",
+      "sha256": "2b49c93ca061151a6b9e46132021e7580f2c339308a3564936cc03f131cd4d27",
+      "lines": 43,
+      "tree_paths": [
+        "devtools/client/aboutdebugging/src/actions/runtimes.js",
+        "devtools/client/jar.mn",
+        "devtools/client/themes/images/aboutdebugging-firefox-librewolf.svg",
+        "devtools/client/themes/images/aboutdebugging-firefox-logo.svg"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Use LibreWolf runtime/logo images in desktop about:debugging for every channel and package them. Android builds server devtools, not this client frontend.",
+          "counterparts": [
+            "branding",
+            "platform"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/neterror-desktop.patch",
+      "sha256": "2d62f3019a79cd3e78a991eefa0f0b9dd74e107ab491f2575e381294effa7899",
+      "lines": 12,
+      "tree_paths": [
+        "toolkit/themes/shared/desktop-jar.inc.mn"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Package shared warning illustration in the desktop toolkit jar.",
+          "counterparts": [
+            "neterror"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/pref-naming.patch",
+      "sha256": "57c9c334cfda2eece3d6b17b44980b55b9c26fa8adda4a59f11649cd2c29db6c",
+      "lines": 20,
+      "tree_paths": [
+        "browser/locales/en-US/browser/preferences/preferences.ftl"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Change DRM help label to Why we disable it and update version link label to Visit the repositories.",
+          "counterparts": [
+            "eme",
+            "support",
+            "app-update"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/privacy-preferences.patch",
+      "sha256": "6a4c2fcf1fcb3b799d34a41daf958680ab8828648c420b0ca4c5e9c41ebdd779",
+      "lines": 301,
+      "tree_paths": [
+        "browser/components/preferences/config/permissions-data.mjs",
+        "browser/components/preferences/config/privacy.mjs",
+        "browser/components/preferences/preferences.js",
+        "browser/components/preferences/privacy.inc.xhtml",
+        "browser/components/preferences/privacy.js",
+        "browser/locales/en-US/browser/preferences/preferences.ftl",
+        "browser/themes/shared/preferences/privacy.css"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Hide Standard/Custom ETP choices and breakage warning, relocate RFP warning, remove introductory marketing and adjust spacing.",
+          "counterparts": [
+            "privacy-defaults",
+            "rfp-controls"
+          ]
+        },
+        {
+          "effect": "Remove history-mode/permanent-private group choices and simplify history UI while retaining individual controls.",
+          "counterparts": [
+            "privacy-defaults",
+            "platform"
+          ]
+        },
+        {
+          "effect": "Remove data-collection/studies/rollouts/crash/telemetry UI and Safe Browsing group initialization.",
+          "counterparts": [
+            "telemetry",
+            "remote-improvements",
+            "network-controls"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/remove-cfrprefs.patch",
+      "sha256": "cf6eb272008ee126a6a25c90c1e04a4f420bf19db711415bcb17ea7e82b57115",
+      "lines": 78,
+      "tree_paths": [
+        "browser/components/preferences/config/tabs-browsing.mjs",
+        "browser/components/preferences/preferences.js"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Remove extension/feature recommendation pref controls, groups and legacy/redesigned pane placements.",
+          "counterparts": [
+            "remote-improvements",
+            "home"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/remove-organization-policy-banner.patch",
+      "sha256": "21dfd320408ffd57239eabf13df493fe7d575be6b12b07554f8454c233750ab2",
+      "lines": 13,
+      "tree_paths": [
+        "browser/components/preferences/preferences.js"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Stop desktop preferences showing the organization policy notice solely because LibreWolf policies are installed.",
+          "counterparts": [
+            "policy-engine",
+            "platform"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/settings-redesign.patch",
+      "sha256": "638ab04f1bda0addc60dd402d67f3d05b8b0779a34219bf8b45933be6ed975c4",
+      "lines": 1052,
+      "tree_paths": [
+        "browser/components/backup/BackupService.sys.mjs",
+        "browser/components/controlcenter/content/trustPanel.inc.xhtml",
+        "browser/components/preferences/config/about-firefox.mjs",
+        "browser/components/preferences/config/account-sync.mjs",
+        "browser/components/preferences/config/appearance.mjs",
+        "browser/components/preferences/config/home-startup.mjs",
+        "browser/components/preferences/config/languages.mjs",
+        "browser/components/preferences/config/privacy.mjs",
+        "browser/components/preferences/config/tabs-browsing.mjs",
+        "browser/components/preferences/main.js",
+        "browser/components/preferences/preferences.js",
+        "browser/components/preferences/preferences.xhtml",
+        "browser/components/preferences/privacy.inc.xhtml",
+        "browser/components/preferences/privacy.js",
+        "browser/components/sidebar/sidebar-pins-promo.mjs",
+        "browser/extensions/newtab/css/activity-stream.css",
+        "browser/extensions/newtab/lib/AboutPreferences.sys.mjs",
+        "browser/themes/shared/jar.inc.mn",
+        "browser/themes/shared/privatebrowsing/aboutPrivateBrowsing.css",
+        "browser/themes/shared/sidebar/librewolf.svg"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Remove updater groups and Share Ideas link; use LibreWolf branding for about/language/sidebar icons, scale newtab/private wordmarks and name backup folder Restore LibreWolf.",
+          "counterparts": [
+            "app-update",
+            "support",
+            "branding",
+            "platform"
+          ]
+        },
+        {
+          "effect": "Expose Sync on/off with restart in account enabled/disabled UI; remove default-browser promos across general/home/account.",
+          "counterparts": [
+            "sync",
+            "onboarding"
+          ]
+        },
+        {
+          "effect": "Expose separate translation-global/automatic-popup controls and conditionally disable popup choice.",
+          "counterparts": [
+            "translations"
+          ]
+        },
+        {
+          "effect": "Expose combined extension-update, IPv6 and referrer controls; move into privacy grouping and remove Safe Browsing/status-warning cards.",
+          "counterparts": [
+            "addon-updates",
+            "network-controls",
+            "telemetry"
+          ]
+        },
+        {
+          "effect": "Expose RFP, optional letterboxing, WebGL-global and quiet controls; retain Strict-only ETP, remove RFP warning and simplify history/permanent-private/delete-on-close layout.",
+          "counterparts": [
+            "rfp-controls",
+            "graphics",
+            "privacy-defaults"
+          ]
+        },
+        {
+          "effect": "Expose combined clipboard autocopy/middle-paste and userChrome stylesheet controls; these act on desktop chrome/input, not a Kotlin UI.",
+          "counterparts": [
+            "platform",
+            "profile-config"
+          ]
+        },
+        {
+          "effect": "Expose optional JPEG XL image decoding.",
+          "counterparts": [
+            "jxl"
+          ]
+        },
+        {
+          "effect": "Remove sponsored shortcuts/stories/mission promo settings and legacy trust-panel graphic; reorganize panes and add user toggle between legacy/redesigned desktop settings with reload.",
+          "counterparts": [
+            "home",
+            "platform"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/trustpanel.patch",
+      "sha256": "8eab9b65645e6b506ab010321eb89ce400ccfb3d9426fea7f5e0a8aaf96c55d2",
+      "lines": 54,
+      "tree_paths": [
+        "browser/themes/shared/controlcenter/panel.css"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Hide ETP promotional description/graphic but preserve tracker count; reorder toggle/count and simplify panel spacing, backgrounds and typography.",
+          "counterparts": [
+            "privacy-defaults",
+            "home",
+            "platform"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/ui-patches/website-appearance-ui-rfp.patch",
+      "sha256": "7db429c73c614253ddc8c5f9b89f67cfbf32a001044d747c146249eb551084a7",
+      "lines": 45,
+      "tree_paths": [
+        "browser/components/preferences/config/appearance.mjs"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Show an RFP warning and disable/fade website color chooser while RFP is enabled, restore interaction when disabled.",
+          "counterparts": [
+            "rfp-controls"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/webgl-permission-desktop.patch",
+      "sha256": "b295532c865c7125b38cfdbfa373b86d68bfd424245e4a17f8655033de6092c7",
+      "lines": 307,
+      "tree_paths": [
+        "browser/base/content/popup-notifications.inc.xhtml",
+        "browser/modules/ObserverForwarder.sys.mjs",
+        "browser/modules/WebGLPermissionPromptHelper.sys.mjs",
+        "browser/themes/shared/icons/webgl-blocked.svg",
+        "browser/themes/shared/icons/webgl.svg",
+        "browser/themes/shared/jar.inc.mn",
+        "browser/themes/shared/notification-icons.css",
+        "browser/themes/shared/notification-icons/webgl-blocked.svg",
+        "browser/themes/shared/notification-icons/webgl.svg"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Route normal/quiet WebGL observer events, suppress duplicate or decided prompts, store session/permanent allow/deny, omit persistence in private browsing, reload on allow and show warning/help plus notification/blocked icons.",
+          "counterparts": [
+            "graphics",
+            "support"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/windows-theming-bug.patch",
+      "sha256": "1b940ba7fdca139b9dab6c2b10dba43732ea9d21f5e96a418dffe12520d9b54e",
+      "lines": 34,
+      "tree_paths": [
+        "browser/app/librewolf.exe.manifest"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Rename/brand Windows EXE compatibility manifest so app-name changes retain correct Windows titlebar/OS behavior.",
+          "counterparts": [
+            "platform",
+            "branding"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/xdg-dir.patch",
+      "sha256": "003306e2284c855e6969e11250db8c8864406535eb88120c21ff1f8319fd27a1",
+      "lines": 77,
+      "tree_paths": [
+        "toolkit/xre/nsXREDirProvider.cpp"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Adjust GTK profile path/vendor/dot handling, detect real legacy profiles.ini, permit XDG even with app profile name, ensure and return the actual profile directory.",
+          "counterparts": [
+            "platform",
+            "profile-config"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/xmas-desktop.patch",
+      "sha256": "c7ea89262a5e81a8de079f8e2ac40796ba99147df8da90b156d994ea9ff4a5a7",
+      "lines": 33,
+      "tree_paths": [
+        "browser/installer/package-manifest.in"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Package local-settings.js, librewolf.cfg and policies.json for desktop. Android autoconfig fallback/manifest is the separate actual config-loading counterpart.",
+          "counterparts": [
+            "policy-engine",
+            "profile-config"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "patches/pref-pane/pref-pane-small.patch",
+      "sha256": "3473eecfb35ca2d5b1cc6ae4678853f6afc2e6c18827f8bcda3bdb7f314e5a39",
+      "lines": 154,
+      "tree_paths": [
+        "browser/components/preferences/jar.mn",
+        "browser/components/preferences/main.js",
+        "browser/components/preferences/preferences.js",
+        "browser/components/preferences/preferences.xhtml",
+        "browser/themes/shared/jar.inc.mn"
+      ],
+      "mapping_status": "mapped; behavior status and proof obligations are in coverage.json",
+      "effects": [
+        {
+          "effect": "Package/register the LibreWolf preferences JS/XHTML/CSS/icon, replace AI navigation with LibreWolf navigation, and define behavior/network/privacy/fingerprinting control groups.",
+          "counterparts": [
+            "policy-engine",
+            "ai",
+            "profile-config",
+            "addon-updates",
+            "sync",
+            "network-controls",
+            "rfp-controls",
+            "graphics"
+          ]
+        }
+      ]
+    }
+  ],
+  "policies": {
+    "AIControls": {
+      "effect": "Allow translations as an exception while blocking the five named other AI features.",
+      "leaves": [
+        {
+          "pointer": "/AIControls/Translations/Value",
+          "value": "available",
+          "effect": "Translations: available. This leaf requires its own effective feature/entry-point check.",
+          "counterparts": [
+            "translations",
+            "ai"
+          ]
+        },
+        {
+          "pointer": "/AIControls/PDFAltText/Value",
+          "value": "blocked",
+          "effect": "PDFAltText: blocked. This leaf requires its own effective feature/entry-point check.",
+          "counterparts": [
+            "ai"
+          ]
+        },
+        {
+          "pointer": "/AIControls/SmartTabGroups/Value",
+          "value": "blocked",
+          "effect": "SmartTabGroups: blocked. This leaf requires its own effective feature/entry-point check.",
+          "counterparts": [
+            "ai"
+          ]
+        },
+        {
+          "pointer": "/AIControls/LinkPreviewKeyPoints/Value",
+          "value": "blocked",
+          "effect": "LinkPreviewKeyPoints: blocked. This leaf requires its own effective feature/entry-point check.",
+          "counterparts": [
+            "ai"
+          ]
+        },
+        {
+          "pointer": "/AIControls/SidebarChatbot/Value",
+          "value": "blocked",
+          "effect": "SidebarChatbot: blocked. This leaf requires its own effective feature/entry-point check.",
+          "counterparts": [
+            "ai"
+          ]
+        },
+        {
+          "pointer": "/AIControls/SmartWindow/Value",
+          "value": "blocked",
+          "effect": "SmartWindow: blocked. This leaf requires its own effective feature/entry-point check.",
+          "counterparts": [
+            "ai"
+          ]
+        }
+      ]
+    },
+    "AppUpdateURL": {
+      "effect": "Point the Mozilla desktop update endpoint at localhost; do not contact Mozilla update servers.",
+      "leaves": [
+        {
+          "pointer": "/AppUpdateURL",
+          "value": "https://localhost",
+          "effect": "Point the Mozilla desktop update endpoint at localhost; do not contact Mozilla update servers.",
+          "counterparts": [
+            "app-update",
+            "platform"
+          ]
+        }
+      ]
+    },
+    "DisableAppUpdate": {
+      "effect": "Disable the Mozilla application updater.",
+      "leaves": [
+        {
+          "pointer": "/DisableAppUpdate",
+          "value": true,
+          "effect": "Disable the Mozilla application updater.",
+          "counterparts": [
+            "app-update",
+            "platform"
+          ]
+        }
+      ]
+    },
+    "DisableDefaultBrowserAgent": {
+      "effect": "Disable the desktop background default-browser agent.",
+      "leaves": [
+        {
+          "pointer": "/DisableDefaultBrowserAgent",
+          "value": true,
+          "effect": "Disable the desktop background default-browser agent.",
+          "counterparts": [
+            "platform",
+            "onboarding"
+          ]
+        }
+      ]
+    },
+    "DisableFeedbackCommands": {
+      "effect": "Suppress product feedback commands. Android reporters/routes must be audited independently of upload transport.",
+      "leaves": [
+        {
+          "pointer": "/DisableFeedbackCommands",
+          "value": true,
+          "effect": "Suppress product feedback commands. Android reporters/routes must be audited independently of upload transport.",
+          "counterparts": [
+            "support",
+            "telemetry"
+          ]
+        }
+      ]
+    },
+    "DisableFirefoxStudies": {
+      "effect": "Prevent study enrollment and experiment fetching.",
+      "leaves": [
+        {
+          "pointer": "/DisableFirefoxStudies",
+          "value": true,
+          "effect": "Prevent study enrollment and experiment fetching.",
+          "counterparts": [
+            "remote-improvements"
+          ]
+        }
+      ]
+    },
+    "DisableRemoteImprovements": {
+      "effect": "Prevent remotely delivered rollouts/improvements.",
+      "leaves": [
+        {
+          "pointer": "/DisableRemoteImprovements",
+          "value": true,
+          "effect": "Prevent remotely delivered rollouts/improvements.",
+          "counterparts": [
+            "remote-improvements"
+          ]
+        }
+      ]
+    },
+    "DisableSetDesktopBackground": {
+      "effect": "False leaves desktop Set as background permitted; this is not a requirement to disable Android wallpaper actions.",
+      "leaves": [
+        {
+          "pointer": "/DisableSetDesktopBackground",
+          "value": false,
+          "effect": "False leaves desktop Set as background permitted; this is not a requirement to disable Android wallpaper actions.",
+          "counterparts": [
+            "platform"
+          ]
+        }
+      ]
+    },
+    "DisableTelemetry": {
+      "effect": "Prevent telemetry collection/upload mechanisms expressed by this policy.",
+      "leaves": [
+        {
+          "pointer": "/DisableTelemetry",
+          "value": true,
+          "effect": "Prevent telemetry collection/upload mechanisms expressed by this policy.",
+          "counterparts": [
+            "telemetry"
+          ]
+        }
+      ]
+    },
+    "DontCheckDefaultBrowser": {
+      "effect": "Do not perform unsolicited desktop default-browser checks/prompts.",
+      "leaves": [
+        {
+          "pointer": "/DontCheckDefaultBrowser",
+          "value": true,
+          "effect": "Do not perform unsolicited desktop default-browser checks/prompts.",
+          "counterparts": [
+            "onboarding",
+            "platform"
+          ]
+        }
+      ]
+    },
+    "WebsiteFilter": {
+      "effect": "Identical localhost block/exception sets have no effective denial.",
+      "leaves": [
+        {
+          "pointer": "/WebsiteFilter/Block",
+          "value": [
+            "https://localhost/*"
+          ],
+          "effect": "Identical localhost block/exception sets have no effective denial.",
+          "counterparts": [
+            "website-filter"
+          ]
+        },
+        {
+          "pointer": "/WebsiteFilter/Exceptions",
+          "value": [
+            "https://localhost/*"
+          ],
+          "effect": "Identical localhost block/exception sets have no effective denial.",
+          "counterparts": [
+            "website-filter"
+          ]
+        }
+      ]
+    },
+    "EncryptedMediaExtensions": {
+      "effect": "Default EME off, unlocked because no Locked=true is supplied.",
+      "leaves": [
+        {
+          "pointer": "/EncryptedMediaExtensions/Enabled",
+          "value": false,
+          "effect": "Default EME off, unlocked because no Locked=true is supplied.",
+          "counterparts": [
+            "eme"
+          ]
+        }
+      ]
+    },
+    "ExtensionSettings": {
+      "effect": "Enforce exact install type set and ordinary signed uBO preinstallation/private initial permission.",
+      "leaves": [
+        {
+          "pointer": "/ExtensionSettings/*/blocked_install_message",
+          "value": "LibreWolf does not allow installing Language Packs.",
+          "effect": "Explain rejected language-pack installation to the user.",
+          "counterparts": [
+            "extension-types"
+          ]
+        },
+        {
+          "pointer": "/ExtensionSettings/*/installation_mode",
+          "value": "allowed",
+          "effect": "Ordinary allowed installations remain user-controlled and are constrained by allowed_types.",
+          "counterparts": [
+            "extension-types"
+          ]
+        },
+        {
+          "pointer": "/ExtensionSettings/*/allowed_types",
+          "value": [
+            "dictionary",
+            "extension",
+            "sitepermission",
+            "theme"
+          ],
+          "effect": "Permit exactly dictionary, extension, sitepermission and theme install types, excluding locale.",
+          "counterparts": [
+            "extension-types"
+          ]
+        },
+        {
+          "pointer": "/ExtensionSettings/uBlock0@raymondhill.net/install_url",
+          "value": "https://addons.mozilla.org/firefox/downloads/latest/uBlock0@raymondhill.net/latest.xpi",
+          "effect": "Use a genuine signed uBO install source; the Android offline build pins and verifies the XPI instead of relying on a live latest URL.",
+          "counterparts": [
+            "ubo"
+          ]
+        },
+        {
+          "pointer": "/ExtensionSettings/uBlock0@raymondhill.net/installation_mode",
+          "value": "normal_installed",
+          "effect": "normal_installed preinstalls once and permits user disable/uninstall; it is not force_installed.",
+          "counterparts": [
+            "ubo"
+          ]
+        },
+        {
+          "pointer": "/ExtensionSettings/uBlock0@raymondhill.net/private_browsing",
+          "value": true,
+          "effect": "Enable private permission for the initial install, then preserve later user choice.",
+          "counterparts": [
+            "ubo"
+          ]
+        }
+      ]
+    },
+    "FirefoxHome": {
+      "effect": "Disable each specified home feature by default, including ordinary TopSites and Highlights.",
+      "leaves": [
+        {
+          "pointer": "/FirefoxHome/Weather",
+          "value": false,
+          "effect": "Weather is false. Map to the Android home surface and prove absence/default state independently.",
+          "counterparts": [
+            "home"
+          ]
+        },
+        {
+          "pointer": "/FirefoxHome/TopSites",
+          "value": false,
+          "effect": "TopSites is false. This is ordinary home content; advertisement removal does not implement it.",
+          "counterparts": [
+            "home"
+          ]
+        },
+        {
+          "pointer": "/FirefoxHome/SponsoredTopSites",
+          "value": false,
+          "effect": "SponsoredTopSites is false. Map to the Android home surface and prove absence/default state independently.",
+          "counterparts": [
+            "home"
+          ]
+        },
+        {
+          "pointer": "/FirefoxHome/Highlights",
+          "value": false,
+          "effect": "Highlights is false. This is ordinary home content; advertisement removal does not implement it.",
+          "counterparts": [
+            "home"
+          ]
+        },
+        {
+          "pointer": "/FirefoxHome/Stories",
+          "value": false,
+          "effect": "Stories is false. Map to the Android home surface and prove absence/default state independently.",
+          "counterparts": [
+            "home"
+          ]
+        },
+        {
+          "pointer": "/FirefoxHome/SponsoredStories",
+          "value": false,
+          "effect": "SponsoredStories is false. Map to the Android home surface and prove absence/default state independently.",
+          "counterparts": [
+            "home"
+          ]
+        }
+      ]
+    },
+    "FirefoxSuggest": {
+      "effect": "Disable offline web/sponsored suggestions and online Suggest collection independently.",
+      "leaves": [
+        {
+          "pointer": "/FirefoxSuggest/WebSuggestions",
+          "value": false,
+          "effect": "Disable Firefox Suggest web results; ordinary search-engine query suggestions are a different setting.",
+          "counterparts": [
+            "firefox-suggest"
+          ]
+        },
+        {
+          "pointer": "/FirefoxSuggest/SponsoredSuggestions",
+          "value": false,
+          "effect": "Disable sponsored Firefox Suggest results; home Contile removal is a different feed.",
+          "counterparts": [
+            "firefox-suggest"
+          ]
+        },
+        {
+          "pointer": "/FirefoxSuggest/ImproveSuggest",
+          "value": false,
+          "effect": "Disable online Suggest improvement/collection (deprecated name maps to online.enabled on this source).",
+          "counterparts": [
+            "firefox-suggest"
+          ]
+        }
+      ]
+    },
+    "HttpsOnlyMode": {
+      "effect": "Enable HTTPS-only by default, with user-controlled mode and exceptions.",
+      "leaves": [
+        {
+          "pointer": "/HttpsOnlyMode",
+          "value": "enabled",
+          "effect": "Enable HTTPS-only by default, with user-controlled mode and exceptions.",
+          "counterparts": [
+            "privacy-defaults"
+          ]
+        }
+      ]
+    },
+    "LocalNetworkAccess": {
+      "effect": "Enable LNA checks, tracker blocking and permission prompting.",
+      "leaves": [
+        {
+          "pointer": "/LocalNetworkAccess/Enabled",
+          "value": true,
+          "effect": "network.lna.enabled=true",
+          "counterparts": [
+            "lna"
+          ]
+        },
+        {
+          "pointer": "/LocalNetworkAccess/BlockTrackers",
+          "value": true,
+          "effect": "network.lna.block_trackers=true; Android cfg uses a real lockPref.",
+          "counterparts": [
+            "lna"
+          ]
+        },
+        {
+          "pointer": "/LocalNetworkAccess/EnablePrompting",
+          "value": true,
+          "effect": "network.lna.blocking=true plus the actual Android local-network prompt flow.",
+          "counterparts": [
+            "lna"
+          ]
+        }
+      ]
+    },
+    "NoDefaultBookmarks": {
+      "effect": "Avoid inserting built-in bookmarks.",
+      "leaves": [
+        {
+          "pointer": "/NoDefaultBookmarks",
+          "value": true,
+          "effect": "Avoid inserting built-in bookmarks.",
+          "counterparts": [
+            "default-bookmarks"
+          ]
+        }
+      ]
+    },
+    "OverridePostUpdatePage": {
+      "effect": "Do not automatically open a post-update promotional page.",
+      "leaves": [
+        {
+          "pointer": "/OverridePostUpdatePage",
+          "value": "",
+          "effect": "Do not automatically open a post-update promotional page.",
+          "counterparts": [
+            "app-update",
+            "onboarding"
+          ]
+        }
+      ]
+    },
+    "SkipTermsOfUse": {
+      "effect": "Skip terms-of-use prompts.",
+      "leaves": [
+        {
+          "pointer": "/SkipTermsOfUse",
+          "value": true,
+          "effect": "Skip terms-of-use prompts.",
+          "counterparts": [
+            "onboarding"
+          ]
+        }
+      ]
+    },
+    "SupportMenu": {
+      "effect": "Provide a named LibreWolf Issue Tracker menu entry linking to Codeberg.",
+      "leaves": [
+        {
+          "pointer": "/SupportMenu/Title",
+          "value": "LibreWolf Issue Tracker",
+          "effect": "Provide a named LibreWolf Issue Tracker menu entry linking to Codeberg.",
+          "counterparts": [
+            "support"
+          ]
+        },
+        {
+          "pointer": "/SupportMenu/URL",
+          "value": "https://codeberg.org/librewolf/issues",
+          "effect": "Provide a named LibreWolf Issue Tracker menu entry linking to Codeberg.",
+          "counterparts": [
+            "support"
+          ]
+        }
+      ]
+    },
+    "UserMessaging": {
+      "effect": "Disable URL-bar interventions, onboarding, More from Mozilla and Firefox Labs surfaces individually.",
+      "leaves": [
+        {
+          "pointer": "/UserMessaging/UrlbarInterventions",
+          "value": false,
+          "effect": "Suppress desktop URL-bar intervention messages; audit Fenix toolbar recommendations separately.",
+          "counterparts": [
+            "remote-improvements",
+            "support"
+          ]
+        },
+        {
+          "pointer": "/UserMessaging/SkipOnboarding",
+          "value": true,
+          "effect": "Suppress first-run/setup and continuous onboarding.",
+          "counterparts": [
+            "onboarding"
+          ]
+        },
+        {
+          "pointer": "/UserMessaging/MoreFromMozilla",
+          "value": false,
+          "effect": "Suppress Mozilla product marketing surfaces; desktop pane absence alone is not Android surface proof.",
+          "counterparts": [
+            "remote-improvements",
+            "support"
+          ]
+        },
+        {
+          "pointer": "/UserMessaging/FirefoxLabs",
+          "value": false,
+          "effect": "Suppress Labs UI/opt-in routes as well as experiment fetching; Gecko ExperimentAPI being off alone is not Android UI proof.",
+          "counterparts": [
+            "remote-improvements",
+            "support"
+          ]
+        }
+      ]
+    }
+  },
+  "pane_controls": [
+    {
+      "id": "librewolfExtensionUpdateEnabled",
+      "effect": "Underlying extensions.update.enabled setting.",
+      "counterparts": [
+        "addon-updates"
+      ]
+    },
+    {
+      "id": "librewolfExtensionAutoUpdateEnabled",
+      "effect": "Underlying extensions.update.autoUpdateDefault setting.",
+      "counterparts": [
+        "addon-updates"
+      ]
+    },
+    {
+      "id": "librewolfExtensionUpdate",
+      "effect": "Combined checkbox reads logical AND and writes both update settings.",
+      "counterparts": [
+        "addon-updates"
+      ]
+    },
+    {
+      "id": "librewolfSync",
+      "effect": "Enable/disable accounts and offer restart.",
+      "counterparts": [
+        "sync"
+      ]
+    },
+    {
+      "id": "librewolfAutocopy",
+      "effect": "Underlying clipboard.autocopy setting.",
+      "counterparts": [
+        "platform"
+      ]
+    },
+    {
+      "id": "librewolfPaste",
+      "effect": "Underlying middlemouse.paste setting.",
+      "counterparts": [
+        "platform"
+      ]
+    },
+    {
+      "id": "librewolfMiddleClick",
+      "effect": "Combined autocopy/paste AND checkbox writes both settings; desktop selection clipboard/input integration.",
+      "counterparts": [
+        "platform"
+      ]
+    },
+    {
+      "id": "librewolfUserChrome",
+      "effect": "Enable optional profile stylesheets for desktop chrome.",
+      "counterparts": [
+        "profile-config",
+        "platform"
+      ]
+    },
+    {
+      "id": "librewolfIPv6",
+      "effect": "Display the inverse of network.dns.disableIPv6.",
+      "counterparts": [
+        "network-controls"
+      ]
+    },
+    {
+      "id": "librewolfCrossOrigin",
+      "effect": "Checked only for XOriginPolicy=2; write 2 when checked and 0 when unchecked.",
+      "counterparts": [
+        "network-controls"
+      ]
+    },
+    {
+      "id": "librewolfRFP",
+      "effect": "Enable/disable privacy.resistFingerprinting.",
+      "counterparts": [
+        "rfp-controls"
+      ]
+    },
+    {
+      "id": "librewolfLetterboxing",
+      "effect": "Optional privacy.resistFingerprinting.letterboxing switch.",
+      "counterparts": [
+        "rfp-controls"
+      ]
+    },
+    {
+      "id": "librewolfWebGLPrompt",
+      "effect": "Invert librewolf.webgl.prompt: allow globally versus require per-site decision.",
+      "counterparts": [
+        "graphics"
+      ]
+    },
+    {
+      "id": "librewolfWebGLPromptHide",
+      "effect": "Set quiet permission notification; disabled when WebGL is globally allowed.",
+      "counterparts": [
+        "graphics"
+      ]
+    },
+    {
+      "id": "librewolf-config-link",
+      "effect": "Open about:config in a new tab.",
+      "counterparts": [
+        "profile-config"
+      ]
+    },
+    {
+      "id": "librewolf-open-profile",
+      "effect": "Reveal ProfD in the desktop file manager.",
+      "counterparts": [
+        "profile-config"
+      ]
+    }
+  ],
+  "pane_registered_prefs": [
+    {
+      "pref": "browser.safebrowsing.blockedURIs.enabled",
+      "counterparts": [
+        "network-controls"
+      ],
+      "role": "registration only; no current visible control in copied pane"
+    },
+    {
+      "pref": "browser.safebrowsing.provider.google.gethashURL",
+      "counterparts": [
+        "network-controls"
+      ],
+      "role": "registration only; no current visible control in copied pane"
+    },
+    {
+      "pref": "browser.safebrowsing.provider.google.updateURL",
+      "counterparts": [
+        "network-controls"
+      ],
+      "role": "registration only; no current visible control in copied pane"
+    },
+    {
+      "pref": "browser.safebrowsing.provider.google4.gethashURL",
+      "counterparts": [
+        "network-controls"
+      ],
+      "role": "registration only; no current visible control in copied pane"
+    },
+    {
+      "pref": "browser.safebrowsing.provider.google4.updateURL",
+      "counterparts": [
+        "network-controls"
+      ],
+      "role": "registration only; no current visible control in copied pane"
+    },
+    {
+      "pref": "clipboard.autocopy",
+      "counterparts": [
+        "platform",
+        "profile-config"
+      ],
+      "role": "registered dependency for pane control"
+    },
+    {
+      "pref": "extensions.update.autoUpdateDefault",
+      "counterparts": [
+        "addon-updates"
+      ],
+      "role": "registered dependency for pane control"
+    },
+    {
+      "pref": "extensions.update.enabled",
+      "counterparts": [
+        "addon-updates"
+      ],
+      "role": "registered dependency for pane control"
+    },
+    {
+      "pref": "identity.fxaccounts.enabled",
+      "counterparts": [
+        "sync"
+      ],
+      "role": "registered dependency for pane control"
+    },
+    {
+      "pref": "librewolf.webgl.prompt.hide",
+      "counterparts": [
+        "graphics"
+      ],
+      "role": "registered dependency for pane control"
+    },
+    {
+      "pref": "middlemouse.paste",
+      "counterparts": [
+        "platform",
+        "profile-config"
+      ],
+      "role": "registered dependency for pane control"
+    },
+    {
+      "pref": "network.dns.disableIPv6",
+      "counterparts": [
+        "network-controls"
+      ],
+      "role": "registered dependency for pane control"
+    },
+    {
+      "pref": "network.http.referer.XOriginPolicy",
+      "counterparts": [
+        "network-controls"
+      ],
+      "role": "registered dependency for pane control"
+    },
+    {
+      "pref": "privacy.resistFingerprinting.letterboxing",
+      "counterparts": [
+        "rfp-controls"
+      ],
+      "role": "registered dependency for pane control"
+    },
+    {
+      "pref": "toolkit.legacyUserProfileCustomizations.stylesheets",
+      "counterparts": [
+        "platform",
+        "profile-config"
+      ],
+      "role": "registered dependency for pane control"
+    }
+  ],
+  "pane_assets": [
+    {
+      "path": "patches/pref-pane/librewolf.js",
+      "sha256": "3c9d8f5679331f8eb4fe4b6f9dd2070820ec96cd54ac5c16cb48cdb9a959e2bc",
+      "effect": "Preference behavior and controls mapped individually above",
+      "counterparts": [
+        "profile-config"
+      ]
+    },
+    {
+      "path": "patches/pref-pane/librewolf.inc.xhtml",
+      "sha256": "4e117e4bcbbf5b16edd553a3f252c18a665c070cccb8db3aa4f36b82af6dd7c0",
+      "effect": "Pane template and config/profile actions",
+      "counterparts": [
+        "profile-config"
+      ]
+    },
+    {
+      "path": "patches/pref-pane/librewolf.css",
+      "sha256": "bbd3c7579dff8d9042323586f83f4043dcf8838ecd2c4a0d49b6c820cba50ba9",
+      "effect": "Desktop presentation: collapse/warning/icon styling; no Android behavioral enforcement",
+      "counterparts": [
+        "branding",
+        "platform"
+      ]
+    },
+    {
+      "path": "patches/pref-pane/category-librewolf.svg",
+      "sha256": "7fb83e3b48f9e76c6874f8d929e1d61cae485359d2d8226076daa1aa2c8687af",
+      "effect": "Desktop category branding vector; Android icon implementation is separate",
+      "counterparts": [
+        "branding",
+        "platform"
+      ]
+    }
+  ],
+  "repository_evidence": {
+    "assets/search-config-v2.json": "f6136f5d64eb2cb023791b2075687b4ce8fbde778315463bcda2c514d9b6f815",
+    "patches/android/about-config.patch": "5db30d645f7a1b1e9eb3e9ad7c626d6e2c91095d5b9a39a099da6a66501b6858",
+    "patches/android/autoconfig-resource-fallback.patch": "a477f20154b86abc16e09a6182ac8772e023a28389eb6badfbcba011605143b6",
+    "patches/android/branding.patch": "caba349f53a7f224b7d50067578efaa1075bb160cc7f697b2e21829afc18edec",
+    "patches/android/disable-data-reporting-android.patch": "0c0e004f4773c5245ce3a0966881b976b1373064a4d0ac32e4d1d76243e6a081",
+    "patches/android/neterror-jar.patch": "6208f779895a6cac7bb363f1110a99b209eb798b481c27c27eaa5fb3b897c1f9",
+    "patches/android/no-adjust.patch": "f55c2a49db94c9b60202219aec1db42f07237a75b363eacf4a525bfc6d9b66c2",
+    "patches/android/no-crashreporter.patch": "80c519f45dbf982ffebba5b543d2a5bb6f15c781264f3daf4f31cf082c8c36a0",
+    "patches/android/no-glean.patch": "1d2775f62240d6ee8102199ed140b84776b6ea3b4acd36b8c2e7939daed61371",
+    "patches/android/no-gms.patch": "2e8a3f2c50b02695d6652d4da899f90f5f94545687239d037b61491dc4316ea2",
+    "patches/android/no-nimbus-toolkit.patch": "731b0775cfea4f78ac5d2978f8a7f8fd12a806f2b58b07b3da099cd6d2af8bc9",
+    "patches/android/no-nimbus.patch": "30f574ce4299228c7f6cc61c08e4fe065927bcd8e75c1302639800ff36fd323e",
+    "patches/android/no-onboarding.patch": "f0b5d06a9067160f2c1df1779eb3aceeffc6155a4a09478a53d8a09edd49d2c2",
+    "patches/android/no-suggest.patch": "ce8d28b1d353a2dbfdb48d8a5dcc163a8ac35a2b277a80e044600d6472b36ffa",
+    "patches/android/privacy-defaults.patch": "986e012fb5d7df0625aa3eee9e35561e29abdff2bce08e4daa936c02373541ce",
+    "patches/android/rs-blocker-android.patch": "c3e108587d84162ce789fb0d95f1f8911cef6859bdbc86e5d803c05bf273e4d4",
+    "patches/android/search-config.patch": "be8d8ed2067a2b038d5494ff26f5d21caee602b2b0195233297547afe781c26c",
+    "patches/android/ubo-preinstall.patch": "d48b3bde33ea39c4ddd6fbfa7336aae5ef01f6a5a420128c3265e1f3024b0ee9",
+    "patches/android/ubo-readiness.patch": "f6b7e404ff1e64c25bb7d0966a49b56287ac149bc1cf14dce2c4b0ae3be4b50f",
+    "patches/android/update-check.patch": "b6b4fd5379224a92b0fe952427739539808b1879ab2c379ecdf2596f83f7a03d",
+    "patches/android/webgl-prompt-default.patch": "fe32e85380de5d531cb506de4382067c25c72f23e391958c9432d1c18314c1ff",
+    "patches/disable-data-reporting-common.patch": "7de41364c5972ae9a81bd11b1fa91905bd2e1257a671ea0acfbacd0e6fe5f65d",
+    "patches/eme-permission-common.patch": "f497ddf53b095f59f5852ddcdbced660da37d119baa83322b5791fbdfe2bf0ac",
+    "patches/pref-pane/librewolf.js": "3c9d8f5679331f8eb4fe4b6f9dd2070820ec96cd54ac5c16cb48cdb9a959e2bc",
+    "patches/remove-openai.patch": "782e302a4c1aac9c938a84dda6f6568e6831976ddfc6beb8b58ac1f27e27afd1",
+    "patches/rs-blocker.patch": "fadc327ed619a4af4a00e7de532750e2600f3b14a69edb0d4274d2267c36c7d8",
+    "patches/ui-patches/neterror-common.patch": "1a5caea7bbf7305874d7c54075bd24be59a03c00a2617c6a8fb2f9fbe1ea7851",
+    "patches/webgl-permission-common.patch": "b395646ba9b73870afe584847e899a1002ea341eb4a00f5c023be169b3c2d043",
+    "scripts/fetch-ubo-extension.py": "4aab232423e898b5753663d09e80277fa41e7a83dafcf9dbc15b21fd5e1463bf",
+    "scripts/librewolf-patches.py": "d8357fbb94aeb17617c2a22d52804320a9cb2d424e78acc35c68b4477471f8f8"
+  }
+}
