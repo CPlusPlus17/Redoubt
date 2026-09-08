@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression tests for capture evidence that handshake-only parsing missed."""
 from pathlib import Path
+import json
 import socket
 import struct
 import tempfile
@@ -391,6 +392,25 @@ class HttpsOnlyBehaviorGateTests(unittest.TestCase):
 
     def test_missing_error_page_evidence_cannot_pass_from_pref_alone(self):
         self.assertFalse(harness.grade_https_interstitial({"enabled":True, "locked":False}, {}))
+
+
+class InterruptedEvidenceTests(unittest.TestCase):
+    def test_later_connection_failure_preserves_earlier_failed_probe(self):
+        with tempfile.TemporaryDirectory() as work:
+            args = types.SimpleNamespace(json=str(Path(work) / 'result.json'))
+            res = harness.Results()
+            res.artifact = {'sha256': 'candidate-input'}
+            res.checkpoint = lambda: harness.write_results(res, args, work, 'running')
+            res.add('restart-control', False, 'unexpected document', {'url': 'about:blank'})
+            checkpoint = json.loads(Path(args.json).read_text())
+            self.assertEqual(checkpoint['status'], 'running')
+            self.assertFalse(checkpoint['checks'][0]['ok'])
+            harness.write_results(res, args, work, 'interrupted', 'connection closed')
+            result = json.loads(Path(args.json).read_text())
+            self.assertEqual(result['checks'], checkpoint['checks'])
+            self.assertEqual(result['artifact'], res.artifact)
+            self.assertEqual(result['status'], 'interrupted')
+            self.assertEqual(result['error'], 'connection closed')
 
 
 if __name__ == '__main__':

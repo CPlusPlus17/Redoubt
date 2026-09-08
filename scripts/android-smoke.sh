@@ -779,9 +779,12 @@ def parse_semver(v):
 class Results:
     def __init__(self):
         self.rows = []
+        self.checkpoint = None
     def add(self, name, ok, detail, evidence=None):
         self.rows.append({"check": name, "ok": bool(ok), "detail": detail,
                           "evidence": evidence or {}})
+        if self.checkpoint:
+            self.checkpoint()
         log("%-22s %s  %s" % (name, "PASS" if ok else "FAIL", detail))
     def failed(self):
         return [r for r in self.rows if not r["ok"]]
@@ -1211,13 +1214,27 @@ class App:
         deadline = time.time() + timeout
         last = None
         while time.time() < deadline:
+            m = None
             try:
                 m = Marionette(self.host_port)
                 m.cmd("WebDriver:NewSession", {"capabilities": {"alwaysMatch": {}}})
                 return m
             except Exception as e:
+                if m:
+                    m.close()
                 last = e
                 time.sleep(3)
+        # Preserve the actual app state before outer cleanup or another suite
+        # clears it. A failed automation connection is not a browser verdict.
+        for name, command in (
+                ("marionette-timeout-logcat.txt", ("logcat", "-d")),
+                ("marionette-timeout-ui.txt", ("shell", "uiautomator", "dump", "/dev/tty"))):
+            try:
+                output = self.adb.out(*command, timeout=30)
+                with open(os.path.join(self.work, name), "w") as f:
+                    f.write(output)
+            except Exception as diagnostic_error:
+                log("could not save %s: %s" % (name, diagnostic_error))
         raise HarnessError("could not open a Marionette session on %s within %ds (%s). "
                            "Is this a debuggable build? The harness needs GeckoView's debug "
                            "config at /data/local/tmp/%s-geckoview-config.yaml to take effect."
@@ -3560,6 +3577,8 @@ def main(argv):
     if os.path.isfile(harness_path):
         with open(harness_path, "rb") as driver:
             res.artifact["harness_sha256"] = hashlib.file_digest(driver, "sha256").hexdigest()
+    res.checkpoint = lambda: write_results(res, args, work, "running")
+    res.checkpoint()
     pkg = apk_package(apk)
     log("apk=%s" % apk)
     log("package=%s" % pkg)
@@ -3800,6 +3819,9 @@ def main(argv):
             log("SELF-TEST OK: every probe reported failure when fed a wrong expectation")
             return EXIT_OK
         return finish(res, args, work)
+    except Exception as error:
+        write_results(res, args, work, "interrupted", str(error))
+        raise
     finally:
         # Leave nothing behind that changes how the app behaves afterwards: the
         # debug config would keep Marionette listening on every later launch,
@@ -3829,13 +3851,21 @@ def main(argv):
         elif emu:
             log("emulator left running as %s (capture: %s)" % (emu.serial, emu.pcap))
 
-def finish(res, args, work):
+def write_results(res, args, work, status, error=None):
     extra = globals().get("_EXTRA_PREFS") or {}
     payload = {"checks": res.rows, "work": work, "injected_prefs": extra,
-               "tainted": bool(extra), "artifact":getattr(res, "artifact", None)}
+               "tainted": bool(extra), "artifact":getattr(res, "artifact", None),
+               "status": status, "error": error}
     path = args.json or os.path.join(work, "result.json")
-    with open(path, "w") as f:
+    temporary = path + ".tmp"
+    with open(temporary, "w") as f:
         json.dump(payload, f, indent=1)
+    os.replace(temporary, path)
+    return path
+
+def finish(res, args, work):
+    path = write_results(res, args, work, "completed")
+    extra = globals().get("_EXTRA_PREFS") or {}
     bad = res.failed()
     log("-" * 60)
     log("%d check(s) run, %d failed. Detail: %s" % (len(res.rows), len(bad), path))
