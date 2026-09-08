@@ -4023,3 +4023,54 @@ tasks:
     agent_safe: yes
     isolation: none
     risk: An oversized guest can kill the CI process and stall the user's host.
+
+  - id: LW-M7-16
+    title: Restore translations with pinned assets and scoped user downloads
+    milestone: M7
+    depends_on: [LW-M7-12]
+    owns:
+      - patches/android/translation-assets.patch
+      - assets/translations/
+      - scripts/package-translation-assets.py
+      - scripts/tests/test-translation-assets.py
+      - scripts/tests/test-translation-assets.js
+      - scripts/librewolf-patches.py
+      - docs/android/evidence/lw-m7-16/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - toolkit/components/translations/AndroidTranslationAssets.sys.mjs
+      - toolkit/components/translations/moz.build
+      - toolkit/components/translations/jar.mn
+      - toolkit/components/translations/translations.d.ts
+      - toolkit/components/translations/actors/TranslationsParent.sys.mjs
+      - toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs
+      - mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs
+      - toolkit/components/translations/tests/unit/xpcshell.toml
+      - toolkit/components/translations/tests/unit/test_android_translation_assets.js
+      - toolkit/components/translations/android-data/catalog.json
+      - toolkit/components/translations/android-data/bergamot-translator.wasm.zst
+    reads:
+      - docs/android/evidence/lw-m7-08/translation-cookie-data-audit.md
+    what: |
+      Package a reviewed complete v2 translations catalog and verified compatible
+      WASM 4 resource. Serve metadata and inference assets from that catalog and
+      verified local cache without constructing Remote Settings clients, altering
+      either allowlist or bypassing generic download blockers. Only explicit
+      Translate and language-download operations authorize their exact selected
+      pinned assets, with cancellation and stale-document protection; passive
+      detection, offers, automatic translation and status calls remain cache-only.
+      Preserve version/targeting/pivot selection, real UI status and deletion,
+      desktop behavior and existing translation error reporting.
+    acceptance:
+      - "the APK contains the exact complete reviewed v2 catalog and compatible WASM 4, with recorded origins, hashes, sizes and licenses"
+      - "passive metadata, settings, automatic translation and engine payload calls cannot fetch assets or sync translation collections"
+      - "only an active explicit operation downloads its selected pinned HTTPS assets; other URLs, redirects, stale documents and cancelled operations are rejected"
+      - "compressed and decompressed integrity and size bounds are enforced before use; corrupt, partial and failed data never becomes a usable atomic cache entry"
+      - "real unmocked direct and pivot translations work, survive offline restart, and reflect deletion and download failures in existing UI status"
+      - "concurrent operations, timeout/cancel/delete and normal/private document lifecycles are tested; source tests, target build and actual APK gates pass"
+    verify: "python3 scripts/tests/test-translation-assets.py && python3 docs/android/board.py --check"
+    effort_h: "16-28"
+    skills: [js, python, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: A shared download permission could turn passive translation detection into unsolicited asset transfer.
