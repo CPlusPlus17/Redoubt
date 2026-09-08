@@ -20,8 +20,10 @@ All other beta requirements remain in force, including exact candidate binding,
 release fingerprint, v2+v3 with no v1, and the established single-holder decision.
 This proposal does not authorize the agent to read or operate the release key.
 Future candidates retain the documented offline-signing procedure unless the
-owner separately changes it. Prior release-key distribution/version-code history
-must still be confirmed before claiming this candidate is a compatible update.
+owner separately changes it. On 2026-09-08 the owner confirmed that no APK signed
+with this release key has ever been distributed ("no never distributed"). There
+is therefore no previously distributed release-key version code to supersede.
+This confirmation does not approve the custody exception.
 
 ## Candidate covered
 

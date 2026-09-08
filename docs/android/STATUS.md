@@ -84,8 +84,9 @@ The earlier host signing remains recorded as such; migration does not establish
 historical offline signing.
 A [candidate-specific custody proposal](evidence/lw-m6-10/proposed-custody-decision.md)
 is ready for the owner's decision and remains unapproved. Fresh signature and
-candidate checks pass for all four returned APKs. Prior distribution of any
-release-key APK, and its version code if applicable, still needs owner confirmation.
+candidate checks pass for all four returned APKs. The owner confirmed on
+2026-09-08 that no release-key APK has ever been distributed; the version-code
+history question is resolved. Only the custody decision remains pending.
 
 **E10 is met:** the corrected form and private security contact are on default
 `main`; all eleven approved labels are live, and GitHub’s public preview renders

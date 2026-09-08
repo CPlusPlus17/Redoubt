@@ -58,11 +58,12 @@ storage on the physical Fedora host for these four beta artifacts. It does not
 claim historical offline signing or change future/public-release requirements.
 The owner may instead follow the existing offline signing and key-custody rules.
 
-The owner must also confirm whether any release-key APK was already distributed
-and, if so, its version code. Earlier debug/unsigned rehearsals used higher
-wall-clock codes; these are not evidence that a higher-code release was shipped.
-Do not infer that fact or its absence from the currently returned files.
+On 2026-09-08 the owner answered the distribution question: **"no never
+distributed"**. The [confirmation](owner-confirmation.json) establishes that no
+release-key APK has been distributed, so earlier higher debug/unsigned rehearsal
+codes do not block this first beta. This was reported by the owner, not inferred
+from local files.
 
-The two questions have been sent to the owner. No response or approval has been
-assumed. The goal remains active; this is not a beta launch or a public-release
+The owner asked what else is needed; the custody exception remains unapproved.
+No approval has been assumed. This is not a beta launch or a public-release
 GO/NO-GO decision.
