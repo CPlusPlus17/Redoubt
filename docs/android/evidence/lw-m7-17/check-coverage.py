@@ -171,7 +171,9 @@ def check():
     changed = followup["changed_previously_pinned_inputs"]
     added = followup["added_repository_inputs"]
     require(not set(changed) & set(added), "followup input both added and changed")
-    require(set(followup["counterparts_changed"]) == {"graphics", "translations"},
+    # Each added scope has an inspected source patch and separate pending target
+    # acceptance. LW-M7-24 adds home defaults; it does not bless other mappings.
+    require(set(followup["counterparts_changed"]) == {"graphics", "translations", "home"},
             "followup counterpart scope changed")
     for path, item in (changed | added).items():
         require(item["sha256"] == coverage["repository_evidence"].get(path),
