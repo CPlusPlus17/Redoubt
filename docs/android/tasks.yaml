@@ -3751,3 +3751,44 @@ tasks:
     agent_safe: yes
     isolation: none
     risk: Stale reports or a narrow privacy-only checklist can hide missing user features.
+
+  - id: LW-M7-09
+    title: Match LibreWolf privacy defaults in the Android settings layer
+    milestone: M7
+    depends_on: [LW-M6-11]
+    owns:
+      - patches/android/privacy-defaults.patch
+      - docs/android/evidence/lw-m7-09/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+    reads:
+      - settings/common.cfg
+      - settings/desktop.cfg
+      - settings/android.cfg
+      - settings/distribution/policies.json
+      - docs/android/FEATURE-PARITY.md
+    what: |
+      The published beta uses Fenix defaults for HTTPS-only, tracking policy,
+      cleanup on quit and password/autofill controls, overriding or contradicting
+      LibreWolf's Gecko configuration. Implement real Android defaults matching
+      the desktop behavior: unlocked HTTPS-only on, strict tracking policy,
+      cookie/site-data/cache cleanup while retaining history and permissions,
+      disabled save/autofill by default, and explicit DoH off with the desktop
+      provider choices. Preserve explicit user choices and use idempotent
+      migration only for values proven to have been seeded by older code.
+      Do not call cleanup complete on Android process death without a real
+      lifecycle test, or claim a settings control works from its displayed state.
+    acceptance:
+      - "fresh settings select desktop-equivalent HTTPS, ETP, cleanup and password/autofill defaults"
+      - "DoH stays off by default and configured provider choices match the desktop baseline"
+      - "untouched older defaults upgrade while explicit user choices survive two starts"
+      - "compiled unit tests exercise policy selection, cleanup categories and persisted choices"
+      - "built-APK behavior verifies HTTPS, tracking, cleanup and save/autofill defaults"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "8-16"
+    skills: [kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: A category label or pref value can disagree with the effective engine policy.
