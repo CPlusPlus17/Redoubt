@@ -18,7 +18,10 @@ from this Releases page and install them over this build to retain your profile.
 
 Android process containment differs from desktop. DNS over HTTPS is not enabled
 by default, and locked privacy preferences can make some settings ineffective.
-Approved security Remote Settings connections remain enabled. Please include
+Passkeys/WebAuthn require Android 14+ with a Credential Manager provider.
+Approved security Remote Settings connections remain enabled. See the
+[Android privacy and isolation scope](https://github.com/CPlusPlus17/Redoubt/blob/android-153.0esr-1-beta.1/docs/android/PARITY.md).
+Please include
 device model, Android version, RAM, APK architecture and reproduction steps when
 [reporting an Android bug](https://github.com/CPlusPlus17/Redoubt/issues/new?template=android-bug.yml).
 Report vulnerabilities through
