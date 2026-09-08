@@ -3906,3 +3906,91 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: A successful build of an earlier source snapshot does not validate the final candidate.
+
+  - id: LW-M7-13
+    title: Restore cookie-banner rejection from a verified offline rules snapshot
+    milestone: M7
+    depends_on: [LW-M7-12]
+    owns:
+      - patches/android/cookie-banner-rules.patch
+      - scripts/tests/test-cookie-banner-rules.js
+      - scripts/tests/test-cookie-banner-snapshot.py
+      - docs/android/evidence/lw-m7-13/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - toolkit/components/cookiebanners/CookieBannerListService.sys.mjs
+      - services/settings/dumps/main/moz.build
+      - services/settings/dumps/main/cookie-banner-rules-list.json
+      - toolkit/components/cookiebanners/test/unit/test_cookiebannerlistservice.js
+    reads:
+      - docs/android/evidence/lw-m7-08/translation-cookie-data-audit.md
+    what: |
+      The Android APK has no cookie-banner rules despite effective reject-only
+      modes. Package the source snapshot verified against the complete official
+      collection and add an Android-only local loader that verifies its pin and
+      validates records before importing them through the production service.
+      On Android do not construct or subscribe to a cookie Remote Settings client.
+      Keep both Remote Settings allowlists and blockers unchanged. Preserve
+      desktop behavior and the existing rejection-only policy. Record provenance
+      and update rules only with a reviewed application release.
+    acceptance:
+      - "the APK includes the exact pinned, validated rules and imports them without cookie collection traffic"
+      - "missing, corrupt, malformed or mismatched rule data cannot report successful initialization"
+      - "a supported banner performs a real rejection or opt-out cookie action"
+      - "accept-only banners remain unaccepted and existing consent and domain exceptions are respected"
+      - "normal and private behavior survives the intended lifecycle and runtime evidence includes an allowed control"
+    verify: "python3 scripts/tests/test-cookie-banner-snapshot.py && python3 docs/android/board.py --check"
+    effort_h: "6-12"
+    skills: [js, python, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Hiding a banner or enabling a pref is not evidence of rejecting consent.
+
+  - id: LW-M7-14
+    title: Add origin-bound WebGL and canvas permissions with Android controls
+    milestone: M7
+    depends_on: [LW-M7-12]
+    owns:
+      - patches/android/canvas-webgl-permissions.patch
+      - docs/android/evidence/lw-m7-14/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - dom/canvas/ClientWebGLContext.cpp
+      - dom/canvas/CanvasUtils.cpp
+      - dom/canvas/moz.build
+      - modules/libpref/init/StaticPrefList.yaml
+      - mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+      - mobile/shared/actors/GeckoViewPermissionChild.sys.mjs
+      - mobile/shared/actors/GeckoViewPermissionParent.sys.mjs
+      - mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs
+      - mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+      - mobile/android/geckoview/api.txt
+      - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+      - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
+    reads:
+      - docs/android/evidence/lw-m7-08/permissions-bridge-source-audit.md
+    what: |
+      Implement the audited Android document-actor permission bridge so WebGL
+      and canvas decisions bind to the requesting principal and current document.
+      Extend the Android Components and Fenix permission models, prompts and
+      site controls; add their exact owned source/test paths to this task before
+      editing them. Use real engine session expiry for temporary normal grants,
+      preserve private isolation, and expose permanent/session decisions and
+      quiet blocked attempts for revocation. Cover OffscreenCanvas and workers;
+      never trust an unverified origin string or grant the top-level principal
+      for a frame request. Enable Android WebGL prompting only in the complete
+      implementation, with successful rendering after allow/reload and denial
+      after block/revoke. Preserve desktop behavior and existing Android
+      permissions. Native changes require all three ABI builds.
+    acceptance:
+      - "WebGL1/2 and canvas readback are protected by default and usable after an explicit matching-origin allow"
+      - "blocked, quiet and granted states have real Android prompt/site controls and can be revoked"
+      - "temporary decisions survive required reload but expire on normal process restart, and private decisions remain private"
+      - "cross-origin frames, opaque origins, workers and stale documents cannot grant another principal"
+      - "all native ABIs and affected Kotlin targets compile, meaningful unit suites pass and built-APK rendering/readback controls pass"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "20-40"
+    skills: [cpp, js, kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: An incomplete permission bridge can disable all WebGL or persist permission for the wrong origin.
