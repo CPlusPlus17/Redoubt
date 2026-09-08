@@ -1,10 +1,12 @@
-# Closed beta (LW-M7-06)
+# Android beta (LW-M7-06)
 
 Owner: LW-M7-06. This file is written **before** the beta starts, as the task's
 first acceptance line requires. It fixes the entry criteria, the device spread,
 what is collected, the exit criteria, and holds the go/no-go decision at the end.
 The entry table records preparation evidence. §6 records tester results as they
-arrive; §7 stays blank until the owner makes the public-release decision.
+arrive; §7 stays blank until the owner makes the stable-release decision.
+The owner changed the original closed-beta channel to a public GitHub prerelease
+on 2026-09-08; see §3 and the [publication record](evidence/lw-m6-11/README.md).
 
 The beta exists for one reason above all others: the memory cost of site
 isolation (LW-M5-01) plus `isolatedProcess` (LW-M5-02) is invisible on a flagship
@@ -24,7 +26,7 @@ linked. "Green on the maintainer's machine" counts only where the line says so.
 | E4 | Runtime pref audit exits 0, with `expected-prefs.txt` generated from the beta build and its diff reviewed | Candidate pref dump, baseline comparison and audit output | **Met 2026-09-08.** Ran the baseline generator against the final candidate: generator, reviewed diff and audit exit 0. All 58 baseline rows are unchanged (SHA-256 `2ac8b4f9…`). The audit reports zero violations and zero other differences. See `final-candidate/pref-baseline-regeneration.json`, archived before/generated baselines and `pref-audit-final.out` in the candidate audit. Of 137 must-lock keys, 20 are covered by this runtime dump; the generated lock/policy gate covers the rest. |
 | E5 | `board.py --check-fenix-tests` exits 0 on a full Fenix suite from the candidate's source | Archived JUnit XML, source hashes and subtraction output | **Met 2026-09-08.** Full patched-source run: 598 classes / 5,426 tests; 93 failures = 90 environmental + 3 known-real + 0 unexpected; subtraction exit 0. Final JUnit XML and exact source/candidate linkage are archived in the candidate audit (`fenix-gate.txt`, `fenix-junit-xml.tar.gz`, `fenix-final-candidate.json`). |
 | E6 | `scripts/android-verify-repro.sh --r8` exits 0 for the candidate inputs and both outputs match the candidate | Two independent build logs, hashes and negative control | **Met 2026-09-08.** Corrected version and Glean timestamps; `--r8` exits 0 after two independent builds (1,426 s total). All four outputs match each other and the normal candidate byte for byte; the negative control detects its one-byte corruption. [Logs and comparison](evidence/lw-m6-08/repro/README.md). Same-machine APK assembly only; Gecko/AAR and cross-machine reproducibility remain unverified. |
-| E7 | Signed with the release key, **v2 + v3, no v1**, fingerprint matches `SIGNING.md`; offline holder signing outside CI, or an explicit dated candidate-specific custody exception; the current runner cannot read the key | [Signing handoff](evidence/lw-m6-01/RELEASE-HANDOFF.md), [final signature/payload verification](evidence/lw-m6-10/final-signature-verification.txt), [dated owner decision](evidence/lw-m6-10/custody-decision.md) | **Satisfied 2026-09-08 with the owner's beta-only custody exception.** All four signed APKs in `~/redoubt-signed/` pass published fingerprint, v2+v3/no-v1 and exact candidate payload checks. Manuel Gysin explicitly approved accepting their pre-QEMU Fedora signing and keeping the key on Fedora outside the VM. The [QEMU runner](CI-VM.md) has no host home/key path; the old runner is retired. Historical offline signing is not claimed. The owner confirmed no release-key APK has previously been distributed. |
+| E7 | Signed with the release key, **v2 + v3, no v1**, fingerprint matches `SIGNING.md`; offline holder signing outside CI, or an explicit dated candidate-specific custody exception; the current runner cannot read the key | [Signing handoff](evidence/lw-m6-01/RELEASE-HANDOFF.md), [final signature/payload verification](evidence/lw-m6-10/final-signature-verification.txt), [dated owner decision](evidence/lw-m6-10/custody-decision.md) | **Satisfied 2026-09-08 with the owner's beta-only custody exception.** All four signed APKs in `~/redoubt-signed/` pass published fingerprint, v2+v3/no-v1 and exact candidate payload checks. Manuel Gysin explicitly approved accepting their pre-QEMU Fedora signing and keeping the key on Fedora outside the VM. The [QEMU runner](CI-VM.md) has no host home/key path; the old runner is retired. Historical offline signing is not claimed. Before this first publication, the owner confirmed that no release-key APK had previously been distributed. |
 | E8 | A second key holder exists, or the single-holder decision is recorded with a date in `SIGNING.md` | `SIGNING.md`, “Decision: Redoubt ships single-holder” | **Met.** Manuel Gysin's dated 2026-09-06 decision is recorded in commit `aca09eb`. This does not satisfy LW-M6-01's separate two-holder criterion. |
 | E9 | The parity wording (`PARITY.md` §5) is signed off | `PARITY.md` §5, commit `aca09eb` | **Met.** Owner approved the wording verbatim on 2026-09-06. Publication belongs to the public release. |
 | E10 | A triage owner and backup are named, or the dated solo-owner decision is recorded, and the Android bug-report form (LW-M7-04) is live | `TRIAGE.md` §0, local form, [live repository audit](evidence/lw-m7-06/beta-audit-2026-09-08/human-criteria.md) | **Met 2026-09-08.** Following user approval, both form files are on default `main` at `c65d2e4` and all eleven labels are verified live. GitHub’s public preview renders the parsed Android form, field controls, required markers and labels. The owner and solo arrangement remain recorded. [Publication evidence](evidence/lw-m6-08/github-publication.md). Authenticated submission validation remains the separate, unperformed LW-M7-04 manual check. |
@@ -32,8 +34,8 @@ linked. "Green on the maintainer's machine" counts only where the line says so.
 | E12 | The Remote Settings allowlist has been decided **for Android**, and the beta carries that decision | `settings/android.cfg`, `evidence/lw-m4-08/RESULT.md`, candidate pref dump | **Met 2026-09-08.** The final candidate’s effective `librewolf.services.settings.allowedCollections` matches all seven approved entries in `settings/android.cfg`; the eleven local `allowedCollectionsFromDump` entries are unchanged. See the candidate audit’s `final-candidate/prefs-all.json`. The two strict zero-traffic checks remain red and retain their original assertions; hostnames alone cannot establish which encrypted collections were requested. |
 
 **Current result: all twelve beta entry criteria are satisfied, including the
-dated, candidate-specific E7 custody exception. The candidate is ready for the
-closed beta.** The exception is limited to the four signed hashes recorded in
+dated, candidate-specific E7 custody exception. The candidate is published for
+beta testing.** The exception is limited to the four signed hashes recorded in
 the owner decision; it does not amend future/public-release signing requirements.
 
 **Audit reopened 2026-09-08.** The previous “eleven of twelve met” summary was
@@ -48,7 +50,7 @@ boundary address those separately. No release key or passphrase was used by this
 audit. The original pre-migration signing provenance remains recorded.
 
 Preparing entry does not complete the 14-day beta. Device assignments, tester
-results, the second-build upgrade and the public-release GO/NO-GO below remain
+results, the second-build upgrade and the stable-release GO/NO-GO below remain
 required at their respective stages.
 
 ## 2. Device spread
@@ -77,7 +79,7 @@ asks for exactly this ("who holds which device").
   adding its APKs to GitHub Releases. That request supersedes the earlier
   private-link-only plan for this beta. The release is clearly marked as a
   prerelease; it does not supply the later stable-release GO/NO-GO decision.
-  F-Droid and Accrescent remain separate M6-03/M6-04 work. Publication target:
+  F-Droid and Accrescent remain separate M6-03/M6-04 work. Published 2026-09-08:
   [`android-153.0esr-1-beta.1`](https://github.com/CPlusPlus17/Redoubt/releases/tag/android-153.0esr-1-beta.1).
 - **Update path test:** at least one **second** beta build is shipped during the
   window, signed with the same key, and every tester installs it over the first.
@@ -119,7 +121,7 @@ unavailable during the beta, testers may provide summary messages at day 7 and
 day 14; this fallback does not waive E10. `adb logcat` is asked for only on
 crashes, with the warning that it contains visited URLs.
 
-## 5. Exit criteria — go / no-go for the public release
+## 5. Exit criteria — go / no-go for the stable release
 
 **No-go on any one of these:**
 
@@ -168,6 +170,6 @@ BUILD:        ______________________   (commit + MOZ_BUILD_DATE of the build the
 NO-GO ITEMS:  every N-item above, each marked "not triggered — <evidence>" or "triggered — <issue>"
 ```
 
-Until this block is filled in, LW-M7-06 is not done and the public release does
+Until this block is filled in, LW-M7-06 is not done and the stable release does
 not proceed — the task's third acceptance line is "a written go/no-go decision at
 the end", and this is where it goes.

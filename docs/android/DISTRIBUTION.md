@@ -3,11 +3,13 @@
 ## First Android beta on GitHub
 
 The owner requested GitHub Releases distribution on 2026-09-08 for the four
-approved signed beta APKs. The publication target is the public prerelease
+approved signed beta APKs. They are published in the public prerelease
 [`android-153.0esr-1-beta.1`](https://github.com/CPlusPlus17/Redoubt/releases/tag/android-153.0esr-1-beta.1).
 It contains the ARM64, ARM32, x86_64 and universal APKs under their existing
 `fenix-*-release.apk` filenames, plus `SHA256SUMS.signed`. The release notes
-include the signing fingerprint and verification commands.
+include the signing fingerprint and verification commands. Downloaded APKs pass
+the approved hashes, release signature and candidate payload checks; public access
+is verified in the [publication record](evidence/lw-m6-11/README.md).
 
 This beta has no in-app update check or update notification; later APKs must be
 obtained from Releases and installed over the current build. Obtainium integration

@@ -1,18 +1,21 @@
-# Beta preparation — 2026-09-08
+# Android beta status — 2026-09-08
 
-The candidate is **ready for the closed beta: all twelve entry criteria are
-satisfied**, including the owner's dated, candidate-specific E7 custody exception.
+The first Android beta is **published as a public GitHub prerelease**:
+[`android-153.0esr-1-beta.1`](https://github.com/CPlusPlus17/Redoubt/releases/tag/android-153.0esr-1-beta.1).
+All twelve entry criteria are satisfied, including the owner's dated,
+candidate-specific E7 custody exception.
 The entry audit is [`BETA.md`](BETA.md); the exact accepted signed artifacts and
 scope are in the [owner decision](evidence/lw-m6-10/custody-decision.md).
-No APK signed with the release key has previously been distributed, as confirmed
-by the owner. This preparation does not complete the beta's later device testing
-or public-release decision.
+Before this publication, the owner confirmed that no APK signed with the release
+key had previously been distributed. Physical-device testing and the later
+stable-release decision remain pending.
 
-The owner subsequently requested adding the four approved APKs to GitHub
-Releases. A public prerelease, `android-153.0esr-1-beta.1`, is being prepared with
-the exact signed files and checksum manifest. This changes the beta's earlier
-private-link channel; it does not declare a stable release or completed device
-testing. See [publication notes](evidence/lw-m6-11/release-notes.md).
+The owner's GitHub Releases request superseded the earlier private-link channel.
+The release contains the exact four approved signed APKs and their checksum
+manifest. Downloaded copies pass hashes, release signatures and candidate payload
+checks; anonymous access to the release and checksum download is verified.
+See the [publication record](evidence/lw-m6-11/README.md) and
+[release notes](evidence/lw-m6-11/release-notes.md).
 
 ## Current candidate
 
@@ -96,8 +99,9 @@ The owner explicitly approved the
 isolation; it does not claim earlier offline signing or change later release
 requirements. Final signature and candidate checks pass for all four APKs.
 The owner confirmed on
-2026-09-08 that no release-key APK has ever been distributed; the version-code
-history question is resolved. No beta entry decision remains pending.
+2026-09-08, before this first publication, that no release-key APK had been
+distributed; the version-code history question is resolved. No beta entry
+decision remains pending.
 
 **E10 is met:** the corrected form and private security contact are on default
 `main`; all eleven approved labels are live, and GitHub’s public preview renders
@@ -107,4 +111,4 @@ validation is still unperformed. No further publication approval is needed.
 The dated single-holder, parity-wording and solo-triage decisions remain as
 recorded on 2026-09-06. The approved seven-entry Remote Settings security allowlist
 also remains in force. Completing preparation does not complete the 14-day beta,
-its device coverage, second-build upgrade test, or final public-release GO/NO-GO.
+its device coverage, second-build upgrade test, or final stable-release GO/NO-GO.

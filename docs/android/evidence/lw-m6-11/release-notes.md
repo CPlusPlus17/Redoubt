@@ -1,6 +1,6 @@
 First public beta of **Redoubt for Android**, based on **153.0esr-1**.
-Requires **Android 8.0 or later (API 26+)**. Physical-device testing and feedback
-are ongoing; this is a prerelease.
+Requires **Android 8.0 or later (API 26+)**. Physical-device testing is still
+required; feedback is welcome. This is a prerelease.
 
 Choose one APK:
 
@@ -27,7 +27,9 @@ device model, Android version, RAM, APK architecture and reproduction steps when
 Report vulnerabilities through
 [private security reporting](https://github.com/CPlusPlus17/Redoubt/security/advisories/new).
 
-Download `SHA256SUMS.signed` alongside the APK. On a system with GNU coreutils:
+Download `SHA256SUMS.signed` alongside the APK. It lists hashes of the signed
+APKs; the checksum file itself has no cryptographic signature. On a system with
+GNU coreutils:
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS.signed
