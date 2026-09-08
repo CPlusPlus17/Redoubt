@@ -4234,3 +4234,47 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: Changing defaults must not erase user data or silently reset deliberate choices.
+
+  - id: LW-M7-19
+    title: Make Android add-on state durable and reconcile it before cold startup
+    milestone: M7
+    depends_on: [LW-M3-07, LW-M7-12]
+    owns:
+      - patches/android/addon-state-durability.patch
+      - scripts/tests/test-addon-state-durability.py
+      - scripts/tests/test-addon-state-durability.js
+      - docs/android/evidence/lw-m7-19/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - toolkit/mozapps/extensions/internal/AndroidAddonState.sys.mjs
+      - toolkit/mozapps/extensions/internal/moz.build
+      - toolkit/mozapps/extensions/internal/AddonTestUtils.sys.mjs
+      - toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs
+      - toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs
+      - toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs
+      - toolkit/mozapps/extensions/test/xpcshell/xpcshell.toml
+      - toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js
+      - toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_failures.js
+    reads:
+      - docs/android/evidence/lw-m7-12/runtime-fifth-attempt/
+    what: |
+      Immediate force-stop after an acknowledged disable leaves the database
+      disabled but the delayed startup cache enabled. On restart the stale cache
+      loads an active extension policy despite the disabled registry. Serialize
+      Android database/cache writes and await actual completed atomic flushed
+      writes at operation completion. Reconcile old inconsistent profiles before
+      scheduling extension backgrounds. Cover enable, disable, removal, pending
+      uninstall cancellation and updates without uBO special cases, signature or
+      type bypasses, sleeps, or changing desktop persistence behavior.
+    acceptance:
+      - "successful Android enable/disable/removal/install/update completion observes matching durable database and startup cache state"
+      - "immediate restart and migration of a stale enabled cache cannot load a disabled or removed extension policy or listener"
+      - "overlapping writes and operations, failed writes, retries and cancelled uninstall preserve coherent state without false success"
+      - "actual JavaScript tests and target Gecko tests cover state and failure boundaries; desktop behavior and public API signatures are preserved"
+      - "target APK compilation and real extension blocking/allowed controls pass before and after immediate force-stop, enable, removal and update"
+    verify: "python3 scripts/tests/test-addon-state-durability.py && python3 docs/android/board.py --check"
+    effort_h: "10-18"
+    skills: [js, android, python]
+    agent_safe: yes
+    isolation: worktree
+    risk: A disabled registry entry can retain a live extension policy if the startup cache is stale.

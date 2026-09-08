@@ -1,0 +1,34 @@
+PASS patch applies with zero fuzz and no offsets
+PASS one save awaits both writes with flush and separate atomic temp files
+PASS disable completion and onDisabled observe disabled durable cache and DB
+PASS enable completion and onEnabled observe enabled durable state
+PASS failure in either file rejects disable; same-value retry persists it
+PASS a save does not resolve while the cache write is still pending
+PASS mutations during a write drain again without concurrent temp-file writers
+PASS concurrent disable-enable-disable operations are ordered and end disabled
+PASS removal waits for durable absence and stops policy before notifying completion
+PASS queued enable after removal rejects stale handle instead of reviving it
+PASS pending removal and cancellation have durable cache state and notification
+PASS pending uninstall remains disabled when XPIState is resynchronized
+PASS writer failure does not poison subsequent queued operations
+PASS shutdown finalize drains the Android writer rather than DeferredTask
+PASS desktop retains DeferredTask and JSONFile without Android writes
+PASS cold start always loads DB before scan and reconciliation before cache scheduling
+PASS a failed Android startup reconciliation cannot fall through to backgrounds
+PASS XPI synchronization repairs both enabled-cache/disabled-DB and the inverse
+PASS initial scan saves cannot replace a database which has not loaded
+PASS directory scan recovers a known first install missing from a non-sideload cache
+PASS directory scan removes a cached identity when its actual file is gone
+PASS new save requested from a just-completed writer is not lost
+PASS AbortError from database IO rejects instead of falsely acknowledging completion
+PASS failed removal emits no completion event and its retained dirty state is retryable
+PASS invalid and system-disable operations preserve existing validation
+PASS verified update keeps latest disabled state and persists new version before completion
+PASS update persistence failure reports onInstallFailed and never onInstallEnded
+PASS a queued update cannot resurrect an extension removed before it acquires the queue
+PASS same-version reinstall can re-enable without a nested operation-queue deadlock
+PASS verified first install writes both stores before install completion
+PASS install listener cancellation changes neither store nor add-on choice
+PASS enable while uninstall is pending records choice without restarting policy
+31/31 actual-source tests passed
+PASS source checks; target compilation, xpcshell and immediate force-stop runtime remain pending
