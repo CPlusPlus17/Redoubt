@@ -135,6 +135,25 @@ OUT_OF_LIST_TAIL = ()
 
 CONSTRAINTS = (
     (
+        "patches/android/webgl-prompt-default.patch",
+        "patches/android/canvas-webgl-permissions.patch",
+        "modules/libpref/init/StaticPrefList.yaml",
+        "LW-M7-14 removes the predecessor's Android false block together with the complete native/GV/Fenix bridge.",
+    ),
+    (
+        "patches/webgl-permission-common.patch",
+        "patches/android/canvas-webgl-permissions.patch",
+        ("dom/canvas/ClientWebGLContext.cpp", "modules/libpref/init/StaticPrefList.yaml"),
+        "LW-M7-14 wraps the common GetWebGLPermission/IsWebGLAllowed helpers and its context-creation call; "
+        "the pref hunk also requires the common definition and the later Android default override.",
+    ),
+    (
+        "patches/android/ubo-preinstall.patch",
+        "patches/android/canvas-webgl-permissions.patch",
+        "mobile/android/fenix/app/src/main/res/values/strings.xml",
+        "LW-M7-14's terminal resource hunk uses the new librewolf_ubo_setup_* strings as context.",
+    ),
+    (
         "patches/android/no-adjust.patch",
         "patches/android/ubo-preinstall.patch",
         (
@@ -339,6 +358,16 @@ CONSTRAINTS = (
 # --------------------------------------------------------------------------
 
 REVIEWED_ORDER_FREE = (
+    ("patches/android/no-crashreporter.patch", "patches/android/canvas-webgl-permissions.patch",
+     ("mobile/android/fenix/app/src/main/res/values/strings.xml",),
+     "LW-M7-14: crash body at the existing startup strings and new terminal permission strings are disjoint."),
+    ("patches/android/ubo-readiness.patch", "patches/android/canvas-webgl-permissions.patch",
+     ("mobile/android/geckoview/api.txt", "mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs"),
+     "LW-M7-14: ContentPermission/StorageController API and permission actor/storage registration "
+     "are separate from WebExtensionController API and uBO events; existing apply order retained."),
+    ("patches/fpp-canvas-fix.patch", "patches/android/canvas-webgl-permissions.patch",
+     ("dom/canvas/ClientWebGLContext.cpp",),
+     "LW-M7-14: extraction randomization hunks are separate from includes and WebGL creation helpers."),
     # LW-M4-12. l10n-strings and no-onboarding share exactly one tree file,
     # ContinuousOnboardingFeatureTest.kt, and nothing else. no-onboarding
     # inverts three day-2/3/7 gating assertions at :80-108; l10n-strings
