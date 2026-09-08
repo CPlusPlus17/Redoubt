@@ -4137,6 +4137,42 @@ tasks:
     isolation: none
     risk: Classifying a patch as desktop-only can conceal a missing mobile feature.
 
+  - id: LW-M7-18
+    title: Verify Android graphics consent, rendering and permission lifetime
+    milestone: M7
+    depends_on: [LW-M7-11, LW-M7-14, LW-M7-12]
+    owns:
+      - scripts/android-graphics-smoke.py
+      - docs/android/evidence/lw-m7-18/
+    reads:
+      - scripts/android-smoke.sh
+      - patches/android/canvas-webgl-permissions.patch
+      - docs/android/evidence/lw-m7-14/android-ui-handoff.md
+    what: |
+      Add a separate installed-release graphics runner using actual Fenix quiet
+      review and per-origin permission controls. Establish default protection,
+      explicit Allow/Block/session/Remember/private choices, real WebGL1/2 and
+      canvas pixels, frame/port isolation and revoke/reset behavior. Read engine
+      state only as corroborating evidence; never inject preferences, write the
+      permission manager, install an APK or mutate the guest during development.
+      The runner consumes an already enabled Marionette transport and a dedicated
+      test profile. Add meaningful grader/selector/transport-negative tests inside
+      the owned evidence directory. Missing devices or incomplete prerequisites
+      must report pending rather than success. Root integrates the legacy WebGL
+      assertion and runs the built-APK checks after all native ABI builds.
+    acceptance:
+      - "default blocking, actual UI consent and exact rendered pixels are independently required"
+      - "real UI reset/block restores protection and frame/port scopes remain distinct"
+      - "session, remembered and private choices are tested through real controls and lifecycle changes"
+      - "ambiguous selectors, missing pixels or absent devices cannot produce PASS"
+      - "release acceptance performs no preference injection or permission-manager writes"
+    verify: "python3 docs/android/evidence/lw-m7-18/test-android-graphics-smoke.py && python3 docs/android/board.py --check"
+    effort_h: "8-14"
+    skills: [python, android, js]
+    agent_safe: yes
+    isolation: worktree
+    risk: Synthetic grants or weak UI selectors could label an unusable or overbroad permission bridge as safe.
+
   - id: LW-M7-21
     title: Resolve feature compilation with source-bound evidence
     milestone: M7
