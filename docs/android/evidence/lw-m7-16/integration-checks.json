@@ -1,0 +1,50 @@
+{
+  "repository_base": "c8f8e4104ce52cbbfe19b5af47126b94b751e99d",
+  "patch_sha256": "5f8ac39b89316c1801266c800ccf9ab32379bfda4ec7613e8340f499d5f77223",
+  "checks": [
+    {
+      "command": [
+        "python3",
+        "docs/android/board.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "ok: 102 tasks, 23 waves, 0 warning(s)\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/check-patch-order.py"
+      ],
+      "exit_code": 0,
+      "stdout": "patch order ok: 12/12 declared constraint(s) enforced across 2 target sequence(s); 91 shared-file pair(s) derived and classified.\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/lint-patch-scope.py"
+      ],
+      "exit_code": 0,
+      "stdout": "lint-patch-scope: OK - 90 patch file(s), no scope violations\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/board.py",
+        "--check-scope"
+      ],
+      "exit_code": 1,
+      "stdout": "error: PATCH-SCOPE.md says 29 android, lists have 30\nerror: PATCH-SCOPE.md says 89 total, lists have 90\n\n2 error(s)\n",
+      "stderr": ""
+    },
+    {
+      "command": "patch --batch --fuzz=0 --dry-run -p1 -i translation-assets.patch (immutable beta source)",
+      "exit_code": 0,
+      "stdout": "checking file mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt\nchecking file mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java\nchecking file mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs\nchecking file toolkit/components/translations/AndroidTranslationAssets.sys.mjs\nchecking file toolkit/components/translations/TranslationsUtils.mjs\nchecking file toolkit/components/translations/actors/TranslationsChild.sys.mjs\nchecking file toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs\nchecking file toolkit/components/translations/actors/TranslationsParent.sys.mjs\nchecking file toolkit/components/translations/jar.mn\nchecking file toolkit/components/translations/moz.build\nchecking file toolkit/components/translations/tests/unit/test_android_translation_assets.js\nchecking file toolkit/components/translations/tests/unit/xpcshell.toml\nchecking file toolkit/components/translations/translations.d.ts\n",
+      "stderr": ""
+    }
+  ]
+}

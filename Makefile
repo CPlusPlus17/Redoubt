@@ -423,7 +423,10 @@ $(targets_stamp):
 	@rm -f librewolf-targets-$(version)-$(release)-*
 	@touch $@
 
-$(lw_source_dir): $(ff_source_tarball) $(version_files) scripts/librewolf-patches.py assets/mozconfig assets/l10n-pin.txt $(patch_lists) $(targets_stamp)
+# Android translation pins participate in extraction; desktop inputs stay identical.
+android_translation_inputs := $(if $(filter android,$(target_list)),scripts/package-translation-assets.py assets/translations/catalog.json assets/translations/bergamot-translator.wasm.zst assets/translations/provenance.json)
+
+$(lw_source_dir): $(ff_source_tarball) $(version_files) scripts/librewolf-patches.py assets/mozconfig assets/l10n-pin.txt $(patch_lists) $(targets_stamp) $(android_translation_inputs)
 	$(lw_tree_guard)
 	rm -rf "$(ff_tarball_dir)" $(lw_source_dir)
 	tar xf $(ff_source_tarball)

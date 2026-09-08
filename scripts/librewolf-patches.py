@@ -418,6 +418,21 @@ def android_ubo_extension():
         print("fatal error: could not package the pinned uBO extension: {}".format(error), flush=True)
         script_exit(1)
 
+def android_translation_assets():
+    # Validate the checked-in complete catalog and WASM, then stage only those
+    # reviewed inputs. This path never performs metadata or attachment fetches.
+    command = [sys.executable, str(REPO_DIR / "scripts/package-translation-assets.py"),
+               "--asset-dir", "toolkit/components/translations/android-data"]
+    print(shlex.join(command), flush=True)
+    if options.no_execute:
+        return
+    try:
+        subprocess.run(command, check=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        print("fatal error: could not package pinned translations assets: {}".format(error), flush=True)
+        script_exit(1)
+
+
 def patch(patchfile):
     cmd = "{} -p1 -i {}".format(PATCH_BIN, patchfile)
     print("\n*** -> {}".format(cmd))
@@ -520,6 +535,7 @@ def librewolf_patches():
     if "android" in targets:
         android_search_config()
         android_ubo_extension()
+        android_translation_assets()
 
     # apply common.txt, then one list per --targets. The lists are read from
     # PATCH_LIST_DIR (absolute), the patches themselves are applied from '../'
