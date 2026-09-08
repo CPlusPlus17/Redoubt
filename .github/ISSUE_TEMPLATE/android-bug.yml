@@ -1,0 +1,201 @@
+name: Android bug report
+description: Something is wrong in Redoubt
+title: "[Android] "
+labels:
+  - Android
+  - Type Bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Redoubt has **no crash reporter** — we
+        removed the telemetry and crash-reporting stack — so what you write here is
+        genuinely all we get. The device and version fields below are what let us
+        tell your report apart from the other thirty filed today.
+
+        **Security bugs do not belong in a public issue.** If this is a
+        memory-safety bug, a signature mismatch, or anything that looks like a
+        compromised download, close this form and use the private contact path
+        linked on the new-issue page instead.
+
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: What you did, what you expected, what you got instead.
+      placeholder: |
+        1. Open …
+        2. Tap …
+        3. Expected: … / Actually: …
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device model
+      description: >-
+        The marketing name and, if you know it, the model number. Android
+        Settings → About phone.
+      placeholder: "Pixel 6a (GX7AS) / Samsung Galaxy A54 (SM-A546B)"
+    validations:
+      required: true
+
+  - type: input
+    id: total-ram
+    attributes:
+      label: Total device RAM (optional)
+      description: >-
+        Especially useful for slowdowns, background kills, or crashes during the
+        closed beta. Give the device's total RAM, not currently free memory.
+        Leave this blank if you do not know.
+      placeholder: "3 GB / 4 GB / 8 GB"
+
+  - type: input
+    id: android-version
+    attributes:
+      label: Android version
+      description: >-
+        Android Settings → About phone → Android version. Include the vendor skin
+        or custom ROM if you are on one — it changes the answer often enough to
+        matter.
+      placeholder: "Android 14, One UI 6.1 / Android 15, GrapheneOS"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: apk-source
+    attributes:
+      label: Where did you install the APK from?
+      description: >-
+        If you are not sure, this is the single most useful thing you can find out.
+        Obtainium and F-Droid both show the source repository in the app's detail
+        page.
+      options:
+        - Closed beta APK from the maintainer's private link
+        - The Redoubt F-Droid repository
+        - Accrescent
+        - Direct APK download from our site
+        - Obtainium (tracking the direct APK)
+        - A different F-Droid repository or mirror (say which, below)
+        - I built it from source
+        - I do not know
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: Redoubt version and build ID
+      description: >-
+        Redoubt → Settings → About Redoubt. Paste the whole version line,
+        including the build ID.
+      placeholder: "153.0.4-1 (Build #20260815120000)"
+    validations:
+      required: true
+
+  - type: input
+    id: cpu-abi
+    attributes:
+      label: CPU architecture (optional)
+      description: >-
+        arm64-v8a on essentially every phone since 2017; armeabi-v7a on older or
+        very low-end devices; x86_64 on emulators. Only fill this in if you know it.
+      placeholder: "arm64-v8a"
+
+  - type: dropdown
+    id: aboutconfig
+    attributes:
+      label: Have you changed anything in about:config?
+      description: >-
+        Redoubt ships about:config on release builds. Changed prefs
+        are shown first and marked as modified.
+      options:
+        - "No, everything is at its default"
+        - "Yes — the changes are listed below"
+        - "I do not remember"
+    validations:
+      required: true
+
+  - type: textarea
+    id: aboutconfig-detail
+    attributes:
+      label: Which prefs did you change?
+      description: >-
+        One `pref.name = value` per line. Also list anything you changed in
+        Redoubt's own Settings screens, and any extensions you installed beyond
+        the preinstalled uBlock Origin.
+      render: text
+
+  - type: dropdown
+    id: fresh-profile
+    attributes:
+      label: Does it still happen with a clean profile?
+      description: >-
+        **This deletes your bookmarks, history and logins — export them first.**
+        "Delete browsing data" inside Redoubt is NOT enough; it leaves your
+        about:config changes in place. A clean profile means Android Settings →
+        Apps → Redoubt → Storage → **Clear storage**, or uninstall and reinstall.
+        If you would rather not lose your data, choose the last option — that is a
+        fine answer and we will not close the issue for it.
+      options:
+        - "Yes, it still happens on a clean profile"
+        - "No, a clean profile fixes it"
+        - "I have not tried"
+        - "I would rather not wipe my profile"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: fenix-comparison
+    attributes:
+      label: Does it also happen in Firefox for Android?
+      description: >-
+        The most useful single test you can run. If stock Firefox does the same
+        thing, it is an upstream Gecko bug and we will route it to Mozilla instead
+        of sitting on it. Installing Firefox alongside Redoubt is safe; they do
+        not share data.
+      options:
+        - "Yes, Firefox for Android does it too"
+        - "No, Firefox for Android is fine"
+        - "I have not tried"
+        - "Not applicable (this is about a Redoubt-specific feature)"
+    validations:
+      required: true
+
+  - type: input
+    id: site
+    attributes:
+      label: Affected site (optional)
+      description: >-
+        If it is site-specific, the exact URL. If the site is private or sensitive,
+        say so instead of pasting it.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional, very welcome)
+      description: >-
+        There is no crash reporter, so `adb logcat` is the only way we see a crash.
+        With USB debugging on and the device connected:
+        `adb logcat -d > redoubt.txt` right after reproducing, then attach the
+        file. Read it first — logcat can contain URLs you have visited.
+      render: shell
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before you file
+      options:
+        - label: >-
+            I searched the existing issues, including closed ones, for this problem.
+          required: true
+        - label: >-
+            This is not a security vulnerability. (If it is, use the private
+            contact path instead — see the top of this form.)
+          required: true
+        - label: >-
+            I understand that Redoubt has a weaker process sandbox
+            than LibreWolf on desktop, that this is documented and deliberate, and
+            that my report is about something else.
+          required: false
