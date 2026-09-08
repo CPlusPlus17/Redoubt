@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "task": "LW-M7-17",
-  "snapshot_commit": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae",
+  "snapshot_commit": "3466ea18db777805c38c313bac849edadfda4fd2",
   "scope": "All pinned desktop patches, all policy leaves and all copied pane settings/buttons/registrations. Human semantic review plus mechanical enumeration; not a build/runtime parity gate.",
   "runtime_verdict": "NOT RUN by this audit; no counterpart is certified feature-complete.",
   "counterparts": {
@@ -60,15 +60,22 @@
     "translations": {
       "status": "mixed_open",
       "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "Fenix already has a global translation feature switch and a separate Offer to translate switch. TranslationSettingsFragment calls translationsFeature.set and dispatches UpdateGlobalOfferTranslateSettingAction, persisting offerTranslation. TranslationsEnabledSettings stores is_enabled_key with default true; Core reads its first value before initializing TranslationsMiddleware. MenuDialogFragment routes Translate Page into the existing translation flow. Model/download/status UI presence does not repair the denied Remote Settings asset path.",
+      "android": "Fenix already has separate global enable and Offer to translate controls: TranslationSettingsFragment updates translationsFeature and the offer state; TranslationsEnabledSettings persists its enabled value, and Core reads it before initializing TranslationsMiddleware. The integrated LW-M7-16 candidate now stages a pinned local catalog and bundled WASM under an Android-only packaging hook. Its Android provider bypasses Remote Settings metadata clients for those assets, while generic JavaScript/Rust Remote Settings network blockers remain unchanged. Existing explicit native Translate/ManageModel download events create cancellable, bounded operations; passive attachment reads are cache-only. Model transfers are restricted to pinned canonical attachment URLs and selected record IDs, omit credentials/referrer, reject redirects and verify compressed/decompressed bytes before cache commit. Translation rechecks the current document, cancellation and required pair/pivot assets before entering the existing engine; pagehide/destruction cancel its operation. Delete paths abort overlapping work. This is source implementation, with only the local package-input integrity command run by this audit; there is no translation result or APK control verdict here.",
       "evidence": [
         "source:translation-settings",
         "source:translation-store",
         "source:core",
         "source:menu",
-        "repo:patches/android/rs-blocker-android.patch"
+        "repo:patches/android/rs-blocker-android.patch",
+        "repo:patches/rs-blocker.patch",
+        "repo:patches/android/translation-assets.patch",
+        "repo:scripts/librewolf-patches.py",
+        "repo:scripts/package-translation-assets.py",
+        "repo:assets/translations/catalog.json",
+        "repo:assets/translations/bergamot-translator.wasm.zst",
+        "repo:assets/patches/android.txt"
       ],
-      "remaining": "LW-M7-16 is separate work in progress at this snapshot: verified explicit asset download/cache and offline translation are not established here. Test global switch and offer switch separately across restart, menu availability, supported hardware/languages, cancel/delete, private mode and stale-document behavior. Desktop context-specific hiding is not identical to a mobile menu."
+      "remaining": "Compile/package the GeckoView/native/Fenix candidate and execute real supported-language translation on the resulting APK, including offline reuse after restart. Verify fresh-profile no-contact behavior, explicit consent, integrity/redirect failures, cancel/delete/retry, private mode and stale-document/pivot races. Test global enable and offer controls separately across restart and menu availability. Models are not all bundled; bundled WASM and catalog verification do not prove model compatibility or actual decoding/translation. The internal about:translations page remains cache-only without a separate explicit asset-download action; it needs a product/implementation disposition. Desktop context-specific hiding is not identical to a mobile menu."
     },
     "password": {
       "status": "mixed_open",
@@ -102,15 +109,17 @@
       "remaining": "Inspect/implement an equivalent optional non-AI page preview where appropriate. Do not claim that disabling all ML delivers the positive preview feature, or infer absence throughout Android from this bounded search."
     },
     "graphics": {
-      "status": "open_gap",
+      "status": "mixed_open",
       "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "At the frozen source and audit base, webgl-prompt-default.patch deliberately defaults librewolf.webgl.prompt to false on Android because the old desktop observer/UI cannot answer Android requests. This preserves usable WebGL but does not implement desktop per-site protection. LW-M7-14 is concurrent implementation, not part of this pinned snapshot.",
+      "android": "At repository snapshot 3466ea1, the integrated LW-M7-14 candidate adds the Android path from CanvasUtils/ClientWebGLContext through GeckoView actors, Java and Android Components into Fenix. Native WebGL creation and canvas readback consult exact-principal permissions; unknown WebGL requests remain blocked while a choice is pending. The parent derives the current requesting document principal, checks the active tab/document before applying a response, and acknowledges the permission write before exposing a one-use reload of that document/frame. Permission records retain session/permanent lifetime and private/context identity. Fenix presents Allow, Block and Ask/reset, Remember for normal browsing, a quiet-request Review action, and saved exception lists through site permissions, quick settings and the trust panel. Stored edits wait for a native acknowledgement and offer a separate explicit reload. The later registered candidate supersedes the historical Android prompt=false guard and restores prompt=true alongside the bridge. These are inspected implementation paths; compilation and behavior have not been demonstrated by this audit.",
       "evidence": [
         "repo:patches/android/webgl-prompt-default.patch",
         "repo:patches/webgl-permission-common.patch",
-        "source:gv-permission"
+        "source:gv-permission",
+        "repo:patches/android/canvas-webgl-permissions.patch",
+        "repo:assets/patches/android.txt"
       ],
-      "remaining": "Integrate and compile LW-M7-14, then measure canvas/WebGL protection before choice, actual Android prompt/quiet indicator, allow/deny, session/permanent/private lifetimes, exact-origin exceptions, revoke and real pixels after reload, including workers/iframes. Also provide global/quiet controls; a native permission constant is not sufficient."
+      "remaining": "Compile the native/GeckoView/Fenix path for every release ABI and run the required Fenix unit gate. On the resulting APK measure protection before choice, actual prompt/quiet indicator, allow/deny/ask, session/permanent/private lifetimes across reload/restart/private close, exact-origin/context isolation, revoke/delete and real rendered pixels, including worker/iframe and stale-document paths. The new permission list is not a global WebGL/quiet-mode preference control; those desktop pane controls remain an implementation/UI gap. Source acknowledgements and authored tests do not prove live IPC, rendering or persistence. The generic EME permission path is separate and inherits no lifetime verdict from this graphics candidate."
     },
     "app-update": {
       "status": "source_implemented_runtime_open",
@@ -1939,10 +1948,14 @@
     }
   ],
   "repository_evidence": {
+    "assets/patches/android.txt": "52c6e5eef062fce82cac767456ef6009d212ca2176ac31d9bc91b8f3280589f6",
     "assets/search-config-v2.json": "f6136f5d64eb2cb023791b2075687b4ce8fbde778315463bcda2c514d9b6f815",
+    "assets/translations/bergamot-translator.wasm.zst": "327fcfc7b7e9d95f6fa0844ebf899cfc05469872ef02d3aef5783182839a6255",
+    "assets/translations/catalog.json": "ce8c163e97d9d5b136cd673f7e63684dada00b45514442bf282b387174100d96",
     "patches/android/about-config.patch": "5db30d645f7a1b1e9eb3e9ad7c626d6e2c91095d5b9a39a099da6a66501b6858",
     "patches/android/autoconfig-resource-fallback.patch": "a477f20154b86abc16e09a6182ac8772e023a28389eb6badfbcba011605143b6",
     "patches/android/branding.patch": "caba349f53a7f224b7d50067578efaa1075bb160cc7f697b2e21829afc18edec",
+    "patches/android/canvas-webgl-permissions.patch": "2c6196b1f619223d7e2a185567d8866e83467e1e1b9380200789471d221a7c7f",
     "patches/android/disable-data-reporting-android.patch": "0c0e004f4773c5245ce3a0966881b976b1373064a4d0ac32e4d1d76243e6a081",
     "patches/android/neterror-jar.patch": "6208f779895a6cac7bb363f1110a99b209eb798b481c27c27eaa5fb3b897c1f9",
     "patches/android/no-adjust.patch": "f55c2a49db94c9b60202219aec1db42f07237a75b363eacf4a525bfc6d9b66c2",
@@ -1956,6 +1969,7 @@
     "patches/android/privacy-defaults.patch": "986e012fb5d7df0625aa3eee9e35561e29abdff2bce08e4daa936c02373541ce",
     "patches/android/rs-blocker-android.patch": "c3e108587d84162ce789fb0d95f1f8911cef6859bdbc86e5d803c05bf273e4d4",
     "patches/android/search-config.patch": "be8d8ed2067a2b038d5494ff26f5d21caee602b2b0195233297547afe781c26c",
+    "patches/android/translation-assets.patch": "5f8ac39b89316c1801266c800ccf9ab32379bfda4ec7613e8340f499d5f77223",
     "patches/android/ubo-preinstall.patch": "d48b3bde33ea39c4ddd6fbfa7336aae5ef01f6a5a420128c3265e1f3024b0ee9",
     "patches/android/ubo-readiness.patch": "f6b7e404ff1e64c25bb7d0966a49b56287ac149bc1cf14dce2c4b0ae3be4b50f",
     "patches/android/update-check.patch": "b6b4fd5379224a92b0fe952427739539808b1879ab2c379ecdf2596f83f7a03d",
@@ -1968,6 +1982,8 @@
     "patches/ui-patches/neterror-common.patch": "1a5caea7bbf7305874d7c54075bd24be59a03c00a2617c6a8fb2f9fbe1ea7851",
     "patches/webgl-permission-common.patch": "b395646ba9b73870afe584847e899a1002ea341eb4a00f5c023be169b3c2d043",
     "scripts/fetch-ubo-extension.py": "4aab232423e898b5753663d09e80277fa41e7a83dafcf9dbc15b21fd5e1463bf",
-    "scripts/librewolf-patches.py": "d8357fbb94aeb17617c2a22d52804320a9cb2d424e78acc35c68b4477471f8f8"
-  }
+    "scripts/librewolf-patches.py": "51929bb88a6657b16cf67bbb51fb9618e61b8d45582ce3db1234b9c660a1a272",
+    "scripts/package-translation-assets.py": "2b65b08920d38199ebca215c0ae1d9118d10501f5be8bab9b47bb70945b3939f"
+  },
+  "source_capture_commit": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae"
 }

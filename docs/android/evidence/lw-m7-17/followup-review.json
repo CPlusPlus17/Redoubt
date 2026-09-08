@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "task": "LW-M7-17",
+  "scope": "Scoped source review of integrated LW-M7-14/LW-M7-16 candidates; all other counterpart records and original desktop/policy/pane mappings retained unchanged.",
+  "original_repository_snapshot": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae",
+  "audited_repository_snapshot": "3466ea18db777805c38c313bac849edadfda4fd2",
+  "original_audit_commit": "3466ea18db777805c38c313bac849edadfda4fd2",
+  "source_capture_commit": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae",
+  "archived_source_sha256": "7e866d3a9f611871f4e0ba885dc1fcbf7bf750cd8d981cc04db14a511398d4f9",
+  "counterparts_changed": [
+    "graphics",
+    "translations"
+  ],
+  "changed_previously_pinned_inputs": {
+    "scripts/librewolf-patches.py": {
+      "previous_sha256": "d8357fbb94aeb17617c2a22d52804320a9cb2d424e78acc35c68b4477471f8f8",
+      "sha256": "51929bb88a6657b16cf67bbb51fb9618e61b8d45582ce3db1234b9c660a1a272",
+      "reviewed_lines": [
+        [
+          400,
+          442
+        ],
+        [
+          525,
+          544
+        ]
+      ],
+      "review": "Android-only translation staging invokes the pinned local packager after existing search/uBO staging, before applying patches. Full original-to-current script diff inspected; no other previously pinned counterpart input changed."
+    }
+  },
+  "added_repository_inputs": {
+    "assets/patches/android.txt": {
+      "sha256": "52c6e5eef062fce82cac767456ef6009d212ca2176ac31d9bc91b8f3280589f6",
+      "reviewed_lines": [
+        [
+          90,
+          90
+        ],
+        [
+          187,
+          188
+        ]
+      ],
+      "review": "Existing guard precedes the appended complete graphics candidate; translation candidate is also Android-registered."
+    },
+    "patches/android/canvas-webgl-permissions.patch": {
+      "sha256": "2c6196b1f619223d7e2a185567d8866e83467e1e1b9380200789471d221a7c7f",
+      "reviewed_lines": [
+        [
+          8,
+          496
+        ],
+        [
+          761,
+          801
+        ],
+        [
+          856,
+          1648
+        ],
+        [
+          2295,
+          3024
+        ]
+      ],
+      "review": "Inspected production native permission checks, Android Components identity/storage, Fenix controls/resources, Java/GeckoView actor-service acknowledgements and default flip. Authored unit/instrumentation tests were not executed."
+    },
+    "patches/android/translation-assets.patch": {
+      "sha256": "5f8ac39b89316c1801266c800ccf9ab32379bfda4ec7613e8340f499d5f77223",
+      "reviewed_lines": [
+        [
+          1,
+          1116
+        ],
+        [
+          1178,
+          1188
+        ]
+      ],
+      "review": "Inspected native event operation/cancellation path, local provider and validation/cache/download limits, actor pair/document checks, deletion, packaging guards and type changes. Authored browser/unit tests were not executed."
+    },
+    "scripts/package-translation-assets.py": {
+      "sha256": "2b65b08920d38199ebca215c0ae1d9118d10501f5be8bab9b47bb70945b3939f",
+      "reviewed_lines": [
+        [
+          1,
+          75
+        ]
+      ],
+      "review": "Read full local-only staging/verification implementation, including metadata/compressed/expanded pins and bounded zstd invocation."
+    },
+    "assets/translations/catalog.json": {
+      "sha256": "ce8c163e97d9d5b136cd673f7e63684dada00b45514442bf282b387174100d96",
+      "reviewed_lines": [],
+      "review": "Data bytes verified by the read-only packager against its exact whole-file pin; schema/count and selection consumers reviewed in source. No claim that every model was individually inspected or translated."
+    },
+    "assets/translations/bergamot-translator.wasm.zst": {
+      "sha256": "327fcfc7b7e9d95f6fa0844ebf899cfc05469872ef02d3aef5783182839a6255",
+      "reviewed_lines": [],
+      "review": "Binary integrity checked against compressed and expanded pins by the local packager; the audit did not execute this engine."
+    }
+  },
+  "compile_verdict": "NOT RUN by this source audit. New native/GeckoView/Fenix compilation remains pending; source registration or patch application is not compilation.",
+  "runtime_verdict": "NOT RUN by this source audit. No new graphics or translation behavior is passed, and independent APK work is not imported as an audit verdict.",
+  "executed_asset_integrity_check": {
+    "command": "python3 scripts/package-translation-assets.py",
+    "exit_code": 0,
+    "scope": "Read-only verification of bundled catalog, compressed WASM and expanded WASM pins; no source-tree output, network fetch or engine execution."
+  }
+}

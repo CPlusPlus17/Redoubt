@@ -8,8 +8,12 @@ parity pass.** The audit ran no APK, emulator, network or native-build checks.
 Start with [coverage-map.md](coverage-map.md), the readable effect map. Its
 machine-readable counterpart is [coverage.json](coverage.json). Each Android
 claim cites inspected source or a pinned repository patch and states what remains
-missing or unverified. Concurrent graphics and translation implementations are
-outside the pinned snapshot, `7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae`.
+missing or unverified. The scoped followup at
+`3466ea18db777805c38c313bac849edadfda4fd2` adds the integrated graphics and
+translation source candidates. **Their target compilation and APK behavior remain
+pending.** [followup-review.json](followup-review.json) records the reviewed
+ranges, changed input hashes and limits. All other counterpart records and all
+desktop/policy/pane mappings are retained from the original audit.
 
 Produced by the `coverage_map` agent in its isolated `android/LW-M7-17` worktree
 on the Fedora host. Source inspection was read-only; no guest was accessed.
@@ -34,9 +38,17 @@ The most consequential distinctions found in the inspected code are:
 - **Site-data retention:** desktop stores exact-principal, permanent cookie
   `ALLOW`. Fenix quit cleanup uses unscoped cookie/storage deletion. ETP exceptions
   and a clear-site-data button do not implement retention exceptions.
+- **Graphics:** the integrated candidate now connects native exact-principal
+  checks to GeckoView and Fenix request/exception controls, with explicit
+  lifetimes and permission-write acknowledgements before reload. Real rendering,
+  private/restart behavior and native compilation remain unverified. Global
+  WebGL and quiet-mode controls remain a separate UI gap.
 - **Translations:** global enable and automatic offer controls already exist in
-  Fenix, with persistence code. Verified downloads/offline translation and the
-  effective control/restart matrix remain separate obligations.
+  Fenix, with persistence code. The integrated candidate adds a pinned local
+  catalog/WASM and explicit cancellable model transfers with integrity checks.
+  The audit verified the bundled package inputs only. Actual translation,
+  downloads, offline reuse and the effective control/restart matrix remain open;
+  the internal translation page has no separate explicit asset-download action.
 - **Other explicit gaps:** optional password-manager hiding, existing locale
   add-on removal as well as install-type restrictions, `ku` locale support
   (`ckb` is distinct), optional letterboxing, the JPEG XL control/actual decoding,
@@ -60,8 +72,11 @@ inspected desktop handler and must not turn into an Android localhost ban.
 files retained in [inspected-source.tar.gz](inspected-source.tar.gz). The archive
 includes relevant Android/Gecko source, desktop policy handlers and the exact
 settings inputs. Every file and the archive itself have SHA-256 bindings in
-[source-evidence.json](source-evidence.json). Thirty repository counterpart files
-are additionally pinned in `coverage.json`.
+[source-evidence.json](source-evidence.json). These original capture bytes and
+their provenance at `7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae` are unchanged.
+Thirty-six repository counterpart files are additionally pinned in
+`coverage.json` at the followup snapshot, including both new patches, Android
+registration order and the translation packaging inputs.
 
 [bounded-searches.json.gz](bounded-searches.json.gz) preserves five search
 patterns, their scopes, exit status/output, searched file hashes and the Fenix
@@ -87,9 +102,13 @@ fails if a mapped input changes. It validates that the inventory is accounted
 for; it cannot prove a human semantic interpretation or browser behavior.
 
 The recorded successful output is in [verification.txt](verification.txt).
-Seven deliberate negative controls rejected missing patches/subkeys/controls,
-changed policy values, unknown counterparts, changed source hashes and a false
-runtime verdict; see [checker-negative-controls.txt](checker-negative-controls.txt).
-No target code was modified, so no APK/native/Fenix test suite was run for this
-documentation task. Graphics, cookie rules, translations and the broader feature
-goal still require their own implementation/build/runtime acceptance evidence.
+Eleven deliberate negative controls rejected missing patches/subkeys/controls,
+changed policy values, unknown counterparts, changed source hashes, false
+runtime/compile verdicts and inconsistent followup provenance; see
+[checker-negative-controls.txt](checker-negative-controls.txt).
+The followup also checks its original capture provenance and distinct repository
+snapshot. `python3 scripts/package-translation-assets.py` verified the exact local
+catalog and compressed/decompressed WASM pins, without fetching assets or running
+the engine. No target code was modified, so no APK/native/Fenix test suite was run
+for this documentation task. Graphics, cookie rules, translations and the broader
+feature goal still require their own build/runtime acceptance evidence.

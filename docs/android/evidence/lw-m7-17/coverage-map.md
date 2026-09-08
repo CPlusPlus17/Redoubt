@@ -1,10 +1,10 @@
 # Desktop patch and policy effect map — LW-M7-17
 
-Audit snapshot: `7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae`; settings `2206f8d1e59c0a0c0f69ee3fe5121eb353426687`.
+Audit snapshot: `3466ea18db777805c38c313bac849edadfda4fd2`; settings `2206f8d1e59c0a0c0f69ee3fe5121eb353426687`.
 
 All pinned desktop patches, all policy leaves and all copied pane settings/buttons/registrations. Human semantic review plus mechanical enumeration; not a build/runtime parity gate.
 
-**This is source coverage, not feature completion. No browser runtime check was executed by this audit.** Each counterpart below has explicit remaining work; “source implemented” does not mean its behavior has passed on the APK. Concurrent LW-M7-14/LW-M7-16 implementations are outside this snapshot.
+**This is source coverage, not feature completion. No browser runtime check was executed by this audit.** Each counterpart below has explicit remaining work; “source implemented” does not mean its behavior has passed on the APK. The scoped followup includes the integrated LW-M7-14/LW-M7-16 source candidates; their native/GeckoView/Fenix compilation and APK behavior remain pending. Original archived source capture is unchanged; [followup-review.json](followup-review.json) records the separate repository review.
 
 ## Desktop patches
 
@@ -205,9 +205,9 @@ Provenance: inspected code; behavioral interpretation is an inference from that 
 
 ### translations
 
-**Mixed open.** Fenix already has a global translation feature switch and a separate Offer to translate switch. TranslationSettingsFragment calls translationsFeature.set and dispatches UpdateGlobalOfferTranslateSettingAction, persisting offerTranslation. TranslationsEnabledSettings stores is_enabled_key with default true; Core reads its first value before initializing TranslationsMiddleware. MenuDialogFragment routes Translate Page into the existing translation flow. Model/download/status UI presence does not repair the denied Remote Settings asset path.
+**Mixed open.** Fenix already has separate global enable and Offer to translate controls: TranslationSettingsFragment updates translationsFeature and the offer state; TranslationsEnabledSettings persists its enabled value, and Core reads it before initializing TranslationsMiddleware. The integrated LW-M7-16 candidate now stages a pinned local catalog and bundled WASM under an Android-only packaging hook. Its Android provider bypasses Remote Settings metadata clients for those assets, while generic JavaScript/Rust Remote Settings network blockers remain unchanged. Existing explicit native Translate/ManageModel download events create cancellable, bounded operations; passive attachment reads are cache-only. Model transfers are restricted to pinned canonical attachment URLs and selected record IDs, omit credentials/referrer, reject redirects and verify compressed/decompressed bytes before cache commit. Translation rechecks the current document, cancellation and required pair/pivot assets before entering the existing engine; pagehide/destruction cancel its operation. Delete paths abort overlapping work. This is source implementation, with only the local package-input integrity command run by this audit; there is no translation result or APK control verdict here.
 
-**Remaining:** LW-M7-16 is separate work in progress at this snapshot: verified explicit asset download/cache and offline translation are not established here. Test global switch and offer switch separately across restart, menu availability, supported hardware/languages, cancel/delete, private mode and stale-document behavior. Desktop context-specific hiding is not identical to a mobile menu.
+**Remaining:** Compile/package the GeckoView/native/Fenix candidate and execute real supported-language translation on the resulting APK, including offline reuse after restart. Verify fresh-profile no-contact behavior, explicit consent, integrity/redirect failures, cancel/delete/retry, private mode and stale-document/pivot races. Test global enable and offer controls separately across restart and menu availability. Models are not all bundled; bundled WASM and catalog verification do not prove model compatibility or actual decoding/translation. The internal about:translations page remains cache-only without a separate explicit asset-download action; it needs a product/implementation disposition. Desktop context-specific hiding is not identical to a mobile menu.
 
 Inspected evidence:
 
@@ -216,6 +216,13 @@ Inspected evidence:
 - Archived source **core**: `mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt`; inspected line ranges and SHA-256 in [source index](source-index.md#core).
 - Archived source **menu**: `mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt`; inspected line ranges and SHA-256 in [source index](source-index.md#menu).
 - [patches/android/rs-blocker-android.patch](../../../../patches/android/rs-blocker-android.patch) — SHA-256 in `coverage.json` → `repository_evidence`.
+- [patches/rs-blocker.patch](../../../../patches/rs-blocker.patch) — SHA-256 in `coverage.json` → `repository_evidence`.
+- [patches/android/translation-assets.patch](../../../../patches/android/translation-assets.patch) — SHA-256 in `coverage.json` → `repository_evidence`.
+- [scripts/librewolf-patches.py](../../../../scripts/librewolf-patches.py) — SHA-256 in `coverage.json` → `repository_evidence`.
+- [scripts/package-translation-assets.py](../../../../scripts/package-translation-assets.py) — SHA-256 in `coverage.json` → `repository_evidence`.
+- [assets/translations/catalog.json](../../../../assets/translations/catalog.json) — SHA-256 in `coverage.json` → `repository_evidence`.
+- [assets/translations/bergamot-translator.wasm.zst](../../../../assets/translations/bergamot-translator.wasm.zst) — SHA-256 in `coverage.json` → `repository_evidence`.
+- [assets/patches/android.txt](../../../../assets/patches/android.txt) — SHA-256 in `coverage.json` → `repository_evidence`.
 
 Provenance: inspected code; behavioral interpretation is an inference from that code. No static check is presented as live evidence.
 
@@ -261,15 +268,17 @@ Provenance: inspected code; behavioral interpretation is an inference from that 
 
 ### graphics
 
-**Open gap.** At the frozen source and audit base, webgl-prompt-default.patch deliberately defaults librewolf.webgl.prompt to false on Android because the old desktop observer/UI cannot answer Android requests. This preserves usable WebGL but does not implement desktop per-site protection. LW-M7-14 is concurrent implementation, not part of this pinned snapshot.
+**Mixed open.** At repository snapshot 3466ea1, the integrated LW-M7-14 candidate adds the Android path from CanvasUtils/ClientWebGLContext through GeckoView actors, Java and Android Components into Fenix. Native WebGL creation and canvas readback consult exact-principal permissions; unknown WebGL requests remain blocked while a choice is pending. The parent derives the current requesting document principal, checks the active tab/document before applying a response, and acknowledges the permission write before exposing a one-use reload of that document/frame. Permission records retain session/permanent lifetime and private/context identity. Fenix presents Allow, Block and Ask/reset, Remember for normal browsing, a quiet-request Review action, and saved exception lists through site permissions, quick settings and the trust panel. Stored edits wait for a native acknowledgement and offer a separate explicit reload. The later registered candidate supersedes the historical Android prompt=false guard and restores prompt=true alongside the bridge. These are inspected implementation paths; compilation and behavior have not been demonstrated by this audit.
 
-**Remaining:** Integrate and compile LW-M7-14, then measure canvas/WebGL protection before choice, actual Android prompt/quiet indicator, allow/deny, session/permanent/private lifetimes, exact-origin exceptions, revoke and real pixels after reload, including workers/iframes. Also provide global/quiet controls; a native permission constant is not sufficient.
+**Remaining:** Compile the native/GeckoView/Fenix path for every release ABI and run the required Fenix unit gate. On the resulting APK measure protection before choice, actual prompt/quiet indicator, allow/deny/ask, session/permanent/private lifetimes across reload/restart/private close, exact-origin/context isolation, revoke/delete and real rendered pixels, including worker/iframe and stale-document paths. The new permission list is not a global WebGL/quiet-mode preference control; those desktop pane controls remain an implementation/UI gap. Source acknowledgements and authored tests do not prove live IPC, rendering or persistence. The generic EME permission path is separate and inherits no lifetime verdict from this graphics candidate.
 
 Inspected evidence:
 
 - [patches/android/webgl-prompt-default.patch](../../../../patches/android/webgl-prompt-default.patch) — SHA-256 in `coverage.json` → `repository_evidence`.
 - [patches/webgl-permission-common.patch](../../../../patches/webgl-permission-common.patch) — SHA-256 in `coverage.json` → `repository_evidence`.
 - Archived source **gv-permission**: `mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs`; inspected line ranges and SHA-256 in [source index](source-index.md#gv-permission).
+- [patches/android/canvas-webgl-permissions.patch](../../../../patches/android/canvas-webgl-permissions.patch) — SHA-256 in `coverage.json` → `repository_evidence`.
+- [assets/patches/android.txt](../../../../assets/patches/android.txt) — SHA-256 in `coverage.json` → `repository_evidence`.
 
 Provenance: inspected code; behavioral interpretation is an inference from that code. No static check is presented as live evidence.
 

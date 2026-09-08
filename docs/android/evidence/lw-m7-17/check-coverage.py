@@ -44,9 +44,19 @@ def check():
     inputs = json.loads((HERE / "input-inventory.json").read_text())
     coverage = json.loads((HERE / "coverage.json").read_text())
     source = json.loads((HERE / "source-evidence.json").read_text())
+    followup = json.loads((HERE / "followup-review.json").read_text())
     searches = json.loads(gzip.decompress((HERE / "bounded-searches.json.gz").read_bytes()))
     require(coverage["runtime_verdict"].startswith("NOT RUN"), "audit must not claim a live verdict")
-    require(coverage["snapshot_commit"] == source["repository_commit"], "mixed source snapshots")
+    require(coverage["source_capture_commit"] == source["repository_commit"] ==
+            followup["source_capture_commit"] == followup["original_repository_snapshot"],
+            "original source capture provenance changed")
+    require(coverage["snapshot_commit"] == followup["audited_repository_snapshot"],
+            "followup repository snapshot mismatch")
+    require(followup["archived_source_sha256"] == source["archive_sha256"],
+            "followup relabels the archived source")
+    require(followup["compile_verdict"].startswith("NOT RUN") and
+            followup["runtime_verdict"].startswith("NOT RUN"),
+            "source followup must not claim compilation or live behavior")
     patch_list = (ROOT / "assets/patches/desktop.txt").read_bytes()
     require(digest(patch_list) == inputs["patch_list_sha256"], "desktop patch list changed; re-audit")
     paths = [line.split("#", 1)[0].strip() for line in patch_list.decode().splitlines()]
@@ -158,6 +168,19 @@ def check():
     require(used_repo_refs == set(coverage["repository_evidence"]), "unused or missing repo input hash")
     for path, expected in coverage["repository_evidence"].items():
         require(digest((ROOT / path).read_bytes()) == expected, f"Android counterpart input changed: {path}")
+    changed = followup["changed_previously_pinned_inputs"]
+    added = followup["added_repository_inputs"]
+    require(not set(changed) & set(added), "followup input both added and changed")
+    require(set(followup["counterparts_changed"]) == {"graphics", "translations"},
+            "followup counterpart scope changed")
+    for path, item in (changed | added).items():
+        require(item["sha256"] == coverage["repository_evidence"].get(path),
+                f"followup input not pinned: {path}")
+        for start, end in item["reviewed_lines"]:
+            require(1 <= start <= end <= len((ROOT / path).read_text().splitlines()),
+                    f"followup reviewed range invalid: {path}")
+    for path, item in changed.items():
+        require(item["previous_sha256"] != item["sha256"], f"unchanged followup input: {path}")
     print(f"COVERAGE INPUTS VERIFIED: {len(paths)} desktop patches / {effect_count} effect groups; "
           f"{len(policies)} policy keys / {len(all_leaves)} exact leaves; "
           f"{len(pane_assets)} copied assets / {len(controls)} controls / {len(registrations)} pref registrations.")
