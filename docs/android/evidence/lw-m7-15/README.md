@@ -40,4 +40,23 @@ Source binding and the separately preserved extension-support XML are in
 `../lw-m7-12/completed-fenix/`. The subsequent APK build started at 22:18:32 UTC
 as `redoubt-parity-apk-20260909.service`, invocation
 `92173718935e4060add560c011f667ae`, using the checked-in `run-feature-apk.sh`
-and `podman-bounded.sh`. Its result remains pending.
+and `podman-bounded.sh`. It completed successfully at 22:34:22 UTC. Gradle
+reported `BUILD SUCCESSFUL in 15m 21s`; the driver and service both exited 0.
+The release-type build kept R8 optimization enabled and produced all four
+development APKs (arm64-v8a, armeabi-v7a, x86_64 and universal), signed only with
+the guest's disposable debug key. `parity-feature-apk/` preserves the complete
+compressed logs, metadata, configuration-layer report, timing and exit receipts,
+and the SHA-256 hashes read independently from the completed APKs.
+
+This build reused the three native AAR inputs; the candidate changes were
+Java/JavaScript/Kotlin. It includes uBO installation/readiness and privacy
+defaults, matching the 31 source hashes in the completed Fenix receipt. It does
+not include the subsequent cookie-rule, graphics-permission or translation
+changes. Those require new compilation and testing; graphics changes require
+rebuilding all three native ABIs.
+
+The driver reports a 942-second APK pass and 14.47 GB peak memory. The separate
+live observation in `apk-resource-observations.txt` recorded a then-current
+14,448,517,120-byte container peak with zero OOM or OOM-kill events. This
+observation was taken during the build, not at its end. Browser behavior and
+upgrade compatibility remain separate checks.
