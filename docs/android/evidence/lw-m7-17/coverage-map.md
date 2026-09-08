@@ -297,12 +297,13 @@ Provenance: inspected code; behavioral interpretation is an inference from that 
 
 ### home
 
-**Mixed open.** no-onboarding makes the Pocket recommendation/sponsored-story eligibility functions false; no-suggest removes the sponsored top-site feed and defaults search/trending suggestions off. But the frozen FML homescreen defaults still enable top-sites, jump-back-in, bookmarks and recent-explorations, and Fenix Settings reads them. Desktop FirefoxHome.TopSites=false and Highlights=false therefore have remaining ordinary-content counterparts. No Weather symbol was found in the bounded home Kotlin search.
+**Mixed open.** LW-M7-24 changes the four ordinary home sections (top sites, recent tabs, bookmarks and history) to off in both packaged defaults and the nightly override. Existing Settings boolean preferences retain stored choices; HomeSettingsFragment still uses those getters and its existing controls. The patch has replayed but is not yet compiled or run. Existing no-onboarding/no-suggest removals remain. Weather absence remains a bounded source observation.
 
-**Remaining:** Resolve ordinary home sections/default shortcuts and Highlights equivalents, preserve user bookmarks/history rather than deleting them, and test fresh/restart/upgrade home. Weather absence is a bounded source observation, not a full APK proof. Recheck all advertisement/recommendation network paths.
+**Remaining:** Compile and run the new Settings tests and real fresh/restart/upgrade home controls. Preserve user data; ambiguous previously stored defaults remain unchanged. Default shortcut/bookmark seeding and recommendation/network regression remain separate work.
 
 Inspected evidence:
 
+- [patches/android/home-section-defaults.patch](../../../../patches/android/home-section-defaults.patch) — reviewed candidate; target checks pending.
 - Archived source **home-fml**: `mobile/android/fenix/app/nimbus.fml.yaml`; inspected line ranges and SHA-256 in [source index](source-index.md#home-fml).
 - Archived source **settings**: `mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt`; inspected line ranges and SHA-256 in [source index](source-index.md#settings).
 - Archived source **pocket**: `mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelper.kt`; inspected line ranges and SHA-256 in [source index](source-index.md#pocket).

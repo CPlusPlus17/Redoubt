@@ -10,6 +10,7 @@ SUITES = {
     'fenix': ('fenix/app', 602, 5468, {
         'org.mozilla.fenix.browser.permissions.OriginBoundPermissionsFeatureTest',
         'org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragmentTest',
+        'org.mozilla.fenix.utils.HomeSectionDefaultsTest',
     }),
     'extensions': ('android-components/components/support/webextensions', 4, 53, set()),
     'gecko': ('android-components/components/browser/engine-gecko', 3, 3, {

@@ -4203,3 +4203,34 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: Refreshing hashes alone cannot establish that corrected code compiled.
+
+  - id: LW-M7-24
+    title: Match ordinary home-section defaults to LibreWolf policy
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-17, LW-M5-01]
+    owns:
+      - patches/android/home-section-defaults.patch
+      - docs/android/evidence/lw-m7-24/
+    shared_edit:
+      - assets/patches/android.txt
+    tree_paths:
+      - mobile/android/fenix/app/nimbus.fml.yaml
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/HomeSectionDefaultsTest.kt
+    what: |
+      Turn off default ordinary top sites, recent tabs, bookmarks and history
+      home sections, matching FirefoxHome TopSites/Highlights policy effects.
+      Preserve existing explicit section choices, actual stored history and
+      bookmarks, and the real home customization controls. Apply the defaults
+      consistently to all build channels. This does not implement unrelated
+      Firefox Suggest, default bookmark seeding or sponsored-content controls.
+    acceptance:
+      - "new profiles default all four ordinary home sections off on every channel"
+      - "explicit opposite choices persist through Settings recreation and restart"
+      - "home settings remain usable and stored history/bookmarks are preserved"
+      - "target compilation, full Fenix gate and actual fresh/restart UI checks pass"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "2-4"
+    skills: [android, kotlin]
+    agent_safe: yes
+    isolation: worktree
+    risk: Changing defaults must not erase user data or silently reset deliberate choices.

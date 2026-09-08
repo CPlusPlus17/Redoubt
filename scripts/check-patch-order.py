@@ -358,6 +358,11 @@ CONSTRAINTS = (
 # --------------------------------------------------------------------------
 
 REVIEWED_ORDER_FREE = (
+    ("patches/android/no-nimbus.patch", "patches/android/home-section-defaults.patch",
+     ("mobile/android/fenix/app/nimbus.fml.yaml",),
+     "LW-M7-24 edits only the home defaults near the start; no-nimbus edits fission around line 510. "
+     "Both orders replay with zero fuzz to the same final hash; home-first shifts later hunks by two lines. "
+     "docs/android/evidence/lw-m7-24/replay.log"),
     ("patches/android/no-crashreporter.patch", "patches/android/canvas-webgl-permissions.patch",
      ("mobile/android/fenix/app/src/main/res/values/strings.xml",),
      "LW-M7-14: crash body at the existing startup strings and new terminal permission strings are disjoint."),

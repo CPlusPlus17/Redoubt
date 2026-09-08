@@ -134,16 +134,17 @@
     "home": {
       "status": "mixed_open",
       "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "no-onboarding makes the Pocket recommendation/sponsored-story eligibility functions false; no-suggest removes the sponsored top-site feed and defaults search/trending suggestions off. But the frozen FML homescreen defaults still enable top-sites, jump-back-in, bookmarks and recent-explorations, and Fenix Settings reads them. Desktop FirefoxHome.TopSites=false and Highlights=false therefore have remaining ordinary-content counterparts. No Weather symbol was found in the bounded home Kotlin search.",
+      "android": "LW-M7-24 changes the four ordinary home sections (top sites, recent tabs, bookmarks and history) to off in both packaged defaults and the nightly override. Existing Settings boolean preferences retain stored choices; HomeSettingsFragment still uses those getters and its existing controls. The patch has replayed but is not yet compiled or run. Existing no-onboarding/no-suggest removals remain. Weather absence remains a bounded source observation.",
       "evidence": [
         "source:home-fml",
         "source:settings",
         "source:pocket",
         "repo:patches/android/no-onboarding.patch",
         "repo:patches/android/no-suggest.patch",
-        "search:weather-home"
+        "search:weather-home",
+        "repo:patches/android/home-section-defaults.patch"
       ],
-      "remaining": "Resolve ordinary home sections/default shortcuts and Highlights equivalents, preserve user bookmarks/history rather than deleting them, and test fresh/restart/upgrade home. Weather absence is a bounded source observation, not a full APK proof. Recheck all advertisement/recommendation network paths."
+      "remaining": "Compile and run the new Settings tests and real fresh/restart/upgrade home controls. Preserve user data; ambiguous previously stored defaults remain unchanged. Default shortcut/bookmark seeding and recommendation/network regression remain separate work."
     },
     "extension-types": {
       "status": "open_gap",
@@ -1948,7 +1949,7 @@
     }
   ],
   "repository_evidence": {
-    "assets/patches/android.txt": "52c6e5eef062fce82cac767456ef6009d212ca2176ac31d9bc91b8f3280589f6",
+    "assets/patches/android.txt": "31d6b1d243b1c834030586626ce9ec1c7868dd4863405de3e099741ab50ee9bb",
     "assets/search-config-v2.json": "f6136f5d64eb2cb023791b2075687b4ce8fbde778315463bcda2c514d9b6f815",
     "assets/translations/bergamot-translator.wasm.zst": "327fcfc7b7e9d95f6fa0844ebf899cfc05469872ef02d3aef5783182839a6255",
     "assets/translations/catalog.json": "ce8c163e97d9d5b136cd673f7e63684dada00b45514442bf282b387174100d96",
@@ -1983,7 +1984,8 @@
     "patches/webgl-permission-common.patch": "b395646ba9b73870afe584847e899a1002ea341eb4a00f5c023be169b3c2d043",
     "scripts/fetch-ubo-extension.py": "4aab232423e898b5753663d09e80277fa41e7a83dafcf9dbc15b21fd5e1463bf",
     "scripts/librewolf-patches.py": "51929bb88a6657b16cf67bbb51fb9618e61b8d45582ce3db1234b9c660a1a272",
-    "scripts/package-translation-assets.py": "2b65b08920d38199ebca215c0ae1d9118d10501f5be8bab9b47bb70945b3939f"
+    "scripts/package-translation-assets.py": "2b65b08920d38199ebca215c0ae1d9118d10501f5be8bab9b47bb70945b3939f",
+    "patches/android/home-section-defaults.patch": "9253d3956aff79b8066b65e4521497ca8f1bceab9cab4fe8976137edc43e51fc"
   },
   "source_capture_commit": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae"
 }
