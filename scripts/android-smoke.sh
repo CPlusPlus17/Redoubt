@@ -160,13 +160,17 @@ class Marionette:
         self.msgid += 1
         mid = self.msgid
         payload = json.dumps([0, mid, name, params or {}]).encode("utf-8")
-        self.sock.sendall(str(len(payload)).encode() + b":" + payload)
-        while True:
-            msg = self._recv()
-            if isinstance(msg, list) and len(msg) == 4 and msg[0] == 1 and msg[1] == mid:
-                if msg[2] is not None:
-                    raise MarionetteError(name, msg[2])
-                return msg[3]
+        try:
+            self.sock.sendall(str(len(payload)).encode() + b":" + payload)
+            while True:
+                msg = self._recv()
+                if isinstance(msg, list) and len(msg) == 4 and msg[0] == 1 and msg[1] == mid:
+                    if msg[2] is not None:
+                        raise MarionetteError(name, msg[2])
+                    return msg[3]
+        except OSError as error:
+            self.close()
+            raise HarnessError("Marionette transport failed during %s: %s" % (name, error)) from error
     # convenience
     def script(self, js, args=None, chrome=False, sandbox="smoke"):
         self.cmd("Marionette:SetContext", {"value": "chrome" if chrome else "content"})

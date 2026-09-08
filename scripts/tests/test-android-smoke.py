@@ -395,6 +395,19 @@ class HttpsOnlyBehaviorGateTests(unittest.TestCase):
 
 
 class InterruptedEvidenceTests(unittest.TestCase):
+    def test_socket_timeout_is_an_automation_failure_and_closes_transport(self):
+        local, remote = socket.socketpair()
+        try:
+            local.settimeout(0.01)
+            session = harness.Marionette.__new__(harness.Marionette)
+            session.sock, session.buf, session.msgid = local, b'', 0
+            with self.assertRaisesRegex(harness.HarnessError, 'transport failed'):
+                session.cmd('WebDriver:Navigate', {'url': 'http://fixture/'})
+            self.assertEqual(local.fileno(), -1)
+        finally:
+            local.close()
+            remote.close()
+
     def test_later_connection_failure_preserves_earlier_failed_probe(self):
         with tempfile.TemporaryDirectory() as work:
             args = types.SimpleNamespace(json=str(Path(work) / 'result.json'))
