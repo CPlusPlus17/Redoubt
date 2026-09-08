@@ -4,6 +4,9 @@ set -euo pipefail
 [[ $(systemd-detect-virt --vm) == kvm && $(id -un) == runner ]]
 work=/home/runner/work/feature-parity-20260908
 evidence="$work/evidence/parity-candidate-smoke"
+if [[ -d "$evidence" ]]; then
+  mv "$evidence" "$evidence-previous-$(date -u +%Y%m%dT%H%M%S)-$$"
+fi
 mkdir -p "$evidence"
 cd "$work/repo"
 [[ $(cat "$work/evidence/parity-feature-apk/build-exit.txt") == 0 ]]
