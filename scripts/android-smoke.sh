@@ -930,6 +930,10 @@ class Emulator:
                                "Install one with sdkmanager, or start an emulator yourself "
                                "and re-run without --emulator." % self.sdk)
         _rank, api, tag, sysdir, apinum = img
+        # Some SDK distributions disable the legacy SwiftShader GLES library
+        # while retaining ANGLE with the SwiftShader Vulkan backend.
+        gpu_mode = ("swiftshader" if os.path.isdir(os.path.join(
+            self.sdk, "emulator", "lib64", "gles_swiftshader")) else "swangle")
         avd_home = os.path.join(self.work, "avd")
         avd_dir = os.path.join(avd_home, avd_name + ".avd")
         os.makedirs(avd_dir, exist_ok=True)
@@ -955,7 +959,7 @@ class Emulator:
             config = f.read()
         config = re.sub(r"(?m)^\s*hw\.gpu\.(?:enabled|mode)\s*=.*\n?", "", config)
         with open(config_path, "w") as f:
-            f.write(config.rstrip() + "\nhw.gpu.enabled = yes\nhw.gpu.mode = swiftshader\n")
+            f.write(config.rstrip() + "\nhw.gpu.enabled = yes\nhw.gpu.mode = %s\n" % gpu_mode)
         emu = os.path.join(self.sdk, "emulator", "emulator")
         if not os.access(emu, os.X_OK):
             raise HarnessError("no emulator binary at %s" % emu)
@@ -978,7 +982,7 @@ class Emulator:
                                "stop an emulator or pass --serial to reuse one")
         self.serial = "emulator-%d" % port
         argv = [emu, "-avd", avd_name, "-no-window", "-no-audio", "-no-boot-anim",
-                "-gpu", "swiftshader", "-no-snapshot", "-no-metrics",
+                "-gpu", gpu_mode, "-no-snapshot", "-no-metrics",
                 "-port", str(port), "-tcpdump", self.pcap]
         # By default the emulator resolves through the HOST's resolvers, which is
         # a measurement hazard rather than a convenience: this build machine's LAN
@@ -992,7 +996,8 @@ class Emulator:
             argv += ["-dns-server", dns]
             log("emulator DNS forced to %s (bypassing the host's resolvers)" % dns)
         logf = open(os.path.join(self.work, "emulator.log"), "w")
-        log("booting emulator %s (%s/%s, x86_64), capture -> %s" % (avd_name, api, tag, self.pcap))
+        log("booting emulator %s (%s/%s, x86_64, %s), capture -> %s"
+            % (avd_name, api, tag, gpu_mode, self.pcap))
         self.proc = subprocess.Popen(argv, stdout=logf, stderr=subprocess.STDOUT, env=env,
                                      start_new_session=True)
         self.adb.serial = self.serial
