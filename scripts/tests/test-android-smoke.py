@@ -380,15 +380,23 @@ class AppInstallStateTests(unittest.TestCase):
 class HttpsOnlyBehaviorGateTests(unittest.TestCase):
     def test_requires_active_default_and_real_visible_exception_control(self):
         prefs = {"enabled":True, "locked":False}
-        info = {"ready":"complete", "marker":None, "continueVisible":True, "canAddException":True}
+        info = {"ready":"complete", "marker":None, "continueVisible":True, "canAddException":True,
+                "uri":"resource://android/assets/low_and_medium_risk_error_pages.html?showContinueHttp=true"}
         self.assertTrue(harness.grade_https_interstitial(prefs, info))
         for key, value in (("continueVisible", False), ("canAddException", False),
-                           ("ready", "loading"), ("marker", "lw-smoke-page-ok")):
+                           ("ready", "loading"), ("marker", "lw-smoke-page-ok"),
+                           ("uri", "https://fixture/?showContinueHttp=true"),
+                           ("uri", "resource://android/assets/low_and_medium_risk_error_pages.html?showContinueHttp=false")):
             with self.subTest(key=key):
                 self.assertFalse(harness.grade_https_interstitial(prefs, {**info, key:value}))
         for key, value in (("enabled", False), ("locked", True)):
             with self.subTest(key=key):
                 self.assertFalse(harness.grade_https_interstitial({**prefs, key:value}, info))
+
+    def test_native_error_page_can_be_interactive_before_load_event_finishes(self):
+        info = {"ready":"interactive", "marker":None, "continueVisible":True, "canAddException":True,
+                "uri":"resource://android/assets/low_and_medium_risk_error_pages.html?showContinueHttp=true"}
+        self.assertTrue(harness.grade_https_interstitial({"enabled":True, "locked":False}, info))
 
     def test_missing_error_page_evidence_cannot_pass_from_pref_alone(self):
         self.assertFalse(harness.grade_https_interstitial({"enabled":True, "locked":False}, {}))

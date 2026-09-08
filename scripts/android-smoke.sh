@@ -1575,8 +1575,13 @@ def check_gum(m, res, app, adb, forcefail=False):
     return ok
 
 def grade_https_interstitial(prefs, info):
+    uri = urllib.parse.urlsplit(info.get("uri", ""))
+    native_page = (uri.scheme == "resource" and uri.netloc == "android"
+                   and uri.path == "/assets/low_and_medium_risk_error_pages.html"
+                   and urllib.parse.parse_qs(uri.query).get("showContinueHttp") == ["true"])
     return (prefs.get("enabled") is True and prefs.get("locked") is False
-            and info.get("ready") == "complete" and info.get("marker") is None
+            and native_page and info.get("ready") in ("interactive", "complete")
+            and info.get("marker") is None
             and info.get("continueVisible") is True and info.get("canAddException") is True)
 
 def check_https_only(m, res, http_url, forcefail=False):
@@ -1608,7 +1613,7 @@ def check_https_only(m, res, http_url, forcefail=False):
     for _attempt in range(60):
         try:
             info = m.script(probe) or {}
-            if info.get("ready") == "complete" and (
+            if info.get("ready") in ("interactive", "complete") and (
                 info.get("marker") is not None or info.get("continueVisible") is True
             ):
                 break
@@ -1633,6 +1638,9 @@ def check_pageload(m, res, origin, http_url, https_url, forcefail=False):
     ok_all = check_https_only(m, res, http_url, forcefail)
     for label, url, want_secure in (("page-load-http", http_url, False),
                                     ("page-load-https", https_url, True)):
+        if label == "page-load-http" and not ok_all:
+            res.add(label, False, "HTTP exception flow was not completed; no redundant blocked navigation attempted")
+            continue
         since = time.time()
         try:
             m.cmd("WebDriver:Navigate", {"url": url})
