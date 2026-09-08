@@ -46,7 +46,7 @@ diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/Transl
  import org.mozilla.gecko.EventDispatcher;
  import org.mozilla.gecko.util.EventCallback;
  import org.mozilla.gecko.util.GeckoBundle;
-@@ -31,6 +32,24 @@
+@@ -31,6 +32,27 @@
  public class TranslationsController {
    private static final boolean DEBUG = false;
    private static final String LOGTAG = "TranslationsController";
@@ -61,17 +61,20 @@ diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/Transl
 +    bundle.putString("requestId", requestId);
 +    final GeckoResult<Void> result = dispatcher.queryVoid(event, bundle);
 +    result.setCancellationDelegate(
-+        () -> {
-+          final GeckoBundle cancellation = new GeckoBundle(1);
-+          cancellation.putString("cancelId", requestId);
-+          return dispatcher.queryBoolean(event, cancellation);
++        new GeckoResult.CancellationDelegate() {
++          @Override
++          public @NonNull GeckoResult<Boolean> cancel() {
++            final GeckoBundle cancellation = new GeckoBundle(1);
++            cancellation.putString("cancelId", requestId);
++            return dispatcher.queryBoolean(event, cancellation);
++          }
 +        });
 +    return result;
 +  }
  
    /**
     * Runtime translation coordinates runtime messaging between the translations toolkit actor and
-@@ -145,8 +164,8 @@
+@@ -145,8 +167,8 @@
        if (DEBUG) {
          Log.d(LOGTAG, "Requesting management of the language model.");
        }
@@ -82,7 +85,7 @@ diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/Transl
            .map(
                result -> result,
                exception -> {
-@@ -766,26 +785,11 @@
+@@ -766,26 +788,11 @@
                  + options);
        }
  
@@ -114,7 +117,7 @@ diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/Transl
      }
  
      /**
-@@ -817,18 +821,24 @@
+@@ -817,18 +824,24 @@
       */
      @HandlerThread
      private @NonNull GeckoResult<Void> baseTranslate(

@@ -5,6 +5,13 @@ Implementation handoff, 2026-09-09. Repository base: `c8f8e41`. The frozen
 files. **The patch has not yet been compiled or run in the Android APK.** The
 source tests below do not mark the task or translation parity complete.
 
+Integration found and corrected a Java API mismatch: `CancellationDelegate`
+requires an anonymous implementation overriding its default `cancel()` method,
+so it cannot accept a lambda. The original failed native attempt and the exact
+before/after source hashes are retained in `lw-m7-12/native-first-attempt/` and
+`lw-m7-21/`. The corrected patch replays with zero fuzz/offsets and all 6 packaging
+plus 45 actual-source tests pass; target compilation remains pending.
+
 ## Implemented boundary
 
 Android uses a packaged catalog and WASM plus an app-private, verified model

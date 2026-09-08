@@ -4136,3 +4136,32 @@ tasks:
     agent_safe: yes
     isolation: none
     risk: Classifying a patch as desktop-only can conceal a missing mobile feature.
+
+  - id: LW-M7-21
+    title: Resolve feature compilation with source-bound evidence
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-13, LW-M7-14, LW-M7-16, LW-M7-17]
+    owns:
+      - patches/android/translation-assets.patch
+      - docs/android/evidence/lw-m7-16/source-files.json
+      - docs/android/evidence/lw-m7-16/README.md
+      - docs/android/evidence/lw-m7-17/
+      - docs/android/evidence/lw-m7-21/
+      - docs/android/FEATURE-PARITY.md
+    tree_paths:
+      - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java
+    what: |
+      Fix compiler failures in integrated feature code against the actual pinned
+      Gecko API. Preserve unsuccessful build receipts and source lineage, replay
+      affected source tests, and require actual target builds before claiming a
+      fix compiled. Keep the feature inventory aligned with measured behavior.
+    acceptance:
+      - "the corrected source compiles in the isolated target build"
+      - "affected source tests pass and revised source hashes match the guest"
+      - "failed and successful evidence remains distinguishable by source and run"
+    verify: "python3 scripts/tests/test-translation-assets.py && python3 docs/android/board.py --check"
+    effort_h: "2-6"
+    skills: [android, java, python]
+    agent_safe: yes
+    isolation: worktree
+    risk: Refreshing hashes alone cannot establish that corrected code compiled.

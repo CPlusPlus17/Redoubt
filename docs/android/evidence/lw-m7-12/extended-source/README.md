@@ -22,3 +22,8 @@ before/after building and records terminal results independently. It deliberatel
 omits `--skip-existing`, uses four compiler jobs, and retains the bounded OCI
 wrapper (14 GiB RAM, 22 GiB combined RAM/swap, six CPUs). The build remains
 pending at this receipt; source application is not compilation or runtime proof.
+
+Followup: that first build failed in GeckoView Java compilation. See
+`../native-first-attempt/` for the preserved failure, and `../../lw-m7-21/` for
+the exact cancellation-interface correction and subsequent build. This original
+application archive and plan retain the first integrated patch/source hashes.
