@@ -1,6 +1,6 @@
 # Beta candidate audit — 2026-09-08
 
-Ten of twelve beta entry criteria are met; E7 and E10 remain open.
+Eleven of twelve beta entry criteria are met; E7 remains open.
 The authoritative entry decision is [BETA.md](../../BETA.md). The earlier claim
 that only release signing remained did not describe the actual candidate or
 GitHub's live reporting state. This audit rebuilt and checked the candidate,
@@ -81,12 +81,12 @@ without reading the key. The holder must sign offline elsewhere, confirm custody
 and then ensure that
 runner cannot read a build-host key copy. Test signing proves none of these facts.
 
-**E10 is open.** The corrected local form and eleven labels are prepared in the
-[publication proposal](github-publication.md). The form is absent from the live
-default branch and the labels are absent from settings; the
-[final read-only API check](final-github-state.json) confirms both. Publication approval and
-live verification are pending. Dated solo-triage, single-holder and parity-wording
-decisions remain intact.
+**E10 is met.** Following user approval, both form files are on default `main`
+at `c65d2e4`, and all eleven labels have the approved definitions. The
+[publication record](github-publication.md) verifies the remote state and GitHub’s
+public rendered preview, including parsed controls and required markers.
+Authenticated issue submission remains the separate, unperformed LW-M7-04 manual
+check. Dated solo-triage, single-holder and parity wording decisions remain intact.
 
 [Final local gates](final-local-gates.txt) pass: board ownership/scope, patch
 order and scope lint, configuration split, generated pref policy, hardening

@@ -1,28 +1,38 @@
-# Prepared beta reporting publication — not published
+# Beta reporting publication — published 2026-09-08
 
-The default branch was fetched and verified at
-`71177a33973c02b52e99c79ca8def1e5f5f9e018` on 2026-09-08. The current public
-repository has no `.github/ISSUE_TEMPLATE/` directory and no planned Android
-labels; the read-only API evidence is in the beta audit's `human-criteria.md`.
-No GitHub releases were listed, and the most recent Actions runs are historical,
-not evidence for the current candidate.
+The user approved publication with “1. what i must do? 2. approved”. The eleven
+label definitions in `github-labels.json` were created first. The two approved
+form files were then committed and pushed to the default `main` branch as
+[`c65d2e4`](https://github.com/CPlusPlus17/Redoubt/commit/c65d2e448124b570bf6acabcb3f99fd09a014300).
+The previous default head was `71177a3`; it was fetched and checked immediately
+before publishing. The commit adds only `.github/ISSUE_TEMPLATE/android-bug.yml`
+and `.github/ISSUE_TEMPLATE/config.yml`.
 
-`github-reporting.patch` adds only the corrected Android form and private
-security contact configuration to that default branch. It was prepared in the
-isolated local worktree
-`/home/mgysin/redoubt-artifacts/lw-m6-08-session/reporting-publish`; the form matches
-the schema-checked file in the main working checkout. The patch contains no
-workflow changes, browser binaries or signing material.
+[Live publication evidence](github-publication-live.json) verifies both remote
+files against the approved local bytes and all eleven labels against their
+names, colours and descriptions. The repository now has 21 labels: the ten
+existing defaults plus eleven approved additions. Creation receipts are in
+[github-labels-published.json](github-labels-published.json). Private vulnerability
+reporting remains enabled, and the published contact configuration points there.
 
-`github-labels.json` contains the eleven proposed label definitions: the four
-Android routing labels, the reproduction label, three channel labels, Type Bug,
-beta and Status Known issue. Existing labels are preserved. Additional triage
-vocabulary in TRIAGE.md needs mapping or creation if the maintainer chooses to
-use it; it is not asserted to exist.
+GitHub’s [public form preview](https://github.com/CPlusPlus17/Redoubt/blob/main/.github/ISSUE_TEMPLATE/android-bug.yml)
+renders the parsed name, description, labels and actual field controls, including
+required markers and the closed-beta source option. This proves GitHub accepts
+and renders the published form. Its own embedded `issueTemplate` metadata reports
+`structured=true`, `valid=true`, and `errors=[]`; every parsed entry also has no
+errors. [Preview evidence](github-form-preview.json) and the retained
+[raw HTML](github-form-preview.html.gz) bind that result to the published commit
+and file blob. E10’s live-form requirement is met.
 
-Publication approval was requested during preparation. Until it is given, these
-are local review artifacts. After approval: re-read the default branch to avoid
-overwriting concurrent work, apply the two-file change, add the missing labels,
-and inspect GitHub's live form. E10 remains open until live availability is
-verified; a feature-branch push or a locally valid YAML file alone is insufficient.
-The LW-M7-04 manual submission test remains separately recorded until performed.
+The [new Android issue link](https://github.com/CPlusPlus17/Redoubt/issues/new?template=android-bug.yml)
+and [issue chooser](https://github.com/CPlusPlus17/Redoubt/issues/new/choose)
+require GitHub sign-in. Authenticated submission, automatic label application and
+empty-field rejection have not been exercised; these remain LW-M7-04’s separate
+manual check. No test issue was created. The `issueTemplates` GraphQL query
+returned an empty list and is not used as evidence of either presence or absence.
+
+`github-reporting.patch` retains the exact reviewed two-file proposal.
+`final-github-state.json` and the earlier human-criteria audit describe the
+prepublication state; they are historical evidence, not the current live inventory.
+Additional proposed triage vocabulary beyond these eleven labels still needs
+mapping or creation before relying on it.

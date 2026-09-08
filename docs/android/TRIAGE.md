@@ -3,12 +3,16 @@
 Task: **LW-M7-04**. Wave 0, on purpose: the first week after launch is when triage
 is most needed and least likely to get written.
 
-This document describes the triage process and the local issue-template files.
-**Live state checked 2026-09-08:** the form and configuration exist in this
-worktree, but neither is on the GitHub default branch. The planned Android labels
-are also absent. Publication and the test-issue verification in
-[§6](#6-maintainer-checklist) remain outstanding; see the
-[read-only audit](evidence/lw-m7-06/beta-audit-2026-09-08/human-criteria.md).
+This document describes the triage process and the published issue-template files.
+**Live state checked 2026-09-08:** after owner approval, the form and configuration
+were published on default `main` at
+[`c65d2e4`](https://github.com/CPlusPlus17/Redoubt/commit/c65d2e448124b570bf6acabcb3f99fd09a014300).
+Eleven approved labels were added, preserving the ten existing defaults. GitHub's
+public [parsed form preview](https://github.com/CPlusPlus17/Redoubt/blob/main/.github/ISSUE_TEMPLATE/android-bug.yml)
+renders its controls, required markers and labels, establishing E10's live-form
+availability. Authenticated submission validation in [§6](#6-maintainer-checklist)
+remains unperformed. See the
+[publication evidence](evidence/lw-m6-08/github-publication-live.json).
 
 The issue tracker is **this repository's own GitHub tracker**
 (`github.com/CPlusPlus17/Redoubt/issues`). GitHub reads issue templates from that
@@ -63,12 +67,16 @@ live; they do not start the beta or replace its results log.
 ### 1.1 Naming: proposed vocabulary and current live state
 
 The earlier claim that this repository already had 48 capitalised labels was
-incorrect. On 2026-09-08 its live labels were `accessibility`, `bug`,
+incorrect. Following owner-approved publication on 2026-09-08, the tracker has
+21 labels. Its ten existing defaults were preserved: `accessibility`, `bug`,
 `documentation`, `duplicate`, `enhancement`, `good first issue`, `help wanted`,
-`invalid`, `question`, and `wontfix`. None of the Android labels below exists yet.
+`invalid`, `question`, and `wontfix`. The eleven additions are `Android`,
+`Android Build`, `Android Prefs`, `Android Security`, `Android Needs Repro`,
+`Build APK`, `Build F-Droid`, `Build Accrescent`, `Type Bug`, `beta`, and
+`Status Known issue`.
 
-The capitalised names below retain this plan's proposed vocabulary. These are
-planned families, not an inventory of live repository settings:
+The wider families below remain proposed vocabulary. Only names explicitly
+listed above are verified as live; the table is not a repository inventory:
 
 | family | examples |
 |---|---|
@@ -77,20 +85,19 @@ planned families, not an inventory of live repository settings:
 | area | `Component Builds`, `Component Patches`, `Component Settings`, `Component UI`, `Component Website` |
 | workflow | `Type Bug`, `Status Upstream`, `Prio High`, `Needed Info`, `Flag Caution`, … |
 
-The shorthand-to-proposed-name mapping is:
+The board shorthand maps to these live labels:
 
-| board id | label to create |
+| board id | live label |
 |---|---|
 | `android` | **`Android`** |
 | `android-build` | **`Android Build`** |
 | `android-prefs` | **`Android Prefs`** |
 | `android-security` | **`Android Security`** |
 
-The naming choice remains part of the publication checklist in [§6](#6-maintainer-checklist).
-If the maintainer chooses lowercase names, rename all four consistently and change
-the `labels:` lists in [§2](#2-the-issue-template) to match — the tracker will not
-create a label from a template reference, so a mismatch produces unlabelled issues
-with no error anywhere.
+The approved publication uses these capitalised names. Any later rename must
+update the `labels:` lists in [§2](#2-the-issue-template) consistently: the tracker
+will not create a label from a template reference, so a mismatch leaves the
+corresponding label unapplied.
 
 ### 1.2 The required four
 
@@ -244,8 +251,8 @@ use the proposed `Build *` family.
 
 The closed beta uses direct APKs from a private link. Its source option in the
 form maps to `Build APK` when channel labelling is relevant, and the maintainer
-adds `beta` to identify beta findings. That label also needs to be created before
-the form is used for beta triage.
+adds `beta` to identify beta findings. All three channel labels and `beta` were
+created in the approved 2026-09-08 publication.
 
 Apply the channel label whenever the reporter's answer to the channel question
 ([§2](#2-the-issue-template)) is plausibly relevant: install failures, update
@@ -274,11 +281,11 @@ nothing more the reporter could have supplied.
 ### 1.5 Everything else composes
 
 `Type *`, `Prio *`, `Status *`, `Needed *`, `Flag *`, `Component *`,
-`Broken Upstream` and `Docs *` are proposed shared labels; they do not currently
-exist on this tracker. Before applying the rules below, create the names used by
-the chosen workflow or consistently map them to existing labels. The form itself
-needs `Android` and `Type Bug`; beta findings also need `beta`, and retained beta
-issues need `Status Known issue` (`BETA.md` G3).
+`Broken Upstream` and `Docs *` remain proposed shared families, except for the
+published `Type Bug` and `Status Known issue`. Before applying rules that use
+other names below, create those labels or consistently map them to existing ones.
+The form's `Android` and `Type Bug` labels, beta findings' `beta` label, and
+retained beta issues' `Status Known issue` label (`BETA.md` G3) are all live.
 
 Avoid adding `Android UI`, `Android Performance`, `Android Extensions`
 and the rest — `Android` + a shared `Component *` label already expresses each
@@ -321,9 +328,9 @@ the case where the form is rejected or a maintainer prefers it.
 
 ### 2.2 `.github/ISSUE_TEMPLATE/android-bug.yml`
 
-Create the labels in [§1](#1-labels) **first** — GitHub will not create a label
-from a template reference, so an unknown label in the form's `labels:` list is
-simply not applied.
+The referenced `Android` and `Type Bug` labels were created before publication.
+Keep that ordering for later template changes: GitHub will not create a label
+from a template reference, so an unknown name is not applied.
 
 ```yaml
 name: Android bug report
@@ -552,8 +559,8 @@ The security URL is this repository's private vulnerability-reporting page;
 `gh api repos/CPlusPlus17/Redoubt/private-vulnerability-reporting` returned
 `{"enabled":true}` on 2026-09-08. The questions link uses the existing issue
 tracker until a public support page is available. Neither link requires a
-placeholder substitution. The configuration still needs publication to the default
-branch and a live chooser check (steps 6–7 below).
+placeholder substitution. The configuration is published on default `main` at
+`c65d2e4`; authenticated chooser and submission checks remain in step 7 below.
 
 `blank_issues_enabled: true` is deliberate. Forcing every report through a form
 also blocks the person who has read the code and wants to explain a race condition
@@ -972,42 +979,38 @@ three, expensive in month six.
 
 ## 6. Maintainer checklist
 
-The local files and owner decision are prepared. Publishing templates and creating
-labels need write access to `github.com/CPlusPlus17/Redoubt` and remain pending
-as of 2026-09-08. Order matters: labels before templates, because GitHub will not
-create a label from a template reference.
+Publication was approved and completed on 2026-09-08. The eleven labels were
+created before the two template files were published, preserving all ten defaults.
+GitHub's public parsed preview verifies live form availability for BETA.md E10.
+The authenticated test submission below is a separate, unperformed LW-M7-04 check.
 
-1. **Create the four required labels** ([§1.2](#12-the-required-four)). Repository →
-   Issues → Labels → New label. Name, description and colour are given verbatim for
-   each:
+1. **Done: create the four required labels** ([§1.2](#12-the-required-four)):
    `Android` `#0B6E4F` · `Android Build` `#3F9E7C` · `Android Prefs` `#8FCFB6` ·
-   `Android Security` `#B60205`
-   Reconcile the proposed shared labels with the current defaults first (§1.1).
-   The current form additionally requires `Type Bug`. For the beta, create `beta`
-   and `Status Known issue`; create or map every shared label used by the triage
-   rules before relying on those rules.
-2. **Create the three channel labels** ([§1.3](#13-channel-labels-strongly-recommended)):
+   `Android Security` `#B60205`. `Type Bug`, `beta`, and `Status Known issue` are
+   also live. The approved names, colours and descriptions are verified in the
+   [publication evidence](evidence/lw-m6-08/github-publication-live.json).
+   Create or map any additional shared vocabulary before relying on those rules.
+2. **Done: create the three channel labels** ([§1.3](#13-channel-labels-strongly-recommended)):
    `Build F-Droid` `#1976D2` · `Build Accrescent` `#5E35B1` · `Build APK` `#455A64`
-3. **Create `Android Needs Repro`** `#D9A441` ([§1.4](#14-one-more-recommended)).
-   If you skip this one, delete [§3.5](#35-needs-a-build-to-reproduce-when-nobody-can-build)'s
-   rules too rather than leaving policy that references a label that does not exist.
-4. **Confirm the repository has a default branch with at least one commit.** Issue
-   templates are read from the default branch only. (This repository is the source
-   tree, so it already has one — this step is a guard, not a gap.)
-5. **Publish `.github/ISSUE_TEMPLATE/android-bug.yml` on the default branch**
-   ([§2.2](#22-githubissue_templateandroid-bugyml)). It already exists locally;
-   a local commit or a feature-branch push does not make the form live.
-6. **Publish `.github/ISSUE_TEMPLATE/config.yml` on the default branch**
-   ([§2.3](#23-githubissue_templateconfigyml)). The local configuration points to
-   this repository's private vulnerability reporting, which was enabled when
-   checked on 2026-09-08. Recheck the security contact before publication.
-7. **File a test issue through the new template** and confirm: the chooser shows
+3. **Done: create `Android Needs Repro`** `#D9A441` ([§1.4](#14-one-more-recommended)).
+4. **Done: confirm the default branch.** GitHub reads this repository's templates
+   from `main`.
+5. **Done: publish `.github/ISSUE_TEMPLATE/android-bug.yml` on default `main`**
+   ([§2.2](#22-githubissue_templateandroid-bugyml)) at `c65d2e4`. GitHub's public
+   parsed preview renders the controls, required markers, and configured labels.
+6. **Done: publish `.github/ISSUE_TEMPLATE/config.yml` on default `main`**
+   ([§2.3](#23-githubissue_templateconfigyml)) in the same commit. Its security
+   contact points to this repository's private vulnerability reporting, verified
+   enabled on 2026-09-08.
+7. **Remaining: file a test issue through the live template** from an authenticated
+   GitHub session and confirm: the chooser shows
    "Android bug report"; the security contact link appears above the templates;
    `Android` and `Type Bug` are applied automatically on submit; the form refuses to
    submit with device, Android version, channel, app version, about:config,
    fresh-profile or the Firefox-comparison field empty. Then delete the test issue.
-   This is the `verify` for LW-M7-04.
-8. **Confirm the named `OWNER` and recorded solo-owner decision** in
+   This is the manual `verify` for LW-M7-04. It has not been performed; parsed
+   preview validation does not prove submission enforcement or automatic labels.
+8. **Done: confirm the named `OWNER` and recorded solo-owner decision** in
    [§0](#0-triage-owner--launch-blocker). Both were recorded on 2026-09-06.
    Appointing a backup later does not require revisiting that decision. An empty
    owner field would still block the Android launch.
@@ -1030,16 +1033,18 @@ disclosure process is **LW-M7-05**; `PARITY.md` is **LW-M5-06**.
 
 ## 7. What this document does not decide
 
-- **Label names and colours are a publication plan.** The live tracker has the
-  default labels listed in §1.1. Reconcile the proposed vocabulary consistently
-  before publishing the form; no labels were changed by this audit.
-- **The security contact is configured locally.** Private vulnerability reporting
-  was enabled on 2026-09-08, but the issue chooser configuration is not published.
+- **The approved eleven labels are live.** The tracker has 21 labels, including
+  all ten preserved defaults (§1.1). Additional proposed vocabulary still needs
+  consistent mapping or creation before use.
+- **The security contact is published.** Default `main` contains the chooser
+  configuration, and private vulnerability reporting was verified enabled on
+  2026-09-08.
 - **The parity wording is approved.** `PARITY.md` §5 records owner signoff dated
   2026-09-06. Its publication with the parity table is separate public-release work.
-- **Live form verification remains outstanding.** Read-only API checks proved the
-  template is absent from the default branch. No issue was submitted, and local
-  schema checks do not satisfy LW-M7-04's manual verification.
+- **E10 live-form availability is verified; authenticated submission is not.**
+  GitHub's public parsed preview displays the published form's controls, required
+  markers, and labels. No issue was submitted, so LW-M7-04's manual validation of
+  submission enforcement and automatic labels remains unperformed.
 
 ---
 

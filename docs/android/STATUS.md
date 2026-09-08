@@ -1,7 +1,7 @@
 # Beta preparation — 2026-09-08
 
-The beta is **not ready to start: ten of twelve entry criteria are met**.
-Release signing/custody (E7) and live reporting (E10) remain open. The entry audit is
+The beta is **not ready to start: eleven of twelve entry criteria are met**.
+Release signing/custody (E7) remains open; live reporting (E10) is now verified. The entry audit is
 [`BETA.md`](BETA.md), which retains all twelve criteria. The previous claim that
 only signing remained was disproved by candidate-specific checks and GitHub's
 live state.
@@ -43,9 +43,11 @@ this candidate ready.
   and optionally compares every returned APK payload with the exact unsigned
   candidate. The 29 real-signature integration tests pass.
 - The local issue form now uses GitHub's required YAML schema and includes a
-  closed-beta source and RAM field. Its public deployment and label definitions
-  are prepared for review in
-  [the publication handoff](evidence/lw-m6-08/github-publication.md).
+  closed-beta source and RAM field. Following user approval, both form files were
+  published to default `main` at `c65d2e4` and all eleven labels were created.
+  [Publication evidence](evidence/lw-m6-08/github-publication.md) verifies remote
+  bytes, settings and GitHub’s rendered form preview. Authenticated submission
+  validation remains an unperformed manual check.
 - Scope, patch order, patch application, configuration split, pref policy and
   hardening checks pass. There are 90 board tasks and 86 listed patches:
   24 common, 26 Android and 36 desktop. `ubo-preinstall.patch` remains explicitly
@@ -75,9 +77,10 @@ the live Actions runner. The holder must sign offline elsewhere and remove that
 build-host copy after confirming the offline copy. No release key was used by
 this audit. See the [signing handoff](evidence/lw-m6-01/RELEASE-HANDOFF.md).
 
-**E10 remains open:** the corrected form and required labels are absent from the
-live GitHub default branch/settings. Publication approval is pending, and live
-form verification has not been performed.
+**E10 is met:** the corrected form and private security contact are on default
+`main`; all eleven approved labels are live, and GitHub’s public preview renders
+the parsed form with its controls and required markers. Authenticated submission
+validation is still unperformed. No further publication approval is needed.
 
 The dated single-holder, parity-wording and solo-triage decisions remain as
 recorded on 2026-09-06. The approved seven-entry Remote Settings security allowlist
