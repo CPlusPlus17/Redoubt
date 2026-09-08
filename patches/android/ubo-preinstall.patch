@@ -328,7 +328,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
 new file mode 100644
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
-@@ -0,0 +1,303 @@
+@@ -0,0 +1,309 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -592,7 +592,13 @@ new file mode 100644
 +            )
 +            result.accept(
 +                { if (continuation.isActive) continuation.resume(Unit) },
-+                { if (continuation.isActive) continuation.resumeWithException(it) },
++                { error ->
++                    if (continuation.isActive) {
++                        continuation.resumeWithException(
++                            error ?: IOException("Gecko did not provide a readiness failure cause"),
++                        )
++                    }
++                },
 +            )
 +            continuation.invokeOnCancellation { result.cancel() }
 +        }
