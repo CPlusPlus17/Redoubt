@@ -1,0 +1,1022 @@
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/TrackingProtectionFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/TrackingProtectionFragment.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/TrackingProtectionFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/TrackingProtectionFragment.kt
+@@ -161,6 +161,16 @@
+     ): RadioButtonInfoPreference {
+         val radio = requirePreference<RadioButtonInfoPreference>(mode.preferenceKey)
+         radio.contentDescription = getString(mode.contentDescriptionRes)
++        // A companion radio key can be absent in an older profile. Use the same
++        // fallback as the engine policy without persisting or replacing a choice.
++        val settings = requireComponents.settings
++        radio.setDefaultValue(
++            when (mode) {
++                TrackingProtectionMode.STANDARD -> settings.useStandardTrackingProtection
++                TrackingProtectionMode.STRICT -> settings.useStrictTrackingProtection
++                TrackingProtectionMode.CUSTOM -> settings.useCustomTrackingProtection
++            },
++        )
+ 
+         radio.onClickListener {
+             updateStrictOptionsVisibility()
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragment.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragment.kt
+@@ -49,7 +49,10 @@
+         deleteOnQuitPref.apply {
+             onPreferenceChangeListener = object : SharedPreferenceUpdater() {
+                 override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+-                    setAllCheckboxes(newValue as Boolean)
++                    if (newValue == true) {
++                        preference.context.components.settings.ensureDeleteDataOnQuitSelection()
++                        refreshCheckboxes()
++                    }
+                     return super.onPreferenceChange(preference, newValue)
+                 }
+             }
+@@ -69,15 +72,16 @@
+             }
+         }
+ 
++        refreshCheckboxes()
+         checkboxes.forEach { (_, pref) ->
+             pref.onPreferenceChangeListener = checkboxUpdater
+         }
+     }
+ 
+-    private fun setAllCheckboxes(newValue: Boolean) {
++    private fun refreshCheckboxes() {
++        val settings = requireContext().components.settings
+         checkboxes.forEach { (type, pref) ->
+-            pref.isChecked = newValue
+-            pref.context.components.settings.setDeleteDataOnQuit(type, newValue)
++            pref.isChecked = settings.getDeleteDataOnQuit(type)
+         }
+     }
+ }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
+@@ -4,7 +4,6 @@
+ 
+ package org.mozilla.fenix.settings.doh
+ 
+-import androidx.annotation.VisibleForTesting
+ import mozilla.components.concept.engine.Engine
+ import org.mozilla.fenix.utils.Settings
+ 
+@@ -32,33 +31,25 @@
+         )
+     }
+ 
+-    // Bug 1946867 - Load DoH Provider List from Gecko instead of hardcoding
+-    private val dohDefaultProviderUrl = settings.dohDefaultProviderUrl
+-
+-    private val cloudflare = Provider.BuiltIn(
+-        url = cloudflareUri,
+-        name = "Cloudflare",
+-        default = dohDefaultProviderUrl.isBlank() || dohDefaultProviderUrl == cloudflareUri,
+-    )
+-    private val nextDns = Provider.BuiltIn(
+-        url = nextDnsUri,
+-        name = "NextDNS",
+-        default = dohDefaultProviderUrl == nextDnsUri,
+-    )
+-    private val providerUrl = settings.dohProviderUrl
+-    private val custom = Provider.Custom(
+-        url = if (providerUrl != cloudflareUri && providerUrl != nextDnsUri) {
+-            providerUrl
+-        } else {
+-            ""
+-        },
+-    )
+-
+-    override fun getDefaultProviders(): List<Provider> = listOf(
+-        cloudflare,
+-        nextDns,
+-        custom,
+-    )
++    // Keep this catalog aligned with settings/common.cfg's doh-rollout.provider-list.
++    // Evaluate stored values when read, including an existing custom/legacy provider.
++    override fun getDefaultProviders(): List<Provider> {
++        val defaultUrl = settings.dohDefaultProviderUrl
++        val builtIn = listOf(
++            "Quad9 (No Filtering)" to Settings.LIBREWOLF_DOH_PROVIDER_URI,
++            "Quad9 (Malware blocking)" to "https://dns.quad9.net/dns-query",
++            "LibreDNS (No Filtering)" to "https://doh.libredns.gr/dns-query",
++            "LibreDNS (Adblocking)" to "https://doh.libredns.gr/noads",
++            "Wikimedia DNS (No Filtering)" to "https://wikimedia-dns.org/dns-query",
++            "DNS4All (No Filtering)" to Settings.LIBREWOLF_DOH_DEFAULT_PROVIDER_URI,
++            "Mullvad (No Filtering)" to "https://dns.mullvad.net/dns-query",
++        ).map { (name, url) ->
++            Provider.BuiltIn(url = url, name = name, default = url == defaultUrl)
++        }
++        val providerUrl = settings.dohProviderUrl
++        val customUrl = providerUrl.takeUnless { url -> builtIn.any { it.url == url } }.orEmpty()
++        return builtIn + Provider.Custom(url = customUrl)
++    }
+ 
+     override fun getSelectedProtectionLevel(): ProtectionLevel {
+         return when (settings.getDohSettingsMode()) {
+@@ -76,12 +67,10 @@
+             }
+ 
+             else -> {
+-                when (settings.dohProviderUrl) {
+-                    cloudflareUri -> cloudflare
+-                    nextDnsUri -> nextDns
+-                    "" -> getDefaultProviders().first()
+-                    else -> custom
+-                }
++                val providers = getDefaultProviders()
++                val selectedUrl = settings.dohProviderUrl
++                providers.firstOrNull { it.url == selectedUrl && selectedUrl.isNotBlank() }
++                    ?: providers.first()
+             }
+         }
+     }
+@@ -115,12 +104,4 @@
+         settings.dohExceptionsList = exceptions.toSet()
+         engine.settings.dohExceptionsList = exceptions
+     }
+-
+-    companion object {
+-        @VisibleForTesting
+-        val cloudflareUri = "https://mozilla.cloudflare-dns.com/dns-query"
+-
+-        @VisibleForTesting
+-        val nextDnsUri = "https://firefox.dns.nextdns.io/"
+-    }
+ }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/logins/fragment/SavedLoginsSettingFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/logins/fragment/SavedLoginsSettingFragment.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/logins/fragment/SavedLoginsSettingFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/logins/fragment/SavedLoginsSettingFragment.kt
+@@ -54,6 +54,8 @@
+ 
+     private fun bindNeverSave(): RadioButtonPreference {
+         val preferenceNeverSave = requirePreference<RadioButtonPreference>(R.string.pref_key_never_save_logins)
++        // Preserve an older stored Ask to save choice if its companion key is absent.
++        preferenceNeverSave.setDefaultValue(!requireContext().components.settings.shouldPromptToSaveLogins)
+         preferenceNeverSave.onPreferenceChangeListener = object : SharedPreferenceUpdater() {
+             override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+                 if (newValue == true) {
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+@@ -17,6 +17,8 @@
+ import androidx.core.content.edit
+ import androidx.lifecycle.LifecycleOwner
+ import androidx.preference.PreferenceManager
++import java.security.InvalidParameterException
++import java.util.concurrent.TimeUnit.MILLISECONDS
+ import mozilla.components.concept.engine.Engine
+ import mozilla.components.concept.engine.Engine.HttpsOnlyMode
+ import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode
+@@ -73,8 +75,6 @@
+ import org.mozilla.fenix.termsofuse.TOU_VERSION
+ import org.mozilla.fenix.utils.Settings.Companion.LONGFOX_PEEK_ANIMATION_MAX_SHOWS
+ import org.mozilla.fenix.wallpapers.Wallpaper
+-import java.security.InvalidParameterException
+-import java.util.concurrent.TimeUnit.MILLISECONDS
+ 
+ private const val AUTOPLAY_USER_SETTING = "AUTOPLAY_USER_SETTING"
+ private const val MAX_ANIMATION_FOREGROUND = 5
+@@ -169,10 +169,9 @@
+          */
+         private const val DOH_SETTINGS_OFF = 5
+ 
+-        /**
+-         * Bug 1946867 - Currently "hardcoded" to the DoH TRR URI of Cloudflare
+-         */
+-        private const val CLOUDFLARE_URI = "https://mozilla.cloudflare-dns.com/dns-query"
++        // Match settings/common.cfg without preventing an explicit provider choice.
++        internal const val LIBREWOLF_DOH_PROVIDER_URI = "https://dns10.quad9.net/dns-query"
++        internal const val LIBREWOLF_DOH_DEFAULT_PROVIDER_URI = "https://doh.dns4all.eu/dns-query"
+     }
+ 
+     private val logger = Logger("Settings")
+@@ -1167,7 +1166,7 @@
+ 
+     var shouldUseHttpsOnly by booleanPreference(
+         appContext.getPreferenceKey(R.string.pref_key_https_only),
+-        default = false,
++        default = true,
+     )
+ 
+     var shouldUseHttpsOnlyInAllTabs by booleanPreference(
+@@ -1243,12 +1242,19 @@
+ 
+     val useStandardTrackingProtection by booleanPreference(
+         appContext.getPreferenceKey(R.string.pref_key_tracking_protection_standard_option),
+-        true,
++        default = {
++            // A stored rejection of Strict used to inherit Standard. Keep that choice.
++            val strictKey = appContext.getPreferenceKey(R.string.pref_key_tracking_protection_strict_default)
++            preferences.contains(strictKey) && !preferences.getBoolean(strictKey, false) &&
++                !useCustomTrackingProtection
++        },
+     )
+ 
+     val useStrictTrackingProtection by booleanPreference(
+         appContext.getPreferenceKey(R.string.pref_key_tracking_protection_strict_default),
+-        false,
++        // Defaults are not persisted by this delegate. Untouched older profiles upgrade,
++        // while a stored Standard or Custom choice continues to select its own policy.
++        default = { !useStandardTrackingProtection && !useCustomTrackingProtection },
+     )
+ 
+     val useCustomTrackingProtection by booleanPreference(
+@@ -1420,7 +1426,7 @@
+ 
+     var shouldDeleteBrowsingDataOnQuit by booleanPreference(
+         appContext.getPreferenceKey(R.string.pref_key_delete_browsing_data_on_quit),
+-        default = false,
++        default = true,
+     )
+ 
+     var deleteOpenTabs by booleanPreference(
+@@ -1566,7 +1572,18 @@
+      * @return `true` if the data type is set to be deleted on quit, `false` otherwise.
+      */
+     fun getDeleteDataOnQuit(type: DeleteBrowsingDataOnQuitType): Boolean =
+-        preferences.getBoolean(type.getPreferenceKey(appContext), false)
++        preferences.getBoolean(
++            type.getPreferenceKey(appContext),
++            type == DeleteBrowsingDataOnQuitType.COOKIES || type == DeleteBrowsingDataOnQuitType.CACHE,
++        )
++
++    /** Restore a useful cleanup selection without adding history, permissions or downloads. */
++    fun ensureDeleteDataOnQuitSelection() {
++        if (!shouldDeleteAnyDataOnQuit()) {
++            setDeleteDataOnQuit(DeleteBrowsingDataOnQuitType.COOKIES, true)
++            setDeleteDataOnQuit(DeleteBrowsingDataOnQuitType.CACHE, true)
++        }
++    }
+ 
+     /**
+      * Sets whether a specific type of browsing data should be deleted on quit.
+@@ -1869,12 +1886,12 @@
+ 
+     var shouldPromptToSaveLogins by booleanPreference(
+         appContext.getPreferenceKey(R.string.pref_key_save_logins),
+-        default = true,
++        default = false,
+     )
+ 
+     var shouldAutofillLogins by booleanPreference(
+         appContext.getPreferenceKey(R.string.pref_key_autofill_logins),
+-        default = true,
++        default = false,
+     )
+ 
+     /**
+@@ -2172,7 +2189,7 @@
+      */
+     var shouldAutofillCreditCardDetails by booleanPreference(
+         appContext.getPreferenceKey(R.string.pref_key_credit_cards_save_and_autofill_cards),
+-        default = true,
++        default = false,
+     )
+ 
+     /**
+@@ -2183,7 +2200,7 @@
+      */
+     var shouldAutofillAddressDetails by booleanPreference(
+         appContext.getPreferenceKey(R.string.pref_key_addresses_save_and_autofill_addresses),
+-        default = true,
++        default = false,
+     )
+ 
+     /**
+@@ -2985,25 +3002,25 @@
+      */
+     private var trrMode by intPreference(
+         key = appContext.getPreferenceKey(R.string.pref_key_doh_settings_mode),
+-        default = DOH_SETTINGS_DEFAULT,
++        default = DOH_SETTINGS_OFF,
+     )
+ 
+     /**
+      * Stores the URI of the custom DoH provider selected by the user.
+-     * Defaults to an empty string if no provider is set.
++     * Defaults to LibreWolf's configured provider if no user choice is stored.
+      */
+     var dohProviderUrl by stringPreference(
+         key = appContext.getPreferenceKey(R.string.pref_key_doh_provider_uri),
+-        default = "",
++        default = LIBREWOLF_DOH_PROVIDER_URI,
+     )
+ 
+     /**
+      * Stores the URI of the default DoH provider.
+-     * Bug 1946867 - Currently "hardcoded" to "https://mozilla.cloudflare-dns.com/dns-query"
++     * Matches LibreWolf's fallback/default provider; an existing preference is retained.
+      */
+     val dohDefaultProviderUrl by stringPreference(
+         key = appContext.getPreferenceKey(R.string.pref_key_doh_default_provider_uri),
+-        default = CLOUDFLARE_URI,
++        default = LIBREWOLF_DOH_DEFAULT_PROVIDER_URI,
+     )
+ 
+     /**
+diff --git a/mobile/android/fenix/app/src/main/res/xml/autofill_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/autofill_preferences.xml
+--- a/mobile/android/fenix/app/src/main/res/xml/autofill_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/autofill_preferences.xml
+@@ -10,7 +10,7 @@
+         android:title="@string/preferences_addresses">
+ 
+         <SwitchPreferenceCompat
+-            android:defaultValue="true"
++            android:defaultValue="false"
+             android:key="@string/pref_key_addresses_save_and_autofill_addresses"
+             android:summary="@string/preferences_addresses_save_and_autofill_addresses_summary_2"
+             android:title="@string/preferences_addresses_save_and_autofill_addresses_2" />
+@@ -28,7 +28,7 @@
+         android:layout="@layout/preference_cat_style"
+         android:title="@string/preferences_credit_cards_2">
+         <SwitchPreferenceCompat
+-            android:defaultValue="true"
++            android:defaultValue="false"
+             android:key="@string/pref_key_credit_cards_save_and_autofill_cards"
+             android:summary="@string/preferences_credit_cards_save_and_autofill_cards_summary_2"
+             android:title="@string/preferences_credit_cards_save_and_autofill_cards_2" />
+diff --git a/mobile/android/fenix/app/src/main/res/xml/delete_browsing_data_quit_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/delete_browsing_data_quit_preferences.xml
+--- a/mobile/android/fenix/app/src/main/res/xml/delete_browsing_data_quit_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/delete_browsing_data_quit_preferences.xml
+@@ -5,7 +5,7 @@
+ <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+     xmlns:app="http://schemas.android.com/apk/res-auto">
+     <SwitchPreferenceCompat
+-        android:defaultValue="false"
++        android:defaultValue="true"
+         android:key="@string/pref_key_delete_browsing_data_on_quit"
+         android:summary="@string/preference_summary_delete_browsing_data_on_quit_2"
+         android:title="@string/preferences_delete_browsing_data_on_quit" />
+@@ -24,11 +24,13 @@
+             android:layout="@layout/checkbox_left_preference"
+             android:title="@string/preferences_delete_browsing_data_browsing_history_title" />
+         <CheckBoxPreference
++            android:defaultValue="true"
+             android:key="@string/pref_key_delete_cookies_and_site_data_on_quit"
+             android:layout="@layout/checkbox_left_preference"
+             android:summary="@string/preferences_delete_browsing_data_cookies_subtitle"
+             android:title="@string/preferences_delete_browsing_data_cookies_and_site_data" />
+         <CheckBoxPreference
++            android:defaultValue="true"
+             android:key="@string/pref_key_delete_caches_on_quit"
+             android:layout="@layout/checkbox_left_preference"
+             android:summary="@string/preferences_delete_browsing_data_cached_files_subtitle"
+diff --git a/mobile/android/fenix/app/src/main/res/xml/logins_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/logins_preferences.xml
+--- a/mobile/android/fenix/app/src/main/res/xml/logins_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/logins_preferences.xml
+@@ -9,7 +9,7 @@
+         android:summary="@string/preferences_passwords_save_logins_ask_to_save"
+         android:title="@string/preferences_passwords_save_logins_2" />
+     <SwitchPreferenceCompat
+-        android:defaultValue="true"
++        android:defaultValue="false"
+         android:key="@string/pref_key_autofill_logins"
+         android:title="@string/preferences_passwords_autofill2"
+         android:summary="@string/preferences_passwords_autofill_description" />
+diff --git a/mobile/android/fenix/app/src/main/res/xml/save_logins_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/save_logins_preferences.xml
+--- a/mobile/android/fenix/app/src/main/res/xml/save_logins_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/save_logins_preferences.xml
+@@ -4,11 +4,11 @@
+    - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+ <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+     <org.mozilla.fenix.settings.RadioButtonPreference
+-        android:defaultValue="true"
++        android:defaultValue="false"
+         android:key="@string/pref_key_save_logins"
+         android:title="@string/preferences_passwords_save_logins_ask_to_save" />
+     <org.mozilla.fenix.settings.RadioButtonPreference
+-        android:defaultValue="false"
++        android:defaultValue="true"
+         android:key="@string/pref_key_never_save_logins"
+         android:title="@string/preferences_passwords_save_logins_never_save" />
+ </PreferenceScreen>
+diff --git a/mobile/android/fenix/app/src/main/res/xml/tracking_protection_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/tracking_protection_preferences.xml
+--- a/mobile/android/fenix/app/src/main/res/xml/tracking_protection_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/tracking_protection_preferences.xml
+@@ -16,13 +16,13 @@
+         android:title="@string/preference_enhanced_tracking_protection"
+         app:iconSpaceReserved="false" />
+     <org.mozilla.fenix.settings.RadioButtonInfoPreference
+-        android:defaultValue="true"
++        android:defaultValue="false"
+         android:dependency="@string/pref_key_tracking_protection"
+         android:key="@string/pref_key_tracking_protection_standard_option"
+         android:summary="@string/preference_enhanced_tracking_protection_standard_description_5"
+         android:title="@string/preference_enhanced_tracking_protection_standard_default_1" />
+     <org.mozilla.fenix.settings.RadioButtonInfoPreference
+-        android:defaultValue="false"
++        android:defaultValue="true"
+         android:dependency="@string/pref_key_tracking_protection"
+         android:key="@string/pref_key_tracking_protection_strict_default"
+         android:summary="@string/preference_enhanced_tracking_protection_strict_description_4"
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/TrackingProtectionFragmentTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/TrackingProtectionFragmentTest.kt
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/TrackingProtectionFragmentTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/TrackingProtectionFragmentTest.kt
+@@ -4,8 +4,12 @@
+ 
+ package org.mozilla.fenix.settings
+ 
++import android.view.LayoutInflater
++import android.widget.FrameLayout
+ import androidx.appcompat.app.AlertDialog
++import androidx.core.content.edit
+ import androidx.fragment.app.FragmentActivity
++import androidx.preference.PreferenceViewHolder
+ import io.mockk.Runs
+ import io.mockk.every
+ import io.mockk.just
+@@ -16,13 +20,48 @@
+ import org.junit.Assert.assertEquals
+ import org.junit.Test
+ import org.junit.runner.RunWith
++import org.mozilla.fenix.R
+ import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.ext.getPreferenceKey
++import org.mozilla.fenix.trackingprotection.TrackingProtectionMode
+ import org.mozilla.fenix.utils.Settings
+ import org.robolectric.Robolectric
+ import org.robolectric.RobolectricTestRunner
+ 
+ @RunWith(RobolectricTestRunner::class)
+ class TrackingProtectionFragmentTest {
++
++    @Test
++    fun `fresh radio choices match the strict engine default`() {
++        val settings = Settings(testContext)
++        assertRadioChoices(settings, TrackingProtectionMode.STRICT)
++    }
++
++    @Test
++    fun `a stored Standard or Custom choice stays the sole selected radio when Strict is absent`() {
++        val settings = Settings(testContext)
++        for (mode in listOf(TrackingProtectionMode.STANDARD, TrackingProtectionMode.CUSTOM)) {
++            settings.preferences.edit {
++                TrackingProtectionMode.entries.forEach { remove(testContext.getPreferenceKey(it.preferenceKey)) }
++                putBoolean(testContext.getPreferenceKey(mode.preferenceKey), true)
++            }
++            repeat(2) { assertRadioChoices(settings, mode) }
++        }
++    }
++
++    private fun assertRadioChoices(settings: Settings, expected: TrackingProtectionMode) {
++        every { testContext.components.analytics } returns mockk(relaxed = true)
++        every { testContext.components.settings } returns settings
++        val fragment = TrackingProtectionFragment()
++        val activity = Robolectric.buildActivity(FragmentActivity::class.java).create().get()
++        activity.supportFragmentManager.beginTransaction().add(fragment, "tracking").commitNow()
++        for (mode in TrackingProtectionMode.entries) {
++            val radio = fragment.requirePreference<RadioButtonInfoPreference>(mode.preferenceKey)
++            val view = LayoutInflater.from(activity).inflate(radio.layoutResource, FrameLayout(activity), false)
++            radio.onBindViewHolder(PreferenceViewHolder.createInstanceForTests(view))
++            assertEquals(mode == expected, radio.isChecked)
++        }
++    }
+ 
+     @Test
+     fun `UI component should match settings defaults`() {
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragmentTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragmentTest.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragmentTest.kt
+@@ -0,0 +1,123 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.deletebrowsingdata
++
++import androidx.appcompat.app.AppCompatActivity
++import androidx.preference.CheckBoxPreference
++import androidx.preference.SwitchPreferenceCompat
++import io.mockk.every
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.fenix.R
++import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.settings.requirePreference
++import org.mozilla.fenix.utils.Settings
++import org.robolectric.Robolectric
++import org.robolectric.RobolectricTestRunner
++
++@RunWith(RobolectricTestRunner::class)
++class DeleteBrowsingDataOnQuitFragmentTest {
++    private lateinit var settings: Settings
++
++    @Before
++    fun setUp() {
++        settings = Settings(testContext)
++        every { testContext.components.settings } returns settings
++    }
++
++    @Test
++    fun `inflated defaults enable only cookies and cache and keep the quit control on`() {
++        val fragment = createFragment()
++        assertTrue(master(fragment).isChecked)
++        assertEquals(setOf(DeleteBrowsingDataOnQuitType.COOKIES, DeleteBrowsingDataOnQuitType.CACHE), checked(fragment))
++    }
++
++    @Test
++    fun `master off and on preserves the user's existing category selection`() {
++        DeleteBrowsingDataOnQuitType.entries.forEach { settings.setDeleteDataOnQuit(it, false) }
++        settings.setDeleteDataOnQuit(DeleteBrowsingDataOnQuitType.HISTORY, true)
++        val fragment = createFragment()
++        changeMaster(fragment, false)
++        assertFalse(settings.shouldDeleteBrowsingDataOnQuit)
++        assertEquals(setOf(DeleteBrowsingDataOnQuitType.HISTORY), checked(fragment))
++        changeMaster(fragment, true)
++        assertTrue(settings.shouldDeleteBrowsingDataOnQuit)
++        assertEquals(setOf(DeleteBrowsingDataOnQuitType.HISTORY), checked(fragment))
++        assertEquals(
++            setOf(DeleteBrowsingDataOnQuitType.HISTORY),
++            DeleteBrowsingDataOnQuitType.entries.filter { settings.getDeleteDataOnQuit(it) }.toSet(),
++        )
++    }
++
++    @Test
++    fun `master on with no categories restores cookies and cache without selecting destructive categories`() {
++        settings.shouldDeleteBrowsingDataOnQuit = false
++        DeleteBrowsingDataOnQuitType.entries.forEach { settings.setDeleteDataOnQuit(it, false) }
++        val fragment = createFragment()
++        changeMaster(fragment, true)
++        assertTrue(settings.shouldDeleteBrowsingDataOnQuit)
++        assertEquals(setOf(DeleteBrowsingDataOnQuitType.COOKIES, DeleteBrowsingDataOnQuitType.CACHE), checked(fragment))
++    }
++
++    @Test
++    fun `opening the screen twice preserves explicit disabled defaults`() {
++        settings.shouldDeleteBrowsingDataOnQuit = false
++        settings.setDeleteDataOnQuit(DeleteBrowsingDataOnQuitType.COOKIES, false)
++        repeat(2) {
++            val fragment = createFragment()
++            assertFalse(master(fragment).isChecked)
++            assertEquals(setOf(DeleteBrowsingDataOnQuitType.CACHE), checked(fragment))
++            val restarted = Settings(testContext)
++            assertFalse(restarted.shouldDeleteBrowsingDataOnQuit)
++            assertFalse(restarted.getDeleteDataOnQuit(DeleteBrowsingDataOnQuitType.COOKIES))
++            assertTrue(restarted.getDeleteDataOnQuit(DeleteBrowsingDataOnQuitType.CACHE))
++        }
++    }
++
++    @Test
++    fun `deselecting the last category turns off cleanup and the master restores only safe defaults`() {
++        DeleteBrowsingDataOnQuitType.entries.forEach { settings.setDeleteDataOnQuit(it, false) }
++        settings.setDeleteDataOnQuit(DeleteBrowsingDataOnQuitType.CACHE, true)
++        val fragment = createFragment()
++        val cache = fragment.findPreference<CheckBoxPreference>(DeleteBrowsingDataOnQuitType.CACHE.getPreferenceKey(testContext))!!
++        assertTrue(cache.callChangeListener(false))
++        cache.isChecked = false
++        assertFalse(master(fragment).isChecked)
++        assertFalse(settings.shouldDeleteBrowsingDataOnQuit)
++        changeMaster(fragment, true)
++        assertEquals(setOf(DeleteBrowsingDataOnQuitType.COOKIES, DeleteBrowsingDataOnQuitType.CACHE), checked(fragment))
++    }
++
++    private fun createFragment(): DeleteBrowsingDataOnQuitFragment {
++        val controller = Robolectric.buildActivity(AppCompatActivity::class.java)
++        controller.get().setTheme(R.style.NormalTheme)
++        val activity = controller.create().get()
++        val fragment = DeleteBrowsingDataOnQuitFragment()
++        activity.supportFragmentManager.beginTransaction().add(fragment, "cleanup").commitNow()
++        // Exercise the same binding and listeners as entering this screen without
++        // unrelated Activity resume work (the application components are test doubles).
++        fragment.onResume()
++        return fragment
++    }
++
++    private fun master(fragment: DeleteBrowsingDataOnQuitFragment) =
++        fragment.requirePreference<SwitchPreferenceCompat>(R.string.pref_key_delete_browsing_data_on_quit)
++
++    private fun changeMaster(fragment: DeleteBrowsingDataOnQuitFragment, enabled: Boolean) {
++        val preference = master(fragment)
++        assertTrue(preference.callChangeListener(enabled))
++        preference.isChecked = enabled
++    }
++
++    private fun checked(fragment: DeleteBrowsingDataOnQuitFragment) =
++        DeleteBrowsingDataOnQuitType.entries.filter { type ->
++            fragment.findPreference<CheckBoxPreference>(type.getPreferenceKey(testContext))!!.isChecked
++        }.toSet()
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
+@@ -11,6 +11,7 @@
+ import mozilla.components.concept.engine.Engine
+ import mozilla.components.support.test.fakes.engine.FakeEngine
+ import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
+ import org.junit.Assert.assertThrows
+ import org.junit.Assert.assertTrue
+ import org.junit.Before
+@@ -22,8 +23,8 @@
+     private val settings =
+         DefaultSettings(
+             dohSettingsMode = Engine.DohSettingsMode.INCREASED,
+-            dohProviderUrl = DefaultDohSettingsProvider.nextDnsUri,
+-            dohDefaultProviderUrl = DefaultDohSettingsProvider.cloudflareUri,
++            dohProviderUrl = Settings.LIBREWOLF_DOH_PROVIDER_URI,
++            dohDefaultProviderUrl = Settings.LIBREWOLF_DOH_DEFAULT_PROVIDER_URI,
+             dohExceptionsList = listOf("example.com", "example2.com", "example3.com"),
+         )
+     private val fakeEngine = FakeEngine(expectedSettings = settings)
+@@ -37,13 +38,62 @@
+             settings = appSettings,
+         )
+         every { appSettings.getDohSettingsMode() } returns Engine.DohSettingsMode.INCREASED
+-        every { appSettings.dohProviderUrl } returns DefaultDohSettingsProvider.nextDnsUri
+-        every { appSettings.dohDefaultProviderUrl } returns DefaultDohSettingsProvider.cloudflareUri
++        every { appSettings.dohProviderUrl } returns Settings.LIBREWOLF_DOH_PROVIDER_URI
++        every { appSettings.dohDefaultProviderUrl } returns Settings.LIBREWOLF_DOH_DEFAULT_PROVIDER_URI
+         every { appSettings.dohExceptionsList } returns setOf(
+             "example.com",
+             "example2.com",
+             "example3.com",
+         )
++    }
++
++    @Test
++    fun `the provider catalog matches LibreWolf desktop and has one custom slot`() {
++        val providers = settingsProvider.getDefaultProviders()
++        assertEquals(
++            listOf(
++                "https://dns10.quad9.net/dns-query",
++                "https://dns.quad9.net/dns-query",
++                "https://doh.libredns.gr/dns-query",
++                "https://doh.libredns.gr/noads",
++                "https://wikimedia-dns.org/dns-query",
++                "https://doh.dns4all.eu/dns-query",
++                "https://dns.mullvad.net/dns-query",
++            ),
++            providers.filterIsInstance<Provider.BuiltIn>().map { it.url },
++        )
++        assertEquals(1, providers.filterIsInstance<Provider.BuiltIn>().count { it.default })
++        assertEquals(listOf(Provider.Custom(url = "")), providers.filterIsInstance<Provider.Custom>())
++    }
++
++    @Test
++    fun `explicit legacy providers remain selected as custom providers after upgrade`() {
++        for (url in listOf("https://mozilla.cloudflare-dns.com/dns-query", "https://firefox.dns.nextdns.io/")) {
++            every { appSettings.dohProviderUrl } returns url
++            assertEquals(Provider.Custom(url = url), settingsProvider.getSelectedProvider())
++            assertEquals(
++                listOf(Provider.Custom(url = url)),
++                settingsProvider.getDefaultProviders().filterIsInstance<Provider.Custom>(),
++            )
++        }
++    }
++
++    @Test
++    fun `provider choices are read again after a setting change`() {
++        assertEquals(Settings.LIBREWOLF_DOH_PROVIDER_URI, settingsProvider.getSelectedProvider()?.url)
++        every { appSettings.dohProviderUrl } returns "https://dns.mullvad.net/dns-query"
++        assertEquals("https://dns.mullvad.net/dns-query", settingsProvider.getSelectedProvider()?.url)
++        every { appSettings.dohProviderUrl } returns "https://custom.example/dns-query"
++        assertEquals(Provider.Custom("https://custom.example/dns-query"), settingsProvider.getSelectedProvider())
++    }
++
++    @Test
++    fun `Off and Default have no active provider selection and preserve the configured URI`() {
++        for (mode in listOf(Engine.DohSettingsMode.OFF, Engine.DohSettingsMode.DEFAULT)) {
++            every { appSettings.getDohSettingsMode() } returns mode
++            assertNull(settingsProvider.getSelectedProvider())
++        }
++        verify(exactly = 0) { appSettings.dohProviderUrl = any() }
+     }
+ 
+     @Test
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/logins/fragment/SavedLoginsSettingFragmentTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/logins/fragment/SavedLoginsSettingFragmentTest.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/logins/fragment/SavedLoginsSettingFragmentTest.kt
+@@ -0,0 +1,54 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.logins.fragment
++
++import android.view.LayoutInflater
++import android.widget.FrameLayout
++import androidx.appcompat.app.AppCompatActivity
++import androidx.preference.PreferenceViewHolder
++import io.mockk.every
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.Assert.assertEquals
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.fenix.R
++import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.settings.RadioButtonPreference
++import org.mozilla.fenix.settings.requirePreference
++import org.mozilla.fenix.utils.Settings
++import org.robolectric.Robolectric
++import org.robolectric.RobolectricTestRunner
++
++@RunWith(RobolectricTestRunner::class)
++class SavedLoginsSettingFragmentTest {
++    @Test
++    fun `fresh profile selects only never save`() {
++        assertRadioChoices(Settings(testContext), save = false)
++    }
++
++    @Test
++    fun `stored save choice with an absent companion key remains the only selection`() {
++        val settings = Settings(testContext)
++        settings.shouldPromptToSaveLogins = true
++        repeat(2) { assertRadioChoices(settings, save = true) }
++    }
++
++    private fun assertRadioChoices(settings: Settings, save: Boolean) {
++        every { testContext.components.settings } returns settings
++        val controller = Robolectric.buildActivity(AppCompatActivity::class.java)
++        controller.get().setTheme(R.style.NormalTheme)
++        val activity = controller.create().get()
++        val fragment = SavedLoginsSettingFragment()
++        activity.supportFragmentManager.beginTransaction().add(fragment, "logins").commitNow()
++        fragment.onResume()
++        for ((key, expected) in listOf(R.string.pref_key_save_logins to save, R.string.pref_key_never_save_logins to !save)) {
++            val radio = fragment.requirePreference<RadioButtonPreference>(key)
++            val view = LayoutInflater.from(activity).inflate(radio.layoutResource, FrameLayout(activity), false)
++            radio.onBindViewHolder(PreferenceViewHolder.createInstanceForTests(view))
++            assertEquals(expected, radio.isChecked)
++        }
++        assertEquals(save, Settings(testContext).shouldPromptToSaveLogins)
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+@@ -8,9 +8,13 @@
+ import androidx.core.content.edit
+ import io.mockk.every
+ import io.mockk.spyk
++import java.util.Calendar
++import mozilla.components.concept.engine.Engine
+ import mozilla.components.concept.engine.Engine.HttpsOnlyMode.DISABLED
+ import mozilla.components.concept.engine.Engine.HttpsOnlyMode.ENABLED
+ import mozilla.components.concept.engine.Engine.HttpsOnlyMode.ENABLED_PRIVATE_ONLY
++import mozilla.components.concept.engine.EngineSession.BounceTrackingProtectionMode
++import mozilla.components.concept.engine.EngineSession.TrackingProtectionPolicy
+ import mozilla.components.feature.sitepermissions.SitePermissionsRules
+ import mozilla.components.feature.sitepermissions.SitePermissionsRules.Action.ALLOWED
+ import mozilla.components.feature.sitepermissions.SitePermissionsRules.Action.ASK_TO_ALLOW
+@@ -24,8 +28,11 @@
+ import org.junit.Before
+ import org.junit.Test
+ import org.junit.runner.RunWith
++import org.mozilla.fenix.R
+ import org.mozilla.fenix.browser.browsingmode.BrowsingMode
++import org.mozilla.fenix.components.TrackingProtectionPolicyFactory
+ import org.mozilla.fenix.components.toolbar.ToolbarPosition
++import org.mozilla.fenix.ext.getPreferenceKey
+ import org.mozilla.fenix.nimbus.DefaultBrowserPrompt
+ import org.mozilla.fenix.nimbus.FakeNimbusEventStore
+ import org.mozilla.fenix.nimbus.FxNimbus
+@@ -34,7 +41,6 @@
+ import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType
+ import org.mozilla.fenix.wallpapers.Wallpaper
+ import org.robolectric.RobolectricTestRunner
+-import java.util.Calendar
+ 
+ private const val TOU_VERSION = 5
+ 
+@@ -63,6 +69,150 @@
+     }
+ 
+     @Test
++    fun `LibreWolf defaults select a strict engine policy and HTTPS in every tab`() {
++        assertEquals(ENABLED, settings.getHttpsOnlyMode())
++        assertFalse(settings.useStandardTrackingProtection)
++        assertTrue(settings.useStrictTrackingProtection)
++        assertFalse(settings.useCustomTrackingProtection)
++        val policy = TrackingProtectionPolicyFactory(settings, testContext.resources)
++            .createTrackingProtectionPolicy()
++        assertEquals(listOf(TrackingProtectionPolicy.TrackingCategory.STRICT), policy.trackingCategories.toList())
++        assertEquals(true, policy.strictSocialTrackingProtection)
++        assertTrue(policy.useForRegularSessions)
++        assertTrue(policy.useForPrivateSessions)
++        assertEquals(TrackingProtectionPolicy.CookiePolicy.ACCEPT_FIRST_PARTY_AND_ISOLATE_OTHERS, policy.cookiePolicy)
++        assertTrue(policy.cookiePurging)
++        assertEquals(BounceTrackingProtectionMode.ENABLED, policy.bounceTrackingProtectionMode)
++        assertFalse(policy.allowListConvenienceTrackingProtection)
++    }
++
++    @Test
++    fun `LibreWolf cleans only cookies site data and cache by default`() {
++        assertTrue(settings.shouldDeleteBrowsingDataOnQuit)
++        assertEquals(
++            setOf(DeleteBrowsingDataOnQuitType.COOKIES, DeleteBrowsingDataOnQuitType.CACHE),
++            DeleteBrowsingDataOnQuitType.entries.filter { settings.getDeleteDataOnQuit(it) }.toSet(),
++        )
++    }
++
++    @Test
++    fun `restoring an empty cleanup selection never enables history permissions tabs or downloads`() {
++        DeleteBrowsingDataOnQuitType.entries.forEach { settings.setDeleteDataOnQuit(it, false) }
++        settings.ensureDeleteDataOnQuitSelection()
++        assertEquals(
++            setOf(DeleteBrowsingDataOnQuitType.COOKIES, DeleteBrowsingDataOnQuitType.CACHE),
++            DeleteBrowsingDataOnQuitType.entries.filter { settings.getDeleteDataOnQuit(it) }.toSet(),
++        )
++        DeleteBrowsingDataOnQuitType.entries.forEach { settings.setDeleteDataOnQuit(it, false) }
++        settings.setDeleteDataOnQuit(DeleteBrowsingDataOnQuitType.HISTORY, true)
++        settings.ensureDeleteDataOnQuitSelection()
++        assertEquals(
++            listOf(DeleteBrowsingDataOnQuitType.HISTORY),
++            DeleteBrowsingDataOnQuitType.entries.filter { settings.getDeleteDataOnQuit(it) },
++        )
++    }
++
++    @Test
++    fun `LibreWolf leaves password and address and card autofill disabled and DoH explicitly off`() {
++        assertFalse(settings.shouldPromptToSaveLogins)
++        assertFalse(settings.shouldAutofillLogins)
++        assertFalse(settings.shouldAutofillCreditCardDetails)
++        assertFalse(settings.shouldAutofillAddressDetails)
++        assertEquals(Engine.DohSettingsMode.OFF, settings.getDohSettingsMode())
++        assertEquals("https://dns10.quad9.net/dns-query", settings.dohProviderUrl)
++        assertEquals("https://doh.dns4all.eu/dns-query", settings.dohDefaultProviderUrl)
++    }
++
++    @Test
++    fun `an older profile with absent defaults upgrades without persisting or replacing preferences`() {
++        settings.preferences.edit { putString("existing-profile-data", "retained") }
++        val before = settings.preferences.all.toMap()
++        repeat(2) {
++            val restarted = Settings(testContext)
++            assertEquals(ENABLED, restarted.getHttpsOnlyMode())
++            assertTrue(restarted.useStrictTrackingProtection)
++            assertTrue(restarted.shouldDeleteBrowsingDataOnQuit)
++            assertTrue(restarted.getDeleteDataOnQuit(DeleteBrowsingDataOnQuitType.COOKIES))
++            assertFalse(restarted.shouldAutofillLogins)
++            assertEquals(Engine.DohSettingsMode.OFF, restarted.getDohSettingsMode())
++            assertEquals(before, restarted.preferences.all)
++        }
++    }
++
++    @Test
++    fun `stored user choices survive two starts including old provider and cleanup selections`() {
++        settings.shouldUseHttpsOnly = false
++        settings.shouldDeleteBrowsingDataOnQuit = false
++        settings.shouldPromptToSaveLogins = true
++        settings.shouldAutofillLogins = true
++        settings.shouldAutofillAddressDetails = true
++        settings.shouldAutofillCreditCardDetails = true
++        settings.setDohSettingsMode(Engine.DohSettingsMode.INCREASED)
++        settings.dohProviderUrl = "https://mozilla.cloudflare-dns.com/dns-query"
++        settings.dohExceptionsList = setOf("example.test")
++        settings.preferences.edit {
++            putBoolean(testContext.getPreferenceKey(R.string.pref_key_tracking_protection_standard_option), true)
++            putBoolean(testContext.getPreferenceKey(R.string.pref_key_tracking_protection_strict_default), false)
++            putBoolean(testContext.getPreferenceKey(R.string.pref_key_tracking_protection_custom_option), false)
++            putString(testContext.getPreferenceKey(R.string.pref_key_doh_default_provider_uri), "https://custom.test/dns")
++        }
++        DeleteBrowsingDataOnQuitType.entries.forEach { settings.setDeleteDataOnQuit(it, false) }
++        settings.setDeleteDataOnQuit(DeleteBrowsingDataOnQuitType.HISTORY, true)
++        val before = settings.preferences.all.toMap()
++        repeat(2) {
++            val restarted = Settings(testContext)
++            assertEquals(DISABLED, restarted.getHttpsOnlyMode())
++            assertTrue(restarted.useStandardTrackingProtection)
++            assertFalse(restarted.useStrictTrackingProtection)
++            assertFalse(restarted.shouldDeleteBrowsingDataOnQuit)
++            assertEquals(
++                listOf(DeleteBrowsingDataOnQuitType.HISTORY),
++                DeleteBrowsingDataOnQuitType.entries.filter { restarted.getDeleteDataOnQuit(it) },
++            )
++            assertTrue(restarted.shouldPromptToSaveLogins)
++            assertTrue(restarted.shouldAutofillLogins)
++            assertTrue(restarted.shouldAutofillAddressDetails)
++            assertTrue(restarted.shouldAutofillCreditCardDetails)
++            assertEquals(Engine.DohSettingsMode.INCREASED, restarted.getDohSettingsMode())
++            assertEquals("https://mozilla.cloudflare-dns.com/dns-query", restarted.dohProviderUrl)
++            assertEquals("https://custom.test/dns", restarted.dohDefaultProviderUrl)
++            assertEquals(setOf("example.test"), restarted.dohExceptionsList)
++            assertEquals(before, restarted.preferences.all)
++        }
++    }
++
++    @Test
++    fun `a stored Standard or Custom choice is not overridden by an absent Strict key`() {
++        val standardKey = testContext.getPreferenceKey(R.string.pref_key_tracking_protection_standard_option)
++        val customKey = testContext.getPreferenceKey(R.string.pref_key_tracking_protection_custom_option)
++        val strictKey = testContext.getPreferenceKey(R.string.pref_key_tracking_protection_strict_default)
++        for (selectedKey in listOf(standardKey, customKey)) {
++            settings.preferences.edit {
++                remove(standardKey)
++                remove(customKey)
++                remove(strictKey)
++                putBoolean(selectedKey, true)
++            }
++            repeat(2) {
++                val restarted = Settings(testContext)
++                assertFalse(restarted.useStrictTrackingProtection)
++                assertEquals(selectedKey == standardKey, restarted.useStandardTrackingProtection)
++                assertEquals(selectedKey == customKey, restarted.useCustomTrackingProtection)
++                assertFalse(restarted.preferences.contains(strictKey))
++            }
++        }
++    }
++
++    @Test
++    fun `a stored false Strict setting retains the previous implicit Standard choice`() {
++        settings.preferences.edit {
++            putBoolean(testContext.getPreferenceKey(R.string.pref_key_tracking_protection_strict_default), false)
++        }
++        assertFalse(settings.useStrictTrackingProtection)
++        assertTrue(settings.useStandardTrackingProtection)
++    }
++
++    @Test
+     fun launchLinksInPrivateTab() {
+         // When just created
+         // Then
+@@ -92,25 +242,27 @@
+     fun clearDataOnQuit() {
+         // When just created
+         // Then
++        assertTrue(settings.shouldDeleteBrowsingDataOnQuit)
++
++        // When
++        settings.shouldDeleteBrowsingDataOnQuit = true
++
++        // Then
++        assertTrue(settings.shouldDeleteBrowsingDataOnQuit)
++
++        // When
++        settings.shouldDeleteBrowsingDataOnQuit = false
++
++        // Then
+         assertFalse(settings.shouldDeleteBrowsingDataOnQuit)
+-
+-        // When
+-        settings.shouldDeleteBrowsingDataOnQuit = true
+-
+-        // Then
+-        assertTrue(settings.shouldDeleteBrowsingDataOnQuit)
+-
+-        // When
+-        settings.shouldDeleteBrowsingDataOnQuit = false
+-
+-        // Then
+-        assertFalse(settings.shouldDeleteBrowsingDataOnQuit)
+     }
+ 
+     @Test
+     fun clearAnyDataOnQuit() {
+         // When just created
+         // Then
++        assertTrue(settings.shouldDeleteAnyDataOnQuit())
++        DeleteBrowsingDataOnQuitType.entries.forEach { settings.setDeleteDataOnQuit(it, false) }
+         assertFalse(settings.shouldDeleteAnyDataOnQuit())
+ 
+         // When
+@@ -320,13 +472,13 @@
+     fun shouldAutofill() {
+         // When just created
+         // Then
++        assertFalse(settings.shouldAutofillLogins)
++
++        // When
++        settings.shouldAutofillLogins = true
++
++        // Then
+         assertTrue(settings.shouldAutofillLogins)
+-
+-        // When
+-        settings.shouldAutofillLogins = false
+-
+-        // Then
+-        assertFalse(settings.shouldAutofillLogins)
+     }
+ 
+     @Test
+@@ -426,7 +578,7 @@
+     fun shouldUseTrackingProtectionStrict() {
+         // When
+         // Then
+-        assertFalse(settings.useStrictTrackingProtection)
++        assertTrue(settings.useStrictTrackingProtection)
+     }
+ 
+     @Test
+@@ -937,8 +1089,8 @@
+     }
+ 
+     @Test
+-    fun `GIVEN unset user preferences THEN https-only is disabled`() {
+-        assertFalse(settings.shouldUseHttpsOnly)
++    fun `GIVEN unset user preferences THEN https-only is enabled`() {
++        assertTrue(settings.shouldUseHttpsOnly)
+     }
+ 
+     @Test

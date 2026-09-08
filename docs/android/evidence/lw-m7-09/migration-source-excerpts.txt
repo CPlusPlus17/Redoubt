@@ -1,0 +1,486 @@
+mobile/android/android-components/components/support/ktx/src/main/java/mozilla/components/support/ktx/android/content/PreferencesHolder.kt
+SHA256 ec50ad914ef681c357174dcd8134d1ea30de389a8995f9b4245ca9ebbbbc2954
+
+15:  * Represents a class that holds a reference to [SharedPreferences].
+16:  */
+17: interface PreferencesHolder {
+18:     val preferences: SharedPreferences
+19: }
+20:
+21: private class BooleanPreference(
+22:     private val key: String,
+23:     private val default: () -> Boolean,
+24:     private val persistDefaultIfNotExists: Boolean = false,
+25: ) : ReadWriteProperty<PreferencesHolder, Boolean> {
+26:
+27:     override fun getValue(thisRef: PreferencesHolder, property: KProperty<*>): Boolean =
+28:         if (thisRef.preferences.contains(key)) {
+29:             thisRef.preferences.getBoolean(key, default())
+30:         } else {
+31:             val value = default()
+32:             if (persistDefaultIfNotExists) {
+33:                 thisRef.preferences.edit { putBoolean(key, value) }
+34:             }
+35:
+36:             value
+37:         }
+38:
+39:     override fun setValue(thisRef: PreferencesHolder, property: KProperty<*>, value: Boolean) =
+40:         thisRef.preferences.edit { putBoolean(key, value) }
+41: }
+42:
+55: private class IntPreference(
+56:     private val key: String,
+57:     private val default: () -> Int,
+58: ) : ReadWriteProperty<PreferencesHolder, Int> {
+59:
+60:     override fun getValue(thisRef: PreferencesHolder, property: KProperty<*>): Int =
+61:         thisRef.preferences.getInt(key, default())
+62:
+63:     override fun setValue(thisRef: PreferencesHolder, property: KProperty<*>, value: Int) =
+64:         thisRef.preferences.edit { putInt(key, value) }
+65: }
+66:
+82:     private val persistDefaultIfNotExists: Boolean = false,
+83: ) : ReadWriteProperty<PreferencesHolder, String> {
+84:
+85:     override fun getValue(thisRef: PreferencesHolder, property: KProperty<*>): String =
+86:         if (thisRef.preferences.contains(key)) {
+87:             thisRef.preferences.getString(key, null) ?: default()
+88:         } else {
+89:             val value = default()
+90:             if (persistDefaultIfNotExists) {
+91:                 thisRef.preferences.edit { putString(key, value) }
+92:             }
+93:
+94:             value
+95:         }
+96:
+97:     override fun setValue(thisRef: PreferencesHolder, property: KProperty<*>, value: String) =
+98:         thisRef.preferences.edit { putString(key, value) }
+99: }
+100:
+101: private class StringSetPreference(
+102:     private val key: String,
+103:     private val default: () -> Set<String>,
+104: ) : ReadWriteProperty<PreferencesHolder, Set<String>> {
+105:
+125:  *     )
+126:  * }
+127:  * ```
+128:  */
+129: fun booleanPreference(
+130:     key: String,
+131:     default: Boolean,
+132:     persistDefaultIfNotExists: Boolean = false,
+133: ): ReadWriteProperty<PreferencesHolder, Boolean> =
+134:     BooleanPreference(key, { default }, persistDefaultIfNotExists)
+135:
+136: /**
+137:  * Property delegate for getting and setting a boolean shared preference.
+138:  * Optionally this will persist the default value if one is not already persisted.
+139:  *
+140:  * The default lambda is not called until the property is read for the first time.
+141:  *
+142:  * Example usage:
+143:  * ```
+144:  * class Settings : PreferenceHolder {
+145:  *     ...
+146:  *     val isTelemetryOn by booleanPreference(
+147:  *         "telemetry",
+148:  *         default = { false },
+149:  *         persistDefaultIfNotExists = true,
+150:  *     )
+151:  * }
+152:  * ```
+153:  */
+154: fun booleanPreference(
+155:     key: String,
+156:     default: () -> Boolean,
+157:     persistDefaultIfNotExists: Boolean = false,
+158: ): ReadWriteProperty<PreferencesHolder, Boolean> =
+159:     BooleanPreference(key, default, persistDefaultIfNotExists)
+160:
+161: /**
+162:  * Property delegate for getting and setting a float number shared preference.
+
+
+mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SharedPreferenceUpdater.kt
+SHA256 345a6363f64944816bf6609bd14ed77827d0311b576535342f6b5269051d5df1
+
+1: /* This Source Code Form is subject to the terms of the Mozilla Public
+2:  * License, v. 2.0. If a copy of the MPL was not distributed with this
+3:  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+4:
+5: package org.mozilla.fenix.settings
+6:
+7: import androidx.core.content.edit
+8: import androidx.preference.Preference
+9: import org.mozilla.fenix.ext.components
+10:
+11: /**
+12:  * Updates the corresponding [android.content.SharedPreferences] when the boolean [Preference] is changed.
+13:  * The preference key is used as the shared preference key.
+14:  */
+15: open class SharedPreferenceUpdater : Preference.OnPreferenceChangeListener {
+16:
+17:     override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+18:         val newBooleanValue = newValue as? Boolean ?: return false
+19:         preference.context.components.settings.preferences.edit {
+20:             putBoolean(preference.key, newBooleanValue)
+21:         }
+22:         return true
+23:     }
+24: }
+
+
+mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/RadioButtonPreference.kt
+SHA256 c2bc44699407aba4ad7e4e1936b4588a8bfbccb7a8773061a59fb3248441db59
+
+72:         this.defaultValue = defaultValue
+73:     }
+74:
+75:     override fun addToRadioGroup(radioButton: GroupableRadioButton) {
+76:         radioGroups.add(radioButton)
+77:     }
+78:
+79:     fun onClickListener(listener: (() -> Unit)) {
+80:         clickListener = listener
+81:     }
+82:
+83:     override fun setEnabled(enabled: Boolean) {
+84:         super.setEnabled(enabled)
+85:         if (!enabled) {
+86:             summaryView?.alpha = HALF_ALPHA
+87:             titleView?.alpha = HALF_ALPHA
+138:         titleView?.alpha = if (isEnabled) FULL_ALPHA else HALF_ALPHA
+139:
+140:         if (!title.isNullOrEmpty()) {
+141:             titleView?.text = title
+142:         }
+143:     }
+144:
+145:     private fun bindSummaryView(holder: PreferenceViewHolder) {
+146:         summaryView = holder.findViewById(R.id.widget_summary) as TextView
+147:
+148:         summaryView?.alpha = if (isEnabled) FULL_ALPHA else HALF_ALPHA
+149:         summaryView?.let {
+
+
+mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+SHA256 9d8ee6393e3d23698600ff85c59b84300cf81979b7a696c02b3116e487e4c81f
+
+180:     @VisibleForTesting
+181:     internal val isCrashReportEnabledInBuild: Boolean =
+182:         BuildConfig.CRASH_REPORTING && Config.channel.isReleased
+183:
+184:     override val preferences: SharedPreferences =
+185:         appContext.getSharedPreferences(FENIX_PREFERENCES, MODE_PRIVATE)
+186:
+1165:         default = false,
+1166:     )
+1167:
+1168:     var shouldUseHttpsOnly by booleanPreference(
+1169:         appContext.getPreferenceKey(R.string.pref_key_https_only),
+1170:         default = false,
+1171:     )
+1172:
+1173:     var shouldUseHttpsOnlyInAllTabs by booleanPreference(
+1174:         appContext.getPreferenceKey(R.string.pref_key_https_only_in_all_tabs),
+1175:         default = true,
+1176:     )
+1177:
+1178:     var shouldUseHttpsOnlyInPrivateTabsOnly by booleanPreference(
+1179:         appContext.getPreferenceKey(R.string.pref_key_https_only_in_private_tabs),
+1180:         default = false,
+1181:     )
+1182:
+1183:     var shouldUseTrackingProtection by booleanPreference(
+1184:         appContext.getPreferenceKey(R.string.pref_key_tracking_protection),
+1185:         default = true,
+1186:     )
+1187:
+1188:     var shouldEnableGlobalPrivacyControl by booleanPreference(
+1189:         appContext.getPreferenceKey(R.string.pref_key_privacy_enable_global_privacy_control),
+1190:         false,
+1240:         appContext.getPreferenceKey(R.string.pref_key_auto_battery_theme),
+1241:         default = false,
+1242:     )
+1243:
+1244:     val useStandardTrackingProtection by booleanPreference(
+1245:         appContext.getPreferenceKey(R.string.pref_key_tracking_protection_standard_option),
+1246:         true,
+1247:     )
+1248:
+1249:     val useStrictTrackingProtection by booleanPreference(
+1250:         appContext.getPreferenceKey(R.string.pref_key_tracking_protection_strict_default),
+1251:         false,
+1252:     )
+1253:
+1254:     val useCustomTrackingProtection by booleanPreference(
+1255:         appContext.getPreferenceKey(R.string.pref_key_tracking_protection_custom_option),
+1256:         false,
+1257:     )
+1258:
+1259:     var strictAllowListBaselineTrackingProtection by booleanPreference(
+1260:         appContext.getPreferenceKey(R.string.pref_key_tracking_protection_strict_allow_list_baseline),
+1261:         true,
+1262:     )
+1263:
+1264:     var strictAllowListConvenienceTrackingProtection by booleanPreference(
+1265:         appContext.getPreferenceKey(R.string.pref_key_tracking_protection_strict_allow_list_convenience),
+1266:         false,
+1267:     )
+1268:
+1269:     var customAllowListBaselineTrackingProtection by booleanPreference(
+1270:         appContext.getPreferenceKey(R.string.pref_key_tracking_protection_custom_allow_list_baseline),
+1271:         true,
+1272:     )
+1273:
+1274:     var customAllowListConvenienceTrackingProtection by booleanPreference(
+1275:         appContext.getPreferenceKey(R.string.pref_key_tracking_protection_custom_allow_list_convenience),
+1276:         false,
+1277:     )
+1278:
+1279:     @VisibleForTesting(otherwise = PRIVATE)
+1280:     fun setStrictETP() {
+1281:         preferences.edit {
+1282:             putBoolean(
+1283:                 appContext.getPreferenceKey(R.string.pref_key_tracking_protection_strict_default),
+1284:                 true,
+1285:             )
+1286:         }
+1287:         preferences.edit {
+1288:             putBoolean(
+1289:                 appContext.getPreferenceKey(R.string.pref_key_tracking_protection_standard_option),
+1290:                 false,
+1291:             )
+1292:         }
+1293:         appContext.components.let {
+1294:             val policy = it.core.trackingProtectionPolicyFactory
+1295:                 .createTrackingProtectionPolicy()
+1296:             it.useCases.settingsUseCases.updateTrackingProtection.invoke(policy)
+1297:             it.useCases.sessionUseCases.reload.invoke()
+1298:         }
+1299:     }
+1300:
+1418:             field = value
+1419:         }
+1420:
+1421:     var shouldDeleteBrowsingDataOnQuit by booleanPreference(
+1422:         appContext.getPreferenceKey(R.string.pref_key_delete_browsing_data_on_quit),
+1423:         default = false,
+1424:     )
+1425:
+1426:     var deleteOpenTabs by booleanPreference(
+1427:         appContext.getPreferenceKey(R.string.pref_key_delete_open_tabs_now),
+1560:         }
+1561:
+1562:     /**
+1563:      * Checks if a specific type of browsing data is configured to be deleted on quit.
+1564:      *
+1565:      * @param type The [DeleteBrowsingDataOnQuitType] to check.
+1566:      * @return `true` if the data type is set to be deleted on quit, `false` otherwise.
+1567:      */
+1568:     fun getDeleteDataOnQuit(type: DeleteBrowsingDataOnQuitType): Boolean =
+1569:         preferences.getBoolean(type.getPreferenceKey(appContext), false)
+1570:
+1571:     /**
+1572:      * Sets whether a specific type of browsing data should be deleted on quit.
+1573:      *
+1574:      * This function is used to configure the "Delete browsing data on quit" feature.
+1575:      * It writes the user's choice to `SharedPreferences` for the given data type.
+1576:      * The value is later retrieved by `getDeleteDataOnQuit`.
+1577:      *
+1578:      * @param type The [DeleteBrowsingDataOnQuitType] to configure.
+1579:      * @param value `true` to enable deletion for this type on quit, `false` to disable it.
+1580:      */
+1581:     fun setDeleteDataOnQuit(type: DeleteBrowsingDataOnQuitType, value: Boolean) {
+1582:         preferences.edit { putBoolean(type.getPreferenceKey(appContext), value) }
+1583:     }
+1584:
+1585:     /**
+1586:      * Checks if any browsing data type is configured to be deleted on quit.
+1587:      *
+1588:      * This function provides a quick way to determine if the "Delete browsing data on quit"
+1589:      * feature is active in any capacity. It iterates through all possible data types
+1590:      * and returns `true` if at least one of them is set for deletion.
+1591:      *
+1592:      * This is useful for UI components that need to know whether to display a general
+1593:      * indicator that the feature is enabled, without needing to know the specific details.
+1594:      *
+1595:      * @return `true` if one or more data types are set to be deleted on quit, `false` otherwise.
+1867:         default = true,
+1868:     )
+1869:
+1870:     var shouldPromptToSaveLogins by booleanPreference(
+1871:         appContext.getPreferenceKey(R.string.pref_key_save_logins),
+1872:         default = true,
+1873:     )
+1874:
+1875:     var shouldAutofillLogins by booleanPreference(
+1876:         appContext.getPreferenceKey(R.string.pref_key_autofill_logins),
+1877:         default = true,
+1878:     )
+1879:
+1880:     /**
+1881:      * In Bug 1853113, we changed the type of [searchWidgetInstalled] from int to boolean without
+1882:      * changing the pref key, now we have to migrate users that were using the previous type int
+2168:      * Storing the user choice from the "Payment methods" settings for whether save and autofill cards
+2169:      * should be enabled or not.
+2170:      * If set to `true` when the user focuses on credit card fields in the webpage an Android prompt letting her
+2171:      * select the card details to be automatically filled will appear.
+2172:      */
+2173:     var shouldAutofillCreditCardDetails by booleanPreference(
+2174:         appContext.getPreferenceKey(R.string.pref_key_credit_cards_save_and_autofill_cards),
+2175:         default = true,
+2176:     )
+2177:
+2178:     /**
+2179:      * Stores the user choice from the "Autofill Addresses" settings for whether
+2180:      * save and autofill addresses should be enabled or not.
+2181:      * If set to `true` when the user focuses on address fields in a webpage an Android prompt is shown,
+2182:      * allowing the selection of an address details to be automatically filled in the webpage fields.
+2183:      */
+2184:     var shouldAutofillAddressDetails by booleanPreference(
+2185:         appContext.getPreferenceKey(R.string.pref_key_addresses_save_and_autofill_addresses),
+2186:         default = true,
+2187:     )
+2188:
+2975:         key = appContext.getPreferenceKey(R.string.pref_key_doh_settings_enabled),
+2976:         default = { FxNimbus.features.doh.value().showUi },
+2977:     )
+2978:
+2979:     /**
+2980:      * Stores the current DoH mode as an integer preference.
+2981:      * - 0: Default mode
+2982:      * - 2: Increased protection
+2983:      * - 3: Maximum protection
+2984:      * - 5: DoH is disabled
+2985:      */
+2986:     private var trrMode by intPreference(
+2987:         key = appContext.getPreferenceKey(R.string.pref_key_doh_settings_mode),
+2988:         default = DOH_SETTINGS_DEFAULT,
+2989:     )
+2990:
+2991:     /**
+2992:      * Stores the URI of the custom DoH provider selected by the user.
+2993:      * Defaults to an empty string if no provider is set.
+2994:      */
+2995:     var dohProviderUrl by stringPreference(
+2996:         key = appContext.getPreferenceKey(R.string.pref_key_doh_provider_uri),
+2997:         default = "",
+2998:     )
+2999:
+3000:     /**
+3001:      * Stores the URI of the default DoH provider.
+3002:      * Bug 1946867 - Currently "hardcoded" to "https://mozilla.cloudflare-dns.com/dns-query"
+3003:      */
+3004:     val dohDefaultProviderUrl by stringPreference(
+3005:         key = appContext.getPreferenceKey(R.string.pref_key_doh_default_provider_uri),
+3006:         default = CLOUDFLARE_URI,
+3007:     )
+3008:
+3009:     /**
+3010:      * Stores a set of domains that are excluded from using DNS over HTTPS.
+3011:      */
+3012:     var dohExceptionsList by stringSetPreference(
+3013:         key = appContext.getPreferenceKey(R.string.pref_key_doh_exceptions_list_string),
+3014:         default = emptySet(),
+3015:     )
+3016:
+3017:     /**
+3018:      * Retrieves the current DohSettingsMode based on trrMode
+3019:      */
+3020:     fun getDohSettingsMode(): Engine.DohSettingsMode {
+3021:         return when (trrMode) {
+3022:             DOH_SETTINGS_DEFAULT -> Engine.DohSettingsMode.DEFAULT
+3023:             DOH_SETTINGS_INCREASED -> Engine.DohSettingsMode.INCREASED
+3024:             DOH_SETTINGS_MAX -> Engine.DohSettingsMode.MAX
+3025:             DOH_SETTINGS_OFF -> Engine.DohSettingsMode.OFF
+3026:             else -> Engine.DohSettingsMode.DEFAULT
+3027:         }
+3028:     }
+3029:
+3030:     /**
+3031:      * Updates trrMode by converting the given DohSettingsMode
+3032:      */
+3033:     fun setDohSettingsMode(mode: Engine.DohSettingsMode) {
+3034:         trrMode = when (mode) {
+3035:             Engine.DohSettingsMode.DEFAULT -> DOH_SETTINGS_DEFAULT
+3036:             Engine.DohSettingsMode.INCREASED -> DOH_SETTINGS_INCREASED
+3037:             Engine.DohSettingsMode.MAX -> DOH_SETTINGS_MAX
+3038:             Engine.DohSettingsMode.OFF -> DOH_SETTINGS_OFF
+3039:         }
+3040:     }
+3041:
+3042:     /**
+3043:      * Indicates if the user has completed the setup step for choosing the toolbar location
+
+
+mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/HttpsOnlyFragment.kt
+SHA256 25435cb2ff9024a8e34460dd87d985b17ddace65db54b0c476de88f5f101c567
+
+43:                 setActionToUrlClick(this)
+44:             }
+45:             movementMethod = LinkMovementMethod.getInstance()
+46:         }
+47:
+48:         binding.httpsOnlySwitch.run {
+49:             isChecked = context.components.settings.shouldUseHttpsOnly
+50:             setHttpsModes(binding, isChecked)
+51:
+52:             setOnCheckedChangeListener { _, isHttpsOnlyEnabled ->
+53:                 context.components.settings.shouldUseHttpsOnly = isHttpsOnlyEnabled
+54:                 setHttpsModes(binding, isHttpsOnlyEnabled)
+55:                 updateEngineHttpsOnlyMode()
+56:             }
+57:         }
+58:
+59:         // Since the http-only modes are in a RadioGroup we only need one listener to know of all their changes.
+60:         binding.httpsOnlyAllTabs.setOnCheckedChangeListener { _, _ ->
+61:             updateEngineHttpsOnlyMode()
+
+
+mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragment.kt
+SHA256 5e25839e558295c52a41547b9b0ff16853ed15855f6fc329f3157655ae0bd0ec
+
+45:         // Delete Browsing Data on Quit Switch
+46:         val deleteOnQuitPref = requirePreference<SwitchPreferenceCompat>(
+47:             R.string.pref_key_delete_browsing_data_on_quit,
+48:         )
+49:         deleteOnQuitPref.apply {
+50:             onPreferenceChangeListener = object : SharedPreferenceUpdater() {
+51:                 override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+52:                     setAllCheckboxes(newValue as Boolean)
+53:                     return super.onPreferenceChange(preference, newValue)
+54:                 }
+55:             }
+56:             isChecked = context.components.settings.shouldDeleteBrowsingDataOnQuit
+57:         }
+58:
+59:         val checkboxUpdater = object : SharedPreferenceUpdater() {
+60:             override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+61:                 super.onPreferenceChange(preference, newValue)
+62:                 val settings = preference.context.components.settings
+63:
+64:                 if (!settings.shouldDeleteAnyDataOnQuit()) {
+65:                     deleteOnQuitPref.isChecked = false
+66:                     settings.shouldDeleteBrowsingDataOnQuit = false
+67:                 }
+68:                 return true
+69:             }
+70:         }
+71:
+72:         checkboxes.forEach { (_, pref) ->
+73:             pref.onPreferenceChangeListener = checkboxUpdater
+74:         }
+75:     }
+76:
+77:     private fun setAllCheckboxes(newValue: Boolean) {
+78:         checkboxes.forEach { (type, pref) ->
+79:             pref.isChecked = newValue
+80:             pref.context.components.settings.setDeleteDataOnQuit(type, newValue)
+81:         }
+82:     }
+83: }
