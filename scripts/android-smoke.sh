@@ -943,10 +943,19 @@ class Emulator:
                         "AvdId = %s\navd.ini.displayname = %s\nhw.ramSize = 3072\n"
                         "hw.lcd.width = 1080\nhw.lcd.height = 1920\nhw.lcd.density = 420\n"
                         "disk.dataPartition.size = 6442450944\nhw.audioInput = no\n"
-                        "hw.audioOutput = no\nhw.gpu.enabled = no\nhw.gpu.mode = off\n"
+                        "hw.audioOutput = no\nhw.gpu.enabled = yes\nhw.gpu.mode = swiftshader\n"
                         "hw.keyboard = yes\nPlayStore.enabled = false\n"
                         "image.androidVersion.api = %d\nfastboot.forceColdBoot = yes\n"
                         % (sysdir, tag, avd_name, avd_name, apinum))
+        # This AVD belongs to the harness. Migrate its old disabled-renderer
+        # config as well as fresh AVDs: emulator 37 otherwise falls back to an
+        # unsupported in-guest renderer before Android can boot.
+        config_path = os.path.join(avd_dir, "config.ini")
+        with open(config_path) as f:
+            config = f.read()
+        config = re.sub(r"(?m)^\s*hw\.gpu\.(?:enabled|mode)\s*=.*\n?", "", config)
+        with open(config_path, "w") as f:
+            f.write(config.rstrip() + "\nhw.gpu.enabled = yes\nhw.gpu.mode = swiftshader\n")
         emu = os.path.join(self.sdk, "emulator", "emulator")
         if not os.access(emu, os.X_OK):
             raise HarnessError("no emulator binary at %s" % emu)
@@ -969,7 +978,7 @@ class Emulator:
                                "stop an emulator or pass --serial to reuse one")
         self.serial = "emulator-%d" % port
         argv = [emu, "-avd", avd_name, "-no-window", "-no-audio", "-no-boot-anim",
-                "-gpu", "swiftshader_indirect", "-no-snapshot", "-no-metrics",
+                "-gpu", "swiftshader", "-no-snapshot", "-no-metrics",
                 "-port", str(port), "-tcpdump", self.pcap]
         # By default the emulator resolves through the HOST's resolvers, which is
         # a measurement hazard rather than a convenience: this build machine's LAN

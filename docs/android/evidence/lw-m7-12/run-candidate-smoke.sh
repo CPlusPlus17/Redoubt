@@ -37,7 +37,10 @@ printf '%s\n' "$ubo_rc" > "$evidence/ubo-lifecycle-exit.txt"
 set -e
 "$adb" devices > "$evidence/devices-after-ubo.txt"
 serial=$(awk 'NR>1 && $2 == "device" { print $1 }' "$evidence/devices-after-ubo.txt")
-[[ "$serial" =~ ^emulator-[0-9]+$ ]]
+if [[ ! "$serial" =~ ^emulator-[0-9]+$ ]]; then
+  echo 'The emulator did not become available; no browser checks can run.' >&2
+  exit 2
+fi
 export ANDROID_SERIAL="$serial"
 export LW_SMOKE_PCAP="$work/smoke-first-navigation/capture.pcap"
 set +e
