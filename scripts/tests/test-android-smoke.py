@@ -291,5 +291,81 @@ class ScreenshotEvidenceTests(unittest.TestCase):
             harness.png_center_pixel(b'not an image')
 
 
+class UboBehaviorGateTests(unittest.TestCase):
+    def evidence(self, blocked=True):
+        token = "first-test"
+        page = {"ready":"complete", "probe":{"token":token, "allowed":True, "blocked":not blocked}}
+        paths = ["/ubo-probe", harness.UBO_ALLOWED_PATH]
+        if not blocked:
+            paths.append(harness.UBO_BLOCKED_PATH)
+        requests = [(1.0, "http", path + "?token=" + token) for path in paths]
+        return page, requests, token
+
+    def test_block_and_disable_control_require_opposite_server_results(self):
+        for blocked in (True, False):
+            data = self.evidence(blocked)
+            self.assertTrue(harness.grade_ubo_navigation(*data, blocked)[0])
+            self.assertFalse(harness.grade_ubo_navigation(*data, not blocked)[0])
+
+    def test_blocked_dom_without_server_observation_of_allowed_control_fails(self):
+        page, requests, token = self.evidence()
+        self.assertFalse(harness.grade_ubo_navigation(page, requests[:1], token, True)[0])
+
+    def test_request_leaked_even_if_script_did_not_execute_fails(self):
+        page, requests, token = self.evidence()
+        requests.append((1.0, "http", harness.UBO_BLOCKED_PATH + "?token=" + token))
+        self.assertFalse(harness.grade_ubo_navigation(page, requests, token, True)[0])
+
+    def test_incomplete_document_cannot_claim_scripts_were_blocked(self):
+        page, requests, token = self.evidence()
+        page["ready"] = "loading"
+        self.assertFalse(harness.grade_ubo_navigation(page, requests, token, True)[0])
+
+    def test_previous_navigation_cannot_supply_current_control(self):
+        page, requests, token = self.evidence()
+        self.assertFalse(harness.grade_ubo_navigation(page, requests, "second-test", True)[0])
+
+    def test_missing_page_or_script_marker_fails(self):
+        page, requests, token = self.evidence()
+        self.assertFalse(harness.grade_ubo_navigation(page, requests[1:], token, True)[0])
+        page["probe"]["allowed"] = False
+        self.assertFalse(harness.grade_ubo_navigation(page, requests, token, True)[0])
+
+    def test_scriptless_page_cannot_be_a_passing_negative_control(self):
+        page, requests, token = self.evidence(False)
+        page["probe"]["blocked"] = False
+        self.assertFalse(harness.grade_ubo_navigation(page, requests, token, False)[0])
+
+    def test_both_scripts_are_parser_inserted_in_first_response(self):
+        body, kind = harness.ubo_probe_response("/ubo-probe?token=first-test")
+        self.assertIn("text/html", kind)
+        self.assertIn((harness.UBO_BLOCKED_PATH + "?token=first-test").encode(), body)
+        self.assertIn((harness.UBO_ALLOWED_PATH + "?token=first-test").encode(), body)
+        self.assertNotIn(b"setTimeout", body)
+        self.assertNotIn(b"fetch(", body)
+
+    def test_fixture_rejects_html_and_javascript_in_token(self):
+        for token in ("%22%3E%3Cscript%3E", "", "foo%26bar"):
+            self.assertIsNone(harness.ubo_probe_response("/ubo-probe?token=" + token))
+
+
+class AppInstallStateTests(unittest.TestCase):
+    def test_keep_state_never_uninstalls_after_signing_mismatch(self):
+        class Device:
+            calls = []
+            def run(self, *args, **kwargs):
+                self.calls.append(args)
+                return types.SimpleNamespace(stdout="", stderr="INSTALL_FAILED_UPDATE_INCOMPATIBLE")
+        device = Device()
+        with tempfile.TemporaryDirectory() as work:
+            apk = Path(work) / "candidate.apk"
+            apk.write_bytes(b"fixture")
+            app = harness.App(device, "org.redoubtbrowser", work)
+            with self.assertRaises(harness.HarnessError):
+                app.install(str(apk), preserve_state=True)
+        self.assertEqual(len(device.calls), 1)
+        self.assertEqual(device.calls[0][0], "install")
+
+
 if __name__ == '__main__':
     unittest.main()

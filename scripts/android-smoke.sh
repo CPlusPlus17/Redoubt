@@ -74,9 +74,10 @@ cat > "$DRIVER" <<'PYDRIVEREOF'
 # The Redoubt smoke harness.  Unpacked from
 # scripts/android-smoke.sh; do not edit this copy, edit the script.
 # ---------------------------------------------------------------------------
-import argparse, base64, glob, html, json, os, re, shutil, signal, socket, ssl, struct
+import argparse, base64, glob, hashlib, html, io, json, os, re, shutil, signal, socket, ssl, struct
 import subprocess, sys, tempfile, threading, time, zipfile, zlib
 import http.server
+import urllib.parse
 
 EXIT_OK, EXIT_FAIL, EXIT_HARNESS, EXIT_UNIMPLEMENTED = 0, 1, 2, 3
 
@@ -194,6 +195,36 @@ PROBE_PAGE = b"""<!doctype html><html><head><meta charset="utf-8">
 <video id="v" src="/fixture.webm" muted playsinline preload="auto"></video>
 </body></html>"""
 
+UBO_ID = "uBlock0@raymondhill.net"
+UBO_FILTER_FILE = "assets/thirdparties/easylist/easylist.txt"
+UBO_FILTER_RULE = "/banner_ads/*$~xmlhttprequest,domain=~clickbd.com"
+UBO_BLOCKED_PATH = "/banner_ads/redoubt-probe.js"
+UBO_ALLOWED_PATH = "/redoubt-allowed.js"
+
+def ubo_probe_response(path):
+    """Real parser-inserted subresources, served before Marionette connects.
+
+    The blocked path matches a rule in the unmodified bundled EasyList. Both
+    scripts have the same origin and type; disabling uBO must let both reach
+    this server. No harness-created filter or extension is installed.
+    """
+    url = urllib.parse.urlsplit(path)
+    token = urllib.parse.parse_qs(url.query).get("token", [""])[0]
+    if not re.fullmatch(r"[a-z0-9-]+", token):
+        return None
+    if url.path == "/ubo-probe":
+        body = ('<!doctype html><meta charset="utf-8"><title>uBO first page</title>'
+                '<script>window.redoubtUboProbe={token:%s,blocked:false,allowed:false};</script>'
+                '<script src="%s?token=%s"></script>'
+                '<script src="%s?token=%s"></script>'
+                '<p id="ubo-marker">uBO fixture complete</p>'
+                % (json.dumps(token), UBO_BLOCKED_PATH, token, UBO_ALLOWED_PATH, token))
+        return body.encode(), "text/html; charset=utf-8"
+    if url.path in (UBO_BLOCKED_PATH, UBO_ALLOWED_PATH):
+        key = "blocked" if url.path == UBO_BLOCKED_PATH else "allowed"
+        return ("window.redoubtUboProbe.%s=true;" % key).encode(), "application/javascript"
+    return None
+
 class Origin:
     """Serves the probe page over http and https from the host, reachable from
     the emulator at 10.0.2.2.  Records every request it receives, which is what
@@ -211,7 +242,10 @@ class Origin:
             def do_GET(self):
                 with lock:
                     reqs.append((time.time(), self.scheme, self.path))
-                if self.path.startswith("/fixture.webm"):
+                ubo = ubo_probe_response(self.path)
+                if ubo is not None:
+                    body, ctype = ubo
+                elif self.path.startswith("/fixture.webm"):
                     body, ctype = video, "video/webm"
                 elif self.path.startswith("/empty"):
                     body, ctype = b"<!doctype html><title>e</title>", "text/html; charset=utf-8"
@@ -1028,7 +1062,7 @@ class App:
         self.extra_prefs = {}
         self._debuggable = None
         self._set_debug_app = False
-    def install(self, apk, reinstall=True):
+    def install(self, apk, preserve_state=False):
         log("installing %s (%.0f MB)" % (os.path.basename(apk), os.path.getsize(apk) / 1e6))
         # -d allows a version DOWNGRADE. versionCode is derived from the build
         # timestamp, so it moves every Gradle run: testing a variant build (say one
@@ -1051,6 +1085,9 @@ class App:
                                "INSTALL_FAILED_ALREADY_EXISTS")
         hit = next((e for e in blocked_by_existing if e in (p.stdout + p.stderr)), None)
         if hit:
+            if preserve_state:
+                raise HarnessError("adb install refused (%s); preserving existing app data. "
+                                   "A state-preservation test must not uninstall the app." % hit)
             log("install refused (%s) because of the copy an earlier run left on this "
                 "device; uninstalling %s and installing again" % (hit, self.pkg))
             self.adb.run("uninstall", self.pkg, timeout=300)
@@ -2752,6 +2789,142 @@ def check_ubo_preinstall(m, res):
             {"addons": listed, "bootstrap_location": boot})
     return ok
 
+def ubo_bundle_evidence(apk):
+    """Bind a behavior probe to the exact packaged, pinned filter input."""
+    with zipfile.ZipFile(apk) as archive:
+        pin = json.loads(archive.read("assets/extensions/ubo-extension.json"))
+        xpi = archive.read("assets/extensions/ublock_origin.xpi")
+    digest = hashlib.sha256(xpi).hexdigest()
+    if digest != pin.get("sha256") or len(xpi) != pin.get("size"):
+        raise HarnessError("bundled uBO bytes do not match their packaged pin")
+    with zipfile.ZipFile(io.BytesIO(xpi)) as extension:
+        manifest = json.loads(extension.read("manifest.json"))
+        addon_id = manifest.get("browser_specific_settings", {}).get("gecko", {}).get("id")
+        if addon_id is None:
+            addon_id = manifest.get("applications", {}).get("gecko", {}).get("id")
+        filters = extension.read(UBO_FILTER_FILE)
+        if UBO_FILTER_RULE not in filters.decode().splitlines():
+            raise HarnessError("the bundled EasyList no longer contains the probe rule")
+        if addon_id != UBO_ID or pin.get("id") != UBO_ID or manifest.get("version") != pin.get("version"):
+            raise HarnessError("bundled uBO ID/version does not match its pin")
+    return {"pin": pin, "xpi_sha256": digest, "filter_path": UBO_FILTER_FILE,
+            "filter_sha256": hashlib.sha256(filters).hexdigest(), "filter_rule": UBO_FILTER_RULE}
+
+def read_ubo_addon(m):
+    return m.script(r"""
+      return (async () => {
+        const { AddonManager } = ChromeUtils.importESModule(
+          "resource://gre/modules/AddonManager.sys.mjs");
+        const a = await AddonManager.getAddonByID(arguments[0]);
+        if (!a) return null;
+        const p = WebExtensionPolicy.getByID(a.id);
+        return {id:a.id, version:a.version, active:a.isActive,
+                userDisabled:a.userDisabled, signedState:a.signedState,
+                amoSigned:a.signedState === AddonManager.SIGNEDSTATE_SIGNED,
+                isBuiltin:a.isBuiltin, privateBrowsingAllowed:p?.privateBrowsingAllowed,
+                blockingResponseListeners:p?.extension?.redoubtBlockingResponseListeners?.size || 0};
+      })();
+    """, [UBO_ID], chrome=True)
+
+def grade_ubo_navigation(page, requests, token, blocked):
+    """Require completed script execution AND independent server observations."""
+    blocked_hits = [r for r in requests if r[2] == UBO_BLOCKED_PATH + "?token=" + token]
+    allowed_hits = [r for r in requests if r[2] == UBO_ALLOWED_PATH + "?token=" + token]
+    page_hits = [r for r in requests if r[2] == "/ubo-probe?token=" + token]
+    state = page.get("probe") or {}
+    ok = (page.get("ready") == "complete" and state.get("token") == token
+          and state.get("allowed") is True and bool(allowed_hits) and bool(page_hits)
+          and state.get("blocked") is (not blocked)
+          and bool(blocked_hits) is (not blocked))
+    return ok, {"page": page, "page_requests": page_hits,
+                "blocked_requests": blocked_hits, "allowed_requests": allowed_hits}
+
+def measure_ubo_navigation(m, res, origin, token, blocked, label):
+    page = m.script('return {url:location.href, uri:document.documentURI, '
+                    'ready:document.readyState, '
+                    'probe:(window.wrappedJSObject || window).redoubtUboProbe || null};')
+    ok, evidence = grade_ubo_navigation(page or {}, list(origin.requests), token, blocked)
+    evidence["expected_blocked"] = blocked
+    res.add(label, ok, "bundled-list script %s; allowed script must execute and reach the origin"
+            % ("blocked" if blocked else "allowed with uBO disabled or absent"), evidence)
+    return ok
+
+def run_ubo_behavior(app, adb, apk, origin, res, lifecycle=False):
+    """The incoming first URL starts a fresh browser and immediately requests scripts.
+
+    ADB reverse reaches the server through Android loopback, which Gecko exempts
+    from HTTPS-only without a preference override (nsHTTPSOnlyUtils.cpp). The
+    JavaScript runs before the harness attaches. The final DOM and origin logs
+    therefore retain evidence even if installation completes after the request.
+    Lifecycle mutations below use the real AddonManager API, not Fenix UI.
+    """
+    bundle = ubo_bundle_evidence(apk)
+    remote_port = origin.http_port
+    adb.run("reverse", "tcp:%d" % remote_port, "tcp:%d" % origin.http_port, check=True)
+    base = "http://127.0.0.1:%d/ubo-probe?token=" % remote_port
+    m = None
+    try:
+        token = "first-" + os.urandom(8).hex()
+        m = open_session(app, base + token)
+        wait_for_initial_document(m, base + token)
+        first_ok = measure_ubo_navigation(m, res, origin, token, True, "ubo-first-navigation")
+        addon = read_ubo_addon(m)
+        addon_ok = (bool(addon) and addon.get("active") is True
+                    and addon.get("userDisabled") is False and addon.get("amoSigned") is True
+                    and addon.get("isBuiltin") is False
+                    and addon.get("version") == bundle["pin"]["version"])
+        res.add("ubo-preinstalled-signature", addon_ok,
+                "the pinned ordinary AMO-signed add-on must be active on first navigation",
+                {"addon": addon, "bundle": bundle})
+        if not lifecycle or not first_ok or not addon_ok:
+            return
+
+        # This is also the negative control for the block assertion: the same
+        # resource must reach the server and execute after uBO is disabled.
+        m.script(r"""
+          return (async () => {
+            const {AddonManager} = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+            await (await AddonManager.getAddonByID(arguments[0])).disable();
+            return true;
+          })();
+        """, [UBO_ID], chrome=True)
+        for label, restart in (("ubo-disabled-control", False), ("ubo-disabled-restart", True)):
+            token = label + "-" + os.urandom(8).hex()
+            if restart:
+                m.close()
+                m = open_session(app, base + token)
+            else:
+                m.cmd("Marionette:SetContext", {"value":"content"})
+                m.cmd("WebDriver:Navigate", {"url":base + token})
+            wait_for_initial_document(m, base + token)
+            measure_ubo_navigation(m, res, origin, token, False, label)
+            a = read_ubo_addon(m)
+            res.add(label + "-state", bool(a) and a.get("userDisabled") is True and not a.get("active"),
+                    "the installed add-on retains its disabled state", {"addon":a})
+
+        m.script(r"""
+          return (async () => {
+            const {AddonManager} = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+            await (await AddonManager.getAddonByID(arguments[0])).uninstall();
+            return true;
+          })();
+        """, [UBO_ID], chrome=True)
+        for label, reinstall in (("ubo-removed-restart", False), ("ubo-removed-apk-reinstall", True)):
+            m.close()
+            app.force_stop()
+            if reinstall:
+                app.install(apk, preserve_state=True)
+            token = label + "-" + os.urandom(8).hex()
+            m = open_session(app, base + token)
+            wait_for_initial_document(m, base + token)
+            measure_ubo_navigation(m, res, origin, token, False, label)
+            a = read_ubo_addon(m)
+            res.add(label + "-state", a is None, "a removed add-on stays absent", {"addon":a})
+    finally:
+        if m:
+            m.close()
+        adb.run("reverse", "--remove", "tcp:%d" % remote_port)
+
 # Mozilla's search partner / attribution parameters.  Measured on this build:
 # a real query typed into the Fenix toolbar produced
 # https://www.google.com/search?client=firefox-b-m&q=... -- client=firefox-b-m
@@ -3276,11 +3449,13 @@ def main(argv):
     ap.add_argument("--first-run-capture", action="store_true")
     ap.add_argument("--self-test", action="store_true",
                     help="prove the harness reports failure when a probe fails")
-    for f in ("ubo", "ubo-preinstall", "search", "no-gms", "no-adjust",
+    for f in ("ubo", "ubo-preinstall", "ubo-lifecycle", "search", "no-gms", "no-adjust",
               "aboutconfig", "no-suggest", "strings", "update-privacy",
               "no-remote-settings"):
         ap.add_argument("--check-" + f, action="store_true")
     args = ap.parse_args(argv)
+    if (args.check_ubo_preinstall or args.check_ubo_lifecycle) and args.keep_state:
+        raise HarnessError("uBO first-install checks require an empty app profile; omit --keep-state")
 
     for flag, why in NOT_IMPLEMENTED.items():
         if getattr(args, flag[2:].replace("-", "_")):
@@ -3311,6 +3486,14 @@ def main(argv):
     sdk = find_sdk(args.sdk)
     adb = Adb(find_adb(sdk), args.serial or os.environ.get("ANDROID_SERIAL"))
     apk = find_apk(args.apk, args.abi)
+    with open(apk, "rb") as artifact:
+        res.artifact = {"path":os.path.abspath(apk),
+                        "sha256":hashlib.file_digest(artifact, "sha256").hexdigest(),
+                        "size":os.path.getsize(apk)}
+    harness_path = os.path.join(os.environ.get("LW_SMOKE_REPO", "."), "scripts/android-smoke.sh")
+    if os.path.isfile(harness_path):
+        with open(harness_path, "rb") as driver:
+            res.artifact["harness_sha256"] = hashlib.file_digest(driver, "sha256").hexdigest()
     pkg = apk_package(apk)
     log("apk=%s" % apk)
     log("package=%s" % pkg)
@@ -3319,7 +3502,7 @@ def main(argv):
         args.emulator or args.serial or args.pref_dump or args.network_capture
         or args.first_run_capture or args.check_ubo or args.check_search
         or args.check_aboutconfig or args.check_no_suggest or args.check_update_privacy
-        or args.self_test)
+        or args.check_ubo_preinstall or args.check_ubo_lifecycle or args.self_test)
     if args.check_no_gms:
         check_no_gms(apk, res)
     if args.check_no_adjust:
@@ -3357,7 +3540,7 @@ def main(argv):
     origin = None
     m = None
     try:
-        app.install(apk)
+        app.install(apk, preserve_state=args.keep_state)
         if not args.keep_state:
             app.wipe()
         keep_screen_awake(adb)
@@ -3453,6 +3636,10 @@ def main(argv):
         https_url = "https://10.0.2.2:%d/" % https_port
         log("origin: %s and %s" % (http_url, https_url))
 
+        if args.check_ubo_preinstall or args.check_ubo_lifecycle:
+            run_ubo_behavior(app, adb, apk, origin, res, lifecycle=args.check_ubo_lifecycle)
+            return finish(res, args, work)
+
         cap_off = pcap_size(pcap) if pcap else 0
         m = open_session(app, http_url)
         build = m.script('return {version: Services.appinfo.version, '
@@ -3502,9 +3689,6 @@ def main(argv):
             return finish(res, args, work)
         if args.check_ubo:
             check_ubo(m, res)
-            return finish(res, args, work)
-        if args.check_ubo_preinstall:
-            check_ubo_preinstall(m, res)
             return finish(res, args, work)
         if args.check_search:
             check_search(m, res, adb, apk, app, deeplink_scheme(args, sdk, apk))
@@ -3569,7 +3753,7 @@ def main(argv):
 def finish(res, args, work):
     extra = globals().get("_EXTRA_PREFS") or {}
     payload = {"checks": res.rows, "work": work, "injected_prefs": extra,
-               "tainted": bool(extra)}
+               "tainted": bool(extra), "artifact":getattr(res, "artifact", None)}
     path = args.json or os.path.join(work, "result.json")
     with open(path, "w") as f:
         json.dump(payload, f, indent=1)

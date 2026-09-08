@@ -1,0 +1,6 @@
+{
+  "source": "dom/security/nsHTTPSOnlyUtils.cpp",
+  "source_sha256": "381b398a4c888a2aef8b2960efde4f05e119c5239940bd233a6cdefcf3b2f4a3",
+  "function": "bool nsHTTPSOnlyUtils::LoopbackOrLocalException(nsIURI* aURI) {\n  nsAutoCString asciiHost;\n  nsresult rv = aURI->GetAsciiHost(asciiHost);\n  NS_ENSURE_SUCCESS(rv, false);\n\n  // Let's make a quick check if the host matches these loopback strings\n  // before we do anything else\n  if (asciiHost.EqualsLiteral(\"localhost\") || asciiHost.EqualsLiteral(\"::1\")) {\n    return true;\n  }\n\n  mozilla::net::NetAddr addr;\n  if (NS_FAILED(addr.InitFromString(asciiHost))) {\n    return false;\n  }\n  // Loopback IPs are always exempt\n  if (addr.IsLoopbackAddr()) {\n    return true;\n  }\n\n  // Local IP exception can get disabled with a pref\n  bool upgradeLocal =\n      mozilla::StaticPrefs::dom_security_https_only_mode_upgrade_local();\n  return (!upgradeLocal && addr.IsIPAddrLocal());\n}\n\n",
+  "scope": "Why the first URL can use ADB loopback without changing HTTPS-only preferences. Runtime result pending."
+}

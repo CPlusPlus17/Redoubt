@@ -98,6 +98,40 @@ the pref dump, or the capture table. That is what makes
 Three independent channels, chosen so that no check has to trust the thing it
 is testing.
 
+### First-navigation uBlock Origin checks
+
+`--check-ubo-preinstall` now opens a real fixture as the first incoming URL of
+an empty app profile. Its HTML immediately loads two scripts: one matches an
+exact rule verified in the APK's bundled EasyList, and one is an allowed control.
+The gate requires the completed page, execution of the allowed script, and the
+origin server's request log. A late registry entry cannot erase an earlier leaked
+request. The installed add-on must also be the pinned ordinary AMO-signed uBO.
+
+`--check-ubo-lifecycle` adds a negative control by disabling uBO through the real
+AddonManager API and requiring both scripts to execute and reach the server.
+It then checks disabled-state retention across a restart, removal across another
+restart, and removal across reinstallation of the same APK. These operations
+exercise Gecko's add-on state; they do not prove Fenix's extension controls,
+private-mode controls, or an upgrade to a different APK version. Those require
+separate runs and evidence. Both flags refuse `--keep-state` because their first
+phase requires an empty app profile.
+
+The fixture uses `adb reverse` and Android loopback (`127.0.0.1`). Gecko exempts
+loopback from HTTPS-only in `nsHTTPSOnlyUtils::LoopbackOrLocalException`, so the
+first page needs neither a seeded certificate store nor changed browser prefs.
+The reverse mapping is removed when the probe finishes. This measures filtering
+of a same-origin script, not an external tracker or every resource type.
+
+Results include the exact APK digest and size, the harness digest when its source
+is available, the packaged XPI pin and hash, the filter file hash and matching
+rule, the installed add-on's signature state, the DOM observations, and origin
+requests. The gate never adds test filters or installs a test uBO extension.
+Runtime evidence is still required before claiming that a candidate passes.
+
+`--keep-state` now refuses to uninstall an incompatible existing app when APK
+installation fails. This preserves the state whose retention the caller intends
+to test instead of silently turning the run into a fresh installation.
+
 ### 1. Marionette, over GeckoView's debug config
 
 `GeckoRuntime.java:499-526` reads a YAML file at
