@@ -74,12 +74,12 @@ the unsigned bundle and holder instructions. The
 [holder handoff](../lw-m6-01/RELEASE-HANDOFF.md) requires confirmation that no
 higher-version-code APK was previously distributed under the release key.
 
-**E7 is open.** Returned signed files are absent. The release keystore still
-exists on the build host, owned by the same user as the live Actions runner.
-[Final custody metadata](final-signing-custody-state.json) confirms this state
-without reading the key. The holder must sign offline elsewhere, confirm custody
-and then ensure that
-runner cannot read a build-host key copy. Test signing proves none of these facts.
+**E7 is open on custody.** The four signed APKs have been returned and copied to
+`~/redoubt-signed/`; signature, published fingerprint and exact candidate payload
+checks pass. The [intake record](returned-signing-intake.json) preserves their
+signed hashes. The user confirms signing happened on this Fedora build host,
+and the release key is still readable by the runner's user. The owner requested moving CI/CD into a QEMU VM. That migration is in
+progress; no off-host signing or custody claim is made for these APKs.
 
 **E10 is met.** Following user approval, both form files are on default `main`
 at `c65d2e4`, and all eleven labels have the approved definitions. The
