@@ -3808,3 +3808,65 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: A category label or pref value can disagree with the effective engine policy.
+
+  - id: LW-M7-10
+    title: Reject unmeasured network and fingerprinting parity results
+    milestone: M7
+    depends_on: [LW-M6-11, LW-M5-04, LW-M5-05]
+    owns:
+      - scripts/android-network-check.sh
+      - scripts/android-rfp-check.sh
+      - scripts/tests/test-android-parity-gates.py
+      - docs/android/evidence/lw-m7-10/
+    what: |
+      Both old honoured-layer wrappers return success after adb get-state and
+      print instructions without running behavior probes. Make missing probes
+      explicitly pending, including when a device is connected. Correct static
+      configuration parsing, stale packaging claims and self-tests that accept
+      rejection of their positive control. Configuration results must describe
+      their limited scope and must not claim effective Android settings or live
+      network/fingerprinting behavior. Add black-box regression tests for the
+      observed false-success cases. Live behavior belongs to LW-M7-11.
+    acceptance:
+      - "a connected adb device without actual probes cannot report honoured success"
+      - "positive and negative configuration controls are enforced"
+      - "commented preferences and missing files cannot make the gate pass"
+      - "configuration-only output cannot be mistaken for verified live behavior"
+    verify: "python3 scripts/tests/test-android-parity-gates.py && python3 docs/android/board.py --check"
+    effort_h: "2-4"
+    skills: [python, shell]
+    agent_safe: yes
+    isolation: none
+    risk: A green wrapper can conceal a privacy regression on the shipped browser.
+
+  - id: LW-M7-11
+    title: Exercise LibreWolf feature behavior in the built Android candidate
+    milestone: M7
+    depends_on: [LW-M7-10, LW-M3-07, LW-M7-09]
+    owns:
+      - scripts/android-smoke.sh
+      - scripts/tests/test-android-smoke.py
+      - docs/android/SMOKE.md
+      - docs/android/evidence/lw-m7-11/
+    what: |
+      Extend the existing isolated emulator harness with real feature probes,
+      starting with first-navigation uBO blocking and an allowed control, then
+      lifecycle and user-choice persistence. Exercise HTTPS-only, strict tracking,
+      data cleanup and form defaults through actual browser behavior and UI.
+      Add network and RFP probes with positive and negative controls. Bind every
+      result to the exact APK digest, source state and test inputs. Do not treat
+      pref values or an installed add-on registry entry as behavior evidence.
+      Preserve earlier smoke assertions and report any unimplemented probe as
+      pending or failed rather than silently passing it.
+    acceptance:
+      - "fresh-profile first navigation blocks a bundled-list resource and loads an allowed control"
+      - "uBO disable, removal, private-mode choice, restart and upgrade behavior are measured"
+      - "privacy defaults and user controls are verified through built-APK behavior"
+      - "network and RFP behavior probes include meaningful positive and negative controls"
+      - "results identify the APK and all material test inputs and limitations"
+    verify: "python3 scripts/tests/test-android-smoke.py && python3 docs/android/board.py --check"
+    effort_h: "12-24"
+    skills: [python, android, js]
+    agent_safe: yes
+    isolation: none
+    risk: A delayed add-on registry check misses an unprotected first navigation.
