@@ -1,0 +1,35 @@
+{
+  "patch_sha256": "c7265a76ace9371f7f6333a6ca12584fe45424a77d7dea659828c53abb7044b5",
+  "checks": [
+    {
+      "command": "python3 docs/android/board.py --check",
+      "exit_code": 0,
+      "stdout": "ok: 100 tasks, 23 waves, 0 warning(s)\n",
+      "stderr": ""
+    },
+    {
+      "command": "python3 scripts/check-patch-order.py",
+      "exit_code": 0,
+      "stdout": "patch order ok: 12/12 declared constraint(s) enforced across 2 target sequence(s); 91 shared-file pair(s) derived and classified.\n",
+      "stderr": ""
+    },
+    {
+      "command": "python3 scripts/lint-patch-scope.py",
+      "exit_code": 0,
+      "stdout": "lint-patch-scope: OK - 90 patch file(s), no scope violations\n",
+      "stderr": ""
+    },
+    {
+      "command": "python3 docs/android/board.py --check-scope",
+      "exit_code": 1,
+      "stdout": "error: PATCH-SCOPE.md says 29 android, lists have 30\nerror: PATCH-SCOPE.md says 89 total, lists have 90\n\n2 error(s)\n",
+      "stderr": ""
+    },
+    {
+      "command": "patch --batch --fuzz=0 --dry-run -p1 -i cookie-banner-rules.patch (cwd immutable beta source)",
+      "exit_code": 0,
+      "stdout": "checking file services/settings/dumps/main/moz.build\nchecking file toolkit/components/cookiebanners/CookieBannerListService.sys.mjs\nchecking file toolkit/components/cookiebanners/test/unit/test_cookiebannerlistservice.js\n",
+      "stderr": ""
+    }
+  ]
+}

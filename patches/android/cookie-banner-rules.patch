@@ -1,0 +1,369 @@
+diff --git a/services/settings/dumps/main/moz.build b/services/settings/dumps/main/moz.build
+--- a/services/settings/dumps/main/moz.build
++++ b/services/settings/dumps/main/moz.build
+@@ -36,6 +36,11 @@
+         "url-parser-default-unknown-schemes-interventions.json",
+         "websites-with-shared-credential-backends.json",
+     ]
++
++# Redoubt Android reads this pinned snapshot directly, without constructing a
++# Remote Settings client or changing the network/dump collection allowlists.
++if CONFIG["MOZ_BUILD_APP"] == "mobile/android":
++    FINAL_TARGET_FILES.defaults.settings.main += ["cookie-banner-rules-list.json"]
+ 
+ # These collections are referenced in toolkit/ or other core code.
+ FINAL_TARGET_FILES.defaults.settings.main += [
+diff --git a/toolkit/components/cookiebanners/CookieBannerListService.sys.mjs b/toolkit/components/cookiebanners/CookieBannerListService.sys.mjs
+--- a/toolkit/components/cookiebanners/CookieBannerListService.sys.mjs
++++ b/toolkit/components/cookiebanners/CookieBannerListService.sys.mjs
+@@ -7,6 +7,8 @@
+ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
+ 
+ ChromeUtils.defineESModuleGetters(lazy, {
++  AppConstants: "resource://gre/modules/AppConstants.sys.mjs",
++  SharedUtils: "resource://services-settings/SharedUtils.sys.mjs",
+   JsonSchema: "resource://gre/modules/JsonSchema.sys.mjs",
+   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
+ });
+@@ -30,6 +32,73 @@
+ 
+ // Name of the RemoteSettings collection containing the rules.
+ const COLLECTION_NAME = "cookie-banner-rules-list";
++
++// Android uses a reviewed application snapshot, never this collection's network
++// client. Updating these pins requires reviewing the complete snapshot again.
++const ANDROID_RULES_URL =
++  "resource://app/defaults/settings/main/cookie-banner-rules-list.json";
++const ANDROID_RULES_BYTES = 262208;
++const ANDROID_RULES_SHA256 =
++  "0ddab9560f17710fa1613825b1b8be0e190107dd679e2cd53c5a1822524958fd";
++const ANDROID_RULES_TIMESTAMP = 1725526980846;
++const ANDROID_RULES_COUNT = 558;
++
++async function validateAndroidRules(snapshot) {
++  if (
++    !snapshot ||
++    Object.keys(snapshot).some(key => key !== "data" && key !== "timestamp") ||
++    snapshot.timestamp !== ANDROID_RULES_TIMESTAMP ||
++    !Array.isArray(snapshot.data) ||
++    snapshot.data.length !== ANDROID_RULES_COUNT
++  ) {
++    throw new Error("Invalid Android cookie-banner snapshot envelope");
++  }
++
++  const validator = new lazy.JsonSchema.Validator(
++    await lazy.CookieBannerRuleSchema
++  );
++  const ids = new Set();
++  return snapshot.data.map(record => {
++    // Strip only known Remote Settings metadata. Unknown rule fields must still
++    // reach the schema validator and fail, rather than being silently discarded.
++    const { schema, last_modified, ...rule } = record;
++    const { valid } = validator.validate(rule);
++    if (
++      !valid ||
++      !rule.id ||
++      ids.has(rule.id) ||
++      !Number.isSafeInteger(schema) ||
++      !Number.isSafeInteger(last_modified) ||
++      rule.filter_expression
++    ) {
++      // There are no targeted records in the pinned snapshot. Do not bypass
++      // Remote Settings targeting if a future snapshot introduces one.
++      throw new Error(`Invalid Android cookie-banner rule: ${rule.id}`);
++    }
++    ids.add(rule.id);
++    return rule;
++  });
++}
++
++async function loadAndroidRules() {
++  const response = await fetch(ANDROID_RULES_URL);
++  if (!response.ok) {
++    throw new Error("Android cookie-banner snapshot is unavailable");
++  }
++  const buffer = await response.arrayBuffer();
++  if (
++    !(await lazy.SharedUtils.checkContentHash(
++      buffer,
++      ANDROID_RULES_BYTES,
++      ANDROID_RULES_SHA256
++    ))
++  ) {
++    throw new Error("Android cookie-banner snapshot integrity check failed");
++  }
++  return validateAndroidRules(
++    JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer))
++  );
++}
+ 
+ ChromeUtils.defineLazyGetter(lazy, "logConsole", () => {
+   return console.createInstance({
+@@ -63,23 +132,50 @@
+   // Stores the this-wrapped on-sync callback so it can be unregistered on
+   // shutdown.
+   #onSyncCallback = null;
++  #active = false;
++  #lifecycle = 0;
++  #loadGeneration = 0;
++  #observingTestPrefs = false;
+ 
+   constructor() {
+-    this.#rs = lazy.RemoteSettings(COLLECTION_NAME);
++    if (lazy.AppConstants.platform !== "android") {
++      this.#rs = lazy.RemoteSettings(COLLECTION_NAME);
++    }
+   }
+ 
+   async init() {
+     lazy.logConsole.debug("init");
+ 
+-    await this.importAllRules();
++    this.#active = true;
++    const lifecycle = ++this.#lifecycle;
++    try {
++      await this.importAllRules();
++    } catch (error) {
++      if (lifecycle === this.#lifecycle) {
++        this.shutdown();
++      }
++      lazy.logConsole.error("Cookie-banner rules initialization failed", error);
++      throw error;
++    }
++    if (
++      lazy.AppConstants.platform === "android" &&
++      (!this.#active ||
++        lifecycle !== this.#lifecycle ||
++        !Services.cookieBanners.isEnabled)
++    ) {
++      return;
++    }
+ 
+     // Register listener to import rules when test pref changes.
+-    Services.prefs.addObserver(PREF_TEST_RULES, this);
+-    Services.prefs.addObserver(PREF_SKIP_REMOTE_SETTINGS, this);
++    if (!this.#observingTestPrefs) {
++      Services.prefs.addObserver(PREF_TEST_RULES, this);
++      Services.prefs.addObserver(PREF_SKIP_REMOTE_SETTINGS, this);
++      this.#observingTestPrefs = true;
++    }
+ 
+     // Register callback for collection changes.
+     // Only register if not already registered.
+-    if (!this.#onSyncCallback) {
++    if (this.#rs && !this.#onSyncCallback) {
+       this.#onSyncCallback = this.onSync.bind(this);
+       this.#rs.on("sync", this.#onSyncCallback);
+     }
+@@ -91,6 +187,30 @@
+ 
+   async importAllRules() {
+     lazy.logConsole.debug("importAllRules");
++
++    if (lazy.AppConstants.platform === "android") {
++      const lifecycle = this.#lifecycle;
++      const generation = ++this.#loadGeneration;
++      const isCurrent = () =>
++        this.#active &&
++        lifecycle === this.#lifecycle &&
++        generation === this.#loadGeneration &&
++        Services.cookieBanners.isEnabled;
++      if (!isCurrent()) {
++        return;
++      }
++      // The existing test override skips the production data source on Android
++      // just as it skips Remote Settings on desktop; it does not permit network.
++      if (!lazy.TEST_SKIP_REMOTE_SETTINGS) {
++        const rules = await loadAndroidRules();
++        if (!isCurrent()) {
++          return;
++        }
++        this.#importRules(rules);
++      }
++      await this.#importTestRules(isCurrent);
++      return;
++    }
+ 
+     try {
+       let rules = await this.#rs.get();
+@@ -118,6 +238,9 @@
+ 
+   shutdown() {
+     lazy.logConsole.debug("shutdown");
++    this.#active = false;
++    ++this.#lifecycle;
++    ++this.#loadGeneration;
+ 
+     // Unregister callback for collection changes.
+     if (this.#onSyncCallback) {
+@@ -125,15 +248,18 @@
+       this.#onSyncCallback = null;
+     }
+ 
+-    Services.prefs.removeObserver(PREF_TEST_RULES, this);
+-    Services.prefs.removeObserver(PREF_SKIP_REMOTE_SETTINGS, this);
++    if (this.#observingTestPrefs) {
++      Services.prefs.removeObserver(PREF_TEST_RULES, this);
++      Services.prefs.removeObserver(PREF_SKIP_REMOTE_SETTINGS, this);
++      this.#observingTestPrefs = false;
++    }
+   }
+ 
+   /**
+    * Called for remote settings "sync" events.
+    */
+   onSync({ data: { created, updated, deleted } }) {
+-    if (lazy.TEST_SKIP_REMOTE_SETTINGS) {
++    if (!this.#rs || lazy.TEST_SKIP_REMOTE_SETTINGS) {
+       return;
+     }
+     lazy.logConsole.debug("onSync", { created, updated, deleted });
+@@ -159,7 +285,9 @@
+     // Also reimport when rule import from RemoteSettings is enabled / disabled.
+     // Passing `doImport = false` since we trigger the import ourselves.
+     Services.cookieBanners.resetRules(false);
+-    this.importAllRules();
++    this.importAllRules().catch(error =>
++      lazy.logConsole.error("Cookie-banner rules reload failed", error)
++    );
+ 
+     // Reset executed records (private and normal browsing) for easier testing
+     // of rules.
+@@ -215,7 +343,7 @@
+     });
+   }
+ 
+-  async #importTestRules() {
++  async #importTestRules(isCurrent = () => true) {
+     lazy.logConsole.debug("importTestRules");
+ 
+     if (!Services.prefs.prefHasUserValue(PREF_TEST_RULES)) {
+@@ -274,7 +402,9 @@
+       i += 1;
+     }
+ 
+-    this.#importRules(validatedTestRules);
++    if (isCurrent()) {
++      this.#importRules(validatedTestRules);
++    }
+   }
+ 
+   #importCookieRule(rule, cookies) {
+diff --git a/toolkit/components/cookiebanners/test/unit/test_cookiebannerlistservice.js b/toolkit/components/cookiebanners/test/unit/test_cookiebannerlistservice.js
+--- a/toolkit/components/cookiebanners/test/unit/test_cookiebannerlistservice.js
++++ b/toolkit/components/cookiebanners/test/unit/test_cookiebannerlistservice.js
+@@ -5,6 +5,10 @@
+ 
+ const { RemoteSettings } = ChromeUtils.importESModule(
+   "resource://services-settings/remote-settings.sys.mjs"
++);
++
++const { AppConstants } = ChromeUtils.importESModule(
++  "resource://gre/modules/AppConstants.sys.mjs"
+ );
+ 
+ let { sinon } = ChromeUtils.importESModule(
+@@ -177,6 +181,7 @@
+     insertRule,
+     removeRule,
+     resetRules() {},
++    removeAllExecutedRecords: sinon.spy(),
+   };
+   // Remove stubs on test end.
+   registerCleanupFunction(() => {
+@@ -208,7 +213,7 @@
+ /**
+  * Tests that the cookie banner list service imports all rules on init.
+  */
+-add_task(async function test_initial_import() {
++add_task({ skip_if: () => AppConstants.platform === "android" }, async function test_initial_import() {
+   info("Initializing RemoteSettings collection " + COLLECTION_NAME);
+ 
+   let db = RemoteSettings(COLLECTION_NAME).db;
+@@ -298,7 +303,7 @@
+ /**
+  * Tests that the cookie banner list service updates rules on sync.
+  */
+-add_task(async function test_remotesettings_sync() {
++add_task({ skip_if: () => AppConstants.platform === "android" }, async function test_remotesettings_sync() {
+   // Initialize the cookie banner list service so it subscribes to
+   // RemoteSettings updates.
+   let cookieBannerListService = Cc[
+@@ -375,6 +380,9 @@
+  * Tests the cookie banner rule test pref.
+  */
+ add_task(async function test_rule_test_pref() {
++  if (AppConstants.platform === "android") {
++    Services.prefs.setBoolPref("cookiebanners.listService.testSkipRemoteSettings", true);
++  }
+   Services.prefs.setStringPref(
+     PREF_TEST_RULES,
+     JSON.stringify([RULE_A_ORIGINAL, RULE_B])
+@@ -451,12 +459,13 @@
+   rulesRemoved = [];
+ 
+   Services.prefs.clearUserPref(PREF_TEST_RULES);
++  Services.prefs.clearUserPref("cookiebanners.listService.testSkipRemoteSettings");
+ });
+ 
+ /**
+  * Tests that runContext string values get properly translated into nsIClickRule::RunContext.
+  */
+-add_task(async function test_runContext_conversion() {
++add_task({ skip_if: () => AppConstants.platform === "android" }, async function test_runContext_conversion() {
+   info("Initializing RemoteSettings collection " + COLLECTION_NAME);
+ 
+   let ruleA = {
+@@ -574,7 +583,7 @@
+ /**
+  * Tests empty click rules don't get imported.
+  */
+-add_task(async function test_empty_click_rule() {
++add_task({ skip_if: () => AppConstants.platform === "android" }, async function test_empty_click_rule() {
+   info("Initializing RemoteSettings collection " + COLLECTION_NAME);
+ 
+   let db = RemoteSettings(COLLECTION_NAME).db;
+@@ -608,3 +617,43 @@
+   db.clear();
+   await db.importChanges({}, Date.now());
+ });
++
++// The Android production path reads the actual packaged snapshot. This is not
++// a test-rule fixture and does not enable Remote Settings for the collection.
++add_task({ skip_if: () => AppConstants.platform !== "android" }, async function test_android_packaged_snapshot() {
++  const service = Cc["@mozilla.org/cookie-banner-list-service;1"]
++    .getService(Ci.nsICookieBannerListService);
++  await service.initForTest();
++  Assert.equal(rulesInserted.length, 558, "All pinned rules imported");
++  Assert.equal(new Set(rulesInserted.map(rule => rule.id)).size, 558, "Unique rule IDs");
++  const optOut = rulesInserted.find(rule => rule.domains.includes("duh.de"));
++  Assert.equal(optOut.cookiesOptOut[0].cookie.name, "cookie_dismiss", "Production opt-out cookie is preserved");
++  Assert.equal(optOut.cookiesOptOut[0].cookie.value, "true", "Production cookie signals dismissal");
++  Assert.ok(rulesInserted.some(rule => rule.id === "disabled"), "Intentional disabled-domain rule retained");
++  service.shutdown();
++  rulesInserted = [];
++  await service.initForTest();
++  Assert.equal(rulesInserted.length, 558, "Shutdown and reinit reload the full snapshot");
++  service.shutdown();
++  rulesInserted = [];
++});
++
++add_task({ skip_if: () => AppConstants.platform !== "android" }, async function test_android_validated_test_rules() {
++  const service = Cc["@mozilla.org/cookie-banner-list-service;1"]
++    .getService(Ci.nsICookieBannerListService);
++  Services.prefs.setBoolPref("cookiebanners.listService.testSkipRemoteSettings", true);
++  const rule = { ...RULE_B, click: { presence: "#banner", runContext: "child" } };
++  Services.prefs.setStringPref(PREF_TEST_RULES, JSON.stringify([
++    rule,
++    { ...RULE_C, click: { presence: "#banner", runContext: "invalid" } },
++    RULE_F_EMPTY_CLICK,
++  ]));
++  await service.initForTest();
++  Assert.equal(rulesInserted.length, 2, "Invalid test rule rejected; empty click with cookies remains valid");
++  Assert.equal(rulesInserted.find(r => r.id === rule.id).clickRule.runContext, Ci.nsIClickRule.RUN_CHILD);
++  Assert.equal(rulesInserted.find(r => r.id === RULE_F_EMPTY_CLICK.id).clickRule, null);
++  service.shutdown();
++  rulesInserted = [];
++  Services.prefs.clearUserPref(PREF_TEST_RULES);
++  Services.prefs.clearUserPref("cookiebanners.listService.testSkipRemoteSettings");
++});
