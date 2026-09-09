@@ -18,9 +18,9 @@ native job count is two, Cargo one, Gradle one; commands have bounded timeouts.
 ## Source and configuration binding
 
 Preflight verifies every entry in the operator's integrated source SHA256SUMS and
-requires 166 product/test/source dependency paths, including all selected native
+requires 161 product/test/source dependency paths, including all selected native
 tests, the pending Android-excluded uninstall test, and instrumentation classes.
-It separately verifies 105 audited harness/build/preference/permission/fixture/cleanup/process files against
+It separately verifies 99 audited harness/build/preference/permission/fixture/cleanup files against
 `harness-sources.json`, read from the frozen Firefox 153.0esr beta tree or the
 merged Tasks31/35/36/37 source candidates. Task35 supersedes two shared Task31
 pins; Task36 supersedes five shared Task35 pins, and Task37 supersedes two
@@ -401,7 +401,7 @@ and leaves that coverage pending. Existing hardening/isolation settings are not
 changed by this driver to turn a skip into a pass. The native APIs themselves do
 not establish termination of every worker/network/cache writer or journal success.
 
-Before the isolated-process correction, the reviewed product manifest contained 245 bindings, SHA256
+The current reviewed product manifest contains 245 bindings, SHA256
 `9a911246fb9dcf2a55fdfe7827fd2eff000fdfecc97d8f1346c94dc018e0f995`.
 The same four supplemental bindings produce 249 native-test rows, SHA256
 `35957863ba69c5ead83279a9686015a268b1de7ee20929881b21ba65c218bea5`.
@@ -412,14 +412,14 @@ old bodies remain in `current-target-before-source.tar.gz`. Each final body has
 an independent audited pin. Native selections and implementation bytes are
 unchanged by this product/test overlay.
 
-`pre-process-correction/cleanup-composition-comparison.json` records independent hashing of 67 audited
+`cleanup-composition-comparison.json` records independent hashing of 67 audited
 bodies from the final 101-file composed subset. All 97 earlier materialized bodies
 are byte-identical. The four supplemental frozen bodies were also rehashed.
-`pre-process-correction/current167-source-sha256.txt` binds that historical source basis, SHA256
+`current167-source-sha256.txt` binds the final source basis, SHA256
 `501d04614edbc847b416cd5b6f1dac42dd0728a63125a3d9902c90d07a579c8b`;
 this is distinct from the earlier compiled APK source. The subset is not a
 complete Gecko tree: all remaining source bindings still require actual preflight.
-That historical composition receipt is
+The final composition receipt is
 `6eeaf49279e6969bb56f85812c84f1aeca66e0bd7ac1f867a32cd470e10c36fe`.
 Task36's current source receipt advances to `0b48fc28…`; all 21 of its output
 hashes are unchanged. Earlier composition/source receipts remain intact.
@@ -435,42 +435,6 @@ actual old test-support and Home/cookie bodies even with internally valid stale
 manifests, plus exact current overlay preservation. The
 inventory and source receipt are archived and bound through build/run/regrade.
 These checks do not run any of the 14 new native target definitions.
-
-## Isolated-process source correction
-
-The current product manifest still has 245 entries, SHA256
-`40da1bf9c42187b1e037fba5b443e4b26fd2758ffa7b07212710df72693eb806`.
-The four unchanged supplemental bindings produce the separate 249-entry test
-manifest, SHA256
-`84da9b400d228cf87b2e08f02ac034c3c049dcb42eefa2783bb57007552610ff`.
-The actual current167 basis is `4ff8b61617049c56710a406c1ff30ab73b370dd0e614b97aba5f038b0eb89739`.
-`composed-source-receipt.json` is the separately reproduced coverage handoff,
-SHA256 `fb7ca4f5c93aab3ea089380d6ca8d8ca4e9e3e24a258f65cee45b24f2691493e`.
-
-Only six source rows change from the historical manifests. They restrict saved
-account/Suggest initialization to the main process, close child admission in
-memory, restore explicit host-test initialization, and add three real production
-regressions. `process-source-overlay.json` and its archive retain all six exact
-new bodies; `process-before-source.tar.gz` retains the six actual old bodies.
-The independent source review and zero-fuzz GNU replays are retained separately.
-`pre-process-correction/` preserves the historical9a911/359578 plans and receipts.
-
-`cleanup-composition-comparison.json` records rehashing every file in the final
-107-body archive, verifying that all prior101 materialized bodies are unchanged,
-and comparing73 audited bodies plus the four actual frozen supplements. The six
-process bodies now have independent audited pins and required-path checks.
-Task36's receipt is refreshed to `9f882d1c…`; all21 output hashes are unchanged.
-Tests reject each actual old process body even with an internally consistent old
-manifest. They also preserve every native method/exclusion and exact driver,
-grader and writable-source-copy wrapper bytes.
-
-Candidate5's Gradle inventory now has13 classes and48 required methods, including
-the new AccountServices, AccountServicesPreference and FirefoxSuggestPolicy
-methods in complete classes of11,9 and6 tests. Their real diagnostic/full-suite
-results belong to root's separate current167 evidence. Neither those results nor
-these host checks establish native5 compilation, isolated APK startup or native
-runtime acceptance. The proposed local plan reads the frozen source path only to
-show commands; it does not assert that path contains this composed candidate.
 
 ## Evidence and replay
 
@@ -493,12 +457,11 @@ built test artifact hashes. The replay verifies the recorded artifact binding; i
 does not claim to re-open absent APKs. Receipts provide local integrity and provenance
 checks, not protection against deliberate fabrication of all evidence files.
 
-The local suite currently passes **83 host driver/grader tests**, including
+The local suite currently passes **79 host driver/grader tests**, including
 parser failures, stale/foreign command receipts, source/selection tampering,
 pre-Task35 native bytes, missing/failed process boundaries and guarded shutdown
-skips. `process-tests.txt` records the current invocation and adds rejection of
-all six actual old process bodies. `execution-review-tests.txt` retains the
-79-test run; `local-tests.txt` retains the preceding 72-test run. Full integrated
+skips. `execution-review-tests.txt` records the current invocation;
+`local-tests.txt` retains the preceding 72-test run. Full integrated
 preflight, native compilation, API lint, **73 xpcshell tasks and 25+1 instrumented
 methods remain unrun**. Three further upstream uninstall tasks remain
 Android-excluded and pending. The aggregate therefore stays PENDING/exit 3 even

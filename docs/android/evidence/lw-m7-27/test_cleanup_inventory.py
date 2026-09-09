@@ -116,7 +116,7 @@ class CleanupInventory(unittest.TestCase):
     def test_current_target_overlay_changes_only_reviewed_rows_and_keeps_native_selection(self):
         read = lambda name: {line[66:]: line[:64] for line in (driver.HERE / name).read_text().splitlines()}
         old = read('historical-cleanup/proposed-native-test-source-sha256.txt')
-        current = read('proposed-native-test-source-sha256.txt')
+        current = read('pre-process-correction/proposed-native-test-source-sha256.txt')
         rows = json.loads((driver.HERE / 'current-target-overlay.json').read_text())['changed_or_added_rows']
         self.assertEqual(len(rows), 4)
         self.assertEqual(set(current) - set(old), {r['path'] for r in rows if r['before_sha256'] is None})

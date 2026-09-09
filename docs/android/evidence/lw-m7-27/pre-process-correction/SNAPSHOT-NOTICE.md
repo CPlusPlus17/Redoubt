@@ -1,0 +1,1 @@
+This directory preserves the earlier245/249 inventory and receipts exactly. Its README, paths and checksum list describe the prior source state; they are historical records, not current launch inputs or a current-root checksum command. The current README and manifests one directory above supersede them.
