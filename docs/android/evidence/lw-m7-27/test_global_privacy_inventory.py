@@ -3,6 +3,7 @@ import copy
 import json
 from pathlib import Path
 import tempfile
+import tarfile
 import unittest
 from unittest import mock
 
@@ -101,13 +102,53 @@ class GlobalPrivacyInventory(unittest.TestCase):
         for name in pins.keys() & native.keys():
             self.assertEqual(native[name], pins[name], name)
         overlay = json.loads((driver.HERE / 'root-bundle-source-overlay.json').read_text())
-        self.assertEqual(driver.reviewed_requirements()['patches']['canvas-webgl-permissions.patch'], overlay['patch_sha256'])
+        historical = json.loads((driver.HERE / 'pre-fixture/requirements.json').read_text())
+        self.assertEqual(historical['patches']['canvas-webgl-permissions.patch'], overlay['patch_sha256'])
+        native = read('pre-fixture/proposed-native-test-source-sha256.txt')
         previous = read('pre-bundle-native-test-source-sha256.txt')
         self.assertEqual(previous.keys(), native.keys())
         self.assertEqual({name for name in previous if previous[name] != native[name]}, {row['path'] for row in overlay['files']})
         for row in overlay['files']:
             self.assertEqual(previous[row['path']], row['before_sha256'])
             self.assertEqual(native[row['path']], row['after_sha256'])
+
+    def test_five_fixture_rows_are_only_changes_and_all_selections_stay_identical(self):
+        read = lambda name: {line[66:]: line[:64] for line in (driver.HERE / name).read_text().splitlines()}
+        before = read('pre-fixture/proposed-native-test-source-sha256.txt')
+        after = read('proposed-native-test-source-sha256.txt')
+        overlay = json.loads((driver.HERE / 'fixture-source-overlays.json').read_text())
+        self.assertEqual(before.keys(), after.keys())
+        self.assertEqual({name for name in before if before[name] != after[name]},
+                         {row['path'] for row in overlay['files']})
+        pins = json.loads(driver.HARNESS.read_text())['files']
+        self.assertEqual(len(pins), 82)
+        for row in overlay['files']:
+            self.assertEqual(before[row['path']], row['before_sha256'])
+            self.assertEqual(after[row['path']], row['after_sha256'])
+            self.assertEqual(pins[row['path']], row['after_sha256'])
+        old = json.loads((driver.HERE / 'pre-fixture/requirements.json').read_text())
+        current = driver.reviewed_requirements()
+        for key in ['xpcshell', 'instrumentation', 'shutdown_instrumentation', 'pending_xpcshell']:
+            self.assertEqual(current[key], old[key])
+
+    def test_actual_old_fixture_body_cannot_pass_with_its_own_valid_manifest(self):
+        overlay = json.loads((driver.HERE / 'fixture-source-overlays.json').read_text())
+        with tarfile.open(driver.HERE / 'pre-fixture-source.tar.gz') as archive:
+            for row in overlay['files']:
+                name = row['path']
+                data = archive.extractfile(name).read()
+                with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp); source = root / 'source'
+                    target = source / name; target.parent.mkdir(parents=True); target.write_bytes(data)
+                    self.assertEqual(driver.sha(target), row['before_sha256'])
+                    manifest = root / 'sha256'; manifest.write_text(row['before_sha256'] + '  ' + name + '\n')
+                    pins = root / 'pins.json'; pins.write_text(json.dumps({'files': {name: row['after_sha256']}}))
+                    req = {'product_paths': [name], 'xpcshell': [], 'instrumentation': [],
+                           'shutdown_instrumentation': {'expected_methods': []}}
+                    with mock.patch.object(driver, 'reviewed_requirements', return_value=req), \
+                         mock.patch.object(driver, 'HARNESS', pins), \
+                         self.assertRaisesRegex(InvalidResult, 'audited harness changed'):
+                        driver.source_binding(source, manifest)
 
     def test_authoritative_source_receipt_must_match_inventory(self):
         with tempfile.TemporaryDirectory() as tmp:

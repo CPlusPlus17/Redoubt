@@ -18,9 +18,9 @@ native job count is two, Cargo one, Gradle one; commands have bounded timeouts.
 ## Source and configuration binding
 
 Preflight verifies every entry in the operator's integrated source SHA256SUMS and
-requires 145 product/test/source dependency paths, including all selected native
+requires 146 product/test/source dependency paths, including all selected native
 tests, the pending Android-excluded uninstall test, and instrumentation classes.
-It separately verifies 77 audited harness/build/preference/permission files against
+It separately verifies 82 audited harness/build/preference/permission/fixture files against
 `harness-sources.json`, read from the frozen Firefox 153.0esr beta tree or the
 merged Tasks31/35/36 source candidates. Task35 supersedes two shared Task31
 pins; Task36 supersedes five shared Task35 pins. Stale native4, pre-correction
@@ -311,9 +311,43 @@ by Task27 are absent from that changed-file union: `Extension.sys.mjs`,
 against existing audited pins and retained in `native-test-extra-source-sha256.txt`.
 `proposed-native-test-source-sha256.txt` combines those four with the reviewed
 product union, preserves every existing binding, contains 234 distinct paths and
-covers all 145 required paths. Use that reviewed test manifest only with the
+covers all 146 required paths. Use that reviewed test manifest only with the
 complete matching target source. The driver still separately verifies the other
 unchanged harness pins; it does not waive a missing source or test.
+
+## Five test-fixture corrections
+
+The current 230-file product manifest is
+`7af4e037a693c46a86403d1d4bf31df66b81891c4a3857a73d222ca66fff597b`.
+Adding the same four supplemental bindings produces 234 distinct native-test
+paths, manifest SHA256
+`214cf2eea22899ecadfa913d8653a223ff1e10eb85e8746b6dc3dab6f4af67cb`.
+The five fixture changes are recorded in `fixture-source-overlays.json`; all
+other product rows and every native/test selection remain identical. These are
+the accounts primitive matcher, origin-storage nested mock, two cookie fixture
+fixes, and the permissions feature test's coroutine opt-in. Current compiled APK
+source remains `c53736…`; the separate current 165-file test manifest is `659bf836…`.
+`fixture-current165-source-sha256.txt` preserves that exact test manifest.
+
+The five actual corrected bodies now have independent audited pins (82 total),
+and the accounts fixture joins the explicitly required source paths (146 total).
+`pre-fixture-source.tar.gz` retains the five original bodies. Host regressions
+prove that none can pass source preflight even with its own internally valid
+manifest; they do not rerun Kotlin behavior. Original pre-fixture manifests,
+requirements, current-receipt snapshots and preparation evidence are preserved
+under `pre-fixture/`; earlier `pre-bundle-*` and Bundle overlay history are intact.
+
+`fixture-source-comparison.json` records independent hashing of 50 audited
+materialized bodies from the frozen fifth-overlay handoff, and rehashing of the
+four unchanged supplemental inputs against the frozen source. Task36's current
+source receipt advances to `499f4e0`, SHA256
+`10e5317ec0cc4a88e96df858c16ba377978a6635292548d32549f5056d3321e7`;
+its 21 output pins and all native/GV implementation bytes remain unchanged.
+This source refresh preserves 64 runnable xpcshell cases, 20 ordinary GeckoView
+methods and the one separate guarded shutdown, plus the three Android exclusions.
+Task37 is deliberately outside this refresh and requires its own reviewed
+inventory/composed source update. Target build and test execution remain unrun
+by these preparation steps.
 
 ## Evidence and replay
 
@@ -336,7 +370,7 @@ built test artifact hashes. The replay verifies the recorded artifact binding; i
 does not claim to re-open absent APKs. Receipts provide local integrity and provenance
 checks, not protection against deliberate fabrication of all evidence files.
 
-The local suite currently passes **60 host driver/grader tests**, including
+The local suite currently passes **62 host driver/grader tests**, including
 parser failures, stale/foreign command receipts, source/selection tampering,
 pre-Task35 native bytes, missing/failed process boundaries and guarded shutdown
 skips. `local-tests.txt` records the observed invocation. Full integrated
