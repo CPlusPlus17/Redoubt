@@ -5,7 +5,9 @@ Fresh emulator run `redoubt-fenix-regression-runtime-20260909.service`, invocati
 `4391d56d…` and source167 `501d0461…`. Android30 logcat records repeated fatal
 isolated Gecko app-zygote process crashes: `FenixApplication.attachBaseContext`
 reads SharedPreferences before its main-process guard, and Android's unavailable
-UserManager produces a NullPointerException. This is an actual startup defect;
+UserManager produces a NullPointerException. The actual composite source has both
+Suggest and account initializers before that guard; the minified Java frame is
+not attributed exclusively to either initializer. This is an actual startup defect;
 passing JVM tests and APK compilation did not validate isolated-child attachment.
 
 The first uBO harness could not open Marionette within180s and exited2. No uBO
@@ -26,3 +28,8 @@ verification. These are frozen historical inputs for the separate process fix.
 The source remained unchanged. All later245/249 source staging, native builds,
 APK/runtime and native tests need explicitly refreshed source identities after
 the fix, and successful corrected runtime evidence; this failure cannot qualify.
+
+The expanded source capture and separately retained FirefoxSuggestPolicyTest
+include the actual shared Task26 initializer, legacy test helper and admission
+defaults needed for the combined correction. Raw logcat bytes retain Android
+trailing whitespace intentionally; they are not rewritten as authored prose.

@@ -61,8 +61,9 @@ component cases passed and every required feature class passed without skips.
 See `evidence/lw-m7-21/current-fenix-navigation-success/`. The rebuilt
 current167 candidate then passed all-four APK compilation and resource checks
 (`evidence/lw-m7-21/current167-apk-checkpoint/`). Fresh emulator runtime on its x86_64 APK `4391d56d…` then failed before the
-first navigation: account initialization read app preferences in an isolated
-Gecko child and crashed. The first harness exited2; root interrupted remaining
+first navigation: policy initialization read app preferences in an isolated
+Gecko child and crashed. Source review found both account and Suggest
+initializers outside the main-process guard. The first harness exited2; root interrupted remaining
 checks and the emulator shut down cleanly. See
 `evidence/lw-m7-21/current167-runtime-checkpoint/`. The separate process guard
 correction and a complete rebuilt-runtime rerun are required. Later permission persistence, explicit
