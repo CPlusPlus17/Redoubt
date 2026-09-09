@@ -14,6 +14,14 @@ the selected source/test/native/history inputs before entering its canonical
 APK build at06:05:25 UTC. It reuses native4 and writes fresh
 `account-process-apk-output` and `evidence/account-process-apk` namespaces.
 
-The build is running. All four APK resource checks and runtime remain pending.
+The retained unit finished with exit zero. All four actual APK resource checks
+passed. Root captured50 members and independently checked every member hash and
+all four structured resource verdicts. The archive SHA-256 is
+`cc94c2d38b7cd1b3f42ad7195db992a38412a3de4d30018b1ef92b7933ef18b7`.
+The x86_64 APK SHA-256 is
+`7ce0d286a108d4434267e4377f4d82720c29e841c8d65c5a32612a8017857146`.
+`result.json` records all four APK sizes and hashes. Binaries remain in the guest.
+
 `capture-config.py` records the exact source/test selection; `inputs.json` is the
-actual reviewed guest configuration.
+actual reviewed guest configuration. This is a development APK checkpoint using
+disposable debug signing. Runtime acceptance is recorded separately.

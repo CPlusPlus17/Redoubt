@@ -5,7 +5,10 @@ startup correction. Root owns source staging, full tests, APK builds and runtime
 The selected source is now `4ff8b616…`; the actual full test invocation
 `c02a8b984fae45dc859eff2b556b82f0` passed (see Task21
 `current-account-process-tests`). APK execution started under invocation
-`598783f0987b4c139fb0053c501f5628`; APK completion and runtime remain pending.
+`598783f0987b4c139fb0053c501f5628` and passed all four APK resource checks.
+Runtime started under `a172ec824e2a4e94a4dd467627f6a0d0`; its completion remains
+pending. See Task21 `current-account-process-apk` and
+`current-account-process-runtime` for the separate actual evidence.
 The failed-runtime source `501d046…` is explicitly
 rejected; a later native245/249 composition is also outside this 167-file driver.
 
