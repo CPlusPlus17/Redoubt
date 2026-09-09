@@ -4423,3 +4423,41 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: A preference-only switch or unacknowledged domain write can misrepresent effective protection and private isolation.
+
+  - id: LW-M7-22
+    title: Verify packaged cookie-banner rules through actual page behavior
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-13, LW-M7-18, LW-M7-23]
+    owns:
+      - scripts/android-cookie-banner-smoke.py
+      - docs/android/evidence/lw-m7-22/
+    reads:
+      - scripts/android-graphics-smoke.py
+      - scripts/android-smoke.sh
+      - patches/android/cookie-banner-rules.patch
+      - docs/android/evidence/lw-m7-13/
+      - patches/android/cookie-banner-controls.patch
+      - docs/android/evidence/lw-m7-23/
+    what: |
+      Add an installed-release cookie-banner runner using packaged Cookiebot and
+      accept-only Didomi global rules. Require actual page callback counters,
+      cookies and server requests plus a separate explicit click control; hidden
+      banners alone never pass. Await the existing list-service readiness promise,
+      inspect effective preferences and reject test-rule or transport injection.
+      Exercise available real Fenix controls, normal/private lifetime and restart
+      behavior. Keep missing normal controls, domain mapping and native duh.de
+      cookie-injector coverage explicitly pending. Never write rules, preferences
+      or engine exceptions, install an APK, or mutate a guest during development.
+      Root runs the installed candidate and integrates any existing smoke changes.
+    acceptance:
+      - "packaged rules are ready and actual reject callbacks/cookies/requests agree"
+      - "accept-only banners remain unaccepted and a later explicit click proves the control"
+      - "real UI modes/exceptions, consent and normal/private lifecycle have runtime evidence"
+      - "native domain-rule injection is measured or remains an explicit pending requirement"
+      - "missing APK/device, tainted configuration and cosmetic hiding cannot pass"
+    verify: "python3 docs/android/evidence/lw-m7-22/test-cookie-banner-smoke.py && python3 docs/android/board.py --check"
+    effort_h: "6-12"
+    skills: [python, android, js]
+    agent_safe: yes
+    isolation: worktree
+    risk: Cosmetic hiding or fabricated rules can conceal missing native rejection and injection.
