@@ -3705,7 +3705,13 @@ def main(argv):
     pcap = os.environ.get("LW_SMOKE_PCAP")
     if args.emulator:
         emu = Emulator(sdk, work, adb)
-        emu.boot()
+        try:
+            emu.boot()
+        except BaseException:
+            # Boot precedes the app-lifecycle try/finally below. A timeout or
+            # interruption here must also release the emulator we just started.
+            emu.stop()
+            raise
         pcap = emu.pcap
     else:
         devs = adb.devices()

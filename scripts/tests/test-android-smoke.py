@@ -441,6 +441,25 @@ class GraphicsAcceptanceIntegrationTests(unittest.TestCase):
 
 
 class InterruptedEvidenceTests(unittest.TestCase):
+    def test_failed_or_interrupted_boot_stops_only_the_created_emulator(self):
+        with tempfile.TemporaryDirectory() as work:
+            apk = Path(work) / 'candidate.apk'
+            apk.write_bytes(b'not installed: boot fails first')
+            for error in (harness.HarnessError('controlled boot timeout'), KeyboardInterrupt()):
+                with self.subTest(error=type(error).__name__), \
+                     patch.object(harness, 'find_sdk', return_value='/fake-sdk'), \
+                     patch.object(harness, 'find_adb', return_value='/fake-adb'), \
+                     patch.object(harness, 'find_apk', return_value=str(apk)), \
+                     patch.object(harness, 'apk_package', return_value='org.redoubtbrowser'), \
+                     patch.object(harness, 'Adb') as adb, \
+                     patch.object(harness, 'Emulator') as emulator, \
+                     patch.dict(harness.os.environ, {'LW_SMOKE_EXTRA_PREFS': ''}):
+                    emulator.return_value.boot.side_effect = error
+                    with self.assertRaises(type(error)):
+                        harness.main(['--emulator', '--keep-emulator', '--work', work])
+                    emulator.return_value.stop.assert_called_once_with()
+                    adb.return_value.run.assert_not_called()
+
     def test_socket_timeout_is_an_automation_failure_and_closes_transport(self):
         local, remote = socket.socketpair()
         try:
