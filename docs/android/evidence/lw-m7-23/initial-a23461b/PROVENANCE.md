@@ -1,0 +1,1 @@
+Original LW-M7-23 receipts copied byte-for-byte from commit a23461b14986d249f0a0b92e4ffd29ab70fb4de7 before the private-session fence follow-up. Relative paths in its SHA256SUMS refer to that historical commit. Current source-files.json adds new fence inputs and preserves every original before hash.

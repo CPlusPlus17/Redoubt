@@ -4382,6 +4382,8 @@ tasks:
       - docs/android/evidence/lw-m7-23/
     shared_edit: [assets/patches/android.txt]
     tree_paths:
+      - docshell/base/CanonicalBrowsingContext.h
+      - docshell/base/CanonicalBrowsingContext.cpp
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CustomCBHSwitchPreference.kt
@@ -4404,13 +4406,28 @@ tasks:
       - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/ProtectionsView.kt
       - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/ProtectionsViewTest.kt
+      - mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/cookiehandling/CookieBannersStorage.kt
+      - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
+      - mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+      - toolkit/components/cookiebanners/nsICookieBannerService.idl
+      - toolkit/components/cookiebanners/nsCookieBannerService.h
+      - toolkit/components/cookiebanners/nsCookieBannerService.cpp
+      - toolkit/components/cookiebanners/CookieBannerDomainPrefService.h
+      - toolkit/components/cookiebanners/CookieBannerDomainPrefService.cpp
+      - toolkit/components/cookiebanners/test/unit/xpcshell.toml
+      - toolkit/components/cookiebanners/test/unit/test_cookiebanner_private_session.js
+      - mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CookieBannerPrivateSessionTest.kt
+      - mobile/android/geckoview/api.txt
     what: |
       Expose persisted, independently effective normal/private global controls and
       rejection-only site exception/reset controls through both Fenix site panels.
       Match Gecko's desktop registrable-domain scope across subdomains and schemes,
       label that scope and normal/private lifetime, preserve existing stored choices,
       and never clear cookies or other site data when changing a banner exception.
-      Await storage acknowledgments and surface failures. Keep security-only Remote
+      Await storage acknowledgments and surface failures. Fence private operations
+      with a canonical-context generation checked at native mutation, including
+      nested initialization, teardown/reopen and autostart. Preserve legacy APIs.
+      Keep security-only Remote
       Settings allowlists and packaged local rules unchanged. Add actual source and
       Kotlin unit tests; target compilation and installed-APK behavior are separate
       mandatory gates coordinated by the integration task.
@@ -4422,7 +4439,7 @@ tasks:
       - "source tests, target compilation, full Fenix subtraction gate and actual installed-APK controls pass"
     verify: "python3 scripts/tests/test-cookie-banner-controls.py && python3 docs/android/board.py --check"
     effort_h: "8-16"
-    skills: [android, kotlin, js, python]
+    skills: [android, kotlin, js, cpp, python]
     agent_safe: yes
     isolation: worktree
     risk: A preference-only switch or unacknowledged domain write can misrepresent effective protection and private isolation.

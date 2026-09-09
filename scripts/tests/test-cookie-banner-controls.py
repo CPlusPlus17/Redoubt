@@ -63,7 +63,7 @@ def kotlin_tests(source, cache, scratch):
                     str(source / CONTROLLER), str(source / CONTROLLER_TEST)], check=True)
     subprocess.run(['java', '-cp', str(output) + os.pathsep + cp, 'org.junit.runner.JUnitCore',
                     'org.mozilla.fenix.settings.cookiebannerhandling.CookieBannerSiteControllerTest'], check=True)
-    print('PASS actual Kotlin controller compiled with -Werror and its 12 JUnit tests; Android UI/storage tests remain target gates', flush=True)
+    print('PASS actual Kotlin controller compiled with -Werror and its 16 JUnit tests; Android UI/storage tests remain target gates', flush=True)
 
 
 def checks(source):
@@ -95,6 +95,8 @@ def checks(source):
     print('PASS parsed XML, stable controls/scope labels, legacy safe route and absence of implicit data clearing', flush=True)
     subprocess.run(['node', '--check', str(source / BRIDGE)], check=True)
     subprocess.run(['node', str(ROOT / 'scripts/tests/test-cookie-banner-controls.js'), str(source)], check=True)
+    subprocess.run(['node', '--check', str(source / 'toolkit/components/cookiebanners/test/unit/test_cookiebanner_private_session.js')], check=True)
+    subprocess.run(['python3', str(EVIDENCE / 'test-native-fence.py'), str(source)], check=True)
 
 
 def main():

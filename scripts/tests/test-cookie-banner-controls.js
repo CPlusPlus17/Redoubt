@@ -14,8 +14,17 @@ const source = fs.readFileSync(path.join(process.argv[2], 'mobile/shared/modules
 function fixture() {
   const calls = [];
   const modes = { normal: 1, private: 1 };
-  const state = { calls, modes, fail: null, domainMode: -1 };
+  const state = { calls, modes, fail: null, domainMode: -1, generation: "1", active: true };
   const service = {
+    get privateSessionToken() { if (!state.active) throw new Error("NS_ERROR_NOT_AVAILABLE"); return state.generation; },
+    setDomainPrefForPrivateSession(uri, mode, token) {
+      calls.push(['scoped-set', uri, mode, token]);
+      if (!state.active || token !== state.generation) throw new Error("NS_ERROR_NOT_AVAILABLE");
+    },
+    removeDomainPrefForPrivateSession(uri, token) {
+      calls.push(['scoped-remove', uri, token]);
+      if (!state.active || token !== state.generation) throw new Error("NS_ERROR_NOT_AVAILABLE");
+    },
     setDomainPref(...args) { calls.push(['set', ...args]); if (state.fail) throw state.fail; },
     removeDomainPref(...args) { calls.push(['remove', ...args]); if (state.fail) throw state.fail; },
     getDomainPref(...args) { calls.push(['get', ...args]); if (state.fail) throw state.fail; return state.domainMode; },
@@ -87,6 +96,34 @@ for (const event of ['SetCookieBannerModeForDomain', 'RemoveCookieBannerModeForD
 test('globally disabled query preserves domain exceptions without querying native storage', () => {
   const f = fixture(); f.modes.normal = 0;
   assert.equal(f.event('GetCookieBannerModeForDomain', { uri: 'https://example.org', isPrivateBrowsing: false })[1].mode, 0);
+  assert.equal(f.calls.length, 0);
+});
+test('token acquisition reports inactive native session errors', () => {
+  const f = fixture();
+  assert.deepEqual(f.event('GetCookieBannerPrivateSessionToken', {}), ['success', '1']);
+  f.active = false;
+  assert.equal(f.event('GetCookieBannerPrivateSessionToken', {})[0], 'error');
+});
+for (const event of ['SetCookieBannerModeForDomain', 'RemoveCookieBannerModeForDomain']) {
+  test(event + ' forwards immutable private token to native scoped API', () => {
+    const f = fixture();
+    const data = { uri: 'https://example.org', mode: 0, isPrivateBrowsing: true, privateSessionToken: '1' };
+    assert.equal(f.event(event, data)[0], 'success');
+    assert.equal(f.calls[0][0], event.startsWith('Set') ? 'scoped-set' : 'scoped-remove');
+    assert.equal(f.calls[0].at(-1), '1');
+    f.generation = '2';
+    assert.equal(f.event(event, data)[0], 'error');
+    assert.equal(f.calls[1].at(-1), '1', 'old capability must not silently refresh');
+  });
+  test(event + ' rejects a private token masquerading as a normal choice', () => {
+    const f = fixture();
+    assert.equal(f.event(event, { uri: 'https://example.org', mode: 0, isPrivateBrowsing: false, privateSessionToken: '1' })[0], 'error');
+    assert.equal(f.calls.length, 0);
+  });
+}
+test('stale scoped read rejects before native preference access', () => {
+  const f = fixture(); f.generation = '2';
+  assert.equal(f.event('GetCookieBannerModeForDomain', { uri: 'https://example.org', isPrivateBrowsing: true, privateSessionToken: '1' })[0], 'error');
   assert.equal(f.calls.length, 0);
 });
 console.log('PASS ' + passed + ' actual-JS event tests; native lifetime and banner behavior remain target gates');
