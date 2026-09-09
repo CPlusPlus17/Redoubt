@@ -236,6 +236,9 @@ install -d -o runner -g "$(id -gn runner)" -m 0700 \
     "$runner_home/.local" "$runner_home/.local/share" \
     "$runner_home/.local/share/containers"
 loginctl enable-linger runner
+# Rootless Podman uses sibling scopes below this user slice. Limiting only a
+# driver service does not bound its containers; reserve RAM for administration.
+systemctl set-property "user-${runner_uid}.slice" MemoryMax=18G MemorySwapMax=6G
 systemctl start "user@${runner_uid}.service"
 runuser -u runner -- env XDG_RUNTIME_DIR="/run/user/$runner_uid" \
     DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$runner_uid/bus" \

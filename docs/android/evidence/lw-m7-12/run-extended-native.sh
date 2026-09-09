@@ -17,10 +17,10 @@ date -u --iso-8601=seconds > "$evidence/started.txt"
 cat /proc/sys/kernel/random/boot_id > "$evidence/boot-id.txt"
 free -b > "$evidence/memory-before.txt"
 sha256sum scripts/android-fat-aar.sh assets/mozconfig.android \
-  docs/android/evidence/lw-m7-15/podman-bounded.sh > "$evidence/driver-sha256.txt"
+  docs/android/evidence/lw-m7-25/podman-native-bounded.sh > "$evidence/driver-sha256.txt"
 set +e
 ./scripts/android-fat-aar.sh --srcdir "$work/src" --outdir "$work/aar" \
-  --engine "$work/repo/docs/android/evidence/lw-m7-15/podman-bounded.sh" \
+  --engine "$work/repo/docs/android/evidence/lw-m7-25/podman-native-bounded.sh" \
   --abis armeabi-v7a,arm64-v8a,x86_64 --fat-host-abi x86_64 \
   --jobs 4 --build-date 20260906190000 > "$evidence/native-build.log" 2>&1
 build_rc=$?

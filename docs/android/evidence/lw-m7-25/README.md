@@ -1,0 +1,50 @@
+# Native build allocation adjustment
+
+Native attempt 2 (`redoubt-parity-native2-20260909.service`, invocation
+`6ec57743c75748f49e10a0d155fb6366`) began at 2026-09-08 23:21:38 UTC.
+GeckoView Java compilation passed the corrected cancellation delegate. The
+first ABI then reached native JavaScript-engine compilation and gkrust-shared.
+It has not produced a successful all-ABI result.
+
+At 23:56:48 UTC the guest command reported 15,974 MiB total RAM, 93 MiB available,
+8,333 MiB swap used, and memory full pressure averages 21.19/21.25/20.03 percent.
+Rust PID 62682 held 12,047,164 KiB RSS; three clang processes held another
+510,756/198,436/187,128 KiB. These values were read from `free`, `/proc/pressure`
+and `ps` through SSH. The same command's unprivileged log read failed with
+permission denied; that is not a missing build log. Later status commands timed
+out, including an SSH server-alive timeout. The last retrieved compiler log
+showed elapsed 19:23 and `js/src/vm`; a quiet log alone does not establish a hang.
+
+`host-before.json` records available host memory and pressure before adjustment.
+`previous-inside.sh` preserves the old installed 16 GiB launcher. The host had
+about 20 GiB available and no measured host memory pressure. No unrelated host
+process was changed.
+
+Root requested graceful ACPI shutdown through the existing QMP helper, preserving
+the VM disk and build intermediates. The replacement launcher allocates 20 GiB.
+The native-only wrapper caps a container at 17 GiB RAM plus up to 6 GiB swap,
+under an 18 GiB / 6 GiB limit on the entire runner user slice. Inspection of the
+previous journal showed Podman's container scope was a sibling of the driver
+service; the previous service cap therefore did not encompass the container.
+Existing Fenix/APK/test container limits stay at their previous values beneath
+the new shared user ceiling. This allocation is a measured followup to the earlier
+24 GiB host OOM and 16 GiB guest pressure, not proof that all native builds fit.
+
+The VM shut down cleanly and synchronized its filesystems (`graceful-shutdown.txt`).
+The compiler received SIGTERM (`MACH_EXIT=143` at 00:03:12 UTC); the driver service
+then timed out while stopping its remaining catatonit child at 00:03:57. This is
+an interrupted attempt, not a compiler result. `guest-interruption.tar.gz` pins
+the original logs and all 89 matching source hashes after reboot; the complete
+service journal is also retained compressed.
+
+The full isolation/cutover check passed with 20 GiB and the shared runner limits
+(`isolation-after-restart.txt`, `runner-slice-limits.txt`). The reviewed add-on/home
+followup then applied with zero fuzz/offsets and all 100 final source hashes
+matched (`lw-m7-12/followup-source/guest-application.tar.gz`). Its first invocation
+failed before mutation because Podman inherited an inaccessible administrator
+working directory; the driver now selects the runner repository explicitly.
+
+Native attempt 3 began at 2026-09-09 00:09:39 UTC, invocation
+`7b886043b1ff4f47b4d72e0d7590797e`, using that 100-file manifest and the new native
+wrapper (`native-attempt-3-start.txt`). Its build result and observed peak remain
+pending. No release signing or publication occurs in this work.

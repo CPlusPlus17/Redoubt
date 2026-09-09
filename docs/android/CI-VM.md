@@ -27,7 +27,7 @@ CI workflows or published the local Android implementation commits. A preflight
 on that older remote commit does not validate the newer local beta code.
 
 No full Android build has been demonstrated in this VM. Its allocation is eight
-virtual CPUs, 16 GiB RAM, and a 400 GiB thin qcow2 disk. The guest has a 16 GiB
+virtual CPUs, 20 GiB RAM, and a 400 GiB thin qcow2 disk. The guest has a 16 GiB
 disk swap file plus 8 GiB zram; zram consumes RAM and is not additional physical
 memory. The imported Android image contains Clang 21 and JDK 17; the guest's
 default Java outside the container reports version 25 and is used by the preflight
@@ -41,6 +41,16 @@ Fenix unit run; the service had reached a 28.1 GiB memory peak. The allocation
 was reduced to 16 GiB, and the complete host/guest isolation check passed after
 restart. The interrupted suite is not a test pass. Its logs and the kernel
 evidence are retained under `evidence/lw-m7-15/`.
+
+The later native graphics rebuild exhausted useful memory in that 16 GiB guest:
+Rust held about 12 GiB resident, swap exceeded 8 GiB and full memory pressure was
+over 20 percent. SSH status commands then timed out. LW-M7-25 changes the
+allocation to 20 GiB and gives native containers a 17 GiB memory / 23 GiB combined
+memory-and-swap limit. The entire runner user slice is capped at 18 GiB RAM and
+6 GiB swap: rootless Podman creates sibling scopes, so limiting only the driver
+service does not enclose its containers. The prior Fenix container limits remain
+separate, beneath this shared user ceiling. Restart verification and the new native build outcome must be
+recorded under `evidence/lw-m7-25/`; changing a limit does not establish success.
 
 Long manual jobs should run under a named guest `systemd-run --user` service,
 as runner with `XDG_RUNTIME_DIR=/run/user/1001`. An SSH disconnect then leaves

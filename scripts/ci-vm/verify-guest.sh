@@ -46,8 +46,8 @@ disk = os.statvfs('/home')
 free = disk.f_bavail * disk.f_frsize
 gib = 1024**3
 require(cpus == 8, f'expected 8 CPUs, found {cpus}')
-require(15*gib <= mem['MemTotal'] <= 16*gib,
-        f'RAM outside the 16 GiB guest allocation: {mem["MemTotal"]} bytes')
+require(19*gib <= mem['MemTotal'] <= 20*gib,
+        f'RAM outside the 20 GiB guest allocation: {mem["MemTotal"]} bytes')
 require(free >= 150*gib, f'/home free space below 150 GiB: {free} bytes')
 # A 16 GiB swap file reserves one page for its header.
 require(mem['SwapTotal'] >= 16*gib-os.sysconf('SC_PAGE_SIZE'),
@@ -59,6 +59,10 @@ swap_file=/var/lib/redoubt-swap/swapfile
 [[ $("${as_root[@]}" stat -c %s "$swap_file") == 17179869184 ]] || die 'swap file is not 16 GiB'
 "${as_root[@]}" swapon --show=NAME --noheadings | grep -Fxq "$swap_file" || die '16 GiB swap file is inactive'
 pass '16 GiB swap file active'
+
+[[ $("${as_root[@]}" systemctl show "user-${runner_uid}.slice" -p MemoryMax --value) == 19327352832 ]] || die 'runner slice memory limit is not 18 GiB'
+[[ $("${as_root[@]}" systemctl show "user-${runner_uid}.slice" -p MemorySwapMax --value) == 6442450944 ]] || die 'runner slice swap limit is not 6 GiB'
+pass 'runner slice bounds all driver and rootless container scopes at 18 GiB RAM / 6 GiB swap'
 
 if sudo_policy=$("${as_root[@]}" env LC_ALL=C sudo -l -U runner 2>&1); then
     policy_status=0

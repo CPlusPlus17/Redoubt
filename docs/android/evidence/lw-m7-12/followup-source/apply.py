@@ -24,13 +24,17 @@ def check(values, label):
 
 assert subprocess.check_output(['id', '-un'], text=True).strip() == 'runner'
 assert subprocess.check_output(['systemd-detect-virt', '--vm'], text=True).strip() == 'kvm'
+os.chdir(REPO)
 plan = json.loads(PLAN.read_text())
 env = dict(os.environ, XDG_RUNTIME_DIR='/run/user/1001')
 state = subprocess.check_output(['systemctl', '--user', 'show',
-    plan['requires_completed_native_service'], '-p', 'ActiveState', '--value'], env=env, text=True).strip()
-assert state == 'inactive', f'Native build is not successfully terminal: {state}'
-assert (WORK / 'evidence/parity-extended-native/build-exit.txt').read_text().strip() == '0'
-assert (WORK / 'evidence/parity-extended-native/finished.txt').is_file()
+    plan['requires_inactive_native_service'], '-p', 'ActiveState', '--value'], env=env, text=True).strip()
+assert state == 'inactive', f'Native build is still active: {state}'
+interrupted = WORK / plan['interrupted_native_evidence']
+assert (interrupted / 'classification.txt').read_text().startswith('INTERRUPTED: controlled VM shutdown')
+assert (interrupted / 'captured.txt').is_file()
+assert (interrupted / 'new-boot-id.txt').read_text().strip() == Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+assert (interrupted / 'native-attempt-2/boot-id.txt').read_text().strip() != (interrupted / 'new-boot-id.txt').read_text().strip()
 assert not subprocess.check_output(['podman', 'ps', '-q'], text=True).strip(), 'A build container is active'
 EVIDENCE.mkdir(exist_ok=False)
 (EVIDENCE / 'input-plan.json').write_bytes(PLAN.read_bytes())
