@@ -4367,3 +4367,59 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: An inert frontend setting or cancelled WorkManager job can leave synchronous native account traffic running.
+
+  - id: LW-M7-23
+    title: Add normal and private cookie-banner controls and domain exceptions
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-13, LW-M7-14]
+    owns:
+      - patches/android/cookie-banner-controls.patch
+      - scripts/tests/test-cookie-banner-controls.py
+      - scripts/tests/test-cookie-banner-controls.js
+      - docs/android/evidence/lw-m7-23/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CustomCBHSwitchPreference.kt
+      - mobile/android/fenix/app/src/main/res/xml/preferences.xml
+      - mobile/android/fenix/app/src/main/res/values/preference_keys.xml
+      - mobile/android/fenix/app/src/main/res/values/strings.xml
+      - mobile/android/fenix/app/src/main/res/values/cookie_banner_controls_ids.xml
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteController.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteDialogFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerPanelDialogFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt
+      - mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorage.kt
+      - mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt
+      - mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteControllerTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSettingsTest.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerDetailsController.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/ProtectionsView.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/ProtectionsViewTest.kt
+    what: |
+      Expose persisted, independently effective normal/private global controls and
+      rejection-only site exception/reset controls through both Fenix site panels.
+      Match Gecko's desktop registrable-domain scope across subdomains and schemes,
+      label that scope and normal/private lifetime, preserve existing stored choices,
+      and never clear cookies or other site data when changing a banner exception.
+      Await storage acknowledgments and surface failures. Keep security-only Remote
+      Settings allowlists and packaged local rules unchanged. Add actual source and
+      Kotlin unit tests; target compilation and installed-APK behavior are separate
+      mandatory gates coordinated by the integration task.
+    acceptance:
+      - "both global controls persist independent choices and change effective engine modes between disabled and reject-only"
+      - "normal exceptions survive restart, private exceptions stay isolated and expire with the last private context"
+      - "site controls label registrable-domain and scheme scope, acknowledge writes, reset to global behavior and surface failures"
+      - "switching or resetting banner handling does not clear ordinary or private site data"
+      - "source tests, target compilation, full Fenix subtraction gate and actual installed-APK controls pass"
+    verify: "python3 scripts/tests/test-cookie-banner-controls.py && python3 docs/android/board.py --check"
+    effort_h: "8-16"
+    skills: [android, kotlin, js, python]
+    agent_safe: yes
+    isolation: worktree
+    risk: A preference-only switch or unacknowledged domain write can misrepresent effective protection and private isolation.

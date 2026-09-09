@@ -1,0 +1,1332 @@
+diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorage.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorage.kt
+index d8f4fc4..7f582b1 100644
+--- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorage.kt
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorage.kt
+@@ -5,14 +5,14 @@
+ package mozilla.components.browser.engine.gecko.cookiebanners
+ 
+ import androidx.annotation.VisibleForTesting
+-import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.CompletableDeferred
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.withContext
+-import mozilla.components.browser.engine.gecko.await
+ import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode
+ import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode.DISABLED
+ import mozilla.components.concept.engine.cookiehandling.CookieBannersStorage
+ import mozilla.components.support.base.log.logger.Logger
++import org.mozilla.geckoview.GeckoResult
+ import org.mozilla.geckoview.GeckoRuntime
+ import org.mozilla.geckoview.StorageController
+ 
+@@ -25,7 +25,6 @@ class GeckoCookieBannersStorage(
+ ) : CookieBannersStorage {
+ 
+     private val geckoStorage: StorageController = runtime.storageController
+-    private val mainScope = CoroutineScope(Dispatchers.Main)
+ 
+     override suspend fun addException(
+         uri: String,
+@@ -67,21 +66,21 @@ class GeckoCookieBannersStorage(
+     }
+ 
+     @VisibleForTesting
+-    internal fun removeGeckoException(uri: String, privateBrowsing: Boolean) {
+-        geckoStorage.removeCookieBannerModeForDomain(uri, privateBrowsing)
++    internal suspend fun removeGeckoException(uri: String, privateBrowsing: Boolean) {
++        withContext(Dispatchers.Main) {
++            geckoStorage.removeCookieBannerModeForDomain(uri, privateBrowsing).awaitCookieBannerResult()
++        }
+     }
+ 
+     @VisibleForTesting
+-    internal fun setGeckoException(
++    internal suspend fun setGeckoException(
+         uri: String,
+         mode: CookieBannerHandlingMode,
+         privateBrowsing: Boolean,
+     ) {
+-        geckoStorage.setCookieBannerModeForDomain(
+-            uri,
+-            mode.mode,
+-            privateBrowsing,
+-        )
++        withContext(Dispatchers.Main) {
++            geckoStorage.setCookieBannerModeForDomain(uri, mode.mode, privateBrowsing).awaitCookieBannerResult()
++        }
+     }
+ 
+     @VisibleForTesting
+@@ -102,8 +101,8 @@ class GeckoCookieBannersStorage(
+         privateBrowsing: Boolean,
+     ): CookieBannerHandlingMode? {
+         return try {
+-            withContext(mainScope.coroutineContext) {
+-                geckoStorage.getCookieBannerModeForDomain(uri, privateBrowsing).await()
++            withContext(Dispatchers.Main) {
++                geckoStorage.getCookieBannerModeForDomain(uri, privateBrowsing).awaitCookieBannerResult()
+                     ?.toCookieBannerHandlingMode() ?: throw IllegalArgumentException(
+                     "An error happened trying to find cookie banners mode for the " +
+                         "uri $uri and private browsing mode $privateBrowsing",
+@@ -126,3 +125,23 @@ class GeckoCookieBannersStorage(
+ internal fun Int.toCookieBannerHandlingMode(): CookieBannerHandlingMode {
+     return CookieBannerHandlingMode.entries.first { it.mode == this }
+ }
++
++/** Cancellation stops waiting, without claiming it can undo an already dispatched native write. */
++private suspend fun <T> GeckoResult<T>.awaitCookieBannerResult(): T? {
++    val completion = CompletableDeferred<T?>()
++    then(
++        {
++            completion.complete(it)
++            GeckoResult<Void>()
++        },
++        {
++            completion.completeExceptionally(it)
++            GeckoResult<Void>()
++        },
++    )
++    return try {
++        completion.await()
++    } finally {
++        completion.cancel()
++    }
++}
+diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt
+index 5d69ded..aadd7ba 100644
+--- a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt
+@@ -4,6 +4,21 @@
+ 
+ package mozilla.components.browser.engine.gecko.cookiebanners
+ 
++import android.os.Handler
++import android.os.Looper
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.async
++import kotlinx.coroutines.cancelAndJoin
++import kotlinx.coroutines.test.StandardTestDispatcher
++import kotlinx.coroutines.test.resetMain
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.setMain
++import org.junit.After
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.Shadows.shadowOf
++import org.mozilla.geckoview.GeckoResult
+ import junit.framework.TestCase.assertEquals
+ import junit.framework.TestCase.assertFalse
+ import junit.framework.TestCase.assertNull
+@@ -23,6 +38,8 @@ import org.mockito.Mockito.verify
+ import org.mozilla.geckoview.GeckoRuntime
+ import org.mozilla.geckoview.StorageController
+ 
++@OptIn(ExperimentalCoroutinesApi::class)
++@RunWith(RobolectricTestRunner::class)
+ class GeckoCookieBannersStorageTest {
+     private lateinit var runtime: GeckoRuntime
+     private lateinit var geckoStorage: GeckoCookieBannersStorage
+@@ -31,6 +48,7 @@ class GeckoCookieBannersStorageTest {
+ 
+     @Before
+     fun setup() {
++        Dispatchers.setMain(StandardTestDispatcher())
+         storageController = mock()
+         runtime = mock()
+         reportSiteDomainsRepository = mock()
+@@ -40,12 +58,69 @@ class GeckoCookieBannersStorageTest {
+         geckoStorage = spy(GeckoCookieBannersStorage(runtime, reportSiteDomainsRepository))
+     }
+ 
++    @After
++    fun tearDown() {
++        Dispatchers.resetMain()
++    }
++
++    @Test
++    fun `set waits for the native result before completing`() = runTest {
++        val result = GeckoResult<Void>(Handler(Looper.getMainLooper()))
++        whenever(storageController.setCookieBannerModeForDomain("https://example.org", 0, true)).thenReturn(result)
++        val update = async { geckoStorage.addException("https://example.org", true) }
++        runCurrent()
++        assertFalse(update.isCompleted)
++        result.complete(null)
++        shadowOf(Looper.getMainLooper()).idle()
++        update.await()
++        assertTrue(update.isCompleted)
++        verify(storageController).setCookieBannerModeForDomain("https://example.org", 0, true)
++    }
++
++    @Test
++    fun `remove surfaces native failure instead of completing successfully`() = runTest {
++        val result = GeckoResult<Void>(Handler(Looper.getMainLooper()))
++        whenever(storageController.removeCookieBannerModeForDomain("https://example.org", false)).thenReturn(result)
++        val update = async { runCatching { geckoStorage.removeException("https://example.org", false) } }
++        runCurrent()
++        assertFalse(update.isCompleted)
++        val failure = IllegalStateException("native failure")
++        result.completeExceptionally(failure)
++        shadowOf(Looper.getMainLooper()).idle()
++        assertEquals(failure, update.await().exceptionOrNull())
++    }
++
++    @Test
++    fun `cancelled write wait remains cancelled when the native reply arrives late`() = runTest {
++        val result = GeckoResult<Void>(Handler(Looper.getMainLooper()))
++        whenever(storageController.setCookieBannerModeForDomain("https://example.org", 0, false)).thenReturn(result)
++        val update = async { geckoStorage.addException("https://example.org", false) }
++        runCurrent()
++        update.cancelAndJoin()
++        result.complete(null)
++        shadowOf(Looper.getMainLooper()).idle()
++        assertTrue(update.isCancelled)
++    }
++
++    @Test
++    fun `a read with no native callback can be cancelled`() = runTest {
++        val result = GeckoResult<Int>(Handler(Looper.getMainLooper()))
++        whenever(storageController.getCookieBannerModeForDomain("https://example.org", false)).thenReturn(result)
++        val read = async { geckoStorage.findExceptionFor("https://example.org", false) }
++        runCurrent()
++        assertFalse(read.isCompleted)
++        read.cancelAndJoin()
++        result.complete(1)
++        shadowOf(Looper.getMainLooper()).idle()
++        assertTrue(read.isCancelled)
++    }
++
+     @Test
+     fun `GIVEN a cookie banner mode WHEN adding an exception THEN add an exception for the given uri and browsing mode`() =
+         runTest {
+             val uri = "https://www.mozilla.org"
+ 
+-            doNothing().`when`(geckoStorage)
++            doReturn(Unit).`when`(geckoStorage)
+                 .setGeckoException(uri = uri, mode = DISABLED, privateBrowsing = false)
+ 
+             geckoStorage.addException(uri = uri, privateBrowsing = false)
+@@ -58,7 +133,7 @@ class GeckoCookieBannersStorageTest {
+         runTest {
+             val uri = "https://www.mozilla.org"
+ 
+-            doNothing().`when`(geckoStorage).removeGeckoException(uri, false)
++            doReturn(Unit).`when`(geckoStorage).removeGeckoException(uri, false)
+ 
+             geckoStorage.removeException(uri = uri, privateBrowsing = false)
+ 
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+index ad809e8..5129098 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+@@ -819,9 +819,19 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+     internal fun setupCookieBannerPreference(settings: Settings) {
+         FxNimbus.features.cookieBanners.recordExposure()
+         if (settings.shouldShowCookieBannerUI) {
++            with(requirePreference<SwitchPreferenceCompat>(R.string.pref_key_cookie_banner_normal_mode)) {
++                isVisible = true
++                isChecked = settings.shouldUseCookieBanner
++                onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, newValue ->
++                    settings.shouldUseCookieBanner = newValue as Boolean
++                    requireComponents.core.engine.settings.cookieBannerHandlingMode = settings.getCookieBannerHandling()
++                    requireComponents.useCases.sessionUseCases.reload()
++                    true
++                }
++            }
+             with(requirePreference<SwitchPreferenceCompat>(R.string.pref_key_cookie_banner_private_mode)) {
+                 isVisible = settings.shouldShowCookieBannerUI
+-
++                isChecked = settings.shouldUseCookieBannerPrivateMode
+                 onPreferenceChangeListener = object : SharedPreferenceUpdater() {
+                     override fun onPreferenceChange(
+                         preference: Preference,
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteController.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteController.kt
+new file mode 100644
+index 0000000..64504fd
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteController.kt
+@@ -0,0 +1,64 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.cookiebannerhandling
++
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode.DISABLED
++import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode.REJECT_ALL
++import mozilla.components.concept.engine.cookiehandling.CookieBannersStorage
++
++/**
++ * Changes the captured domain in one browsing mode. The Gecko storage backend
++ * uses eTLD+1, including all subdomains and HTTP/HTTPS; private writes are temporary.
++ * No browsing-data clearing, persistent-private API or accept-mode write belongs here.
++ */
++internal class CookieBannerSiteController(
++    private val uri: String,
++    private val privateMode: Boolean,
++    private val storage: CookieBannersStorage,
++    private val isCurrent: () -> Boolean,
++    private val globalEnabled: () -> Boolean,
++    private val reload: () -> Unit,
++) {
++    private val mutex = Mutex()
++
++    /** Null means globally disabled; an existing exception must remain untouched. */
++    suspend fun read(): Boolean? = mutex.withLock { readCurrent() }
++
++    /** Enabling/resetting removes the exception and inherits rejection-only mode. */
++    suspend fun setEnabled(enabled: Boolean): Boolean? = mutex.withLock {
++        check(isCurrent()) { "The page changed" }
++        check(globalEnabled()) { "Cookie banner handling is disabled globally" }
++        if (enabled) {
++            storage.removeException(uri, privateMode)
++        } else {
++            storage.addException(uri, privateMode)
++        }
++        // Storage operations acknowledge Gecko callbacks before reporting success.
++        // A navigation during the write must never reload a different document/tab.
++        check(isCurrent()) { "The page changed during the update" }
++        val observed = readCurrent()
++        if (observed != null) {
++            check(observed == enabled) { "Cookie banner setting was not applied" }
++        }
++        reload()
++        observed
++    }
++
++    suspend fun reset(): Boolean? = setEnabled(true)
++
++    private suspend fun readCurrent(): Boolean? {
++        check(isCurrent()) { "The page changed" }
++        if (!globalEnabled()) return null
++        val mode = storage.findExceptionFor(uri, privateMode)
++        check(isCurrent()) { "The page changed while reading the setting" }
++        return when (mode) {
++            REJECT_ALL -> true
++            DISABLED -> false
++            else -> error("Unsupported or unavailable cookie banner mode")
++        }
++    }
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteDialogFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteDialogFragment.kt
+new file mode 100644
+index 0000000..9e032a9
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteDialogFragment.kt
+@@ -0,0 +1,175 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.cookiebannerhandling
++
++import android.app.Dialog
++import android.content.DialogInterface
++import android.os.Bundle
++import android.widget.Button
++import android.widget.LinearLayout
++import android.widget.TextView
++import androidx.appcompat.app.AlertDialog
++import androidx.appcompat.widget.SwitchCompat
++import androidx.core.net.toUri
++import androidx.fragment.app.DialogFragment
++import androidx.fragment.app.FragmentManager
++import androidx.lifecycle.lifecycleScope
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.TimeoutCancellationException
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withTimeout
++import mozilla.components.browser.state.selector.findTabOrCustomTab
++import mozilla.components.browser.state.state.SessionState
++import org.mozilla.fenix.R
++import org.mozilla.fenix.ext.requireComponents
++
++/** Shared normal/private controls, independent of rule-support detection or experiment UI flags. */
++open class CookieBannerSiteDialogFragment : DialogFragment() {
++    protected open val sessionId: String get() = requireArguments().getString(SESSION_ID).orEmpty()
++    protected open val expectedUrl: String get() = requireArguments().getString(EXPECTED_URL).orEmpty()
++    private var operation: Job? = null
++    private var closed = false
++    private var rendering = false
++    private lateinit var toggle: SwitchCompat
++    private lateinit var reset: Button
++    private lateinit var status: TextView
++    private lateinit var scopeLabel: TextView
++    private var controller: CookieBannerSiteController? = null
++
++    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
++        val context = requireContext()
++        val content = LinearLayout(context).apply {
++            orientation = LinearLayout.VERTICAL
++            val padding = (24 * resources.displayMetrics.density).toInt()
++            setPadding(padding, padding, padding, padding)
++        }
++        scopeLabel = TextView(context).apply { id = R.id.cookie_banner_site_scope }
++        toggle = SwitchCompat(context).apply {
++            id = R.id.cookie_banner_site_switch
++            setText(R.string.cookie_banner_site_enabled)
++            isEnabled = false
++        }
++        reset = Button(context).apply {
++            id = R.id.cookie_banner_site_reset
++            setText(R.string.cookie_banner_site_reset_label)
++            isAllCaps = false
++            isEnabled = false
++        }
++        status = TextView(context).apply {
++            id = R.id.cookie_banner_site_status
++            setText(R.string.cookie_banner_site_loading)
++            accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE
++        }
++        content.addView(scopeLabel)
++        content.addView(toggle)
++        content.addView(reset)
++        content.addView(status)
++        toggle.setOnCheckedChangeListener { _, enabled ->
++            if (!rendering) perform { requireNotNull(controller).setEnabled(enabled) }
++        }
++        reset.setOnClickListener { perform { requireNotNull(controller).reset() } }
++        return AlertDialog.Builder(context)
++            .setTitle(R.string.cookie_banner_blocker)
++            .setView(content)
++            .setPositiveButton(R.string.cookie_banner_site_close, null)
++            .create().also { dialog -> dialog.setOnShowListener { initialize() } }
++    }
++
++    private fun initialize() {
++        perform {
++            val components = requireComponents
++            val tab = requireNotNull(components.core.store.state.findTabOrCustomTab(sessionId))
++            check(tab.content.url == expectedUrl)
++            val uri = tab.content.url.toUri()
++            check(uri.scheme == "https" || uri.scheme == "http")
++            val host = requireNotNull(uri.host)
++            val domain = requireNotNull(components.publicSuffixList.getPublicSuffixPlusOne(host).await())
++            val privateMode = tab.content.private
++            val privateArgument = arguments?.takeIf { it.containsKey(PRIVATE_MODE) }?.getBoolean(PRIVATE_MODE)
++            check(privateArgument == null || privateArgument == privateMode)
++            scopeLabel.text = getString(R.string.cookie_banner_site_scope, domain) + "\n" +
++                getString(if (privateMode) R.string.cookie_banner_site_private else R.string.cookie_banner_site_normal)
++            controller = CookieBannerSiteController(
++                uri = tab.content.url,
++                privateMode = privateMode,
++                storage = components.core.cookieBannersStorage,
++                isCurrent = {
++                    val current = components.core.store.state.findTabOrCustomTab(sessionId)
++                    !closed && current != null && current.content.url == tab.content.url &&
++                        current.content.private == privateMode
++                },
++                globalEnabled = {
++                    if (privateMode) components.settings.shouldUseCookieBannerPrivateMode
++                    else components.settings.shouldUseCookieBanner
++                },
++                reload = { components.useCases.sessionUseCases.reload(sessionId) },
++            )
++            requireNotNull(controller).read()
++        }
++    }
++
++    @Suppress("TooGenericExceptionCaught")
++    private fun perform(action: suspend () -> Boolean?) {
++        if (closed || operation?.isActive == true) return
++        toggle.isEnabled = false
++        reset.isEnabled = false
++        status.setText(R.string.cookie_banner_site_loading)
++        operation = lifecycleScope.launch {
++            try {
++                val enabled = withTimeout(OPERATION_TIMEOUT_MS) { action() }
++                rendering = true
++                toggle.isChecked = enabled == true
++                rendering = false
++                toggle.isEnabled = enabled != null
++                reset.isEnabled = enabled != null
++                status.setText(
++                    when (enabled) {
++                        null -> R.string.cookie_banner_site_global_off
++                        true -> R.string.cookie_banner_site_on
++                        false -> R.string.cookie_banner_site_off
++                    },
++                )
++            } catch (_: TimeoutCancellationException) {
++                status.setText(R.string.cookie_banner_site_error)
++            } catch (cancelled: CancellationException) {
++                throw cancelled
++            } catch (_: Exception) {
++                status.setText(
++                    if (controller == null) R.string.cookie_banner_site_unavailable else R.string.cookie_banner_site_error,
++                )
++            }
++        }
++    }
++
++    override fun onDismiss(dialog: DialogInterface) {
++        closed = true
++        operation?.cancel()
++        super.onDismiss(dialog)
++    }
++
++    override fun onDestroy() {
++        operation?.cancel()
++        super.onDestroy()
++    }
++
++    companion object {
++        private const val SESSION_ID = "cookie_banner_session_id"
++        private const val EXPECTED_URL = "cookie_banner_expected_url"
++        private const val PRIVATE_MODE = "cookie_banner_private_mode"
++        private const val OPERATION_TIMEOUT_MS = 10_000L
++
++        /** Captures the source tab, URL and privacy context, never the later selected tab. */
++        fun show(manager: FragmentManager, tab: SessionState) {
++            CookieBannerSiteDialogFragment().apply {
++                arguments = Bundle().apply {
++                    putString(SESSION_ID, tab.id)
++                    putString(EXPECTED_URL, tab.content.url)
++                    putBoolean(PRIVATE_MODE, tab.content.private)
++                }
++            }.show(manager, "cookie-banner-site-controls")
++        }
++    }
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CustomCBHSwitchPreference.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CustomCBHSwitchPreference.kt
+index f8b2b89..13b23f1 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CustomCBHSwitchPreference.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CustomCBHSwitchPreference.kt
+@@ -11,7 +11,7 @@ import org.mozilla.fenix.ext.components
+ 
+ /**
+  * Custom [SwitchPreferenceCompat] that automatically creates the switch for the
+- * cookie banner handling feature depending on the current Nimbus configurations.
++ * cookie banner handling feature depending on the current local product configurations.
+  */
+ class CustomCBHSwitchPreference @JvmOverloads constructor(
+     context: Context,
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt
+index eda0101..da038b5 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt
+@@ -148,6 +148,18 @@ class QuickSettingsSheetDialogFragment : FenixDialogFragment() {
+                 }
+             }
+         })
++        permissionsContainer.addView(android.widget.Button(context).apply {
++            id = R.id.cookie_banner_site_controls
++            setText(R.string.cookie_banner_blocker)
++            isAllCaps = false
++            setOnClickListener {
++                components.core.store.state.findTabOrCustomTab(args.sessionId)?.let { tab ->
++                    org.mozilla.fenix.settings.cookiebannerhandling.CookieBannerSiteDialogFragment.show(
++                        parentFragmentManager, tab,
++                    )
++                }
++            }
++        })
+         showPermissionsView()
+ 
+         return rootView
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/ProtectionsView.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/ProtectionsView.kt
+index 1f81493..4d40486 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/ProtectionsView.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/ProtectionsView.kt
+@@ -63,9 +63,9 @@ class ProtectionsView(
+         bindTrackingProtectionInfo(state.isTrackingProtectionEnabled)
+         bindCookieBannerProtection(state.cookieBannerUIMode)
+         binding.trackingProtectionSwitch.isVisible = settings.shouldUseTrackingProtection
+-        val isPrivateSession = state.tab?.content?.private == true
+-        binding.cookieBannerItem.isVisible = isPrivateSession && shouldShowCookieBanner &&
+-            state.cookieBannerUIMode != CookieBannerUIMode.HIDE
++        // Both browsing modes now use the shared domain controls in the permissions
++        // section. Do not show a second private-only row governed by old support flags.
++        binding.cookieBannerItem.isVisible = false
+ 
+         binding.trackingProtectionDetails.setOnClickListener {
+             interactor.onTrackingProtectionDetailsClicked()
+@@ -101,9 +101,6 @@ class ProtectionsView(
+         true,
+     )
+ 
+-    private val shouldShowCookieBanner: Boolean
+-        get() = settings.shouldShowCookieBannerUI && settings.shouldUseCookieBannerPrivateMode
+-
+     private fun bindCookieBannerProtection(cookieBannerMode: CookieBannerUIMode) {
+         val context = binding.cookieBannerItem.context
+         val label = context.getString(R.string.cookie_banner_blocker)
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerDetailsController.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerDetailsController.kt
+index c257998..9885c7d 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerDetailsController.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerDetailsController.kt
+@@ -17,7 +17,6 @@ import kotlinx.coroutines.withContext
+ import mozilla.components.browser.state.selector.findTabOrCustomTab
+ import mozilla.components.browser.state.state.SessionState
+ import mozilla.components.browser.state.store.BrowserStore
+-import mozilla.components.concept.engine.Engine
+ import mozilla.components.concept.engine.cookiehandling.CookieBannersStorage
+ import mozilla.components.concept.engine.permission.SitePermissions
+ import mozilla.components.feature.session.SessionUseCases
+@@ -77,7 +76,6 @@ class DefaultCookieBannerDetailsController(
+     private val gravity: Int,
+     private val getCurrentTab: () -> SessionState?,
+     private val reload: SessionUseCases.ReloadUrlUseCase,
+-    private val engine: Engine = context.components.core.engine,
+     private val publicSuffixList: PublicSuffixList = context.components.publicSuffixList,
+     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+ ) : CookieBannerDetailsController {
+@@ -135,7 +133,6 @@ class DefaultCookieBannerDetailsController(
+                 CookieBanners.exceptionRemoved.record(NoExtras())
+                 cookieBannerUIMode = CookieBannerUIMode.ENABLE
+             } else {
+-                clearSiteData(tab)
+                 withContext(ioDispatcher) {
+                     cookieBannersStorage.addException(
+                         uri = tab.content.url,
+@@ -184,18 +181,6 @@ class DefaultCookieBannerDetailsController(
+         }
+     }
+ 
+-    @VisibleForTesting
+-    internal suspend fun clearSiteData(tab: SessionState) {
+-        val domain = getTabDomain(tab)
+-        engine.clearData(
+-            host = domain,
+-            data = Engine.BrowsingData.select(
+-                Engine.BrowsingData.AUTH_SESSIONS,
+-                Engine.BrowsingData.ALL_SITE_DATA,
+-            ),
+-        )
+-    }
+-
+     @VisibleForTesting
+     internal suspend fun getTabDomain(tab: SessionState): String? {
+         val host = tab.content.url.toUri().host.orEmpty()
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerPanelDialogFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerPanelDialogFragment.kt
+index 4a56bae..674f7ea 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerPanelDialogFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerPanelDialogFragment.kt
+@@ -4,111 +4,12 @@
+ 
+ package org.mozilla.fenix.settings.quicksettings.protections.cookiebanners
+ 
+-import android.os.Bundle
+-import android.view.LayoutInflater
+-import android.view.View
+-import android.view.ViewGroup
+-import androidx.annotation.VisibleForTesting
+-import androidx.lifecycle.lifecycleScope
+-import androidx.navigation.fragment.findNavController
+ import androidx.navigation.fragment.navArgs
+-import mozilla.components.browser.state.selector.findTabOrCustomTab
+-import mozilla.components.browser.state.state.SessionState
+-import mozilla.components.lib.state.ext.consumeFrom
+-import mozilla.components.lib.state.helpers.StoreProvider.Companion.storeProvider
+-import org.mozilla.fenix.R
+-import org.mozilla.fenix.android.FenixDialogFragment
+-import org.mozilla.fenix.databinding.FragmentCookieBannerHandlingDetailsDialogBinding
+-import org.mozilla.fenix.ext.requireComponents
+-import org.mozilla.fenix.trackingprotection.ProtectionsState
+-import org.mozilla.fenix.trackingprotection.ProtectionsStore
++import org.mozilla.fenix.settings.cookiebannerhandling.CookieBannerSiteDialogFragment
+ 
+-/**
+- * A [FenixDialogFragment] that contains all the cookie banner details for a given tab.
+- */
+-class CookieBannerPanelDialogFragment : FenixDialogFragment() {
+-    @VisibleForTesting
+-    private lateinit var cookieBannersView: CookieBannerHandlingDetailsView
++/** Keeps the existing navigation route while sharing the normal/private controls. */
++class CookieBannerPanelDialogFragment : CookieBannerSiteDialogFragment() {
+     private val args by navArgs<CookieBannerPanelDialogFragmentArgs>()
+-    private var _binding: FragmentCookieBannerHandlingDetailsDialogBinding? = null
+-
+-    override val gravity: Int get() = args.gravity
+-    override val layoutId: Int = R.layout.fragment_cookie_banner_handling_details_dialog
+-
+-    @VisibleForTesting
+-    internal lateinit var protectionsStore: ProtectionsStore
+-
+-    // This property is only valid between onCreateView and onDestroyView.
+-    private val binding get() = _binding!!
+-
+-    override fun onCreateView(
+-        inflater: LayoutInflater,
+-        container: ViewGroup?,
+-        savedInstanceState: Bundle?,
+-    ): View {
+-        val store = requireComponents.core.store
+-        val rootView = inflateRootView(container)
+-
+-        val tab = store.state.findTabOrCustomTab(provideCurrentTabId())
+-        protectionsStore = storeProvider.get { restoredState ->
+-            ProtectionsStore(
+-                restoredState ?: ProtectionsState(
+-                    tab = tab,
+-                    url = args.url,
+-                    isTrackingProtectionEnabled = args.trackingProtectionEnabled,
+-                    cookieBannerUIMode = args.cookieBannerUIMode,
+-                    listTrackers = listOf(),
+-                    mode = ProtectionsState.Mode.Normal,
+-                    lastAccessedCategory = "",
+-                ),
+-            )
+-        }
+-
+-        val controller = DefaultCookieBannerDetailsController(
+-            context = requireContext(),
+-            scope = viewLifecycleOwner.lifecycleScope,
+-            cookieBannersStorage = requireComponents.core.cookieBannersStorage,
+-            protectionsStore = protectionsStore,
+-            browserStore = requireComponents.core.store,
+-            fragment = this,
+-            sessionId = args.sessionId,
+-            reload = requireComponents.useCases.sessionUseCases.reload,
+-            navController = { findNavController() },
+-            sitePermissions = args.sitePermissions,
+-            gravity = args.gravity,
+-            getCurrentTab = ::getCurrentTab,
+-        )
+-
+-        _binding = FragmentCookieBannerHandlingDetailsDialogBinding.bind(rootView)
+-
+-        cookieBannersView = CookieBannerHandlingDetailsView(
+-            context = requireContext(),
+-            scope = viewLifecycleOwner.lifecycleScope,
+-            container = binding.cookieBannerDetailsInfoLayout,
+-            publicSuffixList = requireComponents.publicSuffixList,
+-            interactor = DefaultCookieBannerDetailsInteractor(controller),
+-            onDismiss = { dismiss() },
+-        )
+-
+-        return rootView
+-    }
+-
+-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+-        super.onViewCreated(view, savedInstanceState)
+-        consumeFrom(protectionsStore) { state ->
+-            cookieBannersView.update(state)
+-        }
+-    }
+-
+-    override fun onDestroyView() {
+-        super.onDestroyView()
+-        _binding = null
+-    }
+-
+-    @VisibleForTesting
+-    internal fun provideCurrentTabId(): String = args.sessionId
+-
+-    private fun getCurrentTab(): SessionState? {
+-        return requireComponents.core.store.state.findTabOrCustomTab(args.sessionId)
+-    }
++    override val sessionId: String get() = args.sessionId
++    override val expectedUrl: String get() = args.url
+ }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt
+index 7baebff..42708b2 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt
+@@ -327,6 +327,13 @@ class TrustPanelFragment : BottomSheetDialogFragment() {
+                         Route.ProtectionPanel -> {
+                             ProtectionPanel(
+                                 websiteInfoState = websiteInfoState,
++                                onCookieBannerClick = {
++                                    components.core.store.state.findTabOrCustomTab(args.sessionId)?.let { tab ->
++                                        org.mozilla.fenix.settings.cookiebannerhandling.CookieBannerSiteDialogFragment.show(
++                                            parentFragmentManager, tab,
++                                        )
++                                    }
++                                },
+                                 onOriginPermissionsClick = {
+                                     components.core.store.state.findTabOrCustomTab(args.sessionId)?.let { tab ->
+                                         org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.show(
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt
+index 40e7c31..f19df45 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt
+@@ -116,6 +116,7 @@ internal fun ProtectionPanel(
+     onIPProtectionToggle: () -> Unit,
+     onIPProtectionNavigate: () -> Unit,
+     onOriginPermissionsClick: () -> Unit = {},
++    onCookieBannerClick: () -> Unit = {},
+ ) {
+     val isSiteProtectionEnabled = isTrackingProtectionEnabled && isGlobalTrackingProtectionEnabled
+     MenuScaffold(
+@@ -176,6 +177,14 @@ internal fun ProtectionPanel(
+                     onClick = onOriginPermissionsClick,
+                     beforeIconPainter = painterResource(iconsR.drawable.mozac_ic_globe_24),
+                 )
++                MenuItem(
++                    label = stringResource(R.string.cookie_banner_blocker),
++                    modifier = Modifier.testTag("cookie_banner_site_controls").semantics {
++                        testTagsAsResourceId = true
++                    },
++                    onClick = onCookieBannerClick,
++                    beforeIconPainter = painterResource(iconsR.drawable.mozac_ic_globe_24),
++                )
+             }
+         }
+ 
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+index d0a0563..9aeab8c 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+@@ -1195,13 +1195,17 @@ class Settings(
+     )
+ 
+     val shouldUseCookieBannerPrivateModeDefaultValue: Boolean
+-        get() = cookieBannersSection[CookieBannersSection.FEATURE_SETTING_VALUE_PBM] == 1
++        get() = true
+ 
+-    val shouldUseCookieBanner: Boolean
+-        get() = cookieBannersSection[CookieBannersSection.FEATURE_SETTING_VALUE] == 1
++    // Defaults are local product choices, independent of experiment channel maps.
++    // Existing stored true/false values, including old seeded values, are preserved.
++    var shouldUseCookieBanner by booleanPreference(
++        appContext.getPreferenceKey(R.string.pref_key_cookie_banner_normal_mode),
++        default = true,
++    )
+ 
+     val shouldShowCookieBannerUI: Boolean
+-        get() = cookieBannersSection[CookieBannersSection.FEATURE_UI] == 1
++        get() = true
+ 
+     val shouldEnableCookieBannerDetectOnly: Boolean
+         get() = cookieBannersSection[CookieBannersSection.FEATURE_SETTING_DETECT_ONLY] == 1
+diff --git a/mobile/android/fenix/app/src/main/res/values/cookie_banner_controls_ids.xml b/mobile/android/fenix/app/src/main/res/values/cookie_banner_controls_ids.xml
+new file mode 100644
+index 0000000..35f7521
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/res/values/cookie_banner_controls_ids.xml
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- This Source Code Form is subject to the terms of the Mozilla Public
++   - License, v. 2.0. If a copy of the MPL was not distributed with this
++   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
++<resources>
++    <item name="cookie_banner_site_controls" type="id" />
++    <item name="cookie_banner_site_switch" type="id" />
++    <item name="cookie_banner_site_reset" type="id" />
++    <item name="cookie_banner_site_scope" type="id" />
++    <item name="cookie_banner_site_status" type="id" />
++</resources>
+diff --git a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
+index 1633d37..5489d92 100644
+--- a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
++++ b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
+@@ -244,6 +244,7 @@
+     <string name="pref_key_https_only_in_private_tabs" translatable="false">pref_key_https_only_in_private_tabs</string>
+ 
+     <!-- Cookie Banner Reduction Settings-->
++    <string name="pref_key_cookie_banner_normal_mode" translatable="false">pref_key_cookie_banner_normal_mode</string>
+     <string name="pref_key_cookie_banner_private_mode" translatable="false">pref_key_cookie_banner_private_mode</string>
+ 
+     <!-- DNS over HTTPS Settings -->
+diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/android/fenix/app/src/main/res/values/strings.xml
+index 805984e..8e04508 100644
+--- a/mobile/android/fenix/app/src/main/res/values/strings.xml
++++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
+@@ -783,7 +783,7 @@
+     <!-- Title text for a detail explanation indicating cookie banner reducer didn't work for the current site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox"). -->
+     <string name="reduce_cookie_banner_details_panel_title_unsupported_site_request_2">%1$s can’t automatically reject cookie requests on this site. You can send a request to support this site in the future.</string>
+     <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is off for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox"). -->
+-    <string name="reduce_cookie_banner_details_panel_description_off_for_site_1">Turn off and %1$s will clear cookies and reload this site. This may sign you out or empty shopping carts.</string>
++    <string name="reduce_cookie_banner_details_panel_description_off_for_site_1">Turn off and %1$s will reload this site without changing its cookies or saved data.</string>
+     <!-- Long text for a detail explanation indicating what will happen if cookie banner handling is on for a site, this is shown as part of the cookie banner panel in the toolbar. %1$s is the name of the app (for example "Firefox"). -->
+     <string name="reduce_cookie_banner_details_panel_description_on_for_site_3">Turn on and %1$s will try to automatically refuse all cookie banners on this site.</string>
+     <!--Title for the cookie banner re-engagement CFR, the placeholder is replaced with app name. %1$s is the name of the app (for example "Firefox"). -->
+@@ -4308,4 +4308,19 @@
+     <string name="origin_permissions_reload_explanation">Permission updated. Reload this tab to apply the change to existing content.</string>
+     <string name="origin_permissions_page_changed">This request or exception changed. Review the current permissions.</string>
+     <string name="origin_permissions_error">Could not update permissions. The site remains protected unless an existing exception allows it.</string>
++    <!-- Cookie banner exceptions follow Gecko registrable-domain scope, not exact origins. -->
++    <string name="preferences_cookie_banner_reduction_normal_mode">Cookie Banner Blocker in normal browsing</string>
++    <string name="cookie_banner_global_summary">Try to refuse cookie banners. Never automatically accept them. Some sites are unsupported.</string>
++    <string name="cookie_banner_site_scope">%1$s and all its subdomains, over HTTP and HTTPS.</string>
++    <string name="cookie_banner_site_normal">Normal browsing only. Exceptions are remembered after restarting.</string>
++    <string name="cookie_banner_site_private">Private browsing only. This choice expires when the last private tab closes.</string>
++    <string name="cookie_banner_site_enabled">Try to reject banners for this domain</string>
++    <string name="cookie_banner_site_reset_label">Reset to global setting</string>
++    <string name="cookie_banner_site_on">Rejection-only handling is on. Not every banner is supported. Cookies and saved site data are unchanged.</string>
++    <string name="cookie_banner_site_off">Handling is off for this domain. Cookies and saved site data are unchanged.</string>
++    <string name="cookie_banner_site_global_off">Handling is off globally in this browsing mode. Enable it in Settings to change this domain. Existing exceptions are kept.</string>
++    <string name="cookie_banner_site_unavailable">Controls are unavailable for this address or the page has changed. Open site controls again on a website.</string>
++    <string name="cookie_banner_site_error">Could not confirm the setting. No site data was cleared. Close and reopen to check the current state.</string>
++    <string name="cookie_banner_site_loading">Checking the setting…</string>
++    <string name="cookie_banner_site_close">Close</string>
+ </resources>
+diff --git a/mobile/android/fenix/app/src/main/res/xml/preferences.xml b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
+index 91d9ced..1e4c6e8 100644
+--- a/mobile/android/fenix/app/src/main/res/xml/preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
+@@ -140,11 +140,19 @@
+             app:isPreferenceVisible="false"
+             android:title="@string/preference_doh_title" />
+ 
++        <androidx.preference.SwitchPreferenceCompat
++            android:key="@string/pref_key_cookie_banner_normal_mode"
++            android:defaultValue="true"
++            android:title="@string/preferences_cookie_banner_reduction_normal_mode"
++            android:summary="@string/cookie_banner_global_summary"
++            app:iconSpaceReserved="false" />
++
+         <org.mozilla.fenix.settings.cookiebannerhandling.CustomCBHSwitchPreference
+             android:key="@string/pref_key_cookie_banner_private_mode"
+             app:iconSpaceReserved="false"
+             app:isPreferenceVisible="false"
+-            android:title="@string/preferences_cookie_banner_reduction_private_mode" />
++            android:title="@string/preferences_cookie_banner_reduction_private_mode"
++            android:summary="@string/cookie_banner_global_summary" />
+ 
+         <androidx.preference.Preference
+             android:key="@string/pref_key_tracking_protection_settings"
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSettingsTest.kt
+new file mode 100644
+index 0000000..b5a2219
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSettingsTest.kt
+@@ -0,0 +1,139 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.cookiebannerhandling
++
++import androidx.fragment.app.FragmentActivity
++import androidx.preference.SwitchPreferenceCompat
++import io.mockk.every
++import io.mockk.mockk
++import io.mockk.verify
++import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode.DISABLED
++import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode.REJECT_ALL
++import mozilla.components.concept.fetch.Client
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Rule
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.fenix.R
++import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.ext.getPreferenceKey
++import org.mozilla.fenix.helpers.FenixGleanTestRule
++import org.mozilla.fenix.settings.SettingsFragment
++import org.mozilla.fenix.utils.Settings
++import org.robolectric.Robolectric
++import org.robolectric.RobolectricTestRunner
++import java.io.IOException
++import mozilla.components.concept.engine.Settings as EngineSettings
++
++@RunWith(RobolectricTestRunner::class)
++class CookieBannerSettingsTest {
++    private lateinit var settings: Settings
++    private val engineSettings = mockk<EngineSettings>(relaxed = true)
++
++    @get:Rule
++    val gleanRule = FenixGleanTestRule(testContext)
++
++    @Before
++    fun setUp() {
++        settings = Settings(testContext)
++        every { testContext.components.settings } returns settings
++        every { testContext.components.core.engine.settings } returns engineSettings
++        every { testContext.components.core.engine.profiler } returns mockk(relaxed = true)
++        val client = mockk<Client>()
++        every { client.fetch(any()) } throws IOException("test")
++        every { testContext.components.core.client } returns client
++        every { testContext.components.core.store.state.translationEngine } returns mockk(relaxed = true)
++        every { testContext.components.addonManager } returns mockk(relaxed = true)
++        every { testContext.components.analytics } returns mockk(relaxed = true)
++        every { testContext.components.backgroundServices } returns mockk(relaxed = true)
++        every { testContext.components.useCases.sessionUseCases.reload.invoke() } returns Unit
++    }
++
++    @Test
++    fun `fresh defaults expose both controls and use rejection only`() {
++        assertTrue(settings.shouldShowCookieBannerUI)
++        assertTrue(settings.shouldUseCookieBanner)
++        assertTrue(settings.shouldUseCookieBannerPrivateMode)
++        assertEquals(REJECT_ALL, settings.getCookieBannerHandling())
++        assertEquals(REJECT_ALL, settings.getCookieBannerHandlingPrivateMode())
++        val fragment = fragment()
++        assertTrue(preference(fragment, false).isVisible)
++        assertTrue(preference(fragment, true).isVisible)
++        assertTrue(preference(fragment, false).isChecked)
++        assertTrue(preference(fragment, true).isChecked)
++    }
++
++    @Test
++    fun `explicit normal and private false survive XML inflation and new Settings instances`() {
++        settings.shouldUseCookieBanner = false
++        settings.shouldUseCookieBannerPrivateMode = false
++        repeat(2) {
++            val fragment = fragment()
++            assertFalse(preference(fragment, false).isChecked)
++            assertFalse(preference(fragment, true).isChecked)
++            val reopened = Settings(testContext)
++            assertFalse(reopened.shouldUseCookieBanner)
++            assertFalse(reopened.shouldUseCookieBannerPrivateMode)
++        }
++    }
++
++    @Test
++    fun `old private key false is preserved while absent normal key takes local default`() {
++        settings.preferences.edit().putBoolean("pref_key_cookie_banner_private_mode", false).commit()
++        val fragment = fragment()
++        assertFalse(preference(fragment, true).isChecked)
++        assertTrue(preference(fragment, false).isChecked)
++        assertFalse(Settings(testContext).shouldUseCookieBannerPrivateMode)
++    }
++
++    @Test
++    fun `normal control updates only its engine mode and persists both directions`() {
++        val fragment = fragment()
++        change(fragment, false, false)
++        assertFalse(Settings(testContext).shouldUseCookieBanner)
++        assertTrue(settings.shouldUseCookieBannerPrivateMode)
++        verify { engineSettings.cookieBannerHandlingMode = DISABLED }
++        verify(exactly = 0) { engineSettings.cookieBannerHandlingModePrivateBrowsing = any() }
++        change(fragment, false, true)
++        assertTrue(Settings(testContext).shouldUseCookieBanner)
++        verify { engineSettings.cookieBannerHandlingMode = REJECT_ALL }
++    }
++
++    @Test
++    fun `private control updates only its engine mode and persists both directions`() {
++        val fragment = fragment()
++        change(fragment, true, false)
++        assertFalse(Settings(testContext).shouldUseCookieBannerPrivateMode)
++        assertTrue(settings.shouldUseCookieBanner)
++        verify { engineSettings.cookieBannerHandlingModePrivateBrowsing = DISABLED }
++        verify(exactly = 0) { engineSettings.cookieBannerHandlingMode = any() }
++        change(fragment, true, true)
++        assertTrue(Settings(testContext).shouldUseCookieBannerPrivateMode)
++        verify { engineSettings.cookieBannerHandlingModePrivateBrowsing = REJECT_ALL }
++    }
++
++    private fun fragment(): SettingsFragment {
++        val activity = Robolectric.buildActivity(FragmentActivity::class.java).create().get()
++        return SettingsFragment().also {
++            activity.supportFragmentManager.beginTransaction().add(it, "cookie-banner-settings").commitNow()
++            it.setupCookieBannerPreference(settings)
++        }
++    }
++
++    private fun preference(fragment: SettingsFragment, privateMode: Boolean): SwitchPreferenceCompat {
++        val key = if (privateMode) R.string.pref_key_cookie_banner_private_mode else R.string.pref_key_cookie_banner_normal_mode
++        return requireNotNull(fragment.findPreference(testContext.getPreferenceKey(key)))
++    }
++
++    private fun change(fragment: SettingsFragment, privateMode: Boolean, enabled: Boolean) {
++        val preference = preference(fragment, privateMode)
++        assertTrue(preference.callChangeListener(enabled))
++        preference.isChecked = enabled
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteControllerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteControllerTest.kt
+new file mode 100644
+index 0000000..3919d27
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteControllerTest.kt
+@@ -0,0 +1,186 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.cookiebannerhandling
++
++import io.mockk.coEvery
++import io.mockk.coVerify
++import io.mockk.mockk
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.async
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.runTest
++import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode
++import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode.DISABLED
++import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode.REJECT_ALL
++import mozilla.components.concept.engine.EngineSession.CookieBannerHandlingMode.REJECT_OR_ACCEPT_ALL
++import mozilla.components.concept.engine.cookiehandling.CookieBannersStorage
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++@OptIn(ExperimentalCoroutinesApi::class)
++class CookieBannerSiteControllerTest {
++    private val storage = mockk<CookieBannersStorage>()
++    private var current = true
++    private var global = true
++    private var reloads = 0
++    private var mode: CookieBannerHandlingMode? = REJECT_ALL
++
++    private fun controller(privateMode: Boolean = false): CookieBannerSiteController {
++        coEvery { storage.findExceptionFor(URL, privateMode) } answers { mode }
++        coEvery { storage.addException(URL, privateMode) } answers { mode = DISABLED }
++        coEvery { storage.removeException(URL, privateMode) } answers { mode = REJECT_ALL }
++        return CookieBannerSiteController(URL, privateMode, storage, { current }, { global }, { reloads++ })
++    }
++
++    @Test
++    fun `normal off and reset change only the normal domain exception`() = runTest {
++        val controller = controller()
++        assertTrue(controller.read()!!)
++        assertFalse(controller.setEnabled(false)!!)
++        assertTrue(controller.reset()!!)
++        assertEquals(2, reloads)
++        coVerify(exactly = 1) { storage.addException(URL, false) }
++        coVerify(exactly = 1) { storage.removeException(URL, false) }
++        coVerify(exactly = 0) { storage.addException(any(), true) }
++        coVerify(exactly = 0) { storage.addPersistentExceptionInPrivateMode(any()) }
++    }
++
++    @Test
++    fun `private choices never use normal or permanent private storage`() = runTest {
++        val controller = controller(true)
++        assertFalse(controller.setEnabled(false)!!)
++        assertTrue(controller.setEnabled(true)!!)
++        coVerify(exactly = 1) { storage.addException(URL, true) }
++        coVerify(exactly = 1) { storage.removeException(URL, true) }
++        coVerify(exactly = 0) { storage.addException(any(), false) }
++        coVerify(exactly = 0) { storage.addPersistentExceptionInPrivateMode(any()) }
++    }
++
++    @Test
++    fun `global off preserves stored domain exceptions`() = runTest {
++        val controller = controller()
++        global = false
++        mode = DISABLED
++        assertNull(controller.read())
++        assertFailure { controller.reset() }
++        assertFailure { controller.setEnabled(false) }
++        coVerify(exactly = 0) { storage.findExceptionFor(any(), any()) }
++        coVerify(exactly = 0) { storage.removeException(any(), any()) }
++        coVerify(exactly = 0) { storage.addException(any(), any()) }
++        global = true
++        assertFalse(controller.read()!!)
++    }
++
++    @Test
++    fun `write failure propagates without reload or success`() = runTest {
++        val controller = controller()
++        coEvery { storage.addException(URL, false) } throws IllegalStateException("disk unavailable")
++        assertFailure { controller.setEnabled(false) }
++        assertEquals(0, reloads)
++        assertTrue(controller.read()!!)
++    }
++
++    @Test
++    fun `unacknowledged write does not report success or reload`() = runTest {
++        val controller = controller()
++        val write = CompletableDeferred<Unit>()
++        coEvery { storage.addException(URL, false) } coAnswers { write.await(); mode = DISABLED }
++        val result = async { controller.setEnabled(false) }
++        runCurrent()
++        assertFalse(result.isCompleted)
++        assertEquals(0, reloads)
++        write.complete(Unit)
++        assertFalse(result.await()!!)
++        assertEquals(1, reloads)
++    }
++
++    @Test
++    fun `cancelled wait cannot cause a late reload`() = runTest {
++        val controller = controller()
++        val write = CompletableDeferred<Unit>()
++        coEvery { storage.addException(URL, false) } coAnswers { write.await(); mode = DISABLED }
++        val result = async { controller.setEnabled(false) }
++        runCurrent()
++        result.cancel()
++        runCurrent()
++        write.complete(Unit)
++        runCurrent()
++        assertTrue(result.isCancelled)
++        assertEquals(0, reloads)
++        assertTrue(controller.read()!!)
++    }
++
++    @Test
++    fun `closed or changed tab rejects writes before storage`() = runTest {
++        val controller = controller()
++        current = false
++        assertFailure { controller.setEnabled(false) }
++        coVerify(exactly = 0) { storage.addException(any(), any()) }
++        assertEquals(0, reloads)
++    }
++
++    @Test
++    fun `navigation while waiting does not reload the new page`() = runTest {
++        val controller = controller()
++        coEvery { storage.addException(URL, false) } answers { mode = DISABLED; current = false }
++        assertFailure { controller.setEnabled(false) }
++        assertEquals(0, reloads)
++    }
++
++    @Test
++    fun `lost read acknowledgment cannot report a successful write`() = runTest {
++        val controller = controller()
++        coEvery { storage.findExceptionFor(URL, false) } throws IllegalStateException("read failure")
++        assertFailure { controller.setEnabled(false) }
++        assertEquals(0, reloads)
++    }
++
++    @Test
++    fun `unexpected accept mode and unavailable domain fail closed`() = runTest {
++        val controller = controller()
++        mode = REJECT_OR_ACCEPT_ALL
++        assertFailure { controller.read() }
++        mode = null
++        assertFailure { controller.read() }
++    }
++
++    @Test
++    fun `write that does not change effective state fails`() = runTest {
++        val controller = controller()
++        coEvery { storage.addException(URL, false) } returns Unit
++        assertFailure { controller.setEnabled(false) }
++        assertEquals(0, reloads)
++    }
++
++    @Test
++    fun `concurrent off and reset serialize acknowledged writes`() = runTest {
++        val controller = controller()
++        val write = CompletableDeferred<Unit>()
++        coEvery { storage.addException(URL, false) } coAnswers { write.await(); mode = DISABLED }
++        val off = async { controller.setEnabled(false) }
++        runCurrent()
++        val reset = async { controller.reset() }
++        runCurrent()
++        coVerify(exactly = 0) { storage.removeException(any(), any()) }
++        write.complete(Unit)
++        assertFalse(off.await()!!)
++        assertTrue(reset.await()!!)
++        assertEquals(2, reloads)
++    }
++
++    private suspend fun assertFailure(action: suspend () -> Any?) {
++        var failed = false
++        try { action() } catch (_: IllegalStateException) { failed = true }
++        assertTrue("The operation must fail", failed)
++    }
++
++    private companion object {
++        const val URL = "https://sub.example.org/path"
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/ProtectionsViewTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/ProtectionsViewTest.kt
+index 139bf48..efcfd1a 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/ProtectionsViewTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/ProtectionsViewTest.kt
+@@ -157,6 +157,27 @@ class ProtectionsViewTest {
+         assertFalse(binding.cookieBannerItem.isVisible)
+     }
+ 
++    @Test
++    fun `shared domain controls replace the old row in normal and private browsing`() {
++        every { settings.shouldShowCookieBannerUI } returns true
++        every { settings.shouldUseCookieBannerPrivateMode } returns true
++        listOf(false, true).forEach { privateMode ->
++            val tab = createTab(url = "https://mozilla.org", private = privateMode)
++            view.update(
++                ProtectionsState(
++                    tab = tab,
++                    url = tab.content.url,
++                    isTrackingProtectionEnabled = true,
++                    cookieBannerUIMode = CookieBannerUIMode.ENABLE,
++                    listTrackers = listOf(),
++                    mode = ProtectionsState.Mode.Normal,
++                    lastAccessedCategory = "",
++                ),
++            )
++            assertFalse(binding.cookieBannerItem.isVisible)
++        }
++    }
++
+     @Test
+     fun `WHEN updateDetailsSection is called THEN update the visibility of the section`() {
+         every { settings.shouldUseTrackingProtection } returns false
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt
+index 53b926e..5cd8d73 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt
+@@ -10,7 +10,6 @@ import androidx.navigation.NavController
+ import androidx.navigation.NavDirections
+ import io.mockk.MockKAnnotations
+ import io.mockk.coEvery
+-import io.mockk.coJustRun
+ import io.mockk.coVerifyOrder
+ import io.mockk.every
+ import io.mockk.impl.annotations.RelaxedMockK
+@@ -112,7 +111,6 @@ internal class DefaultCookieBannerDetailsControllerTest {
+                 sessionId = tab.id,
+                 browserStore = browserStore,
+                 protectionsStore = protectionsStore,
+-                engine = engine,
+                 publicSuffixList = publicSuffixList,
+                 reload = reload,
+                 ioDispatcher = testDispatcher,
+@@ -179,14 +177,12 @@ internal class DefaultCookieBannerDetailsControllerTest {
+ 
+             assertNull(CookieBanners.exceptionRemoved.testGetValue())
+             every { protectionsStore.dispatch(any()) } returns mockk()
+-            coJustRun { controller.clearSiteData(any()) }
+ 
+             controller.handleTogglePressed(false)
+ 
+             testScheduler.advanceUntilIdle()
+ 
+             coVerifyOrder {
+-                controller.clearSiteData(tab)
+                 cookieBannersStorage.addException(
+                     uri = tab.content.url,
+                     privateBrowsing = tab.content.private,
+@@ -200,24 +196,7 @@ internal class DefaultCookieBannerDetailsControllerTest {
+             }
+ 
+             assertNotNull(CookieBanners.exceptionAdded.testGetValue())
+-        }
+-
+-    @Test
+-    fun `WHEN clearSiteData THEN delegate the call to the engine`() =
+-        runTest(testDispatcher) {
+-            coEvery { publicSuffixList.getPublicSuffixPlusOne(any()) } returns CompletableDeferred("mozilla.org")
+-
+-            controller.clearSiteData(tab)
+-
+-            coVerifyOrder {
+-                engine.clearData(
+-                    host = "mozilla.org",
+-                    data = Engine.BrowsingData.select(
+-                        Engine.BrowsingData.AUTH_SESSIONS,
+-                        Engine.BrowsingData.ALL_SITE_DATA,
+-                    ),
+-                )
+-            }
++            verify { engine wasNot Called }
+         }
+ 
+     @Test
+diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+index 90e5b99..75a4948 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+@@ -299,6 +299,7 @@ export const GeckoViewStorageController = {
+           }
+           aCallback.onSuccess();
+         } catch (ex) {
++          aCallback.onError(`Unexpected error: ${ex}`);
+           debug`Failed ${exceptionLabel} ${ex}`;
+         }
+         break;
+@@ -310,6 +311,7 @@ export const GeckoViewStorageController = {
+           Services.cookieBanners.removeDomainPref(uri, aData.isPrivateBrowsing);
+           aCallback.onSuccess();
+         } catch (ex) {
++          aCallback.onError(`Unexpected error: ${ex}`);
+           debug`Failed RemoveCookieBannerModeForDomain ${ex}`;
+         }
+         break;
