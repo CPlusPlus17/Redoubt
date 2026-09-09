@@ -1207,21 +1207,18 @@ index d582df8..adb8007 100644
          StartupTimeline.onActivityCreateEndHome(this) // DO NOT MOVE ANYTHING BELOW HERE.
      }
  
-@@ -976,9 +997,14 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -976,6 +997,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
  
      @VisibleForTesting
      internal fun handleNewIntent(intent: Intent) {
-         if (this is ExternalAppBrowserActivity) {
-             return
-         }
 +        if (intent.getBooleanExtra(AccountServicesPreference.OPEN_SETTINGS, false)) {
 +            intent.removeExtra(AccountServicesPreference.OPEN_SETTINGS)
 +            navHost.navController.navigate(NavGraphDirections.actionGlobalSettingsFragment())
 +            return
 +        }
-
-         if (intent.action == SEND_TO_DEVICES_ACTION) {
-             val url = intent.getStringExtra(SendToDevicesDialogFragment.EXTRA_URL) ?: return
+         if (this is ExternalAppBrowserActivity) {
+             return
+         }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
 index 4fac9b3..5c0f352 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
@@ -1968,94 +1965,5 @@ index 0000000..a66b570
 +        every { context.packageManager } returns packageManager
 +        every { packageManager.getLaunchIntentForPackage(any()) } returns null
 +        assertNull(AccountServicesPreference.restartIntent(context))
-+    }
-+}
-diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityAccountSettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityAccountSettingsTest.kt
-new file mode 100644
---- /dev/null
-+++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityAccountSettingsTest.kt
-@@ -0,0 +1,84 @@
-+/* This Source Code Form is subject to the terms of the Mozilla Public
-+ * License, v. 2.0. If a copy of the MPL was not distributed with this
-+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-+
-+package org.mozilla.fenix
-+
-+import android.content.Intent
-+import androidx.fragment.app.FragmentManager
-+import androidx.navigation.NavController
-+import androidx.navigation.fragment.NavHostFragment
-+import io.mockk.Called
-+import io.mockk.every
-+import io.mockk.mockk
-+import io.mockk.spyk
-+import io.mockk.verify
-+import org.junit.Assert.assertFalse
-+import org.junit.Assert.assertTrue
-+import org.junit.Test
-+import org.junit.runner.RunWith
-+import org.mozilla.fenix.components.share.SEND_TO_DEVICES_ACTION
-+import org.mozilla.fenix.customtabs.ExternalAppBrowserActivity
-+import org.mozilla.fenix.settings.AccountServicesPreference
-+import org.mozilla.fenix.settings.account.AuthCustomTabActivity
-+import org.robolectric.RobolectricTestRunner
-+
-+@RunWith(RobolectricTestRunner::class)
-+class HomeActivityAccountSettingsTest {
-+    @Test
-+    fun `normal activity consumes account settings request and opens settings`() {
-+        val activity = spyk(HomeActivity())
-+        val navController = mockk<NavController>(relaxed = true)
-+        val navHost = mockk<NavHostFragment>()
-+        val fragments = mockk<FragmentManager>()
-+        every { navHost.navController } returns navController
-+        every { fragments.findFragmentById(R.id.container) } returns navHost
-+        every { activity.supportFragmentManager } returns fragments
-+        val intent = Intent().putExtra(AccountServicesPreference.OPEN_SETTINGS, true)
-+
-+        activity.handleNewIntent(intent)
-+
-+        verify(exactly = 1) {
-+            navController.navigate(NavGraphDirections.actionGlobalSettingsFragment())
-+        }
-+        assertFalse(intent.hasExtra(AccountServicesPreference.OPEN_SETTINGS))
-+    }
-+
-+    @Test
-+    fun `normal activity does not consume false account settings flag`() {
-+        val activity = spyk(HomeActivity())
-+        val fragments = mockk<FragmentManager>()
-+        every { activity.supportFragmentManager } returns fragments
-+        // A send-to-devices request without a URL takes the existing early return.
-+        val intent = Intent(SEND_TO_DEVICES_ACTION)
-+            .putExtra(AccountServicesPreference.OPEN_SETTINGS, false)
-+
-+        activity.handleNewIntent(intent)
-+
-+        assertTrue(intent.hasExtra(AccountServicesPreference.OPEN_SETTINGS))
-+        assertFalse(intent.getBooleanExtra(AccountServicesPreference.OPEN_SETTINGS, true))
-+        verify { fragments wasNot Called }
-+    }
-+
-+    @Test
-+    fun `external custom tab ignores even a true account settings flag`() {
-+        assertCustomTabIgnoresSettingsRequest(spyk(ExternalAppBrowserActivity()))
-+    }
-+
-+    @Test
-+    fun `auth custom tab ignores even a true account settings flag`() {
-+        assertCustomTabIgnoresSettingsRequest(spyk(AuthCustomTabActivity()))
-+    }
-+
-+    private fun assertCustomTabIgnoresSettingsRequest(activity: HomeActivity) {
-+        val intent = mockk<Intent>()
-+        every { intent.getBooleanExtra(AccountServicesPreference.OPEN_SETTINGS, false) } returns true
-+        val fragments = mockk<FragmentManager>()
-+        every { activity.supportFragmentManager } returns fragments
-+
-+        activity.handleNewIntent(intent)
-+
-+        verify { intent wasNot Called }
-+        verify { fragments wasNot Called }
 +    }
 +}

@@ -1,0 +1,105 @@
+{
+  "status": "SOURCE CANDIDATE; corrected target compilation/tests and APK build/runtime pending",
+  "repository_base": "6e7736f29b1de745078288316eaf40e59d2732b2",
+  "metadata_commit": "871a333",
+  "observed_invocation": "1c9c192370c140e2b3f711828d8f4de1",
+  "observed_root_capture_archive_sha256": "9538161039d56e9ba0e452d955d4dcbc36988ba1ed965484e63cad09015b4fc8",
+  "observed_source_manifest_sha256": "659bf836ec885425b596bf077236190e8df30b2285df625ff3988c5dc93129b6",
+  "observed_compiled_APK_source_manifest_sha256": "c53736e87152ba6de7ae232efd0a26197601027e4553be3f5f4bd7e6045601ae",
+  "observed_full_gate": "FAIL full Fenix gate:609 classes/5517 tests,30 failures=18 environmental+3 known-real+9 unexpected; all146 component cases pass. Runtime did not run.",
+  "observed_fenix_xml_archive_sha256": "92867cf710221ec476da3768a68b9e76d52aa9151ca3e3cc218d649f5744010a",
+  "observed_target_log_sha256": "cfe6b07c39787d7086ed06d3930cf4047bd502f0a64ad29c0284d3e3d8a9061a",
+  "observed_target_inputs_archive_sha256": "6c6107616f7fdbbf0aea8a1b64e0f4aab207f095b9de2059057c776945703b71",
+  "observed_target_members": {
+    "source/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt": {
+      "sha256": "e8718516de7b4a2f2ac1424e436c4126f0a8b24dc546f94af30b616ede0c9f07",
+      "bytes": 72429
+    },
+    "source/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/customtabs/ExternalAppBrowserActivity.kt": {
+      "sha256": "12fc97a4b4555377e688d64015af67af018c7c5c1040a01b38774a8214536619",
+      "bytes": 3670
+    },
+    "source/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/AuthCustomTabActivity.kt": {
+      "sha256": "0ffe42eb1ec6844db22a195431c015347c28b397ca1e8ae7b8afc153533d7338",
+      "bytes": 2653
+    },
+    "source/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityTest.kt": {
+      "sha256": "8c72070ed6b65dcd9abdb746d9c1c5f844c873fcbaee337e242bd61a5fae2d62",
+      "bytes": 15203
+    },
+    "source/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/customtabs/ExternalAppBrowserActivityTest.kt": {
+      "sha256": "92e521725b3bd5a656cec42180411c65d4eba362eea994d9364119ab49e71130",
+      "bytes": 9273
+    },
+    "source/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/account/AuthCustomTabActivityTest.kt": {
+      "sha256": "63a731325d047298f9e984949fa44bf61cb5002edfd6009316b36266a0243d36",
+      "bytes": 1876
+    },
+    "target-tests/compiled-apk-source-sha256.txt": {
+      "sha256": "c53736e87152ba6de7ae232efd0a26197601027e4553be3f5f4bd7e6045601ae",
+      "bytes": 26465
+    },
+    "target-tests/fenix-gate.txt": {
+      "sha256": "7e7a4f2980e9568db85d0f8b4113b2a21dccae82c036417ec0bd9d84f725bd35",
+      "bytes": 1474
+    },
+    "target-tests/source-sha256.txt": {
+      "sha256": "659bf836ec885425b596bf077236190e8df30b2285df625ff3988c5dc93129b6",
+      "bytes": 26465
+    },
+    "xml/TEST-org.mozilla.fenix.customtabs.ExternalAppBrowserActivityTest.xml": {
+      "sha256": "a461a98a85df8c471e66133d6177eb256a067ba1e12fb01ba7b7e29fd0888464",
+      "bytes": 23060
+    },
+    "xml/TEST-org.mozilla.fenix.settings.account.AuthCustomTabActivityTest.xml": {
+      "sha256": "f398b8b676cbb5ce8bb855940fa0df94ab85ccb3fbe6e5247dbb0436a18ce51c",
+      "bytes": 9417
+    }
+  },
+  "actual_failure_identities": [
+    {
+      "class": "org.mozilla.fenix.customtabs.ExternalAppBrowserActivityTest",
+      "method": "handleNewIntent does nothing for external app browser activity",
+      "xml_member": "xml/TEST-org.mozilla.fenix.customtabs.ExternalAppBrowserActivityTest.xml",
+      "failure": "java.lang.AssertionError: Verification failed: Intent(#52) should not be called:\nIntent(#52).getBooleanExtra(org.mozilla.fenix.OPEN_ACCOUNT_SERVICES_SETTINGS, false)"
+    },
+    {
+      "class": "org.mozilla.fenix.settings.account.AuthCustomTabActivityTest",
+      "method": "handleNewIntent does nothing for AuthCustomTabActivity",
+      "xml_member": "xml/TEST-org.mozilla.fenix.settings.account.AuthCustomTabActivityTest.xml",
+      "failure": "java.lang.AssertionError: Verification failed: Intent(#6920) should not be called:\nIntent(#6920).getBooleanExtra(org.mozilla.fenix.OPEN_ACCOUNT_SERVICES_SETTINGS, false)"
+    }
+  ],
+  "original_tests": "Both custom-tab test files retain exact target/frozen bytes; no assertion changes",
+  "source_changes": {
+    "classification": "production activity routing correction plus four new test definitions; target UNRUN",
+    "patch_sha256": "9f1c58c66ab5b5a5cddadf89cda27f3fd80da2c4f1305433fe292dcdf03c438c",
+    "previous_patch_sha256": "d9ebe5357d87dbce37558f367542462b003e8a43faa949c9aba97bb2a1302fab",
+    "files": [
+      {
+        "path": "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",
+        "before_sha256": "e8718516de7b4a2f2ac1424e436c4126f0a8b24dc546f94af30b616ede0c9f07",
+        "after_sha256": "eb64252d49a5679bdd0c8acdb5a7024a8edc4f7d8a3b35472243227fc4069f74"
+      },
+      {
+        "path": "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityAccountSettingsTest.kt",
+        "before_sha256": null,
+        "after_sha256": "bacc852ccc5eb97bbdf22200f4cc0535b5fc6acabee71aae0c30787939b766c2"
+      }
+    ]
+  },
+  "new_unit_tests": 4,
+  "all_task_source_files": 24,
+  "all_task_authored_tests": 32,
+  "verification": "8 scoped predecessors and 24 final sources replayed with exact hashes; target tests NOT EXECUTED",
+  "required_target_classes": [
+    "org.mozilla.fenix.HomeActivityAccountSettingsTest",
+    "org.mozilla.fenix.HomeActivityTest",
+    "org.mozilla.fenix.customtabs.ExternalAppBrowserActivityTest",
+    "org.mozilla.fenix.settings.account.AuthCustomTabActivityTest"
+  ],
+  "required_target_gates": [
+    "fresh full Fenix suite through unchanged allowlist",
+    "APK rebuild and runtime against corrected HomeActivity; previous compiled APK does not contain this production fix"
+  ]
+}
