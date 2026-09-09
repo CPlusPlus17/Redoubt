@@ -31,6 +31,15 @@ The corrected full Fenix suite and a new APK build/runtime remain required:
 this followup changes production `HomeActivity`, so the old compiled APK cannot
 prove its behavior. No allowlist or existing test expectation changed.
 
+[The patch-format followup](customtab-patch-format-correction/receipt.json)
+preserves those exact source outputs and the original source overlay. GNU patch
+requires the blank context marker and balanced three-line context around the
+moved block; Git accepted the earlier asymmetric hunk. Both engines now replay
+all 24 final hashes unchanged, with GNU fuzz and offsets both zero. The required
+single-space context line is intentional patch syntax, not source whitespace.
+The earlier custom-tab correction's checksums/patch digest remain historical;
+use the format followup's current receipt/checksums for the current patch bytes.
+
 The earlier [Boolean fixture receipt](boolean-matcher-correction/receipt.json)
 and original 23-file/28-definition source evidence remain historical and intact.
 

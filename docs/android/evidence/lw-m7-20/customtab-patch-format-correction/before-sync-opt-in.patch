@@ -1207,7 +1207,10 @@ index d582df8..adb8007 100644
          StartupTimeline.onActivityCreateEndHome(this) // DO NOT MOVE ANYTHING BELOW HERE.
      }
  
-@@ -979,6 +1000,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -976,9 +997,14 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+ 
+     @VisibleForTesting
+     internal fun handleNewIntent(intent: Intent) {
          if (this is ExternalAppBrowserActivity) {
              return
          }
@@ -1216,7 +1219,7 @@ index d582df8..adb8007 100644
 +            navHost.navController.navigate(NavGraphDirections.actionGlobalSettingsFragment())
 +            return
 +        }
- 
+
          if (intent.action == SEND_TO_DEVICES_ACTION) {
              val url = intent.getStringExtra(SendToDevicesDialogFragment.EXTRA_URL) ?: return
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
