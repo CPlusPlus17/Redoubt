@@ -4538,3 +4538,41 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: A hidden master flag or eager Merino client can perform work while visible suggestion controls are off.
+
+  - id: LW-M7-28
+    title: Exercise durable add-on choices through actual Fenix controls
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-19, LW-M7-18]
+    owns:
+      - scripts/android-addon-state-smoke.py
+      - docs/android/evidence/lw-m7-28/
+    reads:
+      - scripts/android-graphics-smoke.py
+      - scripts/android-smoke.sh
+      - patches/android/addon-state-durability.patch
+      - docs/android/evidence/lw-m7-19/
+      - patches/android/ubo-preinstall.patch
+    what: |
+      Add a standalone installed-release runner using actual Fenix add-on enable,
+      disable, private permission and removal controls. Observe registry, policies
+      and live listeners read-only alongside independent parser-served blocked and
+      allowed resource requests. Force-stop immediately after the UI acknowledges
+      a choice, restart and check the first navigation. Keep removal last and
+      preserve incoherent state as evidence. Bind the exact APK and packaged uBO
+      filter source, reject missing/stale/partial evidence, and never install,
+      wipe, change preferences or mutate AddonManager through the harness. Audit
+      the actual update route and document a reproducible signed older-to-newer
+      case; keep full acceptance pending when signed fixtures are unavailable.
+      Root owns real devices, guest builds and target integration.
+    acceptance:
+      - "actual UI acknowledgments precede immediate process restart and first-navigation checks"
+      - "registry, live policy/listeners and parser-origin blocked/allowed requests agree for enable, disable and private permission"
+      - "confirmed removal remains absent after restart without reinstall or state repair"
+      - "a verified signed older-to-newer update preserves its real UI choice or remains explicitly pending"
+      - "wrong APK, missing UI acknowledgment, stale document and missing parser/network evidence cannot pass"
+    verify: "python3 docs/android/evidence/lw-m7-28/test-addon-state-smoke.py && python3 docs/android/board.py --check"
+    effort_h: "8-14"
+    skills: [python, android, js]
+    agent_safe: yes
+    isolation: worktree
+    risk: An acknowledged registry change can conceal a stale startup cache or active blocking listener after process death.
