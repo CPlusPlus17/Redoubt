@@ -75,6 +75,17 @@ def foundation(path=None):
     return module
 
 
+def window_handles(marionette):
+    # GetWindowHandles is explicitly a no-value-wrapper command in Marionette's
+    # server. ExecuteScript uses a value wrapper; do not change the shared codec.
+    handles = marionette.cmd("WebDriver:GetWindowHandles")
+    require(isinstance(handles, list)
+            and all(isinstance(handle, str) and handle for handle in handles)
+            and len(set(handles)) == len(handles),
+            "Marionette returned invalid window handles: " + repr(handles))
+    return handles
+
+
 def canonical_origin(value):
     try:
         uri = urllib.parse.urlsplit(value)
@@ -720,7 +731,7 @@ class Runner:
         deadline, last = time.monotonic() + timeout, None
         while time.monotonic() < deadline:
             try:
-                handles = self.marionette.cmd("WebDriver:GetWindowHandles").get("value", [])
+                handles = window_handles(self.marionette)
                 found = []
                 for handle in handles:
                     self.marionette.cmd("WebDriver:SwitchToWindow", {"handle": handle, "focus": False})
@@ -982,7 +993,7 @@ class Runner:
             try:
                 # The old current window was closed. Attach to a remaining normal
                 # window before reading global private-window/permission state.
-                handles = self.marionette.cmd("WebDriver:GetWindowHandles").get("value", [])
+                handles = window_handles(self.marionette)
                 if handles:
                     self.marionette.cmd("WebDriver:SwitchToWindow", {"handle": handles[0], "focus": False})
                     if self.marionette.script(PRIVATE_WINDOWS_JS, chrome=True) == 0:

@@ -2729,7 +2729,13 @@ def wait_for_initial_document(m, url):
         try:
             last = m.script('return {url: location.href, uri: document.documentURI, '
                             'ready: document.readyState};')
-            if last.get("url") == url and last.get("uri") == url and last.get("ready") == "complete":
+            # Marionette's actor proxy returns null for executeScript when its
+            # actor is destroyed or inactive. Only this read-only readiness
+            # observation may retry; null never proves that navigation finished.
+            if last is not None and not isinstance(last, dict):
+                raise HarnessError("initial browser document returned an invalid snapshot: %r" % last)
+            if (isinstance(last, dict) and last.get("url") == url
+                    and last.get("uri") == url and last.get("ready") == "complete"):
                 return last
         except MarionetteError as e:
             if "javascript error: Document was unloaded" not in str(e):
