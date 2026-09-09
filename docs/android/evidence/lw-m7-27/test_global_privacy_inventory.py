@@ -20,8 +20,8 @@ class GlobalPrivacyInventory(unittest.TestCase):
         self.assertEqual(current['instrumentation'][:len(before['instrumentation'])], before['instrumentation'])
         self.assertEqual(current['shutdown_instrumentation'], before['shutdown_instrumentation'])
         self.assertEqual(current['pending_xpcshell'], before['pending_xpcshell'])
-        self.assertEqual(sum(len(s['tasks']) for s in current['xpcshell']), 64)
-        self.assertEqual(len(current['instrumentation']), 20)
+        self.assertEqual(sum(len(s['tasks']) for s in current['xpcshell']), 73)
+        self.assertEqual(len(current['instrumentation']), 25)
         self.assertEqual(len(current['shutdown_instrumentation']['expected_methods']), 1)
 
     def test_five_named_native_tasks_require_completion_and_retain_injected_scope(self):
@@ -65,10 +65,10 @@ class GlobalPrivacyInventory(unittest.TestCase):
             for change in ['hash', 'scope', 'method', 'source', 'task']:
                 req = copy.deepcopy(original)
                 if change == 'hash': req['task36_inventory_sha256'] = '0' * 64
-                elif change == 'scope': req['xpcshell'][-1]['execution_scope'] = 'Real disk durability PASS'
+                elif change == 'scope': next(s for s in req['xpcshell'] if s['path'] == inventory['xpcshell_method_sets'][0]['source'])['execution_scope'] = 'Real disk durability PASS'
                 elif change == 'method': req['instrumentation'].remove(inventory['regular_instrumentation_methods'][0])
                 elif change == 'source': req['product_paths'].remove(inventory['extra_required_source_paths'][0])
-                else: req['xpcshell'][-1]['tasks'].pop()
+                else: next(s for s in req['xpcshell'] if s['path'] == inventory['xpcshell_method_sets'][0]['source'])['tasks'].pop()
                 path.write_text(json.dumps(req))
                 with self.subTest(change=change), mock.patch.object(driver, 'REQUIREMENTS', path), self.assertRaises(InvalidResult):
                     driver.reviewed_requirements()
@@ -93,7 +93,7 @@ class GlobalPrivacyInventory(unittest.TestCase):
         product = read('composed-product-source-sha256.txt')
         extra = read('native-test-extra-source-sha256.txt')
         native = read('proposed-native-test-source-sha256.txt')
-        self.assertEqual(len(product), 230)
+        self.assertEqual(len(product), json.loads((driver.HERE / 'cleanup-composition-comparison.json').read_text())['product_union_count'])
         self.assertEqual(len(extra), 4)
         self.assertFalse(product.keys() & extra.keys())
         self.assertEqual(native, dict(product, **extra))
@@ -115,19 +115,19 @@ class GlobalPrivacyInventory(unittest.TestCase):
     def test_five_fixture_rows_are_only_changes_and_all_selections_stay_identical(self):
         read = lambda name: {line[66:]: line[:64] for line in (driver.HERE / name).read_text().splitlines()}
         before = read('pre-fixture/proposed-native-test-source-sha256.txt')
-        after = read('proposed-native-test-source-sha256.txt')
+        after = read('pre-cleanup/proposed-native-test-source-sha256.txt')
         overlay = json.loads((driver.HERE / 'fixture-source-overlays.json').read_text())
         self.assertEqual(before.keys(), after.keys())
         self.assertEqual({name for name in before if before[name] != after[name]},
                          {row['path'] for row in overlay['files']})
-        pins = json.loads(driver.HARNESS.read_text())['files']
+        pins = json.loads((driver.HERE / 'pre-cleanup/harness-sources.json').read_text())['files']
         self.assertEqual(len(pins), 82)
         for row in overlay['files']:
             self.assertEqual(before[row['path']], row['before_sha256'])
             self.assertEqual(after[row['path']], row['after_sha256'])
             self.assertEqual(pins[row['path']], row['after_sha256'])
         old = json.loads((driver.HERE / 'pre-fixture/requirements.json').read_text())
-        current = driver.reviewed_requirements()
+        current = json.loads((driver.HERE / 'pre-cleanup/requirements.json').read_text())
         for key in ['xpcshell', 'instrumentation', 'shutdown_instrumentation', 'pending_xpcshell']:
             self.assertEqual(current[key], old[key])
 

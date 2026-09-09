@@ -1,0 +1,66 @@
+{
+  "status": "TARGET UNRUN; actual source-derived native primitives only; full cleanup coordinator pending",
+  "source_receipt_file": "task37-source-receipt.json",
+  "source_receipt_sha256": "79064d528a8a9bc383d080b5ba7883376c2b43755e8dd574e292c431643726f5",
+  "patch_sha256": "d2756b4f5fe27adef63114a78ae7338ffbc13d0da60933ac03636b39721c5248",
+  "xpcshell_method_sets": [
+    {
+      "source": "netwerk/cookie/test/unit/test_cookie_session_cleanup.js",
+      "sha256": "7164063c43c9a8bb4384bfce3effad35a260516a716909861fba7c70e33dcf39",
+      "named_tests": [
+        "exact_scopes_preserve_attributes_and_stable_ids",
+        "invalid_ids_and_busy_or_stale_tokens_never_mutate",
+        "manager_http_and_reentrant_observer_writes_are_refused",
+        "ambient_transactions_cannot_claim_cleanup_completion",
+        "failed_delete_batch_rolls_back_and_retry_keeps_retained_data",
+        "disk_only_scope_is_enumerated_and_removed",
+        "invalid_database_attributes_reject_instead_of_default_jar_selection",
+        "closing_storage_invalidates_an_already_queued_completion",
+        "private_teardown_invalidates_inflight_selection"
+      ],
+      "execution_scope": "Real parent cookie service with an isolated xpcshell profile and manifest network.cookie.noPersistentStorage=false; actual SQLite trigger failure/rollback/retry, disk-only rows and native private teardown. No native callbacks mocked. Does not establish power-loss fsync, nonpersistent profiles, all-writer fencing or full-session cleanup."
+    }
+  ],
+  "regular_instrumentation_methods": [
+    "org.mozilla.geckoview.test.SessionCleanupTest#remoteCloseWaitsForNativeDestructionAndSharesRepeatedCompletion",
+    "org.mozilla.geckoview.test.SessionCleanupTest#closingOneFrameDoesNotReportReplacementFrameDestroyed",
+    "org.mozilla.geckoview.test.SessionCleanupTest#crashedChildCompletesItsOwnFrameBoundary",
+    "org.mozilla.geckoview.test.SessionCleanupTest#inProcessUnloadPrecedesCompletion",
+    "org.mozilla.geckoview.test.SessionCleanupTest#firstPromiseCanBeCreatedAfterOwnerDetachment"
+  ],
+  "instrumentation_scope": "Real test GeckoRuntime FrameLoader completion, distinct live frame identity, remote close/crash and in-process unload cookie write. Crash assumes upstream supported process modes; skips are unmet coverage. No all-worker/network/cache or session-journal completion claim.",
+  "extra_required_source_paths": [
+    "dom/base/nsFrameLoader.cpp",
+    "dom/base/nsFrameLoader.h",
+    "dom/chrome-webidl/FrameLoader.webidl",
+    "netwerk/cookie/nsICookieManager.idl",
+    "netwerk/cookie/CookieService.h",
+    "netwerk/cookie/CookieService.cpp",
+    "netwerk/cookie/CookiePersistentStorage.h",
+    "netwerk/cookie/CookiePersistentStorage.cpp",
+    "netwerk/cookie/CookieStorage.h",
+    "netwerk/cookie/CookieStorage.cpp",
+    "netwerk/cookie/test/unit/test_cookie_session_cleanup.js",
+    "netwerk/cookie/test/unit/xpcshell.toml",
+    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/SessionCleanupTest.kt",
+    "mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js",
+    "mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json"
+  ],
+  "required_source_hashes": {
+    "dom/base/nsFrameLoader.cpp": "344bb4a305c3f071dd5b5e3c21c8fc8cd27e0be083546226a94cb883172bc171",
+    "dom/base/nsFrameLoader.h": "8b3adf02d303e8218814b5dfbf27ebb2233bcb7a6d15883a392c68813ee47c20",
+    "dom/chrome-webidl/FrameLoader.webidl": "1af957c2537ea9b7d09980b21a76630741df46ec6c71e2f5cd476b5334369008",
+    "netwerk/cookie/nsICookieManager.idl": "d69d8b8fc14e7a0e328075b02c6aa4c599b84ef734ff5db8bab0808eded48f0f",
+    "netwerk/cookie/CookieService.h": "812535b94e4de80da9035980ac52859ffdb7414827088417e3fa3bdbf2d4a527",
+    "netwerk/cookie/CookieService.cpp": "22c8c36a1041f37be3a0ffc101eb8c86bcdcc236a3dfe237da0879e6d02d4558",
+    "netwerk/cookie/CookiePersistentStorage.h": "355261f2cbc121060f2cc45fef1ab10827b7d37d0cf57c743e633cf1edf4efa0",
+    "netwerk/cookie/CookiePersistentStorage.cpp": "33fef7c5d4556f44f4629a2a032bd7db5b742fc6acb83194edccd4c1a2611aaf",
+    "netwerk/cookie/CookieStorage.h": "03e96e81c8dacb3499e26fe4835b02240d6d6cf0ae7579f88e314a0a0d08eccb",
+    "netwerk/cookie/CookieStorage.cpp": "b58f68a2a252dc20963b56a15fa393bdd71c406ace996dc3c4323bdfa1f2fbd3",
+    "netwerk/cookie/test/unit/test_cookie_session_cleanup.js": "7164063c43c9a8bb4384bfce3effad35a260516a716909861fba7c70e33dcf39",
+    "netwerk/cookie/test/unit/xpcshell.toml": "dfaef01d51ef38bb4cffe313db76b04ddd853dfc5e53503be95bf0bb33745408",
+    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/SessionCleanupTest.kt": "f6980480a949c8440beb69aed7a7ef5ebdc72094820df9dd8b5c9b0401d51521",
+    "mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js": "0d056a63bc21c3e7e8be054f1749c25b44cb0193fd6a9fc98a1a14c6c84f6d44",
+    "mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json": "79e5749cb984183d7d74a964ef529aa19574a59a2eb6a1ab51ac00548b50de31"
+  }
+}

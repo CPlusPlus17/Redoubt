@@ -277,6 +277,12 @@ def grade_run(directory):
         inventory = load('task36-inventory.json')
         require(sha(directory / 'task36-source-receipt.json') == inventory.get('source_receipt_sha256') ==
                 binding.get('task36_source_receipt_sha256'), 'Task36 source receipt differs from built source binding')
+    if 'task37_inventory_sha256' in requirements:
+        require(sha(directory / 'task37-inventory.json') == requirements['task37_inventory_sha256'] ==
+                binding.get('task37_inventory_sha256'), 'Task37 inventory differs from built source binding')
+        inventory = load('task37-inventory.json')
+        require(sha(directory / 'task37-source-receipt.json') == inventory.get('source_receipt_sha256') ==
+                binding.get('task37_source_receipt_sha256'), 'Task37 source receipt differs from built source binding')
     names = [f'xpcshell-{i}.raw-receipt.json' for i in range(len(requirements['xpcshell']))] + ['instrumentation.log.receipt.json']
     if shutdown_spec:
         names.append('instrumentation-shutdown.log.receipt.json')

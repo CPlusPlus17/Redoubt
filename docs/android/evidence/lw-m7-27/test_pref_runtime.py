@@ -37,8 +37,8 @@ class PreferenceInventory(unittest.TestCase):
         self.assertEqual(new['xpcshell'][:len(old['xpcshell'])], old['xpcshell'])
         self.assertEqual(new['instrumentation'][:len(old['instrumentation'])], old['instrumentation'])
         self.assertEqual(new['pending_xpcshell'], old['pending_xpcshell'])
-        self.assertEqual(sum(len(s['tasks']) for s in new['xpcshell']), 64)
-        self.assertEqual(len(new['instrumentation']), 20)
+        self.assertEqual(sum(len(s['tasks']) for s in new['xpcshell']), 73)
+        self.assertEqual(len(new['instrumentation']), 25)
         self.assertEqual(len(new['shutdown_instrumentation']['expected_methods']), 1)
 
     def test_each_new_native_task_needs_a_finished_record(self):
@@ -65,6 +65,8 @@ class PreferenceInventory(unittest.TestCase):
         for task in ['lw-m7-31', 'lw-m7-35', 'lw-m7-36']:
             for spec in json.loads((driver.HERE.parent / task / 'source-files.json').read_text())['files']:
                 final[spec['path']] = spec['after_sha256']
+        final.update({row['path']: row['after_sha256']
+                      for row in json.loads(driver.TASK37_SOURCE_RECEIPT.read_text())['files']})
         for name, digest in final.items():
             self.assertEqual(pins[name], digest, name)
 
@@ -126,10 +128,14 @@ class ShutdownProcessEvidence(unittest.TestCase):
         (self.root / 'task35-inventory.json').write_bytes(driver.TASK35_INVENTORY.read_bytes())
         (self.root / 'task36-inventory.json').write_bytes(driver.TASK36_INVENTORY.read_bytes())
         (self.root / 'task36-source-receipt.json').write_bytes(driver.TASK36_SOURCE_RECEIPT.read_bytes())
+        (self.root / 'task37-inventory.json').write_bytes(driver.TASK37_INVENTORY.read_bytes())
+        (self.root / 'task37-source-receipt.json').write_bytes(driver.TASK37_SOURCE_RECEIPT.read_bytes())
         binding = {'requirements_sha256': sha(self.root / 'requirements.json'),
                    'task35_inventory_sha256': sha(self.root / 'task35-inventory.json'),
                    'task36_inventory_sha256': sha(self.root / 'task36-inventory.json'),
-                   'task36_source_receipt_sha256': sha(self.root / 'task36-source-receipt.json')}
+                   'task36_source_receipt_sha256': sha(self.root / 'task36-source-receipt.json'),
+                   'task37_inventory_sha256': sha(self.root / 'task37-inventory.json'),
+                   'task37_source_receipt_sha256': sha(self.root / 'task37-source-receipt.json')}
         self.write('source-binding.json', binding); self.write('source-after-tests.json', binding)
         build = {'status': 'PASS', 'source_binding_sha256': sha(self.root / 'source-binding.json'),
                  'requirements_sha256': sha(self.root / 'requirements.json')}

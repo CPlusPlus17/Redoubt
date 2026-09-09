@@ -18,12 +18,13 @@ native job count is two, Cargo one, Gradle one; commands have bounded timeouts.
 ## Source and configuration binding
 
 Preflight verifies every entry in the operator's integrated source SHA256SUMS and
-requires 146 product/test/source dependency paths, including all selected native
+requires 161 product/test/source dependency paths, including all selected native
 tests, the pending Android-excluded uninstall test, and instrumentation classes.
-It separately verifies 82 audited harness/build/preference/permission/fixture files against
+It separately verifies 99 audited harness/build/preference/permission/fixture/cleanup files against
 `harness-sources.json`, read from the frozen Firefox 153.0esr beta tree or the
-merged Tasks31/35/36 source candidates. Task35 supersedes two shared Task31
-pins; Task36 supersedes five shared Task35 pins. Stale native4, pre-correction
+merged Tasks31/35/36/37 source candidates. Task35 supersedes two shared Task31
+pins; Task36 supersedes five shared Task35 pins, and Task37 supersedes two
+Task35 test-support bodies. Stale native4, pre-correction
 fixtures or superseded shared source cannot pass. Those pins describe the audited source subset, not a fresh
 verification of every file in the upstream source archive. A changed harness must
 be reviewed and re-pinned; it cannot silently reuse this parser contract.
@@ -283,7 +284,7 @@ They check acknowledged native state/validation; Task35's separate actual-I/O
 methods retain their independent role. Assumption skips remain unaccepted.
 
 `previous-task35-selection.json` retains all 59+17+1 preceding requirements and
-the three Android exclusions. The current selection is **64 xpcshell tasks,
+the three Android exclusions. That Task36 increment selected **64 xpcshell tasks,
 20 ordinary instrumented methods and one guarded shutdown method**. Shutdown
 remains last and separate; Task36 adds no opt-in or preference mutation to the
 driver's command line. Fenix runtime behavior after restart/navigation/network
@@ -304,20 +305,20 @@ receipt. Task36's refreshed source receipt (`35062553`) changes only that scoped
 predecessor digest; all 21 output hashes remain unchanged. Neither scoped replay
 nor this driver preparation claims a successful corrected target build.
 
-The product source union has 230 bindings. Four unchanged files already required
+The historical Bundle-stage product source union has 230 bindings. Four unchanged files already required
 by Task27 are absent from that changed-file union: `Extension.sys.mjs`,
 `ExtensionTaskScheduler.sys.mjs`, `test_ext_permissions.js` and
 `test_ext_permissions_uninstall.js`. Their actual frozen bodies were hashed
 against existing audited pins and retained in `native-test-extra-source-sha256.txt`.
-`proposed-native-test-source-sha256.txt` combines those four with the reviewed
-product union, preserves every existing binding, contains 234 distinct paths and
-covers all 146 required paths. Use that reviewed test manifest only with the
+The historical native-test manifest combined those four with the reviewed
+product union, preserved every existing binding, contained 234 distinct paths and
+covers the then-current 146 required paths. Use that historical test manifest only with the
 complete matching target source. The driver still separately verifies the other
 unchanged harness pins; it does not waive a missing source or test.
 
 ## Five test-fixture corrections
 
-The current 230-file product manifest is
+The historical five-fixture 230-file product manifest is
 `7af4e037a693c46a86403d1d4bf31df66b81891c4a3857a73d222ca66fff597b`.
 Adding the same four supplemental bindings produces 234 distinct native-test
 paths, manifest SHA256
@@ -325,8 +326,8 @@ paths, manifest SHA256
 The five fixture changes are recorded in `fixture-source-overlays.json`; all
 other product rows and every native/test selection remain identical. These are
 the accounts primitive matcher, origin-storage nested mock, two cookie fixture
-fixes, and the permissions feature test's coroutine opt-in. Current compiled APK
-source remains `c53736…`; the separate current 165-file test manifest is `659bf836…`.
+fixes, and the permissions feature test's coroutine opt-in. At that stage, compiled APK
+source remained `c53736…`; the separate 165-file test manifest was `659bf836…`.
 `fixture-current165-source-sha256.txt` preserves that exact test manifest.
 
 The five actual corrected bodies now have independent audited pins (82 total),
@@ -345,9 +346,71 @@ source receipt advances to `499f4e0`, SHA256
 its 21 output pins and all native/GV implementation bytes remain unchanged.
 This source refresh preserves 64 runnable xpcshell cases, 20 ordinary GeckoView
 methods and the one separate guarded shutdown, plus the three Android exclusions.
-Task37 is deliberately outside this refresh and requires its own reviewed
-inventory/composed source update. Target build and test execution remain unrun
+Task37 was deliberately outside that historical refresh. The separate native
+inventory/composition update follows below. Target build and test execution remain unrun
 by these preparation steps.
+
+## Task37 native primitives
+
+The current driver adds all nine named tasks from
+`netwerk/cookie/test/unit/test_cookie_session_cleanup.js` and all five methods in
+`org.mozilla.geckoview.test.SessionCleanupTest`. The inventory is derived from
+actual patch output, bound by `task37-source-receipt.json`, and recorded in
+`task37-inventory.json`. All 15 implementation/test paths have independent audited
+hashes; its two test-support bodies supersede the earlier Task35 bodies. This
+brings the driver to **73 runnable xpcshell cases, 25 ordinary GeckoView methods,
+and one final guarded shutdown**, with three upstream Android-excluded cases
+still pending. The full earlier selections remain intact in `pre-cleanup/`.
+
+The cookie tests use the real parent service, a dedicated xpcshell profile and
+the checked-in manifest preference `network.cookie.noPersistentStorage=false`.
+They exercise real SQL trigger failure/rollback/retry, disk-only rows, exact
+scopes/attributes, lease admission and private teardown. They do not mock native
+callbacks. These cases do not establish power-loss durability, nonpersistent
+profile support or a complete session cleanup coordinator.
+
+The GeckoView methods exercise native frame completion after close/crash and an
+actual in-process unload cookie write. The replacement case proves distinct frame
+identity; it does not simulate remoteness swapping or BFCache. The crash method
+keeps upstream process-mode assumptions. An assumption skip fails this checkpoint
+and leaves that coverage pending. Existing hardening/isolation settings are not
+changed by this driver to turn a skip into a pass. The native APIs themselves do
+not establish termination of every worker/network/cache writer or journal success.
+
+The current reviewed product manifest contains 245 bindings, SHA256
+`9a911246fb9dcf2a55fdfe7827fd2eff000fdfecc97d8f1346c94dc018e0f995`.
+The same four supplemental bindings produce 249 native-test rows, SHA256
+`35957863ba69c5ead83279a9686015a268b1de7ee20929881b21ba65c218bea5`.
+It includes the current HomeActivity correction, its final four-case test fixture,
+the Fenix application test and cookie-settings test corrections. Their four
+changed/new rows are preserved in `current-target-overlay.json`; the two actual
+old bodies remain in `current-target-before-source.tar.gz`. Each final body has
+an independent audited pin. Native selections and implementation bytes are
+unchanged by this product/test overlay.
+
+`cleanup-composition-comparison.json` records independent hashing of 67 audited
+bodies from the final 101-file composed subset. All 97 earlier materialized bodies
+are byte-identical. The four supplemental frozen bodies were also rehashed.
+`current167-source-sha256.txt` binds the final source basis, SHA256
+`501d04614edbc847b416cd5b6f1dac42dd0728a63125a3d9902c90d07a579c8b`;
+this is distinct from the earlier compiled APK source. The subset is not a
+complete Gecko tree: all remaining source bindings still require actual preflight.
+The final composition receipt is
+`6eeaf49279e6969bb56f85812c84f1aeca66e0bd7ac1f867a32cd470e10c36fe`.
+Task36's current source receipt advances to `0b48fc28…`; all 21 of its output
+hashes are unchanged. Earlier composition/source receipts remain intact.
+
+`historical-cleanup/` retains the previously reviewed 243/247 composition,
+requirements and source proof, including its explicit exclusion of later product
+corrections. `pre-cleanup/` retains the earlier five-fixture 230/234 history.
+Neither historical manifest can establish acceptance of the current candidate.
+
+The ten added host controls reject omitted/uncompleted cookie cases, missing
+frame methods, crash assumption skips, changed scope/inventory/receipts and both
+actual old test-support and Home/cookie bodies even with internally valid stale
+manifests, plus exact current overlay preservation. The
+inventory and source receipt are archived and bound through build/run/regrade.
+These checks do not run any of the 14 new native target definitions.
 
 ## Evidence and replay
 
@@ -370,7 +433,7 @@ built test artifact hashes. The replay verifies the recorded artifact binding; i
 does not claim to re-open absent APKs. Receipts provide local integrity and provenance
 checks, not protection against deliberate fabrication of all evidence files.
 
-The local suite currently passes **62 host driver/grader tests**, including
+The local suite currently passes **72 host driver/grader tests**, including
 parser failures, stale/foreign command receipts, source/selection tampering,
 pre-Task35 native bytes, missing/failed process boundaries and guarded shutdown
 skips. `local-tests.txt` records the observed invocation. Full integrated

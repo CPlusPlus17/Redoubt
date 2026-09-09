@@ -1,11 +1,11 @@
 {
   "status": "NOT RUN",
   "source": "/home/mgysin/Documents/librewolf/librewolf-153.0esr-1-beta-20260908",
-  "workspace": "/home/mgysin/redoubt-artifacts/feature-parity/lw-m7-27-cleanup/redoubt-native-tests-current-cleanup-proposed",
-  "product_revision_operator_supplied": "f98fe6faa9a9a5020f3818823996fc8f205a413b",
+  "workspace": "/home/mgysin/redoubt-artifacts/feature-parity/lw-m7-27-fixtures/redoubt-native-tests-proposed",
+  "product_revision_operator_supplied": "499f4e0438b0b1cbf315a6b72138aa2aff5bdbbb",
   "build_date": "20260906190000",
   "product_mozconfig_sha256": "07030ae5383d853c8050410036cd6498a51902b61da3f91079acc0dc001deaf3",
-  "config_diff": "--- production.mozconfig\n+++ test.mozconfig\n@@ -53,7 +53,7 @@\n # aarch64 is the primary (and, for M0-M4, only) target.  arm64-v8a is the only\n # ABI worth shipping first; armv7/x86_64 come later via LW-M6-xx multi-arch.\n # mobile/android/moz.configure:140-152 hard-dies unless target.os == \"Android\".\n-ac_add_options --target=aarch64-linux-android\n+ac_add_options --target=x86_64-linux-android\n \n \n # ---------------------------------------------------------------------------\n@@ -224,7 +224,7 @@\n # Keep release optimization/LTO and hardening, but omit diagnostic symbols.\n # rust.configure maps any enabled symbol level to Rust debuginfo=2.\n ac_add_options --disable-debug-symbols\n-ac_add_options --disable-tests\n+ac_add_options --enable-tests\n ac_add_options --enable-optimize\n ac_add_options --enable-release\n # build/moz.configure/rust.configure:711\n@@ -699,4 +699,7 @@\n # this line; the repo file was left without it, so `make android-apk` died at\n # preflight and the deliverable was not reproducible from the repository. Caught\n # by the skeptical verification of LW-M2-04.\n-ac_add_options --enable-android-subproject=fenix\n+ac_add_options --enable-android-subproject=geckoview_example\n+\n+# LW-M7-27: separate test artifact; never a release acceptance candidate.\n+mk_add_options MOZ_OBJDIR=/home/mgysin/redoubt-artifacts/feature-parity/lw-m7-27-cleanup/redoubt-native-tests-current-cleanup-proposed/obj-x86_64-tests\n",
+  "config_diff": "--- production.mozconfig\n+++ test.mozconfig\n@@ -53,7 +53,7 @@\n # aarch64 is the primary (and, for M0-M4, only) target.  arm64-v8a is the only\n # ABI worth shipping first; armv7/x86_64 come later via LW-M6-xx multi-arch.\n # mobile/android/moz.configure:140-152 hard-dies unless target.os == \"Android\".\n-ac_add_options --target=aarch64-linux-android\n+ac_add_options --target=x86_64-linux-android\n \n \n # ---------------------------------------------------------------------------\n@@ -224,7 +224,7 @@\n # Keep release optimization/LTO and hardening, but omit diagnostic symbols.\n # rust.configure maps any enabled symbol level to Rust debuginfo=2.\n ac_add_options --disable-debug-symbols\n-ac_add_options --disable-tests\n+ac_add_options --enable-tests\n ac_add_options --enable-optimize\n ac_add_options --enable-release\n # build/moz.configure/rust.configure:711\n@@ -699,4 +699,7 @@\n # this line; the repo file was left without it, so `make android-apk` died at\n # preflight and the deliverable was not reproducible from the repository. Caught\n # by the skeptical verification of LW-M2-04.\n-ac_add_options --enable-android-subproject=fenix\n+ac_add_options --enable-android-subproject=geckoview_example\n+\n+# LW-M7-27: separate test artifact; never a release acceptance candidate.\n+mk_add_options MOZ_OBJDIR=/home/mgysin/redoubt-artifacts/feature-parity/lw-m7-27-fixtures/redoubt-native-tests-proposed/obj-x86_64-tests\n",
   "commands": [
     [
       "/usr/bin/python3",
@@ -168,22 +168,6 @@
         ],
         "allowed_skips": [],
         "execution_scope": "Real native preference/permission services with an explicitly injected save boundary; does not establish actual current-profile disk persistence."
-      },
-      {
-        "path": "netwerk/cookie/test/unit/test_cookie_session_cleanup.js",
-        "tasks": [
-          "exact_scopes_preserve_attributes_and_stable_ids",
-          "invalid_ids_and_busy_or_stale_tokens_never_mutate",
-          "manager_http_and_reentrant_observer_writes_are_refused",
-          "ambient_transactions_cannot_claim_cleanup_completion",
-          "failed_delete_batch_rolls_back_and_retry_keeps_retained_data",
-          "disk_only_scope_is_enumerated_and_removed",
-          "invalid_database_attributes_reject_instead_of_default_jar_selection",
-          "closing_storage_invalidates_an_already_queued_completion",
-          "private_teardown_invalidates_inflight_selection"
-        ],
-        "allowed_skips": [],
-        "execution_scope": "Real parent cookie service with an isolated xpcshell profile and manifest network.cookie.noPersistentStorage=false; actual SQLite trigger failure/rollback/retry, disk-only rows and native private teardown. No native callbacks mocked. Does not establish power-loss fsync, nonpersistent profiles, all-writer fencing or full-session cleanup."
       }
     ],
     "instrumentation": [
@@ -206,22 +190,14 @@
       "org.mozilla.geckoview.test.WebExtensionUpdateSettingsTest#concurrentChoicesCompleteInNativeQueueOrder",
       "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#acknowledgedBooleanWriteAndResetReadNativeBranches",
       "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#middleReferrerPolicySurvivesTheActualPublicApi",
-      "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#publicApiRejectsAdditionalPrefsAndInvalidValuesBeforeDispatch",
-      "org.mozilla.geckoview.test.SessionCleanupTest#remoteCloseWaitsForNativeDestructionAndSharesRepeatedCompletion",
-      "org.mozilla.geckoview.test.SessionCleanupTest#closingOneFrameDoesNotReportReplacementFrameDestroyed",
-      "org.mozilla.geckoview.test.SessionCleanupTest#crashedChildCompletesItsOwnFrameBoundary",
-      "org.mozilla.geckoview.test.SessionCleanupTest#inProcessUnloadPrecedesCompletion",
-      "org.mozilla.geckoview.test.SessionCleanupTest#firstPromiseCanBeCreatedAfterOwnerDetachment"
+      "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#publicApiRejectsAdditionalPrefsAndInvalidValuesBeforeDispatch"
     ],
     "product_paths": [
       "docshell/base/CanonicalBrowsingContext.cpp",
       "docshell/base/CanonicalBrowsingContext.h",
-      "dom/base/nsFrameLoader.cpp",
-      "dom/base/nsFrameLoader.h",
       "dom/canvas/CanvasUtils.cpp",
       "dom/canvas/CanvasUtils.h",
       "dom/canvas/ClientWebGLContext.cpp",
-      "dom/chrome-webidl/FrameLoader.webidl",
       "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt",
       "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt",
       "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorage.kt",
@@ -284,8 +260,6 @@
       "mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml",
       "mobile/android/fenix/app/src/main/res/xml/preferences.xml",
       "mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml",
-      "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt",
-      "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityAccountSettingsTest.kt",
       "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt",
       "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt",
       "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt",
@@ -304,7 +278,6 @@
       "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt",
       "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncShutdownTest.kt",
       "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncTest.kt",
-      "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/SessionCleanupTest.kt",
       "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt",
       "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/WebExtensionUpdateSettingsTest.kt",
       "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java",
@@ -328,15 +301,6 @@
       "modules/libpref/nsIPrefService.idl",
       "modules/libpref/test/unit/test_savePrefFileAsync.js",
       "modules/libpref/test/unit/xpcshell.toml",
-      "netwerk/cookie/CookiePersistentStorage.cpp",
-      "netwerk/cookie/CookiePersistentStorage.h",
-      "netwerk/cookie/CookieService.cpp",
-      "netwerk/cookie/CookieService.h",
-      "netwerk/cookie/CookieStorage.cpp",
-      "netwerk/cookie/CookieStorage.h",
-      "netwerk/cookie/nsICookieManager.idl",
-      "netwerk/cookie/test/unit/test_cookie_session_cleanup.js",
-      "netwerk/cookie/test/unit/xpcshell.toml",
       "services/settings/dumps/main/moz.build",
       "toolkit/components/cookiebanners/CookieBannerDomainPrefService.cpp",
       "toolkit/components/cookiebanners/CookieBannerDomainPrefService.h",
@@ -383,12 +347,11 @@
       "translation-assets.patch": "303edc22a85e56a6a7333f2516371de88fee21dfbe40c532446ce96c2e97cb26",
       "addon-state-durability.patch": "b1ba51cc8e55a6ab38ea76ecab4cdeacb925efd08084dfa0dede0aa72045c4ba",
       "cookie-banner-rules.patch": "c7265a76ace9371f7f6333a6ca12584fe45424a77d7dea659828c53abb7044b5",
-      "cookie-banner-controls.patch": "2b822a8790b8524b67e8b1625463f9e6053f44fa7ead121e169a595bacb2b2ec",
+      "cookie-banner-controls.patch": "60516378baa9032ab0806aee1655c2f06fc168e0da27c552d67a62fc5aaf70f8",
       "extension-permission-durability.patch": "b2a507ccf51c521e3a49693a040db6c6fad4ce0b786a9114f8468a3acdef27f4",
       "extension-update-controls.patch": "901b811c298c6112dc07a8ef25a7baa46704284d764ba1b3c9fd10e08d027795",
       "global-privacy-controls.patch": "b0d132130cb4e02ac687a9c384e314be6f7c1124405a794ed8d3f31a91cb4109",
-      "sync-opt-in.patch": "ac0bc252eafcc7d4a73e581447eafa3f477d5aab7ac66eba6835414df73724b5",
-      "session-cleanup.patch": "d2756b4f5fe27adef63114a78ae7338ffbc13d0da60933ac03636b39721c5248"
+      "sync-opt-in.patch": "d9ebe5357d87dbce37558f367542462b003e8a43faa949c9aba97bb2a1302fab"
     },
     "build_image_sha256": "c5b57d94cf9e0ed1de7061cee9e0dbfde19d5651e3e2f3824b0e1466116fd687",
     "pending_xpcshell": [
@@ -438,8 +401,7 @@
       "receipt_scope": "Actual preference-service shutdown acknowledgment and real prefs.js bytes; does not prove full application shutdown."
     },
     "task35_inventory_sha256": "bcafbe4f99dd3e61e7e1a16ee585ee8c52655342da7906b547cf16fc8241aaad",
-    "task36_inventory_sha256": "4a7177edfbea38a7b6c63073d4e3697e7221b57d3157d891bc389e87d5aa5c87",
-    "task37_inventory_sha256": "a475f07e0852dd1b63830740db3d54c46ff7a0649801af8ec8ec758740cf496c"
+    "task36_inventory_sha256": "4b7c24de0d5c9aa2a227776fa6d68833f47c11fff815cc3eb28e4efb938193cc"
   },
   "device_mutations": "run --execute only: install two debug test APKs; xpcshell harness pushes utilities/test fixtures to a unique remote root; instrumentation creates test profiles; after ordinary methods finish, only org.mozilla.geckoview.test is force-stopped and verified absent before the guarded shutdown class starts in a fresh process. No release app install, wipe or uninstall."
 }
