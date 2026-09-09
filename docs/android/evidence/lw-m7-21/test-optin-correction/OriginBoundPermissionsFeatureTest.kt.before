@@ -1,0 +1,172 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+package org.mozilla.fenix.browser.permissions
+
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import mozilla.components.browser.state.state.BrowserState
+import mozilla.components.browser.state.state.ContentState
+import mozilla.components.browser.state.state.TabSessionState
+import mozilla.components.browser.state.store.BrowserStore
+import mozilla.components.concept.engine.permission.OriginBoundPermission
+import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
+import mozilla.components.concept.engine.permission.Permission
+import mozilla.components.concept.engine.permission.PermissionRequest
+import mozilla.components.concept.engine.permission.SitePermissions.Status
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class OriginBoundPermissionsFeatureTest {
+    @Test
+    fun `permission write must be acknowledged before the original document reloads`() = runTest {
+        val request = OriginRequest()
+        val store = requestStore(request)
+        val applied = async { applyOriginBoundDecision(store, "requesting", request, Status.ALLOWED, false) }
+        runCurrent()
+        assertEquals(listOf(Status.ALLOWED to false), request.decisions)
+        assertEquals(0, request.reloads)
+        request.applied.complete(true)
+        assertTrue(applied.await())
+        assertEquals(1, request.reloads)
+    }
+
+    @Test
+    fun `navigation before acknowledgement never reloads the new document`() = runTest {
+        val request = OriginRequest()
+        val applied = async { applyOriginBoundDecision(requestStore(request), "requesting", request, Status.ALLOWED, true) }
+        runCurrent()
+        request.applied.complete(false)
+        assertFalse(applied.await())
+        assertEquals(0, request.reloads)
+    }
+
+    @Test
+    fun `background request applies to its own tab even when another tab is selected`() = runTest {
+        val request = OriginRequest()
+        val store = requestStore(request, selected = "other")
+        request.applied.complete(true)
+        assertTrue(applyOriginBoundDecision(store, "requesting", request, Status.BLOCKED, true))
+        assertEquals(listOf(Status.BLOCKED to true), request.decisions)
+        assertEquals(1, request.reloads)
+        assertEquals("other", store.state.selectedTabId)
+    }
+
+    @Test
+    fun `private decisions cannot request permanent persistence`() = runTest {
+        val request = OriginRequest(privateMode = true)
+        request.applied.complete(true)
+        assertTrue(applyOriginBoundDecision(requestStore(request), "requesting", request, Status.ALLOWED, true))
+        assertEquals(listOf(Status.ALLOWED to false), request.decisions)
+    }
+
+    @Test
+    fun `closed tab or consumed request cannot be answered from an old dialog`() = runTest {
+        val request = OriginRequest()
+        assertFalse(applyOriginBoundDecision(BrowserStore(), "closed", request, Status.ALLOWED, true))
+        assertEquals(1, request.rejections)
+        assertTrue(request.decisions.isEmpty())
+        assertEquals(0, request.reloads)
+    }
+
+    @Test
+    fun `a private or container mismatch cannot receive a grant`() = runTest {
+        val request = OriginRequest(privateMode = true, contextId = "container")
+        val tab = TabSessionState("requesting", ContentState("https://top.test", permissionRequestsList = listOf(request)))
+        val store = BrowserStore(BrowserState(tabs = listOf(tab)))
+        assertFalse(applyOriginBoundDecision(store, "requesting", request, Status.ALLOWED, true))
+        assertEquals(1, request.rejections)
+        assertTrue(request.decisions.isEmpty())
+    }
+
+    @Test
+    fun `quiet request offers a notice without opening a modal and stopping keeps it actionable`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val request = OriginRequest(quiet = true)
+        val store = requestStore(request)
+        var notices = 0
+        var modals = 0
+        val feature = OriginBoundPermissionsFeature(
+            store, null,
+            onQuietRequest = { _, _ -> notices++ },
+            onPromptRequest = { _, _ -> modals++ },
+            mainDispatcher = dispatcher,
+        )
+        feature.start()
+        runCurrent()
+        assertEquals(1, notices)
+        assertEquals(0, modals)
+        feature.stop()
+        advanceUntilIdle()
+        assertEquals(listOf(request), store.state.tabs.first().content.permissionRequestsList)
+        assertTrue(request.decisions.isEmpty())
+    }
+
+    @Test
+    fun `nonquiet request opens one prompt and an invalidated request is consumed`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val request = OriginRequest(quiet = false)
+        val store = requestStore(request)
+        var modals = 0
+        val feature = OriginBoundPermissionsFeature(
+            store, null, { _, _ -> error("Must not be quiet") }, { _, _ -> modals++ },
+            mainDispatcher = dispatcher,
+        )
+        feature.start()
+        runCurrent()
+        assertEquals(1, modals)
+        request.applied.complete(false)
+        advanceUntilIdle()
+        assertTrue(store.state.tabs.first().content.permissionRequestsList.isEmpty())
+        assertEquals(1, request.rejections)
+        feature.stop()
+    }
+}
+
+internal class OriginRequest(
+    privateMode: Boolean = false,
+    contextId: String? = null,
+    quiet: Boolean = true,
+    override val id: String = "origin-request",
+) : OriginBoundPermissionRequest {
+    override val uri = "https://frame.test:8443"
+    override val permissions = listOf(Permission.ContentWebGL())
+    override val permission = OriginBoundPermission(
+        OriginBoundPermission.Kind.WEBGL, uri,
+        uri + if (privateMode) "^privateBrowsingId=1" else "",
+        privateMode, contextId, Status.NO_DECISION, false,
+    )
+    override val topLevelOrigin = "https://top.test"
+    override val isQuiet = quiet
+    val applied = CompletableDeferred<Boolean>()
+    val decisions = mutableListOf<Pair<Status, Boolean>>()
+    var reloads = 0
+    var rejections = 0
+    override fun decide(status: Status, permanent: Boolean) { decisions += status to permanent }
+    override suspend fun awaitDecisionApplied() = applied.await()
+    override suspend fun reloadIfCurrent(): Boolean { reloads++; return true }
+    override fun grant(permissions: List<Permission>) = decide(Status.ALLOWED, false)
+    override fun reject() { rejections++ }
+    override fun merge(permissionRequest: PermissionRequest) = Unit
+}
+
+internal fun requestStore(request: OriginRequest, selected: String = "requesting") = BrowserStore(
+    BrowserState(
+        tabs = listOf(
+            TabSessionState(
+                "requesting",
+                ContentState("https://top.test", private = request.permission.privateMode, permissionRequestsList = listOf(request)),
+                contextId = request.permission.contextId,
+            ),
+            TabSessionState("other", ContentState("https://other.test")),
+        ),
+        selectedTabId = selected,
+    ),
+)
