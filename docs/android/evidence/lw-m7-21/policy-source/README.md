@@ -26,3 +26,18 @@ The prepared extended test driver now requires the new Sync, cookie and Suggest
 classes, archives seven result directories before execution, and retains the full
 Fenix allowance gate plus fresh XML and mandatory-class checks. Native xpcshell
 and GeckoView instrumentation need the separate test-enabled driver (LW-M7-27).
+
+
+Application completed as runner: all 100 parent, per-stage 23/36/20 and 164 final
+hashes matched, with zero fuzz/offset. `guest-application.tar.gz` retains original
+source bytes, all before/after rows and patch logs plus the prior guest mozconfig
+and native driver. The initial backup command named three prepared drivers absent
+from the guest; it was corrected to archive the two existing files before transfer.
+No source was changed by that failed archive attempt.
+
+Native attempt 4 started at 2026-09-09 00:53:49 UTC, invocation
+`367f4a0c473843b4832ee42f0c9e2ff2`, using this 164-file manifest and revised
+`--disable-debug-symbols` configuration. Actual configure output now omits Rust
+`debuginfo=2`; optimization and PHC remain enabled. The build is still running.
+LW-M7-30/29/31 changes are not part of that source set. No target test or new APK
+runtime result is claimed by this receipt.

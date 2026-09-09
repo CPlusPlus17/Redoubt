@@ -67,3 +67,13 @@ The next configuration adds the supported `--disable-debug-symbols` option.
 Optimization, Rust LTO and the hardening options remain unchanged; diagnostic
 symbols will be unavailable. This is a build-memory adjustment, with no claim
 that the revised build fits until it actually finishes.
+
+
+Native attempt 4 began 2026-09-09 00:53:49 UTC, invocation
+`367f4a0c473843b4832ee42f0c9e2ff2`, after the source-bound Sync, final cookie-session
+fence and Suggest candidates were applied. Its 164-file source manifest and all
+application receipts live under LW-M7-21/policy-source. The start receipt pins
+the revised mozconfig and records the inherited cgroup OOM count of 1 from
+attempt 3; that counter alone must not be attributed to attempt 4. The new
+configure output has `MOZ_RUST_DEFAULT_FLAGS = --cap-lints warn`, without the
+previous debug-info override. Compilation and final memory outcome are pending.
