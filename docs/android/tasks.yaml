@@ -4745,12 +4745,47 @@ tasks:
     risk: A private permission can be acknowledged while its legacy JSON write is still only scheduled.
 
   - id: LW-M7-29
-    title: Prepare reviewed offline Firefox Suggest collection inputs
+    title: Install explicitly selected pinned local Firefox Suggest data
     milestone: M7
     depends_on: [LW-M7-26]
     owns:
       - docs/android/evidence/lw-m7-29/
-    tree_paths: []
+      - patches/android/firefox-suggest-data.patch
+      - assets/firefox-suggest/
+      - scripts/package-firefox-suggest.py
+      - scripts/tests/test-firefox-suggest-assets.py
+      - scripts/librewolf-patches.py
+      - Makefile
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - third_party/application-services/components/remote_settings/src/lib.rs
+      - third_party/application-services/components/remote_settings/src/client.rs
+      - third_party/application-services/components/remote_settings/src/storage.rs
+      - third_party/application-services/components/remote_settings/src/pinned_suggest.rs
+      - third_party/application-services/components/remote_settings/dumps/main/redoubt-suggest-catalog.json
+      - third_party/application-services/components/remote_settings/dumps/main/quicksuggest-other.json
+      - third_party/application-services/components/remote_settings/dumps/main/quicksuggest-other.timestamp
+      - third_party/application-services/components/remote_settings/test-data/redoubt-suggest/sponsored-suggestions-de-phone
+      - third_party/application-services/components/remote_settings/test-data/redoubt-suggest/data-wikipedia-en
+      - third_party/application-services/components/remote_settings/test-data/redoubt-suggest/icon-111a1ffa7f487e807bec4a71460454933db0fe2e7c77bade620375b41530e9a0
+      - third_party/application-services/components/remote_settings/test-data/redoubt-suggest/icon-161351842074695
+      - third_party/application-services/components/remote_settings/test-data/redoubt-suggest/icon-c5684e5a98855b2ad5af82e1a2d4ee2328e6a8518e12c94dc113240fed29e8fe
+      - third_party/application-services/components/remote_settings/test-data/redoubt-suggest/icon-e1612973a8b621ef95218b9b0b99674cb3e03c410fde57bcf5277ecc61ba1651
+      - third_party/application-services/components/remote_settings/test-data/redoubt-suggest/icon-f46c92ccdc88eb3d4f0fdedc24374aa01fc4ffaf395169b818af92b0020d87b2
+      - third_party/application-services/components/suggest/tests/pinned_suggest.rs
+      - mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
+      - mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt
+      - mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml
+      - mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
+      - mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
+      - mobile/android/fenix/app/src/main/assets/firefox-suggest-catalog.json
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt
     reads:
       - patches/android/rs-blocker-android.patch
       - patches/android/search-config.patch
@@ -4758,6 +4793,13 @@ tasks:
       - scripts/package-translation-assets.py
       - scripts/librewolf-patches.py
     what: |
+      Implement explicit language/phone-region downloads from a small pinned
+      catalog, validate exact CDN bytes and graph dependencies, and install
+      one complete Suggest collection per native transaction. Failed/cancelled
+      imports preserve previously usable data. Explicit selection remains usable
+      across app/device locale differences without altering global RS context.
+      Keep off admission and all generic RS network denial; root owns execution.
+      The preceding preparation scope and evidence remain retained:
       Prepare the bounded offline local Suggest input plan after Task26 controls.
       Retain known official collection metadata and request provenance, classify
       exact provider/configuration/icon dependencies, and size required reviewed
@@ -4769,14 +4811,18 @@ tasks:
       Keep the generic Remote Settings network blocker unchanged. Extend exact
       ownership and source paths before any later packaging implementation.
     acceptance:
+      - "explicit Download fetches only the selected pinned payload and icons; enabling Suggest alone never downloads data"
+      - "native validation and atomic per-collection cache import reject corruption, missing/extra input and cancellation while preserving old usable data on failure"
+      - "selected language/region data survives locale mismatch and restart; UI accurately reports availability and download size"
+      - "affected native/Kotlin targets compile, meaningful unit suites and source-bound APK download/ingest/off/restart tests pass before completion"
       - "official collection snapshots and their provenance, timestamps, hashes and byte counts are retained"
       - "AMP/Wikipedia type dependencies include global configuration and icons with attachment pins; payload-reference verification remains an explicit next gate"
       - "the input plan matches the actual native collection and packaged-attachment API and states cache/upgrade limitations"
       - "concrete bounded packaging and ingestion tests are specified without claiming native compilation or runtime success"
       - "offline evidence validation and board validation pass"
     verify: "python3 docs/android/evidence/lw-m7-29/check-input-plan.py && python3 docs/android/board.py --check"
-    effort_h: "3-6"
-    skills: [android, rust]
+    effort_h: "12-20"
+    skills: [android, kotlin, rust]
     agent_safe: yes
     isolation: worktree
     risk: Metadata alone cannot populate local Suggest, and packaged attachment lookup uses record IDs rather than the documented filenames.
