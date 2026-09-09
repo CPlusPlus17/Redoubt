@@ -1,6 +1,15 @@
-# Session cleanup: initial source design
+# Session cleanup
 
-Status: scope and source design only. Task metadata commit `b4093f2` precedes
+Current status: the first native frame/cookie increment is implemented for review,
+with target compilation and execution pending. See [native implementation and
+limits](native-implementation.md) and `native-source-files.json`. Full Task37
+cleanup, retention and journal acceptance remain open. Metadata `5fb3533` declares
+57 paths before these native edits; only 15 are changed in this increment.
+
+## Initial design record
+
+The following records the earlier design handoff. Its status at that point was
+scope and source design only. Task metadata commit `b4093f2` precedes
 implementation. No production file, guest, browser profile or settings submodule
 was changed. No Kotlin/native test or build ran. The board check ran successfully:
 122 tasks, 29 waves, zero warnings.
@@ -50,7 +59,7 @@ source inventory is in `additional-source-request.json`.
    the journal. Manual-clear failure restores usable controls and reports failure,
    without the existing success snackbar.
 
-Task metadata currently declares 45 source paths for these JS/GV/A-C/Fenix,
+Initial task metadata declared 45 source paths for these JS/GV/A-C/Fenix,
 storage and test seams. A native content-close or cookie-database acknowledgment
 extension requires its exact additional paths before edits. The three unresolved
 boundaries below are part of completion, not exceptions to acceptance.

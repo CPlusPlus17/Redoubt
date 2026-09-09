@@ -1,0 +1,60 @@
+{
+  "patch_sha256": "d2756b4f5fe27adef63114a78ae7338ffbc13d0da60933ac03636b39721c5248",
+  "verification_scripts": {
+    "scripts/tests/test-session-cleanup.py": "1ec983d3e295a77341fba9c25ce22eee6af580717d1af5dd0bdee0d71637f2aa",
+    "docs/android/evidence/lw-m7-37/check-ordering.py": "7db1b4f2c8f220bcd88399cd56146e08e9f3cda71f1a8624bd09a948324de9e0",
+    "docs/android/evidence/lw-m7-37/package-native.py": "9fd6a0aa7de59240b1e51f3f6217c3ffc2d3b033367a2614ad65ed2f8bcb912e"
+  },
+  "status": "Source/parser checks only; all target compilation/native tests/runtime acceptance pending. Root owns central PATCH-SCOPE count integration.",
+  "checks": [
+    {
+      "command": [
+        "python3",
+        "scripts/tests/test-session-cleanup.py"
+      ],
+      "exit_code": 0,
+      "stdout": "PASS actual captured source + scoped corrected35 inputs; all before hashes and retained baseline match\nPASS all 15 declared source outputs; exact replay without offsets/fuzz\nPASS pinned XPIDL/WebIDL parsers and new-method semantics; imported-type code generation remains target work\nPASS JS syntax, JSON/TOML, inherited35 test API and 9 cookie / 5 frame target test definitions\nPENDING native C++/IDL code generation and Kotlin compilation; actual cookie xpcshell/GeckoView execution.\nPENDING all-writer/cache admission, remaining category acknowledgments, retention coordinator and durable journal; no full cleanup-success claim.\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/evidence/lw-m7-37/check-ordering.py"
+      ],
+      "exit_code": 0,
+      "stdout": "PASS Task35/37 complete 2 shared paths: predecessor-required; canonical exact hashes, both orders, no fuzz\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/board.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "ok: 122 tasks, 31 waves, 0 warning(s)\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/board.py",
+        "--check-scope"
+      ],
+      "exit_code": 1,
+      "stdout": "error: PATCH-SCOPE.md says 42 android, lists have 43\nerror: PATCH-SCOPE.md says 102 total, lists have 103\n\n2 error(s)\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ]
+}
