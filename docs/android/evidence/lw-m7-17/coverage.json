@@ -365,16 +365,17 @@
     "firefox-suggest": {
       "status": "mixed_open",
       "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "Frozen Fenix FeatureFlags.FX_SUGGEST is true; its fx-suggest FML default is false for the release configuration but true for developer/nightly. Settings.enableFxSuggest, showSponsoredSuggestions and showNonSponsoredSuggestions are persisted independently from ordinary search suggestions. Android Remote Settings network is blocked, but local packaged results and stored preferences require separate evaluation. Desktop ImproveSuggest now maps to browser.urlbar.quicksuggest.online.enabled.",
+      "android": "LW-M7-26 adds default-off master/web/sponsored/online choices on every channel, preserving explicit preferences and separate ordinary engine suggestions. Admission is initialized before providers; storage and native Merino construction are lazy, with guards for workers, scheduling, queued requests, private mode and late results. The inspected desktop policy supplies defaults without Locked. Root source replay verifies 20 files; all 19 authored Kotlin tests, target compilation and APK behavior remain pending. Fresh local web/sponsored data is absent and disclosed in the UI; the generic Remote Settings network blocker remains intact.",
       "evidence": [
         "source:feature-flags",
         "source:home-fml",
         "source:settings",
         "source:desktop-policy-effects",
         "repo:patches/android/no-suggest.patch",
-        "repo:patches/android/rs-blocker-android.patch"
+        "repo:patches/android/rs-blocker-android.patch",
+        "repo:patches/android/firefox-suggest-policy.patch"
       ],
-      "remaining": "Verify WebSuggestions, SponsoredSuggestions and ImproveSuggest/online collection separately in the final release APK and on upgrade. Do not equate no-suggest search-engine query defaults with Firefox Suggest policy enforcement."
+      "remaining": "Execute the affected target classes and full Fenix gate, then verify fresh/upgrade/default/off/on/private/background/restart behavior, real local/online results and network boundaries on the final APK. Bundle reviewed local collection metadata, global configuration, suggestion/icon attachments and matching metadata/timestamps, then prove empty-profile ingestion with Remote Settings network blocked. Already sent requests may finish; disabling rejects queued work and late results. Verify ordinary query suggestions, history/bookmarks and engine choices separately."
     },
     "website-filter": {
       "status": "desktop_boundary",
@@ -1950,7 +1951,7 @@
     }
   ],
   "repository_evidence": {
-    "assets/patches/android.txt": "60acbf819d83770cdffd34288df3a5c23041f9a1270cb8d741cc7b75ccc435ab",
+    "assets/patches/android.txt": "0544e00ba4135dc718db41e33f8889efc63812d9396c93b8db302f3c8de98802",
     "assets/search-config-v2.json": "f6136f5d64eb2cb023791b2075687b4ce8fbde778315463bcda2c514d9b6f815",
     "assets/translations/bergamot-translator.wasm.zst": "327fcfc7b7e9d95f6fa0844ebf899cfc05469872ef02d3aef5783182839a6255",
     "assets/translations/catalog.json": "ce8c163e97d9d5b136cd673f7e63684dada00b45514442bf282b387174100d96",
@@ -1987,7 +1988,8 @@
     "scripts/librewolf-patches.py": "51929bb88a6657b16cf67bbb51fb9618e61b8d45582ce3db1234b9c660a1a272",
     "scripts/package-translation-assets.py": "2b65b08920d38199ebca215c0ae1d9118d10501f5be8bab9b47bb70945b3939f",
     "patches/android/home-section-defaults.patch": "9253d3956aff79b8066b65e4521497ca8f1bceab9cab4fe8976137edc43e51fc",
-    "patches/android/sync-opt-in.patch": "a68d04e8642e216be954253062a19f38089626df2c34d725317d82a23193ff29"
+    "patches/android/sync-opt-in.patch": "a68d04e8642e216be954253062a19f38089626df2c34d725317d82a23193ff29",
+    "patches/android/firefox-suggest-policy.patch": "924d394c80e8a8ea71f727629b02328d586fabbdd1b10419df3f9cce839a0ee5"
   },
   "source_capture_commit": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae"
 }
