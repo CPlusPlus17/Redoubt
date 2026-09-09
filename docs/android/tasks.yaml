@@ -4576,3 +4576,33 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: An acknowledged registry change can conceal a stale startup cache or active blocking listener after process death.
+
+  - id: LW-M7-30
+    title: Stop seeding bundled default home shortcuts
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-17, LW-M7-24]
+    owns:
+      - patches/android/no-default-shortcuts.patch
+      - docs/android/evidence/lw-m7-30/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - mobile/android/fenix/app/src/main/res/raw/initial_shortcuts.json
+    what: |
+      Mirror LibreWolf's empty browser.newtabpage.activity-stream.default.sites
+      input in the actual Fenix default shortcut seed resource. Keep the empty
+      data schema accepted by DefaultTopSitesBinding. Preserve existing stored
+      shortcuts, bookmarks, user-created additions and explicit home controls.
+      This does not establish NoDefaultBookmarks behavior in the separate
+      bookmark database. Record resource/source lineage and require packaged
+      APK plus fresh/upgrade/manual-add behavior before completion.
+    acceptance:
+      - "the packaged default shortcut resource contains an empty data array"
+      - "fresh region changes do not insert default shortcuts"
+      - "existing and user-created shortcuts/bookmarks survive and manual additions work"
+      - "actual APK resource and home behavior are verified with source-bound evidence"
+    verify: "python3 docs/android/evidence/lw-m7-30/check-source.py && python3 docs/android/board.py --check"
+    effort_h: "1-3"
+    skills: [android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Hiding the home section does not prevent the independent startup seeding path.
