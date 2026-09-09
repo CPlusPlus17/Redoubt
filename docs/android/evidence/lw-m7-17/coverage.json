@@ -134,7 +134,7 @@
     "home": {
       "status": "mixed_open",
       "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "LW-M7-24 changes the four ordinary home sections (top sites, recent tabs, bookmarks and history) to off in both packaged defaults and the nightly override. Existing Settings boolean preferences retain stored choices; HomeSettingsFragment still uses those getters and its existing controls. The patch has replayed but is not yet compiled or run. Existing no-onboarding/no-suggest removals remain. Weather absence remains a bounded source observation.",
+      "android": "LW-M7-24 changes the four ordinary home sections (top sites, recent tabs, bookmarks and history) to off in both packaged defaults and the nightly override. Existing Settings boolean preferences retain stored choices; HomeSettingsFragment still uses those getters and its existing controls. The patch has replayed but is not yet compiled or run. Existing no-onboarding/no-suggest removals remain. Weather absence remains a bounded source observation. LW-M7-30 separately empties the actual Fenix default shortcut seed, matching the desktop default.sites input; resource replay passes but it has not been included in an APK.",
       "evidence": [
         "source:home-fml",
         "source:settings",
@@ -142,9 +142,10 @@
         "repo:patches/android/no-onboarding.patch",
         "repo:patches/android/no-suggest.patch",
         "search:weather-home",
-        "repo:patches/android/home-section-defaults.patch"
+        "repo:patches/android/home-section-defaults.patch",
+        "repo:patches/android/no-default-shortcuts.patch"
       ],
-      "remaining": "Compile and run the new Settings tests and real fresh/restart/upgrade home controls. Preserve user data; ambiguous previously stored defaults remain unchanged. Default shortcut/bookmark seeding and recommendation/network regression remain separate work."
+      "remaining": "Compile/package the new home inputs and run actual fresh/region-change/restart/upgrade home controls. Verify the empty raw resource in the APK, preserve existing shortcuts/bookmarks and prove manual additions work. NoDefaultBookmarks remains a separate bookmark-database question. Recommendation/network regression remains pending."
     },
     "extension-types": {
       "status": "open_gap",
@@ -1951,7 +1952,7 @@
     }
   ],
   "repository_evidence": {
-    "assets/patches/android.txt": "0544e00ba4135dc718db41e33f8889efc63812d9396c93b8db302f3c8de98802",
+    "assets/patches/android.txt": "cc0fd70013a120d8c9bba8bf0f97114e00ee476d66e054fffb17f26412ad3b08",
     "assets/search-config-v2.json": "f6136f5d64eb2cb023791b2075687b4ce8fbde778315463bcda2c514d9b6f815",
     "assets/translations/bergamot-translator.wasm.zst": "327fcfc7b7e9d95f6fa0844ebf899cfc05469872ef02d3aef5783182839a6255",
     "assets/translations/catalog.json": "ce8c163e97d9d5b136cd673f7e63684dada00b45514442bf282b387174100d96",
@@ -1989,7 +1990,8 @@
     "scripts/package-translation-assets.py": "2b65b08920d38199ebca215c0ae1d9118d10501f5be8bab9b47bb70945b3939f",
     "patches/android/home-section-defaults.patch": "9253d3956aff79b8066b65e4521497ca8f1bceab9cab4fe8976137edc43e51fc",
     "patches/android/sync-opt-in.patch": "a68d04e8642e216be954253062a19f38089626df2c34d725317d82a23193ff29",
-    "patches/android/firefox-suggest-policy.patch": "924d394c80e8a8ea71f727629b02328d586fabbdd1b10419df3f9cce839a0ee5"
+    "patches/android/firefox-suggest-policy.patch": "924d394c80e8a8ea71f727629b02328d586fabbdd1b10419df3f9cce839a0ee5",
+    "patches/android/no-default-shortcuts.patch": "5af4a5a142da21684efd0608145e1667df8f5bf26576ab806ddd7893abea5ee4"
   },
   "source_capture_commit": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae"
 }
