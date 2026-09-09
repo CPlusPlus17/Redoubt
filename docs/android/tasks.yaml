@@ -4677,7 +4677,7 @@ tasks:
   - id: LW-M7-27
     title: Prepare isolated Android native test drivers and result grading
     milestone: M7
-    depends_on: [LW-M7-12, LW-M7-14, LW-M7-16, LW-M7-19, LW-M7-23, LW-M7-25, LW-M7-31]
+    depends_on: [LW-M7-12, LW-M7-14, LW-M7-16, LW-M7-19, LW-M7-23, LW-M7-25, LW-M7-31, LW-M7-35]
     owns:
       - docs/android/evidence/lw-m7-27/
     what: |
@@ -4692,18 +4692,25 @@ tasks:
       partial, skipped or failed results. Do not execute on the guest or mutate
       production objdirs/devices as part of preparing these drivers. Test prefs
       and debug signing belong only to the separate test environment and never
-      establish release APK acceptance.
+      establish release APK acceptance. Consume the corrected Task35 native
+      inventory and pin integrated Task31/35 source. Run current-profile I/O
+      and update controls in the ordinary GeckoView instrumentation process,
+      then force-stop only the test package, verify process exit, and invoke
+      the guarded shutdown class in its own fresh instrumentation process.
+      Retain explicit pending Android exclusions; never reuse native4 or
+      other artifacts whose source bindings omit the integrated changes.
     acceptance:
       - "plan/preflight binds the supplied source manifest, audited harness sources and exact production-to-test config diff"
       - "explicit drivers use a separate x86_64 test objdir and real supported test_runner and instrumentation build tasks"
       - "graders require all named tests to finish without skips or unexpected failures and bind fresh logs to source/artifact receipts"
       - "local grader regressions cover empty, stale, partial, duplicate, skipped, failed and incomplete result rejection"
+      - "Task35 shutdown requires its exact isolated class and opt-in, a verified process boundary, and complete fresh results; skipped shutdown is not accepted"
       - "target build/run status remains explicitly unrun until the separate drivers are actually invoked"
     verify: "python3 -m unittest discover -s docs/android/evidence/lw-m7-27 -p 'test_*.py' && python3 docs/android/board.py --check"
     effort_h: "4-8"
     skills: [android, python, testing]
     agent_safe: yes
-    isolation: none
+    isolation: worktree
     risk: A test-enabled artifact or parser false green must not be mistaken for release APK acceptance.
 
   - id: LW-M7-31
