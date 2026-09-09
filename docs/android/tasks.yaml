@@ -4284,6 +4284,7 @@ tasks:
     milestone: M7
     depends_on: [LW-M7-12, LW-M7-15, LW-M7-21]
     owns:
+      - assets/mozconfig.android
       - scripts/ci-vm/inside.sh
       - scripts/ci-vm/verify-guest.sh
       - scripts/ci-vm/guest-provision.sh
@@ -4298,6 +4299,8 @@ tasks:
       source integrity, and use 20 GiB guest RAM with a separate bounded native
       compiler wrapper. Keep the existing smaller Fenix/test limits. Recheck
       isolation and host headroom, then resume incremental native compilation.
+      After measured gkrust OOM, disable diagnostic symbols while preserving
+      optimization, LTO and hardening; archive the failure and rebuild every ABI.
     acceptance:
       - "interrupted native logs and resource observations are retained without claiming a build pass"
       - "20 GiB guest RAM, existing swap and host/guest isolation checks are verified after restart"
@@ -4371,7 +4374,7 @@ tasks:
   - id: LW-M7-23
     title: Add normal and private cookie-banner controls and domain exceptions
     milestone: M7
-    depends_on: [LW-M7-12, LW-M7-13, LW-M7-14]
+    depends_on: [LW-M7-12, LW-M7-13, LW-M7-14, LW-M7-20]
     owns:
       - patches/android/cookie-banner-controls.patch
       - scripts/tests/test-cookie-banner-controls.py
