@@ -4182,13 +4182,14 @@ tasks:
   - id: LW-M7-21
     title: Resolve feature compilation with source-bound evidence
     milestone: M7
-    depends_on: [LW-M7-12, LW-M7-13, LW-M7-14, LW-M7-16, LW-M7-17, LW-M7-18, LW-M7-26, LW-M7-29, LW-M7-30, LW-M2-03]
+    depends_on: [LW-M7-12, LW-M7-13, LW-M7-14, LW-M7-16, LW-M7-17, LW-M7-18, LW-M7-23, LW-M7-26, LW-M7-29, LW-M7-30, LW-M2-03]
     owns:
       - scripts/android-fat-aar.sh
       - scripts/tests/test-android-fat-aar-maven.py
       - patches/android/translation-assets.patch
       - patches/android/firefox-suggest-policy.patch
       - patches/android/canvas-webgl-permissions.patch
+      - patches/android/cookie-banner-controls.patch
       - scripts/android-smoke.sh
       - scripts/tests/test-android-smoke.py
       - docs/android/evidence/lw-m7-16/source-files.json
@@ -4208,11 +4209,16 @@ tasks:
       - mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt
+      - mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt
+      - mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt
     what: |
       Fix compiler failures in integrated feature code against the actual pinned
       Gecko API. Preserve unsuccessful build receipts and source lineage, replay
       affected source tests, and require actual target builds before claiming a
       fix compiled. Keep the feature inventory aligned with measured behavior.
+      Correct actual target-test compiler/stubbing failures with preserved failed
+      XML and source receipts; test-only fixes still require a complete rerun.
     acceptance:
       - "the corrected source compiles in the isolated target build"
       - "affected source tests pass and revised source hashes match the guest"
