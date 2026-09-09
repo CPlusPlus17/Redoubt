@@ -166,6 +166,51 @@ def select_node(xml, *, rid=None, text=None, origin=None, description=None, pack
     return None
 
 
+
+# Exact English post-installation notice captured from the release APK. Its
+# native OK callback only consumes the completed prompt and dismisses it.
+# An extension permission/data-choice dialog is deliberately not recognized.
+UBO_ADDED_TITLE = "uBlock Origin was added"
+UBO_ADDED_DESCRIPTION = "Update permissions and data preferences any time in the extension settings."
+
+
+def ubo_added_notice(xml, package):
+    """Return only the unique native installed-notice OK, never a generic OK."""
+    expected = {
+        "icon": ("android.widget.ImageView", "", "false"),
+        "title": ("android.widget.TextView", UBO_ADDED_TITLE, "false"),
+        "description": ("android.widget.TextView", UBO_ADDED_DESCRIPTION, "false"),
+        "confirm_button": ("android.widget.Button", "OK", "true"),
+    }
+    matches = []
+    for container in parse_ui(xml).iter("node"):
+        if container.get("package") != package or container.get("class") != "android.widget.RelativeLayout":
+            continue
+        children = list(container)
+        if len(children) != len(expected) or any(list(child) for child in children):
+            continue
+        by_id = {child.get("resource-id"): child for child in children}
+        if set(by_id) != {package + ":id/" + name for name in expected}:
+            continue
+        if any(child.get("package") != package or child.get("class") != class_name or
+               child.get("text", "") != text or child.get("clickable") != clickable or
+               child.get("checkable") != "false" or child.get("enabled") != "true" or
+               child.get("visible-to-user", "true") != "true"
+               for name, (class_name, text, clickable) in expected.items()
+               for child in [by_id[package + ":id/" + name]]):
+            continue
+        if container.get("enabled", "true") != "true" or container.get("visible-to-user", "true") != "true":
+            continue
+        button = select_node("<hierarchy>" + ET.tostring(container, encoding="unicode") + "</hierarchy>",
+                             package=package,
+                             rid=package + ":id/confirm_button", class_name="android.widget.Button",
+                             text="OK", required=False)
+        if button:
+            matches.append(button)
+    require(len(matches) <= 1, "Ambiguous uBlock Origin installed notice")
+    return matches[0] if matches else None
+
+
 def transport_config_facts(body):
     """Accept only the established transport-only config; report no secret values."""
     lines = [line.strip() for line in body.splitlines()
@@ -530,6 +575,26 @@ class UI:
     def back(self):
         self.shell("input", "keyevent", "4")
 
+    def acknowledge_ubo_added_notice(self, xml):
+        button = ubo_added_notice(xml, self.package)
+        if button is None:
+            return xml
+        self.tap(button, "acknowledge-ubo-installed-notice")
+        # Tap once. Only the read-only disappearance wait may retry; the fresh
+        # hierarchy is returned to the unchanged permission/quiet assertions.
+        deadline = time.monotonic() + self.timeout
+        while True:
+            xml = self.dump("after-ubo-installed-notice", screenshot=True)
+            title_present = any(node.get("package") == self.package and
+                                node.get("resource-id") == self.package + ":id/title" and
+                                node.get("text") == UBO_ADDED_TITLE
+                                for node in parse_ui(xml).iter("node"))
+            if not title_present:
+                return xml
+            if time.monotonic() >= deadline:
+                raise Failure("uBlock Origin installed notice did not close after its OK action")
+            time.sleep(0.25)
+
     def close_permissions(self):
         # Close only known permission/trust panels, never send blind Back to a page.
         for _ in range(4):
@@ -547,6 +612,7 @@ class UI:
 
     def open_permissions(self):
         xml = self.dump("before-open-permissions", screenshot=True)
+        xml = self.acknowledge_ubo_added_notice(xml)
         if self.node(xml, rid="origin_permissions_dialog_list", required=False):
             return
         entry = self.node(xml, rid="origin_permissions_entry", required=False)
@@ -889,8 +955,11 @@ class Runner:
 
     def core(self):
         fixture = self.fixtures[0]
+        xml = self.ui.dump("before-quiet-probes", screenshot=True)
+        self.ui.acknowledge_ubo_added_notice(xml)
         self.matrix(fixture, webgl=False, canvas=False)
         xml = self.ui.dump("quiet-protection", screenshot=True)
+        xml = self.ui.acknowledge_ubo_added_notice(xml)
         require(self.ui.node(xml, rid="origin_permission_allow", required=False) is None,
                 "A pre-gesture quiet attempt opened the consent dialog automatically")
         require(self.ui.node(xml, rid="origin_permissions_dialog_list", required=False) is None,
