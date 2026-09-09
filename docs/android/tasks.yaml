@@ -4356,12 +4356,12 @@ tasks:
       implementation; root owns target builds and runtime validation.
     acceptance:
       - "fresh and persisted-off starts do not initialize FxA, Sync or Relay service work"
-      - "explicit enable/disable commits the selected state and genuinely restarts; failed persistence leaves the current state and reports an error"
+      - "explicit enable/disable commits the selected state and genuinely restarts; failed persistence leaves the current running state and reports an error"
       - "switch-off cancels account work and terminates native operations without logout or deleting account/engine data"
       - "workers, delayed callbacks and deep links cannot opt in or revive service work while off"
       - "explicit opt-in supports actual login/sync/logout with existing custom endpoints and survives process death"
       - "affected targets compile, meaningful unit gates pass and source-bound APK lifecycle/network tests pass"
-    verify: "python3 docs/android/board.py --check"
+    verify: "python3 docs/android/evidence/lw-m7-20/check-source.py && python3 docs/android/board.py --check"
     effort_h: "8-16"
     skills: [android, kotlin]
     agent_safe: yes
