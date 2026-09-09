@@ -4375,6 +4375,7 @@ tasks:
       - mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/sync/AccountServicesWorkerTest.kt
       - mobile/android/android-components/components/feature/syncedtabs/src/test/java/mozilla/components/feature/syncedtabs/commands/AccountServicesFlushWorkerTest.kt
       - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/AccountServicesPreferenceTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityAccountSettingsTest.kt
       - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
     reads:
       - patches/pref-pane/librewolf.js
@@ -4391,6 +4392,10 @@ tasks:
       actual failed Kotlin XML/source evidence and correct primitive Boolean
       test matchers without changing production behavior or weakening assertions;
       require a fresh affected/full target suite after any fixture correction.
+      Restore custom-tab handleNewIntent early return before account-settings
+      extra inspection, preserving existing no-op tests. Add explicit regular
+      HomeActivity and external/auth custom-tab account-settings intent coverage;
+      keep the observed target failures and new APK/full-suite gates explicit.
     acceptance:
       - "fresh and persisted-off starts do not initialize FxA, Sync or Relay service work"
       - "explicit enable/disable commits the selected state and genuinely restarts; failed persistence leaves the current running state and reports an error"
