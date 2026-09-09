@@ -6,10 +6,10 @@
 
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt
 new file mode 100644
-index 0000000..7a59dc1
+index 0000000..a3091c4
 --- /dev/null
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,54 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -33,7 +33,6 @@ index 0000000..7a59dc1
 + * A generation also rejects results from an earlier off/on cycle.
 + */
 +object FxSuggestAdmission {
-+    @ConsistentCopyVisibility
 +    data class Snapshot internal constructor(val choices: FxSuggestChoices, internal val generation: Long)
 +
 +    private var reader: () -> FxSuggestChoices = { FxSuggestChoices() }
@@ -387,10 +386,10 @@ index 7e35c90..966d90b 100644
  
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt
 new file mode 100644
-index 0000000..2774af1
+index 0000000..a571433
 --- /dev/null
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,120 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -446,7 +445,6 @@ index 0000000..2774af1
 +    fun `off-on cycle invalidates an earlier admitted operation even when final choices match`() {
 +        choices = FxSuggestChoices()
 +        val admitted = FxSuggestAdmission.snapshot()
-+        assertTrue(FxSuggestAdmission.isCurrent(admitted))
 +        choices = choices.copy(enabled = false)
 +        FxSuggestAdmission.choicesChanged()
 +        choices = choices.copy(enabled = true)

@@ -151,3 +151,12 @@ a live Merino result. Local fresh-profile positive controls additionally require
 the bundled dataset followup. Existing-cache local controls, ordinary engine
 suggestions, custom engine selection, history/bookmark results and home settings
 need regression coverage on the actual APK.
+
+The actual native4 APK build subsequently reached the Suggest Kotlin compiler and
+failed under `-Werror` because `Snapshot` had an internal constructor with a
+generated exposed copy method. Task21 adds `@ConsistentCopyVisibility`, already
+used in this source tree, preserving structural equality and the internal
+constructor. The existing generation test now first checks a valid unchanged
+snapshot. Failed source/logs and exact two-file correction are retained in
+`../lw-m7-21/native4-apk-failure/` and `../lw-m7-21/admission-copy-correction/`.
+This correction still requires an actual target rebuild and test run.
