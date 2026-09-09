@@ -569,10 +569,10 @@ index a1e5de1..38d77e7 100644
          // to store it.
 diff --git a/mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesDisabledTest.kt b/mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesDisabledTest.kt
 new file mode 100644
-index 0000000..fba3932
+index 0000000..82ef979
 --- /dev/null
 +++ b/mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesDisabledTest.kt
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,252 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -611,7 +611,6 @@ index 0000000..fba3932
 +import org.junit.Before
 +import org.junit.Test
 +import org.junit.runner.RunWith
-+import org.mockito.ArgumentMatchers.anyBoolean
 +import org.mockito.Mockito.clearInvocations
 +import org.mockito.Mockito.never
 +import org.mockito.Mockito.verify
@@ -717,7 +716,7 @@ index 0000000..fba3932
 +        startup.join()
 +        verify(account, never()).getTokenServerEndpointURL()
 +        verify(account, never()).getCurrentDeviceId()
-+        verify(account, never()).getProfile(anyBoolean())
++        verify(account, never()).getProfile(any())
 +        verify(account, never()).processEvent(FxaEvent.Disconnect)
 +        verify(manager.storage, never()).clear()
 +        verifyNoInteractions(observer)
@@ -766,7 +765,7 @@ index 0000000..fba3932
 +        startup.join()
 +        assertTrue(SyncAuthInfoCache(testContext).expired())
 +        verify(account, never()).getCurrentDeviceId()
-+        verify(account, never()).getProfile(anyBoolean())
++        verify(account, never()).getProfile(any())
 +        verify(account, never()).processEvent(FxaEvent.Disconnect)
 +        verify(manager.storage, never()).clear()
 +        verifyNoInteractions(observer)
@@ -781,7 +780,7 @@ index 0000000..fba3932
 +        manager.register(observer)
 +        val requested = CompletableDeferred<Unit>()
 +        val profile = CompletableDeferred<Profile?>()
-+        whenever(account.getProfile(anyBoolean())).thenAnswer { invocation ->
++        whenever(account.getProfile(any())).thenAnswer { invocation ->
 +            suspendedAnswer(invocation) { requested.complete(Unit); profile.await() }
 +        }
 +        val startup = launch { manager.start() }

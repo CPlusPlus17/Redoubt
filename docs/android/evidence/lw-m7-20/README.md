@@ -6,9 +6,25 @@ This source candidate makes account services **off by default** and adds an
 The confirmation explains that account data, Sync selections and custom servers
 stay saved, and that restart ends the current private browsing session.
 
-**Target compilation and APK behavior are pending.** Twenty-eight Kotlin tests are
-authored but have not been executed here. Source replay is not a Kotlin test,
-login result, network measurement or proof that Android restarted correctly.
+**Target acceptance is pending.** The 2026-09-09 actual service-firefox-accounts
+run executed 19 cases and failed five in `AccountServicesDisabledTest`. Two
+failures unboxed the generic Mockito matcher's null return for `getProfile`'s
+Boolean parameter; the remaining three reported leftover matcher/verification
+state. This fixture correction adds `anyBoolean` at the three affected call sites
+and preserves all assertions and all eight cases. The generic `any` import remains
+necessary for the separate `processEvent(FxaEvent)` stub. No production source
+changes. The full 19-case accounts selection and complete Fenix/affected A-C suite
+must run again; no corrected target pass is claimed.
+
+[boolean-matcher-correction/receipt.json](boolean-matcher-correction/receipt.json)
+retains all five actual failure identities, the captured XML/log/source hashes,
+old patch/manifest lineage and exact test-only replacement. Its archive preserves
+the observed original target evidence; root retains the terminal full-run capture
+separately. Scoped source replay passes all 23 files and preserves the 28 authored
+Kotlin tests, with only the intended test file changed. The scoped Task14 patch
+pin also advances to the previously integrated Bundle correction; replay proves
+its Task20 intersections still yield the recorded bodies. This source check is
+not a Kotlin rerun, login result, network measurement or proof of Android restart.
 
 ## Actual service boundary
 
