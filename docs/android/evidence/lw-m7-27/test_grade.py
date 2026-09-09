@@ -155,8 +155,10 @@ class EvidenceBinding(unittest.TestCase):
     def write(self,name,value):
         (self.path/name).write_text(json.dumps(value)+'\n')
 
-    def make_run(self):
+    def make_run(self, pending=None):
         req={'xpcshell':[SPEC],'instrumentation':METHODS}
+        if pending:
+            req['pending_xpcshell'] = pending
         self.write('requirements.json',req)
         binding={'requirements_sha256':sha(self.path/'requirements.json')}
         self.write('source-binding.json',binding);self.write('source-after-tests.json',binding)
@@ -170,6 +172,14 @@ class EvidenceBinding(unittest.TestCase):
 
     def test_archived_run_regrades_without_build_tree(self):
         self.make_run();self.assertEqual(grade_run(self.path)['status'],'PASS')
+
+    def test_upstream_android_exclusion_cannot_become_a_pass(self):
+        pending = [{'path':'toolkit/extensions/test_uninstall.js','tasks':['remove'],
+                    'reason':'audited upstream Android exclusion'}]
+        self.make_run(pending)
+        result = grade_run(self.path)
+        self.assertEqual(result['status'], 'PENDING')
+        self.assertEqual(result['pending_xpcshell'], pending)
 
     def test_foreign_run_receipt_is_rejected(self):
         self.make_run();p=self.path/'xpcshell-0.raw-receipt.json';x=json.loads(p.read_text());x['run_id']='f'*32;self.write(p.name,x)
@@ -244,6 +254,65 @@ class ContainerIsolation(unittest.TestCase):
         args=['in-vm.py','--repo','/unused/repo','build','--source','/unused/src','--source-manifest','/unused/manifest','--product-mozconfig','/unused/config','--product-revision','a'*40,'--build-date','20260906190000','--workspace','/home/runner/native-tests-unit/redoubt-native-tests-unit','--execute']
         with mock.patch('sys.argv',args),mock.patch.object(driver,'query',return_value='none'),mock.patch('subprocess.Popen',side_effect=AssertionError('must not execute')),self.assertRaisesRegex(InvalidResult,'KVM'):
             wrapper.main()
+
+
+class PermissionNativeSelection(unittest.TestCase):
+    @staticmethod
+    def specs():
+        return [spec for spec in json.loads(driver.REQUIREMENTS.read_text())['xpcshell']
+                if Path(spec['path']).name.startswith('test_ext_permissions')]
+
+    @staticmethod
+    def rows(spec, prefix=None):
+        name = (spec['test_id_prefix'] if prefix is None else prefix) + spec['path']
+        rows = [{'action':'suite_start'}, {'action':'test_start','test':name}]
+        for task in spec['tasks']:
+            rows.extend([
+                {'action':'log','level':'INFO','message':f'{name} | Starting {task}'},
+                {'action':'test_status','test':name,'subtest':'real assertion','status':'PASS'},
+                {'action':'log','level':'INFO','message':f'(xpcshell/head.js) | test {task} finished (1)'},
+            ])
+        return rows + [{'action':'test_end','test':name,'status':'PASS'}, {'action':'suite_end'}]
+
+    def test_every_named_permission_task_is_required(self):
+        for spec in self.specs():
+            self.assertEqual(len(grade_xpcshell(raw(self.rows(spec)), spec)['passed_tasks']), len(spec['tasks']))
+            for task in spec['tasks']:
+                rows = [row for row in self.rows(spec) if f'| test {task} finished' not in row.get('message','')]
+                with self.subTest(task=task), self.assertRaises(InvalidResult):
+                    grade_xpcshell(raw(rows), spec)
+
+    def test_wrong_manifest_variant_is_not_android_evidence(self):
+        for spec in self.specs():
+            for prefix in ['xpcshell-remote.toml:', 'xpcshell-legacy-ep.toml:', '']:
+                with self.subTest(prefix=prefix), self.assertRaises(InvalidResult):
+                    grade_xpcshell(raw(self.rows(spec, prefix)), spec)
+
+    def test_rkv_recovery_is_required_in_the_selected_variant(self):
+        spec = next(spec for spec in self.specs() if spec['path'].endswith('/test_ext_permissions.js'))
+        task = 'test_permissions_rkv_recovery_rename'
+        self.assertIn(task, spec['tasks'])
+        rows = self.rows(spec)
+        rows.insert(3, {'action':'test_status', 'test':spec['test_id_prefix']+spec['path'],
+                        'subtest':task, 'status':'SKIP', 'expected':'SKIP'})
+        with self.assertRaises(InvalidResult):
+            grade_xpcshell(raw(rows), spec)
+
+    def test_selector_filters_manifest_variants_without_skipping_tasks(self):
+        for spec in self.specs():
+            self.assertEqual(driver.selection_arguments(spec), ['--tag','in-process-webextensions',spec['path']])
+        self.assertEqual(driver.selection_arguments(SPEC), [SPEC['path']])
+        with self.assertRaises(InvalidResult):
+            driver.selection_arguments(dict(SPEC, tags=['--force']))
+
+    def test_pending_test_sources_are_required_by_the_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'file').write_text('bytes');manifest=root/'manifest'
+            manifest.write_text(sha(root/'file')+'  file\n')
+            req=root/'requirements.json';req.write_text(json.dumps({'product_paths':[], 'xpcshell':[],
+                'pending_xpcshell':[{'path':'missing-test.js','tasks':['remove']}], 'instrumentation':[]}))
+            with mock.patch.object(driver, 'REQUIREMENTS', req), self.assertRaisesRegex(InvalidResult,'missing-test.js'):
+                driver.source_binding(root,manifest)
 
 
 if __name__=='__main__':unittest.main()

@@ -60,7 +60,12 @@ def grade_xpcshell(raw, spec):
     allowed_skips = set(spec.get('allowed_skips', []))
     require(required and not required & allowed_skips, 'invalid required/skip task set')
     def is_file(name):
-        return isinstance(name, str) and (name == Path(spec['path']).name or name.replace('\\', '/').endswith(spec['path']))
+        if not isinstance(name, str):
+            return False
+        name = name.replace('\\', '/')
+        if spec.get('test_id_prefix') and not name.startswith(spec['test_id_prefix']):
+            return False
+        return name == Path(spec['path']).name or name.endswith(spec['path'])
 
     running = None
     started = set()
@@ -189,7 +194,10 @@ def grade_run(directory):
             results.append(grade_xpcshell(raw, requirements['xpcshell'][index]))
         else:
             results.append(grade_instrumentation(raw, requirements['instrumentation']))
-    return dict(invocation, status='PASS', results=results, scope='separate instrumented test build only; not release APK acceptance')
+    pending = requirements.get('pending_xpcshell', [])
+    return dict(invocation, status='PENDING' if pending else 'PASS', results=results,
+                pending_xpcshell=pending,
+                scope='separate instrumented test build only; not release APK acceptance')
 
 
 if __name__ == '__main__':
@@ -198,6 +206,9 @@ if __name__ == '__main__':
     parser.add_argument('run_directory', type=Path)
     args = parser.parse_args()
     try:
-        print(json.dumps(grade_run(args.run_directory), indent=2))
+        verdict = grade_run(args.run_directory)
+        print(json.dumps(verdict, indent=2))
+        if verdict['status'] != 'PASS':
+            parser.exit(3, 'PENDING: Android-excluded native requirements have not executed.\n')
     except (InvalidResult, ValueError, OSError) as error:
         parser.exit(1, f'FAIL / NOT ACCEPTED: {error}\n')

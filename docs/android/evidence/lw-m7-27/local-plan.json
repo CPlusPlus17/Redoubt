@@ -1,11 +1,11 @@
 {
   "status": "NOT RUN",
   "source": "/home/mgysin/Documents/librewolf/librewolf-153.0esr-1-beta-20260908",
-  "workspace": "/home/mgysin/redoubt-artifacts/feature-parity/lw-m7-27/redoubt-native-tests-plan",
-  "product_revision_operator_supplied": "3835a36481ea36add02ad7d5575d2d0abd96a5ba",
+  "workspace": "/home/mgysin/redoubt-artifacts/feature-parity/lw-m7-27-permissions/redoubt-native-tests-proposed",
+  "product_revision_operator_supplied": "248da5a85706056c083361deb2e3fa40148d2b42",
   "build_date": "20260906190000",
   "product_mozconfig_sha256": "07030ae5383d853c8050410036cd6498a51902b61da3f91079acc0dc001deaf3",
-  "config_diff": "--- production.mozconfig\n+++ test.mozconfig\n@@ -53,7 +53,7 @@\n # aarch64 is the primary (and, for M0-M4, only) target.  arm64-v8a is the only\n # ABI worth shipping first; armv7/x86_64 come later via LW-M6-xx multi-arch.\n # mobile/android/moz.configure:140-152 hard-dies unless target.os == \"Android\".\n-ac_add_options --target=aarch64-linux-android\n+ac_add_options --target=x86_64-linux-android\n \n \n # ---------------------------------------------------------------------------\n@@ -224,7 +224,7 @@\n # Keep release optimization/LTO and hardening, but omit diagnostic symbols.\n # rust.configure maps any enabled symbol level to Rust debuginfo=2.\n ac_add_options --disable-debug-symbols\n-ac_add_options --disable-tests\n+ac_add_options --enable-tests\n ac_add_options --enable-optimize\n ac_add_options --enable-release\n # build/moz.configure/rust.configure:711\n@@ -699,4 +699,7 @@\n # this line; the repo file was left without it, so `make android-apk` died at\n # preflight and the deliverable was not reproducible from the repository. Caught\n # by the skeptical verification of LW-M2-04.\n-ac_add_options --enable-android-subproject=fenix\n+ac_add_options --enable-android-subproject=geckoview_example\n+\n+# LW-M7-27: separate test artifact; never a release acceptance candidate.\n+mk_add_options MOZ_OBJDIR=/home/mgysin/redoubt-artifacts/feature-parity/lw-m7-27/redoubt-native-tests-plan/obj-x86_64-tests\n",
+  "config_diff": "--- production.mozconfig\n+++ test.mozconfig\n@@ -53,7 +53,7 @@\n # aarch64 is the primary (and, for M0-M4, only) target.  arm64-v8a is the only\n # ABI worth shipping first; armv7/x86_64 come later via LW-M6-xx multi-arch.\n # mobile/android/moz.configure:140-152 hard-dies unless target.os == \"Android\".\n-ac_add_options --target=aarch64-linux-android\n+ac_add_options --target=x86_64-linux-android\n \n \n # ---------------------------------------------------------------------------\n@@ -224,7 +224,7 @@\n # Keep release optimization/LTO and hardening, but omit diagnostic symbols.\n # rust.configure maps any enabled symbol level to Rust debuginfo=2.\n ac_add_options --disable-debug-symbols\n-ac_add_options --disable-tests\n+ac_add_options --enable-tests\n ac_add_options --enable-optimize\n ac_add_options --enable-release\n # build/moz.configure/rust.configure:711\n@@ -699,4 +699,7 @@\n # this line; the repo file was left without it, so `make android-apk` died at\n # preflight and the deliverable was not reproducible from the repository. Caught\n # by the skeptical verification of LW-M2-04.\n-ac_add_options --enable-android-subproject=fenix\n+ac_add_options --enable-android-subproject=geckoview_example\n+\n+# LW-M7-27: separate test artifact; never a release acceptance candidate.\n+mk_add_options MOZ_OBJDIR=/home/mgysin/redoubt-artifacts/feature-parity/lw-m7-27-permissions/redoubt-native-tests-proposed/obj-x86_64-tests\n",
   "commands": [
     [
       "/usr/bin/python3",
@@ -82,6 +82,56 @@
           "test_delete_and_passive_missing_cache"
         ],
         "allowed_skips": []
+      },
+      {
+        "path": "toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js",
+        "tasks": [
+          "completion_is_already_on_disk",
+          "failed_writes_preserve_retry_and_cache",
+          "stale_derived_cache_is_never_authority",
+          "geckoview_uninstall_waits_original_permission_cleanup"
+        ],
+        "allowed_skips": [],
+        "tags": [
+          "in-process-webextensions"
+        ],
+        "test_id_prefix": "xpcshell.toml:"
+      },
+      {
+        "path": "toolkit/components/extensions/test/xpcshell/test_ext_permissions.js",
+        "tasks": [
+          "test_permissions_rkv_recovery_rename",
+          "test_permissions_on_startup",
+          "test_normal_mv2",
+          "test_normal_mv3_noInstallPrompt",
+          "test_normal_mv3",
+          "test_granted_for_temporary_mv3",
+          "test_granted_only_for_privileged_mv3",
+          "test_mv3_optional_host_permissions",
+          "test_startup",
+          "test_alreadyGranted_mv2",
+          "test_alreadyGranted_mv3_noInstallPrompt",
+          "test_alreadyGranted_mv3",
+          "test_permissions_have_localization_strings",
+          "test_permission_names_match_policy_schema",
+          "test_optional_all_urls",
+          "test_content_script_is_optional_mv2",
+          "test_content_script_is_optional_mv3_noInstallPrompt",
+          "test_content_script_is_optional_mv3",
+          "test_permissions_prompt_mv2",
+          "test_permissions_prompt_mv3_noInstallPrompt",
+          "test_permissions_prompt_mv3",
+          "test_internal_permissions",
+          "test_normalizeOptional",
+          "test_onAdded_all_urls",
+          "test_add_data_collection",
+          "test_remove_data_collection"
+        ],
+        "allowed_skips": [],
+        "tags": [
+          "in-process-webextensions"
+        ],
+        "test_id_prefix": "xpcshell.toml:"
       }
     ],
     "instrumentation": [
@@ -181,7 +231,14 @@
       "toolkit/components/cookiebanners/test/unit/test_cookiebanner_private_session.js",
       "toolkit/components/cookiebanners/test/unit/test_cookiebannerlistservice.js",
       "toolkit/components/cookiebanners/test/unit/xpcshell.toml",
+      "toolkit/components/extensions/Extension.sys.mjs",
+      "toolkit/components/extensions/ExtensionPermissions.sys.mjs",
+      "toolkit/components/extensions/ExtensionTaskScheduler.sys.mjs",
       "toolkit/components/extensions/parent/ext-webRequest.js",
+      "toolkit/components/extensions/test/xpcshell/test_ext_permissions.js",
+      "toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js",
+      "toolkit/components/extensions/test/xpcshell/test_ext_permissions_uninstall.js",
+      "toolkit/components/extensions/test/xpcshell/xpcshell.toml",
       "toolkit/components/translations/AndroidTranslationAssets.sys.mjs",
       "toolkit/components/translations/TranslationsUtils.mjs",
       "toolkit/components/translations/actors/TranslationsChild.sys.mjs",
@@ -209,9 +266,25 @@
       "translation-assets.patch": "303edc22a85e56a6a7333f2516371de88fee21dfbe40c532446ce96c2e97cb26",
       "addon-state-durability.patch": "b1ba51cc8e55a6ab38ea76ecab4cdeacb925efd08084dfa0dede0aa72045c4ba",
       "cookie-banner-rules.patch": "c7265a76ace9371f7f6333a6ca12584fe45424a77d7dea659828c53abb7044b5",
-      "cookie-banner-controls.patch": "ba81f852b04f0ff4614cf992f23d8090679e53dd4b4f416ed09d9334523d04db"
+      "cookie-banner-controls.patch": "ba81f852b04f0ff4614cf992f23d8090679e53dd4b4f416ed09d9334523d04db",
+      "extension-permission-durability.patch": "b2a507ccf51c521e3a49693a040db6c6fad4ce0b786a9114f8468a3acdef27f4"
     },
-    "build_image_sha256": "c5b57d94cf9e0ed1de7061cee9e0dbfde19d5651e3e2f3824b0e1466116fd687"
+    "build_image_sha256": "c5b57d94cf9e0ed1de7061cee9e0dbfde19d5651e3e2f3824b0e1466116fd687",
+    "pending_xpcshell": [
+      {
+        "path": "toolkit/components/extensions/test/xpcshell/test_ext_permissions_uninstall.js",
+        "tasks": [
+          "test_permissions_removed",
+          "test_simulate_slow_storage",
+          "test_ExtensionData_does_not_write_permissions"
+        ],
+        "reason": "Upstream xpcshell-common.toml skips this whole file on Android (Bug 1350559); xpcshell-legacy-ep.toml also excludes Android. No skip override or target execution is claimed.",
+        "eligibility_sources": [
+          "toolkit/components/extensions/test/xpcshell/xpcshell-common.toml",
+          "toolkit/components/extensions/test/xpcshell/xpcshell-legacy-ep.toml"
+        ]
+      }
+    ]
   },
   "device_mutations": "run --execute only: install two debug test APKs; xpcshell harness pushes utilities/test fixtures to a unique remote root; instrumentation creates test profiles. No release app install, wipe or uninstall."
 }

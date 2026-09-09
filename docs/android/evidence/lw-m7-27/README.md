@@ -18,10 +18,11 @@ native job count is two, Cargo one, Gradle one; commands have bounded timeouts.
 ## Source and configuration binding
 
 Preflight verifies every entry in the operator's integrated source SHA256SUMS and
-requires all 102 source paths affected by the selected feature patches, all selected
-native tests, and their instrumentation classes. It separately verifies 17 pinned
-harness/build files against `harness-sources.json`, read from the frozen Firefox
-153.0esr beta tree. Those pins describe the audited source subset, not a fresh
+requires 109 product/test/source dependency paths, including all selected native
+tests, the pending Android-excluded uninstall test, and instrumentation classes.
+It separately verifies 33 audited harness/build/permission files against
+`harness-sources.json`, read from the frozen Firefox 153.0esr beta tree or the
+merged Task31 source candidate. Those pins describe the audited source subset, not a fresh
 verification of every file in the upstream source archive. A changed harness must
 be reviewed and re-pinned; it cannot silently reuse this parser contract.
 
@@ -153,6 +154,9 @@ hash inventory. No expected native failure or required skip is allowlisted.
 |---|---|
 | Android add-on state | Six tasks covering acknowledged state, failed-save retry, both DB/cache mismatch directions, first install, removed file and missing/corrupt database |
 | add-on startup save failures | Five existing failure-path tasks |
+| Android extension permissions | Four Task31 tasks: acknowledged disk writes, failed-write retry, JSON/KV cache reconciliation and the original GeckoView uninstall cleanup result |
+| existing extension permissions | All 26 tasks through the in-process Android manifest, including KV recovery |
+| existing permission uninstall | Three tasks remain **pending**: upstream excludes this entire file on Android (Bug 1350559); not counted as execution |
 | packaged cookie rules | Android snapshot and validated test-rule tasks, plus the existing test-pref task |
 | private cookie lifetime | Five tasks including held native initialization, earlier-observer replacement, stale dispatch, normal/private isolation and autostart |
 | Android translations | Two packaged catalog/WASM and passive missing-model/cache-deletion tasks |
@@ -168,6 +172,20 @@ Four explicitly named desktop-only tasks in the cookie list file may skip on
 Android; they are not counted as executed Android tests. The remote xpcshell
 command uses `--greomni` with the selected APK; it does not fall back to a desktop
 browser app directory.
+
+Permission files additionally use the existing `--tag in-process-webextensions`
+selector and require the audited `xpcshell.toml:` test-ID prefix. This excludes
+duplicate remote/legacy variants without changing any source manifest or skip.
+The existing permissions setup calls `_uninit()` with the test backend selector
+at its default `false`, so KV recovery must execute even on a non-Nightly build.
+Task31 separately switches between real JSON and KV stores inside its own test.
+[permission-coverage.md](permission-coverage.md) records the source/skip analysis.
+
+`pending_xpcshell` preserves the three Android-excluded uninstall task names and
+requires their source hashes at preflight. They are not invoked through a forced
+manifest override. After every runnable gate passes, the aggregate remains
+**PENDING**, and both `driver.py run` and archived `grade.py` exit **3** while that
+requirement is open. No skipped file or new mock uninstall test closes it.
 
 Instrumentation requests the exact twelve `Class#method` names through
 `AndroidJUnitRunner`. The grader requires matched per-method start/success records,
@@ -196,9 +214,16 @@ built test artifact hashes. The replay verifies the recorded artifact binding; i
 does not claim to re-open absent APKs. Receipts provide local integrity and provenance
 checks, not protection against deliberate fabrication of all evidence files.
 
-The local suite currently passes **32 synthetic tests**, including parser failures,
+The local suite currently passes **38 synthetic tests**, including parser failures,
 source/receipt tampering, foreign-run rejection, read-only planning and config
 isolation. `local-tests.txt` records the actual run. Full integrated preflight,
-native compilation, API lint and the 21+12 target tests remain **unrun**. A failure
+native compilation, API lint and the 51 named xpcshell tasks plus 12 instrumented
+methods remain **unrun**; three further upstream uninstall tasks are Android-excluded
+and pending. The original 21+12 selection is retained unchanged. A failure
 in those real tests must be investigated in the source/test environment; it must
 not be converted to a parser allowlist or presented as a release behavior pass.
+
+This permission followup starts from root commit `248da5a` and adds the declared
+Task27 dependency on Task31. Original driver preparation is retained in commit
+`5b472bc3afd4882d38c6ccbfc8c712f2cc002f91`; earlier evidence at that revision still
+describes 32 local tests and 21+12 unrun target checks.

@@ -47,13 +47,14 @@ def source_binding(source, manifest):
         require(sha(path) == digest, f'source hash mismatch: {name}')
         rows[name] = digest
     req = json.loads(REQUIREMENTS.read_text())
-    required = set(req['product_paths']) | {s['path'] for s in req['xpcshell']}
+    native_specs = req['xpcshell'] + req.get('pending_xpcshell', [])
+    required = set(req['product_paths']) | {s['path'] for s in native_specs}
     require(required <= rows.keys(), 'source manifest omits required product/test paths: ' + ', '.join(sorted(required - rows.keys())))
     audited = json.loads(HARNESS.read_text())['files']
     for name, digest in audited.items():
         require(sha(source_path(source, name)) == digest, f'audited harness changed: {name}; review/re-pin before running')
     # Confirm names still exist in the actual sources being compiled, not just this inventory.
-    for spec in req['xpcshell']:
+    for spec in native_specs:
         text = source_path(source, spec['path']).read_text()
         for task in spec['tasks']:
             require(re.search(r'function\s+' + re.escape(task) + r'\s*\(', text), f'missing native task: {task}')
@@ -64,6 +65,13 @@ def source_binding(source, manifest):
         require(re.search(r'fun\s+' + re.escape(name) + r'\s*\(', source_path(source, path).read_text()), 'missing method: ' + method)
     return {'manifest_sha256': sha(manifest), 'product_files': rows, 'audited_harness': audited,
             'requirements_sha256': sha(REQUIREMENTS), 'harness_pins_sha256': sha(HARNESS)}
+
+
+def selection_arguments(spec):
+    """Use audited manifest tags, never override upstream platform exclusions."""
+    tags = spec.get('tags', [])
+    require(isinstance(tags, list) and all(re.fullmatch('[a-z][a-z0-9-]*', tag) for tag in tags), 'invalid test selection tag')
+    return [part for tag in tags for part in ['--tag', tag]] + [spec['path']]
 
 
 def derive_config(original, objdir):
@@ -296,7 +304,7 @@ def main():
             command = [sys.executable, 'mach', 'xpcshell-test', '--sequential', '--deviceSerial', args.serial,
                        '--adbPath', args.adb, '--apk', build['artifacts'][0]['path'],
                        '--objdir', str(workspace / 'obj-x86_64-tests'), '--remoteTestRoot', '/data/local/tmp/redoubt-tests-' + run_id,
-                       '--log-raw', str(raw), spec['path']]
+                       '--log-raw', str(raw), *selection_arguments(spec)]
             require(not raw.exists(), 'raw log already exists')
             receipt = execute(command, source, env, out / f'xpcshell-{index}.log', args.test_timeout, metadata)
             require(raw.is_file() and raw.stat().st_mtime_ns >= receipt['started_ns'], 'missing/stale raw mozlog')
@@ -312,8 +320,14 @@ def main():
         require(source_binding(source, args.source_manifest) == binding, 'source changed during tests')
     finally:
         json_write(out / 'source-after-tests.json', source_binding(source, args.source_manifest))
-    json_write(out / 'verdict.json', grade_run(out))
-    print('PASS all 21 named xpcshell tasks and 12 instrumented methods; separate test build only')
+    verdict = grade_run(out)
+    json_write(out / 'verdict.json', verdict)
+    tasks = sum(len(spec['tasks']) for spec in plan['test_selection']['xpcshell'])
+    methods = len(plan['test_selection']['instrumentation'])
+    print(f'{verdict["status"]}: {tasks} named xpcshell tasks and {methods} instrumented methods passed; separate test build only')
+    if verdict['status'] != 'PASS':
+        print('Android-excluded native requirements remain pending; see verdict.json')
+        raise SystemExit(3)
 
 
 if __name__ == '__main__':
