@@ -1,0 +1,54 @@
+{
+  "scope": "Local source/driver checks only; no guest mutation or target execution",
+  "results": [
+    {
+      "command": [
+        "python3",
+        "docs/android/evidence/lw-m7-37/current-composition/test_stage.py"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": "test_duplicate_and_link_members_are_rejected (__main__.ArchiveContracts.test_duplicate_and_link_members_are_rejected) ... ok\ntest_parent_escape_archive_member_is_rejected (__main__.ArchiveContracts.test_parent_escape_archive_member_is_rejected) ... ok\ntest_backup_contains_only_replacements_with_exact_bytes_and_mode (__main__.FileContracts.test_backup_contains_only_replacements_with_exact_bytes_and_mode) ... ok\ntest_changed_replacement_fails_before_mutation (__main__.FileContracts.test_changed_replacement_fails_before_mutation) ... ok\ntest_concurrent_create_fails_without_overwriting_other_writer (__main__.FileContracts.test_concurrent_create_fails_without_overwriting_other_writer) ... ok\ntest_create_builds_declared_parent_and_uses_regular_0644_file (__main__.FileContracts.test_create_builds_declared_parent_and_uses_regular_0644_file) ... ok\ntest_directory_sync_failure_is_not_acknowledged_as_success (__main__.FileContracts.test_directory_sync_failure_is_not_acknowledged_as_success) ... ok\ntest_escape_and_symlink_parents_never_write_outside_source (__main__.FileContracts.test_escape_and_symlink_parents_never_write_outside_source) ... ok\ntest_existing_evidence_rejects_automatic_retry (__main__.FileContracts.test_existing_evidence_rejects_automatic_retry) ... ok\ntest_expected_absence_rejects_regular_file_or_broken_symlink (__main__.FileContracts.test_expected_absence_rejects_regular_file_or_broken_symlink) ... ok\ntest_failed_admission_does_not_create_evidence_or_mutate_source (__main__.FileContracts.test_failed_admission_does_not_create_evidence_or_mutate_source) ... ok\ntest_full_hash_and_absence_check_rejects_changed_input (__main__.FileContracts.test_full_hash_and_absence_check_rejects_changed_input) ... ok\ntest_post_rename_failure_retains_attempt_and_failed_receipt (__main__.FileContracts.test_post_rename_failure_retains_attempt_and_failed_receipt) ... ok\ntest_replacement_preserves_mode_and_unselected_files (__main__.FileContracts.test_replacement_preserves_mode_and_unselected_files) ... ok\n\n----------------------------------------------------------------------\nRan 14 tests in 0.009s\n\nOK\n"
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/board.py",
+        "--check"
+      ],
+      "exit": 0,
+      "stdout": "ok: 122 tasks, 31 waves, 0 warning(s)\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "Python compile()",
+        "stage.py",
+        "verify.py",
+        "test_stage.py"
+      ],
+      "exit": 0,
+      "stdout": "PASS syntax only; no guest execution\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/evidence/lw-m7-37/current-composition/verify.py"
+      ],
+      "exit": 0,
+      "stdout": "PASS all157 frozen inputs, current required inputs, full245 coverage, parent151 replay and two exact Task37 replays; no guest execution\n",
+      "stderr": ""
+    }
+  ]
+}
