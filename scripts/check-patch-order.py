@@ -369,6 +369,14 @@ CONSTRAINTS = (
 # --------------------------------------------------------------------------
 
 REVIEWED_ORDER_FREE = (
+    (
+        "patches/android/ubo-readiness.patch",
+        "patches/android/extension-permission-durability.patch",
+        ("mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs",),
+        "LW-M7-31 root replay: readiness and uninstall persistence edit separate "
+        "methods. Both orders applied to the recovered pre-readiness source and "
+        "produced identical bytes. See lw-m7-21/extension-permission-order.json.",
+    ),
     ('patches/android/no-adjust.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
     ('patches/android/no-onboarding.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
     ('patches/android/no-gms.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt', 'mobile/android/fenix/app/src/main/res/values/preference_keys.xml'), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
