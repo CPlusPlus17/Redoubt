@@ -63,9 +63,21 @@ are checked again after work, including after a failed stage.
 
 Historical preservation is a separate requirement. The old successful APK
 invocation `7a054c6290054e568f626c13bf8704a1` must remain successfully terminal;
-the old runtime invocation `9513a070506a4a29baf9848b2ea7e8eb` must be terminal,
-including its actual failed state. The latter is diagnostic history, never a
-passing prerequisite. Recovery configuration pins every regular file beneath
+the old runtime invocation `9513a070506a4a29baf9848b2ea7e8eb` is bound to the
+retained terminal failure in
+`docs/android/evidence/lw-m7-21/current167-runtime-checkpoint/runtime-failure.tar.gz`
+(SHA-256 `f931817d0a42c567bd68211b6804367e73d45511501b089f3e30430f192c1149`).
+Its exact `service.txt` member is 199 bytes, SHA-256
+`4c5143defa0bc0e4e81956624b5a85ec40cefe9f2386a3d9f79695f9f94373e4`, and records
+that invocation exited with status 2 at 05:25:34 UTC. Root stopped the old unit
+after preserving that failure, and systemd collected it. The historical check
+accepts the same retained terminal invocation or only the exact collected
+`LoadState=not-found`, inactive/dead, empty-invocation defaults. A running unit,
+a conflicting invocation, an unstarted loaded replacement or incomplete
+inspection is rejected. No unit is recreated and no success is inferred from an
+absent unit. The archived failure remains diagnostic history, never a passing
+prerequisite. Current old `result.json`, `inputs.json` and source manifest must
+still match the exact archived bytes. Recovery configuration pins every regular file beneath
 `evidence/fenix-regression-apk`, `evidence/fenix-regression-runtime` and
 `fenix-regression-apk-output/apk`. Added, removed, changed or linked entries fail
 preservation. Original driver files are bound both to their retained parent
@@ -128,12 +140,17 @@ python3 docs/android/evidence/lw-m7-12/current167-process-recovery/check-copy.py
 python3 docs/android/evidence/lw-m7-12/current167-process-recovery/test_contracts.py
 ```
 
-The 34 contract tests use local synthetic evidence, temporary real files and
+The 40 contract tests use local synthetic evidence, temporary real files and
 controlled service responses. They validate source/identity, resource/smoke,
-history preservation, failure and namespace rejection. They do not establish
-actual compilation, service launch, Android runtime or the Task20 fix. An
-independent agent also reviewed the three drivers without finding a concrete
-admission/preservation blocker; target execution remains pending.
+history preservation, failure and namespace rejection. The collected-unit cases
+parse the real pinned archive with controlled systemd responses; archive changes,
+incomplete inspection, conflicting/running replacements and altered current
+failed receipts are rejected. They do not establish
+actual compilation, service launch, Android runtime or the Task20 fix. The initial independent review is retained unchanged in
+`independent-review.json`; it refers to its recorded pre-correction driver hashes.
+`initial-recovery-4633c14.tar.gz` preserves all 11 initial files, including the
+34-test results, source receipts and exact copy delta. The collected-unit change
+and its new checks are recorded separately; target execution remains pending.
 
 The frozen Task37 501d/9a911 staging driver is unchanged. A later corrected native
 composition must explicitly adopt this recovery checkpoint in a new reviewed

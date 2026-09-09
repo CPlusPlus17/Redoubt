@@ -251,20 +251,61 @@ class CheckpointContracts(unittest.TestCase):
                 c.preserved_tree(path)
             linked.unlink()
 
-    def test_failed_prior_runtime_is_retained_only_after_terminal_state(self):
-        def observed(name, invocation, terminal):
-            self.assertEqual(terminal, '-apk-' in name)
-            return {'InvocationID': invocation, 'RemainAfterExit': 'yes',
-                    'ActiveState': 'failed', 'SubState': 'failed', 'Result': 'exit-code', 'ExecMainStatus': '1'}
-        with patch.object(c, 'service', side_effect=observed):
+    def runtime_service_properties(self, **updates):
+        result = {'LoadState': 'not-found', 'ActiveState': 'inactive', 'SubState': 'dead',
+                  'InvocationID': '', 'RemainAfterExit': 'no', 'Result': 'success', 'ExecMainStatus': '0'}
+        result.update(updates)
+        return result
+
+    def inspect_prior(self, properties):
+        # Only the live systemd inspection is substituted. The real retained
+        # archive, member, failed receipt and source pins are parsed each time.
+        with patch.object(c, 'service', return_value={'synthetic_apk': 'terminal'}) as service, \
+             patch.object(c, 'query', return_value='\n'.join(k + '=' + v for k, v in properties.items())):
             result = c.prior_services()
-            self.assertEqual(result['runtime']['ExecMainStatus'], '1')
-        def running(name, invocation, terminal):
-            value = observed(name, invocation, terminal)
-            value.update(ActiveState='active', SubState='running')
-            return value
-        with patch.object(c, 'service', side_effect=running), self.assertRaisesRegex(ValueError, 'must be terminal'):
-            c.prior_services()
+        service.assert_called_once_with('redoubt-fenix-regression-apk-20260909.service',
+                                        c.PRIOR_INVOCATIONS['apk'], terminal=True)
+        return result
+
+    def test_collected_prior_runtime_uses_actual_archived_terminal_failure(self):
+        result = self.inspect_prior(self.runtime_service_properties())['runtime']
+        self.assertEqual(result['current_unit']['InvocationID'], '')
+        self.assertEqual(result['history']['archive']['sha256'], c.PRIOR_RUNTIME_ARCHIVE_SHA)
+        self.assertEqual(result['history']['terminal']['InvocationID'], c.PRIOR_INVOCATIONS['runtime'])
+        self.assertEqual(result['history']['terminal']['ExecMainStatus'], '2')
+        self.assertEqual(result['history']['checkpoint_files']['source-sha256.txt']['sha256'], c.PRIOR_SOURCE)
+
+    def test_matching_retained_terminal_failure_is_allowed(self):
+        state = self.runtime_service_properties(LoadState='loaded', InvocationID=c.PRIOR_INVOCATIONS['runtime'],
+                RemainAfterExit='yes', ActiveState='failed', SubState='failed', ExecMainStatus='2', Result='exit-code')
+        self.assertEqual(self.inspect_prior(state)['runtime']['current_unit'], state)
+
+    def test_running_or_conflicting_replacement_cannot_borrow_old_archive(self):
+        terminal = self.runtime_service_properties(LoadState='loaded', InvocationID=c.PRIOR_INVOCATIONS['runtime'],
+                RemainAfterExit='yes', ActiveState='active', SubState='exited', ExecMainStatus='2')
+        invalid = [dict(terminal, SubState='running'), dict(terminal, InvocationID='f' * 32),
+                   dict(terminal, ExecMainStatus='0'), self.runtime_service_properties(LoadState='loaded'),
+                   self.runtime_service_properties(LoadState='error')]
+        for state in invalid:
+            with self.subTest(state=state), self.assertRaisesRegex(ValueError, 'replacement'):
+                self.inspect_prior(state)
+
+    def test_incomplete_current_unit_inspection_is_rejected(self):
+        properties = self.runtime_service_properties()
+        del properties['LoadState']
+        with self.assertRaisesRegex(ValueError, 'inspection incomplete'):
+            self.inspect_prior(properties)
+
+    def test_changed_historical_archive_is_rejected_before_member_read(self):
+        path = self.root / c.PRIOR_RUNTIME_ARCHIVE
+        path.parent.mkdir(parents=True)
+        path.write_bytes((c.REPO / c.PRIOR_RUNTIME_ARCHIVE).read_bytes() + b'changed')
+        with patch.object(c, 'REPO', self.root), self.assertRaisesRegex(ValueError, 'archive differs'):
+            c.archived_runtime_history()
+
+    def test_archived_terminal_service_requires_its_exact_member_pin(self):
+        with patch.object(c, 'PRIOR_RUNTIME_SERVICE_SHA', 'a' * 64), self.assertRaisesRegex(ValueError, 'service record differs'):
+            c.archived_runtime_history()
 
     def prior_fixture(self):
         """Small real files; only fixed guest locations/services are substituted."""
@@ -303,7 +344,10 @@ class CheckpointContracts(unittest.TestCase):
                      'inputs': c.record(path / 'inputs.json'),
                      'status': 'PASS' if kind == 'apk' else 'FAIL', 'apks': c.apk_set(apks_path)}
             (path / 'result.json').write_text(json.dumps(state))
-        stack.enter_context(patch.object(c, 'prior_services', return_value={'synthetic': 'terminal'}))
+        history = {'checkpoint_files': {name: {key: value for key, value in
+                    c.record(prior['runtime'] / name).items() if key != 'path'}
+                    for name in ('result.json', 'inputs.json', 'source-sha256.txt')}}
+        stack.enter_context(patch.object(c, 'prior_services', return_value={'runtime': {'history': history}}))
         return repo, prior
 
     def test_prior_success_and_failed_runtime_bind_original_code_and_apks(self):
@@ -319,6 +363,15 @@ class CheckpointContracts(unittest.TestCase):
         path = repo / 'docs/android/evidence/lw-m7-12/current167/common.py'
         path.write_text('changed historical executable code')
         with self.assertRaisesRegex(ValueError, 'driver bytes changed'):
+            c.prior_checkpoint_inputs()
+
+    def test_current_failed_receipt_must_still_equal_archived_failure(self):
+        _repo, prior = self.prior_fixture()
+        path = prior['runtime'] / 'result.json'
+        state = json.loads(path.read_text())
+        state['extra_late_mutation'] = 'a new receipt cannot replace archived history'
+        path.write_text(json.dumps(state))
+        with self.assertRaisesRegex(ValueError, 'retained failure: result.json'):
             c.prior_checkpoint_inputs()
 
     def test_prior_config_cannot_claim_another_driver_or_artifact(self):
