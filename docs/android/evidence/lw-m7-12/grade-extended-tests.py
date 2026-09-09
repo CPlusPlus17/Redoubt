@@ -8,6 +8,11 @@ import xml.etree.ElementTree as ET
 
 SUITES = {
     'fenix': ('fenix/app', 602, 5468, {
+        'org.mozilla.fenix.FenixApplicationTest',
+        'org.mozilla.fenix.HomeActivityAccountSettingsTest',
+        'org.mozilla.fenix.customtabs.ExternalAppBrowserActivityTest',
+        'org.mozilla.fenix.settings.account.AuthCustomTabActivityTest',
+        'org.mozilla.fenix.settings.creditcards.CreditCardItemViewHolderTest',
         'org.mozilla.fenix.browser.permissions.OriginBoundPermissionsFeatureTest',
         'org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragmentTest',
         'org.mozilla.fenix.utils.HomeSectionDefaultsTest',
@@ -64,8 +69,8 @@ def inspect_suite(directory, started, required, minimum_classes, minimum_tests, 
                 issues.append(f'{name}: inconsistent {field} count')
         if name in required and (not row['tests'] or any(row[key] for key in ('failures', 'errors', 'skipped'))):
             issues.append(f'{name}: a required feature class did not fully pass')
-        if not allow_failures and (row['failures'] or row['errors']):
-            issues.append(f'{name}: unexpected target failure/error')
+        if not allow_failures and (row['failures'] or row['errors'] or row['skipped']):
+            issues.append(f'{name}: unexpected target failure/error/skip')
         rows.append(row)
     if len(rows) < minimum_classes or sum(row['tests'] for row in rows) < minimum_tests:
         issues.append('Missing or truncated target suite')
