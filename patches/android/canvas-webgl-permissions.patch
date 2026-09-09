@@ -633,10 +633,10 @@ index 0000000..37c1e65
 +}
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt
 new file mode 100644
-index 0000000..2ff8dfa
+index 0000000..b00192a
 --- /dev/null
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,128 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -696,7 +696,8 @@ index 0000000..2ff8dfa
 +        val normal = originPermission()
 +        val privateRecord = originPermission(privateMode = true)
 +        val otherContainer = originPermission(contextId = "other")
-+        whenever(controller.allPermissions).thenReturn(result(listOf(normal, privateRecord, otherContainer)))
++        val permissions = result(listOf(normal, privateRecord, otherContainer))
++        whenever(controller.allPermissions).thenReturn(permissions)
 +        assertEquals(listOf(normal.toOriginBoundPermission()), storage.listOriginBoundPermissions(false, null))
 +        assertEquals(listOf(privateRecord.toOriginBoundPermission()), storage.listOriginBoundPermissions(true, null))
 +        assertEquals(listOf(otherContainer.toOriginBoundPermission()), storage.listOriginBoundPermissions(false, "other"))
@@ -707,8 +708,10 @@ index 0000000..2ff8dfa
 +    fun `revocation removes only the selected exact origin and preserves session lifetime`() = runTest(dispatcher) {
 +        val selected = originPermission()
 +        val anotherPort = originPermission(uri = "https://frame.test:9443")
-+        whenever(controller.allPermissions).thenReturn(result(listOf(anotherPort, selected)))
-+        whenever(controller.setPermissionWithLifetime(selected, ContentPermission.VALUE_PROMPT, false)).thenReturn(result(null))
++        val permissions = result(listOf(anotherPort, selected))
++        whenever(controller.allPermissions).thenReturn(permissions)
++        val write = result<Void>(null)
++        whenever(controller.setPermissionWithLifetime(selected, ContentPermission.VALUE_PROMPT, false)).thenReturn(write)
 +        assertTrue(storage.updateOriginBoundPermission(selected.toOriginBoundPermission()!!, Status.NO_DECISION))
 +        verify(controller).setPermissionWithLifetime(selected, ContentPermission.VALUE_PROMPT, false)
 +        verify(controller, never()).setPermissionWithLifetime(anotherPort, ContentPermission.VALUE_PROMPT, false)
@@ -718,7 +721,8 @@ index 0000000..2ff8dfa
 +    @Test
 +    fun `stale snapshot or ended private session cannot recreate an exception`() = runTest(dispatcher) {
 +        val previous = originPermission(privateMode = true).toOriginBoundPermission()!!
-+        whenever(controller.allPermissions).thenReturn(result(emptyList()))
++        val permissions = result(emptyList<ContentPermission>())
++        whenever(controller.allPermissions).thenReturn(permissions)
 +        assertFalse(storage.updateOriginBoundPermission(previous, Status.ALLOWED, true))
 +        verify(controller, never()).setPermissionWithLifetime(any(), org.mockito.Mockito.anyInt(), org.mockito.Mockito.anyBoolean())
 +        verifyNoInteractions(disk)
@@ -727,8 +731,10 @@ index 0000000..2ff8dfa
 +    @Test
 +    fun `editing a private record forces session lifetime`() = runTest(dispatcher) {
 +        val record = originPermission(privateMode = true)
-+        whenever(controller.allPermissions).thenReturn(result(listOf(record)))
-+        whenever(controller.setPermissionWithLifetime(record, ContentPermission.VALUE_DENY, false)).thenReturn(result(null))
++        val permissions = result(listOf(record))
++        whenever(controller.allPermissions).thenReturn(permissions)
++        val write = result<Void>(null)
++        whenever(controller.setPermissionWithLifetime(record, ContentPermission.VALUE_DENY, false)).thenReturn(write)
 +        assertTrue(storage.updateOriginBoundPermission(record.toOriginBoundPermission()!!, Status.BLOCKED, true))
 +        verify(controller).setPermissionWithLifetime(record, ContentPermission.VALUE_DENY, false)
 +    }
@@ -736,7 +742,8 @@ index 0000000..2ff8dfa
 +    @Test
 +    fun `storage update waits for the exact engine write acknowledgement`() = runTest(dispatcher) {
 +        val record = originPermission()
-+        whenever(controller.allPermissions).thenReturn(result(listOf(record)))
++        val permissions = result(listOf(record))
++        whenever(controller.allPermissions).thenReturn(permissions)
 +        val write = mock<GeckoResult<Void>>()
 +        var acknowledge: GeckoResult.OnValueListener<Void, Void>? = null
 +        whenever(write.then<Void>(any(), any())).thenAnswer { invocation ->

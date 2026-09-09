@@ -1,0 +1,1486 @@
+Compiled from "StackTraceRecovery.kt"
+public final class kotlinx.coroutines.internal.StackTraceRecoveryKt {
+  private static final java.lang.String baseContinuationImplClass;
+
+  private static final java.lang.String stackTraceRecoveryClass;
+
+  private static final java.lang.StackTraceElement ARTIFICIAL_FRAME;
+
+  private static final java.lang.String baseContinuationImplClassName;
+
+  private static final java.lang.String stackTraceRecoveryClassName;
+
+  public static final <E extends java.lang.Throwable> E recoverStackTrace(E);
+    Code:
+         0: invokestatic  #14                 // Method kotlinx/coroutines/DebugKt.getRECOVER_STACK_TRACES:()Z
+         3: ifne          8
+         6: aload_0
+         7: areturn
+         8: aload_0
+         9: invokestatic  #19                 // Method kotlinx/coroutines/internal/ExceptionsConstructorKt.tryCopyException:(Ljava/lang/Throwable;)Ljava/lang/Throwable;
+        12: dup
+        13: ifnonnull     19
+        16: pop
+        17: aload_0
+        18: areturn
+        19: astore_1
+        20: aload_1
+        21: invokestatic  #22                 // Method sanitizeStackTrace:(Ljava/lang/Throwable;)Ljava/lang/Throwable;
+        24: areturn
+
+  private static final <E extends java.lang.Throwable> E sanitizeStackTrace(E);
+    Code:
+         0: aload_0
+         1: invokevirtual #31                 // Method java/lang/Throwable.getStackTrace:()[Ljava/lang/StackTraceElement;
+         4: astore_1
+         5: aload_1
+         6: arraylength
+         7: istore_2
+         8: aload_1
+         9: astore        4
+        11: iconst_0
+        12: istore        5
+        14: aload         4
+        16: arraylength
+        17: iconst_m1
+        18: iadd
+        19: istore        6
+        21: iconst_0
+        22: iload         6
+        24: if_icmpgt     69
+        27: iload         6
+        29: istore        7
+        31: iinc          6, -1
+        34: aload         4
+        36: iload         7
+        38: aaload
+        39: astore        8
+        41: iconst_0
+        42: istore        9
+        44: getstatic     #35                 // Field stackTraceRecoveryClassName:Ljava/lang/String;
+        47: aload         8
+        49: invokevirtual #41                 // Method java/lang/StackTraceElement.getClassName:()Ljava/lang/String;
+        52: invokestatic  #47                 // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+        55: ifeq          63
+        58: iload         7
+        60: goto          70
+        63: iconst_0
+        64: iload         6
+        66: if_icmple     27
+        69: iconst_m1
+        70: istore_3
+        71: iload_3
+        72: iconst_1
+        73: iadd
+        74: istore        4
+        76: aload_1
+        77: getstatic     #50                 // Field baseContinuationImplClassName:Ljava/lang/String;
+        80: invokestatic  #54                 // Method firstFrameIndex:([Ljava/lang/StackTraceElement;Ljava/lang/String;)I
+        83: istore        5
+        85: iload         5
+        87: iconst_m1
+        88: if_icmpne     95
+        91: iconst_0
+        92: goto          99
+        95: iload_2
+        96: iload         5
+        98: isub
+        99: istore        6
+       101: iconst_0
+       102: istore        8
+       104: iload_2
+       105: iload_3
+       106: isub
+       107: iload         6
+       109: isub
+       110: istore        9
+       112: iload         9
+       114: anewarray     #37                 // class java/lang/StackTraceElement
+       117: astore        10
+       119: iload         8
+       121: iload         9
+       123: if_icmpge     161
+       126: iload         8
+       128: istore        11
+       130: aload         10
+       132: iload         11
+       134: iload         11
+       136: ifne          145
+       139: getstatic     #58                 // Field ARTIFICIAL_FRAME:Ljava/lang/StackTraceElement;
+       142: goto          154
+       145: aload_1
+       146: iload         4
+       148: iload         11
+       150: iadd
+       151: iconst_1
+       152: isub
+       153: aaload
+       154: aastore
+       155: iinc          8, 1
+       158: goto          119
+       161: aload         10
+       163: astore        7
+       165: aload_0
+       166: aload         7
+       168: invokevirtual #62                 // Method java/lang/Throwable.setStackTrace:([Ljava/lang/StackTraceElement;)V
+       171: aload_0
+       172: areturn
+
+  public static final <E extends java.lang.Throwable> E recoverStackTrace(E, kotlin.coroutines.Continuation<?>);
+    Code:
+         0: iconst_0
+         1: istore_2
+         2: invokestatic  #14                 // Method kotlinx/coroutines/DebugKt.getRECOVER_STACK_TRACES:()Z
+         5: ifeq          15
+         8: aload_1
+         9: instanceof    #83                 // class kotlin/coroutines/jvm/internal/CoroutineStackFrame
+        12: ifne          17
+        15: aload_0
+        16: areturn
+        17: aload_0
+        18: aload_1
+        19: checkcast     #83                 // class kotlin/coroutines/jvm/internal/CoroutineStackFrame
+        22: invokestatic  #87                 // Method access$recoverFromStackFrame:(Ljava/lang/Throwable;Lkotlin/coroutines/jvm/internal/CoroutineStackFrame;)Ljava/lang/Throwable;
+        25: areturn
+
+  private static final <E extends java.lang.Throwable> E recoverFromStackFrame(E, kotlin.coroutines.jvm.internal.CoroutineStackFrame);
+    Code:
+         0: aload_0
+         1: invokestatic  #96                 // Method causeAndStacktrace:(Ljava/lang/Throwable;)Lkotlin/Pair;
+         4: astore_2
+         5: aload_2
+         6: invokevirtual #102                // Method kotlin/Pair.component1:()Ljava/lang/Object;
+         9: checkcast     #27                 // class java/lang/Throwable
+        12: astore_3
+        13: aload_2
+        14: invokevirtual #105                // Method kotlin/Pair.component2:()Ljava/lang/Object;
+        17: checkcast     #79                 // class "[Ljava/lang/StackTraceElement;"
+        20: astore        4
+        22: aload_3
+        23: invokestatic  #19                 // Method kotlinx/coroutines/internal/ExceptionsConstructorKt.tryCopyException:(Ljava/lang/Throwable;)Ljava/lang/Throwable;
+        26: dup
+        27: ifnonnull     33
+        30: pop
+        31: aload_0
+        32: areturn
+        33: astore        5
+        35: aload_1
+        36: invokestatic  #109                // Method createStackTrace:(Lkotlin/coroutines/jvm/internal/CoroutineStackFrame;)Ljava/util/ArrayDeque;
+        39: astore        6
+        41: aload         6
+        43: invokevirtual #114                // Method java/util/ArrayDeque.isEmpty:()Z
+        46: ifeq          51
+        49: aload_0
+        50: areturn
+        51: aload_3
+        52: aload_0
+        53: if_acmpeq     63
+        56: aload         4
+        58: aload         6
+        60: invokestatic  #118                // Method mergeRecoveredTraces:([Ljava/lang/StackTraceElement;Ljava/util/ArrayDeque;)V
+        63: aload_3
+        64: aload         5
+        66: aload         6
+        68: invokestatic  #122                // Method createFinalException:(Ljava/lang/Throwable;Ljava/lang/Throwable;Ljava/util/ArrayDeque;)Ljava/lang/Throwable;
+        71: areturn
+
+  private static final <E extends java.lang.Throwable> E createFinalException(E, E, java.util.ArrayDeque<java.lang.StackTraceElement>);
+    Code:
+         0: aload_2
+         1: getstatic     #58                 // Field ARTIFICIAL_FRAME:Ljava/lang/StackTraceElement;
+         4: invokevirtual #133                // Method java/util/ArrayDeque.addFirst:(Ljava/lang/Object;)V
+         7: aload_0
+         8: invokevirtual #31                 // Method java/lang/Throwable.getStackTrace:()[Ljava/lang/StackTraceElement;
+        11: astore_3
+        12: aload_3
+        13: getstatic     #50                 // Field baseContinuationImplClassName:Ljava/lang/String;
+        16: invokestatic  #54                 // Method firstFrameIndex:([Ljava/lang/StackTraceElement;Ljava/lang/String;)I
+        19: istore        4
+        21: iload         4
+        23: iconst_m1
+        24: if_icmpne     60
+        27: aload_1
+        28: aload_2
+        29: checkcast     #135                // class java/util/Collection
+        32: astore        5
+        34: iconst_0
+        35: istore        6
+        37: aload         5
+        39: astore        7
+        41: aload         7
+        43: iconst_0
+        44: anewarray     #37                 // class java/lang/StackTraceElement
+        47: invokeinterface #139,  2          // InterfaceMethod java/util/Collection.toArray:([Ljava/lang/Object;)[Ljava/lang/Object;
+        52: checkcast     #79                 // class "[Ljava/lang/StackTraceElement;"
+        55: invokevirtual #62                 // Method java/lang/Throwable.setStackTrace:([Ljava/lang/StackTraceElement;)V
+        58: aload_1
+        59: areturn
+        60: aload_2
+        61: invokevirtual #142                // Method java/util/ArrayDeque.size:()I
+        64: iload         4
+        66: iadd
+        67: anewarray     #37                 // class java/lang/StackTraceElement
+        70: astore        5
+        72: iconst_0
+        73: istore        6
+        75: iload         6
+        77: iload         4
+        79: if_icmpge     97
+        82: aload         5
+        84: iload         6
+        86: aload_3
+        87: iload         6
+        89: aaload
+        90: aastore
+        91: iinc          6, 1
+        94: goto          75
+        97: aload_2
+        98: checkcast     #144                // class java/lang/Iterable
+       101: invokeinterface #148,  1          // InterfaceMethod java/lang/Iterable.iterator:()Ljava/util/Iterator;
+       106: astore        6
+       108: iconst_0
+       109: istore        7
+       111: aload         6
+       113: invokeinterface #153,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+       118: ifeq          156
+       121: iload         7
+       123: istore        8
+       125: iload         7
+       127: iconst_1
+       128: iadd
+       129: istore        7
+       131: aload         6
+       133: invokeinterface #156,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+       138: checkcast     #37                 // class java/lang/StackTraceElement
+       141: astore        9
+       143: aload         5
+       145: iload         4
+       147: iload         8
+       149: iadd
+       150: aload         9
+       152: aastore
+       153: goto          111
+       156: aload_1
+       157: aload         5
+       159: invokevirtual #62                 // Method java/lang/Throwable.setStackTrace:([Ljava/lang/StackTraceElement;)V
+       162: aload_1
+       163: areturn
+
+  private static final <E extends java.lang.Throwable> kotlin.Pair<E, java.lang.StackTraceElement[]> causeAndStacktrace(E);
+    Code:
+         0: aload_0
+         1: invokevirtual #172                // Method java/lang/Throwable.getCause:()Ljava/lang/Throwable;
+         4: astore_1
+         5: aload_1
+         6: ifnull        101
+         9: aload_1
+        10: invokevirtual #176                // Method java/lang/Object.getClass:()Ljava/lang/Class;
+        13: aload_0
+        14: invokevirtual #176                // Method java/lang/Object.getClass:()Ljava/lang/Class;
+        17: invokestatic  #47                 // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+        20: ifeq          101
+        23: aload_0
+        24: invokevirtual #31                 // Method java/lang/Throwable.getStackTrace:()[Ljava/lang/StackTraceElement;
+        27: astore_2
+        28: aload_2
+        29: astore_3
+        30: iconst_0
+        31: istore        4
+        33: iconst_0
+        34: istore        5
+        36: aload_3
+        37: arraylength
+        38: istore        6
+        40: iload         5
+        42: iload         6
+        44: if_icmpge     78
+        47: aload_3
+        48: iload         5
+        50: aaload
+        51: astore        7
+        53: aload         7
+        55: astore        8
+        57: iconst_0
+        58: istore        9
+        60: aload         8
+        62: invokestatic  #180                // Method isArtificial:(Ljava/lang/StackTraceElement;)Z
+        65: ifeq          72
+        68: iconst_1
+        69: goto          79
+        72: iinc          5, 1
+        75: goto          40
+        78: iconst_0
+        79: ifeq          90
+        82: aload_1
+        83: aload_2
+        84: invokestatic  #186                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+        87: goto          109
+        90: aload_0
+        91: iconst_0
+        92: anewarray     #37                 // class java/lang/StackTraceElement
+        95: invokestatic  #186                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+        98: goto          109
+       101: aload_0
+       102: iconst_0
+       103: anewarray     #37                 // class java/lang/StackTraceElement
+       106: invokestatic  #186                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+       109: areturn
+
+  private static final void mergeRecoveredTraces(java.lang.StackTraceElement[], java.util.ArrayDeque<java.lang.StackTraceElement>);
+    Code:
+         0: aload_0
+         1: astore_3
+         2: iconst_0
+         3: istore        4
+         5: iconst_0
+         6: istore        5
+         8: aload_3
+         9: arraylength
+        10: istore        6
+        12: iload         5
+        14: iload         6
+        16: if_icmpge     47
+        19: aload_3
+        20: iload         5
+        22: aaload
+        23: astore        7
+        25: iconst_0
+        26: istore        8
+        28: aload         7
+        30: invokestatic  #180                // Method isArtificial:(Ljava/lang/StackTraceElement;)Z
+        33: ifeq          41
+        36: iload         5
+        38: goto          48
+        41: iinc          5, 1
+        44: goto          12
+        47: iconst_m1
+        48: iconst_1
+        49: iadd
+        50: istore_2
+        51: aload_0
+        52: arraylength
+        53: iconst_1
+        54: isub
+        55: istore_3
+        56: iload_3
+        57: istore        4
+        59: iload_2
+        60: iload         4
+        62: if_icmpgt     111
+        65: aload_0
+        66: iload         4
+        68: aaload
+        69: astore        5
+        71: aload         5
+        73: aload_1
+        74: invokevirtual #197                // Method java/util/ArrayDeque.getLast:()Ljava/lang/Object;
+        77: checkcast     #37                 // class java/lang/StackTraceElement
+        80: invokestatic  #201                // Method elementWiseEquals:(Ljava/lang/StackTraceElement;Ljava/lang/StackTraceElement;)Z
+        83: ifeq          91
+        86: aload_1
+        87: invokevirtual #204                // Method java/util/ArrayDeque.removeLast:()Ljava/lang/Object;
+        90: pop
+        91: aload_1
+        92: aload_0
+        93: iload         4
+        95: aaload
+        96: invokevirtual #133                // Method java/util/ArrayDeque.addFirst:(Ljava/lang/Object;)V
+        99: iload         4
+       101: iload_2
+       102: if_icmpeq     111
+       105: iinc          4, -1
+       108: goto          65
+       111: return
+
+  public static final java.lang.Object recoverAndThrow(java.lang.Throwable, kotlin.coroutines.Continuation<?>);
+    Code:
+         0: iconst_0
+         1: istore_2
+         2: invokestatic  #14                 // Method kotlinx/coroutines/DebugKt.getRECOVER_STACK_TRACES:()Z
+         5: ifne          10
+         8: aload_0
+         9: athrow
+        10: aload_1
+        11: astore_3
+        12: iconst_0
+        13: istore        4
+        15: aload_3
+        16: instanceof    #83                 // class kotlin/coroutines/jvm/internal/CoroutineStackFrame
+        19: ifne          24
+        22: aload_0
+        23: athrow
+        24: aload_0
+        25: aload_3
+        26: checkcast     #83                 // class kotlin/coroutines/jvm/internal/CoroutineStackFrame
+        29: invokestatic  #87                 // Method access$recoverFromStackFrame:(Ljava/lang/Throwable;Lkotlin/coroutines/jvm/internal/CoroutineStackFrame;)Ljava/lang/Throwable;
+        32: athrow
+
+  private static final java.lang.Object recoverAndThrow$$forInline(java.lang.Throwable, kotlin.coroutines.Continuation<?>);
+    Code:
+         0: iconst_0
+         1: istore_2
+         2: invokestatic  #14                 // Method kotlinx/coroutines/DebugKt.getRECOVER_STACK_TRACES:()Z
+         5: ifne          10
+         8: aload_0
+         9: athrow
+        10: iconst_0
+        11: invokestatic  #224                // Method kotlin/jvm/internal/InlineMarker.mark:(I)V
+        14: nop
+        15: aload_1
+        16: checkcast     #217                // class kotlin/coroutines/Continuation
+        19: astore_3
+        20: iconst_0
+        21: istore        4
+        23: aload_3
+        24: instanceof    #83                 // class kotlin/coroutines/jvm/internal/CoroutineStackFrame
+        27: ifne          32
+        30: aload_0
+        31: athrow
+        32: aload_0
+        33: aload_3
+        34: checkcast     #83                 // class kotlin/coroutines/jvm/internal/CoroutineStackFrame
+        37: invokestatic  #87                 // Method access$recoverFromStackFrame:(Ljava/lang/Throwable;Lkotlin/coroutines/jvm/internal/CoroutineStackFrame;)Ljava/lang/Throwable;
+        40: athrow
+
+  public static final <E extends java.lang.Throwable> E unwrap(E);
+    Code:
+         0: iconst_0
+         1: istore_1
+         2: invokestatic  #14                 // Method kotlinx/coroutines/DebugKt.getRECOVER_STACK_TRACES:()Z
+         5: ifne          12
+         8: aload_0
+         9: goto          16
+        12: aload_0
+        13: invokestatic  #229                // Method unwrapImpl:(Ljava/lang/Throwable;)Ljava/lang/Throwable;
+        16: areturn
+
+  public static final <E extends java.lang.Throwable> E unwrapImpl(E);
+    Code:
+         0: aload_0
+         1: invokevirtual #172                // Method java/lang/Throwable.getCause:()Ljava/lang/Throwable;
+         4: astore_1
+         5: aload_1
+         6: ifnull        23
+         9: aload_1
+        10: invokevirtual #176                // Method java/lang/Object.getClass:()Ljava/lang/Class;
+        13: aload_0
+        14: invokevirtual #176                // Method java/lang/Object.getClass:()Ljava/lang/Class;
+        17: invokestatic  #47                 // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+        20: ifne          25
+        23: aload_0
+        24: areturn
+        25: aload_0
+        26: invokevirtual #31                 // Method java/lang/Throwable.getStackTrace:()[Ljava/lang/StackTraceElement;
+        29: astore_2
+        30: iconst_0
+        31: istore_3
+        32: iconst_0
+        33: istore        4
+        35: aload_2
+        36: arraylength
+        37: istore        5
+        39: iload         4
+        41: iload         5
+        43: if_icmpge     77
+        46: aload_2
+        47: iload         4
+        49: aaload
+        50: astore        6
+        52: aload         6
+        54: astore        7
+        56: iconst_0
+        57: istore        8
+        59: aload         7
+        61: invokestatic  #180                // Method isArtificial:(Ljava/lang/StackTraceElement;)Z
+        64: ifeq          71
+        67: iconst_1
+        68: goto          78
+        71: iinc          4, 1
+        74: goto          39
+        77: iconst_0
+        78: ifeq          83
+        81: aload_1
+        82: areturn
+        83: aload_0
+        84: areturn
+
+  private static final java.util.ArrayDeque<java.lang.StackTraceElement> createStackTrace(kotlin.coroutines.jvm.internal.CoroutineStackFrame);
+    Code:
+         0: new           #111                // class java/util/ArrayDeque
+         3: dup
+         4: invokespecial #236                // Method java/util/ArrayDeque."<init>":()V
+         7: astore_1
+         8: aload_0
+         9: invokeinterface #240,  1          // InterfaceMethod kotlin/coroutines/jvm/internal/CoroutineStackFrame.getStackTraceElement:()Ljava/lang/StackTraceElement;
+        14: dup
+        15: ifnull        31
+        18: astore_3
+        19: iconst_0
+        20: istore        4
+        22: aload_1
+        23: aload_3
+        24: invokevirtual #244                // Method java/util/ArrayDeque.add:(Ljava/lang/Object;)Z
+        27: pop
+        28: goto          33
+        31: pop
+        32: nop
+        33: aload_0
+        34: astore_2
+        35: nop
+        36: aload_2
+        37: astore_3
+        38: aload_3
+        39: instanceof    #83                 // class kotlin/coroutines/jvm/internal/CoroutineStackFrame
+        42: ifeq          49
+        45: aload_3
+        46: goto          50
+        49: aconst_null
+        50: dup
+        51: ifnull        63
+        54: invokeinterface #248,  1          // InterfaceMethod kotlin/coroutines/jvm/internal/CoroutineStackFrame.getCallerFrame:()Lkotlin/coroutines/jvm/internal/CoroutineStackFrame;
+        59: dup
+        60: ifnonnull     67
+        63: pop
+        64: goto          97
+        67: astore_2
+        68: aload_2
+        69: invokeinterface #240,  1          // InterfaceMethod kotlin/coroutines/jvm/internal/CoroutineStackFrame.getStackTraceElement:()Ljava/lang/StackTraceElement;
+        74: dup
+        75: ifnull        93
+        78: astore        4
+        80: iconst_0
+        81: istore        5
+        83: aload_1
+        84: aload         4
+        86: invokevirtual #244                // Method java/util/ArrayDeque.add:(Ljava/lang/Object;)Z
+        89: pop
+        90: goto          35
+        93: pop
+        94: goto          35
+        97: aload_1
+        98: areturn
+
+  public static final boolean isArtificial(java.lang.StackTraceElement);
+    Code:
+         0: aload_0
+         1: invokevirtual #41                 // Method java/lang/StackTraceElement.getClassName:()Ljava/lang/String;
+         4: invokestatic  #257                // Method _COROUTINE/CoroutineDebuggingKt.getARTIFICIAL_FRAME_PACKAGE_NAME:()Ljava/lang/String;
+         7: iconst_0
+         8: iconst_2
+         9: aconst_null
+        10: invokestatic  #263                // Method kotlin/text/StringsKt.startsWith$default:(Ljava/lang/String;Ljava/lang/String;ZILjava/lang/Object;)Z
+        13: ireturn
+
+  private static final int firstFrameIndex(java.lang.StackTraceElement[], java.lang.String);
+    Code:
+         0: aload_0
+         1: astore_2
+         2: iconst_0
+         3: istore_3
+         4: iconst_0
+         5: istore        4
+         7: aload_2
+         8: arraylength
+         9: istore        5
+        11: iload         4
+        13: iload         5
+        15: if_icmpge     50
+        18: aload_2
+        19: iload         4
+        21: aaload
+        22: astore        6
+        24: iconst_0
+        25: istore        7
+        27: aload_1
+        28: aload         6
+        30: invokevirtual #41                 // Method java/lang/StackTraceElement.getClassName:()Ljava/lang/String;
+        33: invokestatic  #47                 // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+        36: ifeq          44
+        39: iload         4
+        41: goto          51
+        44: iinc          4, 1
+        47: goto          11
+        50: iconst_m1
+        51: ireturn
+
+  private static final boolean elementWiseEquals(java.lang.StackTraceElement, java.lang.StackTraceElement);
+    Code:
+         0: aload_0
+         1: invokevirtual #272                // Method java/lang/StackTraceElement.getLineNumber:()I
+         4: aload_1
+         5: invokevirtual #272                // Method java/lang/StackTraceElement.getLineNumber:()I
+         8: if_icmpne     57
+        11: aload_0
+        12: invokevirtual #275                // Method java/lang/StackTraceElement.getMethodName:()Ljava/lang/String;
+        15: aload_1
+        16: invokevirtual #275                // Method java/lang/StackTraceElement.getMethodName:()Ljava/lang/String;
+        19: invokestatic  #47                 // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+        22: ifeq          57
+        25: aload_0
+        26: invokevirtual #278                // Method java/lang/StackTraceElement.getFileName:()Ljava/lang/String;
+        29: aload_1
+        30: invokevirtual #278                // Method java/lang/StackTraceElement.getFileName:()Ljava/lang/String;
+        33: invokestatic  #47                 // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+        36: ifeq          57
+        39: aload_0
+        40: invokevirtual #41                 // Method java/lang/StackTraceElement.getClassName:()Ljava/lang/String;
+        43: aload_1
+        44: invokevirtual #41                 // Method java/lang/StackTraceElement.getClassName:()Ljava/lang/String;
+        47: invokestatic  #47                 // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+        50: ifeq          57
+        53: iconst_1
+        54: goto          58
+        57: iconst_0
+        58: ireturn
+
+  public static final void initCause(java.lang.Throwable, java.lang.Throwable);
+    Code:
+         0: aload_0
+         1: aload_1
+         2: invokevirtual #284                // Method java/lang/Throwable.initCause:(Ljava/lang/Throwable;)Ljava/lang/Throwable;
+         5: pop
+         6: return
+
+  public static final java.lang.Throwable access$recoverFromStackFrame(java.lang.Throwable, kotlin.coroutines.jvm.internal.CoroutineStackFrame);
+    Code:
+         0: aload_0
+         1: aload_1
+         2: invokestatic  #287                // Method recoverFromStackFrame:(Ljava/lang/Throwable;Lkotlin/coroutines/jvm/internal/CoroutineStackFrame;)Ljava/lang/Throwable;
+         5: areturn
+
+  static {};
+    Code:
+         0: new           #290                // class _COROUTINE/ArtificialStackFrames
+         3: dup
+         4: invokespecial #291                // Method _COROUTINE/ArtificialStackFrames."<init>":()V
+         7: invokevirtual #294                // Method _COROUTINE/ArtificialStackFrames.coroutineBoundary:()Ljava/lang/StackTraceElement;
+        10: putstatic     #58                 // Field ARTIFICIAL_FRAME:Ljava/lang/StackTraceElement;
+        13: nop
+        14: getstatic     #300                // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+        17: pop
+        18: iconst_0
+        19: istore_0
+        20: ldc_w         #302                // String kotlin.coroutines.jvm.internal.BaseContinuationImpl
+        23: invokestatic  #308                // Method java/lang/Class.forName:(Ljava/lang/String;)Ljava/lang/Class;
+        26: invokevirtual #311                // Method java/lang/Class.getCanonicalName:()Ljava/lang/String;
+        29: invokestatic  #315                // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+        32: astore_0
+        33: goto          49
+        36: astore_1
+        37: getstatic     #300                // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+        40: pop
+        41: aload_1
+        42: invokestatic  #321                // Method kotlin/ResultKt.createFailure:(Ljava/lang/Throwable;)Ljava/lang/Object;
+        45: invokestatic  #315                // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+        48: astore_0
+        49: aload_0
+        50: astore_0
+        51: aload_0
+        52: invokestatic  #325                // Method kotlin/Result."exceptionOrNull-impl":(Ljava/lang/Object;)Ljava/lang/Throwable;
+        55: dup
+        56: ifnonnull     64
+        59: pop
+        60: aload_0
+        61: goto          70
+        64: astore_1
+        65: iconst_0
+        66: istore_2
+        67: ldc_w         #302                // String kotlin.coroutines.jvm.internal.BaseContinuationImpl
+        70: checkcast     #269                // class java/lang/String
+        73: putstatic     #50                 // Field baseContinuationImplClassName:Ljava/lang/String;
+        76: nop
+        77: getstatic     #300                // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+        80: pop
+        81: iconst_0
+        82: istore_0
+        83: ldc_w         #327                // String kotlinx.coroutines.internal.StackTraceRecoveryKt
+        86: invokestatic  #308                // Method java/lang/Class.forName:(Ljava/lang/String;)Ljava/lang/Class;
+        89: invokevirtual #311                // Method java/lang/Class.getCanonicalName:()Ljava/lang/String;
+        92: invokestatic  #315                // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+        95: astore_0
+        96: goto          112
+        99: astore_1
+       100: getstatic     #300                // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+       103: pop
+       104: aload_1
+       105: invokestatic  #321                // Method kotlin/ResultKt.createFailure:(Ljava/lang/Throwable;)Ljava/lang/Object;
+       108: invokestatic  #315                // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+       111: astore_0
+       112: aload_0
+       113: astore_0
+       114: aload_0
+       115: invokestatic  #325                // Method kotlin/Result."exceptionOrNull-impl":(Ljava/lang/Object;)Ljava/lang/Throwable;
+       118: dup
+       119: ifnonnull     127
+       122: pop
+       123: aload_0
+       124: goto          133
+       127: astore_1
+       128: iconst_0
+       129: istore_2
+       130: ldc_w         #327                // String kotlinx.coroutines.internal.StackTraceRecoveryKt
+       133: checkcast     #269                // class java/lang/String
+       136: putstatic     #35                 // Field stackTraceRecoveryClassName:Ljava/lang/String;
+       139: return
+      Exception table:
+         from    to  target type
+            13    33    36   Class java/lang/Throwable
+            76    96    99   Class java/lang/Throwable
+}
+Compiled from "ExceptionsConstructor.kt"
+public final class kotlinx.coroutines.internal.ExceptionsConstructorKt {
+  private static final int throwableFields;
+
+  private static final kotlinx.coroutines.internal.CtorCache ctorCache;
+
+  public static final <E extends java.lang.Throwable> E tryCopyException(E);
+    Code:
+         0: aload_0
+         1: instanceof    #13                 // class kotlinx/coroutines/CopyableThrowable
+         4: ifeq          61
+         7: nop
+         8: getstatic     #19                 // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+        11: pop
+        12: iconst_0
+        13: istore_1
+        14: aload_0
+        15: checkcast     #13                 // class kotlinx/coroutines/CopyableThrowable
+        18: invokeinterface #23,  1           // InterfaceMethod kotlinx/coroutines/CopyableThrowable.createCopy:()Ljava/lang/Throwable;
+        23: invokestatic  #27                 // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+        26: astore_1
+        27: goto          43
+        30: astore_2
+        31: getstatic     #19                 // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+        34: pop
+        35: aload_2
+        36: invokestatic  #33                 // Method kotlin/ResultKt.createFailure:(Ljava/lang/Throwable;)Ljava/lang/Object;
+        39: invokestatic  #27                 // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+        42: astore_1
+        43: aload_1
+        44: astore_1
+        45: aload_1
+        46: invokestatic  #37                 // Method kotlin/Result."isFailure-impl":(Ljava/lang/Object;)Z
+        49: ifeq          56
+        52: aconst_null
+        53: goto          57
+        56: aload_1
+        57: checkcast     #11                 // class java/lang/Throwable
+        60: areturn
+        61: getstatic     #41                 // Field ctorCache:Lkotlinx/coroutines/internal/CtorCache;
+        64: aload_0
+        65: invokevirtual #45                 // Method java/lang/Object.getClass:()Ljava/lang/Class;
+        68: invokevirtual #51                 // Method kotlinx/coroutines/internal/CtorCache.get:(Ljava/lang/Class;)Lkotlin/jvm/functions/Function1;
+        71: aload_0
+        72: invokeinterface #56,  2           // InterfaceMethod kotlin/jvm/functions/Function1.invoke:(Ljava/lang/Object;)Ljava/lang/Object;
+        77: checkcast     #11                 // class java/lang/Throwable
+        80: areturn
+      Exception table:
+         from    to  target type
+             7    27    30   Class java/lang/Throwable
+
+  private static final <E extends java.lang.Throwable> kotlin.jvm.functions.Function1<java.lang.Throwable, java.lang.Throwable> createConstructor(java.lang.Class<E>);
+    Code:
+         0: getstatic     #72                 // Field kotlinx/coroutines/internal/ExceptionsConstructorKt$createConstructor$nullResult$1.INSTANCE:Lkotlinx/coroutines/internal/ExceptionsConstructorKt$createConstructor$nullResult$1;
+         3: checkcast     #53                 // class kotlin/jvm/functions/Function1
+         6: astore_1
+         7: nop
+         8: aload_0
+         9: ldc           #74                 // String copyForStackTraceRecovery
+        11: iconst_0
+        12: anewarray     #76                 // class java/lang/Class
+        15: invokevirtual #80                 // Method java/lang/Class.getMethod:(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;
+        18: astore_2
+        19: aload_2
+        20: invokedynamic #97,  0             // InvokeDynamic #0:invoke:(Ljava/lang/reflect/Method;)Lkotlin/jvm/functions/Function1;
+        25: areturn
+        26: astore_2
+        27: goto          31
+        30: astore_2
+        31: getstatic     #100                // Field throwableFields:I
+        34: aload_0
+        35: iconst_0
+        36: invokestatic  #104                // Method fieldsCountOrDefault:(Ljava/lang/Class;I)I
+        39: if_icmpeq     44
+        42: aload_1
+        43: areturn
+        44: aload_0
+        45: invokevirtual #108                // Method java/lang/Class.getConstructors:()[Ljava/lang/reflect/Constructor;
+        48: astore_3
+        49: iconst_0
+        50: istore        4
+        52: aload_3
+        53: astore        5
+        55: new           #110                // class java/util/ArrayList
+        58: dup
+        59: aload_3
+        60: arraylength
+        61: invokespecial #114                // Method java/util/ArrayList."<init>":(I)V
+        64: checkcast     #116                // class java/util/Collection
+        67: astore        6
+        69: iconst_0
+        70: istore        7
+        72: iconst_0
+        73: istore        8
+        75: aload         5
+        77: arraylength
+        78: istore        9
+        80: iload         8
+        82: iload         9
+        84: if_icmpge     321
+        87: aload         5
+        89: iload         8
+        91: aaload
+        92: astore        10
+        94: aload         6
+        96: aload         10
+        98: checkcast     #118                // class java/lang/reflect/Constructor
+       101: astore        11
+       103: astore        15
+       105: iconst_0
+       106: istore        12
+       108: aload         11
+       110: invokevirtual #122                // Method java/lang/reflect/Constructor.getParameterTypes:()[Ljava/lang/Class;
+       113: astore        13
+       115: aload         13
+       117: arraylength
+       118: tableswitch   { // 0 to 2
+                       0: 277
+                       1: 200
+                       2: 144
+                 default: 297
+            }
+       144: nop
+       145: aload         13
+       147: iconst_0
+       148: aaload
+       149: ldc           #124                // class java/lang/String
+       151: invokestatic  #130                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+       154: ifeq          189
+       157: aload         13
+       159: iconst_1
+       160: aaload
+       161: ldc           #11                 // class java/lang/Throwable
+       163: invokestatic  #130                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+       166: ifeq          189
+       169: aload         11
+       171: invokedynamic #138,  0            // InvokeDynamic #1:invoke:(Ljava/lang/reflect/Constructor;)Lkotlin/jvm/functions/Function1;
+       176: invokestatic  #142                // Method safeCtor:(Lkotlin/jvm/functions/Function1;)Lkotlin/jvm/functions/Function1;
+       179: iconst_3
+       180: invokestatic  #148                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+       183: invokestatic  #154                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+       186: goto          305
+       189: aconst_null
+       190: iconst_m1
+       191: invokestatic  #148                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+       194: invokestatic  #154                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+       197: goto          305
+       200: aload         13
+       202: iconst_0
+       203: aaload
+       204: astore        14
+       206: aload         14
+       208: ldc           #124                // class java/lang/String
+       210: invokestatic  #130                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+       213: ifeq          236
+       216: aload         11
+       218: invokedynamic #159,  0            // InvokeDynamic #2:invoke:(Ljava/lang/reflect/Constructor;)Lkotlin/jvm/functions/Function1;
+       223: invokestatic  #142                // Method safeCtor:(Lkotlin/jvm/functions/Function1;)Lkotlin/jvm/functions/Function1;
+       226: iconst_2
+       227: invokestatic  #148                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+       230: invokestatic  #154                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+       233: goto          305
+       236: aload         14
+       238: ldc           #11                 // class java/lang/Throwable
+       240: invokestatic  #130                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+       243: ifeq          266
+       246: aload         11
+       248: invokedynamic #164,  0            // InvokeDynamic #3:invoke:(Ljava/lang/reflect/Constructor;)Lkotlin/jvm/functions/Function1;
+       253: invokestatic  #142                // Method safeCtor:(Lkotlin/jvm/functions/Function1;)Lkotlin/jvm/functions/Function1;
+       256: iconst_1
+       257: invokestatic  #148                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+       260: invokestatic  #154                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+       263: goto          305
+       266: aconst_null
+       267: iconst_m1
+       268: invokestatic  #148                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+       271: invokestatic  #154                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+       274: goto          305
+       277: aload         11
+       279: invokedynamic #169,  0            // InvokeDynamic #4:invoke:(Ljava/lang/reflect/Constructor;)Lkotlin/jvm/functions/Function1;
+       284: invokestatic  #142                // Method safeCtor:(Lkotlin/jvm/functions/Function1;)Lkotlin/jvm/functions/Function1;
+       287: iconst_0
+       288: invokestatic  #148                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+       291: invokestatic  #154                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+       294: goto          305
+       297: aconst_null
+       298: iconst_m1
+       299: invokestatic  #148                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+       302: invokestatic  #154                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+       305: nop
+       306: aload         15
+       308: swap
+       309: invokeinterface #172,  2          // InterfaceMethod java/util/Collection.add:(Ljava/lang/Object;)Z
+       314: pop
+       315: iinc          8, 1
+       318: goto          80
+       321: aload         6
+       323: checkcast     #174                // class java/util/List
+       326: nop
+       327: checkcast     #176                // class java/lang/Iterable
+       330: astore_3
+       331: nop
+       332: iconst_0
+       333: istore        4
+       335: aload_3
+       336: invokeinterface #180,  1          // InterfaceMethod java/lang/Iterable.iterator:()Ljava/util/Iterator;
+       341: astore        5
+       343: aload         5
+       345: invokeinterface #186,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+       350: ifne          357
+       353: aconst_null
+       354: goto          463
+       357: aload         5
+       359: invokeinterface #190,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+       364: astore        6
+       366: aload         5
+       368: invokeinterface #186,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+       373: ifne          381
+       376: aload         6
+       378: goto          463
+       381: aload         6
+       383: checkcast     #192                // class kotlin/Pair
+       386: astore        7
+       388: iconst_0
+       389: istore        8
+       391: aload         7
+       393: invokevirtual #195                // Method kotlin/Pair.getSecond:()Ljava/lang/Object;
+       396: checkcast     #197                // class java/lang/Number
+       399: invokevirtual #201                // Method java/lang/Number.intValue:()I
+       402: istore        7
+       404: aload         5
+       406: invokeinterface #190,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+       411: astore        8
+       413: aload         8
+       415: checkcast     #192                // class kotlin/Pair
+       418: astore        9
+       420: iconst_0
+       421: istore        10
+       423: aload         9
+       425: invokevirtual #195                // Method kotlin/Pair.getSecond:()Ljava/lang/Object;
+       428: checkcast     #197                // class java/lang/Number
+       431: invokevirtual #201                // Method java/lang/Number.intValue:()I
+       434: istore        9
+       436: iload         7
+       438: iload         9
+       440: if_icmpge     451
+       443: aload         8
+       445: astore        6
+       447: iload         9
+       449: istore        7
+       451: aload         5
+       453: invokeinterface #186,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+       458: ifne          404
+       461: aload         6
+       463: checkcast     #192                // class kotlin/Pair
+       466: astore_2
+       467: aload_2
+       468: ifnull        487
+       471: aload_2
+       472: invokevirtual #204                // Method kotlin/Pair.getFirst:()Ljava/lang/Object;
+       475: checkcast     #53                 // class kotlin/jvm/functions/Function1
+       478: astore_3
+       479: aload_3
+       480: ifnull        487
+       483: aload_3
+       484: goto          488
+       487: aload_1
+       488: areturn
+      Exception table:
+         from    to  target type
+             7    26    26   Class java/lang/NoSuchMethodException
+             7    26    30   Class java/lang/SecurityException
+
+  private static final kotlin.jvm.functions.Function1<java.lang.Throwable, java.lang.Throwable> safeCtor(kotlin.jvm.functions.Function1<? super java.lang.Throwable, ? extends java.lang.Throwable>);
+    Code:
+         0: aload_0
+         1: invokedynamic #246,  0            // InvokeDynamic #5:invoke:(Lkotlin/jvm/functions/Function1;)Lkotlin/jvm/functions/Function1;
+         6: areturn
+
+  private static final int fieldsCountOrDefault(java.lang.Class<?>, int);
+    Code:
+         0: aload_0
+         1: invokestatic  #254                // Method kotlin/jvm/JvmClassMappingKt.getKotlinClass:(Ljava/lang/Class;)Lkotlin/reflect/KClass;
+         4: astore_2
+         5: nop
+         6: getstatic     #19                 // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+         9: pop
+        10: aload_2
+        11: astore_3
+        12: iconst_0
+        13: istore        4
+        15: aload_0
+        16: iconst_0
+        17: iconst_1
+        18: aconst_null
+        19: invokestatic  #258                // Method fieldsCount$default:(Ljava/lang/Class;IILjava/lang/Object;)I
+        22: invokestatic  #148                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+        25: invokestatic  #27                 // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+        28: astore_3
+        29: goto          47
+        32: astore        4
+        34: getstatic     #19                 // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+        37: pop
+        38: aload         4
+        40: invokestatic  #33                 // Method kotlin/ResultKt.createFailure:(Ljava/lang/Throwable;)Ljava/lang/Object;
+        43: invokestatic  #27                 // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+        46: astore_3
+        47: aload_3
+        48: astore_2
+        49: iload_1
+        50: invokestatic  #148                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+        53: astore_3
+        54: aload_2
+        55: invokestatic  #37                 // Method kotlin/Result."isFailure-impl":(Ljava/lang/Object;)Z
+        58: ifeq          65
+        61: aload_3
+        62: goto          66
+        65: aload_2
+        66: checkcast     #197                // class java/lang/Number
+        69: invokevirtual #201                // Method java/lang/Number.intValue:()I
+        72: ireturn
+      Exception table:
+         from    to  target type
+             5    29    32   Class java/lang/Throwable
+
+  private static final int fieldsCount(java.lang.Class<?>, int);
+    Code:
+         0: aload_0
+         1: invokevirtual #270                // Method java/lang/Class.getDeclaredFields:()[Ljava/lang/reflect/Field;
+         4: astore_3
+         5: iconst_0
+         6: istore        4
+         8: iconst_0
+         9: istore        5
+        11: iconst_0
+        12: istore        6
+        14: aload_3
+        15: arraylength
+        16: istore        7
+        18: iload         6
+        20: iload         7
+        22: if_icmpge     66
+        25: aload_3
+        26: iload         6
+        28: aaload
+        29: astore        8
+        31: aload         8
+        33: astore        9
+        35: iconst_0
+        36: istore        10
+        38: aload         9
+        40: invokevirtual #275                // Method java/lang/reflect/Field.getModifiers:()I
+        43: invokestatic  #281                // Method java/lang/reflect/Modifier.isStatic:(I)Z
+        46: ifne          53
+        49: iconst_1
+        50: goto          54
+        53: iconst_0
+        54: ifeq          60
+        57: iinc          5, 1
+        60: iinc          6, 1
+        63: goto          18
+        66: iload         5
+        68: istore_2
+        69: iload_1
+        70: iload_2
+        71: iadd
+        72: istore_3
+        73: aload_0
+        74: invokevirtual #284                // Method java/lang/Class.getSuperclass:()Ljava/lang/Class;
+        77: dup
+        78: ifnonnull     84
+        81: pop
+        82: iload_3
+        83: ireturn
+        84: astore        4
+        86: aload         4
+        88: astore_0
+        89: iload_3
+        90: istore_1
+        91: goto          0
+
+  static int fieldsCount$default(java.lang.Class, int, int, java.lang.Object);
+    Code:
+         0: iload_2
+         1: iconst_1
+         2: iand
+         3: ifeq          8
+         6: iconst_0
+         7: istore_1
+         8: aload_0
+         9: iload_1
+        10: invokestatic  #299                // Method fieldsCount:(Ljava/lang/Class;I)I
+        13: ireturn
+
+  private static final java.lang.Throwable createConstructor$lambda$0(java.lang.reflect.Method, java.lang.Throwable);
+    Code:
+         0: nop
+         1: getstatic     #19                 // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+         4: pop
+         5: iconst_0
+         6: istore_2
+         7: aload_0
+         8: aload_1
+         9: iconst_0
+        10: anewarray     #4                  // class java/lang/Object
+        13: invokevirtual #304                // Method java/lang/reflect/Method.invoke:(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;
+        16: checkcast     #11                 // class java/lang/Throwable
+        19: invokestatic  #27                 // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+        22: astore_2
+        23: goto          39
+        26: astore_3
+        27: getstatic     #19                 // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+        30: pop
+        31: aload_3
+        32: invokestatic  #33                 // Method kotlin/ResultKt.createFailure:(Ljava/lang/Throwable;)Ljava/lang/Object;
+        35: invokestatic  #27                 // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+        38: astore_2
+        39: aload_2
+        40: astore_2
+        41: aload_2
+        42: invokestatic  #37                 // Method kotlin/Result."isFailure-impl":(Ljava/lang/Object;)Z
+        45: ifeq          52
+        48: aconst_null
+        49: goto          53
+        52: aload_2
+        53: checkcast     #11                 // class java/lang/Throwable
+        56: areturn
+      Exception table:
+         from    to  target type
+             0    23    26   Class java/lang/Throwable
+
+  private static final java.lang.Throwable createConstructor$lambda$1$0(java.lang.reflect.Constructor, java.lang.Throwable);
+    Code:
+         0: aload_0
+         1: iconst_2
+         2: anewarray     #4                  // class java/lang/Object
+         5: astore_2
+         6: aload_2
+         7: iconst_0
+         8: aload_1
+         9: invokevirtual #311                // Method java/lang/Throwable.getMessage:()Ljava/lang/String;
+        12: aastore
+        13: aload_2
+        14: iconst_1
+        15: aload_1
+        16: aastore
+        17: aload_2
+        18: invokevirtual #315                // Method java/lang/reflect/Constructor.newInstance:([Ljava/lang/Object;)Ljava/lang/Object;
+        21: dup
+        22: ldc_w         #317                // String null cannot be cast to non-null type kotlin.Throwable
+        25: invokestatic  #321                // Method kotlin/jvm/internal/Intrinsics.checkNotNull:(Ljava/lang/Object;Ljava/lang/String;)V
+        28: checkcast     #11                 // class java/lang/Throwable
+        31: areturn
+
+  private static final java.lang.Throwable createConstructor$lambda$1$1(java.lang.reflect.Constructor, java.lang.Throwable);
+    Code:
+         0: aload_0
+         1: iconst_1
+         2: anewarray     #4                  // class java/lang/Object
+         5: astore_3
+         6: aload_3
+         7: iconst_0
+         8: aload_1
+         9: invokevirtual #311                // Method java/lang/Throwable.getMessage:()Ljava/lang/String;
+        12: aastore
+        13: aload_3
+        14: invokevirtual #315                // Method java/lang/reflect/Constructor.newInstance:([Ljava/lang/Object;)Ljava/lang/Object;
+        17: dup
+        18: ldc_w         #317                // String null cannot be cast to non-null type kotlin.Throwable
+        21: invokestatic  #321                // Method kotlin/jvm/internal/Intrinsics.checkNotNull:(Ljava/lang/Object;Ljava/lang/String;)V
+        24: checkcast     #11                 // class java/lang/Throwable
+        27: astore_2
+        28: aload_2
+        29: astore_3
+        30: iconst_0
+        31: istore        4
+        33: aload_3
+        34: aload_1
+        35: invokevirtual #325                // Method java/lang/Throwable.initCause:(Ljava/lang/Throwable;)Ljava/lang/Throwable;
+        38: pop
+        39: aload_2
+        40: areturn
+
+  private static final java.lang.Throwable createConstructor$lambda$1$2(java.lang.reflect.Constructor, java.lang.Throwable);
+    Code:
+         0: aload_0
+         1: iconst_1
+         2: anewarray     #4                  // class java/lang/Object
+         5: astore_2
+         6: aload_2
+         7: iconst_0
+         8: aload_1
+         9: aastore
+        10: aload_2
+        11: invokevirtual #315                // Method java/lang/reflect/Constructor.newInstance:([Ljava/lang/Object;)Ljava/lang/Object;
+        14: dup
+        15: ldc_w         #317                // String null cannot be cast to non-null type kotlin.Throwable
+        18: invokestatic  #321                // Method kotlin/jvm/internal/Intrinsics.checkNotNull:(Ljava/lang/Object;Ljava/lang/String;)V
+        21: checkcast     #11                 // class java/lang/Throwable
+        24: areturn
+
+  private static final java.lang.Throwable createConstructor$lambda$1$3(java.lang.reflect.Constructor, java.lang.Throwable);
+    Code:
+         0: aload_0
+         1: iconst_0
+         2: anewarray     #4                  // class java/lang/Object
+         5: invokevirtual #315                // Method java/lang/reflect/Constructor.newInstance:([Ljava/lang/Object;)Ljava/lang/Object;
+         8: dup
+         9: ldc_w         #317                // String null cannot be cast to non-null type kotlin.Throwable
+        12: invokestatic  #321                // Method kotlin/jvm/internal/Intrinsics.checkNotNull:(Ljava/lang/Object;Ljava/lang/String;)V
+        15: checkcast     #11                 // class java/lang/Throwable
+        18: astore_2
+        19: aload_2
+        20: astore_3
+        21: iconst_0
+        22: istore        4
+        24: aload_3
+        25: aload_1
+        26: invokevirtual #325                // Method java/lang/Throwable.initCause:(Ljava/lang/Throwable;)Ljava/lang/Throwable;
+        29: pop
+        30: aload_2
+        31: areturn
+
+  private static final java.lang.Throwable safeCtor$lambda$0(kotlin.jvm.functions.Function1, java.lang.Throwable);
+    Code:
+         0: nop
+         1: getstatic     #19                 // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+         4: pop
+         5: iconst_0
+         6: istore_2
+         7: aload_0
+         8: aload_1
+         9: invokeinterface #56,  2           // InterfaceMethod kotlin/jvm/functions/Function1.invoke:(Ljava/lang/Object;)Ljava/lang/Object;
+        14: checkcast     #11                 // class java/lang/Throwable
+        17: astore_3
+        18: aload_1
+        19: invokevirtual #311                // Method java/lang/Throwable.getMessage:()Ljava/lang/String;
+        22: aload_3
+        23: invokevirtual #311                // Method java/lang/Throwable.getMessage:()Ljava/lang/String;
+        26: invokestatic  #130                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+        29: ifne          50
+        32: aload_3
+        33: invokevirtual #311                // Method java/lang/Throwable.getMessage:()Ljava/lang/String;
+        36: aload_1
+        37: invokevirtual #330                // Method java/lang/Throwable.toString:()Ljava/lang/String;
+        40: invokestatic  #130                // Method kotlin/jvm/internal/Intrinsics.areEqual:(Ljava/lang/Object;Ljava/lang/Object;)Z
+        43: ifne          50
+        46: aconst_null
+        47: goto          51
+        50: aload_3
+        51: invokestatic  #27                 // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+        54: astore_2
+        55: goto          71
+        58: astore_3
+        59: getstatic     #19                 // Field kotlin/Result.Companion:Lkotlin/Result$Companion;
+        62: pop
+        63: aload_3
+        64: invokestatic  #33                 // Method kotlin/ResultKt.createFailure:(Ljava/lang/Throwable;)Ljava/lang/Object;
+        67: invokestatic  #27                 // Method kotlin/Result."constructor-impl":(Ljava/lang/Object;)Ljava/lang/Object;
+        70: astore_2
+        71: aload_2
+        72: astore_2
+        73: aload_2
+        74: invokestatic  #37                 // Method kotlin/Result."isFailure-impl":(Ljava/lang/Object;)Z
+        77: ifeq          84
+        80: aconst_null
+        81: goto          85
+        84: aload_2
+        85: checkcast     #11                 // class java/lang/Throwable
+        88: areturn
+      Exception table:
+         from    to  target type
+             0    55    58   Class java/lang/Throwable
+
+  public static final kotlin.jvm.functions.Function1 access$createConstructor(java.lang.Class);
+    Code:
+         0: aload_0
+         1: invokestatic  #336                // Method createConstructor:(Ljava/lang/Class;)Lkotlin/jvm/functions/Function1;
+         4: areturn
+
+  static {};
+    Code:
+         0: ldc           #11                 // class java/lang/Throwable
+         2: iconst_m1
+         3: invokestatic  #104                // Method fieldsCountOrDefault:(Ljava/lang/Class;I)I
+         6: putstatic     #100                // Field throwableFields:I
+         9: nop
+        10: invokestatic  #343                // Method kotlinx/coroutines/internal/FastServiceLoaderKt.getANDROID_DETECTED:()Z
+        13: ifeq          25
+        16: getstatic     #348                // Field kotlinx/coroutines/internal/WeakMapCtorCache.INSTANCE:Lkotlinx/coroutines/internal/WeakMapCtorCache;
+        19: checkcast     #47                 // class kotlinx/coroutines/internal/CtorCache
+        22: goto          31
+        25: getstatic     #353                // Field kotlinx/coroutines/internal/ClassValueCtorCache.INSTANCE:Lkotlinx/coroutines/internal/ClassValueCtorCache;
+        28: checkcast     #47                 // class kotlinx/coroutines/internal/CtorCache
+        31: astore_0
+        32: goto          43
+        35: astore_1
+        36: getstatic     #348                // Field kotlinx/coroutines/internal/WeakMapCtorCache.INSTANCE:Lkotlinx/coroutines/internal/WeakMapCtorCache;
+        39: checkcast     #47                 // class kotlinx/coroutines/internal/CtorCache
+        42: astore_0
+        43: aload_0
+        44: putstatic     #41                 // Field ctorCache:Lkotlinx/coroutines/internal/CtorCache;
+        47: return
+      Exception table:
+         from    to  target type
+             9    32    35   Class java/lang/Throwable
+}
+Compiled from "Debug.kt"
+public final class kotlinx.coroutines.DebugKt {
+  public static final java.lang.String DEBUG_PROPERTY_NAME;
+
+  public static final java.lang.String STACKTRACE_RECOVERY_PROPERTY_NAME;
+
+  public static final java.lang.String DEBUG_PROPERTY_VALUE_AUTO;
+
+  public static final java.lang.String DEBUG_PROPERTY_VALUE_ON;
+
+  public static final java.lang.String DEBUG_PROPERTY_VALUE_OFF;
+
+  private static final boolean ASSERTIONS_ENABLED;
+
+  private static final boolean DEBUG;
+
+  private static final boolean RECOVER_STACK_TRACES;
+
+  private static final java.util.concurrent.atomic.AtomicLong COROUTINE_ID;
+
+  public static final boolean getASSERTIONS_ENABLED();
+    Code:
+         0: getstatic     #10                 // Field ASSERTIONS_ENABLED:Z
+         3: ireturn
+
+  public static final boolean getDEBUG();
+    Code:
+         0: getstatic     #14                 // Field DEBUG:Z
+         3: ireturn
+
+  public static final boolean getRECOVER_STACK_TRACES();
+    Code:
+         0: getstatic     #18                 // Field RECOVER_STACK_TRACES:Z
+         3: ireturn
+
+  public static void getRECOVER_STACK_TRACES$annotations();
+    Code:
+         0: return
+
+  public static final java.util.concurrent.atomic.AtomicLong getCOROUTINE_ID();
+    Code:
+         0: getstatic     #28                 // Field COROUTINE_ID:Ljava/util/concurrent/atomic/AtomicLong;
+         3: areturn
+
+  public static final void resetCoroutineId();
+    Code:
+         0: getstatic     #28                 // Field COROUTINE_ID:Ljava/util/concurrent/atomic/AtomicLong;
+         3: lconst_0
+         4: invokevirtual #35                 // Method java/util/concurrent/atomic/AtomicLong.set:(J)V
+         7: return
+
+  private static final void assert(kotlin.jvm.functions.Function0<java.lang.Boolean>);
+    Code:
+         0: invokestatic  #41                 // Method getASSERTIONS_ENABLED:()Z
+         3: ifeq          29
+         6: aload_0
+         7: invokeinterface #47,  1           // InterfaceMethod kotlin/jvm/functions/Function0.invoke:()Ljava/lang/Object;
+        12: checkcast     #49                 // class java/lang/Boolean
+        15: invokevirtual #52                 // Method java/lang/Boolean.booleanValue:()Z
+        18: ifne          29
+        21: new           #54                 // class java/lang/AssertionError
+        24: dup
+        25: invokespecial #57                 // Method java/lang/AssertionError."<init>":()V
+        28: athrow
+        29: return
+
+  static {};
+    Code:
+         0: ldc           #62                 // class kotlinx/coroutines/CoroutineId
+         2: invokevirtual #67                 // Method java/lang/Class.desiredAssertionStatus:()Z
+         5: putstatic     #10                 // Field ASSERTIONS_ENABLED:Z
+         8: ldc           #69                 // String kotlinx.coroutines.debug
+        10: invokestatic  #75                 // Method kotlinx/coroutines/internal/SystemPropsKt.systemProp:(Ljava/lang/String;)Ljava/lang/String;
+        13: astore_0
+        14: iconst_0
+        15: istore_1
+        16: aload_0
+        17: astore_2
+        18: aload_2
+        19: ifnull        116
+        22: aload_2
+        23: invokevirtual #81                 // Method java/lang/String.hashCode:()I
+        26: lookupswitch  { // 4
+                       0: 68
+                    3551: 104
+                  109935: 92
+                 3005871: 80
+                 default: 130
+            }
+        68: aload_2
+        69: ldc           #83                 // String
+        71: invokevirtual #87                 // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+        74: ifne          122
+        77: goto          130
+        80: aload_2
+        81: ldc           #89                 // String auto
+        83: invokevirtual #87                 // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+        86: ifne          116
+        89: goto          130
+        92: aload_2
+        93: ldc           #91                 // String off
+        95: invokevirtual #87                 // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+        98: ifne          126
+       101: goto          130
+       104: aload_2
+       105: ldc           #93                 // String on
+       107: invokevirtual #87                 // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+       110: ifne          122
+       113: goto          130
+       116: getstatic     #10                 // Field ASSERTIONS_ENABLED:Z
+       119: goto          165
+       122: iconst_1
+       123: goto          165
+       126: iconst_0
+       127: goto          165
+       130: new           #95                 // class java/lang/IllegalStateException
+       133: dup
+       134: new           #97                 // class java/lang/StringBuilder
+       137: dup
+       138: invokespecial #98                 // Method java/lang/StringBuilder."<init>":()V
+       141: ldc           #100                // String System property \'kotlinx.coroutines.debug\' has unrecognized value \'
+       143: invokevirtual #104                // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+       146: aload_0
+       147: invokevirtual #104                // Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+       150: bipush        39
+       152: invokevirtual #107                // Method java/lang/StringBuilder.append:(C)Ljava/lang/StringBuilder;
+       155: invokevirtual #111                // Method java/lang/StringBuilder.toString:()Ljava/lang/String;
+       158: invokevirtual #112                // Method java/lang/Object.toString:()Ljava/lang/String;
+       161: invokespecial #115                // Method java/lang/IllegalStateException."<init>":(Ljava/lang/String;)V
+       164: athrow
+       165: nop
+       166: nop
+       167: putstatic     #14                 // Field DEBUG:Z
+       170: getstatic     #14                 // Field DEBUG:Z
+       173: ifeq          189
+       176: ldc           #117                // String kotlinx.coroutines.stacktrace.recovery
+       178: iconst_1
+       179: invokestatic  #120                // Method kotlinx/coroutines/internal/SystemPropsKt.systemProp:(Ljava/lang/String;Z)Z
+       182: ifeq          189
+       185: iconst_1
+       186: goto          190
+       189: iconst_0
+       190: putstatic     #18                 // Field RECOVER_STACK_TRACES:Z
+       193: new           #31                 // class java/util/concurrent/atomic/AtomicLong
+       196: dup
+       197: lconst_0
+       198: invokespecial #122                // Method java/util/concurrent/atomic/AtomicLong."<init>":(J)V
+       201: putstatic     #28                 // Field COROUTINE_ID:Ljava/util/concurrent/atomic/AtomicLong;
+       204: return
+}

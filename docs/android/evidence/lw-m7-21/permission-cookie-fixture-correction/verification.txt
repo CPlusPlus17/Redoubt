@@ -1,0 +1,86 @@
+Repository before edit: caed4624fb3cb3113905c841aefb151ac197295b
+Scope: three target test fixtures; no production source, gate, allowlist or guest mutation. Corrected target execution remains pending.
+
+$ python3 docs/android/evidence/lw-m7-21/permission-cookie-fixture-correction/replay.py --output <new private directory>
+PASS: original and corrected Task14/23 patches reconstruct every pinned output with zero fuzz/offset
+PASS: only three test patch sections/bodies changed; assertions and 5/16/4 test counts retained
+PASS: actual failed-run source overlay and original 57-test/7-failure XML report bound
+✔ request uses actor frame principal, quiet metadata, and exact session lifetime (2.398276ms)
+✔ decision 1, permanent=false, private=0 writes correct lifetime (1.113774ms)
+✔ decision 1, permanent=false, private=1 writes correct lifetime (0.61101ms)
+✔ decision 1, permanent=true, private=0 writes correct lifetime (0.583118ms)
+✔ decision 1, permanent=true, private=1 writes correct lifetime (0.588569ms)
+✔ decision 2, permanent=false, private=0 writes correct lifetime (0.587058ms)
+✔ decision 2, permanent=false, private=1 writes correct lifetime (0.665742ms)
+✔ decision 2, permanent=true, private=0 writes correct lifetime (0.593378ms)
+✔ decision 2, permanent=true, private=1 writes correct lifetime (0.647662ms)
+✔ dismissal neither writes nor erases an existing exception (1.0388ms)
+✔ invalid app decision false cannot write (0.547666ms)
+✔ invalid app decision null cannot write (0.487924ms)
+✔ invalid app decision {"value":1} cannot write (0.568577ms)
+✔ invalid app decision {"value":4,"permanent":false} cannot write (0.552267ms)
+✔ invalid app decision {"value":"1","permanent":false} cannot write (0.567538ms)
+✔ invalid app decision {"value":1,"permanent":1} cannot write (0.587018ms)
+✔ stale same-origin document reply cannot grant to its replacement (0.939725ms)
+✔ changed actor principal cannot receive a captured decision (0.524535ms)
+✔ destroy cancels outstanding result and observer without waiting for app reply (0.576178ms)
+✔ same-origin navigation after commit prevents stale acknowledgement and reload (0.572998ms)
+✔ concurrent reloads only reload requesting frame once after write (0.850651ms)
+✔ write failure rejects applied acknowledgement (0.610179ms)
+✔ non-web file:///tmp/test cannot prompt (0.492194ms)
+✔ non-web moz-extension://uuid cannot prompt (0.454202ms)
+✔ non-web resource://test cannot prompt (0.793938ms)
+✔ opaque and stale actors, invalid kinds, and invalid quiet flags cannot prompt (0.580378ms)
+✔ parent deduplicates each kind for one actor and ignores forged origin data (0.552177ms)
+✔ child accepts only its own inner window and emits no principal supplied by content (0.497274ms)
+✔ exact revoke preserves scheme, port, subdomain, private, context, and other kind records (0.693433ms)
+✔ stored updates validate exact principal identity and acknowledged lifetime (0.667592ms)
+✔ record enumeration exports actual expiry and canonical origin with attributes (0.516935ms)
+✔ inactive ancestor or BFCache window (isCurrentGlobal) cannot grant (0.950046ms)
+✔ inactive ancestor or BFCache window (isActiveInTab) cannot grant (0.561157ms)
+✔ private-ended or revoked snapshot cannot recreate its record (0.523366ms)
+✔ stale settings snapshot cannot overwrite a newer same-value lifetime record (0.483184ms)
+✔ pending document decision cannot overwrite a newer origin choice (0.473613ms)
+✔ trusted pagehide cancels quiet requests and permits a fresh request after restore (0.542366ms)
+ℹ tests 37
+ℹ suites 0
+ℹ pass 37
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 33.443001
+PASS all reconstructed source hashes
+PASS parsed XML, stable controls/scope labels, legacy safe route and absence of implicit data clearing
+PASS set acknowledges correct normal scope
+PASS remove acknowledges correct normal scope
+PASS unset domain inherits only its corresponding global mode false
+PASS set acknowledges correct temporary private scope
+PASS remove acknowledges correct private scope
+PASS unset domain inherits only its corresponding global mode true
+PASS SetCookieBannerModeForDomain native failure terminates with an error
+PASS SetCookieBannerModeForDomain invalid URI terminates before native mutation
+PASS RemoveCookieBannerModeForDomain native failure terminates with an error
+PASS RemoveCookieBannerModeForDomain invalid URI terminates before native mutation
+PASS GetCookieBannerModeForDomain native failure terminates with an error
+PASS GetCookieBannerModeForDomain invalid URI terminates before native mutation
+PASS globally disabled query preserves domain exceptions without querying native storage
+PASS token acquisition reports inactive native session errors
+PASS SetCookieBannerModeForDomain forwards immutable private token to native scoped API
+PASS SetCookieBannerModeForDomain rejects a private token masquerading as a normal choice
+PASS RemoveCookieBannerModeForDomain forwards immutable private token to native scoped API
+PASS RemoveCookieBannerModeForDomain rejects a private token masquerading as a normal choice
+PASS stale scoped read rejects before native preference access
+PASS 19 actual-JS event tests; native lifetime and banner behavior remain target gates
+PASS actual C++ counter/token helpers/observers and pre/post-init mutation guards (43 assertions); platform/IO/container boundaries mocked
+NOT RUN standalone Kotlin JUnit gate: provide --kotlin-cache; target build/full Fenix/runtime also remain required
+NOT RUN: corrected Android test classes, full Fenix suite, native instrumentation or runtime.
+exit_code: 0
+
+$ python3 docs/android/board.py --check
+ok: 122 tasks, 31 waves, 0 warning(s)
+exit_code: 0
+
+$ git diff --check
+
+exit_code: 0

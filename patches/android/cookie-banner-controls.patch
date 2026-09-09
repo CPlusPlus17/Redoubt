@@ -199,7 +199,7 @@ index d8f4fc4..3337843 100644
 +    }
 +}
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt
-index 5d69ded..127e4fd 100644
+index 5d69ded..713a508 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt
 @@ -4,6 +4,21 @@
@@ -224,7 +224,7 @@ index 5d69ded..127e4fd 100644
  import junit.framework.TestCase.assertEquals
  import junit.framework.TestCase.assertFalse
  import junit.framework.TestCase.assertNull
-@@ -23,6 +38,8 @@ import org.mockito.Mockito.verify
+@@ -23,6 +38,8 @@
  import org.mozilla.geckoview.GeckoRuntime
  import org.mozilla.geckoview.StorageController
  
@@ -233,7 +233,7 @@ index 5d69ded..127e4fd 100644
  class GeckoCookieBannersStorageTest {
      private lateinit var runtime: GeckoRuntime
      private lateinit var geckoStorage: GeckoCookieBannersStorage
-@@ -31,6 +48,7 @@ class GeckoCookieBannersStorageTest {
+@@ -31,6 +48,7 @@
  
      @Before
      fun setup() {
@@ -241,7 +241,7 @@ index 5d69ded..127e4fd 100644
          storageController = mock()
          runtime = mock()
          reportSiteDomainsRepository = mock()
-@@ -40,12 +58,142 @@ class GeckoCookieBannersStorageTest {
+@@ -40,12 +58,150 @@
          geckoStorage = spy(GeckoCookieBannersStorage(runtime, reportSiteDomainsRepository))
      }
  
@@ -274,7 +274,11 @@ index 5d69ded..127e4fd 100644
 +        val failure = IllegalStateException("native failure")
 +        result.completeExceptionally(failure)
 +        shadowOf(Looper.getMainLooper()).idle()
-+        assertEquals(failure, update.await().exceptionOrNull())
++        val actual = update.await().exceptionOrNull()
++        // Coroutine stack-trace recovery may copy the exception while preserving its cause.
++        assertEquals(failure.javaClass, actual?.javaClass)
++        assertEquals(failure.message, actual?.message)
++        assertTrue(generateSequence(actual) { it.cause }.any { it === failure })
 +    }
 +
 +    @Test
@@ -356,7 +360,11 @@ index 5d69ded..127e4fd 100644
 +        val failure = IllegalStateException("NS_ERROR_NOT_AVAILABLE")
 +        result.completeExceptionally(failure)
 +        shadowOf(Looper.getMainLooper()).idle()
-+        assertEquals(failure, capture.await().exceptionOrNull())
++        val actual = capture.await().exceptionOrNull()
++        // Coroutine stack-trace recovery may copy the exception while preserving its cause.
++        assertEquals(failure.javaClass, actual?.javaClass)
++        assertEquals(failure.message, actual?.message)
++        assertTrue(generateSequence(actual) { it.cause }.any { it === failure })
 +        verify(storageController).getCookieBannerPrivateSessionToken()
 +        Mockito.verifyNoMoreInteractions(storageController)
 +    }
@@ -385,7 +393,7 @@ index 5d69ded..127e4fd 100644
                  .setGeckoException(uri = uri, mode = DISABLED, privateBrowsing = false)
  
              geckoStorage.addException(uri = uri, privateBrowsing = false)
-@@ -58,7 +206,7 @@ class GeckoCookieBannersStorageTest {
+@@ -58,7 +214,7 @@
          runTest {
              val uri = "https://www.mozilla.org"
  
@@ -1499,18 +1507,21 @@ index 139bf48..efcfd1a 100644
      fun `WHEN updateDetailsSection is called THEN update the visibility of the section`() {
          every { settings.shouldUseTrackingProtection } returns false
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt
-index 53b926e..5cd8d73 100644
+index 53b926e..6f09666 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt
-@@ -10,7 +10,6 @@ import androidx.navigation.NavController
+@@ -8,9 +8,9 @@
+ import androidx.fragment.app.Fragment
+ import androidx.navigation.NavController
  import androidx.navigation.NavDirections
++import io.mockk.Called
  import io.mockk.MockKAnnotations
  import io.mockk.coEvery
 -import io.mockk.coJustRun
  import io.mockk.coVerifyOrder
  import io.mockk.every
  import io.mockk.impl.annotations.RelaxedMockK
-@@ -112,7 +111,6 @@ internal class DefaultCookieBannerDetailsControllerTest {
+@@ -112,7 +112,6 @@
                  sessionId = tab.id,
                  browserStore = browserStore,
                  protectionsStore = protectionsStore,
@@ -1518,7 +1529,7 @@ index 53b926e..5cd8d73 100644
                  publicSuffixList = publicSuffixList,
                  reload = reload,
                  ioDispatcher = testDispatcher,
-@@ -179,14 +177,12 @@ internal class DefaultCookieBannerDetailsControllerTest {
+@@ -179,14 +178,12 @@
  
              assertNull(CookieBanners.exceptionRemoved.testGetValue())
              every { protectionsStore.dispatch(any()) } returns mockk()
@@ -1533,7 +1544,7 @@ index 53b926e..5cd8d73 100644
                  cookieBannersStorage.addException(
                      uri = tab.content.url,
                      privateBrowsing = tab.content.private,
-@@ -200,24 +196,7 @@ internal class DefaultCookieBannerDetailsControllerTest {
+@@ -200,24 +197,7 @@
              }
  
              assertNotNull(CookieBanners.exceptionAdded.testGetValue())
