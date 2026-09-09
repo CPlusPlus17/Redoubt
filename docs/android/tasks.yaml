@@ -4464,3 +4464,60 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: Cosmetic hiding or fabricated rules can conceal missing native rejection and injection.
+
+  - id: LW-M7-26
+    title: Apply Firefox Suggest defaults to Android services and controls
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-14, LW-M7-16, LW-M7-20]
+    owns:
+      - patches/android/firefox-suggest-policy.patch
+      - docs/android/evidence/lw-m7-26/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt
+      - mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/GlobalFxSuggestDependencyProvider.kt
+      - mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
+      - mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionScheduler.kt
+      - mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionWorker.kt
+      - mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProvider.kt
+      - mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/datasource/CombinedOnlineSuggestionDataSource.kt
+      - mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/client/SuggestMerinoClient.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicy.kt
+      - mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
+      - mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
+      - mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt
+      - mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/datasource/OnlineSuggestionAdmissionTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
+    reads:
+      - settings/distribution/policies.json
+      - docs/android/evidence/lw-m7-17/coverage.json
+    what: |
+      Mirror the inspected desktop FirefoxSuggest default-pref semantics: false
+      WebSuggestions, SponsoredSuggestions and ImproveSuggest/OnlineEnabled,
+      with explicit choices preserved because the policy has no Locked field.
+      Expose actual Android master/web/sponsored/online controls and gate lazy
+      provider/storage construction, startup and periodic ingestion, restored
+      workers, queued online requests and late results using effective choices.
+      Keep ordinary search-engine query suggestions, local history/bookmarks,
+      custom search engines and home section/shortcut seeding separate. Inspect
+      desktop in-flight handling before defining cancellation parity. Retain
+      exact source lineage and meaningful tests; root owns target execution.
+    acceptance:
+      - "fresh defaults are effectively off on every channel and stored explicit choices survive upgrades"
+      - "visible master and leaf controls drive actual local Suggest and online Merino admission"
+      - "disabled startup and restored workers do not construct Suggest storage/native clients or perform ingestion"
+      - "queued requests and stale provider references cannot bypass a changed choice; late results are discarded"
+      - "ordinary query suggestions, local history/bookmarks and custom search remain functional"
+      - "meaningful unit tests, affected target compilation and source-bound APK/network controls pass before completion"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "6-12"
+    skills: [android, kotlin]
+    agent_safe: yes
+    isolation: worktree
+    risk: A hidden master flag or eager Merino client can perform work while visible suggestion controls are off.
