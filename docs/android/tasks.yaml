@@ -4993,3 +4993,92 @@ tasks:
     isolation: worktree
     risk: Gecko effective state, stored user state under locks and confirmed disk state differ; UI acknowledgment
       must preserve those distinctions.
+
+  - id: LW-M7-37
+    title: Await cleanup and recover interrupted sessions with retention
+    milestone: M7
+    depends_on:
+    - LW-M7-09
+    - LW-M7-12
+    - LW-M7-16
+    - LW-M7-23
+    - LW-M7-29
+    - LW-M7-35
+    - LW-M7-36
+    owns:
+    - patches/android/session-cleanup.patch
+    - scripts/tests/test-session-cleanup.py
+    - scripts/tests/test-session-cleanup.js
+    - docs/android/evidence/lw-m7-37/
+    shared_edit:
+    - assets/patches/android.txt
+    tree_paths:
+    - mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+    - mobile/shared/modules/geckoview/GeckoViewSessionCleanup.sys.mjs
+    - mobile/shared/modules/geckoview/moz.build
+    - mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+    - mobile/shared/modules/geckoview/test/xpcshell/test_session_cleanup.js
+    - mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml
+    - toolkit/components/cleardata/PrincipalsCollector.sys.mjs
+    - toolkit/components/cleardata/tests/unit/test_principals_collector.js
+    - toolkit/components/cleardata/tests/unit/xpcshell.toml
+    - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
+    - mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/SessionCleanupTest.kt
+    - mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
+    - mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
+    - mobile/android/geckoview/api.txt
+    - mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/DataCleanable.kt
+    - mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
+    - mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt
+    - mobile/android/android-components/components/browser/session-storage/src/main/java/mozilla/components/browser/session/storage/SessionStorage.kt
+    - mobile/android/android-components/components/browser/session-storage/src/main/java/mozilla/components/browser/session/storage/AutoSave.kt
+    - mobile/android/android-components/components/browser/session-storage/src/test/java/mozilla/components/browser/session/storage/SessionStorageTest.kt
+    - mobile/android/android-components/components/browser/session-storage/src/test/java/mozilla/components/browser/session/storage/AutoSaveTest.kt
+    - mobile/android/android-components/components/feature/recentlyclosed/src/main/java/mozilla/components/feature/recentlyclosed/RecentlyClosedMiddleware.kt
+    - mobile/android/android-components/components/feature/recentlyclosed/src/test/java/mozilla/components/feature/recentlyclosed/RecentlyClosedMiddlewareTest.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataController.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataFragment.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragment.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/BrowsingDataCleanupCoordinator.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/BrowsingDataCleanupJournal.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BrowsingDataCleanupMiddleware.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+    - mobile/android/fenix/app/src/main/res/xml/delete_browsing_data_quit_preferences.xml
+    - mobile/android/fenix/app/src/main/res/values/browsing_data_cleanup.xml
+    - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/deletebrowsingdata/DefaultDeleteBrowsingDataControllerTest.kt
+    - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataFragmentTest.kt
+    - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragmentTest.kt
+    - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/deletebrowsingdata/BrowsingDataCleanupCoordinatorTest.kt
+    - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/deletebrowsingdata/BrowsingDataCleanupJournalTest.kt
+    - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BrowsingDataCleanupMiddlewareTest.kt
+    - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
+    - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityTest.kt
+    reads:
+    - docs/android/evidence/lw-m7-21/cleanup-source-audit/
+    - patches/android/ubo-preinstall.patch
+    - patches/android/translation-assets.patch
+    - docs/android/evidence/lw-m7-35/
+    - docs/android/evidence/lw-m7-36/
+    what: Implement selected-category completion through actual native and storage callbacks, distinguish manual deletion from session cleanup, and propagate clear-data failed-category masks. Honor desktop cookie ALLOW/domain retention semantics for session cookies and storage while preserving complete origin attributes and unselected data. Persist the selected session cleanup journal before browsing starts; reconcile explicit master/category changes without resetting choices. Recover a previous pending session before restored, incoming-intent or background browsing navigation. Retain failed work for visible retry and do not call exit-success on errors. Investigate and prove a native content-quiescence boundary before successful Quit; a Java close dispatch is not completion evidence. Declare any additional native closure or storage acknowledgment paths before editing them. Root owns composition, target builds and runtime. No settings-submodule or guest changes.
+    acceptance:
+    - Actual callback and storage outcomes govern selected-category completion; partial failures and cancellation retain pending work and never report successful cleanup or exit
+    - Manual deletion preserves its explicit-clear semantics; session cleanup honors desktop cookie ALLOW/DENY/SESSION matching with actual complete origin attributes and preserves unselected categories
+    - Pending session cleanup is durably armed before browsing, tracks explicit master/category choices, and recovers before first navigation after interruption; no immediate process-death deletion is claimed
+    - Restored tabs, incoming intents and background engine entry points remain held during recovery; successful Quit has a proven content-quiescence boundary preventing late repopulation
+    - Actual native/module and Kotlin tests cover failures, retained-site controls, origin attributes, storage write ordering, explicit Off, retry, interruption and recovery without test-only production shims
+    - Target compilation, relevant native/Kotlin suites and source-bound APK seeded-data/manual/Quit/failure/restart acceptance pass before completion
+    verify: python3 scripts/tests/test-session-cleanup.py && python3 docs/android/board.py --check
+    effort_h: 20-32
+    skills:
+    - android
+    - kotlin
+    - js
+    - testing
+    agent_safe: true
+    isolation: worktree
+    risk: A dispatch or window-close request is not a storage/content completion barrier; failure or late writes can leave cleanup incomplete or erase retained data.
