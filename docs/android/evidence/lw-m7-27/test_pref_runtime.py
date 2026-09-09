@@ -139,6 +139,9 @@ class ShutdownProcessEvidence(unittest.TestCase):
         self.write('source-binding.json', binding); self.write('source-after-tests.json', binding)
         build = {'status': 'PASS', 'source_binding_sha256': sha(self.root / 'source-binding.json'),
                  'requirements_sha256': sha(self.root / 'requirements.json')}
+        plan = {'build_date': '20260906190000', 'product_revision_operator_supplied': 'b' * 40}
+        self.write('plan.json', plan)
+        build.update(plan, plan_sha256=sha(self.root / 'plan.json'))
         self.write('build-receipt.json', build)
         self.metadata = {'run_id': 'a' * 32, 'source_binding_sha256': sha(self.root / 'source-binding.json'),
                          'build_receipt_sha256': sha(self.root / 'build-receipt.json')}

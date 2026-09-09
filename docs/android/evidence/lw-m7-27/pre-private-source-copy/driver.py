@@ -18,7 +18,7 @@ import zipfile
 
 from grade import (InvalidResult, bound_log, grade_instrumentation, grade_xpcshell, grade_run,
                    require, sha, shutdown_selection, instrumentation_arguments, process_snapshot,
-                   PROCESS_LIST_ARGUMENTS, TEST_PACKAGE, TEST_COMPONENT, check_build_plan)
+                   PROCESS_LIST_ARGUMENTS, TEST_PACKAGE, TEST_COMPONENT)
 
 HERE = Path(__file__).resolve().parent
 REQUIREMENTS = HERE / 'requirements.json'
@@ -172,13 +172,6 @@ def derive_config(original, objdir):
     derived = re.sub(r'^mk_add_options MOZ_OBJDIR=.*\n?', '', derived, flags=re.M)
     derived += '\n# LW-M7-27: separate test artifact; never a release acceptance candidate.\nmk_add_options MOZ_OBJDIR=' + str(objdir) + '\n'
     return derived
-
-
-def require_completed_identity(build, plan, workspace):
-    saved = json.loads((workspace / 'plan.json').read_text())
-    check_build_plan(build, saved, workspace / 'plan.json')
-    for key in ('build_date', 'product_revision_operator_supplied'):
-        require(saved.get(key) == plan.get(key), 'run differs from completed build: ' + key)
 
 
 def execute(command, cwd, env, log, timeout, bindings):
@@ -355,8 +348,6 @@ def main():
             require(instrument['name'] == 'androidx.test.runner.AndroidJUnitRunner', 'unexpected test runner')
             require(source_binding(source, args.source_manifest) == binding, 'source changed during test build')
             json_write(workspace / 'build-receipt.json', dict(metadata, status='PASS', source=str(source),
-                       plan_sha256=sha(workspace / 'plan.json'), build_date=args.build_date,
-                       product_revision_operator_supplied=args.product_revision,
                        product_mozconfig_sha256=sha(args.product_mozconfig), test_mozconfig_sha256=sha(workspace / 'test.mozconfig'),
                        requirements_sha256=sha(REQUIREMENTS), artifacts=artifacts, commands=receipts,
                        xpcshell={'path':str(native_runner),'sha256':sha(native_runner)}, completed_ns=time.time_ns()))
@@ -368,7 +359,6 @@ def main():
     build_path = workspace / 'build-receipt.json'
     build = json.loads(build_path.read_text())
     require(build['status'] == 'PASS' and build['source'] == str(source), 'missing matching completed test build')
-    require_completed_identity(build, plan, workspace)
     require(build['source_binding_sha256'] == sha(workspace / 'source-binding.json') and json.loads((workspace / 'source-binding.json').read_text()) == binding, 'test source differs from built source')
     require(build['product_mozconfig_sha256'] == sha(args.product_mozconfig) and build['test_mozconfig_sha256'] == sha(workspace / 'test.mozconfig') and (workspace / 'test.mozconfig').read_text() == config, 'test configuration changed')
     require(build['requirements_sha256'] == sha(REQUIREMENTS), 'test selection changed since build')
@@ -386,7 +376,6 @@ def main():
     metadata = {'run_id': run_id, 'source_binding_sha256': sha(workspace / 'source-binding.json'), 'build_receipt_sha256': sha(build_path)}
     json_write(out / 'invocation.json', dict(metadata, device_serial=args.serial, scope='test-only; not release APK acceptance'))
     shutil.copy2(build_path, out / 'build-receipt.json')
-    shutil.copy2(workspace / 'plan.json', out / 'plan.json')
     shutil.copy2(workspace / 'source-binding.json', out / 'source-binding.json')
     shutil.copy2(REQUIREMENTS, out / 'requirements.json')
     shutil.copy2(TASK35_INVENTORY, out / 'task35-inventory.json')

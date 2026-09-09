@@ -163,6 +163,9 @@ class EvidenceBinding(unittest.TestCase):
         binding={'requirements_sha256':sha(self.path/'requirements.json')}
         self.write('source-binding.json',binding);self.write('source-after-tests.json',binding)
         build={'status':'PASS','source_binding_sha256':sha(self.path/'source-binding.json'),'requirements_sha256':sha(self.path/'requirements.json')}
+        plan = {'build_date': '20260906190000', 'product_revision_operator_supplied': 'b' * 40}
+        self.write('plan.json', plan)
+        build.update(plan, plan_sha256=sha(self.path / 'plan.json'))
         self.write('build-receipt.json',build)
         invocation={'run_id':'a'*32,'source_binding_sha256':sha(self.path/'source-binding.json'),'build_receipt_sha256':sha(self.path/'build-receipt.json')}
         self.write('invocation.json',invocation)

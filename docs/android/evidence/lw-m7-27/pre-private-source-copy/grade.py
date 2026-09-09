@@ -254,12 +254,6 @@ def grade_shutdown_boundary(directory, invocation, requirements, ordinary, shutd
             'scope': 'ordinary invocation ended; only test package force-stopped; all test process names absent before fresh shutdown invocation'}
 
 
-def check_build_plan(build, plan, plan_path):
-    require(build.get('plan_sha256') == sha(plan_path), 'completed build plan changed or missing')
-    for key in ('build_date', 'product_revision_operator_supplied'):
-        require(build.get(key) and build[key] == plan.get(key), 'completed build identity differs: ' + key)
-
-
 def grade_run(directory):
     directory = Path(directory)
     load = lambda name: json.loads((directory / name).read_text())
@@ -268,7 +262,6 @@ def grade_run(directory):
     binding = load('source-binding.json')
     requirements = load('requirements.json')
     require(build.get('status') == 'PASS', 'test build did not pass')
-    check_build_plan(build, load('plan.json'), directory / 'plan.json')
     require(sha(directory / 'build-receipt.json') == invocation.get('build_receipt_sha256'), 'build receipt changed')
     require(sha(directory / 'source-binding.json') == invocation.get('source_binding_sha256') == build.get('source_binding_sha256'), 'source binding changed')
     require(sha(directory / 'requirements.json') == build.get('requirements_sha256') == binding.get('requirements_sha256'), 'test requirements changed')

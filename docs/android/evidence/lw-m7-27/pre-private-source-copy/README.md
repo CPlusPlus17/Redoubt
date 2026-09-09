@@ -118,35 +118,11 @@ toolchain paths and executable hashes/versions before invoking mach. SIGTERM,
 SIGHUP, interruption and timeout remove the named container rather than leaving an
 unattended native build behind.
 
-The wrapper now prepares a private source copy beside the test workspace before
-starting the test container. With workspace `redoubt-native-tests-first`, it uses
-`redoubt-native-tests-first-source` and retains a sibling
-`redoubt-native-tests-first-source-copy.json`. Supply the original product source
-to both wrapper invocations; the wrapper rewrites the container's source argument
-and working directory to that same private copy. It copies source with
-`cp -aL --reflink=auto`, omitting only top-level `obj-*` directories and
-`.gradle`, `.git`, `.hg`. No production objdir is copied or reused. Internal file
-symlinks are dereferenced after validation; escaping or directory symlinks require
-explicit review and fail before copying. No copied hardlink points to production.
-
-Every one of the 249 reviewed source rows and all independent harness pins is
-checked in both trees after copying and before/after container execution.
-Generated caches may appear in the private tree, while changes to reviewed source
-bytes fail. Failed or prior copies are preserved and require a new workspace;
-run requires the exact prepared copy receipt. The production source stays mounted
-read-only and only the dedicated workspace parent is writable. Direct driver
-build/run remains an advanced interface; the wrapper owns this copy isolation.
-
-The source evidence in `source-cache-inputs.tar.gz` shows why a private writable
-copy is needed: `mach_commands.py` launches Gradle in `topsrcdir` without a project
-cache override, and `mozconfig.gradle` uses `topsrcdir/.gradle`. The original
-read-only design is retained under `pre-private-source-copy/` as **unverified
-history**, not a measured target failure. These copy changes have real local I/O
-tests; guest/container compilation remains unrun.
-
-Build receipts now bind the saved plan, build date and supplied source-plan
-revision. Run rejects a different date/revision before any adb command, and the
-archived grader verifies the retained plan against the completed build receipt.
+Read-only source compatibility is a deliberate **unverified** assumption. Mach,
+configure, Cargo or Gradle may require generated files in the source tree. Such a
+failure is preserved and must be resolved with a separate source copy (for example
+a private reflink copy), not by making the production source writable or moving
+the compiler root. No guest/container/build command has run during preparation.
 
 Build requires a fresh workspace; a failed attempt's artifacts and logs remain for
 review. Start another workspace after correcting a failure. It preserves the pinned image’s `/root/.mozbuild` toolchain root, including its
@@ -457,12 +433,11 @@ built test artifact hashes. The replay verifies the recorded artifact binding; i
 does not claim to re-open absent APKs. Receipts provide local integrity and provenance
 checks, not protection against deliberate fabrication of all evidence files.
 
-The local suite currently passes **79 host driver/grader tests**, including
+The local suite currently passes **72 host driver/grader tests**, including
 parser failures, stale/foreign command receipts, source/selection tampering,
 pre-Task35 native bytes, missing/failed process boundaries and guarded shutdown
-skips. `execution-review-tests.txt` records the current invocation;
-`local-tests.txt` retains the preceding 72-test run. Full integrated
-preflight, native compilation, API lint, **73 xpcshell tasks and 25+1 instrumented
+skips. `local-tests.txt` records the observed invocation. Full integrated
+preflight, native compilation, API lint, **64 xpcshell tasks and 20+1 instrumented
 methods remain unrun**. Three further upstream uninstall tasks remain
 Android-excluded and pending. The aggregate therefore stays PENDING/exit 3 even
 if every currently runnable gate passes. A real failure must be investigated in

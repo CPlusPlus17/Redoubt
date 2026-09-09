@@ -15,69 +15,6 @@ import driver
 from grade import InvalidResult, require
 
 
-def excluded_source_entry(path):
-    return path.name in {'.git', '.hg', '.gradle'} or (path.is_dir() and path.name.startswith('obj-'))
-
-
-def private_source_paths(workspace):
-    return (workspace.with_name(workspace.name + '-source'),
-            workspace.with_name(workspace.name + '-source-copy.json'))
-
-
-def prepare_source_copy(source, copied, receipt_path, manifest, binding):
-    """Copy source bytes, never production objdirs, hardlinks or external links."""
-    require(not copied.exists() and not receipt_path.exists(), 'private source already exists; preserve it and choose a new workspace')
-    entries = sorted(source.iterdir())
-    omitted = [p.name for p in entries if excluded_source_entry(p)]
-    require(not any(name.split('/')[0] in omitted for name in binding['product_files']),
-            'reviewed source inventory includes an excluded cache/object directory')
-    # Dereference input symlinks only after proving they remain inside source.
-    # This avoids writable copied links pointing back into the product tree.
-    for entry in entries:
-        if entry.name in omitted:
-            continue
-        paths = [entry]
-        if entry.is_dir() and not entry.is_symlink():
-            paths += [Path(root) / name for root, dirs, files in os.walk(entry, followlinks=False)
-                      for name in dirs + files]
-        for path in paths:
-            if path.is_symlink():
-                require(path.resolve().is_relative_to(source), 'source symlink escapes product tree: ' + str(path))
-                require(not path.is_dir(), 'source directory symlink needs an explicit copy review: ' + str(path))
-    receipt = {'status': 'COPYING', 'production_source': str(source), 'private_source': str(copied),
-               'source_manifest_sha256': binding['manifest_sha256'],
-               'source_count': len(binding['product_files']), 'omitted_top_level_entries': omitted,
-               'copy_command': ['cp', '-aL', '--reflink=auto'],
-               'scope': 'Isolated source copy; generated files writable, reviewed source bytes must remain unchanged'}
-    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-    try:
-        copied.mkdir()
-        for entry in entries:
-            if entry.name not in omitted:
-                subprocess.run(['cp', '-aL', '--reflink=auto', '--', str(entry), str(copied / entry.name)], check=True)
-        require(driver.source_binding(source, manifest) == binding, 'production source changed during private copy')
-        require(driver.source_binding(copied, manifest) == binding, 'private copy differs from reviewed source')
-        receipt['status'] = 'PREPARED'
-    except BaseException as error:
-        receipt['status'] = 'FAIL'
-        receipt['error'] = type(error).__name__ + ': ' + str(error)
-        raise
-    finally:
-        receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
-    return receipt
-
-
-def verify_source_copy(source, copied, receipt_path, manifest, binding):
-    receipt = json.loads(receipt_path.read_text())
-    require(receipt.get('status') == 'PREPARED' and receipt.get('production_source') == str(source)
-            and receipt.get('private_source') == str(copied)
-            and receipt.get('source_manifest_sha256') == binding['manifest_sha256']
-            and receipt.get('source_count') == len(binding['product_files']), 'private source copy receipt differs')
-    require(driver.source_binding(source, manifest) == binding, 'production source changed')
-    require(driver.source_binding(copied, manifest) == binding, 'private source changed')
-    return receipt
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', type=Path, required=True)
@@ -114,12 +51,6 @@ def main():
     require((repo/'docs/android/evidence/lw-m7-27/driver.py').read_bytes()==Path(driver.__file__).read_bytes(), 'wrapper repository and imported driver differ')
     manifest, config = args.source_manifest.resolve(), args.product_mozconfig.resolve()
     binding = driver.source_binding(source, manifest)
-    copied, copy_receipt = private_source_paths(workspace)
-    if args.action == 'build':
-        require(not workspace.exists() and not copied.exists() and not copy_receipt.exists(),
-                'build requires new workspace and private source paths')
-    else:
-        verify_source_copy(source, copied, copy_receipt, manifest, binding)
     driver.derive_config(config.read_text(), workspace/'obj-x86_64-tests')
     existing = parent
     while not existing.exists():existing=existing.parent
@@ -135,10 +66,10 @@ def main():
     for path,mode in mounts.items():
         require(':' not in str(path) and '\n' not in str(path), 'unsafe mount path')
         command+=['-v',f'{path}:{path}:{mode},z']
-    command+=['-w',str(copied),'sha256:'+image,'python3',str(repo/'docs/android/evidence/lw-m7-27/driver.py')]
+    command+=['-w',str(source),'sha256:'+image,'python3',str(repo/'docs/android/evidence/lw-m7-27/driver.py')]
     # Resolve path-valued options before entering the container's source cwd.
     rewritten=list(arguments)
-    for option,value in [('--source',copied),('--source-manifest',manifest),('--product-mozconfig',config),('--workspace',workspace)]:
+    for option,value in [('--source',source),('--source-manifest',manifest),('--product-mozconfig',config),('--workspace',workspace)]:
         index=rewritten.index(option);rewritten[index+1]=str(value)
     if '--apksigner' not in rewritten:
         rewritten+=['--apksigner','/root/.mozbuild/android-sdk-linux/build-tools/37.0.0/apksigner']
@@ -147,15 +78,11 @@ def main():
              'guest_uid':os.getuid(),'virtualization':'kvm','rootless_podman':True,'firewall_unit':'active',
              'guest_boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
              'free_bytes':free,'image_sha256':image,'source_manifest_sha256':binding['manifest_sha256'],
-             'source_mount':'production read-only; verified private copy writable under dedicated workspace parent',
-             'private_source':str(copied),'source_copy_receipt':str(copy_receipt),
+             'source_mount':'read-only; actual mach/configure/Cargo compatibility remains to be measured',
              'command':command}
     print(json.dumps(receipt,indent=2),flush=True)
     if wrapper.preflight_only:return
     parent.mkdir(parents=True,exist_ok=True)
-    if args.action == 'build':
-        prepare_source_copy(source, copied, copy_receipt, manifest, binding)
-    verify_source_copy(source, copied, copy_receipt, manifest, binding)
     # A signal/SSH wrapper termination must remove the named container; killing
     # only the Podman client can leave a native build running otherwise.
     def interrupted(signum, frame):
@@ -170,9 +97,6 @@ def main():
     finally:
         subprocess.run(podman+['rm','-f',name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=30,check=False)
         if proc is not None and proc.poll() is None:proc.wait(timeout=30)
-        # Generated cache/build files may appear; every reviewed source body and
-        # the protected production tree must still match, even after failure.
-        verify_source_copy(source, copied, copy_receipt, manifest, binding)
 
 
 if __name__=='__main__':
