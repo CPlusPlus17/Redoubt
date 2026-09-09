@@ -94,7 +94,20 @@ executable at launch. Template generation does not query the guest or select a
 native build automatically.
 
 The native receipt must be written by the native build/capture owner after
-successful completion. It has these fields (all paths absolute):
+successful completion. Launch that native service with `RemainAfterExit=yes`
+(for example, `systemd-run --user --property=RemainAfterExit=yes ...`) and retain
+it until the APK checkpoint has verified its exact invocation. A successful
+transient unit without that property may be collected before verification;
+missing invocation evidence is rejected. Do not stop/reset the retained unit
+before the checkpoint. Its terminal `active/exited` state is accepted only with
+matching invocation, `Result=success` and `ExecMainStatus=0`.
+
+Run inputs and the native receipt keep the canonical `sha256:` image ID.
+Podman's inspected ID may be either a bare 64-character lowercase hexadecimal
+digest or the same digest with `sha256:`. The guard validates the entire digest
+before canonicalizing and comparing; another digest or malformed output fails.
+
+The receipt has these fields (all paths absolute):
 
 ```json
 {
@@ -143,8 +156,9 @@ No native or unit target was run during this host-only preparation.
 
 ## Host validation
 
-All 22 host driver/grader controls passed; `host-tests.txt` retains the run. They
-cover wrong native source/exit/time/AAR identities, incomplete source checks,
+All 26 host driver/grader controls passed; `host-tests.txt` retains the run. They
+cover valid bare/prefixed and wrong/malformed image identity, wrong native
+source/exit/time/AAR identities, incomplete source checks,
 missing artifacts, APK set mismatch, preserved prior selections, source-declared
 class counts, missing/duplicate/skipped/stale XML, compiler-error rejection, a
 failed-build stop, and a plan that cannot invoke target execution or create its

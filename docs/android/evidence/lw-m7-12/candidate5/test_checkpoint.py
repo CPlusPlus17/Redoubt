@@ -1,5 +1,6 @@
 """Host failure controls for a future checkpoint; never claims target execution."""
 from pathlib import Path
+from types import SimpleNamespace
 import copy
 import datetime as dt
 import importlib.util
@@ -148,6 +149,38 @@ class CheckpointTests(unittest.TestCase):
         self.assertFalse(c.full_exit_is_accounted(1, allowed + '> Task :fenix:compileDebugUnitTestKotlin FAILED\n'))
         self.assertFalse(c.full_exit_is_accounted(1, 'no tasks ran'))
         self.assertFalse(c.full_exit_is_accounted(137, allowed))
+
+    def guard_with_image(self, observed):
+        image = 'sha256:' + 'b' * 64
+        native = {'service_name': 'host-native.service', 'invocation_id': 'a' * 32}
+        status = '\n'.join(['InvocationID=' + native['invocation_id'], 'ExecMainStatus=0',
+                            'Result=success', 'ActiveState=active', 'SubState=exited'])
+        with patch.dict(c.os.environ), \
+             patch.object(c.os, 'getuid', return_value=1001), \
+             patch.object(c.pwd, 'getpwuid', return_value=SimpleNamespace(pw_name='runner')), \
+             patch.object(c, 'query', side_effect=['kvm', '', observed, status]) as query, \
+             patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)):
+            result = c.guard_guest({'inputs': {'container_image_id': image}, 'native': native})
+        self.assertEqual(query.call_args_list[2].args[0],
+                         ['podman', '--remote=false', 'image', 'inspect', '--format', '{{.Id}}', image])
+        self.assertEqual(result['InvocationID'], native['invocation_id'])
+
+    def test_guest_guard_accepts_same_bare_digest(self):
+        self.guard_with_image('b' * 64)
+
+    def test_guest_guard_accepts_same_prefixed_digest(self):
+        self.guard_with_image('sha256:' + 'b' * 64)
+
+    def test_guest_guard_rejects_wrong_image_in_either_form(self):
+        for value in ['c' * 64, 'sha256:' + 'c' * 64]:
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'image ID differs'):
+                self.guard_with_image(value)
+
+    def test_guest_guard_rejects_malformed_digest_before_comparison(self):
+        for value in ['', 'b' * 63, 'b' * 65, 'g' * 64, 'sha256:sha256:' + 'b' * 64,
+                      'sha512:' + 'b' * 64, 'prefix' + 'b' * 64, 'b' * 64 + '\nextra']:
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'image ID is malformed'):
+                self.guard_with_image(value)
 
     def test_plan_does_not_execute_or_create_workspace(self):
         run_root = self.root / 'candidate5-unused'

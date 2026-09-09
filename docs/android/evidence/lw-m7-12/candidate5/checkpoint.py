@@ -59,6 +59,13 @@ def sha(value):
     return isinstance(value, str) and re.fullmatch('[0-9a-f]{64}', value) is not None
 
 
+def canonical_image_id(value):
+    require(isinstance(value, str), 'container image ID is malformed')
+    value = value.removeprefix('sha256:')
+    require(sha(value), 'container image ID is malformed')
+    return 'sha256:' + value
+
+
 def absolute(value):
     require(isinstance(value, str) and Path(value).is_absolute(), 'expected an absolute path')
     return Path(value).resolve()
@@ -242,7 +249,8 @@ def guard_guest(context):
     processes = subprocess.run(['pgrep', '-f', '[e]mulator.*-avd|[q]emu-system'], capture_output=True, text=True)
     require(processes.returncode == 1, 'an emulator is active or process inspection failed')
     image = context['inputs']['container_image_id']
-    require(query(['podman', '--remote=false', 'image', 'inspect', '--format', '{{.Id}}', image]) == image,
+    observed_image = query(['podman', '--remote=false', 'image', 'inspect', '--format', '{{.Id}}', image])
+    require(canonical_image_id(observed_image) == canonical_image_id(image),
             'container image ID differs')
     n = context['native']
     status = dict(line.split('=', 1) for line in query([
