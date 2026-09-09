@@ -41,6 +41,11 @@ assert len(check_manifest(EVIDENCE / 'source-sha256.txt', WORK / 'src')) == 165
 assert len(check_manifest(EVIDENCE / 'native-input-sha256.txt', WORK)) == 3
 parent = json.loads((HERE / 'apk-bundle-resource-check-failure/result.json').read_text())
 assert parent['compiler_exit'] == 0 and parent['checkpoint_exit'] == 1
+assert digest(EVIDENCE / 'native-input-sha256.txt') == parent['files']['parity-extended-apk/native-input-sha256.txt']['sha256']
+assert set(parent['development_apks']) == {
+    'fenix-armeabi-v7a-release.apk', 'fenix-arm64-v8a-release.apk',
+    'fenix-x86_64-release.apk', 'fenix-universal-release.apk',
+}
 assert digest(WORK / 'out/logs/apk.log') == parent['files']['logs/apk.log']['sha256']
 for name, row in parent['development_apks'].items():
     path = WORK / 'out/apk' / name
