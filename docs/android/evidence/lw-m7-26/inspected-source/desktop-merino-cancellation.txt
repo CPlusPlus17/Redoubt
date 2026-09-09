@@ -1,0 +1,26 @@
+// browser/components/urlbar/MerinoClient.sys.mjs:296-319
+      time: timeoutMs,
+      logger: this.#lazy.logger,
+      callback: () => {
+        // The fetch timed out.
+        this.#lazy.logger.debug("Fetch timed out", { timeoutMs });
+        recordResponse?.("timeout");
+      },
+    }));
+
+    // If there's an ongoing fetch, abort it so there's only one at a time. By
+    // design we do not abort fetches on timeout or when the query is canceled
+    // so we can record their latency.
+    try {
+      this.#fetchController?.abort();
+    } catch (error) {
+      this.#lazy.logger.error("Error aborting previous fetch", error);
+    }
+
+    // Do the fetch.
+    /** @type {?OHTTPResponse|?Response} */
+    let response;
+    let controller = (this.#fetchController = new AbortController());
+    await Promise.race([
+      timer.promise,
+

@@ -1,0 +1,1306 @@
+# LW-M7-26: actual Firefox Suggest default-off choices and Android service admission.
+# Preserve explicit choices; the inspected LibreWolf policy has no Locked field.
+# Ordinary search-engine query suggestions, history/bookmarks and home content are separate.
+# Local Suggest dataset availability is still open; the UI discloses the missing fresh data.
+# Generic Remote Settings blockers remain intact. Target compilation/runtime are pending.
+
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt
+new file mode 100644
+index 0000000..a3091c4
+--- /dev/null
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt
+@@ -0,0 +1,54 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.feature.fxsuggest
++
++/** Effective Firefox Suggest choices, distinct from ordinary search-engine suggestions. */
++data class FxSuggestChoices(
++    val enabled: Boolean = true,
++    val web: Boolean = true,
++    val sponsored: Boolean = true,
++    val online: Boolean = true,
++) {
++    val localEnabled: Boolean get() = enabled && (web || sponsored)
++    val onlineEnabled: Boolean get() = enabled && web && online
++}
++
++/**
++ * Embedders install their choice reader before content providers/workers run.
++ * Existing A-C embedders keep their existing behavior unless they configure a policy.
++ * A generation also rejects results from an earlier off/on cycle.
++ */
++object FxSuggestAdmission {
++    data class Snapshot internal constructor(val choices: FxSuggestChoices, internal val generation: Long)
++
++    private var reader: () -> FxSuggestChoices = { FxSuggestChoices() }
++    private var previous = FxSuggestChoices()
++    private var generation = 0L
++
++    @Synchronized
++    fun configure(readChoices: () -> FxSuggestChoices) {
++        reader = readChoices
++        previous = reader()
++        generation += 1
++    }
++
++    /** Notify on every explicit choice change, including an off/on cycle between awaits. */
++    @Synchronized
++    fun choicesChanged() {
++        generation += 1
++    }
++
++    @Synchronized
++    fun snapshot(): Snapshot {
++        val choices = reader()
++        if (choices != previous) {
++            previous = choices
++            generation += 1
++        }
++        return Snapshot(choices, generation)
++    }
++
++    fun isCurrent(snapshot: Snapshot): Boolean = snapshot == this.snapshot()
++}
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionScheduler.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionScheduler.kt
+index 849db47..9a681a3 100644
+--- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionScheduler.kt
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionScheduler.kt
+@@ -33,6 +33,7 @@ class FxSuggestIngestionScheduler(
+      * already scheduled.
+      */
+     fun startPeriodicIngestion() {
++        if (!FxSuggestAdmission.snapshot().choices.localEnabled) return
+         logger.info("Scheduling periodic ingestion for new suggestions")
+         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+             FxSuggestIngestionWorker.WORK_TAG,
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionWorker.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionWorker.kt
+index b30f8b0..5ad5fdb 100644
+--- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionWorker.kt
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionWorker.kt
+@@ -22,9 +22,13 @@ internal class FxSuggestIngestionWorker(
+     private val logger = Logger("FxSuggestIngestionWorker")
+ 
+     override suspend fun doWork(): Result {
++        val admission = FxSuggestAdmission.snapshot()
++        if (!admission.choices.localEnabled || isStopped) return Result.success()
+         logger.info("Ingesting new suggestions")
+-        val storage = GlobalFxSuggestDependencyProvider.requireStorage()
++        val storage = GlobalFxSuggestDependencyProvider.storageIfEnabled() ?: return Result.retry()
++        if (!FxSuggestAdmission.isCurrent(admission) || isStopped) return Result.success()
+         val success = storage.ingest()
++        if (!FxSuggestAdmission.isCurrent(admission) || isStopped) return Result.success()
+         return if (success) {
+             logger.info("Successfully ingested new suggestions")
+             Result.success()
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
+index c8df3ab..91dd137 100644
+--- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
+@@ -62,8 +62,21 @@ class FxSuggestStorage(
+      */
+     suspend fun query(query: SuggestionQuery): List<Suggestion> =
+         withContext(readScope.coroutineContext) {
++            val admission = FxSuggestAdmission.snapshot()
++            if (!admission.choices.localEnabled) return@withContext emptyList()
+             handleSuggestExceptions("query", emptyList()) {
+-                val result = store.value.query(query)
++                val initializedStore = store.value
++                if (!FxSuggestAdmission.isCurrent(admission)) return@handleSuggestExceptions emptyList()
++                val queried = initializedStore.query(query)
++                if (!FxSuggestAdmission.isCurrent(admission)) return@handleSuggestExceptions emptyList()
++                val result = queried.filter {
++                    when (it) {
++                        is Suggestion.Amp -> admission.choices.sponsored
++                        is Suggestion.Wikipedia -> admission.choices.web
++                        // Preserve the unrestricted embedder API; unknown types need both choices.
++                        else -> admission.choices.web && admission.choices.sponsored
++                    }
++                }
+                 if (result.isNotEmpty()) {
+                     emitSuggestionQueryCountFact(queryCount = result.size)
+                 }
+@@ -79,8 +92,12 @@ class FxSuggestStorage(
+      */
+     suspend fun ingest(constraints: SuggestIngestionConstraints = SuggestIngestionConstraints()): Boolean =
+         withContext(writeScope.coroutineContext) {
++            val admission = FxSuggestAdmission.snapshot()
++            if (!admission.choices.localEnabled) return@withContext true
+             handleSuggestExceptions("ingest", false) {
+-                store.value.ingest(constraints)
++                val initializedStore = store.value
++                if (!FxSuggestAdmission.isCurrent(admission)) return@handleSuggestExceptions true
++                initializedStore.ingest(constraints)
+                 true
+             }
+         }
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProvider.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProvider.kt
+index ca98e45..90a7b33 100644
+--- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProvider.kt
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProvider.kt
+@@ -47,35 +47,39 @@ class FxSuggestSuggestionProvider(
+     override fun groupTitle(): String? = suggestionsHeader
+ 
+     override suspend fun onInputChanged(text: String): List<AwesomeBar.Suggestion> =
+-        if (text.isEmpty()) {
++        if (text.isEmpty() || !FxSuggestAdmission.snapshot().choices.localEnabled) {
+             emptyList()
+         } else {
++            val admission = FxSuggestAdmission.snapshot()
+             val providers = buildList {
+                 val availableSuggestionTypes = FxSuggestNimbus.features
+                     .awesomebarSuggestionProvider
+                     .value()
+                     .availableSuggestionTypes
+-                if (includeSponsoredSuggestions && availableSuggestionTypes[SuggestionType.AMP] == true) {
++                if (includeSponsoredSuggestions && admission.choices.sponsored && availableSuggestionTypes[SuggestionType.AMP] == true) {
+                     add(SuggestionProvider.AMP)
+                 }
+-                if (includeSponsoredSuggestions && availableSuggestionTypes[SuggestionType.AMP_MOBILE] == true) {
++                if (includeSponsoredSuggestions && admission.choices.sponsored && availableSuggestionTypes[SuggestionType.AMP_MOBILE] == true) {
+                     add(SuggestionProvider.AMP)
+                 }
+-                if (includeNonSponsoredSuggestions && availableSuggestionTypes[SuggestionType.WIKIPEDIA] == true) {
++                if (includeNonSponsoredSuggestions && admission.choices.web && availableSuggestionTypes[SuggestionType.WIKIPEDIA] == true) {
+                     add(SuggestionProvider.WIKIPEDIA)
+                 }
+             }
+-            GlobalFxSuggestDependencyProvider.requireStorage().query(
++            val storage = if (providers.isEmpty()) null else GlobalFxSuggestDependencyProvider.storageIfEnabled()
++            val results = storage?.query(
+                 SuggestionQuery(
+                     keyword = text,
+                     providers = providers,
+                     limit = MAX_NUM_OF_FIREFOX_SUGGESTIONS,
+                 ),
+-            ).into()
++            ) ?: emptyList()
++            val suggestions = if (FxSuggestAdmission.isCurrent(admission)) results.into() else emptyList()
++            if (FxSuggestAdmission.isCurrent(admission)) suggestions else emptyList()
+         }
+ 
+     override fun onInputCancelled() {
+-        GlobalFxSuggestDependencyProvider.requireStorage().cancelReads()
++        GlobalFxSuggestDependencyProvider.cancelActiveReads()
+     }
+ 
+     private suspend fun List<Suggestion>.into(): List<AwesomeBar.Suggestion> =
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/GlobalFxSuggestDependencyProvider.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/GlobalFxSuggestDependencyProvider.kt
+index faddb79..870c01c 100644
+--- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/GlobalFxSuggestDependencyProvider.kt
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/GlobalFxSuggestDependencyProvider.kt
+@@ -8,7 +8,9 @@ package mozilla.components.feature.fxsuggest
+  * Provides global access to the dependencies needed to access Firefox Suggest search suggestions.
+  */
+ object GlobalFxSuggestDependencyProvider {
++    @Volatile
+     internal var storage: FxSuggestStorage? = null
++    private var storageFactory: (() -> FxSuggestStorage)? = null
+ 
+     /**
+      * Initializes this provider with a wrapped Suggest store.
+@@ -18,12 +20,32 @@ object GlobalFxSuggestDependencyProvider {
+      *
+      * @param storage The wrapped Suggest store.
+      */
++    @Synchronized
+     fun initialize(storage: FxSuggestStorage) {
+         this.storage = storage
++        storageFactory = null
++    }
++
++    /** Register without constructing the component, Remote Settings service or native store. */
++    @Synchronized
++    fun initialize(storageFactory: () -> FxSuggestStorage) {
++        this.storage = null
++        this.storageFactory = storageFactory
++    }
++
++    @Synchronized
++    fun storageIfEnabled(): FxSuggestStorage? {
++        if (!FxSuggestAdmission.snapshot().choices.localEnabled) return null
++        return storage ?: storageFactory?.invoke()?.also { storage = it }
++    }
++
++    /** Stop existing reads without resolving an unused storage factory. */
++    fun cancelActiveReads() {
++        storage?.cancelReads()
+     }
+ 
+     internal fun requireStorage(): FxSuggestStorage {
+-        return requireNotNull(storage) {
++        return requireNotNull(storageIfEnabled()) {
+             "`GlobalFxSuggestDependencyProvider.initialize` must be called before accessing `storage`"
+         }
+     }
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/client/SuggestMerinoClient.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/client/SuggestMerinoClient.kt
+index 5d951c4..135815e 100644
+--- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/client/SuggestMerinoClient.kt
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/client/SuggestMerinoClient.kt
+@@ -10,6 +10,7 @@ import mozilla.appservices.merino.SuggestConfig
+ import mozilla.appservices.merino.SuggestOptions
+ import mozilla.appservices.viaduct.OhttpConfig
+ import mozilla.appservices.viaduct.configureOhttpChannel
++import mozilla.components.feature.fxsuggest.FxSuggestAdmission
+ import mozilla.components.support.base.log.logger.Logger
+ 
+ /**
+@@ -33,35 +34,42 @@ interface MerinoClient {
+  */
+ class SuggestMerinoClient : MerinoClient {
+     private val logger = Logger("SuggestMerinoClient")
+-    private val suggestClient = SuggestClient(SuggestConfig(baseHost = null))
+-
+-    init {
++    private val suggestClient by lazy {
+         configureOhttpChannel(
+             channel = MERINO,
+             config = OhttpConfig(relayUrl = RELAY_URL, gatewayHost = GATEWAY_HOST),
+         )
++        SuggestClient(SuggestConfig(baseHost = null))
+     }
+ 
+-    override fun makeRequest(query: String): String? = try {
+-        suggestClient.getSuggestions(
+-            query = query,
+-            options = SuggestOptions(
+-                providers = listOf(PROVIDERS),
+-                source = null,
+-                country = null,
+-                region = null,
+-                city = null,
+-                clientVariants = null,
+-                requestType = null,
+-                acceptLanguage = null,
+-            ),
+-        )
+-    } catch (e: MerinoSuggestApiException) {
+-        when (e) {
+-            is MerinoSuggestApiException.Network -> logger.error(message = "$NETWORK_ERROR_MESSAGE - ${e.message}")
+-            is MerinoSuggestApiException.Other -> logger.error(message = "$UNEXPECTED_ERROR_MESSAGE - ${e.message}")
++    override fun makeRequest(query: String): String? {
++        val admission = FxSuggestAdmission.snapshot()
++        if (!admission.choices.onlineEnabled) return null
++        return try {
++            val client = suggestClient
++            if (!FxSuggestAdmission.isCurrent(admission)) return null
++            val response = client.getSuggestions(
++                query = query,
++                options = SuggestOptions(
++                    providers = listOf(PROVIDERS),
++                    source = null,
++                    country = null,
++                    region = null,
++                    city = null,
++                    clientVariants = null,
++                    requestType = null,
++                    acceptLanguage = null,
++                ),
++            )
++            // A request already sent may finish, as on desktop. Do not publish its late result.
++            response.takeIf { FxSuggestAdmission.isCurrent(admission) }
++        } catch (e: MerinoSuggestApiException) {
++            when (e) {
++                is MerinoSuggestApiException.Network -> logger.error(message = "$NETWORK_ERROR_MESSAGE - ${e.message}")
++                is MerinoSuggestApiException.Other -> logger.error(message = "$UNEXPECTED_ERROR_MESSAGE - ${e.message}")
++            }
++            null
+         }
+-        null
+     }
+ 
+     companion object {
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/datasource/CombinedOnlineSuggestionDataSource.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/datasource/CombinedOnlineSuggestionDataSource.kt
+index 7e35c90..966d90b 100644
+--- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/datasource/CombinedOnlineSuggestionDataSource.kt
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/datasource/CombinedOnlineSuggestionDataSource.kt
+@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
+ import kotlinx.serialization.json.Json
+ import mozilla.components.concept.awesomebar.AwesomeBar
+ import mozilla.components.concept.awesomebar.AwesomeBar.CombinedSuggestionsDataSource
++import mozilla.components.feature.fxsuggest.FxSuggestAdmission
+ import mozilla.components.feature.fxsuggest.client.MerinoClient
+ import mozilla.components.feature.fxsuggest.client.SuggestMerinoClient
+ import mozilla.components.feature.fxsuggest.dto.CombinedSuggestionResponseDto
+@@ -79,11 +80,14 @@ sealed class CombinedResults {
+ @OptIn(FlowPreview::class)
+ class CombinedOnlineSuggestionDataSource(
+     private val scope: CoroutineScope,
+-    private val client: MerinoClient = SuggestMerinoClient(),
++    client: MerinoClient? = null,
+     private val debounceMs: Long = DEFAULT_DEBOUNCE_MS,
++    private val isRequestAllowed: () -> Boolean = { true },
+ ) : CombinedSuggestionsDataSource {
+-    private val queryFlow = MutableSharedFlow<String>(replay = 1)
+-    private val resultsFlow = MutableStateFlow(Pair("", CombinedResults.Empty as CombinedResults))
++    private val client by lazy { client ?: SuggestMerinoClient() }
++    private data class Request(val query: String, val admission: FxSuggestAdmission.Snapshot)
++    private val queryFlow = MutableSharedFlow<Request>(replay = 1)
++    private val resultsFlow = MutableStateFlow(Pair<Request?, CombinedResults>(null, CombinedResults.Empty))
+     private val json = Json { ignoreUnknownKeys = true }
+     private val stocksParser = StocksSuggestionParser()
+     private val sportsParser = SportsSuggestionParser()
+@@ -93,17 +97,20 @@ class CombinedOnlineSuggestionDataSource(
+         scope.launch {
+             queryFlow
+                 .debounce(debounceMs)
+-                .collectLatest { query ->
+-                    val results = fetchAndParse(query)
+-                    resultsFlow.value = query to results
++                .collectLatest { request ->
++                    val results = fetchAndParse(request)
++                    resultsFlow.value = request to results
+                 }
+         }
+     }
+ 
+     private suspend fun fetch(query: String): CombinedResults {
+-        if (query.length < MIN_QUERY_LENGTH) return CombinedResults.Empty
+-        queryFlow.emit(query)
+-        return resultsFlow.first { it.first == query }.second
++        val admission = FxSuggestAdmission.snapshot()
++        if (query.length < MIN_QUERY_LENGTH || !admission.choices.onlineEnabled || !isRequestAllowed()) return CombinedResults.Empty
++        val request = Request(query, admission)
++        queryFlow.emit(request)
++        val result = resultsFlow.first { it.first == request }.second
++        return if (FxSuggestAdmission.isCurrent(admission) && isRequestAllowed()) result else CombinedResults.Empty
+     }
+ 
+     override suspend fun fetchStocks(query: String): List<AwesomeBar.StockItem> =
+@@ -115,8 +122,12 @@ class CombinedOnlineSuggestionDataSource(
+     override suspend fun fetchFlights(query: String): List<AwesomeBar.FlightItem> =
+         (fetch(query) as? CombinedResults.Flights)?.items ?: emptyList()
+ 
+-    private suspend fun fetchAndParse(query: String): CombinedResults = withContext(Dispatchers.IO) {
+-        val body = client.makeRequest(query) ?: return@withContext CombinedResults.Empty
++    private suspend fun fetchAndParse(request: Request): CombinedResults = withContext(Dispatchers.IO) {
++        if (!FxSuggestAdmission.isCurrent(request.admission) || !request.admission.choices.onlineEnabled || !isRequestAllowed()) {
++            return@withContext CombinedResults.Empty
++        }
++        val body = client.makeRequest(request.query) ?: return@withContext CombinedResults.Empty
++        if (!FxSuggestAdmission.isCurrent(request.admission) || !isRequestAllowed()) return@withContext CombinedResults.Empty
+         parseResponse(body)
+     }
+ 
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt
+new file mode 100644
+index 0000000..a571433
+--- /dev/null
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt
+@@ -0,0 +1,120 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.feature.fxsuggest
++
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.work.ListenableWorker
++import androidx.work.testing.TestListenableWorkerBuilder
++import kotlinx.coroutines.test.runTest
++import mozilla.appservices.suggest.SuggestionQuery
++import mozilla.components.feature.fxsuggest.client.SuggestMerinoClient
++import mozilla.components.support.test.mock
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.After
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++
++@RunWith(AndroidJUnit4::class)
++class FxSuggestAdmissionTest {
++    private var choices = FxSuggestChoices(enabled = false, web = false, sponsored = false, online = false)
++
++    @Before
++    fun setUp() {
++        FxSuggestAdmission.configure { choices }
++        GlobalFxSuggestDependencyProvider.initialize { error("Disabled work resolved the Suggest dependency factory") }
++    }
++
++    @After
++    fun tearDown() {
++        GlobalFxSuggestDependencyProvider.initialize(mock<FxSuggestStorage>())
++        GlobalFxSuggestDependencyProvider.storage = null
++        FxSuggestAdmission.configure { FxSuggestChoices() }
++    }
++
++    @Test
++    fun `master and online choices have separate effective boundaries`() {
++        assertFalse(FxSuggestAdmission.snapshot().choices.localEnabled)
++        choices = FxSuggestChoices(enabled = true, web = false, sponsored = true, online = true)
++        assertTrue(FxSuggestAdmission.snapshot().choices.localEnabled)
++        assertFalse(FxSuggestAdmission.snapshot().choices.onlineEnabled)
++        choices = choices.copy(web = true, online = false)
++        assertTrue(FxSuggestAdmission.snapshot().choices.localEnabled)
++        assertFalse(FxSuggestAdmission.snapshot().choices.onlineEnabled)
++    }
++
++    @Test
++    fun `off-on cycle invalidates an earlier admitted operation even when final choices match`() {
++        choices = FxSuggestChoices()
++        val admitted = FxSuggestAdmission.snapshot()
++        choices = choices.copy(enabled = false)
++        FxSuggestAdmission.choicesChanged()
++        choices = choices.copy(enabled = true)
++        FxSuggestAdmission.choicesChanged()
++        assertFalse(FxSuggestAdmission.isCurrent(admitted))
++    }
++
++    @Test
++    fun `disabled worker completes before dependency provider or storage construction`() = runTest {
++        val worker = TestListenableWorkerBuilder<FxSuggestIngestionWorker>(testContext).build()
++        assertEquals(ListenableWorker.Result.success(), worker.doWork())
++        assertNull(GlobalFxSuggestDependencyProvider.storage)
++    }
++
++    @Test
++    fun `disabled scheduling needs no WorkManager initialization`() {
++        FxSuggestIngestionScheduler(testContext).startPeriodicIngestion()
++        assertNull(GlobalFxSuggestDependencyProvider.storageIfEnabled())
++    }
++
++    @Test
++    fun `disabled storage query ingestion and startup ingestion never initialize native store`() = runTest {
++        val storage = FxSuggestStorage(testContext, remoteSettingsService = mock())
++        assertTrue(storage.query(SuggestionQuery(keyword = "test", providers = emptyList(), limit = 1)).isEmpty())
++        assertTrue(storage.ingest())
++        storage.runStartupIngestion()
++        storage.cancelReads()
++        assertFalse(storage.store.isInitialized())
++    }
++
++    @Test
++    fun `retained suggestion provider and cancellation cannot resolve storage while off`() = runTest {
++        val provider = FxSuggestSuggestionProvider(
++            loadUrlUseCase = mock(),
++            includeSponsoredSuggestions = true,
++            includeNonSponsoredSuggestions = true,
++            sponsoredSuggestionDescription = "Sponsored",
++        )
++        assertTrue(provider.onInputChanged("test").isEmpty())
++        provider.onInputCancelled()
++        assertNull(GlobalFxSuggestDependencyProvider.storage)
++    }
++
++    @Test
++    fun `default Merino client stays native-free before explicit online consent`() {
++        val client = SuggestMerinoClient()
++        assertNull(client.makeRequest("test stock"))
++        choices = FxSuggestChoices(enabled = true, web = true, sponsored = false, online = false)
++        assertNull(client.makeRequest("test stock"))
++    }
++
++    @Test
++    fun `enabling a local choice resolves storage lazily once without enabling online requests`() {
++        val storage: FxSuggestStorage = mock()
++        var constructions = 0
++        GlobalFxSuggestDependencyProvider.initialize { constructions += 1; storage }
++        assertNull(GlobalFxSuggestDependencyProvider.storageIfEnabled())
++        assertEquals(0, constructions)
++        choices = FxSuggestChoices(enabled = true, web = true, sponsored = false, online = false)
++        assertEquals(storage, GlobalFxSuggestDependencyProvider.storageIfEnabled())
++        assertEquals(storage, GlobalFxSuggestDependencyProvider.storageIfEnabled())
++        assertEquals(1, constructions)
++        assertFalse(FxSuggestAdmission.snapshot().choices.onlineEnabled)
++    }
++}
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/datasource/OnlineSuggestionAdmissionTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/datasource/OnlineSuggestionAdmissionTest.kt
+new file mode 100644
+index 0000000..5bab389
+--- /dev/null
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/datasource/OnlineSuggestionAdmissionTest.kt
+@@ -0,0 +1,127 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.feature.fxsuggest.datasource
++
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.async
++import kotlinx.coroutines.test.advanceTimeBy
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.runTest
++import mozilla.components.feature.fxsuggest.FxSuggestAdmission
++import mozilla.components.feature.fxsuggest.FxSuggestChoices
++import mozilla.components.feature.fxsuggest.client.MerinoClient
++import org.junit.After
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import java.util.concurrent.CountDownLatch
++import java.util.concurrent.TimeUnit
++
++@OptIn(ExperimentalCoroutinesApi::class)
++@RunWith(AndroidJUnit4::class)
++class OnlineSuggestionAdmissionTest {
++    private var choices = FxSuggestChoices()
++
++    @Before
++    fun setUp() {
++        FxSuggestAdmission.configure { choices }
++    }
++
++    @After
++    fun tearDown() {
++        FxSuggestAdmission.configure { FxSuggestChoices() }
++    }
++
++    @Test
++    fun `disabled default data source construction and query do not initialize native client`() = runTest {
++        choices = choices.copy(online = false)
++        val source = CombinedOnlineSuggestionDataSource(backgroundScope)
++        assertTrue(source.fetchStocks("test stock").isEmpty())
++    }
++
++    @Test
++    fun `choice closed during debounce prevents the queued transport call`() = runTest {
++        var requests = 0
++        val client = object : MerinoClient {
++            override fun makeRequest(query: String): String? { requests += 1; return STOCKS }
++        }
++        val source = CombinedOnlineSuggestionDataSource(backgroundScope, client, debounceMs = 100)
++        val result = async { source.fetchStocks("test stock") }
++        runCurrent()
++        choices = choices.copy(online = false)
++        FxSuggestAdmission.choicesChanged()
++        advanceTimeBy(101)
++        assertTrue(result.await().isEmpty())
++        assertEquals(0, requests)
++    }
++
++    @Test
++    fun `explicit online consent reaches the real data-source client and parses its result`() = runTest {
++        var requested: String? = null
++        val source = CombinedOnlineSuggestionDataSource(backgroundScope, object : MerinoClient {
++            override fun makeRequest(query: String): String { requested = query; return STOCKS }
++        }, debounceMs = 0)
++        assertFalse(source.fetchStocks("test stock").isEmpty())
++        assertEquals("test stock", requested)
++    }
++
++    @Test
++    fun `response already in flight after disable cannot publish online cards`() = runTest {
++        val entered = CompletableDeferred<Unit>()
++        val release = CountDownLatch(1)
++        val source = CombinedOnlineSuggestionDataSource(backgroundScope, object : MerinoClient {
++            override fun makeRequest(query: String): String {
++                entered.complete(Unit)
++                check(release.await(5, TimeUnit.SECONDS)) { "Test did not release the simulated response" }
++                return STOCKS
++            }
++        }, debounceMs = 0)
++        val result = async { source.fetchStocks("test stock") }
++        try {
++            entered.await()
++            choices = choices.copy(online = false)
++            FxSuggestAdmission.choicesChanged()
++        } finally {
++            release.countDown()
++        }
++        assertTrue(result.await().isEmpty())
++    }
++
++    @Test
++    fun `private context blocks transport even with a saved online opt-in`() = runTest {
++        val source = CombinedOnlineSuggestionDataSource(
++            backgroundScope,
++            object : MerinoClient { override fun makeRequest(query: String): String = error("Private query sent") },
++            debounceMs = 0,
++            isRequestAllowed = { false },
++        )
++        assertTrue(source.fetchStocks("test stock").isEmpty())
++    }
++
++    @Test
++    fun `context becoming private during debounce rejects the queued query`() = runTest {
++        var allowed = true
++        val source = CombinedOnlineSuggestionDataSource(
++            backgroundScope,
++            object : MerinoClient { override fun makeRequest(query: String): String = error("Stale normal query sent") },
++            debounceMs = 100,
++            isRequestAllowed = { allowed },
++        )
++        val result = async { source.fetchStocks("test stock") }
++        runCurrent()
++        allowed = false
++        advanceTimeBy(101)
++        assertTrue(result.await().isEmpty())
++    }
++
++    companion object {
++        private const val STOCKS = """{"suggestions":[{"provider":"polygon","score":0.9,"custom_details":{"polygon":{"values":[{"ticker":"TEST","name":"Test","last_price":"1.00 USD","todays_change_perc":"+0.1","query":"test stock","exchange":"EXAMPLE","image_url":"https://example.invalid/icon.png"}]}}}]}"""
++    }
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+index cf89922..12a598e 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+@@ -53,6 +53,8 @@ import mozilla.components.concept.storage.FrecencyThresholdOption
+ import mozilla.components.feature.addons.migration.DefaultSupportedAddonsChecker
+ import mozilla.components.feature.addons.update.GlobalAddonDependencyProvider
+ import mozilla.components.feature.autofill.AutofillUseCases
++import mozilla.components.feature.fxsuggest.FxSuggestAdmission
++import mozilla.components.feature.fxsuggest.FxSuggestIngestionScheduler
+ import mozilla.components.feature.fxsuggest.GlobalFxSuggestDependencyProvider
+ import mozilla.components.feature.search.ext.buildSearchUrl
+ import mozilla.components.feature.search.ext.waitForSelectedOrDefaultSearchEngine
+@@ -129,6 +131,7 @@ import org.mozilla.fenix.perf.runBlockingIncrement
+ import org.mozilla.fenix.session.VisibilityLifecycleCallback
+ import org.mozilla.fenix.settings.doh.DefaultDohSettingsProvider
+ import org.mozilla.fenix.settings.doh.DohSettingsProvider
++import org.mozilla.fenix.settings.search.FirefoxSuggestPolicy
+ import org.mozilla.fenix.startupCrash.StartupCrashActivity
+ import org.mozilla.fenix.theme.DefaultThemeProvider
+ import org.mozilla.fenix.theme.Theme
+@@ -186,6 +189,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+     }
+ 
+     override fun attachBaseContext(base: Context) {
++        initializeFirefoxSuggest(base)
+         // Before content providers/WorkManager can revive persisted account jobs.
+         initializeAccountServices(base)
+         // Sets the locale information. Other threads do not have locale aware needs
+@@ -197,6 +201,11 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+         }
+     }
+ 
++    /** Separate from ordinary query suggestions and initialized before providers. */
++    protected open fun initializeFirefoxSuggest(context: Context) {
++        FirefoxSuggestPolicy.initialize(context)
++    }
++
+     /** Account-service defaults are independent of the Gecko preference store. */
+     protected open fun initializeAccountServices(context: Context) {
+         AccountServices.initialize(context, defaultEnabled = false)
+@@ -370,7 +379,10 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+ 
+         maybeSetupIPProtection()
+ 
+-        GlobalFxSuggestDependencyProvider.initialize(components.fxSuggest.storage)
++        GlobalFxSuggestDependencyProvider.initialize { components.fxSuggest.storage }
++        if (!FxSuggestAdmission.snapshot().choices.localEnabled) {
++            FxSuggestIngestionScheduler(this).stopPeriodicIngestion()
++        }
+ 
+         visibilityLifecycleCallback = VisibilityLifecycleCallback(getSystemService())
+         registerActivityLifecycleCallbacks(visibilityLifecycleCallback)
+@@ -430,7 +442,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+         queueNimbusFetchInForeground(queue)
+         queueDownloadWallpapers(queue)
+ 
+-        if (components.settings.enableFxSuggest) {
++        if (FxSuggestAdmission.snapshot().choices.localEnabled) {
+             queueSuggestIngest(queue)
+         }
+ 
+@@ -491,10 +503,10 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+                     // new search suggestions. The worker requires us to have called
+                     // `GlobalFxSuggestDependencyProvider.initialize`, which we did before
+                     // scheduling these tasks. When disabled we stop the periodic work.
+-                    if (components.settings.enableFxSuggest) {
++                    if (FxSuggestAdmission.snapshot().choices.localEnabled) {
+                         components.fxSuggest.ingestionScheduler.startPeriodicIngestion()
+                     } else {
+-                        components.fxSuggest.ingestionScheduler.stopPeriodicIngestion()
++                        FxSuggestIngestionScheduler(this@FenixApplication).stopPeriodicIngestion()
+                     }
+                 }
+                 components.core.fileUploadsDirCleaner.cleanUploadsDirectory()
+@@ -570,7 +582,9 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+     @OptIn(DelicateCoroutinesApi::class) // GlobalScope usage
+     private fun queueSuggestIngest(queue: RunWhenReadyQueue) = runOnVisualCompleteness(queue) {
+         GlobalScope.launch(IO) {
+-            components.fxSuggest.storage.runStartupIngestion()
++            if (FxSuggestAdmission.snapshot().choices.localEnabled) {
++                GlobalFxSuggestDependencyProvider.storageIfEnabled()?.runStartupIngestion()
++            }
+         }
+     }
+ 
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt
+index 0d75659..1af857f 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt
+@@ -67,7 +67,12 @@ class SearchSuggestionsProvidersBuilder(
+     val defaultSearchActionProvider: SearchActionProvider
+     var searchEngineSuggestionProvider: SearchEngineSuggestionProvider?
+     val searchSuggestionProviderMap: MutableMap<SearchEngine, List<AwesomeBar.SuggestionProvider>>
+-    val combinedOnlineDataSource: CombinedOnlineSuggestionDataSource = CombinedOnlineSuggestionDataSource(scope = scope)
++    val combinedOnlineDataSource: CombinedOnlineSuggestionDataSource by lazy {
++        CombinedOnlineSuggestionDataSource(
++            scope = scope,
++            isRequestAllowed = { !browsingModeManager.mode.isPrivate },
++        )
++    }
+ 
+     init {
+         engineForSpeculativeConnects = when (browsingModeManager.mode) {
+@@ -257,7 +262,7 @@ class SearchSuggestionsProvidersBuilder(
+             )
+         }
+ 
+-        if (state.showStocksSuggestions) {
++        if (!browsingModeManager.mode.isPrivate && state.showStocksSuggestions) {
+             providersToAdd.add(
+                 StocksOnlineSuggestionProvider(
+                     searchUseCase = searchUseCase,
+@@ -267,7 +272,7 @@ class SearchSuggestionsProvidersBuilder(
+             )
+         }
+ 
+-        if (state.showSportsSuggestions) {
++        if (!browsingModeManager.mode.isPrivate && state.showSportsSuggestions) {
+             providersToAdd.add(
+                 SportsOnlineSuggestionProvider(
+                     icons = components.core.icons,
+@@ -278,7 +283,7 @@ class SearchSuggestionsProvidersBuilder(
+             )
+         }
+ 
+-        if (state.showFlightsSuggestions) {
++        if (!browsingModeManager.mode.isPrivate && state.showFlightsSuggestions) {
+             providersToAdd.add(
+                 FlightsOnlineSuggestionProvider(
+                     loadUrlUseCase = loadUrlUseCase,
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+index 17f299e..2a04198 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+@@ -41,6 +41,7 @@ import org.mozilla.fenix.ext.showToolbar
+ import org.mozilla.fenix.ext.showToolbarWithIconButton
+ import org.mozilla.fenix.home.sports.hasWorldCupEnded
+ import org.mozilla.fenix.theme.FirefoxTheme
++import org.mozilla.fenix.settings.search.FirefoxSuggestPolicy
+ import org.mozilla.fenix.utils.SecretSettingsPrefDefaults
+ import mozilla.components.ui.icons.R as iconsR
+ 
+@@ -266,22 +267,7 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_fxsuggest).apply {
+             isVisible = FeatureFlags.FX_SUGGEST
+             isChecked = settings.enableFxSuggest
+-            onPreferenceChangeListener = object : Preference.OnPreferenceChangeListener {
+-                override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+-                    val newBooleanValue = newValue as? Boolean ?: return false
+-                    val ingestionScheduler =
+-                        requireContext().components.fxSuggest.ingestionScheduler
+-                    if (newBooleanValue) {
+-                        ingestionScheduler.startPeriodicIngestion()
+-                    } else {
+-                        ingestionScheduler.stopPeriodicIngestion()
+-                    }
+-                    requireComponents.settings.preferences.edit {
+-                        putBoolean(preference.key, newBooleanValue)
+-                    }
+-                    return true
+-                }
+-            }
++            onPreferenceChangeListener = FirefoxSuggestPolicy.updater()
+         }
+ 
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_doh_settings_enabled).apply {
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicy.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicy.kt
+new file mode 100644
+index 0000000..72f4662
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicy.kt
+@@ -0,0 +1,88 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.search
++
++import android.content.Context
++import android.content.SharedPreferences
++import androidx.preference.Preference
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.launch
++import mozilla.components.feature.fxsuggest.FxSuggestAdmission
++import mozilla.components.feature.fxsuggest.FxSuggestChoices
++import mozilla.components.feature.fxsuggest.FxSuggestIngestionScheduler
++import mozilla.components.feature.fxsuggest.GlobalFxSuggestDependencyProvider
++import org.mozilla.fenix.R
++import org.mozilla.fenix.utils.Settings
++
++/** Actual Android policy reader; ordinary search-engine suggestions use different keys. */
++object FirefoxSuggestPolicy {
++    private var preferences: SharedPreferences? = null
++    private var listener: SharedPreferences.OnSharedPreferenceChangeListener? = null
++    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
++
++    /** Called from attachBaseContext before persisted workers can revive Suggest work. */
++    fun initialize(context: Context) {
++        listener?.let { preferences?.unregisterOnSharedPreferenceChangeListener(it) }
++        val preferences = context.getSharedPreferences(Settings.FENIX_PREFERENCES, Context.MODE_PRIVATE)
++        val master = context.getString(R.string.pref_key_enable_fxsuggest)
++        val web = context.getString(R.string.pref_key_show_nonsponsored_suggestions)
++        val sponsored = context.getString(R.string.pref_key_show_sponsored_suggestions)
++        val online = context.getString(R.string.pref_key_search_optimization_cards)
++        val onlineFeature = context.getString(R.string.pref_key_search_optimization_feature)
++        val keys = setOf(master, web, sponsored, online, onlineFeature)
++        this.preferences = preferences
++        FxSuggestAdmission.configure {
++            FxSuggestChoices(
++                enabled = preferences.getBoolean(master, false),
++                web = preferences.getBoolean(web, false),
++                sponsored = preferences.getBoolean(sponsored, false),
++                online = preferences.getBoolean(online, false) && preferences.getBoolean(onlineFeature, true),
++            )
++        }
++        listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
++            if (key == null || key in keys) {
++                FxSuggestAdmission.choicesChanged()
++                if (!FxSuggestAdmission.snapshot().choices.localEnabled) {
++                    GlobalFxSuggestDependencyProvider.cancelActiveReads()
++                }
++            }
++        }.also { preferences.registerOnSharedPreferenceChangeListener(it) }
++    }
++
++    /** Wire both normal and existing debug controls to the same real service boundary. */
++    fun updater(onChanged: () -> Unit = {}): Preference.OnPreferenceChangeListener =
++        Preference.OnPreferenceChangeListener { preference, value ->
++            val enabled = value as? Boolean ?: return@OnPreferenceChangeListener false
++            val context = preference.context
++            val editor = context.getSharedPreferences(Settings.FENIX_PREFERENCES, Context.MODE_PRIVATE)
++                .edit().putBoolean(preference.key, enabled)
++            if (enabled && preference.key == context.getString(R.string.pref_key_search_optimization_cards)) {
++                // A new explicit online opt-in also enables its formerly hidden availability flag.
++                editor.putBoolean(context.getString(R.string.pref_key_search_optimization_feature), true)
++            }
++            editor.apply()
++            onChoiceChanged(context.applicationContext ?: context)
++            onChanged()
++            true
++        }
++
++    fun onChoiceChanged(context: Context) {
++        val admission = FxSuggestAdmission.snapshot()
++        val scheduler = FxSuggestIngestionScheduler(context)
++        if (admission.choices.localEnabled) {
++            scheduler.startPeriodicIngestion()
++            scope.launch {
++                if (FxSuggestAdmission.isCurrent(admission)) {
++                    GlobalFxSuggestDependencyProvider.storageIfEnabled()?.runStartupIngestion()
++                }
++            }
++        } else {
++            scheduler.stopPeriodicIngestion()
++            GlobalFxSuggestDependencyProvider.cancelActiveReads()
++        }
++    }
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
+index e714787..b908196 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
+@@ -45,17 +45,16 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+         )
+ 
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_sponsored_suggestions).apply {
+-            isVisible = context.components.settings.enableFxSuggest
++            isVisible = true
+         }
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_nonsponsored_suggestions).apply {
+-            isVisible = context.components.settings.enableFxSuggest
++            isVisible = true
+         }
+         requirePreference<CheckBoxPreference>(R.string.pref_key_search_optimization_cards).apply {
+-            isVisible = context.components.settings.enableFxSuggest &&
+-                    context.components.settings.isSearchOptimizationEnabled
++            isVisible = true
+         }
+         requirePreference<Preference>(R.string.pref_key_learn_about_fx_suggest).apply {
+-            isVisible = context.components.settings.enableFxSuggest
++            isVisible = true
+         }
+         requirePreference<Preference>(R.string.pref_key_search_widget_installed_2).apply {
+             isVisible = canShowAddSearchWidgetPrompt(AppWidgetManager.getInstance(requireContext()))
+@@ -131,13 +130,13 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+                 isChecked = context.components.settings.shouldShowClipboardSuggestions
+             }
+ 
++        val suggestMaster = requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_fxsuggest).apply {
++            isChecked = context.components.settings.enableFxSuggest
++        }
+         val showSponsoredSuggestionsPreference =
+             requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_sponsored_suggestions).apply {
+                 isChecked = context.components.settings.showSponsoredSuggestions
+-                summary = getString(
+-                    R.string.preferences_show_sponsored_suggestions_summary,
+-                    getString(R.string.app_name),
+-                )
++                summary = getString(R.string.firefox_suggest_local_data_required)
+             }
+ 
+         val showNonSponsoredSuggestionsPreference =
+@@ -150,8 +149,20 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+             }
+         val showSuggestionCardsPreference =
+             requirePreference<CheckBoxPreference>(R.string.pref_key_search_optimization_cards).apply {
+-                isChecked = context.components.settings.shouldShowSearchOptimizationCards
++                isChecked = context.components.settings.shouldShowSearchOptimizationCards &&
++                    context.components.settings.isSearchOptimizationEnabled
+             }
++        val cardSelectors = listOf(
++            R.string.pref_key_search_optimization_stocks to context.components.settings.shouldShowSearchOptimizationStockCard,
++            R.string.pref_key_search_optimization_sports to context.components.settings.shouldShowSearchOptimizationSportCard,
++            R.string.pref_key_search_optimization_flights to context.components.settings.shouldShowSearchOptimizationFlightCard,
++        ).map { (key, selected) ->
++            requirePreference<CheckBoxPreference>(key).apply {
++                isPersistent = false
++                isChecked = selected
++                onPreferenceChangeListener = FirefoxSuggestPolicy.updater()
++            }
++        }
+ 
+         searchWidgetPreference.onPreferenceChangeListener = object : SharedPreferenceUpdater() {
+             override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+@@ -177,13 +188,23 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+             true
+         }
+ 
+-        showSponsoredSuggestionsPreference.onPreferenceChangeListener = SharedPreferenceUpdater()
+-        showNonSponsoredSuggestionsPreference.onPreferenceChangeListener = SharedPreferenceUpdater()
+-        showSuggestionCardsPreference.onPreferenceChangeListener = SharedPreferenceUpdater()
+-        showNonSponsoredSuggestionsPreference.setOnPreferenceClickListener {
+-            showSuggestionCardsPreference.isEnabled = showNonSponsoredSuggestionsPreference.isChecked
+-            true
++        fun updateSuggestControls() {
++            val settings = requireContext().components.settings
++            showSponsoredSuggestionsPreference.isEnabled = settings.enableFxSuggest
++            showNonSponsoredSuggestionsPreference.isEnabled = settings.enableFxSuggest
++            showSuggestionCardsPreference.isEnabled = settings.enableFxSuggest && settings.showNonSponsoredSuggestions
++            cardSelectors.forEach {
++                it.isEnabled = showSuggestionCardsPreference.isEnabled && settings.shouldShowSearchOptimizationCards &&
++                    settings.isSearchOptimizationEnabled
++            }
+         }
++        suggestMaster.onPreferenceChangeListener = FirefoxSuggestPolicy.updater(::updateSuggestControls)
++        showSponsoredSuggestionsPreference.onPreferenceChangeListener = FirefoxSuggestPolicy.updater()
++        showNonSponsoredSuggestionsPreference.onPreferenceChangeListener = FirefoxSuggestPolicy.updater(::updateSuggestControls)
++        showSuggestionCardsPreference.onPreferenceChangeListener = FirefoxSuggestPolicy.updater(::updateSuggestControls)
++        listOf(suggestMaster, showSponsoredSuggestionsPreference, showNonSponsoredSuggestionsPreference, showSuggestionCardsPreference)
++            .forEach { it.isPersistent = false }
++        updateSuggestControls()
+     }
+ 
+     /**
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+index d0a0563..7f06f9c 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+@@ -2080,27 +2080,27 @@ class Settings(
+ 
+     var isSearchOptimizationEnabled by booleanPreference(
+         key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_feature),
+-        default = { FxNimbus.features.searchOptimizationOption.value().enabled },
++        default = true,
+     )
+ 
+     var shouldShowSearchOptimizationCards by booleanPreference(
+         key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_cards),
+-        default = { isSearchOptimizationEnabled },
++        default = false,
+     )
+ 
+     var shouldShowSearchOptimizationStockCard by booleanPreference(
+         key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_stocks),
+-        default = { FxNimbus.features.searchOptimizationOption.value().showStocksCard },
++        default = true,
+     )
+ 
+     var shouldShowSearchOptimizationFlightCard by booleanPreference(
+         key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_flights),
+-        default = { FxNimbus.features.searchOptimizationOption.value().showFlightsCard },
++        default = true,
+     )
+ 
+     var shouldShowSearchOptimizationSportCard by booleanPreference(
+         key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_sports),
+-        default = { FxNimbus.features.searchOptimizationOption.value().showSportsCard },
++        default = true,
+     )
+ 
+     var isTabStripEnabled by booleanPreference(
+@@ -2637,7 +2637,7 @@ class Settings(
+     @Suppress("DEPRECATION")
+     var enableFxSuggest by lazyFeatureFlagBooleanPreference(
+         key = appContext.getPreferenceKey(R.string.pref_key_enable_fxsuggest),
+-        defaultValue = { FxNimbus.features.fxSuggest.value().enabled },
++        defaultValue = { false },
+         featureFlag = FeatureFlags.FX_SUGGEST,
+     )
+ 
+@@ -2657,24 +2657,23 @@ class Settings(
+ 
+     /**
+      * Indicates if the user has chosen to show sponsored search suggestions in the awesomebar.
+-     * The default value is computed lazily, and based on whether Firefox Suggest is enabled.
++     * Disabled by default on every channel; an explicit saved choice is preserved.
+      */
+     @Suppress("DEPRECATION")
+     var showSponsoredSuggestions by lazyFeatureFlagBooleanPreference(
+         key = appContext.getPreferenceKey(R.string.pref_key_show_sponsored_suggestions),
+-        defaultValue = { enableFxSuggest },
++        defaultValue = { false },
+         featureFlag = FeatureFlags.FX_SUGGEST,
+     )
+ 
+     /**
+      * Indicates if the user has chosen to show search suggestions for web content in the
+-     * awesomebar. The default value is computed lazily, and based on whether Firefox Suggest
+-     * is enabled.
++     * awesomebar. Disabled by default on every channel; explicit choices are preserved.
+      */
+     @Suppress("DEPRECATION")
+     var showNonSponsoredSuggestions by lazyFeatureFlagBooleanPreference(
+         key = appContext.getPreferenceKey(R.string.pref_key_show_nonsponsored_suggestions),
+-        defaultValue = { enableFxSuggest },
++        defaultValue = { false },
+         featureFlag = FeatureFlags.FX_SUGGEST,
+     )
+ 
+diff --git a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
+new file mode 100644
+index 0000000..e5c6bb8
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
+@@ -0,0 +1,16 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- This Source Code Form is subject to the terms of the Mozilla Public
++   - License, v. 2.0. If a copy of the MPL was not distributed with this
++   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
++<resources>
++    <string name="firefox_suggest_master_title">Firefox Suggest</string>
++    <string name="firefox_suggest_master_summary">Allow the extra suggestion types selected below. Your search engine’s query suggestions use their own setting.</string>
++    <string name="firefox_suggest_local_data_title">Local suggestion data</string>
++    <string name="firefox_suggest_local_data_summary">New installs have no bundled web or sponsored suggestion data, and new downloads are currently unavailable. Existing data on this device can still be used. Online suggestions use a separate service.</string>
++    <string name="firefox_suggest_local_data_required">Requires suggestion data already stored on this device. New suggestion downloads are currently unavailable.</string>
++    <string name="firefox_suggest_online_title">Online Firefox Suggest</string>
++    <string name="firefox_suggest_online_summary">Send text as you type to Mozilla’s suggestion service for online cards, such as flights, sports and stocks. Turning this off stops new requests; a request already sent may finish.</string>
++    <string name="firefox_suggest_stocks_title">Stock cards</string>
++    <string name="firefox_suggest_sports_title">Sports cards</string>
++    <string name="firefox_suggest_flights_title">Flight cards</string>
++</resources>
+diff --git a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
+index 1f3dabf..7aa8322 100644
+--- a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
+@@ -75,18 +75,45 @@
+             android:defaultValue="true"
+             android:key="@string/pref_key_search_synced_tabs"
+             android:title='@string/preferences_search_synced_tabs' />
++        <SwitchPreferenceCompat
++            app:iconSpaceReserved="false"
++            android:defaultValue="false"
++            android:key="@string/pref_key_enable_fxsuggest"
++            android:title="@string/firefox_suggest_master_title"
++            android:summary="@string/firefox_suggest_master_summary" />
++        <Preference
++            app:iconSpaceReserved="false"
++            android:selectable="false"
++            android:title="@string/firefox_suggest_local_data_title"
++            android:summary="@string/firefox_suggest_local_data_summary" />
+         <SwitchPreferenceCompat
+             app:iconSpaceReserved="false"
+             android:key="@string/pref_key_show_nonsponsored_suggestions"
+             android:title="@string/preferences_show_nonsponsored_suggestions"
+-            android:summary="@string/preferences_show_nonsponsored_suggestions_summary" />
++            android:summary="@string/firefox_suggest_local_data_required" />
+         <CheckBoxPreference
+             android:defaultValue="false"
+             android:dependency="@string/pref_key_show_nonsponsored_suggestions"
+             android:key="@string/pref_key_search_optimization_cards"
+             android:layout="@layout/checkbox_left_preference"
+-            android:title="@string/preferences_show_search_optimization_cards"
++            android:title="@string/firefox_suggest_online_title"
++            android:summary="@string/firefox_suggest_online_summary"
+             app:iconSpaceReserved="false" />
++        <CheckBoxPreference
++            app:iconSpaceReserved="false"
++            android:key="@string/pref_key_search_optimization_stocks"
++            android:layout="@layout/checkbox_left_preference"
++            android:title="@string/firefox_suggest_stocks_title" />
++        <CheckBoxPreference
++            app:iconSpaceReserved="false"
++            android:key="@string/pref_key_search_optimization_sports"
++            android:layout="@layout/checkbox_left_preference"
++            android:title="@string/firefox_suggest_sports_title" />
++        <CheckBoxPreference
++            app:iconSpaceReserved="false"
++            android:key="@string/pref_key_search_optimization_flights"
++            android:layout="@layout/checkbox_left_preference"
++            android:title="@string/firefox_suggest_flights_title" />
+         <SwitchPreferenceCompat
+             app:iconSpaceReserved="false"
+             android:key="@string/pref_key_show_sponsored_suggestions"
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
+index 0c00d85..15ced6b 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
+@@ -6,6 +6,8 @@ package org.mozilla.fenix.helpers
+ 
+ import android.content.Context
+ import io.mockk.mockk
++import mozilla.components.feature.fxsuggest.FxSuggestAdmission
++import mozilla.components.feature.fxsuggest.FxSuggestChoices
+ import mozilla.components.service.fxa.AccountServices
+ import org.mozilla.fenix.FenixApplication
+ import org.mozilla.fenix.R
+@@ -31,6 +33,11 @@ class FenixRobolectricTestApplication : FenixApplication() {
+     override val components = mockk<Components>(relaxed = true)
+     override fun initializeFenixProcess() = Unit
+ 
++    override fun initializeFirefoxSuggest(context: Context) {
++        // Legacy feature tests use an enabled embedder; policy tests call the real attach hook.
++        FxSuggestAdmission.configure { FxSuggestChoices() }
++    }
++
+     override fun initializeAccountServices(context: Context) {
+         // Existing feature tests model an opted-in application. Policy tests set
+         // an explicit disabled fixture and verify the actual production gates.
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt
+new file mode 100644
+index 0000000..f2dc72d
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt
+@@ -0,0 +1,124 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.search
++
++import android.content.Context
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import mozilla.components.feature.fxsuggest.FxSuggestAdmission
++import mozilla.components.feature.fxsuggest.FxSuggestChoices
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.After
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.fenix.FenixApplication
++import org.mozilla.fenix.R
++import org.mozilla.fenix.utils.Settings
++
++@RunWith(AndroidJUnit4::class)
++class FirefoxSuggestPolicyTest {
++    private val preferences get() = testContext.getSharedPreferences(Settings.FENIX_PREFERENCES, Context.MODE_PRIVATE)
++    private val keys = listOf(
++        R.string.pref_key_enable_fxsuggest,
++        R.string.pref_key_show_nonsponsored_suggestions,
++        R.string.pref_key_show_sponsored_suggestions,
++        R.string.pref_key_search_optimization_cards,
++    )
++
++    @Before
++    fun setUp() {
++        preferences.edit().clear().commit()
++    }
++
++    @After
++    fun tearDown() {
++        preferences.edit().clear().commit()
++        FxSuggestAdmission.configure { FxSuggestChoices() }
++    }
++
++    @Test
++    fun `production attach defaults off without persisting choices or consulting channel experiments`() {
++        ProductionApplication().attachProductionContext(testContext)
++        val choices = FxSuggestAdmission.snapshot().choices
++        assertEquals(FxSuggestChoices(false, false, false, false), choices)
++        for (key in keys) assertFalse(preferences.contains(testContext.getString(key)))
++        val settings = Settings(testContext)
++        assertFalse(settings.enableFxSuggest)
++        assertFalse(settings.showNonSponsoredSuggestions)
++        assertFalse(settings.showSponsoredSuggestions)
++        assertFalse(settings.shouldShowSearchOptimizationCards)
++    }
++
++    @Test
++    fun `production attach preserves every explicit enabled and disabled choice`() {
++        for (enabled in listOf(true, false)) {
++            val editor = preferences.edit()
++            for (key in keys) editor.putBoolean(testContext.getString(key), enabled)
++            editor.commit()
++            val before = preferences.all
++            ProductionApplication().attachProductionContext(testContext)
++            assertEquals(FxSuggestChoices(enabled, enabled, enabled, enabled), FxSuggestAdmission.snapshot().choices)
++            assertEquals(before, preferences.all)
++        }
++    }
++
++    @Test
++    fun `disabled legacy master retains leaf choices without allowing local or online work`() {
++        preferences.edit()
++            .putBoolean(testContext.getString(R.string.pref_key_enable_fxsuggest), false)
++            .putBoolean(testContext.getString(R.string.pref_key_show_nonsponsored_suggestions), true)
++            .putBoolean(testContext.getString(R.string.pref_key_show_sponsored_suggestions), true)
++            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_cards), true)
++            .commit()
++        FirefoxSuggestPolicy.initialize(testContext)
++        val choices = FxSuggestAdmission.snapshot().choices
++        assertTrue(choices.web && choices.sponsored && choices.online)
++        assertFalse(choices.localEnabled || choices.onlineEnabled)
++    }
++
++    @Test
++    fun `Suggest initialization preserves ordinary query and local result settings`() {
++        val ordinaryKeys = listOf(R.string.pref_key_show_search_suggestions, R.string.pref_key_search_browsing_history, R.string.pref_key_search_bookmarks)
++        val editor = preferences.edit()
++        for (key in ordinaryKeys) editor.putBoolean(testContext.getString(key), true)
++        editor.commit()
++        val before = preferences.all
++        FirefoxSuggestPolicy.initialize(testContext)
++        assertEquals(before, preferences.all)
++        val settings = Settings(testContext)
++        assertTrue(settings.shouldShowSearchSuggestions)
++        assertTrue(settings.shouldShowHistorySuggestions)
++        assertTrue(settings.shouldShowBookmarkSuggestions)
++    }
++
++    @Test
++    fun `explicit online availability and card exclusions survive initialization`() {
++        preferences.edit()
++            .putBoolean(testContext.getString(R.string.pref_key_enable_fxsuggest), true)
++            .putBoolean(testContext.getString(R.string.pref_key_show_nonsponsored_suggestions), true)
++            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_cards), true)
++            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_feature), false)
++            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_stocks), false)
++            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_sports), false)
++            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_flights), false)
++            .commit()
++        val before = preferences.all
++        FirefoxSuggestPolicy.initialize(testContext)
++        assertTrue(FxSuggestAdmission.snapshot().choices.localEnabled)
++        assertFalse(FxSuggestAdmission.snapshot().choices.onlineEnabled)
++        val settings = Settings(testContext)
++        assertFalse(settings.shouldShowSearchOptimizationStockCard)
++        assertFalse(settings.shouldShowSearchOptimizationSportCard)
++        assertFalse(settings.shouldShowSearchOptimizationFlightCard)
++        assertEquals(before, preferences.all)
++    }
++
++    private class ProductionApplication : FenixApplication() {
++        fun attachProductionContext(context: Context) = super.attachBaseContext(context)
++    }
++}

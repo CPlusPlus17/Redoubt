@@ -1,0 +1,55 @@
+// third_party/application-services/components/remote_settings/src/client.rs:92-144
+// For subsequent updates, run the command above again.
+impl<C: ApiClient> RemoteSettingsClient<C> {
+    // One line per bucket + collection
+    packaged_collections! {
+        ("main", "regions"),
+        ("main", "search-config-icons"),
+        ("main", "search-config-v2"),
+        ("main", "search-telemetry-v2"),
+        ("main", "summarizer-models-config"),
+        ("main", "translations-models"),
+        ("main", "translations-wasm"),
+    }
+
+    // You have to specify
+    // - bucket + collection_name: ("main", "regions")
+    // - One line per file you want to add (e.g. "world")
+    //
+    // This will automatically also include the NAME.meta.json file
+    // for internal validation against hash and size
+    //
+    // The entries line up with the `Attachment::filename` field,
+    // and check for the folder + name in
+    // `remote_settings/dumps/{bucket}/attachments/{collection}/{filename}
+    packaged_attachments! {
+        ("main", "regions") => [
+            "world",
+            "world-buffered",
+        ],
+        ("main", "search-config-icons") => [
+            "001500a9-1a6c-3f5a-ba15-a5f5a075d256",
+            "06cf7432-efd7-f244-927b-5e423005e1ea",
+            "0a57b0cf-34f0-4d09-96e4-dbd6e3355410",
+            "0d7668a8-c3f4-cfee-cbc8-536511528937",
+            "0eec5640-6fde-d6fe-322a-c72c6d5bd5a2",
+            "101ce01d-2691-b729-7f16-9d389803384b",
+            "177aba42-9bed-4078-e36b-580e8794cd7f",
+            "25de0352-aabb-d31f-15f7-bf9299fb004c",
+            "2bbe48f4-d3b8-c9e0-86e3-a54c37ec3335",
+            // LibreWolf (LW-M4-06): the Mojeek icon. The record and its attachment
+            // are copied into dumps/main by scripts/librewolf-patches.py from
+            // assets/2c4b8834-030c-4097-a887-c7506689095c{,.meta.json}; this line
+            // is what makes include_bytes!() package it, so an engine LibreWolf adds
+            // gets its icon without a network fetch (rs-blocker-android.patch makes
+            // that fetch fail, by design).
+            "2c4b8834-030c-4097-a887-c7506689095c",
+            // LibreWolf (LW-M4-06): the Startpage icon. Upstream ships the file and
+            // its .meta.json in dumps/main/attachments/search-config-icons/ but never
+            // lists the id, so it is not packaged and Startpage has no icon on
+            // Android; the patcher asserts every kept icon record is listed here.
+            "acae3d3c-b09e-47f0-a9e5-57980d21fc4a",
+            "2e835b0e-9709-d1bb-9725-87f59f3445ca",
+            "2ecca3f8-c1ef-43cc-b053-886d1ae46c36",
+            "32d26d19-aeb0-5c01-32e8-f8970be9246f",
+

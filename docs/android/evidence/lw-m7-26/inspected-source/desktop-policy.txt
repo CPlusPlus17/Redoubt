@@ -1,0 +1,81 @@
+// browser/components/enterprisepolicies/Policies.sys.mjs:1822-1851
+  FirefoxSuggest: {
+    onBeforeAddons(manager, param) {
+      (async () => {
+        await lazy.QuickSuggest.initPromise;
+        if ("WebSuggestions" in param) {
+          PoliciesUtils.setDefaultPref(
+            "browser.urlbar.suggest.quicksuggest.all",
+            param.WebSuggestions,
+            param.Locked
+          );
+        }
+        if ("SponsoredSuggestions" in param) {
+          PoliciesUtils.setDefaultPref(
+            "browser.urlbar.suggest.quicksuggest.sponsored",
+            param.SponsoredSuggestions,
+            param.Locked
+          );
+        }
+        // `ImproveSuggest` is deprecated and replaced with `OnlineEnabled`.
+        if ("OnlineEnabled" in param || "ImproveSuggest" in param) {
+          PoliciesUtils.setDefaultPref(
+            "browser.urlbar.quicksuggest.online.enabled",
+            param.OnlineEnabled ?? param.ImproveSuggest,
+            param.Locked
+          );
+        }
+      })();
+    },
+  },
+
+
+// browser/components/enterprisepolicies/Policies.sys.mjs:3449-3495
+export var PoliciesUtils = {
+  setDefaultPref(prefName, prefValue, locked) {
+    let prefWasLocked = Services.prefs.prefIsLocked(prefName);
+    if (prefWasLocked) {
+      Services.prefs.unlockPref(prefName);
+    }
+
+    let defaults = Services.prefs.getDefaultBranch("");
+
+    switch (typeof prefValue) {
+      case "boolean":
+        defaults.setBoolPref(prefName, prefValue);
+        break;
+
+      case "number":
+        if (!Number.isInteger(prefValue)) {
+          throw new Error(`Non-integer value for ${prefName}`);
+        }
+
+        // This is ugly, but necessary. On Windows GPO and macOS
+        // configs, booleans are converted to 0/1. In the previous
+        // Preferences implementation, the schema took care of
+        // automatically converting these values to booleans.
+        // Since we allow arbitrary prefs now, we have to do
+        // something different. See bug 1666836.
+        if (
+          defaults.getPrefType(prefName) == defaults.PREF_INT ||
+          ![0, 1].includes(prefValue)
+        ) {
+          defaults.setIntPref(prefName, prefValue);
+        } else {
+          defaults.setBoolPref(prefName, !!prefValue);
+        }
+        break;
+
+      case "string":
+        defaults.setStringPref(prefName, prefValue);
+        break;
+    }
+
+    // Prefs can only be unlocked explicitly.
+    // If they were locked before, they stay locked.
+    if (locked || (prefWasLocked && locked !== false)) {
+      Services.prefs.lockPref(prefName);
+    }
+  },
+};
+
