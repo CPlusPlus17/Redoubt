@@ -4606,3 +4606,31 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: Hiding the home section does not prevent the independent startup seeding path.
+
+  - id: LW-M7-32
+    title: Prepare controlled HTTPS origins for native cookie rejection tests
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-22, LW-M7-23, LW-M7-25]
+    owns:
+      - docs/android/evidence/lw-m7-32/
+    what: |
+      Prepare a dedicated ephemeral TLS fixture authority and loopback-only
+      HTTPS-to-HTTP bridge for cookies.fixture.test and the packaged duh.de
+      injection rule. Keep private fixture keys outside repository evidence.
+      Map only the dedicated emulator, trust the public CA only in its test
+      profile, and retain original mapping/trust state for cleanup. The cookie
+      runner must independently verify its private challenge, exact HTTPS URL,
+      clean certificate chain and CA hash before any controlled navigation.
+      Never count host bridge checks as APK native rejection or alter policy
+      preferences/rules to obtain a pass. Run no emulator beside native builds.
+    acceptance:
+      - "the bridge binds only loopback and forwards only to the fixed local cookie fixture"
+      - "exact-origin clean TLS and CA/challenge validation pass in the dedicated test browser"
+      - "private fixture keys are absent from repository evidence and release signing remains untouched"
+      - "device mapping/trust are scoped to the disposable emulator/profile and cleanup is recorded"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "2-4"
+    skills: [python, android, ops]
+    agent_safe: yes
+    isolation: none
+    risk: Reaching a live public origin or bypassing certificate validation would invalidate native cookie proof.
