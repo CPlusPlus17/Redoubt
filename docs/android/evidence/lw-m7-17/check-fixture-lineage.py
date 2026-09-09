@@ -122,13 +122,16 @@ def check(coverage, followup):
     formatted_patch = read(nav_home + 'before-sync-opt-in.patch')
     require(digest(routing_patch) == routing['patch_sha256'] == format_receipt['previous_patch_sha256'], 'Home routing lineage differs')
     require(digest(formatted_patch) == format_receipt['patch_sha256'] == nav['previous_patch_sha256'], 'GNU format lineage differs')
-    require(digest(read(SYNC)) == nav['patch_sha256'] == coverage['repository_evidence'][SYNC], 'final navigation fixture lineage differs')
+    process20_home = 'docs/android/evidence/lw-m7-20/isolated-process-correction/'
+    navigation_patch = gzip.decompress(read(process20_home + 'before-sync-opt-in.patch.gz'))
+    require(digest(navigation_patch) == nav['patch_sha256'], 'historical navigation fixture lineage differs')
     old_format = load(format_home + 'before-source-files.json')
     new_format = load(nav_home + 'before-source-files.json')
+    navigation20 = load(process20_home + 'before-source-files.json')
     current20 = load('docs/android/evidence/lw-m7-20/source-files.json')
     require(old_format['files'] == new_format['files'], 'format correction changed source bodies')
     old20 = {x['path']: x['after_sha256'] for x in new_format['files']}
-    final20 = {x['path']: x['after_sha256'] for x in current20['files']}
+    final20 = {x['path']: x['after_sha256'] for x in navigation20['files']}
     require(set(old20) == set(final20) and {n for n in old20 if old20[n] != final20[n]} == {nav['files'][0]['path']}, 'navigation fixture changed other20 outputs')
     require(current20['patch_sha256'] == digest(read(SYNC)), 'current20 source receipt differs')
     require(digest(read(boolean_home + 'original-sync-opt-in.patch')) == old_coverage['repository_evidence'][SYNC], 'historical Sync review differs')
@@ -156,14 +159,16 @@ def check(coverage, followup):
     nav_after = read(nav_home + 'HomeActivityAccountSettingsTest.kt')
     require(nav_before == home_tests and nav_before.split(b'        val intent = Intent().putExtra', 1)[1] == nav_after.split(b'        val intent = Intent().putExtra', 1)[1], 'navigation fixture changed actions or assertions')
     require(final20[nav['files'][0]['path']] == digest(nav_after), 'navigation fixture final body differs')
-    a, b = patch_sections(formatted_patch), patch_sections(read(SYNC))
+    a, b = patch_sections(formatted_patch), patch_sections(navigation_patch)
     require(set(a) == set(b) and {n for n in a if a[n] != b[n]} == {nav['files'][0]['path']}, 'navigation fixture changed unexpected patch sections')
     metrics = load(metrics_home + 'source-overlay.json')
     metrics_patch = 'patches/android/firefox-suggest-policy.patch'
     old_metrics = gzip.decompress(read(metrics_home + 'original-patch.gz'))
     require(digest(old_metrics) == metrics['before_patch_sha256'] == old_coverage['repository_evidence'][metrics_patch], 'metrics fixture predecessor differs')
-    require(digest(read(metrics_patch)) == metrics['after_patch_sha256'] == coverage['repository_evidence'][metrics_patch], 'metrics fixture current patch differs')
-    a, b = patch_sections(old_metrics), patch_sections(read(metrics_patch))
+    process26_home = 'docs/android/evidence/lw-m7-26/isolated-process-correction/'
+    metrics_stage = gzip.decompress(read(process26_home + 'before-firefox-suggest-policy.patch.gz'))
+    require(digest(metrics_stage) == metrics['after_patch_sha256'], 'historical metrics fixture patch differs')
+    a, b = patch_sections(old_metrics), patch_sections(metrics_stage)
     require(all(b.get(n) == block for n, block in a.items()) and set(b) - set(a) == {metrics['changed_files'][0]['path']}, 'metrics fixture modified prior patch sections')
     metrics_before = read(metrics_home + 'FenixApplicationTest.kt.before')
     metrics_after = read(metrics_home + 'FenixApplicationTest.kt')
@@ -212,7 +217,84 @@ def check(coverage, followup):
     require(next(row['sha256'] for row in manifest29['scoped_predecessors'] if row['path'] == metrics_patch) == digest(read(metrics_patch)), 'Task29 current26 predecessor differs')
     current26 = load('docs/android/evidence/lw-m7-26/source-files.json')
     require(next(row['sha256'] for row in current26['scoped_predecessors'] if row['path'] == SYNC) == digest(read(SYNC)), 'Task26 current20 predecessor differs')
-    print('LINEAGE VERIFIED: Bundle114 -> fixtureA8 -> OptInB10; 8 fixture bodies; Home routing9f -> GNU28 -> navigationAC0; current20/23/26/29/35/36. No target verdict.')
+    check_process(coverage, followup, read, load)
+    print('LINEAGE VERIFIED: Bundle114 -> fixtureA8 -> OptInB10; eight historical fixture bodies; Home9f -> GNU28 -> navigationAC0 -> process8ca; metrics86 -> process36e; three new cases and six actual167 bodies; current20/23/26/29/35/36. No target verdict.')
+
+
+def check_process(coverage, followup, read, load):
+    reference = followup['process_lineage_followup']
+    require(reference['review_receipt'] == 'process-lineage-followup/review.json', 'process review path differs')
+    review_home = 'docs/android/evidence/lw-m7-17/process-lineage-followup/'
+    review = load(review_home + 'review.json')
+    require(reference['scope'] == review['scope'] and reference['repository_before_edit'] == review['repository_before_edit'], 'process review scope differs')
+    for item in [reference, review]:
+        require(item['compile_verdict'].startswith('NOT RUN') and item['runtime_verdict'].startswith('NOT RUN'), 'process review must not claim target success')
+    before_raw = read(review_home + 'before-review.tar.gz')
+    require(digest(before_raw) == review['before_review_archive_sha256'], 'process previous review archive differs')
+    before = archive(before_raw)
+    require(set(before) == {'coverage.json', 'followup-review.json', 'coverage-map.md', 'README.md', 'check-coverage.py', 'check-fixture-lineage.py', 'fixture-lineage-followup/review.json', 'fixture-lineage-followup/test-checker.py'}, 'process previous review inventory differs')
+    prior = json.loads(before['coverage.json'])
+    for key in prior:
+        if key != 'repository_evidence':
+            require(prior[key] == coverage[key], 'process review changes counterpart semantics: ' + key)
+    changes = {n: {'before_sha256': h, 'after_sha256': coverage['repository_evidence'].get(n)}
+               for n, h in prior['repository_evidence'].items() if h != coverage['repository_evidence'].get(n)}
+    require(changes == review['updated_repository_evidence'] and len(changes) == 5, 'process current evidence scope differs')
+    home20 = 'docs/android/evidence/lw-m7-20/isolated-process-correction/'
+    home26 = 'docs/android/evidence/lw-m7-26/isolated-process-correction/'
+    require(set(review['three_new_authored_cases']) == {'AccountServicesTest.kt', 'AccountServicesPreferenceTest.kt', 'FirefoxSuggestPolicyTest.kt'}, 'process regression class scope differs')
+    histories = {}
+    for task, home, patch, old_archive, expected_count in [
+        ('20', home20, SYNC, 'before-sync-opt-in.patch.gz', 5),
+        ('26', home26, 'patches/android/firefox-suggest-policy.patch', 'before-firefox-suggest-policy.patch.gz', 3),
+    ]:
+        change = load(home + 'source-overlay.json')
+        old = load(home + 'before-source-files.json')
+        current = load(f'docs/android/evidence/lw-m7-{task}/source-files.json')
+        require(digest(gzip.decompress(read(home + old_archive))) == old['patch_sha256'] == change['previous_patch_sha256'] == prior['repository_evidence'][patch], 'process historical patch differs')
+        require(digest(read(patch)) == current['patch_sha256'] == change['patch_sha256'] == coverage['repository_evidence'][patch], 'process current patch differs')
+        old_rows, new_rows = ({r['path']: r for r in receipt['files']} for receipt in [old, current])
+        changed_rows = {r['path']: r for r in change['files']}
+        require(set(old_rows) == set(new_rows) and len(changed_rows) == expected_count, 'process scoped inventory differs')
+        require({n for n in old_rows if old_rows[n]['after_sha256'] != new_rows[n]['after_sha256']} == set(changed_rows), 'process changed output scope differs')
+        for name, row in changed_rows.items():
+            old_body = read(home + Path(name).name + '.before')
+            new_body = read(home + Path(name).name)
+            require(digest(old_body) == old_rows[name]['after_sha256'] == row['before_sha256'], 'process scoped before differs')
+            require(digest(new_body) == new_rows[name]['after_sha256'] == row['after_sha256'], 'process scoped after differs')
+            if Path(name).name in review['three_new_authored_cases']:
+                counts = [len(re.findall(rb'@Test\b', body)) for body in [old_body, new_body]]
+                require(counts == review['three_new_authored_cases'][Path(name).name] and counts[1] == counts[0] + 1, 'process authored regression count differs')
+        histories[task] = new_rows
+    combined = load(home26 + 'current167-overlay.json')
+    require(combined['patch20_sha256'] == digest(read(SYNC)) and combined['patch26_sha256'] == digest(read('patches/android/firefox-suggest-policy.patch')), 'process combined patch pins differ')
+    old_manifest = read(home26 + 'actual-current167-source-sha256.txt')
+    require(digest(old_manifest) == combined['previous_source_sha256'] == review['historical_runtime_parent_sha256'], 'process actual parent manifest differs')
+    original = {line.split('  ', 1)[1]: line.split('  ', 1)[0] for line in old_manifest.decode().splitlines()}
+    require(len(original) == 167, 'process parent source count differs')
+    before_raw = read(home26 + 'actual-expanded-source-before.tar.gz')
+    require(digest(before_raw) == combined['before_archive_sha256'], 'process actual before archive differs')
+    actual = archive(before_raw)
+    policy_path = 'mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt'
+    actual[policy_path] = read(home26 + 'actual-FirefoxSuggestPolicyTest.kt.before')
+    require(digest(actual[policy_path]) == combined['policy_test_before_sha256'], 'process actual policy fixture differs')
+    packed = read(home26 + 'current167-source-overlay.tar.gz')
+    require(digest(packed) == combined['overlay_archive_sha256'], 'process combined archive differs')
+    output = archive(packed)
+    require(len(combined['files']) == len(output) == 6 and set(output) == {r['path'] for r in combined['files']}, 'process six-file overlay scope differs')
+    latest = dict(original)
+    source = histories['20'] | histories['26']
+    for row in combined['files']:
+        name = row['path']
+        require(digest(actual[name]) == original[name] == row['before_sha256'], 'process actual before binding differs')
+        require(digest(output[name]) == row['after_sha256'] == source[name]['after_sha256'], 'process actual after binding differs')
+        latest[name] = row['after_sha256']
+    derived = ''.join(f'{h}  {n}\n' for n,h in sorted(latest.items())).encode()
+    require(derived == read(home26 + 'proposed-current167-source-sha256.txt') and digest(derived) == combined['proposed_source_sha256'] == review['corrected167_manifest_sha256'], 'process corrected manifest differs')
+    require(sum(latest[n] == h for n, h in original.items()) == 161, 'process unaffected actual source bindings changed')
+    runtime_log = gzip.decompress(read(home20 + 'startup-logcat-20260909T0523.txt.gz'))
+    log_receipt = load(home20 + 'source-overlay.json')['actual_runtime_log']
+    require(digest(runtime_log) == log_receipt['sha256'] and b'getSharedPreferences' in runtime_log and b'zygoteTab' in runtime_log, 'process original failure evidence differs')
 
 
 if __name__ == '__main__':

@@ -2,6 +2,7 @@
 """Adversarial controls for the source-evidence checker, not Android unit tests."""
 import contextlib
 import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -67,5 +68,23 @@ with tempfile.TemporaryDirectory(prefix='lw-m7-17-lineage-negatives-') as scratc
         return lambda: path.write_bytes(original)
 
     reject('changed authored test body', corrupt_body, 'fixture input differs')
+    def change_json_input(name, change):
+        def mutate(c, f, r):
+            path = private / name
+            original = path.read_bytes()
+            value = json.loads(original)
+            change(value)
+            body = (json.dumps(value, indent=2) + '\n').encode()
+            path.write_bytes(body)
+            r['inputs'][name] = {'sha256': hashlib.sha256(body).hexdigest(), 'bytes': len(body)}
+            return lambda: path.write_bytes(original)
+        return mutate
+
+    reject('false process runtime verdict', lambda c, f, r: f['process_lineage_followup'].update(runtime_verdict='PASS'), 'process review must not claim target success')
+    process = 'docs/android/evidence/lw-m7-26/isolated-process-correction/current167-overlay.json'
+    reject('collapsed historical process parent', change_json_input(process, lambda v: v.update(previous_source_sha256=v['proposed_source_sha256'])), 'process actual parent manifest differs')
+    reject('incorrect actual process before binding', change_json_input(process, lambda v: v['files'][0].update(before_sha256='0' * 64)), 'process actual before binding differs')
+    process_review = 'docs/android/evidence/lw-m7-17/process-lineage-followup/review.json'
+    reject('invented extra process regression', change_json_input(process_review, lambda v: v['three_new_authored_cases'].update({'AccountServicesTest.kt': [10, 12]})), 'process authored regression count differs')
     run(coverage, followup)
-    print('PASS: exact fixture lineage accepted after every negative control')
+    print('PASS: exact fixture and process lineage accepted after every negative control')
