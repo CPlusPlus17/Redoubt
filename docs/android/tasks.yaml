@@ -4608,13 +4608,16 @@ tasks:
       shortcuts, bookmarks, user-created additions and explicit home controls.
       This does not establish NoDefaultBookmarks behavior in the separate
       bookmark database. Record resource/source lineage and require packaged
-      APK plus fresh/upgrade/manual-add behavior before completion.
+      APK plus fresh/upgrade/manual-add behavior before completion. Resolve the
+      packaged raw/initial_shortcuts entry through the actual APK resource table
+      when release optimization renames its ZIP member. Reject missing, ambiguous
+      or invalid mappings; equal bytes at an unrelated path are not evidence.
     acceptance:
       - "the packaged default shortcut resource contains an empty data array"
       - "fresh region changes do not insert default shortcuts"
       - "existing and user-created shortcuts/bookmarks survive and manual additions work"
       - "actual APK resource and home behavior are verified with source-bound evidence"
-    verify: "python3 docs/android/evidence/lw-m7-30/check-source.py && python3 docs/android/board.py --check"
+    verify: "python3 docs/android/evidence/lw-m7-30/check-source.py && python3 -m unittest discover -s docs/android/evidence/lw-m7-30 -p 'test_*.py' && python3 docs/android/board.py --check"
     effort_h: "1-3"
     skills: [android]
     agent_safe: yes
