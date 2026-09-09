@@ -27,6 +27,8 @@ def main():
     assert sha(PATCH.read_bytes()) == manifest['patch_sha256'], 'patch changed since source receipt'
     assert sha((EVIDENCE / 'guest-source.tar.gz').read_bytes()) == manifest['guest_capture_sha256']
     assert sha((EVIDENCE / 'source-baseline.tar.gz').read_bytes()) == manifest['baseline_archive_sha256']
+    assert sha((EVIDENCE / 'test-fixture-baseline.tar.gz').read_bytes()) == manifest['additional_before_archive_sha256']
+    assert sha((EVIDENCE / 'test-fixture-before.json').read_bytes()) == manifest['additional_before_receipt_sha256']
     assert sha((ROOT / manifest['predecessor_patch']).read_bytes()) == manifest['predecessor_patch_sha256']
     originals = {item['path']: item for item in manifest['files'] if item['before_sha256']}
     # Independently reconstruct the post-31 before bytes from root's guest
@@ -42,6 +44,19 @@ def main():
                 dest = tree / name
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(archive.extractfile(member).read())
+        extra = json.loads((EVIDENCE / 'test-fixture-before.json').read_text())
+        extra_files = {item['path']: item for item in extra['files']}
+        with tarfile.open(EVIDENCE / 'test-fixture-baseline.tar.gz') as archive:
+            assert {member.name for member in archive} == set(extra_files)
+            for member in archive:
+                assert member.isfile() and '..' not in Path(member.name).parts
+                data = archive.extractfile(member).read()
+                assert sha(data) == extra_files[member.name]['sha256']
+                assert sha(data) == originals[member.name]['before_sha256']
+                dest = tree / member.name
+                assert not dest.exists()
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(data)
         chosen = set(manifest['predecessor_applied_paths'])
         parts = (ROOT / manifest['predecessor_patch']).read_text().split('--- a/')
         selected = ''.join('--- a/' + part for part in parts[1:] if part.splitlines()[0] in chosen)
@@ -51,7 +66,7 @@ def main():
         assert 'offset' not in result.stdout and 'fuzz' not in result.stdout, result.stdout
         for name, item in originals.items():
             assert sha((tree / name).read_bytes()) == item['before_sha256'], name
-        print('PASS original captured guest + exact scoped Task31 hunks equal all17 before hashes', flush=True)
+        print(f'PASS captured guest + scoped Task31 + guest-matched test fixtures equal all{len(originals)} before hashes', flush=True)
     with tempfile.TemporaryDirectory(prefix='lw-m7-35-source-') as scratch:
         source = args.source.resolve() if args.source else Path(scratch)
         if not args.source:
@@ -72,6 +87,8 @@ def main():
             assert sha(path.read_bytes()) == item['after_sha256'], item['path']
             if path.suffix in ('.js', '.mjs'):
                 subprocess.run(['node', '--check', str(path)], check=True)
+            if path.suffix == '.json':
+                json.loads(path.read_text())
             if path.suffix == '.toml':
                 tomllib.loads(path.read_text())
             if path.suffix == '.xml':
@@ -86,7 +103,7 @@ def main():
         assert libpref['test_savePrefFileAsync.js']['prefs'] == ['preferences.allow.omt-write=true']
         extension_tests = tomllib.loads((source / 'toolkit/components/extensions/test/xpcshell/xpcshell.toml').read_text())
         assert extension_tests['test_ext_android_update_settings.js']['run-if'] == ["os == 'android'"]
-        print('PASS source hashes, JavaScript syntax, XML/TOML and native test registration (not C++ compilation)', flush=True)
+        print('PASS source hashes, JavaScript syntax, XML/JSON/TOML and native test registration (not C++ compilation)', flush=True)
         subprocess.run(['node', str(ROOT / 'scripts/tests/test-extension-update-controls.js'), str(source)], check=True, timeout=120)
     print('PENDING target C++/Java/Kotlin compilation, native/Kotlin tests, APK restart/network/signed-update acceptance')
 

@@ -47,7 +47,7 @@ def main():
     inputs = json.loads((HERE / 'ordering-inputs.json').read_text())
     source = json.loads((HERE / 'source-files.json').read_text())
     source_files = {item['path']: item for item in source['files']}
-    assert sha((HERE / 'source-baseline.tar.gz').read_bytes()) == inputs['before_archive_sha256']
+    assert sha((HERE / 'ordering-source-baseline.tar.gz').read_bytes()) == inputs['before_archive_sha256']
     patches = {}
     for name, digest in inputs['patches'].items():
         assert sha((ROOT / name).read_bytes()) == digest, f'{name}: update inputs only after a fresh review'
@@ -62,7 +62,7 @@ def main():
             home = scratch / Path(predecessor).stem
             base = home / 'base'
             base.mkdir(parents=True)
-            with tarfile.open(HERE / 'source-baseline.tar.gz') as archive:
+            with tarfile.open(HERE / 'ordering-source-baseline.tar.gz') as archive:
                 for name in shared:
                     data = archive.extractfile(name).read()
                     assert sha(data) == source_files[name]['before_sha256'], name

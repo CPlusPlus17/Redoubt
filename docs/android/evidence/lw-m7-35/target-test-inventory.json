@@ -1,27 +1,30 @@
 {
-  "status": "PENDING target execution",
+  "status": "PENDING target execution; corrected fixture placement",
   "files": [
     {
-      "source": "modules/libpref/test/unit/test_savePrefFileAsync.js",
-      "sha256": "578daa55cfdaa8fafdf6649f30063c566c2dfa8ca21b0e7017ad9d6aaed97cd9",
+      "source": "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncTest.kt",
+      "sha256": "653a202e7e6665c65a5e0048df10428b6be5ac7676c220bc5a286a58d09205da",
       "named_tests": [
-        "current_and_backup_snapshots_have_separate_outcomes",
-        "clean_state_still_forces_a_write_and_reset_is_saved",
-        "actual_write_failure_rejects_and_can_be_retried",
-        "shutdown_failure_does_not_close_profile_then_success_does"
+        "currentAndBackupSnapshotsHaveIndependentOutcomes",
+        "cleanStateBarrierRecreatesCurrentFileAndPersistsReset",
+        "actualCurrentFileFailureRejectsSuspendAndRetries"
       ],
       "target_status": "UNRUN"
     },
     {
-      "source": "toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js",
-      "sha256": "7ef8b0cc79c1c1be33bf9667cefbc3ee7da1a68ee0a43e1739e7393ba4ec6902",
+      "source": "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncShutdownTest.kt",
+      "sha256": "762f6853c93e41d417a96354d1262840b18c7c65c5584e383b0947bcddba1ca5",
       "named_tests": [
-        "combined_settings_save_actual_profile_and_report_locks",
-        "automatic_off_prevents_metadata_and_extension_lookup",
-        "off_during_metadata_prevents_manifest",
-        "automatic_install_respects_per_addon_policy",
-        "off_during_manifest_prevents_install",
-        "explicit_check_remains_available_with_automatic_off"
+        "failedFinalSaveLeavesProfileOpenAndSuccessfulFinalSaveClosesIt"
+      ],
+      "target_status": "UNRUN"
+    },
+    {
+      "source": "modules/libpref/test/unit/test_savePrefFileAsync.js",
+      "sha256": "eeec21b4a98f11d0c5940893807c87fddb9bdcc95aaf8080c3b3557aeb141d1b",
+      "named_tests": [
+        "directory_registration_is_not_native_initialization",
+        "backup_snapshots_fail_independently_and_suspend_drains"
       ],
       "target_status": "UNRUN"
     },
@@ -45,6 +48,19 @@
         "late read and completion after view destruction cannot rewrite UI",
         "reopening settings retains native unconfirmed save state",
         "read failure leaves setting disabled instead of inventing a default"
+      ],
+      "target_status": "UNRUN"
+    },
+    {
+      "source": "toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js",
+      "sha256": "713a7d2a9e299173be43a266190edcd85653702567cf4e1a45f548cdad8968b2",
+      "named_tests": [
+        "mixed_values_locks_and_missing_profile_are_reported_honestly",
+        "automatic_off_prevents_metadata_and_extension_lookup",
+        "off_during_metadata_prevents_manifest",
+        "automatic_install_respects_per_addon_policy",
+        "off_during_manifest_prevents_install",
+        "explicit_check_remains_available_with_automatic_off"
       ],
       "target_status": "UNRUN"
     }

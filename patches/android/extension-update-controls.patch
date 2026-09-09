@@ -357,6 +357,403 @@
    }
 
    // This will do a main thread write. It is safe to do it this way because
+--- a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
++++ b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
+@@ -12,6 +12,216 @@
+ const { Preferences } = ChromeUtils.importESModule(
+   "resource://gre/modules/Preferences.sys.mjs"
+ );
++
++// This helper is packaged only in the privileged instrumentation extension.
++// It exercises native I/O on the normal XRE_main-initialized test profile; it
++// does not initialize/mimic mCurrentFile or accept an arbitrary filesystem path.
++let prefSaveIOTestRunning = false;
++
++async function runPrefSaveFileAsyncIOTest(scenario, allowProfileShutdown) {
++  const PREF = "test.librewolf.savePrefFileAsync.value";
++  function requireCondition(condition, message) {
++    if (!condition) {
++      throw new Error(`Pref save I/O fixture: ${message}`);
++    }
++  }
++  requireCondition(!prefSaveIOTestRunning, "concurrent fixture refused");
++  requireCondition(
++    ["snapshots", "clean", "failure", "shutdown"].includes(scenario),
++    "unknown scenario"
++  );
++  requireCondition(
++    scenario !== "shutdown" || allowProfileShutdown === true,
++    "shutdown requires an explicitly isolated instrumentation invocation"
++  );
++  requireCondition(!Services.prefs.prefHasUserValue(PREF), "test pref already set");
++  requireCondition(
++    Services.prefs.getBoolPref("preferences.allow.omt-write"),
++    "queued native writer must be enabled by the test runtime at startup"
++  );
++  const profile = Services.dirsvc.get("ProfD", Ci.nsIFile);
++  const current = Services.dirsvc.get("PrefF", Ci.nsIFile);
++  requireCondition(
++    current.parent.equals(profile) && current.leafName === "prefs.js",
++    "unexpected current profile path"
++  );
++  // Unlike directory registration, this successful native call establishes
++  // that InitializeUserPrefs actually selected a current preferences file.
++  prefSaveIOTestRunning = true;
++  let initialized = false;
++  let fixture;
++  let profileClosed = false;
++  const receipt = { scenario, profile: profile.path, currentFile: current.path };
++  const observer = Services.prefs.QueryInterface(Ci.nsIObserver);
++  function suspend() {
++    // notifyObservers() discards individual nsresult failures.
++    observer.observe(null, "suspend_process_notification", null);
++  }
++  function errorReceipt(error) {
++    return { name: error.name, result: error.result, message: String(error) };
++  }
++  async function outcome(operation) {
++    try {
++      await operation();
++      return { resolved: true };
++    } catch (error) {
++      return { resolved: false, error: errorReceipt(error) };
++    }
++  }
++  function syncOutcome(operation) {
++    try {
++      operation();
++      return { resolved: true };
++    } catch (error) {
++      return { resolved: false, error: errorReceipt(error) };
++    }
++  }
++  function child(name) {
++    const file = fixture.clone();
++    file.append(name);
++    return file;
++  }
++  async function valueOnDisk(file) {
++    let value = null;
++    const errors = [];
++    const record = (_kind, name, saved) => {
++      if (name === PREF) {
++        value = saved;
++      }
++    };
++    Services.prefs.parsePrefsFromBuffer(await IOUtils.read(file.path), {
++      onStringPref: record,
++      onIntPref: record,
++      onBoolPref: record,
++      onError(message) {
++        errors.push(message);
++      },
++    });
++    requireCondition(!errors.length, `invalid saved prefs: ${errors.join("; ")}`);
++    return value;
++  }
++  async function withBlockedCurrentFile(operation) {
++    await Services.prefs.savePrefFileAsync();
++    suspend();
++    const saved = child("original-prefs.js");
++    requireCondition(!saved.exists(), "recovery file already exists");
++    current.clone().moveTo(fixture, saved.leafName);
++    try {
++      // A directory is a real rename/write failure even when tests run as root.
++      current.create(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
++      await operation();
++      requireCondition(current.isDirectory(), "failure target was replaced");
++    } finally {
++      // Drain before synchronous restore; an autosave cannot run on the main
++      // thread between removing the directory and moving the original back.
++      syncOutcome(suspend);
++      if (current.exists()) {
++        requireCondition(
++          current.isDirectory(),
++          `unexpected recovery target; original retained at ${saved.path}`
++        );
++        current.remove(false);
++      }
++      saved.moveTo(profile, current.leafName);
++    }
++  }
++  try {
++    await Services.prefs.savePrefFileAsync();
++    requireCondition(current.isFile(), "current profile save created no file");
++    initialized = true;
++    fixture = profile.clone();
++    fixture.append("lw-m7-35-io");
++    fixture.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
++    if (scenario === "snapshots") {
++      const firstBackup = child("a.js");
++      const secondBackup = child("b.js");
++      const failedBackup = child("directory");
++      failedBackup.create(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
++      // Capture requests without yielding, then inspect each distinct file.
++      Services.prefs.setStringPref(PREF, "first-current");
++      const first = outcome(() => Services.prefs.savePrefFileAsync());
++      Services.prefs.setStringPref(PREF, "backup-a");
++      const a = outcome(() => Services.prefs.backupPrefFile(firstBackup));
++      Services.prefs.setStringPref(PREF, "failed-backup");
++      const failed = outcome(() => Services.prefs.backupPrefFile(failedBackup));
++      Services.prefs.setStringPref(PREF, "backup-b");
++      const b = outcome(() => Services.prefs.backupPrefFile(secondBackup));
++      Services.prefs.setStringPref(PREF, "final-current");
++      const final = outcome(() => Services.prefs.savePrefFileAsync());
++      [
++        receipt.first,
++        receipt.backupA,
++        receipt.failed,
++        receipt.backupB,
++        receipt.final,
++      ] = await Promise.all([first, a, failed, b, final]);
++      receipt.backupAValue = await valueOnDisk(firstBackup);
++      receipt.backupBValue = await valueOnDisk(secondBackup);
++      receipt.currentValue = await valueOnDisk(current);
++      receipt.failedTargetIsDirectory = failedBackup.isDirectory();
++    } else if (scenario === "clean") {
++      Services.prefs.setStringPref(PREF, "clean-state");
++      suspend();
++      receipt.dirtyBeforeRemoval = Services.prefs.dirty;
++      requireCondition(!receipt.dirtyBeforeRemoval, "blocking save was not clean");
++      current.remove(false);
++      receipt.dirtyAfterRemoval = Services.prefs.dirty;
++      receipt.fileAbsentBeforeBarrier = !current.exists();
++      await Services.prefs.savePrefFileAsync();
++      receipt.recreatedValue = await valueOnDisk(current);
++      Services.prefs.clearUserPref(PREF);
++      await Services.prefs.savePrefFileAsync();
++      receipt.resetValue = await valueOnDisk(current);
++    } else {
++      await withBlockedCurrentFile(async () => {
++        Services.prefs.setStringPref(PREF, "after-disk-error");
++        receipt.failedSave = await outcome(() =>
++          Services.prefs.savePrefFileAsync()
++        );
++        receipt.failedSuspend = syncOutcome(suspend);
++        receipt.memoryValueAfterFailure = Services.prefs.getStringPref(PREF);
++        if (scenario === "shutdown") {
++          receipt.failedShutdown = syncOutcome(() =>
++            observer.observe(null, "profile-before-change-telemetry", null)
++          );
++          // If broken code acknowledged this failure, stop further mutation.
++          // The outer finally still restores the original physical file.
++          profileClosed = receipt.failedShutdown.resolved;
++        }
++        receipt.failureTargetIsDirectory = current.isDirectory();
++      });
++      requireCondition(!profileClosed, "failed I/O was acknowledged as shutdown");
++      receipt.retry = await outcome(() => Services.prefs.savePrefFileAsync());
++      receipt.retryValue = await valueOnDisk(current);
++      suspend();
++      receipt.dirtyAfterRetry = Services.prefs.dirty;
++      if (scenario === "shutdown") {
++        Services.prefs.setStringPref(PREF, "shutdown-final");
++        observer.observe(null, "profile-before-change-telemetry", null);
++        profileClosed = true;
++        receipt.finalValue = await valueOnDisk(current);
++        receipt.afterShutdown = await outcome(() =>
++          Services.prefs.savePrefFileAsync()
++        );
++        receipt.expectedShutdownError = Cr.NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
++      }
++    }
++    return receipt;
++  } finally {
++    // A successful final profile shutdown is intentionally irreversible. Its
++    // dedicated instrumentation process owns disposal of that test profile.
++    if (initialized && !profileClosed) {
++      Services.prefs.clearUserPref(PREF);
++      await Services.prefs.savePrefFileAsync();
++      suspend();
++    }
++    // Never discard the only recovery copy if restoration failed.
++    if (fixture?.exists() && !child("original-prefs.js").exists()) {
++      fixture.remove(true);
++    }
++    prefSaveIOTestRunning = false;
++  }
++}
+
+ this.test = class extends ExtensionAPI {
+   onStartup() {
+@@ -57,6 +267,10 @@
+
+     return {
+       test: {
++        async runPrefSaveFileAsyncIOTest(scenario, allowProfileShutdown) {
++          return runPrefSaveFileAsyncIOTest(scenario, allowProfileShutdown);
++        },
++
+         /* Set prefs and returns set of saved prefs */
+         async setPrefs(oldPrefs, newPrefs) {
+           // Save old prefs
+--- a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
++++ b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
+@@ -4,6 +4,20 @@
+     "description": "Additional APIs for test support in GeckoView.",
+     "functions": [
+       {
++        "name": "runPrefSaveFileAsyncIOTest",
++        "type": "function",
++        "async": true,
++        "description": "Exercise actual current-profile native I/O in the isolated GeckoView instrumentation profile.",
++        "parameters": [
++          {
++            "name": "scenario",
++            "type": "string",
++            "enum": ["snapshots", "clean", "failure", "shutdown"]
++          },
++          { "name": "allowProfileShutdown", "type": "boolean" }
++        ]
++      },
++      {
+         "name": "setPrefs",
+         "type": "function",
+         "async": true,
+--- /dev/null
++++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncTest.kt
+@@ -0,0 +1,70 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.geckoview.test
++
++import android.util.Log
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.test.filters.MediumTest
++import org.json.JSONObject
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++
++// Uses RuntimeCreator's normal XRE_main profile. Xpcshell, even Android
++// xpcshell, cannot cover mCurrentFile because it enters XRE_XPCShellMain.
++@RunWith(AndroidJUnit4::class)
++@MediumTest
++class PrefSaveFileAsyncTest : BaseSessionTest() {
++    private fun receipt(scenario: String): JSONObject {
++        val value = sessionRule.evaluateExtensionJS(
++            "return JSON.stringify(await browser.test.runPrefSaveFileAsyncIOTest('$scenario', false));",
++        ) as String
++        Log.i("PrefSaveFileAsyncTest", value)
++        return JSONObject(value).also {
++            assertEquals(scenario, it.getString("scenario"))
++            assertEquals(it.getString("profile") + "/prefs.js", it.getString("currentFile"))
++        }
++    }
++
++    @Test
++    fun currentAndBackupSnapshotsHaveIndependentOutcomes() {
++        val result = receipt("snapshots")
++        for (name in listOf("first", "backupA", "backupB", "final")) {
++            assertTrue("$name completed", result.getJSONObject(name).getBoolean("resolved"))
++        }
++        assertFalse(result.getJSONObject("failed").getBoolean("resolved"))
++        assertTrue(result.getJSONObject("failed").getJSONObject("error").getString("message").isNotEmpty())
++        assertEquals("backup-a", result.getString("backupAValue"))
++        assertEquals("backup-b", result.getString("backupBValue"))
++        assertEquals("final-current", result.getString("currentValue"))
++        assertTrue(result.getBoolean("failedTargetIsDirectory"))
++    }
++
++    @Test
++    fun cleanStateBarrierRecreatesCurrentFileAndPersistsReset() {
++        val result = receipt("clean")
++        assertFalse(result.getBoolean("dirtyBeforeRemoval"))
++        assertFalse(result.getBoolean("dirtyAfterRemoval"))
++        assertTrue(result.getBoolean("fileAbsentBeforeBarrier"))
++        assertEquals("clean-state", result.getString("recreatedValue"))
++        assertTrue("Reset removed the user value from saved bytes", result.isNull("resetValue"))
++    }
++
++    @Test
++    fun actualCurrentFileFailureRejectsSuspendAndRetries() {
++        val result = receipt("failure")
++        for (name in listOf("failedSave", "failedSuspend")) {
++            assertFalse("$name reports I/O failure", result.getJSONObject(name).getBoolean("resolved"))
++            assertTrue(result.getJSONObject(name).getJSONObject("error").getString("message").isNotEmpty())
++        }
++        assertTrue(result.getBoolean("failureTargetIsDirectory"))
++        assertEquals("after-disk-error", result.getString("memoryValueAfterFailure"))
++        assertTrue(result.getJSONObject("retry").getBoolean("resolved"))
++        assertEquals("after-disk-error", result.getString("retryValue"))
++        assertFalse(result.getBoolean("dirtyAfterRetry"))
++    }
++}
+--- /dev/null
++++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncShutdownTest.kt
+@@ -0,0 +1,68 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.geckoview.test
++
++import android.util.Log
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.test.filters.MediumTest
++import androidx.test.platform.app.InstrumentationRegistry
++import org.json.JSONObject
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Assume.assumeTrue
++import org.junit.BeforeClass
++import org.junit.Test
++import org.junit.runner.RunWith
++
++/**
++ * Destructive native profile-service shutdown: run in a fresh instrumentation
++ * process with this exact class selector and redoubtAllowProfileShutdown=true.
++ * RuntimeCreator shares its runtime across classes, so a broad suite must skip
++ * this class. A skip is pending shutdown coverage, never a successful check.
++ * This tests the real preference observer's acknowledgment, not full app exit.
++ */
++@RunWith(AndroidJUnit4::class)
++@MediumTest
++class PrefSaveFileAsyncShutdownTest : BaseSessionTest() {
++    companion object {
++        @JvmStatic
++        @BeforeClass
++        fun requireIsolatedInvocation() {
++            val args = InstrumentationRegistry.getArguments()
++            assumeTrue(
++                "Pending: requires an isolated shutdown-only instrumentation process",
++                args.getString("redoubtAllowProfileShutdown") == "true" &&
++                    args.getString("class") == PrefSaveFileAsyncShutdownTest::class.java.name,
++            )
++        }
++    }
++
++    @Test
++    fun failedFinalSaveLeavesProfileOpenAndSuccessfulFinalSaveClosesIt() {
++        val value = sessionRule.evaluateExtensionJS(
++            "return JSON.stringify(await browser.test.runPrefSaveFileAsyncIOTest('shutdown', true));",
++        ) as String
++        Log.i("PrefSaveFileAsyncTest", value)
++        val result = JSONObject(value)
++        assertEquals("shutdown", result.getString("scenario"))
++        assertEquals(result.getString("profile") + "/prefs.js", result.getString("currentFile"))
++        for (name in listOf("failedSave", "failedSuspend", "failedShutdown")) {
++            assertFalse("$name reports real I/O failure", result.getJSONObject(name).getBoolean("resolved"))
++        }
++        assertTrue(result.getBoolean("failureTargetIsDirectory"))
++        assertEquals("after-disk-error", result.getString("memoryValueAfterFailure"))
++        assertTrue("Failed shutdown did not close profile", result.getJSONObject("retry").getBoolean("resolved"))
++        assertEquals("after-disk-error", result.getString("retryValue"))
++        assertFalse(result.getBoolean("dirtyAfterRetry"))
++        assertEquals("shutdown-final", result.getString("finalValue"))
++        val afterShutdown = result.getJSONObject("afterShutdown")
++        assertFalse(afterShutdown.getBoolean("resolved"))
++        assertEquals(
++            result.getLong("expectedShutdownError"),
++            afterShutdown.getJSONObject("error").getLong("result"),
++        )
++    }
++}
 --- a/modules/libpref/nsIPrefService.idl
 +++ b/modules/libpref/nsIPrefService.idl
 @@ -79,6 +79,16 @@
@@ -378,30 +775,32 @@
     * parameter, and aFile cannot be pointing at the current preferences file.
 --- /dev/null
 +++ b/modules/libpref/test/unit/test_savePrefFileAsync.js
-@@ -0,0 +1,183 @@
+@@ -0,0 +1,108 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 +
 +"use strict";
 +
-+// LW-M7-35: real native file I/O, not a mocked preference service. Android's
-+// xpcshell head initializes a profile before loading tests, so no-profile
-+// rejection requires separate native/startup coverage and is not claimed here.
++// XPCShellMain does not call InitializeUserPrefs, including on Android.
++// do_get_profile() registers directories, not the native current prefs file.
++// Actual current-profile I/O belongs to GeckoView PrefSaveFileAsyncTest.
 +const PREF = "test.librewolf.savePrefFileAsync.value";
-+let profile;
-+let prefsFile;
-+let prefsObserver;
++let fixture;
 +
 +function childFile(name) {
-+  const file = profile.clone();
++  const file = fixture.clone();
 +  file.append(name);
 +  return file;
 +}
 +
-+async function savedValues(file) {
-+  const values = new Map();
-+  const record = (_kind, name, value) => values.set(name, value);
++async function savedValue(file) {
++  let value;
++  const record = (_kind, name, saved) => {
++    if (name === PREF) {
++      value = saved;
++    }
++  };
 +  Services.prefs.parsePrefsFromBuffer(await IOUtils.read(file.path), {
 +    onStringPref: record,
 +    onIntPref: record,
@@ -410,157 +809,80 @@
 +      Assert.ok(false, `Malformed saved preference file: ${message}`);
 +    },
 +  });
-+  return values;
++  return value;
 +}
 +
-+function suspendSave() {
-+  // Invoke this service directly to observe its nsresult. notifyObservers()
-+  // discards individual observer errors and cannot prove an acknowledgment.
-+  prefsObserver.observe(null, "suspend_process_notification", null);
-+}
-+
-+async function rejectsSave(pattern = /NS_ERROR_/) {
-+  // Account for both an XPIDL synchronous error and a returned rejected Promise.
++async function rejectsWithoutCurrentProfile() {
++  // Capture either an XPIDL synchronous error or a rejected DOM Promise.
 +  await Assert.rejects(
 +    Promise.resolve().then(() => Services.prefs.savePrefFileAsync()),
-+    pattern
++    /NS_ERROR_NOT_INITIALIZED/
 +  );
-+}
-+
-+async function withBlockedCurrentFile(task) {
-+  await Services.prefs.savePrefFileAsync();
-+  suspendSave();
-+  const saved = childFile("lw-m7-35-prefs.saved");
-+  Assert.ok(!saved.exists(), "Failure fixture never overwrites an existing file");
-+  // A directory at prefs.js produces a real I/O failure even as root; chmod is
-+  // not a reliable error fixture. Transitions are synchronous so an autosave
-+  // cannot run on the main thread between removing the directory and restore.
-+  prefsFile.clone().moveTo(profile, saved.leafName);
-+  prefsFile.create(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
-+  try {
-+    await task();
-+    Assert.ok(prefsFile.isDirectory(), "Failure target remained a directory");
-+  } finally {
-+    // Drain any already queued writer before restoring the fixture. Failure
-+    // here is expected, but target failure assertions belong to task() above.
-+    try {
-+      suspendSave();
-+    } catch (_) {}
-+    prefsFile.remove(false);
-+    saved.moveTo(profile, prefsFile.leafName);
-+  }
 +}
 +
 +add_setup(async function initialize() {
 +  Assert.equal(typeof Services.prefs.savePrefFileAsync, "function");
-+  profile = do_get_profile();
-+  prefsFile = childFile("prefs.js");
-+  Assert.ok(
-+    Services.dirsvc.get("PrefF", Ci.nsIFile).equals(prefsFile),
-+    "Test uses the actual current profile preferences file"
-+  );
-+  Assert.ok(
-+    Services.prefs.getBoolPref("preferences.allow.omt-write"),
-+    "Manifest enables the queued native writer before its first use"
-+  );
-+  prefsObserver = Services.prefs.QueryInterface(Ci.nsIObserver);
-+  await Services.prefs.savePrefFileAsync();
-+});
-+
-+add_task(async function current_and_backup_snapshots_have_separate_outcomes() {
-+  const backupA = childFile("lw-m7-35-backup-a.js");
-+  const backupB = childFile("lw-m7-35-backup-b.js");
-+  const badBackup = childFile("lw-m7-35-backup-directory");
-+  for (const file of [backupA, backupB, badBackup]) {
-+    Assert.ok(!file.exists());
-+  }
-+  badBackup.create(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
-+  try {
-+    // Queue distinct states/destinations without yielding. Each promise belongs
-+    // to its own captured snapshot, not a shared newest global snapshot.
-+    Services.prefs.setStringPref(PREF, "first-current");
-+    const firstCurrent = Services.prefs.savePrefFileAsync();
-+    Services.prefs.setStringPref(PREF, "backup-a");
-+    const firstBackup = Services.prefs.backupPrefFile(backupA);
-+    Services.prefs.setStringPref(PREF, "backup-failure");
-+    const failure = Assert.rejects(
-+      Services.prefs.backupPrefFile(badBackup),
-+      /NS_ERROR_/
++  Assert.ok(Services.prefs.getBoolPref("preferences.allow.omt-write"));
++  Assert.ok(!Services.prefs.prefHasUserValue(PREF));
++  await rejectsWithoutCurrentProfile();
++  fixture = do_get_profile().clone();
++  fixture.append("lw-m7-35-backups");
++  fixture.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
++  registerCleanupFunction(() => {
++    Services.prefs.clearUserPref(PREF);
++    Services.prefs.QueryInterface(Ci.nsIObserver).observe(
++      null,
++      "suspend_process_notification",
++      null
 +    );
-+    Services.prefs.setStringPref(PREF, "backup-b");
-+    const secondBackup = Services.prefs.backupPrefFile(backupB);
-+    Services.prefs.setStringPref(PREF, "final-current");
-+    const finalCurrent = Services.prefs.savePrefFileAsync();
-+    await Promise.all([
-+      firstCurrent,
-+      firstBackup,
-+      failure,
-+      secondBackup,
-+      finalCurrent,
-+    ]);
-+    Assert.equal((await savedValues(backupA)).get(PREF), "backup-a");
-+    Assert.equal((await savedValues(backupB)).get(PREF), "backup-b");
-+    Assert.equal((await savedValues(prefsFile)).get(PREF), "final-current");
-+    Assert.ok(badBackup.isDirectory(), "Failed request did not replace its target");
-+  } finally {
-+    suspendSave();
-+    for (const file of [backupA, backupB, badBackup]) {
-+      if (file.exists()) {
-+        file.remove(false);
-+      }
++    if (fixture.exists()) {
++      fixture.remove(true);
 +    }
-+  }
-+});
-+
-+add_task(async function clean_state_still_forces_a_write_and_reset_is_saved() {
-+  Services.prefs.setStringPref(PREF, "clean-state");
-+  suspendSave();
-+  Assert.ok(!Services.prefs.dirty, "Blocking save left the native service clean");
-+  prefsFile.remove(false);
-+  Assert.ok(!Services.prefs.dirty, "Removing the file did not mutate native prefs");
-+  await Services.prefs.savePrefFileAsync();
-+  Assert.equal((await savedValues(prefsFile)).get(PREF), "clean-state");
-+
-+  Services.prefs.clearUserPref(PREF);
-+  await Services.prefs.savePrefFileAsync();
-+  Assert.ok(!(await savedValues(prefsFile)).has(PREF), "Reset reached disk");
-+});
-+
-+add_task(async function actual_write_failure_rejects_and_can_be_retried() {
-+  await withBlockedCurrentFile(async () => {
-+    Services.prefs.setStringPref(PREF, "after-disk-error");
-+    await rejectsSave();
-+    Assert.throws(suspendSave, /NS_ERROR_/, "Suspend acknowledgment reports I/O failure");
-+    Assert.equal(Services.prefs.getStringPref(PREF), "after-disk-error");
 +  });
-+  await Services.prefs.savePrefFileAsync();
-+  Assert.equal((await savedValues(prefsFile)).get(PREF), "after-disk-error");
-+  suspendSave();
-+  Assert.ok(!Services.prefs.dirty, "Successful blocking retry clears dirty state");
 +});
 +
-+// Must be last: successful profile shutdown intentionally cannot be undone.
-+add_task(async function shutdown_failure_does_not_close_profile_then_success_does() {
-+  await withBlockedCurrentFile(async () => {
-+    Services.prefs.setStringPref(PREF, "shutdown-retry");
-+    await rejectsSave();
-+    Assert.throws(
-+      () => prefsObserver.observe(null, "profile-before-change-telemetry", null),
-+      /NS_ERROR_/,
-+      "Failed final save is not a successful shutdown acknowledgment"
-+    );
-+  });
-+  // This call would reject ILLEGAL_DURING_SHUTDOWN if the failed observer had
-+  // incorrectly closed the profile. Verify actual bytes after the retry too.
-+  await Services.prefs.savePrefFileAsync();
-+  Assert.equal((await savedValues(prefsFile)).get(PREF), "shutdown-retry");
++add_task(async function directory_registration_is_not_native_initialization() {
++  await rejectsWithoutCurrentProfile();
++});
 +
-+  Services.prefs.setStringPref(PREF, "shutdown-final");
-+  prefsObserver.observe(null, "profile-before-change-telemetry", null);
-+  Assert.equal((await savedValues(prefsFile)).get(PREF), "shutdown-final");
-+  await rejectsSave(/NS_ERROR_ILLEGAL_DURING_SHUTDOWN/);
-+  // The xpcshell harness owns removal of this dedicated profile. Do not mutate
-+  // the preference service after its successful final shutdown.
++add_task(async function backup_snapshots_fail_independently_and_suspend_drains() {
++  const backupA = childFile("a.js");
++  const backupB = childFile("b.js");
++  const failed = childFile("directory");
++  failed.create(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
++
++  // No yield between requests: each destination needs its own captured data.
++  Services.prefs.setStringPref(PREF, "backup-a");
++  const first = Services.prefs.backupPrefFile(backupA);
++  Services.prefs.setStringPref(PREF, "failed-backup");
++  const rejection = Assert.rejects(
++    Services.prefs.backupPrefFile(failed),
++    /NS_ERROR_/
++  );
++  Services.prefs.setStringPref(PREF, "backup-b");
++  const second = Services.prefs.backupPrefFile(backupB);
++
++  // Direct invocation preserves the observer's nsresult. No current profile
++  // exists, but its serial backup queue must still be drained before returning.
++  Services.prefs.QueryInterface(Ci.nsIObserver).observe(
++    null,
++    "suspend_process_notification",
++    null
++  );
++  Assert.ok(backupA.isFile(), "First backup exists at blocking return");
++  Assert.ok(backupB.isFile(), "Second backup exists at blocking return");
++  await Promise.all([first, rejection, second]);
++  Assert.equal(await savedValue(backupA), "backup-a");
++  Assert.equal(await savedValue(backupB), "backup-b");
++  Assert.ok(failed.isDirectory(), "Failed write preserved its target");
++  await rejectsWithoutCurrentProfile();
++
++  // A subsequent successful request must not inherit the preceding error.
++  failed.remove(false);
++  Services.prefs.setStringPref(PREF, "retry");
++  await Services.prefs.backupPrefFile(failed);
++  Assert.equal(await savedValue(failed), "retry");
++  await rejectsWithoutCurrentProfile();
 +});
 --- a/modules/libpref/test/unit/xpcshell.toml
 +++ b/modules/libpref/test/unit/xpcshell.toml
@@ -1541,7 +1863,7 @@
 +}
 --- /dev/null
 +++ b/toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,132 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1569,37 +1891,38 @@
 +      if (entry.hasUser) Services.prefs.setBoolPref(entry.name, entry.value);
 +      else Services.prefs.clearUserPref(entry.name);
 +    }
-+    await Services.prefs.savePrefFileAsync();
 +    await AddonTestUtils.promiseShutdownManager();
 +  });
 +});
 +
-+add_task(async function combined_settings_save_actual_profile_and_report_locks() {
++// XRE_XPCShellMain does not initialize Preferences.mCurrentFile. These tests
++// use real native prefs for update admission, and assert that the durable
++// setting API rejects before mutation without a current profile. Actual saved
++// pair/queue behavior runs through GeckoView in WebExtensionUpdateSettingsTest.
++function configureAutomaticUpdates(enabled) {
++  for (const name of NAMES) Services.prefs.setBoolPref(name, enabled);
++}
++
++add_task(async function mixed_values_locks_and_missing_profile_are_reported_honestly() {
 +  Services.prefs.setBoolPref(NAMES[0], true);
 +  Services.prefs.setBoolPref(NAMES[1], false);
 +  Assert.ok(!controller.getAutomaticUpdateSettings().enabled, "Mixed values are unchecked");
-+  const state = await controller.setAutomaticUpdateSettings(false);
-+  Assert.ok(!state.updateEnabled && !state.autoUpdateDefault);
-+  const saved = new Map();
-+  Services.prefs.parsePrefsFromBuffer(
-+    await IOUtils.read(PathUtils.join(do_get_profile().path, "prefs.js")),
-+    {onBoolPref: (_kind, name, value) => saved.set(name, value),
-+     onStringPref() {}, onIntPref() {}, onError: message => Assert.ok(false, message)}
-+  );
-+  for (const name of NAMES) Assert.equal(saved.get(name), false, name);
++  await Assert.rejects(controller.setAutomaticUpdateSettings(false), /NS_ERROR_NOT_INITIALIZED/);
++  Assert.equal(Services.prefs.getBoolPref(NAMES[0]), true, "No first mutation without a current profile");
++  Assert.equal(Services.prefs.getBoolPref(NAMES[1]), false, "No second mutation without a current profile");
++  Assert.equal(controller._pendingAutomaticUpdateSettings, 0, "Failed preflight releases the queue");
 +  Services.prefs.lockPref(NAMES[1]);
 +  try {
 +    Assert.ok(controller.getAutomaticUpdateSettings().locked);
-+    await Assert.rejects(controller.setAutomaticUpdateSettings(true), /locked/);
-+    Assert.equal(Services.prefs.getBoolPref(NAMES[0]), false, "No partial first write");
++    await Assert.rejects(controller.setAutomaticUpdateSettings(false), /locked/);
++    Assert.equal(Services.prefs.getBoolPref(NAMES[0]), true, "No partial first write while locked");
 +  } finally {
 +    Services.prefs.unlockPref(NAMES[1]);
 +  }
-+  Assert.ok((await controller.setAutomaticUpdateSettings(true)).enabled);
 +});
 +
 +add_task(async function automatic_off_prevents_metadata_and_extension_lookup() {
-+  await controller.setAutomaticUpdateSettings(false);
++  configureAutomaticUpdates(false);
 +  const sandbox = sinon.createSandbox();
 +  try {
 +    const metadata = sandbox.stub(AddonRepository, "isMetadataStale").returns(true);
@@ -1611,7 +1934,7 @@
 +});
 +
 +add_task(async function off_during_metadata_prevents_manifest() {
-+  await controller.setAutomaticUpdateSettings(true);
++  configureAutomaticUpdates(true);
 +  const sandbox = sinon.createSandbox();
 +  let finish;
 +  try {
@@ -1619,7 +1942,7 @@
 +    sandbox.stub(AddonRepository, "backgroundUpdateCheck").returns(new Promise(resolve => { finish = resolve; }));
 +    const lookup = sandbox.stub(controller, "extensionById").throws(new Error("unreachable"));
 +    const update = controller.updateWebExtension("test", true);
-+    await controller.setAutomaticUpdateSettings(false);
++    configureAutomaticUpdates(false);
 +    finish();
 +    Assert.equal(await update, null);
 +    Assert.ok(lookup.notCalled);
@@ -1627,7 +1950,7 @@
 +});
 +
 +add_task(async function automatic_install_respects_per_addon_policy() {
-+  await controller.setAutomaticUpdateSettings(true);
++  configureAutomaticUpdates(true);
 +  const sandbox = sinon.createSandbox();
 +  try {
 +    sandbox.stub(AddonRepository, "isMetadataStale").returns(false);
@@ -1643,7 +1966,7 @@
 +});
 +
 +add_task(async function off_during_manifest_prevents_install() {
-+  await controller.setAutomaticUpdateSettings(true);
++  configureAutomaticUpdates(true);
 +  const sandbox = sinon.createSandbox();
 +  let finish;
 +  try {
@@ -1653,7 +1976,7 @@
 +    const update = controller.updateWebExtension("test", true);
 +    await Promise.resolve();
 +    Assert.ok(manifest.calledOnce);
-+    await controller.setAutomaticUpdateSettings(false);
++    configureAutomaticUpdates(false);
 +    const install = { install: sandbox.spy(), addListener: sandbox.spy() };
 +    finish(install);
 +    Assert.equal(await update, null);
@@ -1662,7 +1985,7 @@
 +});
 +
 +add_task(async function explicit_check_remains_available_with_automatic_off() {
-+  await controller.setAutomaticUpdateSettings(false);
++  configureAutomaticUpdates(false);
 +  const sandbox = sinon.createSandbox();
 +  try {
 +    sandbox.stub(AddonRepository, "isMetadataStale").returns(false);
