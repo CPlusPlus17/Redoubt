@@ -366,9 +366,9 @@
       "remaining": "No Android policy engine or generic policy enforcement is claimed. Keep autoconfig loading/locks and policy translation mechanisms distinct."
     },
     "firefox-suggest": {
-      "status": "mixed_open",
+      "status": "source_implemented_runtime_open",
       "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "LW-M7-26 adds default-off master/web/sponsored/online choices on every channel, preserving explicit preferences and separate ordinary engine suggestions. Admission is initialized before providers; storage and native Merino construction are lazy, with guards for workers, scheduling, queued requests, private mode and late results. The inspected desktop policy supplies defaults without Locked. Root source replay verifies 20 files; all 19 authored Kotlin tests, target compilation and APK behavior remain pending. Fresh local web/sponsored data is absent and disclosed in the UI; the generic Remote Settings network blocker remains intact.",
+      "android": "LW-M7-26 adds default-off master/web/sponsored/online choices with lazy storage/transport admission, generations and private guards. LW-M7-29 adds explicit pinned Wikipedia-language and sponsored-phone-region downloads: 26 choices, exact attachment/icon closure, bounded credential-free CDN requests, native atomic per-collection import, cancellation/configuration fences and actual local Suggest ingestion. Only Download starts data traffic. A small catalog and zero-timestamp empty/configuration seeds ship; production datasets are selected downloads. Root replay verifies 17 changed code and 13 generated files, nine asset tests and exact catalog/order receipts. Rust/Kotlin compilation, target tests and APK behavior are pending; the active native4 snapshot excludes Task29.",
       "evidence": [
         "source:feature-flags",
         "source:home-fml",
@@ -376,9 +376,14 @@
         "source:desktop-policy-effects",
         "repo:patches/android/no-suggest.patch",
         "repo:patches/android/rs-blocker-android.patch",
-        "repo:patches/android/firefox-suggest-policy.patch"
+        "repo:patches/android/firefox-suggest-policy.patch",
+        "repo:patches/android/firefox-suggest-data.patch",
+        "repo:scripts/package-firefox-suggest.py",
+        "repo:assets/firefox-suggest/catalog.json",
+        "repo:docs/android/evidence/lw-m7-29/source-files.json",
+        "repo:docs/android/evidence/lw-m7-29/ordering-review.json"
       ],
-      "remaining": "Execute the affected target classes and full Fenix gate, then verify fresh/upgrade/default/off/on/private/background/restart behavior, real local/online results and network boundaries on the final APK. Bundle reviewed local collection metadata, global configuration, suggestion/icon attachments and matching metadata/timestamps, then prove empty-profile ingestion with Remote Settings network blocked. Already sent requests may finish; disabling rejects queued work and late results. Verify ordinary query suggestions, history/bookmarks and engine choices separately."
+      "remaining": "Compile the integrated source and run the affected Rust/Kotlin classes plus full Fenix gate, then verify fresh/upgrade/off/on/private/background/restart behavior and real local/online results against exact APK/native inputs. Execute explicit download and positive native ingestion, locale mismatch, unavailable/corrupt/missing/extra input, cancellation/config changes and failed COMMIT preserving old data. Successful RS cache publication alone does not prove indexing or displayed cards. Verify offline reuse and first-result behavior. Already sent requests may finish; queued requests and late results are rejected after off. Ordinary query suggestions, history/bookmarks and engine choices need separate regression checks."
     },
     "website-filter": {
       "status": "desktop_boundary",
@@ -1956,7 +1961,7 @@
     }
   ],
   "repository_evidence": {
-    "assets/patches/android.txt": "61ff2f56dfcd44b0c786b7b6a4519eb77513c829dc2735cc18af74d1c9a763a8",
+    "assets/patches/android.txt": "ee8a37211ab640dde8687498bf99952a33111bc2f1ee4dddfc02c7c92d3edcbb",
     "assets/search-config-v2.json": "f6136f5d64eb2cb023791b2075687b4ce8fbde778315463bcda2c514d9b6f815",
     "assets/translations/bergamot-translator.wasm.zst": "327fcfc7b7e9d95f6fa0844ebf899cfc05469872ef02d3aef5783182839a6255",
     "assets/translations/catalog.json": "ce8c163e97d9d5b136cd673f7e63684dada00b45514442bf282b387174100d96",
@@ -1990,7 +1995,7 @@
     "patches/ui-patches/neterror-common.patch": "1a5caea7bbf7305874d7c54075bd24be59a03c00a2617c6a8fb2f9fbe1ea7851",
     "patches/webgl-permission-common.patch": "b395646ba9b73870afe584847e899a1002ea341eb4a00f5c023be169b3c2d043",
     "scripts/fetch-ubo-extension.py": "4aab232423e898b5753663d09e80277fa41e7a83dafcf9dbc15b21fd5e1463bf",
-    "scripts/librewolf-patches.py": "51929bb88a6657b16cf67bbb51fb9618e61b8d45582ce3db1234b9c660a1a272",
+    "scripts/librewolf-patches.py": "25da2729a645a28401cfe41974c0ae8d058b63a61b21d0f758a9f363c9158b82",
     "scripts/package-translation-assets.py": "2b65b08920d38199ebca215c0ae1d9118d10501f5be8bab9b47bb70945b3939f",
     "patches/android/home-section-defaults.patch": "9253d3956aff79b8066b65e4521497ca8f1bceab9cab4fe8976137edc43e51fc",
     "patches/android/sync-opt-in.patch": "a68d04e8642e216be954253062a19f38089626df2c34d725317d82a23193ff29",
@@ -1999,7 +2004,12 @@
     "docs/android/evidence/lw-m7-21/extension-type-audit/source-inputs.json": "f65c84d04450529523ec0450cb1c09293eba524c8554d7bb2e6f1049967e40e1",
     "docs/android/evidence/lw-m7-21/extension-type-audit/source-inputs.tar.gz": "1b502eb9d363a1c0ac4b72c10bb7d5245d2de9bc85ee3c8ca802d7a345e0cc81",
     "docs/android/evidence/lw-m7-21/bookmark-seed-audit/source-inputs.json": "2c19f26738fdb126720eefc438ad0d84594b54d8d025a5c94358f8208ba229c3",
-    "docs/android/evidence/lw-m7-21/bookmark-seed-audit/source-inputs.tar.gz": "84168a3e599726f327a75675d92ba54681783c7018aca22ecd968d8abdb3b48b"
+    "docs/android/evidence/lw-m7-21/bookmark-seed-audit/source-inputs.tar.gz": "84168a3e599726f327a75675d92ba54681783c7018aca22ecd968d8abdb3b48b",
+    "patches/android/firefox-suggest-data.patch": "aca7d6db70fd53dfd4d7ec161fb47b2065711afd20238846c75ef68de54c4c60",
+    "scripts/package-firefox-suggest.py": "3039420e0a4b602ef3068215fcecc68e7a5ed99894149f92e87e00f513f00219",
+    "assets/firefox-suggest/catalog.json": "4960be774112710a938ec47bfea0588697dd35de445aea909be675595ae503aa",
+    "docs/android/evidence/lw-m7-29/source-files.json": "7a4d7f2a563a3ade0bc1f8d4b683e9dcc152ac9d3e71abf7ad59c620f6ae3cd6",
+    "docs/android/evidence/lw-m7-29/ordering-review.json": "3d1fa8f72a8c5e58a329bb5a4a634506cd6fed842b0dee9d8f7b67fa411bfcd7"
   },
   "source_capture_commit": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae"
 }

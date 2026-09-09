@@ -134,6 +134,7 @@ OUT_OF_LIST_TAIL = ()
 # --------------------------------------------------------------------------
 
 CONSTRAINTS = (
+    ('patches/android/firefox-suggest-policy.patch', 'patches/android/firefox-suggest-data.patch', ('mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt', 'mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml', 'mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml'), 'The explicit data installer extends Task26 admission and settings controls; inverse replay fails on all four shared paths (LW-M7-29 ordering-review.json).'),
     ('patches/android/ubo-preinstall.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/res/values/strings.xml',), 'Retain uBO before graphics before cookie controls; the alternate attempt fails first in graphics, not in the cookie candidate (LW-M7-21 cookie-controls-order.json).'),
     ('patches/android/canvas-webgl-permissions.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt', 'mobile/android/fenix/app/src/main/res/values/strings.xml', 'mobile/android/geckoview/api.txt', 'mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs', 'mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs'), 'The expanded native cookie candidate requires the preceding graphics UI/context; its alternate order fails at cookie application. All eight shared files were replayed (LW-M7-21 cookie-controls-order.json).'),
     # LW-M7-26: measured Suggest composition.
@@ -369,6 +370,8 @@ CONSTRAINTS = (
 # --------------------------------------------------------------------------
 
 REVIEWED_ORDER_FREE = (
+    ('patches/android/rs-blocker-android.patch', 'patches/android/firefox-suggest-data.patch', ('third_party/application-services/components/remote_settings/src/client.rs',), 'Both scoped orders produce the same 17 code files; explicit local import retains the generic remote network blocker (LW-M7-29 ordering-review.json).'),
+    ('patches/android/search-config.patch', 'patches/android/firefox-suggest-data.patch', ('third_party/application-services/components/remote_settings/src/client.rs',), 'Both scoped orders produce the same 17 code files; search packaged attachment lookup and explicit Suggest import remain separate (LW-M7-29 ordering-review.json).'),
     (
         "patches/android/ubo-readiness.patch",
         "patches/android/extension-permission-durability.patch",
