@@ -4623,6 +4623,10 @@ tasks:
       profile, and retain original mapping/trust state for cleanup. The cookie
       runner must independently verify its private challenge, exact HTTPS URL,
       clean certificate chain and CA hash before any controlled navigation.
+      Provide an explicit setup/cleanup helper bound to a selected rootable
+      AOSP emulator boot, exact installed APK and fresh expected profile.
+      Keep hosts changes in a temporary bind mount; verify Gecko DNS and
+      exact imported public-CA identity; remove only owned setup changes.
       Never count host bridge checks as APK native rejection or alter policy
       preferences/rules to obtain a pass. Run no emulator beside native builds.
     acceptance:
@@ -4630,11 +4634,11 @@ tasks:
       - "exact-origin clean TLS and CA/challenge validation pass in the dedicated test browser"
       - "private fixture keys are absent from repository evidence and release signing remains untouched"
       - "device mapping/trust are scoped to the disposable emulator/profile and cleanup is recorded"
-    verify: "python3 docs/android/board.py --check"
+    verify: "python3 -m unittest discover -s docs/android/evidence/lw-m7-32 -p 'test_*.py' && python3 docs/android/board.py --check"
     effort_h: "2-4"
     skills: [python, android, ops]
     agent_safe: yes
-    isolation: none
+    isolation: worktree
     risk: Reaching a live public origin or bypassing certificate validation would invalidate native cookie proof.
 
   - id: LW-M7-34
