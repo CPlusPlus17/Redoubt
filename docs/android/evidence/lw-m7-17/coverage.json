@@ -253,16 +253,17 @@
       "remaining": "Add the Android combined control and align scheduler, metadata traffic and per-addon semantics; prove disabled means the intended network silence and enabled ordinary updates still work. Do not count the pref as an Android settings UI or assume the metadata request is prevented by the later updateEnabled guard."
     },
     "sync": {
-      "status": "open_gap",
+      "status": "mixed_open",
       "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "Desktop librewolfSync writes identity.fxaccounts.enabled and requests a restart; desktop.cfg defaults it false. Frozen Fenix BackgroundServices creates FxaAccountManager and starts it when the lazy property is resolved. The bounded Fenix search has no reader of identity.fxaccounts.enabled. Turning off onboarding sign-in cards therefore does not gate the account component or established accounts. no-gms removes push, with polling behavior separate.",
+      "android": "LW-M7-20 implements an Android account-services policy initialized before Fenix content providers, defaulting off without erasing account data or engine/server choices. Settings offers explicit enable/disable with process restart. Manager, worker, authentication callback, WebChannel and Relay entry points consult admission; successful choice persistence closes admission in both directions until restart. Inert manager shells do not resolve native account storage while off. Post-await guards discard late authentication work without taking the account-reset fallback. Source replay passes all 23 files; the 28 authored Kotlin tests, target compilation and APK lifecycle/network behavior remain pending. The archived earlier Fenix implementation is retained as the baseline comparison.",
       "evidence": [
         "source:settings-desktop.cfg",
         "source:sync",
         "search:mobile-specific-pane-controls",
-        "repo:patches/android/no-gms.patch"
+        "repo:patches/android/no-gms.patch",
+        "repo:patches/android/sync-opt-in.patch"
       ],
-      "remaining": "Implement explicit Sync-off/opt-in behavior at actual Fenix component/network boundaries with safe logout/disable semantics. Test fresh, existing account, restart, disabled traffic, manual sync, send/receive tabs and polling limitations; do not erase user data to implement the default."
+      "remaining": "Compile and run the new target classes and full Fenix gate. On the final APK verify fresh/default and existing-account behavior, real enable/disable controls, PID replacement, private-session ending, preserved account/engine/custom-server data, traffic cessation after restart, manual sync and send/receive polling. Failed write/rollback and already-running native calls must retain the documented error and restart boundary; no local source check proves these runtime behaviors."
     },
     "network-controls": {
       "status": "open_gap",
@@ -1949,7 +1950,7 @@
     }
   ],
   "repository_evidence": {
-    "assets/patches/android.txt": "d5883d0617a9f4f004d46a4b50ceba841d1122bcf96abf233c993a2eeb336fbd",
+    "assets/patches/android.txt": "e4e85aac7a566cb7a0b38942ca17bb2a524dcd2ac3951c37247c04447f4201c0",
     "assets/search-config-v2.json": "f6136f5d64eb2cb023791b2075687b4ce8fbde778315463bcda2c514d9b6f815",
     "assets/translations/bergamot-translator.wasm.zst": "327fcfc7b7e9d95f6fa0844ebf899cfc05469872ef02d3aef5783182839a6255",
     "assets/translations/catalog.json": "ce8c163e97d9d5b136cd673f7e63684dada00b45514442bf282b387174100d96",
@@ -1985,7 +1986,8 @@
     "scripts/fetch-ubo-extension.py": "4aab232423e898b5753663d09e80277fa41e7a83dafcf9dbc15b21fd5e1463bf",
     "scripts/librewolf-patches.py": "51929bb88a6657b16cf67bbb51fb9618e61b8d45582ce3db1234b9c660a1a272",
     "scripts/package-translation-assets.py": "2b65b08920d38199ebca215c0ae1d9118d10501f5be8bab9b47bb70945b3939f",
-    "patches/android/home-section-defaults.patch": "9253d3956aff79b8066b65e4521497ca8f1bceab9cab4fe8976137edc43e51fc"
+    "patches/android/home-section-defaults.patch": "9253d3956aff79b8066b65e4521497ca8f1bceab9cab4fe8976137edc43e51fc",
+    "patches/android/sync-opt-in.patch": "a68d04e8642e216be954253062a19f38089626df2c34d725317d82a23193ff29"
   },
   "source_capture_commit": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae"
 }

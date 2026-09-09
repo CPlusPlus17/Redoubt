@@ -448,11 +448,13 @@ Provenance: inspected code; behavioral interpretation is an inference from that 
 
 ### sync
 
-**Open gap.** Desktop librewolfSync writes identity.fxaccounts.enabled and requests a restart; desktop.cfg defaults it false. Frozen Fenix BackgroundServices creates FxaAccountManager and starts it when the lazy property is resolved. The bounded Fenix search has no reader of identity.fxaccounts.enabled. Turning off onboarding sign-in cards therefore does not gate the account component or established accounts. no-gms removes push, with polling behavior separate.
+**Mixed open.** LW-M7-20 implements an Android account-services policy initialized before Fenix content providers, defaulting off without erasing account data or engine/server choices. Settings offers explicit enable/disable with process restart. Manager, worker, authentication callback, WebChannel and Relay entry points consult admission; successful choice persistence closes admission in both directions until restart. Inert manager shells do not resolve native account storage while off. Post-await guards discard late authentication work without taking the account-reset fallback. Source replay passes all 23 files; the 28 authored Kotlin tests, target compilation and APK lifecycle/network behavior remain pending. The archived earlier Fenix implementation is retained as the baseline comparison.
 
-**Remaining:** Implement explicit Sync-off/opt-in behavior at actual Fenix component/network boundaries with safe logout/disable semantics. Test fresh, existing account, restart, disabled traffic, manual sync, send/receive tabs and polling limitations; do not erase user data to implement the default.
+**Remaining:** Compile and run the new target classes and full Fenix gate. On the final APK verify fresh/default and existing-account behavior, real enable/disable controls, PID replacement, private-session ending, preserved account/engine/custom-server data, traffic cessation after restart, manual sync and send/receive polling. Failed write/rollback and already-running native calls must retain the documented error and restart boundary; no local source check proves these runtime behaviors.
 
 Inspected evidence:
+
+- [patches/android/sync-opt-in.patch](../../../../patches/android/sync-opt-in.patch) — reviewed source candidate and root source replay; target behavior pending.
 
 - Archived source **settings-desktop.cfg**: `desktop.cfg`; inspected line ranges and SHA-256 in [source index](source-index.md#settings-desktopcfg).
 - Archived source **sync**: `mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt`; inspected line ranges and SHA-256 in [source index](source-index.md#sync).

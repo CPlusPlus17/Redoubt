@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "task": "LW-M7-17",
-  "scope": "Scoped source reviews of graphics, translations and ordinary home defaults; original desktop/policy/pane input mapping remains unchanged.",
+  "scope": "Scoped source reviews of graphics, translations, ordinary home defaults and accounts/Sync; original desktop/policy/pane input mapping remains unchanged.",
   "original_repository_snapshot": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae",
   "audited_repository_snapshot": "3466ea18db777805c38c313bac849edadfda4fd2",
   "original_audit_commit": "3466ea18db777805c38c313bac849edadfda4fd2",
@@ -10,7 +10,8 @@
   "counterparts_changed": [
     "graphics",
     "translations",
-    "home"
+    "home",
+    "sync"
   ],
   "changed_previously_pinned_inputs": {
     "scripts/librewolf-patches.py": {
@@ -31,7 +32,7 @@
   },
   "added_repository_inputs": {
     "assets/patches/android.txt": {
-      "sha256": "d5883d0617a9f4f004d46a4b50ceba841d1122bcf96abf233c993a2eeb336fbd",
+      "sha256": "e4e85aac7a566cb7a0b38942ca17bb2a524dcd2ac3951c37247c04447f4201c0",
       "reviewed_lines": [
         [
           90,
@@ -44,7 +45,8 @@
       ],
       "review": "Existing guard precedes the appended complete graphics candidate; translation candidate is also Android-registered.",
       "home_followup": "Appended only the reviewed home-section-defaults entry; prior source integration receipts remain pinned to their older registry.",
-      "addon_followup": "Appended the Android add-on durability entry after review of the final patch and its 36 source tests; target/native/runtime remain pending and original uBO behavior proof obligations remain open."
+      "addon_followup": "Appended the Android add-on durability entry after review of the final patch and its 36 source tests; target/native/runtime remain pending and original uBO behavior proof obligations remain open.",
+      "sync_followup": "Append the reviewed Sync candidate after existing predecessors; preserve source and runtime receipts for the earlier registries."
     },
     "patches/android/canvas-webgl-permissions.patch": {
       "sha256": "2c6196b1f619223d7e2a185567d8866e83467e1e1b9380200789471d221a7c7f",
@@ -115,6 +117,16 @@
         ]
       ],
       "review": "Four ordinary home defaults and matching nightly overrides only; generated Settings fallback preserves stored choices. Three target tests authored but unexecuted. HomeSettingsFragment routes inspected unchanged. Source and both patch orders replayed; no guest change."
+    },
+    "patches/android/sync-opt-in.patch": {
+      "sha256": "a68d04e8642e216be954253062a19f38089626df2c34d725317d82a23193ff29",
+      "reviewed_lines": [
+        [
+          1,
+          1968
+        ]
+      ],
+      "review": "LW-M7-20 implementation review and root review of production initialization, durable restart, failure rollback and post-await guards. Source replay verified all 23 hashes; 28 target tests remain unexecuted. No guest application of this patch."
     }
   },
   "compile_verdict": "NOT RUN by this source audit. New native/GeckoView/Fenix compilation remains pending; source registration or patch application is not compilation.",
