@@ -1,10 +1,3 @@
-# LW-M7-20: real Android accounts/Sync/Relay off-by-default with explicit restart control.
-# Apply after privacy-defaults, ubo-preinstall, ubo-readiness and canvas-webgl-permissions.
-# A saved boolean controls Android account-service admission, not an inert Gecko pref.
-# Successful changes commit synchronously and use a genuine process restart to end
-# synchronous native work; account storage, engine choices and custom URLs stay intact.
-# Target compilation/runtime are pending: docs/android/evidence/lw-m7-20/README.md.
-
 diff --git a/mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushScheduler.kt b/mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushScheduler.kt
 index 41d0a7a..3139d4f 100644
 --- a/mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushScheduler.kt
@@ -100,10 +93,9 @@ index 0000000..764f30c
 +}
 diff --git a/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/AccountServices.kt b/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/AccountServices.kt
 new file mode 100644
-index 0000000..629bf25
 --- /dev/null
 +++ b/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/AccountServices.kt
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,80 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -135,6 +127,18 @@ index 0000000..629bf25
 +
 +    private val logger = Logger("AccountServices")
 +    private var restarting = false
++
++    /**
++     * Close admission in a non-main process without reading app storage. Call during
++     * application attachment, before providers or other account consumers can run.
++     * This process cannot commit a restart choice; only the main process owns it.
++     */
++    @Synchronized
++    fun disableForProcess() {
++        isEnabled = false
++        generation += 1
++        restarting = true
++    }
 +
 +    /** Read a saved explicit choice without writing a default or account data. */
 +    @Synchronized
@@ -828,10 +832,9 @@ index 0000000..fba3932
 +}
 diff --git a/mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesTest.kt b/mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesTest.kt
 new file mode 100644
-index 0000000..b1a0af0
 --- /dev/null
 +++ b/mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesTest.kt
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,181 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -852,6 +855,7 @@ index 0000000..b1a0af0
 +import org.junit.Test
 +import org.junit.runner.RunWith
 +import org.mockito.Mockito.verify
++import org.mockito.Mockito.verifyNoInteractions
 +
 +@RunWith(AndroidJUnit4::class)
 +class AccountServicesTest {
@@ -867,6 +871,25 @@ index 0000000..b1a0af0
 +    fun tearDown() {
 +        preferences.edit().clear().commit()
 +        AccountServices.initialize(testContext, defaultEnabled = true)
++    }
++
++    @Test
++    fun `non-main admission closes without reading or changing a saved parent choice`() {
++        preferences.edit().putBoolean(AccountServices.ENABLED, true).commit()
++        AccountServices.initialize(testContext, defaultEnabled = false)
++        val before = preferences.all
++        val previousGeneration = AccountServices.generation
++        val inaccessibleContext: Context = mock()
++
++        AccountServices.disableForProcess()
++
++        assertFalse(AccountServices.isEnabled)
++        assertEquals(previousGeneration + 1, AccountServices.generation)
++        assertFalse(AccountServices.commitChoiceForRestart(inaccessibleContext, true))
++        verifyNoInteractions(inaccessibleContext)
++        assertEquals(before, preferences.all)
++        AccountServices.initialize(testContext, defaultEnabled = false)
++        assertTrue(AccountServices.isEnabled)
 +    }
 +
 +    @Test
@@ -1036,10 +1059,9 @@ index 0000000..db9b888
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index d6414f1..cf89922 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -58,10 +58,13 @@ import mozilla.components.feature.search.ext.buildSearchUrl
+@@ -58,10 +58,13 @@
  import mozilla.components.feature.search.ext.waitForSelectedOrDefaultSearchEngine
  import mozilla.components.feature.summarize.settings.SummarizationSettings
  import mozilla.components.feature.syncedtabs.commands.GlobalSyncedTabsCommandsProvider
@@ -1053,7 +1075,7 @@ index d6414f1..cf89922 100644
  import mozilla.components.service.sync.autofill.GlobalAutofillDependencyProvider
  import mozilla.components.service.sync.logins.GlobalLoginsDependencyProvider
  import mozilla.components.service.sync.logins.LoginsApiException
-@@ -174,9 +177,17 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -174,16 +177,31 @@
      override fun onCreate() {
          super.onCreate()
          initializeFenixProcess()
@@ -1066,24 +1088,27 @@ index d6414f1..cf89922 100644
      }
  
      override fun attachBaseContext(base: Context) {
-+        // Before content providers/WorkManager can revive persisted account jobs.
-+        initializeAccountServices(base)
-         // Sets the locale information. Other threads do not have locale aware needs
+-        // Sets the locale information. Other threads do not have locale aware needs
++        // Isolated Gecko processes cannot read app preferences. Use the existing
++        // process check before account admission or locale code accesses storage.
          if (base.isMainProcess()) {
++            // Before content providers/WorkManager can revive persisted account jobs.
++            initializeAccountServices(base)
              val localeAwareContext = LocaleManager.updateResources(base)
-@@ -186,6 +197,11 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+             super.attachBaseContext(localeAwareContext)
+         } else {
++            AccountServices.disableForProcess()
+             super.attachBaseContext(base)
          }
-     }
- 
++    }
++
 +    /** Account-service defaults are independent of the Gecko preference store. */
 +    protected open fun initializeAccountServices(context: Context) {
 +        AccountServices.initialize(context, defaultEnabled = false)
-+    }
-+
+     }
+ 
      /**
-      * Process-level initialization for Fenix and its services. Sets up required native subsystems
-      * such as Nimbus, Glean and Gecko. Note that Robolectric tests override this with an empty
-@@ -485,6 +501,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -485,6 +503,7 @@
              }
              // Account manager initialization needs to happen on the main thread.
              GlobalScope.launch(Dispatchers.Main) {
@@ -1789,184 +1814,6 @@ index 0000000..6afa91c
 +    <string name="account_services_disable_explanation">Redoubt will restart with account services off, ending current account, Sync and Relay work. Your account data, Sync choices and custom servers stay saved. This does not sign you out. Restarting ends the current private browsing session.</string>
 +    <string name="account_services_change_failed">Could not save the account-services change or prepare a restart. Accounts keep their current running state. Check this setting after restarting.</string>
 +</resources>
-diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
-index 16ca997..0c00d85 100644
---- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
-+++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
-@@ -4,7 +4,9 @@
- 
- package org.mozilla.fenix.helpers
- 
-+import android.content.Context
- import io.mockk.mockk
-+import mozilla.components.service.fxa.AccountServices
- import org.mozilla.fenix.FenixApplication
- import org.mozilla.fenix.R
- import org.mozilla.fenix.components.Components
-@@ -29,6 +31,12 @@ class FenixRobolectricTestApplication : FenixApplication() {
-     override val components = mockk<Components>(relaxed = true)
-     override fun initializeFenixProcess() = Unit
- 
-+    override fun initializeAccountServices(context: Context) {
-+        // Existing feature tests model an opted-in application. Policy tests set
-+        // an explicit disabled fixture and verify the actual production gates.
-+        AccountServices.initialize(context, defaultEnabled = true)
-+    }
-+
-     private fun setApplicationTheme() {
-         // According to the Robolectric devs, the application context will not have the <application>'s
-         // theme but will use the platform's default team so we set our theme here. We change it here
-diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/AccountServicesPreferenceTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/AccountServicesPreferenceTest.kt
-new file mode 100644
-index 0000000..a66b570
---- /dev/null
-+++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/AccountServicesPreferenceTest.kt
-@@ -0,0 +1,145 @@
-+/* This Source Code Form is subject to the terms of the Mozilla Public
-+ * License, v. 2.0. If a copy of the MPL was not distributed with this
-+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-+
-+package org.mozilla.fenix.settings
-+
-+import android.content.ComponentName
-+import android.content.Context
-+import android.content.Intent
-+import android.content.pm.PackageManager
-+import androidx.test.core.app.ApplicationProvider
-+import androidx.test.ext.junit.runners.AndroidJUnit4
-+import io.mockk.every
-+import io.mockk.mockk
-+import kotlinx.coroutines.test.runTest
-+import mozilla.components.service.fxa.AccountServices
-+import org.junit.After
-+import org.junit.Assert.assertEquals
-+import org.junit.Assert.assertFalse
-+import org.junit.Assert.assertNull
-+import org.junit.Assert.assertTrue
-+import org.junit.Before
-+import org.junit.Test
-+import org.junit.runner.RunWith
-+import org.mozilla.fenix.FenixApplication
-+
-+@RunWith(AndroidJUnit4::class)
-+class AccountServicesPreferenceTest {
-+    private val context: Context get() = ApplicationProvider.getApplicationContext()
-+    private val preferences get() = context.getSharedPreferences(
-+        "mozilla.components.service.fxa.account-services",
-+        Context.MODE_PRIVATE,
-+    )
-+
-+    @Before
-+    fun setUp() {
-+        preferences.edit().clear().commit()
-+        AccountServices.initialize(context, defaultEnabled = true)
-+    }
-+
-+    @After
-+    fun tearDown() {
-+        preferences.edit().clear().commit()
-+        AccountServices.initialize(context, defaultEnabled = true)
-+    }
-+
-+    @Test
-+    fun `production Fenix attachBaseContext defaults off without creating a saved choice`() {
-+        // Bypass the legacy Robolectric application's opted-in override, and call the
-+        // real FenixApplication.attachBaseContext, without starting native onCreate work.
-+        ProductionPolicyApplication().attachProductionContext(context)
-+        assertFalse(AccountServices.isEnabled)
-+        assertFalse(preferences.contains("enabled"))
-+    }
-+
-+    @Test
-+    fun `production Fenix attachBaseContext preserves each explicit saved choice`() {
-+        for (choice in listOf(true, false)) {
-+            preferences.edit().putBoolean("enabled", choice).commit()
-+            val before = preferences.all
-+            ProductionPolicyApplication().attachProductionContext(context)
-+            assertEquals(choice, AccountServices.isEnabled)
-+            assertEquals(before, preferences.all)
-+        }
-+    }
-+
-+    private class ProductionPolicyApplication : FenixApplication() {
-+        fun attachProductionContext(context: Context) = super.attachBaseContext(context)
-+    }
-+
-+    @Test
-+    fun `failed commit neither cancels work nor restarts`() = runTest {
-+        val calls = mutableListOf<String>()
-+        assertFalse(applyAccountServicesChange(
-+            commit = { calls += "commit"; false },
-+            cancel = { calls += "cancel" },
-+            restart = { calls += "restart" },
-+        ))
-+        assertEquals(listOf("commit"), calls)
-+    }
-+
-+    @Test
-+    fun `persistence exception reports failure without cancelling or restarting`() = runTest {
-+        assertFalse(applyAccountServicesChange(
-+            commit = { throw IllegalStateException("read-only preference storage") },
-+            cancel = { error("Must not cancel") },
-+            restart = { error("Must not restart") },
-+        ))
-+    }
-+
-+    @Test
-+    fun `durable decision precedes cancellation and process restart`() = runTest {
-+        val calls = mutableListOf<String>()
-+        assertTrue(applyAccountServicesChange(
-+            commit = { calls += "commit"; true },
-+            cancel = { calls += "cancel" },
-+            restart = { calls += "restart" },
-+        ))
-+        assertEquals(listOf("commit", "cancel", "restart"), calls)
-+    }
-+
-+    @Test
-+    fun `cancellation failure still reaches process termination boundary`() = runTest {
-+        var restarted = false
-+        try {
-+            applyAccountServicesChange(
-+                commit = { true },
-+                cancel = { throw IllegalStateException("WorkManager cancellation timeout") },
-+                restart = { restarted = true },
-+            )
-+            error("Cancellation exception was unexpectedly swallowed")
-+        } catch (_: IllegalStateException) {
-+            assertTrue(restarted)
-+        }
-+    }
-+
-+    @Test
-+    fun `restart targets enabled launcher alias without forwarding authentication data`() {
-+        val context: Context = mockk()
-+        val packageManager: PackageManager = mockk()
-+        every { context.packageName } returns "org.redoubtbrowser"
-+        every { context.packageManager } returns packageManager
-+        every { packageManager.getLaunchIntentForPackage("org.redoubtbrowser") } returns
-+            Intent().setComponent(ComponentName("org.redoubtbrowser", "AlternateIcon"))
-+                .setData(android.net.Uri.parse("https://account.invalid/callback?code=secret"))
-+                .putExtra("authToken", "must-not-forward")
-+        val restart = AccountServicesPreference.restartIntent(context)!!
-+        assertEquals(ComponentName("org.redoubtbrowser", "AlternateIcon"), restart.component)
-+        assertNull(restart.data)
-+        assertFalse(restart.hasExtra("authToken"))
-+        assertTrue(restart.getBooleanExtra(AccountServicesPreference.OPEN_SETTINGS, false))
-+        assertTrue(restart.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
-+        assertTrue(restart.flags and Intent.FLAG_ACTIVITY_CLEAR_TASK != 0)
-+    }
-+
-+    @Test
-+    fun `missing launcher is rejected before any preference change`() {
-+        val context: Context = mockk()
-+        val packageManager: PackageManager = mockk()
-+        every { context.packageName } returns "org.redoubtbrowser"
-+        every { context.packageManager } returns packageManager
-+        every { packageManager.getLaunchIntentForPackage(any()) } returns null
-+        assertNull(AccountServicesPreference.restartIntent(context))
-+    }
-+}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityAccountSettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityAccountSettingsTest.kt
 new file mode 100644
 --- /dev/null
@@ -2056,5 +1903,213 @@ new file mode 100644
 +
 +        verify { intent wasNot Called }
 +        verify { fragments wasNot Called }
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
+@@ -4,7 +4,9 @@
+ 
+ package org.mozilla.fenix.helpers
+ 
++import android.content.Context
+ import io.mockk.mockk
++import mozilla.components.service.fxa.AccountServices
+ import org.mozilla.fenix.FenixApplication
+ import org.mozilla.fenix.R
+ import org.mozilla.fenix.components.Components
+@@ -29,6 +31,16 @@
+     override val components = mockk<Components>(relaxed = true)
+     override fun initializeFenixProcess() = Unit
+ 
++    override fun attachBaseContext(base: Context) {
++        super.attachBaseContext(base)
++        // This host-only fixture is explicitly opted in, independently of the
++        // simulated process name before per-test mocks are installed. Policy
++        // tests attach a plain FenixApplication to exercise production admission.
++        AccountServices.initialize(base, defaultEnabled = true)
++    }
++
++    override fun initializeAccountServices(context: Context) = Unit
++
+     private fun setApplicationTheme() {
+         // According to the Robolectric devs, the application context will not have the <application>'s
+         // theme but will use the platform's default team so we set our theme here. We change it here
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/AccountServicesPreferenceTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/AccountServicesPreferenceTest.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/AccountServicesPreferenceTest.kt
+@@ -0,0 +1,173 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings
++
++import android.content.ComponentName
++import android.content.Context
++import android.content.ContextWrapper
++import android.content.SharedPreferences
++import android.content.Intent
++import android.content.pm.PackageManager
++import androidx.test.core.app.ApplicationProvider
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import io.mockk.every
++import io.mockk.mockk
++import io.mockk.mockkStatic
++import io.mockk.unmockkStatic
++import kotlinx.coroutines.test.runTest
++import mozilla.components.service.fxa.AccountServices
++import mozilla.components.support.ktx.android.content.isMainProcess
++import org.junit.After
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.fenix.FenixApplication
++
++@RunWith(AndroidJUnit4::class)
++class AccountServicesPreferenceTest {
++    private val context: Context get() = ApplicationProvider.getApplicationContext()
++    private val preferences get() = context.getSharedPreferences(
++        "mozilla.components.service.fxa.account-services",
++        Context.MODE_PRIVATE,
++    )
++
++    @Before
++    fun setUp() {
++        mockkStatic("mozilla.components.support.ktx.android.content.ContextKt")
++        every { any<Context>().isMainProcess() } returns true
++        preferences.edit().clear().commit()
++        AccountServices.initialize(context, defaultEnabled = true)
++    }
++
++    @After
++    fun tearDown() {
++        unmockkStatic("mozilla.components.support.ktx.android.content.ContextKt")
++        preferences.edit().clear().commit()
++        AccountServices.initialize(context, defaultEnabled = true)
++    }
++
++    @Test
++    fun `production Fenix attachBaseContext defaults off without creating a saved choice`() {
++        // Bypass the legacy Robolectric application's opted-in override, and call the
++        // real FenixApplication.attachBaseContext, without starting native onCreate work.
++        ProductionPolicyApplication().attachProductionContext(context)
++        assertFalse(AccountServices.isEnabled)
++        assertFalse(preferences.contains("enabled"))
++    }
++
++    @Test
++    fun `production Fenix attachBaseContext preserves each explicit saved choice`() {
++        for (choice in listOf(true, false)) {
++            preferences.edit().putBoolean("enabled", choice).commit()
++            val before = preferences.all
++            ProductionPolicyApplication().attachProductionContext(context)
++            assertEquals(choice, AccountServices.isEnabled)
++            assertEquals(before, preferences.all)
++        }
++    }
++
++    @Test
++    fun `production child attachment never accesses app storage and closes account admission`() {
++        preferences.edit().putBoolean("enabled", true).commit()
++        val before = preferences.all
++        val child = object : ContextWrapper(context) {
++            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
++                error("Isolated child must not access app preferences")
++
++            override fun getSystemService(name: String): Any? =
++                error("Child attachment must not query a system service")
++        }
++        every { child.isMainProcess() } returns false
++        val application = ProductionPolicyApplication()
++        application.attachProductionContext(child)
++        assertFalse(AccountServices.isEnabled)
++        assertTrue(application.baseContext === child)
++        assertEquals(before, preferences.all)
++        assertFalse(AccountServices.commitChoiceForRestart(child, true))
++    }
++
++    private class ProductionPolicyApplication : FenixApplication() {
++        fun attachProductionContext(context: Context) = super.attachBaseContext(context)
++    }
++
++    @Test
++    fun `failed commit neither cancels work nor restarts`() = runTest {
++        val calls = mutableListOf<String>()
++        assertFalse(applyAccountServicesChange(
++            commit = { calls += "commit"; false },
++            cancel = { calls += "cancel" },
++            restart = { calls += "restart" },
++        ))
++        assertEquals(listOf("commit"), calls)
++    }
++
++    @Test
++    fun `persistence exception reports failure without cancelling or restarting`() = runTest {
++        assertFalse(applyAccountServicesChange(
++            commit = { throw IllegalStateException("read-only preference storage") },
++            cancel = { error("Must not cancel") },
++            restart = { error("Must not restart") },
++        ))
++    }
++
++    @Test
++    fun `durable decision precedes cancellation and process restart`() = runTest {
++        val calls = mutableListOf<String>()
++        assertTrue(applyAccountServicesChange(
++            commit = { calls += "commit"; true },
++            cancel = { calls += "cancel" },
++            restart = { calls += "restart" },
++        ))
++        assertEquals(listOf("commit", "cancel", "restart"), calls)
++    }
++
++    @Test
++    fun `cancellation failure still reaches process termination boundary`() = runTest {
++        var restarted = false
++        try {
++            applyAccountServicesChange(
++                commit = { true },
++                cancel = { throw IllegalStateException("WorkManager cancellation timeout") },
++                restart = { restarted = true },
++            )
++            error("Cancellation exception was unexpectedly swallowed")
++        } catch (_: IllegalStateException) {
++            assertTrue(restarted)
++        }
++    }
++
++    @Test
++    fun `restart targets enabled launcher alias without forwarding authentication data`() {
++        val context: Context = mockk()
++        val packageManager: PackageManager = mockk()
++        every { context.packageName } returns "org.redoubtbrowser"
++        every { context.packageManager } returns packageManager
++        every { packageManager.getLaunchIntentForPackage("org.redoubtbrowser") } returns
++            Intent().setComponent(ComponentName("org.redoubtbrowser", "AlternateIcon"))
++                .setData(android.net.Uri.parse("https://account.invalid/callback?code=secret"))
++                .putExtra("authToken", "must-not-forward")
++        val restart = AccountServicesPreference.restartIntent(context)!!
++        assertEquals(ComponentName("org.redoubtbrowser", "AlternateIcon"), restart.component)
++        assertNull(restart.data)
++        assertFalse(restart.hasExtra("authToken"))
++        assertTrue(restart.getBooleanExtra(AccountServicesPreference.OPEN_SETTINGS, false))
++        assertTrue(restart.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
++        assertTrue(restart.flags and Intent.FLAG_ACTIVITY_CLEAR_TASK != 0)
++    }
++
++    @Test
++    fun `missing launcher is rejected before any preference change`() {
++        val context: Context = mockk()
++        val packageManager: PackageManager = mockk()
++        every { context.packageName } returns "org.redoubtbrowser"
++        every { context.packageManager } returns packageManager
++        every { packageManager.getLaunchIntentForPackage(any()) } returns null
++        assertNull(AccountServicesPreference.restartIntent(context))
 +    }
 +}

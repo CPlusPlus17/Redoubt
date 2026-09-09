@@ -222,3 +222,8 @@ The APK matrix must cover:
 
 This handoff is an implementation candidate. These target checks remain required
 before LW-M7-20 or the broader desktop feature-parity goal can be called complete.
+
+The [isolated-process correction](isolated-process-correction/README.md) preserves
+the actual first-navigation child crash and moves persisted account startup under
+the existing main-process guard. Its five source changes and two new regressions
+require the separate Task26 initializer correction and fresh target acceptance.
