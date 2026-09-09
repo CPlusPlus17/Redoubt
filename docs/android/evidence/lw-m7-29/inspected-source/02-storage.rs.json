@@ -1,0 +1,10 @@
+{
+  "path": "third_party/application-services/components/remote_settings/src/storage.rs",
+  "ranges": [
+    {
+      "start": 173,
+      "end": 210,
+      "text": "\n    /// Get cached attachment data\n    ///\n    /// This returns the last attachment data sent to [Self::set_attachment].\n    ///\n    /// Returns None if no attachment data is stored or if `collection_url` does not match the `collection_url`\n    /// passed to `set_attachment`.\n    pub fn get_attachment(\n        &mut self,\n        collection_url: &str,\n        metadata: Attachment,\n    ) -> Result<Option<Vec<u8>>> {\n        let tx = self.transaction()?;\n        let mut stmt =\n            tx.prepare(\"SELECT data FROM attachments WHERE id = ? AND collection_url = ?\")?;\n\n        if let Some(data) = stmt\n            .query_row((metadata.location, collection_url), |row| {\n                row.get::<_, Vec<u8>>(0)\n            })\n            .optional()?\n        {\n            // Return None if data doesn't match expected metadata\n            if data.len() as u64 != metadata.size {\n                return Ok(None);\n            }\n            let hash = format!(\"{:x}\", Sha256::digest(&data));\n            if hash != metadata.hash {\n                return Ok(None);\n            }\n            Ok(Some(data))\n        } else {\n            Ok(None)\n        }\n    }\n\n    /// Set cached content for this collection.\n    pub fn insert_collection_content(\n"
+    }
+  ]
+}

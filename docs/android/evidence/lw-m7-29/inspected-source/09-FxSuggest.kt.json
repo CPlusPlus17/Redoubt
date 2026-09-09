@@ -1,0 +1,10 @@
+{
+  "path": "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt",
+  "ranges": [
+    {
+      "start": 1,
+      "end": 37,
+      "text": "/* This Source Code Form is subject to the terms of the Mozilla Public\n * License, v. 2.0. If a copy of the MPL was not distributed with this\n * file, You can obtain one at http://mozilla.org/MPL/2.0/. */\n\npackage org.mozilla.fenix.components\n\nimport android.content.Context\nimport mozilla.components.concept.base.crash.CrashReporting\nimport mozilla.components.feature.fxsuggest.FxSuggestIngestionScheduler\nimport mozilla.components.feature.fxsuggest.FxSuggestStorage\nimport mozilla.components.support.remotesettings.RemoteSettingsService\nimport org.mozilla.fenix.perf.lazyMonitored\n\n/**\n * Component group for Firefox Suggest.\n *\n * @param context The Android application context.\n * @param remoteSettingsService: Remote settings service to get suggestions from\n * @param crashReporter The crash reporter to use for reporting caught exceptions.\n */\nclass FxSuggest(\n    context: Context,\n    remoteSettingsService: RemoteSettingsService,\n    crashReporter: CrashReporting,\n) {\n    val storage by lazyMonitored {\n        FxSuggestStorage(\n            context,\n            remoteSettingsService,\n            crashReporter,\n        )\n    }\n\n    val ingestionScheduler by lazyMonitored {\n        FxSuggestIngestionScheduler(context)\n    }\n}\n"
+    }
+  ]
+}

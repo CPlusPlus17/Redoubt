@@ -1,0 +1,10 @@
+{
+  "path": "third_party/application-services/components/suggest/src/config.rs",
+  "ranges": [
+    {
+      "start": 1,
+      "end": 25,
+      "text": "/* This Source Code Form is subject to the terms of the Mozilla Public\n * License, v. 2.0. If a copy of the MPL was not distributed with this\n * file, You can obtain one at http://mozilla.org/MPL/2.0/.\n */\n\nuse serde::{Deserialize, Serialize};\n\nuse crate::rs::DownloadedGlobalConfig;\n\n/// Global Suggest configuration data.\n#[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, Eq, uniffi::Record)]\npub struct SuggestGlobalConfig {\n    pub show_less_frequently_cap: i32,\n}\n\nimpl From<&DownloadedGlobalConfig> for SuggestGlobalConfig {\n    fn from(config: &DownloadedGlobalConfig) -> Self {\n        Self {\n            show_less_frequently_cap: config.configuration.show_less_frequently_cap,\n        }\n    }\n}\n\n/// Per-provider configuration data.\n#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, uniffi::Enum)]\n"
+    }
+  ]
+}

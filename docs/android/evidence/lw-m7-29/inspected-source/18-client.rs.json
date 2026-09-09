@@ -1,0 +1,10 @@
+{
+  "path": "third_party/application-services/components/remote_settings/src/client.rs",
+  "ranges": [
+    {
+      "start": 630,
+      "end": 647,
+      "text": "    fn new(base_url: BaseUrl, bucket_name: &str, collection_name: &str) -> Self {\n        Self {\n            endpoints: RemoteSettingsEndpoints::new(&base_url, bucket_name, collection_name),\n            remote_state: RemoteState::default(),\n        }\n    }\n\n    fn make_request(&mut self, url: Url) -> Result<Response> {\n        // LibreWolf: all network requests to the Remote Settings server are blocked.\n        // This is the single choke point for all egress in this crate\n        // (fetch_changeset, fetch_attachment, fetch_cert).\n        Err(Error::ResponseError {\n            url: url.to_string(),\n            message: \"LibreWolf: Remote Settings network requests are disabled\".to_string(),\n        })\n    }\n}\n\n"
+    }
+  ]
+}
