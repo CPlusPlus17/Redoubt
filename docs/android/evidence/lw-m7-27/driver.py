@@ -16,11 +16,14 @@ import uuid
 import xml.etree.ElementTree as ET
 import zipfile
 
-from grade import InvalidResult, bound_log, grade_instrumentation, grade_xpcshell, grade_run, require, sha
+from grade import (InvalidResult, bound_log, grade_instrumentation, grade_xpcshell, grade_run,
+                   require, sha, shutdown_selection, instrumentation_arguments, process_snapshot,
+                   PROCESS_LIST_ARGUMENTS, TEST_PACKAGE, TEST_COMPONENT)
 
 HERE = Path(__file__).resolve().parent
 REQUIREMENTS = HERE / 'requirements.json'
 HARNESS = HERE / 'harness-sources.json'
+TASK35_INVENTORY = HERE / 'task35-inventory.json'
 
 
 def json_write(path, value):
@@ -36,6 +39,47 @@ def source_path(source, name):
     return path
 
 
+def reviewed_requirements():
+    req = json.loads(REQUIREMENTS.read_text())
+    require(sha(TASK35_INVENTORY) == req.get('task35_inventory_sha256'), 'Task35 inventory changed/unbound')
+    inventory = json.loads(TASK35_INVENTORY.read_text())
+    for item in inventory['xpcshell_method_sets']:
+        specs = [spec for spec in req['xpcshell'] if spec['path'] == item['source']]
+        require(len(specs) == 1 and specs[0]['tasks'] == item['named_tests'] and not specs[0]['allowed_skips'],
+                'Task35 named xpcshell inventory changed')
+    require(set(inventory['regular_instrumentation_methods']) <= set(req['instrumentation']),
+            'Task35 ordinary instrumentation omitted')
+    require(shutdown_selection(req) == inventory['separate_shutdown_invocation'],
+            'Task35 isolated shutdown inventory changed')
+    require(set(inventory['extra_required_source_paths']) <= set(req['product_paths']),
+            'Task35 real-profile helper/class source binding omitted')
+    require(len(req['instrumentation']) == len(set(req['instrumentation'])), 'duplicate ordinary methods')
+    return req
+
+
+def run_instrumentation(adb, source, env, out, timeout, metadata, requirements):
+    selected = requirements['instrumentation']
+    ordinary = execute(adb + instrumentation_arguments(requirements), source, env,
+                       out / 'instrumentation.log', timeout, metadata)
+    results = [grade_instrumentation(bound_log(ordinary, out), selected)]
+    shutdown = shutdown_selection(requirements)
+    if shutdown is None:
+        return results
+    before = execute(adb + PROCESS_LIST_ARGUMENTS, source, env,
+                     out / 'instrumentation-processes-before.log', 30, metadata)
+    process_snapshot(bound_log(before, out))
+    stop = execute(adb + ['shell', 'am', 'force-stop', TEST_PACKAGE], source, env,
+                   out / 'instrumentation-stop.log', 30, metadata)
+    bound_log(stop, out, allow_empty=True)
+    after = execute(adb + PROCESS_LIST_ARGUMENTS, source, env,
+                    out / 'instrumentation-processes-after.log', 30, metadata)
+    require(not process_snapshot(bound_log(after, out)), 'old test process remains; shutdown not started')
+    isolated = execute(adb + instrumentation_arguments(requirements, shutdown=True), source, env,
+                       out / 'instrumentation-shutdown.log', timeout, metadata)
+    results.append(grade_instrumentation(bound_log(isolated, out), shutdown['expected_methods']))
+    return results
+
+
 def source_binding(source, manifest):
     rows = {}
     for line in manifest.read_text().splitlines():
@@ -46,7 +90,7 @@ def source_binding(source, manifest):
         path = source_path(source, name)
         require(sha(path) == digest, f'source hash mismatch: {name}')
         rows[name] = digest
-    req = json.loads(REQUIREMENTS.read_text())
+    req = reviewed_requirements()
     native_specs = req['xpcshell'] + req.get('pending_xpcshell', [])
     required = set(req['product_paths']) | {s['path'] for s in native_specs}
     require(required <= rows.keys(), 'source manifest omits required product/test paths: ' + ', '.join(sorted(required - rows.keys())))
@@ -58,13 +102,15 @@ def source_binding(source, manifest):
         text = source_path(source, spec['path']).read_text()
         for task in spec['tasks']:
             require(re.search(r'function\s+' + re.escape(task) + r'\s*\(', text), f'missing native task: {task}')
-    for method in req['instrumentation']:
+    methods = req['instrumentation'] + req['shutdown_instrumentation']['expected_methods']
+    for method in methods:
         klass, name = method.rsplit('#', 1)
         path = 'mobile/android/geckoview/src/androidTest/java/' + klass.replace('.', '/') + '.kt'
         require(path in rows, 'missing instrumentation source binding: ' + path)
         require(re.search(r'fun\s+' + re.escape(name) + r'\s*\(', source_path(source, path).read_text()), 'missing method: ' + method)
     return {'manifest_sha256': sha(manifest), 'product_files': rows, 'audited_harness': audited,
-            'requirements_sha256': sha(REQUIREMENTS), 'harness_pins_sha256': sha(HARNESS)}
+            'requirements_sha256': sha(REQUIREMENTS), 'harness_pins_sha256': sha(HARNESS),
+            'task35_inventory_sha256': sha(TASK35_INVENTORY)}
 
 
 def selection_arguments(spec):
@@ -205,8 +251,8 @@ def main():
             'product_revision_operator_supplied': args.product_revision, 'build_date': args.build_date,
             'product_mozconfig_sha256': sha(args.product_mozconfig),
             'config_diff': ''.join(difflib.unified_diff(args.product_mozconfig.read_text().splitlines(True), config.splitlines(True), fromfile='production.mozconfig', tofile='test.mozconfig')),
-            'commands': commands, 'test_selection': json.loads(REQUIREMENTS.read_text()),
-            'device_mutations': 'run --execute only: install two debug test APKs; xpcshell harness pushes utilities/test fixtures to a unique remote root; instrumentation creates test profiles. No release app install, wipe or uninstall.'}
+            'commands': commands, 'test_selection': reviewed_requirements(),
+            'device_mutations': 'run --execute only: install two debug test APKs; xpcshell harness pushes utilities/test fixtures to a unique remote root; instrumentation creates test profiles; after ordinary methods finish, only org.mozilla.geckoview.test is force-stopped and verified absent before the guarded shutdown class starts in a fresh process. No release app install, wipe or uninstall.'}
     if args.action == 'plan':
         print(json.dumps(plan, indent=2))
         return
@@ -230,7 +276,7 @@ def main():
         if properties.is_file():
             shutil.copy2(properties, workspace / 'gradle-home/gradle.properties')
         json_write(workspace / 'container-environment.json', environment)
-        json_write(workspace / 'driver-hashes.json', {p.name:sha(p) for p in [Path(__file__), HERE / 'grade.py', HERE / 'in-vm.py', REQUIREMENTS, HARNESS]})
+        json_write(workspace / 'driver-hashes.json', {p.name:sha(p) for p in [Path(__file__), HERE / 'grade.py', HERE / 'in-vm.py', REQUIREMENTS, HARNESS, TASK35_INVENTORY]})
         json_write(workspace / 'plan.json', plan)
         json_write(workspace / 'source-binding.json', binding)
         run_id = uuid.uuid4().hex
@@ -293,7 +339,8 @@ def main():
     shutil.copy2(build_path, out / 'build-receipt.json')
     shutil.copy2(workspace / 'source-binding.json', out / 'source-binding.json')
     shutil.copy2(REQUIREMENTS, out / 'requirements.json')
-    json_write(out / 'driver-hashes.json', {p.name:sha(p) for p in [Path(__file__), HERE / 'grade.py', REQUIREMENTS, HARNESS]})
+    shutil.copy2(TASK35_INVENTORY, out / 'task35-inventory.json')
+    json_write(out / 'driver-hashes.json', {p.name:sha(p) for p in [Path(__file__), HERE / 'grade.py', REQUIREMENTS, HARNESS, TASK35_INVENTORY]})
     results = []
     try:
         for index, artifact in enumerate(build['artifacts']):
@@ -313,17 +360,15 @@ def main():
             results.append(grade_xpcshell(bound_log(raw_receipt, out), spec))
         instrument = build['artifacts'][1]
         component = instrument['package'] + '/' + instrument['instrumentation']['name']
-        selected = plan['test_selection']['instrumentation']
-        command = adb + ['shell', 'am', 'instrument', '-w', '-r', '-e', 'class', ','.join(selected), component]
-        receipt = execute(command, source, env, out / 'instrumentation.log', args.test_timeout, metadata)
-        results.append(grade_instrumentation(bound_log(receipt, out), selected))
+        require(component == TEST_COMPONENT, 'instrumentation component differs from reviewed process boundary')
+        results.extend(run_instrumentation(adb, source, env, out, args.test_timeout, metadata, plan['test_selection']))
         require(source_binding(source, args.source_manifest) == binding, 'source changed during tests')
     finally:
         json_write(out / 'source-after-tests.json', source_binding(source, args.source_manifest))
     verdict = grade_run(out)
     json_write(out / 'verdict.json', verdict)
     tasks = sum(len(spec['tasks']) for spec in plan['test_selection']['xpcshell'])
-    methods = len(plan['test_selection']['instrumentation'])
+    methods = len(plan['test_selection']['instrumentation']) + len(plan['test_selection']['shutdown_instrumentation']['expected_methods'])
     print(f'{verdict["status"]}: {tasks} named xpcshell tasks and {methods} instrumented methods passed; separate test build only')
     if verdict['status'] != 'PASS':
         print('Android-excluded native requirements remain pending; see verdict.json')

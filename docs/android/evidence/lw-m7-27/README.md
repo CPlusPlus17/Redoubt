@@ -18,11 +18,12 @@ native job count is two, Cargo one, Gradle one; commands have bounded timeouts.
 ## Source and configuration binding
 
 Preflight verifies every entry in the operator's integrated source SHA256SUMS and
-requires 109 product/test/source dependency paths, including all selected native
+requires 129 product/test/source dependency paths, including all selected native
 tests, the pending Android-excluded uninstall test, and instrumentation classes.
-It separately verifies 33 audited harness/build/permission files against
+It separately verifies 61 audited harness/build/preference/permission files against
 `harness-sources.json`, read from the frozen Firefox 153.0esr beta tree or the
-merged Task31 source candidate. Those pins describe the audited source subset, not a fresh
+merged Task31 plus corrected Task35 source candidates. Task35 supersedes the two
+shared Task31 file pins; stale native4 or pre-correction source cannot pass. Those pins describe the audited source subset, not a fresh
 verification of every file in the upstream source archive. A changed harness must
 be reviewed and re-pinned; it cannot silently reuse this parser contract.
 
@@ -163,6 +164,11 @@ hash inventory. No expected native failure or required skip is allowlisted.
 | GeckoView canvas/WebGL | All eight `CanvasPermissionTest` methods |
 | GeckoView translations | `cacheOnlyTranslationUsesRealCatalogAndPreservesMissingModels` |
 | GeckoView private cookie lifetime | All three `CookieBannerPrivateSessionTest` methods |
+| native preference save API | Two xpcshell tasks: no-current-profile rejection and actual backup ordering/failure/suspend-flush |
+| native extension update admission | Six xpcshell tasks through the in-process Android manifest |
+| GeckoView current-profile save API | Three real-profile I/O methods: independent snapshots, clean-file recreation/reset, failed-write/suspend/retry |
+| GeckoView automatic extension update controls | Two methods: combined/mixed prefs and native completion order |
+| GeckoView preference-service shutdown | One method in a fresh, separately guarded instrumentation process; full application exit is outside its scope |
 
 Each xpcshell file runs separately and sequentially with a new raw mozlog file.
 The grader requires suite/file start and successful completion, every required
@@ -187,11 +193,75 @@ manifest override. After every runnable gate passes, the aggregate remains
 **PENDING**, and both `driver.py run` and archived `grade.py` exit **3** while that
 requirement is open. No skipped file or new mock uninstall test closes it.
 
-Instrumentation requests the exact twelve `Class#method` names through
+Ordinary instrumentation requests the exact seventeen `Class#method` names through
 `AndroidJUnitRunner`. The grader requires matched per-method start/success records,
 matching declared test count, a matching JUnit `OK` summary and a successful final
 instrumentation code. Failure, assumption, ignore/skip, missing/duplicate methods,
 partial output and an outer adb exit of zero with an inner failure are rejected.
+
+## Task35 real-profile and shutdown boundary
+
+`task35-inventory.json` retains the exact corrected Task35 inventory from commit
+`67300f8`. Its SHA is required by planning/preflight, source bindings, build
+selection and archived replay. `preference-source-bindings.json` records the
+independent comparison of actual Task31/35 source bytes with their committed
+source receipts. `previous-selection.json` retains the preceding complete
+selection; host regressions require all original 51+12 cases and the three
+Android exclusions unchanged. Task35 adds eight xpcshell tasks, five ordinary
+instrumented methods and one separately invoked shutdown method: **59+17+1**.
+
+Xpcshell does not call `InitializeUserPrefs`, including the Android
+`-xpcshell` entry point. Its corrected tests must reject an uninitialized native
+current profile and may inspect real explicit backup writes. They cannot substitute
+for the three `PrefSaveFileAsyncTest` methods or the two
+`WebExtensionUpdateSettingsTest` methods that use `RuntimeCreator`'s normal
+GeckoView profile. The privileged `browser.test` I/O helper belongs only to the
+instrumentation extension. None of these methods runs in the installed release app.
+
+After all ordinary methods complete successfully, the driver runs this sequence
+against the explicit disposable emulator. It does not wipe any profile:
+
+```text
+adb -s TEST_SERIAL shell ps -A -w -o PID,NAME
+adb -s TEST_SERIAL shell am force-stop org.mozilla.geckoview.test
+adb -s TEST_SERIAL shell ps -A -w -o PID,NAME
+adb -s TEST_SERIAL shell am instrument -w -r \
+  -e class org.mozilla.geckoview.test.PrefSaveFileAsyncShutdownTest \
+  -e redoubtAllowProfileShutdown true \
+  org.mozilla.geckoview.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+The ordinary `am instrument -w` must have returned before the stop sequence.
+Both process snapshots must be complete, include PID 1/init, and use the full
+`NAME` column; after force-stop, neither the exact test package nor any of its
+colon-suffixed child processes may remain. A command or parser failure stops
+before shutdown. The driver does not stop the release application or the separate
+xpcshell test_runner. The process listing is a bounded observation, not a claim
+that no unrelated external actor can launch the test app afterward.
+
+`process-list-source.txt` and `process-list-source.c.gz` retain the pinned primary
+Toybox source receipt and exact original source bytes: `NAME` is
+`argv[0]`, `CMD` is the kernel thread name, and `-w` expands output width. Actual
+Toybox command support, process visibility, normal GeckoView initialization and
+I/O behavior remain target prerequisites to verify; unsupported or incomplete
+output fails closed. The readonly primary source was fetched from
+[Android Toybox ps.c](https://android.googlesource.com/platform/external/toybox/+/59a869a838cfadbf6bc41cb400471ca9d2cae9b5/toys/posix/ps.c).
+
+The shutdown helper intentionally leaves its test-only marker in its closed
+profile. The driver never clears that data to make a rerun pass. Reusing the same
+persistent test profile may fail the helper's existing-marker guard; retain that
+failure and use a fresh disposable test environment for a new complete run.
+
+The shutdown class requires **both** the exact class selector (no `#method` or
+comma-separated class list) and string opt-in `true`. Its assumption skip is
+correct when a broad suite runs, but does not satisfy this driver's named gate.
+Missing/ignored/skipped/partial/failed shutdown results remain unaccepted. Replay
+requires the separate shutdown log, all three process-boundary receipts, matching
+commands/device/source/build/run identities, and strictly sequential timing.
+An empty successful force-stop log is valid only for that exact bound command;
+empty test or process-list logs still fail. The isolated invocation acknowledges
+the native preference-service shutdown observer and saved bytes; it does not
+establish the complete application's shutdown or release durability after death.
 
 ## Evidence and replay
 
@@ -214,16 +284,18 @@ built test artifact hashes. The replay verifies the recorded artifact binding; i
 does not claim to re-open absent APKs. Receipts provide local integrity and provenance
 checks, not protection against deliberate fabrication of all evidence files.
 
-The local suite currently passes **38 synthetic tests**, including parser failures,
-source/receipt tampering, foreign-run rejection, read-only planning and config
-isolation. `local-tests.txt` records the actual run. Full integrated preflight,
-native compilation, API lint and the 51 named xpcshell tasks plus 12 instrumented
-methods remain **unrun**; three further upstream uninstall tasks are Android-excluded
-and pending. The original 21+12 selection is retained unchanged. A failure
-in those real tests must be investigated in the source/test environment; it must
-not be converted to a parser allowlist or presented as a release behavior pass.
+The local suite currently passes **52 host driver/grader tests**, including
+parser failures, stale/foreign command receipts, source/selection tampering,
+pre-Task35 native bytes, missing/failed process boundaries and guarded shutdown
+skips. `local-tests.txt` records the observed invocation. Full integrated
+preflight, native compilation, API lint, **59 xpcshell tasks and 17+1 instrumented
+methods remain unrun**. Three further upstream uninstall tasks remain
+Android-excluded and pending. The aggregate therefore stays PENDING/exit 3 even
+if every currently runnable gate passes. A real failure must be investigated in
+the source/test environment, never converted into a parser allowlist.
 
-This permission followup starts from root commit `248da5a` and adds the declared
-Task27 dependency on Task31. Original driver preparation is retained in commit
-`5b472bc3afd4882d38c6ccbfc8c712f2cc002f91`; earlier evidence at that revision still
-describes 32 local tests and 21+12 unrun target checks.
+This followup starts from root `69615d7` plus Task35 metadata `2c7cc9b` and
+correction `67300f8`; Task27 metadata is `076fcad`. It preserves the prior
+permission-driver preparation from `ceb333e` and original driver preparation
+`5b472bc3afd4882d38c6ccbfc8c712f2cc002f91`. Older snapshots describe their older
+selection and host-test counts. No guest, build or device command ran here.

@@ -1,0 +1,127 @@
+Primary Android Toybox source; read only, no target command run.
+URL: https://android.googlesource.com/platform/external/toybox/+/59a869a838cfadbf6bc41cb400471ca9d2cae9b5/toys/posix/ps.c?format=TEXT
+Source commit: 59a869a838cfadbf6bc41cb400471ca9d2cae9b5
+Full source SHA256: d3894748a2f2779c500c2a8836eb832d3d2f00e3449c15423d0f7d8b5909325c
+
+80:     Which FIELDs to show. (-o HELP for list, default = -o PID,TTY,TIME,CMD)
+81: 
+82:     -f  Full listing (-o USER:12=UID,PID,PPID,C,STIME,TTY,TIME,ARGS=CMD)
+83:     -l  Long listing (-o F,S,UID,PID,PPID,C,PRI,NI,ADDR,SZ,WCHAN,TTY,TIME,CMD)
+84:     -o  Output FIELDs instead of defaults, each with optional :size and =title
+85:     -O  Add FIELDS to defaults
+86:     -Z  Include LABEL
+97:     -h	Usage graphs instead of text
+98:     -k	Fallback sort FIELDS (default -S,-%CPU,-ETIME,-PID)
+99:     -o	Show FIELDS (def PID,USER,PR,NI,VIRT,RES,SHR,S,%CPU,%MEM,TIME+,CMDLINE)
+100:     -O	Add FIELDS (replacing PR,NI,VIRT,RES,SHR,S from default)
+101:     -s	Sort by field number (1-X, default 9)
+102:     -b	Batch mode (no tty)
+103:     -d	Delay SECONDS between each cycle (default 3)
+148:     against command names.
+149: 
+150:     -a	Show the full command line
+151:     -c	Show only count of matches
+152:     -d	Use DELIM instead of newline
+153:     -L	Send SIGNAL instead of printing name
+154:     -l	Show command name
+155:     -f	Check full command line for PATTERN
+156:     -G	Match real Group ID(s)
+157:     -g	Match Process Group(s) (0 is current user)
+158:     -n	Newest match only
+159:     -o	Oldest match only
+174:     -l	Send SIGNAL (default SIGTERM)
+175:     -V	Verbose
+176:     -f	Check full command line for PATTERN
+177:     -G	Match real Group ID(s)
+178:     -g	Match Process Group(s) (0 is current user)
+179:     -n	Newest match only
+180:     -o	Oldest match only
+290:   char state;
+291:   char pcy[3];                // Android scheduling policy
+292:   char str[];                 // CMD, TTY, WCHAN, LABEL, COMM, ARGS, NAME
+293: };
+294: 
+295: /* The typos[] array lists all the types understood by "ps -o", I.E all the
+296:  * columns ps and top know how to display. Each entry has:
+352:   {"NAME", "Process name (PID's argv[0])", -27, -7},
+353:   {"COMMAND", "EXE path (/proc/PID/exe)", -27, -5},
+354:   {"CMDLINE", "Command line (argv[])", -27, -6},
+355:   {"ARGS", "CMDLINE minus initial path", -27, -6},
+356:   {"CMD", "Thread name (/proc/TID/stat:2)", -15, -1},
+357: 
+358:   // user/group (may call getpwuid() or similar)
+359:   {"UID", "User id", 5, SLOT_uid},
+448:   // about symbol order might be: "which *[><]=* *PS"
+449: 
+450:   // First show the half-dozen variants of command line display.
+451: 
+452:   printf("Command line field types:\n\n");
+453:   for (i = 0; i<jump; i++) toybuf[i] = PS_COMM+i;
+454:   help_fields(jump, 0);
+532:     // First string slot has offset 0, others are offset[-slot-2]
+533:     if (--sl) out += tb->offset[--sl];
+534:     if (which==PS_ARGS || which==PS_COMM) {
+535:       int i;
+536: 
+537:       s = out;
+538:       for (i = 0; (which==PS_ARGS) ? i < slot[SLOT_argv0len] : out[i]; i++)
+539:         if (out[i] == '/') s = out+i+1;
+540:       out = s;
+541:     }
+542:     if (which>=PS_COMM && !*out) sprintf(out = buf, "[%s]", tb->str);
+718:     // sources for procpid->offset[] data
+719:     {"fd/", _PS_TTY}, {"wchan", _PS_WCHAN}, {"attr/current", _PS_LABEL},
+720:     {"exe", _PS_COMMAND|_PS_COMM}, {"cmdline", _PS_CMDLINE|_PS_ARGS|_PS_NAME},
+721:     {"", _PS_NAME}
+722:   };
+723:   struct procpid *tb = (void *)toybuf;
+724:   long long *slot = tb->slot;
+999:       } else *buf = len = 0;
+1000: 
+1001:       // Store end of argv[0] so ARGS and CMDLINE can differ.
+1002:       // We do it for each file string slot but last is cmdline, which sticks.
+1003:       slot[SLOT_argv0len] = temp ? : len;  // Position of _first_ NUL
+1004:     }
+1005: 
+1166: }
+1167: 
+1168: // Parse command line options -p -s -t -u -U -g -G
+1169: static char *parse_rest(void *data, char *str, int len)
+1170: {
+1171:   struct ps_ptr_len *pl = (struct ps_ptr_len *)data;
+1172:   long *ll = pl->ptr;
+1300: }
+1301: 
+1302: // parse command line arguments (ala -k -o) with a comma separated FIELD list
+1303: static void default_ko(char *s, void *fields, char *err, struct arg_list *arg)
+1304: {
+1305:   struct arg_list def;
+1306:   int x;
+1344:   if (FLAG(w)) TT.width = 99999;
+1345: 
+1346:   // parse command line options other than -o
+1347:   comma_args(TT.ps.P, &TT.PP, "bad -P", parse_rest);
+1348:   comma_args(TT.ps.p, &TT.pp, "bad -p", parse_rest);
+1349:   comma_args(TT.ps.t, &TT.tt, "bad -t", parse_rest);
+1350:   comma_args(TT.ps.s, &TT.ss, "bad -s", parse_rest);
+1364:   if (FLAG(f))
+1365:     sprintf(not_o = toybuf+128,
+1366:       "USER:12=UID,%%sPPID,%s,STIME,TTY,TIME,ARGS=CMD", FLAG(T) ? "TCNT" :"C");
+1367:   else if (FLAG(l))
+1368:     not_o = "F,S,UID,%sPPID,C,PRI,NI,BIT,SZ,WCHAN,TTY,TIME,CMD";
+1369:   else if (CFG_TOYBOX_ON_ANDROID)
+1370:     sprintf(not_o = toybuf+128,
+1841:   sprintf(toybuf, "%cID,USER,%s%%CPU,%%MEM,TIME+,%s", FLAG(H) ? 'T' : 'P',
+1842:     TT.top.O ? "" : "PR,NI,VIRT,RES,SHR,S,",
+1843:     FLAG(H) ? "CMD:15=THREAD,NAME=PROCESS" : "ARGS");
+1844:   if (!TT.top.s) TT.top.s = TT.top.O ? 3 : 9;
+1845:   top_setup(toybuf, "-%CPU,-ETIME,-PID");
+1846:   if (TT.top.O) {
+1847:     struct ofields *field = TT.fields;
+1973:     if (!toys.optc) help_exit("No PATTERN");
+1974: 
+1975:   if (FLAG(f)|FLAG(a)) TT.bits |= _PS_CMDLINE;
+1976:   for (arg = toys.optargs; *arg; arg++) {
+1977:     reg = xmalloc(sizeof(struct regex_list));
+1978:     xregcomp(&reg->reg, *arg, REG_EXTENDED);
+1979:     reg->next = TT.pgrep.regexes;

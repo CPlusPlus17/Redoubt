@@ -51,3 +51,14 @@ fresh receipts. The aggregate result still returns PENDING/exit3 while the three
 Android-excluded uninstall tasks remain open. A fully prepared driver is not an
 executed target gate, and these separate test artifacts never establish release
 APK behavior or private-permission durability after actual process death.
+
+## Corrected preference driver followup
+
+The Task35 driver extension retains every requirement above. Current totals are
+59 runnable xpcshell tasks, 17 ordinary instrumented methods and one isolated
+shutdown method; all target execution remains pending. The updated inventory has
+129 required source paths and 61 audited files. The two shared Task31 hashes
+(GeckoViewWebExtension and the extension xpcshell manifest) now use the final
+corrected Task35 source; unchanged Task31 permissions logic and tests remain
+pinned. The three Android uninstall exclusions are unchanged. See README and
+preference-source-bindings.json for the exact source/receipt lineage.

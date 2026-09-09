@@ -311,7 +311,7 @@ class PermissionNativeSelection(unittest.TestCase):
             manifest.write_text(sha(root/'file')+'  file\n')
             req=root/'requirements.json';req.write_text(json.dumps({'product_paths':[], 'xpcshell':[],
                 'pending_xpcshell':[{'path':'missing-test.js','tasks':['remove']}], 'instrumentation':[]}))
-            with mock.patch.object(driver, 'REQUIREMENTS', req), self.assertRaisesRegex(InvalidResult,'missing-test.js'):
+            with mock.patch.object(driver, 'reviewed_requirements', return_value=json.loads(req.read_text())), self.assertRaisesRegex(InvalidResult,'missing-test.js'):
                 driver.source_binding(root,manifest)
 
 
