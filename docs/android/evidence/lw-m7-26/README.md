@@ -160,3 +160,8 @@ constructor. The existing generation test now first checks a valid unchanged
 snapshot. Failed source/logs and exact two-file correction are retained in
 `../lw-m7-21/native4-apk-failure/` and `../lw-m7-21/admission-copy-correction/`.
 This correction still requires an actual target rebuild and test run.
+
+The [isolated-process correction](isolated-process-correction/README.md) composes
+with corrected Task20 to keep both saved-policy readers in the main process and
+close isolated-child admission entirely in memory. The actual six-file167 overlay
+is retained separately; rebuilt target tests and first navigation remain pending.

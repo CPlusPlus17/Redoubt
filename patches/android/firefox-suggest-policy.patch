@@ -646,19 +646,19 @@ index 0000000..5bab389
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index cf89922..12a598e 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -53,6 +53,8 @@ import mozilla.components.concept.storage.FrecencyThresholdOption
+@@ -53,6 +53,9 @@
  import mozilla.components.feature.addons.migration.DefaultSupportedAddonsChecker
  import mozilla.components.feature.addons.update.GlobalAddonDependencyProvider
  import mozilla.components.feature.autofill.AutofillUseCases
 +import mozilla.components.feature.fxsuggest.FxSuggestAdmission
++import mozilla.components.feature.fxsuggest.FxSuggestChoices
 +import mozilla.components.feature.fxsuggest.FxSuggestIngestionScheduler
  import mozilla.components.feature.fxsuggest.GlobalFxSuggestDependencyProvider
  import mozilla.components.feature.search.ext.buildSearchUrl
  import mozilla.components.feature.search.ext.waitForSelectedOrDefaultSearchEngine
-@@ -129,6 +131,7 @@ import org.mozilla.fenix.perf.runBlockingIncrement
+@@ -129,6 +132,7 @@
  import org.mozilla.fenix.session.VisibilityLifecycleCallback
  import org.mozilla.fenix.settings.doh.DefaultDohSettingsProvider
  import org.mozilla.fenix.settings.doh.DohSettingsProvider
@@ -666,27 +666,29 @@ index cf89922..12a598e 100644
  import org.mozilla.fenix.startupCrash.StartupCrashActivity
  import org.mozilla.fenix.theme.DefaultThemeProvider
  import org.mozilla.fenix.theme.Theme
-@@ -186,6 +189,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
-     }
- 
-     override fun attachBaseContext(base: Context) {
-+        initializeFirefoxSuggest(base)
-         // Before content providers/WorkManager can revive persisted account jobs.
-         initializeAccountServices(base)
-         // Sets the locale information. Other threads do not have locale aware needs
-@@ -197,6 +201,11 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -189,14 +193,21 @@
+         // Isolated Gecko processes cannot read app preferences. Use the existing
+         // process check before account admission or locale code accesses storage.
+         if (base.isMainProcess()) {
++            initializeFirefoxSuggest(base)
+             // Before content providers/WorkManager can revive persisted account jobs.
+             initializeAccountServices(base)
+             val localeAwareContext = LocaleManager.updateResources(base)
+             super.attachBaseContext(localeAwareContext)
+         } else {
++            FxSuggestAdmission.configure { FxSuggestChoices(false, false, false, false) }
+             AccountServices.disableForProcess()
+             super.attachBaseContext(base)
          }
-     }
- 
++    }
++
 +    /** Separate from ordinary query suggestions and initialized before providers. */
 +    protected open fun initializeFirefoxSuggest(context: Context) {
 +        FirefoxSuggestPolicy.initialize(context)
-+    }
-+
+     }
+ 
      /** Account-service defaults are independent of the Gecko preference store. */
-     protected open fun initializeAccountServices(context: Context) {
-         AccountServices.initialize(context, defaultEnabled = false)
-@@ -370,7 +379,10 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -372,7 +383,10 @@
  
          maybeSetupIPProtection()
  
@@ -698,7 +700,7 @@ index cf89922..12a598e 100644
  
          visibilityLifecycleCallback = VisibilityLifecycleCallback(getSystemService())
          registerActivityLifecycleCallbacks(visibilityLifecycleCallback)
-@@ -430,7 +442,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -432,7 +446,7 @@
          queueNimbusFetchInForeground(queue)
          queueDownloadWallpapers(queue)
  
@@ -707,7 +709,7 @@ index cf89922..12a598e 100644
              queueSuggestIngest(queue)
          }
  
-@@ -491,10 +503,10 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -493,10 +507,10 @@
                      // new search suggestions. The worker requires us to have called
                      // `GlobalFxSuggestDependencyProvider.initialize`, which we did before
                      // scheduling these tasks. When disabled we stop the periodic work.
@@ -720,7 +722,7 @@ index cf89922..12a598e 100644
                      }
                  }
                  components.core.fileUploadsDirCleaner.cleanUploadsDirectory()
-@@ -570,7 +582,9 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -572,7 +586,9 @@
      @OptIn(DelicateCoroutinesApi::class) // GlobalScope usage
      private fun queueSuggestIngest(queue: RunWhenReadyQueue) = runOnVisualCompleteness(queue) {
          GlobalScope.launch(IO) {
@@ -1152,10 +1154,9 @@ index 1f3dabf..7aa8322 100644
              app:iconSpaceReserved="false"
              android:key="@string/pref_key_show_sponsored_suggestions"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
-index 0c00d85..15ced6b 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
-@@ -6,6 +6,8 @@ package org.mozilla.fenix.helpers
+@@ -6,6 +6,8 @@
  
  import android.content.Context
  import io.mockk.mockk
@@ -1164,24 +1165,24 @@ index 0c00d85..15ced6b 100644
  import mozilla.components.service.fxa.AccountServices
  import org.mozilla.fenix.FenixApplication
  import org.mozilla.fenix.R
-@@ -31,6 +33,11 @@ class FenixRobolectricTestApplication : FenixApplication() {
-     override val components = mockk<Components>(relaxed = true)
-     override fun initializeFenixProcess() = Unit
- 
-+    override fun initializeFirefoxSuggest(context: Context) {
-+        // Legacy feature tests use an enabled embedder; policy tests call the real attach hook.
+@@ -37,9 +39,12 @@
+         // simulated process name before per-test mocks are installed. Policy
+         // tests attach a plain FenixApplication to exercise production admission.
+         AccountServices.initialize(base, defaultEnabled = true)
 +        FxSuggestAdmission.configure { FxSuggestChoices() }
-+    }
+     }
+ 
+     override fun initializeAccountServices(context: Context) = Unit
 +
-     override fun initializeAccountServices(context: Context) {
-         // Existing feature tests model an opted-in application. Policy tests set
-         // an explicit disabled fixture and verify the actual production gates.
++    override fun initializeFirefoxSuggest(context: Context) = Unit
+ 
+     private fun setApplicationTheme() {
+         // According to the Robolectric devs, the application context will not have the <application>'s
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt
 new file mode 100644
-index 0000000..f2dc72d
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,161 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1189,9 +1190,16 @@ index 0000000..f2dc72d
 +package org.mozilla.fenix.settings.search
 +
 +import android.content.Context
++import android.content.ContextWrapper
++import android.content.SharedPreferences
 +import androidx.test.ext.junit.runners.AndroidJUnit4
++import io.mockk.every
++import io.mockk.mockkStatic
++import io.mockk.unmockkStatic
 +import mozilla.components.feature.fxsuggest.FxSuggestAdmission
 +import mozilla.components.feature.fxsuggest.FxSuggestChoices
++import mozilla.components.service.fxa.AccountServices
++import mozilla.components.support.ktx.android.content.isMainProcess
 +import mozilla.components.support.test.robolectric.testContext
 +import org.junit.After
 +import org.junit.Assert.assertEquals
@@ -1216,11 +1224,15 @@ index 0000000..f2dc72d
 +
 +    @Before
 +    fun setUp() {
++        mockkStatic("mozilla.components.support.ktx.android.content.ContextKt")
++        every { any<Context>().isMainProcess() } returns true
 +        preferences.edit().clear().commit()
 +    }
 +
 +    @After
 +    fun tearDown() {
++        unmockkStatic("mozilla.components.support.ktx.android.content.ContextKt")
++        AccountServices.initialize(testContext, defaultEnabled = true)
 +        preferences.edit().clear().commit()
 +        FxSuggestAdmission.configure { FxSuggestChoices() }
 +    }
@@ -1249,6 +1261,32 @@ index 0000000..f2dc72d
 +            assertEquals(FxSuggestChoices(enabled, enabled, enabled, enabled), FxSuggestAdmission.snapshot().choices)
 +            assertEquals(before, preferences.all)
 +        }
++    }
++
++    @Test
++    fun `production child attachment closes Suggest and accounts without accessing app preferences`() {
++        val editor = preferences.edit()
++        for (key in keys) editor.putBoolean(testContext.getString(key), true)
++        editor.commit()
++        val before = preferences.all
++        FxSuggestAdmission.configure { FxSuggestChoices() }
++        val admitted = FxSuggestAdmission.snapshot()
++        AccountServices.initialize(testContext, defaultEnabled = true)
++        val child = object : ContextWrapper(testContext) {
++            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
++                error("Isolated child must not access app preferences")
++
++            override fun getSystemService(name: String): Any? =
++                error("Child attachment must not query a system service")
++        }
++        every { child.isMainProcess() } returns false
++
++        ProductionApplication().attachProductionContext(child)
++
++        assertFalse(AccountServices.isEnabled)
++        assertEquals(FxSuggestChoices(false, false, false, false), FxSuggestAdmission.snapshot().choices)
++        assertFalse(FxSuggestAdmission.isCurrent(admitted))
++        assertEquals(before, preferences.all)
 +    }
 +
 +    @Test
