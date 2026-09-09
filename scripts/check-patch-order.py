@@ -134,6 +134,10 @@ OUT_OF_LIST_TAIL = ()
 # --------------------------------------------------------------------------
 
 CONSTRAINTS = (
+    # LW-M7-20: retained scoped alternate-order replay, including explicit composition constraint.
+    ('patches/android/no-nimbus.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',), 'The scoped candidate is authored after this predecessor; moving it earlier fails the measured complete scoped replay (LW-M7-20 ordering-review.json).'),
+    ('patches/android/no-adjust.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt'), 'Keep the existing no-adjust -> no-gms predecessor chain ahead of the selected Sync integration order. The inverse attempt failed in no-gms before Sync; this is a chosen composition constraint, not an isolated intrinsic pair conflict (LW-M7-20 ordering-review.json).'),
+    ('patches/android/ubo-preinstall.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt'), 'The scoped candidate is authored after this predecessor; moving it earlier fails the measured complete scoped replay (LW-M7-20 ordering-review.json).'),
     (
         "patches/android/webgl-prompt-default.patch",
         "patches/android/canvas-webgl-permissions.patch",
@@ -358,6 +362,12 @@ CONSTRAINTS = (
 # --------------------------------------------------------------------------
 
 REVIEWED_ORDER_FREE = (
+    # LW-M7-20: retained scoped alternate-order replay, including explicit composition constraint.
+    ('patches/android/no-glean.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'Both orders apply with all other scoped predecessors retained and yield identical bytes in all 23 files (LW-M7-20 ordering-review.json).'),
+    ('patches/android/no-gms.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt'), 'Both orders apply with all other scoped predecessors retained and yield identical bytes in all 23 files (LW-M7-20 ordering-review.json).'),
+    ('patches/android/no-suggest.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',), 'Both orders apply with all other scoped predecessors retained and yield identical bytes in all 23 files (LW-M7-20 ordering-review.json).'),
+    ('patches/android/update-check.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt'), 'Both orders apply with all other scoped predecessors retained and yield identical bytes in all 23 files (LW-M7-20 ordering-review.json).'),
+    ('patches/android/canvas-webgl-permissions.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt',), 'Both orders apply with all other scoped predecessors retained and yield identical bytes in all 23 files (LW-M7-20 ordering-review.json).'),
     ("patches/android/no-nimbus.patch", "patches/android/home-section-defaults.patch",
      ("mobile/android/fenix/app/nimbus.fml.yaml",),
      "LW-M7-24 edits only the home defaults near the start; no-nimbus edits fission around line 510. "
