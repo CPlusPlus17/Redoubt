@@ -4916,3 +4916,74 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: A visible switch or queued callback may acknowledge Off while metadata requests or stale updates remain admitted.
+
+  - id: LW-M7-36
+    title: Add durable authoritative global privacy controls
+    milestone: M7
+    depends_on:
+    - LW-M7-35
+    - LW-M7-14
+    - LW-M7-16
+    - LW-M7-25
+    owns:
+    - patches/android/global-privacy-controls.patch
+    - scripts/tests/test-global-privacy-controls.py
+    - scripts/tests/test-global-privacy-controls.js
+    - docs/android/evidence/lw-m7-36/
+    shared_edit:
+    - assets/patches/android.txt
+    tree_paths:
+    - mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs
+    - mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+    - mobile/shared/components/geckoview/moz.build
+    - mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js
+    - mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml
+    - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java
+    - mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt
+    - mobile/android/geckoview/api.txt
+    - mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt
+    - mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt
+    - mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
+    - mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt
+    - mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt
+    - mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
+    - mobile/android/fenix/app/src/main/res/xml/preferences.xml
+    - mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml
+    - mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml
+    - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt
+    reads:
+    - patches/pref-pane/librewolf.js
+    - patches/android/canvas-webgl-permissions.patch
+    - docs/android/evidence/lw-m7-35/
+    - docs/android/AGENTS.md
+    what: Expose RFP, inverse WebGL prompt, WebGL quiet popup, inverse DNS IPv6 disable and referrer host policy0/1/2
+      through a dedicated native allowlisted get/set/reset contract. Read effective/default/has-user/lock state; validate
+      before mutation, serialize operations, use Task35 savePrefFileAsync before mutation and for durable acknowledgment
+      afterward. Report failed saves and concurrent supersession honestly without a Fenix preference mirror. Preserve
+      site permissions and native runtime reset ownership. Exclude webgl.disabled, letterboxing and settings-submodule
+      edits. Root owns source integration, builds, guest and target execution.
+    acceptance:
+    - the five controls read real native state and preserve explicit choices, defaults, enum1 and locks
+    - unknown, invalid and locked writes are rejected before mutation; saves and resets serialize and acknowledge
+      actual persistence results
+    - failed save or superseded native state is surfaced without invented rollback, durable success or SharedPreferences
+      state
+    - UI explains host/base-domain referrer comparisons, IPv6 DNS boundary, WebGL bypass/quiet behavior and RFP private/exemption
+      context
+    - meaningful actual-module/API/UI tests and pinned scoped replay evidence are retained; site grants remain untouched
+    - target compilation, native/Kotlin suites and source-bound APK fresh-document/restart/network tests pass before
+      completion
+    verify: python3 scripts/tests/test-global-privacy-controls.py && python3 docs/android/board.py --check
+    effort_h: 12-20
+    skills:
+    - android
+    - kotlin
+    - js
+    - testing
+    agent_safe: true
+    isolation: worktree
+    risk: Gecko effective state, stored user state under locks and confirmed disk state differ; UI acknowledgment
+      must preserve those distinctions.
