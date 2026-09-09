@@ -4634,3 +4634,36 @@ tasks:
     agent_safe: yes
     isolation: none
     risk: Reaching a live public origin or bypassing certificate validation would invalidate native cookie proof.
+
+  - id: LW-M7-34
+    title: Prepare unmodified official uBlock Origin update fixtures
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-28]
+    owns:
+      - docs/android/evidence/lw-m7-34/
+    reads:
+      - assets/ubo-extension.json
+      - docs/android/evidence/lw-m7-28/source-audit.md
+      - scripts/android-addon-state-smoke.py
+    what: |
+      Retain two unmodified official AMO uBlock Origin versions, their original
+      metadata, download locations, hashes, manifest identity and parser filter
+      inputs. Bind the newer version to the packaged pin. Verify local bytes
+      without treating signature files or HTTPS provenance as Gecko signature
+      verification. Prepare the real Fenix file-picker older-to-newer route and
+      record actual Gecko signed state, UI completion, retained choices and
+      restart behavior when a source-bound candidate is available. Keep periodic
+      update scheduling and permissions-increasing updates separate. Never edit
+      XPI bytes, bypass signature checks or install through privileged test APIs.
+    acceptance:
+      - "two original official artifacts match retained metadata, exact hashes and one add-on identity"
+      - "the newer fixture matches the packaged uBO pin and both contain the actual parser rule"
+      - "ordinary Gecko signature verification and a real UI older-to-newer transition are recorded"
+      - "enabled/private choices survive update and restart with independent parser/network evidence"
+      - "fixture preparation alone leaves target update acceptance pending"
+    verify: "python3 docs/android/board.py --check"
+    effort_h: "3-6"
+    skills: [python, android, js]
+    agent_safe: yes
+    isolation: none
+    risk: ZIP signature entries or an unchanged installed version can be mistaken for an executed verified update.
