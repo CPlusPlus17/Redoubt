@@ -4743,3 +4743,38 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: A private permission can be acknowledged while its legacy JSON write is still only scheduled.
+
+  - id: LW-M7-29
+    title: Prepare reviewed offline Firefox Suggest collection inputs
+    milestone: M7
+    depends_on: [LW-M7-26]
+    owns:
+      - docs/android/evidence/lw-m7-29/
+    tree_paths: []
+    reads:
+      - patches/android/rs-blocker-android.patch
+      - patches/android/search-config.patch
+      - patches/android/firefox-suggest-policy.patch
+      - scripts/package-translation-assets.py
+      - scripts/librewolf-patches.py
+    what: |
+      Prepare the bounded offline local Suggest input plan after Task26 controls.
+      Retain known official collection metadata and request provenance, classify
+      exact provider/configuration/icon dependencies, and size required reviewed
+      attachments without bulk bundling. Inspect the actual native packaged-data
+      API, record-ID attachment lookup, timestamp and metadata validation, and
+      define fail-closed staging plus meaningful positive/negative ingestion gates.
+      Keep the generic Remote Settings network blocker unchanged. Extend exact
+      ownership and source paths before any later packaging implementation.
+    acceptance:
+      - "official collection snapshots and their provenance, timestamps, hashes and byte counts are retained"
+      - "AMP/Wikipedia provider closure includes global configuration and referenced icons, with required attachment hashes and sizes recorded"
+      - "the input plan matches the actual native collection and packaged-attachment API and states cache/upgrade limitations"
+      - "concrete bounded packaging and ingestion tests are specified without claiming native compilation or runtime success"
+      - "offline evidence validation and board validation pass"
+    verify: "python3 docs/android/evidence/lw-m7-29/check-input-plan.py && python3 docs/android/board.py --check"
+    effort_h: "3-6"
+    skills: [android, rust]
+    agent_safe: yes
+    isolation: worktree
+    risk: Metadata alone cannot populate local Suggest, and packaged attachment lookup uses record IDs rather than the documented filenames.
