@@ -59,6 +59,13 @@ with tempfile.TemporaryDirectory(prefix='lw21-cookie-order-') as temporary:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(archive.extractfile(entry).read())
     assert hashes(pristine) == before
+    # The expanded archive keeps its historical baseline: these two newly scoped
+    # files precede the uBO-readiness overlay already present in the guest.
+    baseline_overlay = 'patches/android/ubo-readiness.patch'
+    overlay = apply(pristine, baseline_overlay)
+    assert overlay['exit'] == 0, overlay
+    report['baseline_overlay'] = overlay
+    before = hashes(pristine)
     report['reverse'] = []
     for patch in reversed(predecessors):
         result = apply(pristine, patch, True)
@@ -77,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix='lw21-cookie-order-') as temporary:
         report['forward'].append(result)
         assert result['exit'] == 0, result
     final = hashes(normal)
-    changed_by_sync = touched(SYNC) & paths
+    changed_by_sync = (touched(SYNC) | touched(baseline_overlay)) & paths
     assert all(final[p] == after[p] for p in paths - changed_by_sync)
     report['combined_source'] = final
     for predecessor in predecessors + [SYNC]:

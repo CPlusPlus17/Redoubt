@@ -27,7 +27,10 @@ for pair in \
   'fenix:fenix/app' \
   'extensions:android-components/components/support/webextensions' \
   'gecko:android-components/components/browser/engine-gecko' \
-  'state:android-components/components/browser/state'; do
+  'state:android-components/components/browser/state' \
+  'accounts:android-components/components/service/firefox-accounts' \
+  'syncedtabs:android-components/components/feature/syncedtabs' \
+  'suggest:android-components/components/feature/fxsuggest'; do
   name=${pair%%:*}
   relative=${pair#*:}
   path="$results_root/$relative/test-results/testDebugUnitTest"
@@ -49,7 +52,24 @@ podman run --rm --name parity-extended-tests \
     ./mach gradle :fenix:testDebugUnitTest :components:support-webextensions:testDebugUnitTest --continue --no-daemon --max-workers=4 -PgleanBuildDate=2026-09-06T19:00:00
     fenix_rc=$?
     printf "%s\n" "$fenix_rc" > /work/test-evidence/fenix-gradle-exit.txt
-    ./mach gradle :components:browser-engine-gecko:testDebugUnitTest --tests mozilla.components.browser.engine.gecko.permission.OriginBoundPermissionRequestTest --tests mozilla.components.browser.engine.gecko.permission.OriginBoundPermissionsStorageTest --tests mozilla.components.browser.engine.gecko.permission.GeckoSitePermissionsStorageTest :components:browser-state:testDebugUnitTest --tests mozilla.components.browser.state.ext.PermissionRequestTest --continue --no-daemon --max-workers=4 -PgleanBuildDate=2026-09-06T19:00:00
+    ./mach gradle \
+      :components:browser-engine-gecko:testDebugUnitTest \
+      --tests mozilla.components.browser.engine.gecko.permission.OriginBoundPermissionRequestTest \
+      --tests mozilla.components.browser.engine.gecko.permission.OriginBoundPermissionsStorageTest \
+      --tests mozilla.components.browser.engine.gecko.permission.GeckoSitePermissionsStorageTest \
+      --tests mozilla.components.browser.engine.gecko.cookiebanners.GeckoCookieBannersStorageTest \
+      :components:browser-state:testDebugUnitTest \
+      --tests mozilla.components.browser.state.ext.PermissionRequestTest \
+      :components:service-firefox-accounts:testDebugUnitTest \
+      --tests mozilla.components.service.fxa.AccountServicesDisabledTest \
+      --tests mozilla.components.service.fxa.AccountServicesTest \
+      --tests mozilla.components.service.fxa.sync.AccountServicesWorkerTest \
+      :components:feature-syncedtabs:testDebugUnitTest \
+      --tests mozilla.components.feature.syncedtabs.commands.AccountServicesFlushWorkerTest \
+      :components:feature-fxsuggest:testDebugUnitTest \
+      --tests mozilla.components.feature.fxsuggest.FxSuggestAdmissionTest \
+      --tests mozilla.components.feature.fxsuggest.datasource.OnlineSuggestionAdmissionTest \
+      --continue --no-daemon --max-workers=4 -PgleanBuildDate=2026-09-06T19:00:00
     ac_rc=$?
     printf "%s\n" "$ac_rc" > /work/test-evidence/ac-gradle-exit.txt
     cat /sys/fs/cgroup/memory.peak > /work/test-evidence/memory.peak

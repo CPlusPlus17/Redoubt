@@ -11,15 +11,34 @@ SUITES = {
         'org.mozilla.fenix.browser.permissions.OriginBoundPermissionsFeatureTest',
         'org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragmentTest',
         'org.mozilla.fenix.utils.HomeSectionDefaultsTest',
+        'org.mozilla.fenix.settings.AccountServicesPreferenceTest',
+        'org.mozilla.fenix.settings.cookiebannerhandling.CookieBannerSettingsTest',
+        'org.mozilla.fenix.settings.cookiebannerhandling.CookieBannerSiteControllerTest',
+        'org.mozilla.fenix.settings.quicksettings.ProtectionsViewTest',
+        'org.mozilla.fenix.settings.quicksettings.protections.cookiebanners.DefaultCookieBannerDetailsControllerTest',
+        'org.mozilla.fenix.settings.search.FirefoxSuggestPolicyTest',
     }),
     'extensions': ('android-components/components/support/webextensions', 4, 53, set()),
-    'gecko': ('android-components/components/browser/engine-gecko', 3, 3, {
+    'gecko': ('android-components/components/browser/engine-gecko', 4, 4, {
         'mozilla.components.browser.engine.gecko.permission.OriginBoundPermissionRequestTest',
         'mozilla.components.browser.engine.gecko.permission.OriginBoundPermissionsStorageTest',
         'mozilla.components.browser.engine.gecko.permission.GeckoSitePermissionsStorageTest',
+        'mozilla.components.browser.engine.gecko.cookiebanners.GeckoCookieBannersStorageTest',
     }),
     'state': ('android-components/components/browser/state', 1, 1, {
         'mozilla.components.browser.state.ext.PermissionRequestTest',
+    }),
+    'accounts': ('android-components/components/service/firefox-accounts', 3, 19, {
+        'mozilla.components.service.fxa.AccountServicesDisabledTest',
+        'mozilla.components.service.fxa.AccountServicesTest',
+        'mozilla.components.service.fxa.sync.AccountServicesWorkerTest',
+    }),
+    'syncedtabs': ('android-components/components/feature/syncedtabs', 1, 1, {
+        'mozilla.components.feature.syncedtabs.commands.AccountServicesFlushWorkerTest',
+    }),
+    'suggest': ('android-components/components/feature/fxsuggest', 2, 14, {
+        'mozilla.components.feature.fxsuggest.FxSuggestAdmissionTest',
+        'mozilla.components.feature.fxsuggest.datasource.OnlineSuggestionAdmissionTest',
     }),
 }
 

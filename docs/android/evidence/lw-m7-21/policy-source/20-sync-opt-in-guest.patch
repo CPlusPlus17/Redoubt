@@ -1,0 +1,1905 @@
+--- a/mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushScheduler.kt
++++ b/mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushScheduler.kt
+@@ -13,6 +13,7 @@
+ import androidx.work.OneTimeWorkRequestBuilder
+ import androidx.work.WorkManager
+ import androidx.work.WorkRequest
++import mozilla.components.service.fxa.AccountServices
+ import java.util.concurrent.TimeUnit
+ import kotlin.time.Duration
+ import kotlin.time.Duration.Companion.milliseconds
+@@ -31,6 +32,7 @@
+ ) {
+     /** Schedules a flush. */
+     fun requestFlush() {
++        if (!AccountServices.isEnabled) return
+         WorkManager.getInstance(context).enqueueUniqueWork(
+             SyncedTabsCommandsFlushWorker.WORK_TAG,
+             ExistingWorkPolicy.REPLACE,
+@@ -40,7 +42,13 @@
+ 
+     /** Cancels a previously-scheduled flush. */
+     fun cancelFlush() {
+-        WorkManager.getInstance(context).cancelAllWorkByTag(SyncedTabsCommandsFlushWorker.WORK_TAG)
++        cancelPendingWork(context)
++    }
++
++    companion object {
++        /** Cancels old persisted jobs without resolving the account/commands provider. */
++        fun cancelPendingWork(context: Context) =
++            WorkManager.getInstance(context).cancelAllWorkByTag(SyncedTabsCommandsFlushWorker.WORK_TAG)
+     }
+ 
+     internal fun createFlushWorkRequest(): OneTimeWorkRequest {
+--- a/mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushWorker.kt
++++ b/mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushWorker.kt
+@@ -8,6 +8,7 @@
+ import androidx.work.CoroutineWorker
+ import androidx.work.WorkerParameters
+ import mozilla.components.concept.sync.DeviceCommandQueue
++import mozilla.components.service.fxa.AccountServices
+ 
+ /**
+  * A [CoroutineWorker] that flushes any pending [SyncedTabsCommands].
+@@ -19,6 +20,7 @@
+     CoroutineWorker(context, params) {
+ 
+     override suspend fun doWork(): Result {
++        if (!AccountServices.isEnabled) return Result.success()
+         val commands = GlobalSyncedTabsCommandsProvider.requireCommands()
+         return when (commands.flush()) {
+             is DeviceCommandQueue.FlushResult.Ok -> Result.success()
+--- /dev/null
++++ b/mobile/android/android-components/components/feature/syncedtabs/src/test/java/mozilla/components/feature/syncedtabs/commands/AccountServicesFlushWorkerTest.kt
+@@ -0,0 +1,32 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.feature.syncedtabs.commands
++
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.work.ListenableWorker
++import androidx.work.testing.TestListenableWorkerBuilder
++import kotlinx.coroutines.test.runTest
++import mozilla.components.service.fxa.AccountServices
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.After
++import org.junit.Assert.assertEquals
++import org.junit.Test
++import org.junit.runner.RunWith
++
++@RunWith(AndroidJUnit4::class)
++class AccountServicesFlushWorkerTest {
++    @After
++    fun tearDown() {
++        AccountServices.initialize(testContext, defaultEnabled = true)
++    }
++
++    @Test
++    fun `disabled persisted flush work must not resolve the account command provider`() = runTest {
++        AccountServices.initialize(testContext, defaultEnabled = false)
++        GlobalSyncedTabsCommandsProvider.initialize(lazy { error("Disabled worker resolved account commands") })
++        val worker = TestListenableWorkerBuilder<SyncedTabsCommandsFlushWorker>(testContext).build()
++        assertEquals(ListenableWorker.Result.success(), worker.doWork())
++    }
++}
+--- /dev/null
++++ b/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/AccountServices.kt
+@@ -0,0 +1,68 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.service.fxa
++
++import android.content.Context
++import mozilla.components.support.base.log.logger.Logger
++
++/**
++ * Process-wide account-service admission policy. Embedders initialize it before
++ * content providers/workers run. Other A-C consumers retain their existing default.
++ *
++ * A committed change closes admission for this process in BOTH directions. Only
++ * a new process reads the new choice and can enable services. Restart, rather
++ * than coroutine cancellation, ends synchronous Rust sync and retained accounts.
++ */
++object AccountServices {
++    internal const val PREFERENCES = "mozilla.components.service.fxa.account-services"
++    internal const val ENABLED = "enabled"
++
++    @Volatile
++    var isEnabled: Boolean = true
++        private set
++
++    @Volatile
++    internal var generation: Long = 0
++        private set
++
++    private val logger = Logger("AccountServices")
++    private var restarting = false
++
++    /** Read a saved explicit choice without writing a default or account data. */
++    @Synchronized
++    fun initialize(context: Context, defaultEnabled: Boolean = true) {
++        isEnabled = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
++            .getBoolean(ENABLED, defaultEnabled)
++        generation += 1
++        restarting = false
++    }
++
++    /**
++     * Commit before cancelling anything. A failed disk write must not change the
++     * running policy; SharedPreferences updates memory even when commit fails,
++     * so attempt to restore its previous key/value as well. If rollback also fails,
++     * durability is unknown; never report a saved transition. No account/engine store is edited.
++     */
++    @Synchronized
++    fun commitChoiceForRestart(context: Context, enabled: Boolean): Boolean {
++        if (restarting) return false
++        val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
++        val hadChoice = preferences.contains(ENABLED)
++        val oldChoice = preferences.getBoolean(ENABLED, isEnabled)
++        if (!preferences.edit().putBoolean(ENABLED, enabled).commit()) {
++            val rollback = preferences.edit()
++            if (hadChoice) rollback.putBoolean(ENABLED, oldChoice) else rollback.remove(ENABLED)
++            if (!rollback.commit()) {
++                logger.warn("Account choice write and rollback failed; saved choice is unverified")
++            }
++            return false
++        }
++        // Prevent queued callers from starting service work during shutdown.
++        isEnabled = false
++        generation += 1
++        restarting = true
++        return true
++    }
++}
+--- a/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/manager/FxaAccountManager.kt
++++ b/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/manager/FxaAccountManager.kt
+@@ -33,6 +33,7 @@
+ import mozilla.components.concept.sync.Profile
+ import mozilla.components.service.fxa.AccessTokenUnexpectedlyWithoutKey
+ import mozilla.components.service.fxa.AccountManagerException
++import mozilla.components.service.fxa.AccountServices
+ import mozilla.components.service.fxa.AccountStorage
+ import mozilla.components.service.fxa.FxaAuthData
+ import mozilla.components.service.fxa.FxaDeviceSettingsCache
+@@ -110,13 +111,17 @@
+     ).asCoroutineDispatcher() + SupervisorJob(),
+ ) : Closeable, Observable<AccountObserver> by ObserverRegistry() {
+     private val logger = Logger("FirefoxAccountStateMachine")
++    private val accountServicesGeneration = AccountServices.generation
++    private val accountServicesEnabled: Boolean
++        get() = AccountServices.isEnabled && accountServicesGeneration == AccountServices.generation
+ 
+     init {
+         GlobalAccountManager.setInstance(this)
+     }
+ 
+     private val accountOnDisk by lazy { getStorageWrapper().account() }
+-    private val account by lazy { accountOnDisk.account() }
++    private val accountValue = lazy { accountOnDisk.account() }
++    private val account by accountValue
+     private val accountStateEventsObserver = AccountStateEventsObserver(this::queueEvent)
+     private val accountScopeAccessor by lazy { AccountScopeAccessor(getAccountStorage()) }
+ 
+@@ -157,7 +162,7 @@
+     init {
+         registerForAccountEvents(accountStateEventsObserver, ProcessLifecycleOwner.get(), false)
+ 
+-        syncConfig?.let {
++        syncConfig?.takeIf { accountServicesEnabled }?.let {
+             // Initialize sync manager with the passed-in config.
+             require(syncConfig.supportedEngines.isNotEmpty()) {
+                 "Set of supported engines can't be empty"
+@@ -212,6 +217,7 @@
+         debounce: Boolean = false,
+         customEngineSubset: List<SyncEngine> = listOf(),
+     ) = withContext(coroutineContext) {
++        if (!accountServicesEnabled) return@withContext
+         check(
+             customEngineSubset.isEmpty() ||
+                 syncConfig?.supportedEngines?.containsAll(customEngineSubset) == true,
+@@ -225,6 +231,7 @@
+                 try {
+                     maybeUpdateSyncAuthInfoCache()
+                 } catch (e: AccessTokenUnexpectedlyWithoutKey) {
++                    if (!accountServicesEnabled) return@withContext
+                     crashReporter?.submitCaughtException(
+                         AccountManagerException.MissingKeyFromSyncScopedAccessToken("syncNow"),
+                     )
+@@ -238,7 +245,9 @@
+                     checkNotNull(syncManager == null) {
+                         "Sync is not configured. Construct this class with a 'syncConfig' or use 'setSyncConfig'"
+                     }
+-                    syncManager?.now(reason, debounce, customEngineSubset)
++                    if (accountServicesEnabled) {
++                        syncManager?.now(reason, debounce, customEngineSubset)
++                    }
+                 }
+             }
+             else -> logger.info("Ignoring syncNow request, not in the right state: $s")
+@@ -257,6 +266,7 @@
+      * @param enabled Whether the engine should be enabled or disabled.
+      */
+     suspend fun setEngineEnabled(engine: SyncEngine, enabled: Boolean) = withContext(coroutineContext) {
++        if (!accountServicesEnabled) return@withContext
+         syncManager?.setEngineEnabled(engine, enabled)
+     }
+ 
+@@ -271,7 +281,9 @@
+         if (authenticatedAccount() == null) {
+             return false
+         }
+-        return when (val status = accountScopeAccessor.containsScope(scope)) {
++        val status = accountScopeAccessor.containsScope(scope)
++        if (!accountServicesEnabled) return false
++        return when (status) {
+             ScopeStatus.Granted -> true
+             ScopeStatus.NotGranted -> false
+             is ScopeStatus.Unavailable -> {
+@@ -286,7 +298,9 @@
+      * Call this after registering your observers, and before interacting with this class.
+      */
+     suspend fun start() = withContext(coroutineContext) {
++        if (!accountServicesEnabled) return@withContext
+         processQueue(Event.Account.Start)
++        if (!accountServicesEnabled) return@withContext
+ 
+         if (!isAccountManagerReady) {
+             notifyObservers { onReady(authenticatedAccount()) }
+@@ -299,6 +313,7 @@
+      * Returned [OAuthAccount] may need to be re-authenticated; consumers are expected to check [accountNeedsReauth].
+      */
+     fun authenticatedAccount(): OAuthAccount? = state.let {
++        if (!accountServicesEnabled) return@let null
+         when (it) {
+             FxaState.Connected, FxaState.AuthIssues -> account
+             // Bug 2030890 - we may not leave the `FxaState.Authenticating` state.
+@@ -311,6 +326,7 @@
+      * Get the [OAuthAccount] instance if it's connected.
+      */
+     fun connectedAccount(): OAuthAccount? = state.let {
++        if (!accountServicesEnabled) return@let null
+         when (it) {
+             FxaState.Connected -> account
+             // While authenticating from a connected state we should return the account.
+@@ -328,13 +344,13 @@
+      *
+      * @return A boolean flag indicating if account needs to be re-authenticated.
+      */
+-    fun accountNeedsReauth() = (state == FxaState.AuthIssues)
++    fun accountNeedsReauth() = accountServicesEnabled && (state == FxaState.AuthIssues)
+ 
+     /**
+      * Returns a [Profile] for an account, attempting to fetch it if necessary.
+      * @return [Profile] if one is available and account is an authenticated state.
+      */
+-    fun accountProfile(): Profile? = when (state) {
++    fun accountProfile(): Profile? = if (!accountServicesEnabled) null else when (state) {
+         is FxaState.Connected, is FxaState.Authenticating, is FxaState.AuthIssues -> profile
+         else -> null
+     }
+@@ -342,6 +358,7 @@
+     @VisibleForTesting
+     internal suspend fun refreshProfile(ignoreCache: Boolean): Profile? {
+         return authenticatedAccount()?.getProfile(ignoreCache = ignoreCache)?.let { newProfile ->
++            if (!accountServicesEnabled) return null
+             profile = newProfile
+             notifyObservers {
+                 onProfileUpdated(newProfile)
+@@ -368,6 +385,7 @@
+         authScopes: Set<String> = scopes,
+         service: String = "",
+     ): String? = withContext(coroutineContext) {
++        if (!accountServicesEnabled) return@withContext null
+         val event = if (pairingUrl != null) {
+             Event.Account.BeginPairingFlow(pairingUrl, service, entrypoint, authScopes)
+         } else {
+@@ -376,6 +394,7 @@
+ 
+         // Process the event, then use the new state to check the result of the operation
+         processQueue(event)
++        if (!accountServicesEnabled) return@withContext null
+         when (val s = state) {
+             is FxaState.Authenticating -> s.oauthUrl
+             else -> null
+@@ -391,6 +410,7 @@
+      * browser layer.
+      */
+     suspend fun handleWebChannelLogin(jsonPayload: String) = withContext(coroutineContext) {
++        if (!accountServicesEnabled) return@withContext
+         account.handleWebChannelLogin(jsonPayload)
+     }
+ 
+@@ -406,9 +426,10 @@
+      * channel via [WebChannelFeature].
+      */
+     suspend fun finishAuthentication(authData: FxaAuthData) = withContext(coroutineContext) {
++        if (!accountServicesEnabled) return@withContext false
+         authData.declinedEngines?.let { persistDeclinedEngines(it) }
+         processQueue(Event.Progress.AuthData(authData))
+-        true
++        accountServicesEnabled
+     }
+ 
+     /**
+@@ -441,7 +462,7 @@
+     override fun close() {
+         GlobalAccountManager.close()
+         coroutineContext.cancel()
+-        account.close()
++        if (accountValue.isInitialized()) account.close()
+     }
+ 
+     internal suspend fun encounteredAuthError(
+@@ -459,6 +480,7 @@
+      * Pumps the state machine until all events are processed and their side-effects resolve.
+      */
+     private suspend fun processQueue(event: Event) {
++        if (!accountServicesEnabled) return
+         logger.debug("processQueue: event: '$event'")
+         var fxaEvent = calcFxaEvent(event)
+         if (fxaEvent == null) {
+@@ -472,18 +494,22 @@
+             logger.warn("processQueue: Error in processEvent: $e")
+             return
+         }
++        if (!accountServicesEnabled) return
+         logger.debug("processQueue: new FxaState '$state'")
+         try {
+             accountStateSideEffects(state, event)
+         } catch (_: AccountManagerException.AuthenticationSideEffectsFailed) {
++            if (!accountServicesEnabled) return
+             logger.debug("processQueue: handling AuthenticationSideEffectsFailed")
+             account.processEvent(FxaEvent.Disconnect)
++            if (!accountServicesEnabled) return
+             accountStateSideEffects(FxaState.Disconnected, Event.Account.Logout)
+         }
+         logger.debug("processQueue: finished")
+     }
+ 
+     internal fun queueEvent(event: Event) {
++        if (!accountServicesEnabled) return
+         CoroutineScope(coroutineContext).launch {
+             processQueue(event)
+         }
+@@ -537,6 +563,7 @@
+         forState: FxaState,
+         via: Event,
+     ) {
++        if (!accountServicesEnabled) return
+         when (forState) {
+             FxaState.Disconnected -> when (via) {
+                 Event.Account.Logout -> {
+@@ -555,7 +582,10 @@
+             }
+             FxaState.Connected -> when (via) {
+                 is Event.Account.Start -> {
+-                    if (authenticationSideEffects("CompletingAuthentication:accountRestored")) {
++                    val authenticated = authenticationSideEffects("CompletingAuthentication:accountRestored")
++                    // Closing admission is not an authentication failure: never reset the account.
++                    if (!accountServicesEnabled) return
++                    if (authenticated) {
+                         notifyObservers { onAuthenticated(account, AuthType.Existing) }
+                         refreshProfile(ignoreCache = false)
+                     } else {
+@@ -563,7 +593,10 @@
+                     }
+                 }
+                 is Event.Progress.AuthData -> {
+-                    if (authenticationSideEffects("CompletingAuthentication:AuthData")) {
++                    val authenticated = authenticationSideEffects("CompletingAuthentication:AuthData")
++                    // Closing admission is not an authentication failure: never reset the account.
++                    if (!accountServicesEnabled) return
++                    if (authenticated) {
+                         notifyObservers { onAuthenticated(account, via.authData.authType) }
+                         refreshProfile(ignoreCache = false)
+                     } else {
+@@ -604,7 +637,7 @@
+ 
+     private suspend fun maybeUpdateSyncAuthInfoCache() {
+         // Update cached sync auth info only if we have a syncConfig (e.g. sync is enabled)...
+-        if (syncConfig == null) {
++        if (!accountServicesEnabled || syncConfig == null) {
+             return
+         }
+ 
+@@ -631,6 +664,7 @@
+             // (https://bugzilla.mozilla.org/show_bug.cgi?id=1869862)
+             throw AccessTokenUnexpectedlyWithoutKey()
+         }
++        if (!accountServicesEnabled) return
+         val tokenServerUrl = if (accessToken != null) {
+             // Only try to get the endpoint if we have an access token.
+             account.getTokenServerEndpointURL()
+@@ -638,6 +672,7 @@
+             null
+         }
+ 
++        if (!accountServicesEnabled) return
+         if (accessToken != null && tokenServerUrl != null) {
+             SyncAuthInfoCache(context).setToCache(accessToken.asSyncAuthInfo(tokenServerUrl))
+         } else {
+@@ -681,10 +716,12 @@
+      * @return 'true' on success, 'false' on failure, indicating that sync won't work.
+      */
+     private suspend fun authenticationSideEffects(operation: String): Boolean {
++        if (!accountServicesEnabled) return false
+         // Make sure our SyncAuthInfo cache is hot, background sync worker needs it to function.
+         try {
+             maybeUpdateSyncAuthInfoCache()
+         } catch (e: AccessTokenUnexpectedlyWithoutKey) {
++            if (!accountServicesEnabled) return false
+             crashReporter?.submitCaughtException(
+                 AccountManagerException.MissingKeyFromSyncScopedAccessToken(operation),
+             )
+@@ -696,10 +733,13 @@
+             return false
+         }
+ 
++        if (!accountServicesEnabled) return false
+         // Sync workers also need to know about the current FxA device.
++        val deviceId = account.getCurrentDeviceId()
++        if (!accountServicesEnabled) return false
+         FxaDeviceSettingsCache(context).setToCache(
+             DeviceSettings(
+-                fxaDeviceId = account.getCurrentDeviceId()!!,
++                fxaDeviceId = deviceId!!,
+                 name = deviceConfig.name,
+                 kind = deviceConfig.type.into(),
+             ),
+@@ -712,6 +752,7 @@
+      */
+     @VisibleForTesting
+     open fun getStorageWrapper(): StorageWrapper {
++        check(accountServicesEnabled) { "Account services require an enabled process" }
+         return StorageWrapper(this, accountEventObserverRegistry, serverConfig, crashReporter)
+     }
+ 
+@@ -793,6 +834,7 @@
+      *   - Check the UI, it should be in an authenticated state.
+      */
+     public fun simulateNetworkError() {
++        if (!accountServicesEnabled) return
+         account.simulateNetworkError()
+         CoroutineScope(coroutineContext).launch {
+             refreshProfile(true)
+@@ -810,6 +852,7 @@
+      *   - Check the UI, it should be in an authenticated state.
+      */
+     public fun simulateTemporaryAuthTokenIssue() {
++        if (!accountServicesEnabled) return
+         account.simulateTemporaryAuthTokenIssue()
+         SyncAuthInfoCache(context).clear()
+         CoroutineScope(coroutineContext).launch {
+@@ -829,6 +872,7 @@
+      *   - Check the UI, it should be in an authentication problems state.
+      */
+     public fun simulatePermanentAuthTokenIssue() {
++        if (!accountServicesEnabled) return
+         account.simulatePermanentAuthTokenIssue()
+         SyncAuthInfoCache(context).clear()
+         CoroutineScope(coroutineContext).launch {
+--- a/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/sync/WorkManagerSyncManager.kt
++++ b/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/sync/WorkManagerSyncManager.kt
+@@ -30,6 +30,7 @@
+ import mozilla.appservices.syncmanager.SyncParams
+ import mozilla.appservices.syncmanager.SyncTelemetry
+ import mozilla.components.concept.storage.KeyProvider
++import mozilla.components.service.fxa.AccountServices
+ import mozilla.components.service.fxa.FxaDeviceSettingsCache
+ import mozilla.components.service.fxa.SyncAuthInfoCache
+ import mozilla.components.service.fxa.SyncConfig
+@@ -56,6 +57,10 @@
+     Immediate,
+ }
+ 
++/** Cancel periodic AND immediate jobs; a process restart terminates an active native sync. */
++fun cancelAccountSyncWork(context: Context) =
++    WorkManager.getInstance(context).cancelAllWorkByTag(SyncWorkerTag.Common.name)
++
+ private const val KEY_DATA_STORES = "stores"
+ private const val KEY_REASON = "reason"
+ 
+@@ -170,6 +175,7 @@
+         debounce: Boolean,
+         customEngineSubset: List<SyncEngine>,
+     ) {
++        if (!AccountServices.isEnabled) return
+         logger.debug("Immediate sync requested, reason = $reason, debounce = $debounce")
+         val delayMs = if (reason == SyncReason.Startup) {
+             // Startup delay is there to avoid SQLITE_BUSY crashes, since we currently do a poor job
+@@ -199,6 +205,7 @@
+     }
+ 
+     override fun setEngineEnabled(engine: SyncEngine, enabled: Boolean) {
++        if (!AccountServices.isEnabled) return
+         SyncEnginesStorage(context).setStatus(engine, enabled)
+         syncNow(SyncReason.EngineChange, debounce = false)
+     }
+@@ -213,6 +220,7 @@
+      * application startup.
+      */
+     override fun startPeriodicSync(unit: TimeUnit, period: Long, initialDelay: Long) {
++        if (!AccountServices.isEnabled) return
+         logger.debug("Starting periodic syncing, period = $period, time unit = $unit")
+         // Use the 'update' policy as a simple way to upgrade periodic worker configurations across
+         // application versions. We do this instead of versioning workers.
+@@ -318,6 +326,8 @@
+     }
+ 
+     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
++        // Also covers old persisted jobs on a cold, disabled start, before stores/native code.
++        if (!AccountServices.isEnabled) return@withContext Result.success()
+         logger.debug("Starting sync... Tagged as: ${params.tags}")
+ 
+         // We will need a list of SyncableStores.
+@@ -452,7 +462,9 @@
+             localEncryptionKeys = localEncryptionKeys,
+         )
+ 
++        if (!AccountServices.isEnabled || isStopped) return Result.success()
+         val syncResult = syncManager.sync(syncParams)
++        if (!AccountServices.isEnabled || isStopped) return Result.success()
+ 
+         // Persist the sync state; it may have changed during a sync, and RustSyncManager relies on us
+         // to store it.
+--- /dev/null
++++ b/mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesDisabledTest.kt
+@@ -0,0 +1,252 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.service.fxa
++
++import android.content.Context
++import android.content.SharedPreferences
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.test.runTest
++import mozilla.appservices.fxaclient.FxaConfig
++import mozilla.appservices.fxaclient.FxaEvent
++import mozilla.appservices.fxaclient.FxaServer
++import mozilla.appservices.fxaclient.FxaState
++import mozilla.components.concept.sync.AccessTokenInfo
++import mozilla.components.concept.sync.AccountObserver
++import mozilla.components.concept.sync.DeviceConfig
++import mozilla.components.concept.sync.DeviceType
++import mozilla.components.concept.sync.Profile
++import mozilla.components.service.fxa.manager.FxaAccountManager
++import mozilla.components.service.fxa.manager.SCOPE_SYNC
++import mozilla.components.service.fxa.sync.SyncManager
++import mozilla.components.service.fxa.sync.SyncReason
++import mozilla.components.support.test.any
++import mozilla.components.support.test.mock
++import mozilla.components.support.test.robolectric.testContext
++import mozilla.components.support.test.whenever
++import org.junit.After
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mockito.Mockito.clearInvocations
++import org.mockito.Mockito.never
++import org.mockito.Mockito.verify
++import org.mockito.Mockito.verifyNoInteractions
++import org.mockito.invocation.InvocationOnMock
++import kotlin.coroutines.Continuation
++import kotlin.coroutines.CoroutineContext
++import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
++
++@RunWith(AndroidJUnit4::class)
++class AccountServicesDisabledTest {
++    @Before
++    fun setUp() {
++        testContext.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE).edit().clear().commit()
++        AccountServices.initialize(testContext, defaultEnabled = false)
++    }
++
++    @After
++    fun tearDown() {
++        testContext.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE).edit().clear().commit()
++        SyncAuthInfoCache(testContext).clear()
++        AccountServices.initialize(testContext, defaultEnabled = true)
++    }
++
++    @Test
++    fun `disabled startup login callbacks manual sync and logout never construct native account or sync manager`() = runTest {
++        val manager = DisabledManager(coroutineContext)
++        val observer: AccountObserver = mock()
++        manager.register(observer)
++        manager.start()
++        assertNull(manager.beginAuthentication(entrypoint = mock()))
++        assertFalse(manager.finishAuthentication(mock()))
++        manager.handleWebChannelLogin("unexpected callback payload")
++        manager.syncNow(SyncReason.User)
++        manager.setEngineEnabled(SyncEngine.History, true)
++        manager.logout()
++        manager.simulateNetworkError()
++        manager.simulateTemporaryAuthTokenIssue()
++        manager.simulatePermanentAuthTokenIssue()
++        assertNull(manager.authenticatedAccount())
++        assertNull(manager.connectedAccount())
++        assertNull(manager.accountProfile())
++        assertFalse(manager.isSyncActive())
++        verifyNoInteractions(observer)
++    }
++
++    @Test
++    fun `retained disabled shell cannot activate during opt-in commit or a later initialization`() = runTest {
++        val manager = DisabledManager(coroutineContext)
++        org.junit.Assert.assertTrue(AccountServices.commitChoiceForRestart(testContext, true))
++        manager.start()
++        assertNull(manager.beginAuthentication(entrypoint = mock()))
++        // Simulates the new-process initialization without discarding this adversarial old reference.
++        AccountServices.initialize(testContext, defaultEnabled = false)
++        org.junit.Assert.assertTrue(AccountServices.isEnabled)
++        manager.start()
++        manager.handleWebChannelLogin("stale callback")
++        assertFalse(manager.finishAuthentication(mock()))
++        manager.syncNow(SyncReason.User)
++        testContext.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE).edit().clear().commit()
++    }
++
++    @Test
++    fun `closing an unused disabled shell cannot load its lazy account`() {
++        val manager = DisabledManager(SupervisorJob() + Dispatchers.Unconfined)
++        manager.close()
++    }
++
++    @Test
++    fun `failed opt-in write cannot activate a retained disabled shell`() = runTest {
++        val manager = DisabledManager(coroutineContext)
++        val context: Context = mock()
++        val preferences: SharedPreferences = mock()
++        val editor: SharedPreferences.Editor = mock()
++        whenever(context.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE)).thenReturn(preferences)
++        whenever(preferences.edit()).thenReturn(editor)
++        whenever(editor.putBoolean(AccountServices.ENABLED, true)).thenReturn(editor)
++        whenever(editor.commit()).thenReturn(false)
++        assertFalse(AccountServices.commitChoiceForRestart(context, true))
++        assertFalse(AccountServices.isEnabled)
++        manager.start()
++        manager.syncNow(SyncReason.User)
++        assertNull(manager.beginAuthentication(entrypoint = mock()))
++        assertFalse(manager.finishAuthentication(mock()))
++    }
++
++    @Test
++    fun `token arriving after disable cannot fetch endpoint device profile or notify or reset account`() = runTest {
++        AccountServices.initialize(testContext, defaultEnabled = true)
++        val manager = enabledManager(coroutineContext, withSync = true)
++        val account = manager.testableStorageWrapper.account
++        val observer: AccountObserver = mock()
++        manager.register(observer)
++        val requested = CompletableDeferred<Unit>()
++        val token = CompletableDeferred<AccessTokenInfo?>()
++        whenever(account.getAccessToken(SCOPE_SYNC)).thenAnswer { invocation ->
++            suspendedAnswer(invocation) { requested.complete(Unit); token.await() }
++        }
++        val startup = launch { manager.start() }
++        requested.await()
++        assertTrue(AccountServices.commitChoiceForRestart(testContext, false))
++        token.complete(mock())
++        startup.join()
++        verify(account, never()).getTokenServerEndpointURL()
++        verify(account, never()).getCurrentDeviceId()
++        verify(account, never()).getProfile(any())
++        verify(account, never()).processEvent(FxaEvent.Disconnect)
++        verify(manager.storage, never()).clear()
++        verifyNoInteractions(observer)
++    }
++
++    @Test
++    fun `late missing-key failure after disable does not disconnect or clear the saved account`() = runTest {
++        AccountServices.initialize(testContext, defaultEnabled = true)
++        val manager = enabledManager(coroutineContext, withSync = true)
++        val account = manager.testableStorageWrapper.account
++        val observer: AccountObserver = mock()
++        manager.register(observer)
++        val requested = CompletableDeferred<Unit>()
++        val token = CompletableDeferred<AccessTokenInfo?>()
++        whenever(account.getAccessToken(SCOPE_SYNC)).thenAnswer { invocation ->
++            suspendedAnswer(invocation) { requested.complete(Unit); token.await() }
++        }
++        val startup = launch { manager.start() }
++        requested.await()
++        assertTrue(AccountServices.commitChoiceForRestart(testContext, false))
++        token.completeExceptionally(mock<FxaSyncScopedKeyMissingException>())
++        startup.join()
++        verify(account, never()).processEvent(FxaEvent.Disconnect)
++        verify(account, never()).getCurrentDeviceId()
++        verify(manager.storage, never()).clear()
++        verifyNoInteractions(observer)
++    }
++
++    @Test
++    fun `endpoint arriving after disable cannot populate cache device profile or account notifications`() = runTest {
++        AccountServices.initialize(testContext, defaultEnabled = true)
++        val manager = enabledManager(coroutineContext, withSync = true)
++        val account = manager.testableStorageWrapper.account
++        val observer: AccountObserver = mock()
++        manager.register(observer)
++        val requested = CompletableDeferred<Unit>()
++        val endpoint = CompletableDeferred<String?>()
++        whenever(account.getAccessToken(SCOPE_SYNC)).thenReturn(mock())
++        whenever(account.getTokenServerEndpointURL()).thenAnswer { invocation ->
++            suspendedAnswer(invocation) { requested.complete(Unit); endpoint.await() }
++        }
++        val startup = launch { manager.start() }
++        requested.await()
++        assertTrue(AccountServices.commitChoiceForRestart(testContext, false))
++        endpoint.complete("https://sync.invalid/token")
++        startup.join()
++        assertTrue(SyncAuthInfoCache(testContext).expired())
++        verify(account, never()).getCurrentDeviceId()
++        verify(account, never()).getProfile(any())
++        verify(account, never()).processEvent(FxaEvent.Disconnect)
++        verify(manager.storage, never()).clear()
++        verifyNoInteractions(observer)
++    }
++
++    @Test
++    fun `profile arriving after disable cannot notify readiness or profile changes or reset account`() = runTest {
++        AccountServices.initialize(testContext, defaultEnabled = true)
++        val manager = enabledManager(coroutineContext, withSync = false)
++        val account = manager.testableStorageWrapper.account
++        val observer: AccountObserver = mock()
++        manager.register(observer)
++        val requested = CompletableDeferred<Unit>()
++        val profile = CompletableDeferred<Profile?>()
++        whenever(account.getProfile(any())).thenAnswer { invocation ->
++            suspendedAnswer(invocation) { requested.complete(Unit); profile.await() }
++        }
++        val startup = launch { manager.start() }
++        requested.await()
++        clearInvocations(observer) // Authentication happened while enabled, before the suspended profile.
++        assertTrue(AccountServices.commitChoiceForRestart(testContext, false))
++        profile.complete(mock())
++        startup.join()
++        assertNull(manager.accountProfile())
++        verify(account, never()).processEvent(FxaEvent.Disconnect)
++        verify(manager.storage, never()).clear()
++        verifyNoInteractions(observer)
++    }
++
++    private suspend fun enabledManager(context: CoroutineContext, withSync: Boolean): TestableFxaAccountManager {
++        SyncAuthInfoCache(testContext).clear()
++        return TestableFxaAccountManager(
++            context = testContext,
++            config = FxaConfig(FxaServer.Release, "dummyId", "https://auth.invalid/redirect"),
++            storage = mock(),
++            syncConfig = if (withSync) SyncConfig(setOf(SyncEngine.History), periodicSyncConfig = null) else null,
++            coroutineContext = context,
++        ).also {
++            whenever(it.testableStorageWrapper.account.processEvent(any())).thenReturn(FxaState.Connected)
++        }
++    }
++
++    /** Mockito exposes the suspend method's actual continuation in rawArguments. */
++    @Suppress("UNCHECKED_CAST")
++    private fun <T> suspendedAnswer(invocation: InvocationOnMock, answer: suspend () -> T): Any? =
++        answer.startCoroutineUninterceptedOrReturn(invocation.rawArguments.last() as Continuation<T>)
++
++    private class DisabledManager(coroutineContext: CoroutineContext) : FxaAccountManager(
++        context = testContext,
++        serverConfig = mock(),
++        deviceConfig = DeviceConfig("test", DeviceType.UNKNOWN, emptySet()),
++        syncConfig = SyncConfig(setOf(SyncEngine.History), periodicSyncConfig = null),
++        coroutineContext = coroutineContext,
++    ) {
++        override fun getStorageWrapper(): StorageWrapper = error("Disabled account must not load or construct native state")
++        override fun getAccountStorage(): AccountStorage = error("Disabled account must not read or clear account storage")
++        override fun createSyncManager(config: SyncConfig): SyncManager = error("Disabled account must not initialize Sync")
++    }
++}
+--- /dev/null
++++ b/mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesTest.kt
+@@ -0,0 +1,161 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.service.fxa
++
++import android.content.Context
++import android.content.SharedPreferences
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import mozilla.components.support.test.mock
++import mozilla.components.support.test.robolectric.testContext
++import mozilla.components.support.test.whenever
++import org.junit.After
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mockito.Mockito.verify
++
++@RunWith(AndroidJUnit4::class)
++class AccountServicesTest {
++    private val preferences get() = testContext.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE)
++
++    @Before
++    fun setUp() {
++        preferences.edit().clear().commit()
++        AccountServices.initialize(testContext, defaultEnabled = true)
++    }
++
++    @After
++    fun tearDown() {
++        preferences.edit().clear().commit()
++        AccountServices.initialize(testContext, defaultEnabled = true)
++    }
++
++    @Test
++    fun `first install is off without persisting an invented choice`() {
++        AccountServices.initialize(testContext, defaultEnabled = false)
++        assertFalse(AccountServices.isEnabled)
++        assertFalse(preferences.contains(AccountServices.ENABLED))
++    }
++
++    @Test
++    fun `explicit true survives disabled product default`() {
++        preferences.edit().putBoolean(AccountServices.ENABLED, true).commit()
++        AccountServices.initialize(testContext, defaultEnabled = false)
++        assertTrue(AccountServices.isEnabled)
++    }
++
++    @Test
++    fun `explicit false survives an enabled embedder default`() {
++        preferences.edit().putBoolean(AccountServices.ENABLED, false).commit()
++        AccountServices.initialize(testContext, defaultEnabled = true)
++        assertFalse(AccountServices.isEnabled)
++    }
++
++    @Test
++    fun `enable is durable but no service starts until new process initialization`() {
++        AccountServices.initialize(testContext, defaultEnabled = false)
++        assertTrue(AccountServices.commitChoiceForRestart(testContext, true))
++        assertTrue(preferences.getBoolean(AccountServices.ENABLED, false))
++        assertFalse(AccountServices.isEnabled)
++        AccountServices.initialize(testContext, defaultEnabled = false)
++        assertTrue(AccountServices.isEnabled)
++    }
++
++    @Test
++    fun `disable closes admission and remains disabled on the next process`() {
++        assertTrue(AccountServices.isEnabled)
++        assertTrue(AccountServices.commitChoiceForRestart(testContext, false))
++        assertFalse(AccountServices.isEnabled)
++        AccountServices.initialize(testContext, defaultEnabled = false)
++        assertFalse(AccountServices.isEnabled)
++    }
++
++    @Test
++    fun `second dialog cannot replace an already committed restart decision`() {
++        assertTrue(AccountServices.commitChoiceForRestart(testContext, false))
++        assertFalse(AccountServices.commitChoiceForRestart(testContext, true))
++        assertFalse(preferences.getBoolean(AccountServices.ENABLED, true))
++    }
++
++    @Test
++    fun `failed commit retains current service policy and restores previous in-memory choice`() {
++        val context: Context = mock()
++        val prefs: SharedPreferences = mock()
++        val write: SharedPreferences.Editor = mock()
++        val rollback: SharedPreferences.Editor = mock()
++        whenever(context.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE)).thenReturn(prefs)
++        whenever(prefs.contains(AccountServices.ENABLED)).thenReturn(true)
++        whenever(prefs.getBoolean(AccountServices.ENABLED, true)).thenReturn(true)
++        whenever(prefs.edit()).thenReturn(write, rollback)
++        whenever(write.putBoolean(AccountServices.ENABLED, false)).thenReturn(write)
++        whenever(write.commit()).thenReturn(false)
++        whenever(rollback.commit()).thenReturn(true)
++        assertFalse(AccountServices.commitChoiceForRestart(context, false))
++        assertTrue(AccountServices.isEnabled)
++        verify(rollback).putBoolean(AccountServices.ENABLED, true)
++        verify(rollback).commit()
++    }
++
++    @Test
++    fun `failed first write removes the spurious in-memory explicit choice`() {
++        val context: Context = mock()
++        val prefs: SharedPreferences = mock()
++        val write: SharedPreferences.Editor = mock()
++        val rollback: SharedPreferences.Editor = mock()
++        whenever(context.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE)).thenReturn(prefs)
++        whenever(prefs.contains(AccountServices.ENABLED)).thenReturn(false)
++        whenever(prefs.edit()).thenReturn(write, rollback)
++        whenever(write.putBoolean(AccountServices.ENABLED, false)).thenReturn(write)
++        whenever(write.commit()).thenReturn(false)
++        whenever(rollback.commit()).thenReturn(true)
++        assertFalse(AccountServices.commitChoiceForRestart(context, false))
++        assertTrue(AccountServices.isEnabled)
++        verify(rollback).remove(AccountServices.ENABLED)
++    }
++
++    @Test
++    fun `failed write and failed rollback retain running state without claiming durable restoration`() {
++        val context: Context = mock()
++        val prefs: SharedPreferences = mock()
++        val write: SharedPreferences.Editor = mock()
++        val rollback: SharedPreferences.Editor = mock()
++        whenever(context.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE)).thenReturn(prefs)
++        whenever(prefs.contains(AccountServices.ENABLED)).thenReturn(true)
++        whenever(prefs.getBoolean(AccountServices.ENABLED, true)).thenReturn(true)
++        whenever(prefs.edit()).thenReturn(write, rollback)
++        whenever(write.putBoolean(AccountServices.ENABLED, false)).thenReturn(write)
++        whenever(write.commit()).thenReturn(false)
++        whenever(rollback.commit()).thenReturn(false)
++        val generation = AccountServices.generation
++        assertFalse(AccountServices.commitChoiceForRestart(context, false))
++        assertTrue(AccountServices.isEnabled)
++        assertEquals(generation, AccountServices.generation)
++        verify(rollback).putBoolean(AccountServices.ENABLED, true)
++        verify(rollback).commit()
++        // Neither false receipt proves the disk value. A later process must read
++        // the persisted value rather than treat this running state as a saved one.
++        whenever(prefs.getBoolean(AccountServices.ENABLED, true)).thenReturn(false)
++        AccountServices.initialize(context, defaultEnabled = true)
++        assertFalse(AccountServices.isEnabled)
++    }
++
++    @Test
++    fun `account state and engine selections are not cleared by service transitions`() {
++        val account = testContext.getSharedPreferences(FXA_STATE_PREFS_KEY, Context.MODE_PRIVATE)
++        val engines = testContext.getSharedPreferences(mozilla.components.service.fxa.manager.SyncEnginesStorage.SYNC_ENGINES_KEY, Context.MODE_PRIVATE)
++        account.edit().putString(FXA_STATE_KEY, "retained-authenticated-account").commit()
++        engines.edit().putBoolean("history", false).putBoolean("bookmarks", true).commit()
++        val beforeAccount = account.all
++        val beforeEngines = engines.all
++        assertTrue(AccountServices.commitChoiceForRestart(testContext, false))
++        org.junit.Assert.assertEquals(beforeAccount, account.all)
++        org.junit.Assert.assertEquals(beforeEngines, engines.all)
++        account.edit().clear().commit()
++        engines.edit().clear().commit()
++    }
++}
+--- /dev/null
++++ b/mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/sync/AccountServicesWorkerTest.kt
+@@ -0,0 +1,36 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.service.fxa.sync
++
++import android.content.Context
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.work.ListenableWorker
++import androidx.work.testing.TestListenableWorkerBuilder
++import kotlinx.coroutines.test.runTest
++import mozilla.components.service.fxa.AccountServices
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.After
++import org.junit.Assert.assertEquals
++import org.junit.Test
++import org.junit.runner.RunWith
++
++@RunWith(AndroidJUnit4::class)
++class AccountServicesWorkerTest {
++    @After
++    fun tearDown() {
++        AccountServices.initialize(testContext, defaultEnabled = true)
++    }
++
++    @Test
++    fun `old sync work exits successfully before stores Rust and retry logic while off`() = runTest {
++        testContext.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE).edit().clear().commit()
++        AccountServices.initialize(testContext, defaultEnabled = false)
++        setLastSynced(testContext, 42)
++        val worker = TestListenableWorkerBuilder<WorkManagerSyncWorker>(testContext).build()
++        assertEquals(ListenableWorker.Result.success(), worker.doWork())
++        assertEquals(42L, getLastSynced(testContext))
++        clearSyncState(testContext)
++    }
++}
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+@@ -58,10 +58,13 @@
+ import mozilla.components.feature.search.ext.waitForSelectedOrDefaultSearchEngine
+ import mozilla.components.feature.summarize.settings.SummarizationSettings
+ import mozilla.components.feature.syncedtabs.commands.GlobalSyncedTabsCommandsProvider
++import mozilla.components.feature.syncedtabs.commands.SyncedTabsCommandsFlushScheduler
+ import mozilla.components.feature.top.sites.TopSitesFrecencyConfig
+ import mozilla.components.feature.top.sites.TopSitesProviderConfig
+ import mozilla.components.lib.crash.CrashReporter
++import mozilla.components.service.fxa.AccountServices
+ import mozilla.components.service.fxa.manager.SyncEnginesStorage
++import mozilla.components.service.fxa.sync.cancelAccountSyncWork
+ import mozilla.components.service.sync.autofill.GlobalAutofillDependencyProvider
+ import mozilla.components.service.sync.logins.GlobalLoginsDependencyProvider
+ import mozilla.components.service.sync.logins.LoginsApiException
+@@ -174,9 +177,17 @@
+     override fun onCreate() {
+         super.onCreate()
+         initializeFenixProcess()
++        runOnlyInMainProcess {
++            if (!AccountServices.isEnabled) {
++                cancelAccountSyncWork(this)
++                SyncedTabsCommandsFlushScheduler.cancelPendingWork(this)
++            }
++        }
+     }
+ 
+     override fun attachBaseContext(base: Context) {
++        // Before content providers/WorkManager can revive persisted account jobs.
++        initializeAccountServices(base)
+         // Sets the locale information. Other threads do not have locale aware needs
+         if (base.isMainProcess()) {
+             val localeAwareContext = LocaleManager.updateResources(base)
+@@ -184,6 +195,11 @@
+         } else {
+             super.attachBaseContext(base)
+         }
++    }
++
++    /** Account-service defaults are independent of the Gecko preference store. */
++    protected open fun initializeAccountServices(context: Context) {
++        AccountServices.initialize(context, defaultEnabled = false)
+     }
+ 
+     /**
+@@ -485,6 +501,7 @@
+             }
+             // Account manager initialization needs to happen on the main thread.
+             GlobalScope.launch(Dispatchers.Main) {
++                if (!AccountServices.isEnabled) return@launch
+                 logElapsedTime(logger, "Kicking-off account manager") {
+                     components.backgroundServices.accountManager
+                 }
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+@@ -73,6 +73,7 @@
+ import mozilla.components.feature.privatemode.notification.PrivateNotificationFeature
+ import mozilla.components.feature.search.BrowserStoreSearchAdapter
+ import mozilla.components.lib.crash.store.CrashAction
++import mozilla.components.service.fxa.AccountServices
+ import mozilla.components.service.fxa.sync.SyncReason
+ import mozilla.components.support.base.feature.ActivityResultHandler
+ import mozilla.components.support.base.feature.UserInteractionHandler
+@@ -171,7 +172,9 @@
+ import org.mozilla.fenix.perf.StartupTimeline
+ import org.mozilla.fenix.perf.StartupTypeTelemetry
+ import org.mozilla.fenix.session.PrivateNotificationService
++import org.mozilla.fenix.settings.AccountServicesPreference
+ import org.mozilla.fenix.settings.SupportUtils
++import org.mozilla.fenix.settings.account.AuthCustomTabActivity
+ import org.mozilla.fenix.shortcut.NewTabShortcutIntentProcessor.Companion.ACTION_OPEN_PRIVATE_TAB
+ import org.mozilla.fenix.splashscreen.ApplyExperimentsOperation
+ import org.mozilla.fenix.splashscreen.DefaultExperimentsOperationStorage
+@@ -421,6 +424,12 @@
+     final override fun onCreate(savedInstanceState: Bundle?) {
+         // DO NOT MOVE ANYTHING ABOVE THIS getProfilerTime CALL.
+         val startTimeProfiler = components.core.engine.profiler?.getProfilerTime()
++        val blockedAccountActivity = this is AuthCustomTabActivity && !AccountServices.isEnabled
++        if (blockedAccountActivity) {
++            // Drop callback URL, custom-tab session id and saved auth UI before intent processing.
++            intent = Intent(this, AuthCustomTabActivity::class.java)
++        }
++        val accountSafeSavedInstanceState = if (blockedAccountActivity) null else savedInstanceState
+ 
+         // LibreWolf: the nimbus-cli tooling hook is removed, not left as "a NOOP
+         // when launching normally". It is NOT inert on a release build:
+@@ -445,7 +454,7 @@
+             browsingModeManager = createBrowsingModeManager(intent)
+             setupTheme()
+ 
+-            super.onCreate(savedInstanceState)
++            super.onCreate(accountSafeSavedInstanceState)
+         }
+ 
+         observeUboStartup()
+@@ -458,7 +467,7 @@
+         breadcrumb(
+             message = "onCreate()",
+             data = mapOf(
+-                "recreated" to (savedInstanceState != null).toString(),
++                "recreated" to (accountSafeSavedInstanceState != null).toString(),
+                 "intent" to (intent?.action ?: "null"),
+             ),
+         )
+@@ -494,7 +503,7 @@
+                     )
+                 }
+ 
+-                if (savedInstanceState == null && shouldShowOnboarding) {
++                if (accountSafeSavedInstanceState == null && shouldShowOnboarding) {
+                     navHost.navController.navigate(NavGraphDirections.actionGlobalOnboarding())
+                 }
+             },
+@@ -548,11 +557,11 @@
+ 
+             // Unless the activity is recreated, navigate to home first (without rendering it)
+             // to add it to the back stack.
+-            if (savedInstanceState == null) {
++            if (accountSafeSavedInstanceState == null) {
+                 navigateToHome(navHost.navController)
+             }
+ 
+-            if (shouldNavigateToBrowserOnColdStart(savedInstanceState)) {
++            if (shouldNavigateToBrowserOnColdStart(accountSafeSavedInstanceState)) {
+                 if (!shouldStartOnHome()) {
+                     navigateToBrowserOnColdStart()
+                 }
+@@ -643,13 +652,20 @@
+             components.useCases.searchUseCases.restoreHiddenSearchEngines.invoke()
+         }
+ 
+-        components.backgroundServices.accountManagerAvailableQueue.runIfReadyOrQueue {
+-            lifecycleScope.launch(IO) {
+-                // If we're authenticated, kick-off a sync and a device state refresh.
+-                components.backgroundServices.accountManager.authenticatedAccount()?.let {
+-                    components.backgroundServices.accountManager.syncNow(reason = SyncReason.Startup)
++        if (AccountServices.isEnabled) {
++            components.backgroundServices.accountManagerAvailableQueue.runIfReadyOrQueue {
++                lifecycleScope.launch(IO) {
++                    // If we're authenticated, kick-off a sync and a device state refresh.
++                    components.backgroundServices.accountManager.authenticatedAccount()?.let {
++                        components.backgroundServices.accountManager.syncNow(reason = SyncReason.Startup)
++                    }
+                 }
+             }
++        }
++
++        if (intent?.getBooleanExtra(AccountServicesPreference.OPEN_SETTINGS, false) == true) {
++            intent.removeExtra(AccountServicesPreference.OPEN_SETTINGS)
++            navHost.navController.navigate(NavGraphDirections.actionGlobalSettingsFragment())
+         }
+ 
+         components.core.engine.profiler?.addMarker(
+@@ -672,6 +688,11 @@
+             owner = this,
+             onBackPressedCallback = onBackPressedCallback,
+         )
++
++        if (blockedAccountActivity) {
++            AccountServicesPreference.openSettings(this)
++            finish()
++        }
+ 
+         StartupTimeline.onActivityCreateEndHome(this) // DO NOT MOVE ANYTHING BELOW HERE.
+     }
+@@ -976,6 +997,11 @@
+ 
+     @VisibleForTesting
+     internal fun handleNewIntent(intent: Intent) {
++        if (intent.getBooleanExtra(AccountServicesPreference.OPEN_SETTINGS, false)) {
++            intent.removeExtra(AccountServicesPreference.OPEN_SETTINGS)
++            navHost.navController.navigate(NavGraphDirections.actionGlobalSettingsFragment())
++            return
++        }
+         if (this is ExternalAppBrowserActivity) {
+             return
+         }
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
+@@ -129,6 +129,7 @@
+ import mozilla.components.lib.state.ext.consumeFrom
+ import mozilla.components.lib.state.ext.flowScoped
+ import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
++import mozilla.components.service.fxa.AccountServices
+ import mozilla.components.service.sync.autofill.DefaultCreditCardValidationDelegate
+ import mozilla.components.service.sync.logins.DefaultLoginValidationDelegate
+ import mozilla.components.service.sync.logins.LoginsApiException
+@@ -1075,6 +1076,7 @@
+                         get() = emailMaskBar
+ 
+                     override fun shouldShowEmailMaskCfr() =
++                        AccountServices.isEnabled && getCurrentTab()?.content?.private == false &&
+                         requireComponents.emailMasksRepository.shouldShowCfr() &&
+                             context.components.settings.cfrPopupsEnabled
+ 
+@@ -1083,6 +1085,9 @@
+                     }
+ 
+                     override suspend fun onEmailMaskClick(generatedFor: String) = withContext(Dispatchers.IO) {
++                        if (!AccountServices.isEnabled || getCurrentTab()?.content?.private != false) {
++                            return@withContext null
++                        }
+                         EmailMask.promptClicked.record()
+ 
+                         val relay = requireComponents.relayFeatureIntegration
+@@ -1386,18 +1391,20 @@
+             )
+         }
+ 
+-        webchannelIntegration.set(
+-            feature = FxaWebChannelIntegration(
+-                customTabSessionId = customTabSessionId,
+-                runtime = requireComponents.core.engine,
+-                store = requireComponents.core.store,
+-                accountManager = requireComponents.backgroundServices.accountManager,
+-                serverConfig = requireComponents.backgroundServices.serverConfig,
+-                activityRef = WeakReference(getActivity()),
+-            ),
+-            owner = this,
+-            view = view,
+-        )
++        if (AccountServices.isEnabled) {
++            webchannelIntegration.set(
++                feature = FxaWebChannelIntegration(
++                    customTabSessionId = customTabSessionId,
++                    runtime = requireComponents.core.engine,
++                    store = requireComponents.core.store,
++                    accountManager = requireComponents.backgroundServices.accountManager,
++                    serverConfig = requireComponents.backgroundServices.serverConfig,
++                    activityRef = WeakReference(getActivity()),
++                ),
++                owner = this,
++                view = view,
++            )
++        }
+ 
+         initializeEngineView(
+             topToolbarHeight = getTopToolbarHeight(
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/relay/RelayFeatureIntegration.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/relay/RelayFeatureIntegration.kt
+@@ -5,6 +5,7 @@
+ package org.mozilla.fenix.browser.relay
+ 
+ import mozilla.components.concept.engine.Engine
++import mozilla.components.service.fxa.AccountServices
+ import mozilla.components.service.fxa.manager.FxaAccountManager
+ import mozilla.components.service.fxrelay.EmailMask
+ import mozilla.components.service.fxrelay.eligibility.DefaultFxaAccountManagerDelegate
+@@ -45,7 +46,7 @@
+     }
+ 
+     override fun start() {
+-        if (isStarted) {
++        if (!AccountServices.isEnabled || isStarted) {
+             return
+         }
+         isStarted = true
+@@ -75,5 +76,5 @@
+      * @return the newly created email mask or `null` if the operation fails.
+      */
+     suspend fun getOrCreateNewMask(generatedFor: String, description: String): EmailMask? =
+-        relayFeature.getOrCreateNewMask(generatedFor, description)
++        if (AccountServices.isEnabled) relayFeature.getOrCreateNewMask(generatedFor, description) else null
+ }
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
+@@ -30,6 +30,7 @@
+ import mozilla.components.lib.crash.CrashReporter
+ import mozilla.components.lib.state.Middleware
+ import mozilla.components.lib.state.Store
++import mozilla.components.service.fxa.AccountServices
+ import mozilla.components.service.fxa.PeriodicSyncConfig
+ import mozilla.components.service.fxa.ServerConfig
+ import mozilla.components.service.fxa.SyncConfig
+@@ -212,6 +213,7 @@
+         ),
+         crashReporter,
+     ).also { accountManager ->
++        if (!AccountServices.isEnabled) return@also
+         // Register a telemetry account observer to keep track of FxA auth metrics.
+         accountManager.register(telemetryAccountObserver)
+ 
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/accounts/FxaWebChannelIntegration.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/accounts/FxaWebChannelIntegration.kt
+@@ -11,6 +11,7 @@
+ import mozilla.components.feature.accounts.FxaCapability
+ import mozilla.components.feature.accounts.FxaWebChannelFeature
+ import mozilla.components.feature.accounts.FxaWebChannelFeature.Companion.WebChannelCommand
++import mozilla.components.service.fxa.AccountServices
+ import mozilla.components.service.fxa.ServerConfig
+ import mozilla.components.service.fxa.manager.FxaAccountManager
+ import mozilla.components.support.base.feature.LifecycleAwareFeature
+@@ -42,6 +43,7 @@
+     private val activityRef: WeakReference<Activity?>,
+ ) : LifecycleAwareFeature {
+     private val logger = Logger("FxaWebChannelIntegration")
++    private var started = false
+     private val feature by lazy {
+         FxaWebChannelFeature(
+             customTabSessionId = customTabSessionId,
+@@ -55,10 +57,14 @@
+     }
+ 
+     override fun start() {
++        if (!AccountServices.isEnabled) return
++        started = true
+         feature.start()
+     }
+ 
+     override fun stop() {
++        if (!started) return
++        started = false
+         feature.stop()
+     }
+ 
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/AccountServicesPreference.kt
+@@ -0,0 +1,148 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings
++
++import android.content.Context
++import android.content.Intent
++import android.os.Process
++import android.view.View
++import android.widget.Button
++import android.widget.LinearLayout
++import android.widget.TextView
++import android.widget.Toast
++import androidx.fragment.app.Fragment
++import androidx.lifecycle.lifecycleScope
++import androidx.preference.Preference
++import androidx.preference.PreferenceFragmentCompat
++import com.google.android.material.dialog.MaterialAlertDialogBuilder
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.NonCancellable
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++import mozilla.components.feature.syncedtabs.commands.SyncedTabsCommandsFlushScheduler
++import mozilla.components.service.fxa.AccountServices
++import mozilla.components.service.fxa.sync.cancelAccountSyncWork
++import org.mozilla.fenix.HomeActivity
++import org.mozilla.fenix.R
++import java.util.concurrent.TimeUnit
++
++/** Actual Android account-service control. A Gecko pref cannot gate Fenix services. */
++object AccountServicesPreference {
++    const val KEY = "account_services_restart"
++    const val OPEN_SETTINGS = "org.mozilla.fenix.OPEN_ACCOUNT_SERVICES_SETTINGS"
++    private const val CANCEL_TIMEOUT_SECONDS = 10L
++
++    fun addTo(fragment: PreferenceFragmentCompat) {
++        val enabled = AccountServices.isEnabled
++        val preference = Preference(fragment.requireContext()).apply {
++            key = KEY
++            order = -1
++            isPersistent = false
++            title = context.getString(R.string.account_services_title)
++            summary = context.getString(
++                if (enabled) R.string.account_services_enabled else R.string.account_services_disabled,
++            )
++            setOnPreferenceClickListener {
++                showChangeDialog(fragment, !enabled)
++                true
++            }
++        }
++        fragment.preferenceScreen.addPreference(preference)
++    }
++
++    fun disabledView(fragment: Fragment): View = LinearLayout(fragment.requireContext()).apply {
++        orientation = LinearLayout.VERTICAL
++        val padding = (24 * resources.displayMetrics.density).toInt()
++        setPadding(padding, padding, padding, padding)
++        addView(TextView(context).apply { setText(R.string.account_services_disabled) })
++        addView(Button(context).apply {
++            setText(R.string.account_services_enable_restart)
++            setOnClickListener { showChangeDialog(fragment, true) }
++        })
++    }
++
++    fun showChangeDialog(fragment: Fragment, enabled: Boolean) {
++        val action = if (enabled) R.string.account_services_enable_restart else R.string.account_services_disable_restart
++        MaterialAlertDialogBuilder(fragment.requireContext())
++            .setTitle(action)
++            .setMessage(if (enabled) R.string.account_services_enable_explanation else R.string.account_services_disable_explanation)
++            .setNegativeButton(android.R.string.cancel, null)
++            .setPositiveButton(action) { _, _ ->
++                val context = fragment.context?.applicationContext ?: return@setPositiveButton
++                val restart = restartIntent(context)
++                if (restart == null) {
++                    showError(context)
++                    return@setPositiveButton
++                }
++                fragment.lifecycleScope.launch {
++                    // Once committed, rotation/navigation must not strand a half-applied choice.
++                    withContext(NonCancellable) {
++                        val applied = applyAccountServicesChange(
++                            commit = { withContext(Dispatchers.IO) { AccountServices.commitChoiceForRestart(context, enabled) } },
++                            cancel = {
++                                withContext(Dispatchers.IO) {
++                                    // Each cancellation is submitted before waiting for either receipt.
++                                    val sync = cancelAccountSyncWork(context)
++                                    val commands = SyncedTabsCommandsFlushScheduler.cancelPendingWork(context)
++                                    sync.result.get(CANCEL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
++                                    commands.result.get(CANCEL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
++                                }
++                            },
++                            restart = {
++                                // Same process-restart pattern as Firefox Labs, with a checked
++                                // in-package launcher component and no forwarded auth URL/extras.
++                                try {
++                                    context.startActivity(restart)
++                                } finally {
++                                    Process.killProcess(Process.myPid())
++                                }
++                            },
++                        )
++                        if (!applied) showError(context)
++                    }
++                }
++            }
++            .show()
++    }
++
++    internal fun restartIntent(context: Context): Intent? {
++        val component = context.packageManager.getLaunchIntentForPackage(context.packageName)?.component ?: return null
++        if (component.packageName != context.packageName) return null
++        return Intent.makeRestartActivityTask(component).putExtra(OPEN_SETTINGS, true)
++    }
++
++    /** Drop the callback URL entirely; an external link may open this control but never change it. */
++    fun openSettings(context: Context) {
++        context.startActivity(
++            Intent(context, HomeActivity::class.java)
++                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
++                .putExtra(OPEN_SETTINGS, true),
++        )
++    }
++
++    private fun showError(context: Context) {
++        Toast.makeText(context, R.string.account_services_change_failed, Toast.LENGTH_LONG).show()
++    }
++}
++
++/** A failed commit keeps the running policy. Cancellation failure must still reach restart. */
++internal suspend fun applyAccountServicesChange(
++    commit: suspend () -> Boolean,
++    cancel: suspend () -> Unit,
++    restart: suspend () -> Unit,
++): Boolean {
++    val committed = try {
++        commit()
++    } catch (_: Exception) {
++        false
++    }
++    if (!committed) return false
++    try {
++        cancel()
++    } finally {
++        restart()
++    }
++    return true
++}
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+@@ -43,6 +43,7 @@
+ import mozilla.components.feature.addons.ui.AddonFilePicker
+ import mozilla.components.feature.ipprotection.store.IPProtectionStore
+ import mozilla.components.feature.ipprotection.store.state.isEligible
++import mozilla.components.service.fxa.AccountServices
+ import mozilla.components.service.fxrelay.eligibility.Eligible
+ import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
+ import mozilla.components.support.ktx.android.view.showKeyboard
+@@ -109,7 +110,9 @@
+     internal val accountObserver = object : AccountObserver {
+         private fun updateAccountUi(profile: Profile? = null) {
+             val context = context ?: return
++            if (!AccountServices.isEnabled || !::accountUiView.isInitialized) return
+             lifecycleScope.launch {
++                if (!AccountServices.isEnabled) return@launch
+                 accountUiView.updateAccountUIState(
+                     context = context,
+                     profile = profile
+@@ -134,12 +137,15 @@
+ 
+         components = requireContext().components
+ 
+-        accountUiView = AccountUiView(
+-            fragment = this,
+-            scope = lifecycleScope,
+-            accountManager = requireComponents.backgroundServices.accountManager,
+-            httpClient = requireComponents.core.client,
+-        )
++        if (AccountServices.isEnabled) {
++            accountUiView = AccountUiView(
++                fragment = this,
++                scope = lifecycleScope,
++                accountManager = requireComponents.backgroundServices.accountManager,
++                httpClient = requireComponents.core.client,
++            )
++        }
++        AccountServicesPreference.addTo(this)
+ 
+         addonFilePicker = AddonFilePicker(requireContext(), requireComponents.addonManager)
+         addonFilePicker.registerForResults(this)
+@@ -150,10 +156,12 @@
+         // For example, if user is signed-in, and we don't perform this call in onCreate, we'll briefly
+         // display a "Sign In" preference, which will then get replaced by the correct account information
+         // once this call is ran in onResume shortly after.
+-        accountUiView.updateAccountUIState(
+-            requireContext(),
+-            requireComponents.backgroundServices.accountManager.accountProfile(),
+-        )
++        if (::accountUiView.isInitialized) {
++            accountUiView.updateAccountUIState(
++                requireContext(),
++                requireComponents.backgroundServices.accountManager.accountProfile(),
++            )
++        }
+ 
+         val booleanPreferenceTelemetryAllowList = with(requireContext()) {
+             listOf(
+@@ -280,6 +288,7 @@
+ 
+     override fun onStart() {
+         super.onStart()
++        if (!AccountServices.isEnabled) return
+         // Observe account changes to keep the UI up-to-date.
+         requireComponents.backgroundServices.accountManager.register(
+             accountObserver,
+@@ -290,6 +299,7 @@
+ 
+     override fun onStop() {
+         super.onStop()
++        if (!::accountUiView.isInitialized) return
+         // If the screen isn't visible we don't need to show updates.
+         // Also prevent the observer registered to the FXA singleton causing memory leaks.
+         requireComponents.backgroundServices.accountManager.unregister(accountObserver)
+@@ -297,7 +307,7 @@
+ 
+     override fun onDestroyView() {
+         super.onDestroyView()
+-        accountUiView.cancel()
++        if (::accountUiView.isInitialized) accountUiView.cancel()
+     }
+ 
+     private fun update(
+@@ -333,7 +343,7 @@
+ 
+         setupPreferences(settings)
+ 
+-        if (shouldUpdateAccountUIState) {
++        if (shouldUpdateAccountUIState && AccountServices.isEnabled && ::accountUiView.isInitialized) {
+             accountUiView.updateAccountUIState(
+                 requireContext(),
+                 requireComponents.backgroundServices.accountManager.accountProfile(),
+@@ -344,6 +354,15 @@
+     @SuppressLint("InflateParams")
+     @Suppress("LongMethod", "CyclomaticComplexMethod")
+     override fun onPreferenceTreeClick(preference: Preference): Boolean {
++        if (!AccountServices.isEnabled && preference.key in listOf(
++                getString(R.string.pref_key_sign_in),
++                getString(R.string.pref_key_account),
++                getString(R.string.pref_key_account_auth_error),
++            )
++        ) {
++            AccountServicesPreference.showChangeDialog(this, true)
++            return true
++        }
+         // Hide the scrollbar so the animation looks smoother
+         val recyclerView = requireView().findViewById<RecyclerView>(R.id.recycler_view)
+         recyclerView.isVerticalScrollBarEnabled = false
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/AuthCustomTabActivity.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/AuthCustomTabActivity.kt
+@@ -9,6 +9,7 @@
+ import mozilla.components.concept.sync.OAuthAccount
+ import mozilla.components.feature.ipprotection.IPProtectionFxaAuthFlow.Companion.INTENT_ON_COMPLETE
+ import mozilla.components.feature.ipprotection.auth.fxa.IPProtectionActivityAuthFlowObserver
++import mozilla.components.service.fxa.AccountServices
+ import org.mozilla.fenix.customtabs.ExternalAppBrowserActivity
+ import org.mozilla.fenix.ext.components
+ 
+@@ -38,6 +39,7 @@
+ 
+     override fun onResume() {
+         super.onResume()
++        if (!AccountServices.isEnabled) return
+         val accountManager = components.backgroundServices.accountManager
+         accountManager.apply {
+             register(ipProtectionActivityAuthFlowObserver, this@AuthCustomTabActivity, true)
+@@ -49,7 +51,7 @@
+     override fun onDestroy() {
+         // Manually unregister here because we call `Activity#finish` in the observer
+         // which then leaks
+-        components.backgroundServices.accountManager.unregister(accountStateObserver)
++        if (AccountServices.isEnabled) components.backgroundServices.accountManager.unregister(accountStateObserver)
+ 
+         super.onDestroy()
+     }
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/AuthIntentReceiverActivity.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/AuthIntentReceiverActivity.kt
+@@ -11,8 +11,10 @@
+ import kotlinx.coroutines.MainScope
+ import kotlinx.coroutines.launch
+ import mozilla.components.feature.ipprotection.IPProtectionFxaAuthFlow.Companion.INTENT_ON_COMPLETE
++import mozilla.components.service.fxa.AccountServices
+ import org.mozilla.fenix.HomeActivity
+ import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.settings.AccountServicesPreference
+ 
+ /**
+  * Processes incoming intents and sends them to the corresponding activity.
+@@ -22,8 +24,17 @@
+     @VisibleForTesting
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
++        if (!AccountServices.isEnabled) {
++            AccountServicesPreference.openSettings(this)
++            finish()
++            return
++        }
+ 
+         MainScope().launch {
++            if (!AccountServices.isEnabled) {
++                finish()
++                return@launch
++            }
+             // The intent property is nullable, but the rest of the code below
+             // assumes it is not. If it's null, then we make a new one and open
+             // the HomeActivity.
+@@ -41,6 +52,10 @@
+             // Forward the intent onward for the account manager to handle it.
+             intent.putExtra(INTENT_ON_COMPLETE, intent.getBooleanExtra(INTENT_ON_COMPLETE, false))
+ 
++            if (!AccountServices.isEnabled) {
++                finish()
++                return@launch
++            }
+             startActivity(intent)
+ 
+             finish()
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/TurnOnSyncFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/TurnOnSyncFragment.kt
+@@ -17,6 +17,7 @@
+ import mozilla.components.concept.sync.AccountObserver
+ import mozilla.components.concept.sync.AuthType
+ import mozilla.components.concept.sync.OAuthAccount
++import mozilla.components.service.fxa.AccountServices
+ import mozilla.components.service.fxa.manager.SCOPE_PROFILE
+ import mozilla.components.service.fxa.manager.SCOPE_SYNC
+ import mozilla.components.support.ktx.android.content.hasCamera
+@@ -34,6 +35,7 @@
+ import org.mozilla.fenix.ext.navigateWithBreadcrumb
+ import org.mozilla.fenix.ext.requireComponents
+ import org.mozilla.fenix.ext.showToolbar
++import org.mozilla.fenix.settings.AccountServicesPreference
+ 
+ /**
+  * Settings screen allowing users to log into their Firefox account.
+@@ -69,6 +71,10 @@
+     private val binding get() = _binding!!
+ 
+     private fun navigateToPairFragment() {
++        if (!AccountServices.isEnabled) {
++            AccountServicesPreference.showChangeDialog(this, true)
++            return
++        }
+         val directions = TurnOnSyncFragmentDirections.actionTurnOnSyncFragmentToPairFragment(
+             entrypoint = args.entrypoint,
+         )
+@@ -89,6 +95,7 @@
+ 
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
++        if (!AccountServices.isEnabled) return
+         requireComponents.backgroundServices.accountManager.register(this, owner = this)
+         SyncAuth.opened.record(NoExtras())
+ 
+@@ -108,6 +115,7 @@
+ 
+     override fun onResume() {
+         super.onResume()
++        if (!AccountServices.isEnabled) return
+ 
+         if (pairWithEmailStarted ||
+             requireComponents.backgroundServices.accountManager.authenticatedAccount() != null
+@@ -126,6 +134,7 @@
+     }
+ 
+     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
++        if (!AccountServices.isEnabled) return AccountServicesPreference.disabledView(this)
+         if (shouldLoginJustWithEmail) {
+             // Headless fragment. Don't need UI if we're taking the user to another screen.
+             return null
+@@ -169,6 +178,10 @@
+     }
+ 
+     private fun navigateToPairWithEmail() {
++        if (!AccountServices.isEnabled) {
++            AccountServicesPreference.showChangeDialog(this, true)
++            return
++        }
+         requireComponents.services.accountsAuthFeature.beginAuthentication(
+             requireContext(),
+             entrypoint = args.entrypoint,
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/res/values/account_services_strings.xml
+@@ -0,0 +1,14 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- This Source Code Form is subject to the terms of the Mozilla Public
++   - License, v. 2.0. If a copy of the MPL was not distributed with this
++   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
++<resources>
++    <string name="account_services_title">Accounts and Sync</string>
++    <string name="account_services_enabled">Enabled. Tap to disable accounts and Sync and restart.</string>
++    <string name="account_services_disabled">Off. Account sign-in, Sync and Relay are paused. Tap to enable and restart.</string>
++    <string name="account_services_enable_restart">Enable accounts and restart</string>
++    <string name="account_services_disable_restart">Disable accounts and restart</string>
++    <string name="account_services_enable_explanation">Redoubt will restart with account services enabled. A saved account can reconnect and sync; otherwise you can sign in from Settings. Your account data, Sync choices and custom servers stay saved. Restarting ends the current private browsing session.</string>
++    <string name="account_services_disable_explanation">Redoubt will restart with account services off, ending current account, Sync and Relay work. Your account data, Sync choices and custom servers stay saved. This does not sign you out. Restarting ends the current private browsing session.</string>
++    <string name="account_services_change_failed">Could not save the account-services change or prepare a restart. Accounts keep their current running state. Check this setting after restarting.</string>
++</resources>
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
+@@ -4,7 +4,9 @@
+ 
+ package org.mozilla.fenix.helpers
+ 
++import android.content.Context
+ import io.mockk.mockk
++import mozilla.components.service.fxa.AccountServices
+ import org.mozilla.fenix.FenixApplication
+ import org.mozilla.fenix.R
+ import org.mozilla.fenix.components.Components
+@@ -29,6 +31,12 @@
+     override val components = mockk<Components>(relaxed = true)
+     override fun initializeFenixProcess() = Unit
+ 
++    override fun initializeAccountServices(context: Context) {
++        // Existing feature tests model an opted-in application. Policy tests set
++        // an explicit disabled fixture and verify the actual production gates.
++        AccountServices.initialize(context, defaultEnabled = true)
++    }
++
+     private fun setApplicationTheme() {
+         // According to the Robolectric devs, the application context will not have the <application>'s
+         // theme but will use the platform's default team so we set our theme here. We change it here
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/AccountServicesPreferenceTest.kt
+@@ -0,0 +1,145 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings
++
++import android.content.ComponentName
++import android.content.Context
++import android.content.Intent
++import android.content.pm.PackageManager
++import androidx.test.core.app.ApplicationProvider
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import io.mockk.every
++import io.mockk.mockk
++import kotlinx.coroutines.test.runTest
++import mozilla.components.service.fxa.AccountServices
++import org.junit.After
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.fenix.FenixApplication
++
++@RunWith(AndroidJUnit4::class)
++class AccountServicesPreferenceTest {
++    private val context: Context get() = ApplicationProvider.getApplicationContext()
++    private val preferences get() = context.getSharedPreferences(
++        "mozilla.components.service.fxa.account-services",
++        Context.MODE_PRIVATE,
++    )
++
++    @Before
++    fun setUp() {
++        preferences.edit().clear().commit()
++        AccountServices.initialize(context, defaultEnabled = true)
++    }
++
++    @After
++    fun tearDown() {
++        preferences.edit().clear().commit()
++        AccountServices.initialize(context, defaultEnabled = true)
++    }
++
++    @Test
++    fun `production Fenix attachBaseContext defaults off without creating a saved choice`() {
++        // Bypass the legacy Robolectric application's opted-in override, and call the
++        // real FenixApplication.attachBaseContext, without starting native onCreate work.
++        ProductionPolicyApplication().attachProductionContext(context)
++        assertFalse(AccountServices.isEnabled)
++        assertFalse(preferences.contains("enabled"))
++    }
++
++    @Test
++    fun `production Fenix attachBaseContext preserves each explicit saved choice`() {
++        for (choice in listOf(true, false)) {
++            preferences.edit().putBoolean("enabled", choice).commit()
++            val before = preferences.all
++            ProductionPolicyApplication().attachProductionContext(context)
++            assertEquals(choice, AccountServices.isEnabled)
++            assertEquals(before, preferences.all)
++        }
++    }
++
++    private class ProductionPolicyApplication : FenixApplication() {
++        fun attachProductionContext(context: Context) = super.attachBaseContext(context)
++    }
++
++    @Test
++    fun `failed commit neither cancels work nor restarts`() = runTest {
++        val calls = mutableListOf<String>()
++        assertFalse(applyAccountServicesChange(
++            commit = { calls += "commit"; false },
++            cancel = { calls += "cancel" },
++            restart = { calls += "restart" },
++        ))
++        assertEquals(listOf("commit"), calls)
++    }
++
++    @Test
++    fun `persistence exception reports failure without cancelling or restarting`() = runTest {
++        assertFalse(applyAccountServicesChange(
++            commit = { throw IllegalStateException("read-only preference storage") },
++            cancel = { error("Must not cancel") },
++            restart = { error("Must not restart") },
++        ))
++    }
++
++    @Test
++    fun `durable decision precedes cancellation and process restart`() = runTest {
++        val calls = mutableListOf<String>()
++        assertTrue(applyAccountServicesChange(
++            commit = { calls += "commit"; true },
++            cancel = { calls += "cancel" },
++            restart = { calls += "restart" },
++        ))
++        assertEquals(listOf("commit", "cancel", "restart"), calls)
++    }
++
++    @Test
++    fun `cancellation failure still reaches process termination boundary`() = runTest {
++        var restarted = false
++        try {
++            applyAccountServicesChange(
++                commit = { true },
++                cancel = { throw IllegalStateException("WorkManager cancellation timeout") },
++                restart = { restarted = true },
++            )
++            error("Cancellation exception was unexpectedly swallowed")
++        } catch (_: IllegalStateException) {
++            assertTrue(restarted)
++        }
++    }
++
++    @Test
++    fun `restart targets enabled launcher alias without forwarding authentication data`() {
++        val context: Context = mockk()
++        val packageManager: PackageManager = mockk()
++        every { context.packageName } returns "org.redoubtbrowser"
++        every { context.packageManager } returns packageManager
++        every { packageManager.getLaunchIntentForPackage("org.redoubtbrowser") } returns
++            Intent().setComponent(ComponentName("org.redoubtbrowser", "AlternateIcon"))
++                .setData(android.net.Uri.parse("https://account.invalid/callback?code=secret"))
++                .putExtra("authToken", "must-not-forward")
++        val restart = AccountServicesPreference.restartIntent(context)!!
++        assertEquals(ComponentName("org.redoubtbrowser", "AlternateIcon"), restart.component)
++        assertNull(restart.data)
++        assertFalse(restart.hasExtra("authToken"))
++        assertTrue(restart.getBooleanExtra(AccountServicesPreference.OPEN_SETTINGS, false))
++        assertTrue(restart.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
++        assertTrue(restart.flags and Intent.FLAG_ACTIVITY_CLEAR_TASK != 0)
++    }
++
++    @Test
++    fun `missing launcher is rejected before any preference change`() {
++        val context: Context = mockk()
++        val packageManager: PackageManager = mockk()
++        every { context.packageName } returns "org.redoubtbrowser"
++        every { context.packageManager } returns packageManager
++        every { packageManager.getLaunchIntentForPackage(any()) } returns null
++        assertNull(AccountServicesPreference.restartIntent(context))
++    }
++}
