@@ -4833,3 +4833,69 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: Metadata alone cannot populate local Suggest, and packaged attachment lookup uses record IDs rather than the documented filenames.
+
+  - id: LW-M7-35
+    title: Add durable automatic extension update controls on Android
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-19, LW-M7-20, LW-M7-23, LW-M7-26, LW-M7-31, LW-M3-04]
+    owns:
+      - patches/android/extension-update-controls.patch
+      - scripts/tests/test-extension-update-controls.py
+      - scripts/tests/test-extension-update-controls.js
+      - docs/android/evidence/lw-m7-35/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - modules/libpref/Preferences.cpp
+      - modules/libpref/nsIPrefService.idl
+      - modules/libpref/test/unit/test_savePrefFileAsync.js
+      - modules/libpref/test/unit/xpcshell.toml
+      - mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+      - mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+      - mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
+      - mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/WebExtensionUpdateSettingsTest.kt
+      - mobile/android/geckoview/api.txt
+      - mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtensionRuntime.kt
+      - mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
+      - mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt
+      - mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/AddonManager.kt
+      - mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/update/AddonUpdater.kt
+      - mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
+      - mobile/android/android-components/components/feature/addons/src/test/java/AddonManagerTest.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreference.kt
+      - mobile/android/fenix/app/src/main/res/xml/preferences.xml
+      - mobile/android/fenix/app/src/main/res/values/extension_update_controls.xml
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreferenceTest.kt
+      - toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js
+      - toolkit/components/extensions/test/xpcshell/xpcshell.toml
+    reads:
+      - patches/pref-pane/librewolf.js
+      - docs/android/evidence/lw-m7-31/
+      - docs/android/evidence/lw-m7-21/policy-source/input-plan.json
+    what: |
+      Add a visible native-pref-backed automatic extension update switch matching
+      the desktop combined extensions.update.enabled and autoUpdateDefault control.
+      Preserve effective defaults and explicit choices; reflect locks and reject
+      locked changes. Acknowledge successful changes only after the current prefs
+      snapshot is persisted with its actual write result. On this Android patch
+      path, replace shared write-snapshot coalescing with owned snapshots on the
+      existing serial pref writer so failure, queued writes, explicit backups and
+      shutdown cannot create false completion. Separate restored/periodic addon
+      work from explicit user updates, admit automatic work before metadata/update
+      requests and check install eligibility again after asynchronous boundaries.
+      Preserve ordinary signed XPI installs, per-addon policy and upgrade prompts.
+      Do not restrict language packs here or claim target compilation/runtime from
+      source tests. Root owns source composition, native builds and device evidence.
+    acceptance:
+      - "the real switch reads both effective prefs and locks, preserves absent/default values, and sets both on explicit choice"
+      - "successful choice completion follows actual current-file persistence; failures, same-choice retries and concurrent writes are correctly reported"
+      - "restored automatic workers cannot fetch metadata or updates while off, and late automatic installs recheck current eligibility"
+      - "explicit update/install routes and signed permission prompts preserve their separately audited semantics"
+      - "actual source and target tests cover write errors, ordering, locks, mixed prefs and update admission without fabricated target passes"
+      - "target compilation, relevant Kotlin/native tests and installed APK toggle/restart/network/update acceptance pass before completion"
+    verify: "python3 scripts/tests/test-extension-update-controls.py && python3 docs/android/board.py --check"
+    effort_h: "12-20"
+    skills: [android, kotlin, js, cpp, testing]
+    agent_safe: yes
+    isolation: worktree
+    risk: A visible switch or queued callback may acknowledge Off while metadata requests or stale updates remain admitted.
