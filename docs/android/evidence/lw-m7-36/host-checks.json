@@ -1,0 +1,69 @@
+{
+  "producer": "/root/coverage_map on Fedora host",
+  "utc": "2026-09-09T02:50:59.175043+00:00",
+  "patch_sha256": "b0d132130cb4e02ac687a9c384e314be6f7c1124405a794ed8d3f31a91cb4109",
+  "checks": [
+    {
+      "command": [
+        "python3",
+        "docs/android/evidence/lw-m7-36/check-source.py"
+      ],
+      "exit_code": 0,
+      "stdout": "SOURCE REPLAY PASS: 7 scoped predecessors; 21 patch files match before/after pins; 38 original audit inputs verified.\nAUTHORED KOTLIN TESTS: 21; NOT EXECUTED by this replay.\nAUTHORED XPCSHELL TESTS: 5; NOT EXECUTED by this replay.\nTARGET COMPILATION / API GENERATION / APK RUNTIME: NOT RUN.\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/tests/test-global-privacy-controls.py"
+      ],
+      "exit_code": 0,
+      "stdout": "PASS native defaults and existing middle referrer choice are read without writes\nPASS locked hidden user state is not confused with effective default\nPASS unknown malformed mixed-batch and invalid typed writes reject before save or mutation\nPASS locked requests and absent native pref types never touch persistence\nPASS preflight failure leaves this operation without any pref mutation\nPASS lock changes during preflight are revalidated before mutation\nPASS type changes during preflight are revalidated before mutation\nPASS native same-default normalization saves successfully and reset clears non-default choice\nPASS failed final save preserves actual memory and uncertainty across later read\nPASS same-choice retry performs actual saves and clears prior uncertainty\nPASS queued reads and reset wait until final I/O of the preceding change finishes\nPASS external write while final snapshot saves is superseded and current disk state unconfirmed\nPASS synchronous observer supersession cannot acknowledge the requested choice\nPASS setter throwing after mutation reports memory truth and unconfirmed save\nPASS queued request captures caller choice before caller mutation\nPASS a failed read cannot poison later serialized operations\nPASS unknown existing referrer integer is preserved by read but not admitted as a write\nPASS global WebGL mode and quiet flag leave exact site decisions intact\nPASS 18 actual-module host tests with explicit pref/I/O doubles; native/Android execution NOT RUN\nINTEGRATION SOURCE CHECKS PASS: native registration/packaging, nonpersistent controls, XML resources and enum0/1/2.\nHOST ONLY: target C++/Java/Kotlin compilation, native/GV/Fenix suites and APK behavior remain unrun.\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/evidence/lw-m7-36/check-ordering.py"
+      ],
+      "exit_code": 0,
+      "stdout": "patches/android/no-glean.patch: inverse identical=True; candidate reached=True; shared position swap identical=True\npatches/android/update-check.patch: inverse identical=True; candidate reached=True; shared position swap identical=True\npatches/android/ubo-readiness.patch: inverse identical=True; candidate reached=True; shared position swap identical=True\npatches/android/canvas-webgl-permissions.patch: inverse identical=False; candidate reached=False; shared position swap identical=True\npatches/android/sync-opt-in.patch: inverse identical=False; candidate reached=False; shared position swap identical=True\npatches/android/cookie-banner-controls.patch: inverse identical=True; candidate reached=True; shared position swap identical=True\npatches/android/extension-update-controls.patch: inverse identical=True; candidate reached=True; shared position swap identical=True\nORDER RECEIPT PASS; global classification remains root integration ownership.\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/board.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "ok: 121 tasks, 28 waves, 0 warning(s)\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "target_compilation": "NOT RUN",
+  "target_tests": "NOT RUN",
+  "apk_runtime": "NOT RUN",
+  "final_whitespace_check_utc": "2026-09-09T02:51:40.206490+00:00"
+}

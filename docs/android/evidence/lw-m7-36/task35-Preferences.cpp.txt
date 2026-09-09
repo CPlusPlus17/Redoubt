@@ -1,0 +1,166 @@
+867:   void ClearUserValue() {
+868:     mUserValue.Clear(Type());
+869:     mHasUserValue = false;
+870:   }
+871:   void ClearDefaultValue() {
+872:     mDefaultValue.Clear(Type());
+873:     mHasDefaultValue = false;
+874:   }
+875:
+876:   nsresult SetDefaultValue(PrefType aType, PrefValue aValue, bool aIsSticky,
+877:                            bool aIsLocked, bool* aValueChanged) {
+878:     // Types must always match when setting the default value.
+879:     if (!IsType(aType)) {
+880:       return NS_ERROR_UNEXPECTED;
+881:     }
+882:
+883:     // Should we set the default value? Only if the pref is not locked, and
+884:     // doing so would change the default value.
+885:     if (!IsLocked()) {
+886:       if (aIsLocked) {
+887:         SetIsLocked(true);
+888:       }
+889:       if (aIsSticky) {
+890:         mIsSticky = true;
+891:       }
+892:       if (!ValueMatches(PrefValueKind::Default, aType, aValue)) {
+893:         mDefaultValue.Replace(mHasDefaultValue, Type(), aType, aValue);
+894:         mHasDefaultValue = true;
+895:         if (!mHasUserValue) {
+896:           *aValueChanged = true;
+897:         }
+898:         // What if we change the default to be the same as the user value?
+899:         // Should we clear the user value? Currently we don't.
+900:       }
+901:     }
+902:     return NS_OK;
+903:   }
+904:
+905:   nsresult SetUserValue(PrefType aType, PrefValue aValue, bool aFromInit,
+906:                         bool* aValueChanged) {
+907:     // If we have a default value, types must match when setting the user
+908:     // value.
+909:     if (mHasDefaultValue && !IsType(aType)) {
+910:       return NS_ERROR_UNEXPECTED;
+911:     }
+912:
+913:     // Should we clear the user value, if present? Only if the new user value
+914:     // matches the default value, and the pref isn't sticky, and we aren't
+915:     // force-setting it during initialization.
+916:     if (ValueMatches(PrefValueKind::Default, aType, aValue) && !mIsSticky &&
+917:         !aFromInit) {
+918:       if (mHasUserValue) {
+919:         ClearUserValue();
+920:         if (!IsLocked()) {
+921:           *aValueChanged = true;
+922:         }
+923:       }
+924:
+925:       // Otherwise, should we set the user value? Only if doing so would
+926:       // change the user value.
+927:     } else if (!ValueMatches(PrefValueKind::User, aType, aValue)) {
+928:       mUserValue.Replace(mHasUserValue, Type(), aType, aValue);
+929:       SetType(aType);  // needed because we may have changed the type
+930:       mHasUserValue = true;
+931:       if (!IsLocked()) {
+932:         *aValueChanged = true;
+933:       }
+934:     }
+935:     return NS_OK;
+936:   }
+937:
+938:   // Prefs are serialized in a manner that mirrors dom::Pref. The two should be
+939:   // kept in sync. E.g. if something is added to one it should also be added to
+940:   // the other. (It would be nice to be able to use the code generated from
+941:   // IPDL for serializing dom::Pref here instead of writing by hand this
+4260:   Preferences::HandleDirty();
+4261:   return NS_OK;
+4262: }
+4263:
+4264: bool Preferences::AllowOffMainThreadSave() {
+4265:   // Put in a preference that allows us to disable off main thread preference
+4266:   // file save.
+4267:   if (sAllowOMTPrefWrite < 0) {
+4268:     bool value = false;
+4269:     Preferences::GetBool("preferences.allow.omt-write", &value);
+4270:     sAllowOMTPrefWrite = value ? 1 : 0;
+4271:   }
+4272:
+4273:   return !!sAllowOMTPrefWrite;
+4274: }
+4275:
+4276: nsresult Preferences::SavePrefFileBlocking() {
+4277:   // Always enqueue the latest state, even if a prior asynchronous request
+4278:   // already cleared mDirty. Queue completion alone cannot prove that request
+4279:   // succeeded, and its main-thread dirty callback may still be pending.
+4280:   if (!mCurrentFile) {
+4281:     // Backups are also available before current-profile initialization.
+4282:     if (AllowOffMainThreadSave()) {
+4283:       PreferencesWriter::Flush();
+4284:     }
+4285:     return NS_OK;
+4286:   }
+4287:   if (mProfileShutdown) {
+4288:     return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
+4289:   }
+4290:   mSavePending = false;
+4291:   nsresult rv = WritePrefFile(mCurrentFile, SaveMethod::Blocking);
+4292:   if (NS_SUCCEEDED(rv)) {
+4293:     mDirty = false;
+4294:   } else {
+4295:     HandleDirty();
+4296:   }
+4297:   return rv;
+4298: }
+4299:
+4300: nsresult Preferences::SavePrefFileAsynchronous() {
+4301:   return SavePrefFileInternal(nullptr, SaveMethod::Asynchronous);
+4302: }
+4303:
+4304: NS_IMETHODIMP
+4305: Preferences::SavePrefFile(nsIFile* aFile) {
+4306:   // This is the method accessible from service API. Make it off main thread.
+4307:   return SavePrefFileInternal(aFile, SaveMethod::Asynchronous);
+4308: }
+4309:
+4310: NS_IMETHODIMP
+4311: Preferences::SavePrefFileAsync(JSContext* aCx, Promise** aPromise) {
+4312:   ENSURE_PARENT_PROCESS("Preferences::SavePrefFileAsync", "all prefs");
+4313:   MOZ_ASSERT(NS_IsMainThread());
+4314:   if (mProfileShutdown) {
+4315:     return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
+4316:   }
+4317:   if (!mCurrentFile || !HashTable()) {
+4318:     return NS_ERROR_NOT_INITIALIZED;
+4319:   }
+4320:   ErrorResult error;
+4321:   RefPtr<Promise> promise = Promise::Create(xpc::CurrentNativeGlobal(aCx), error);
+4322:   if (error.Failed()) {
+4323:     return error.StealNSResult();
+4324:   }
+4325:   nsMainThreadPtrHandle<Promise> domPromise(
+4326:       new nsMainThreadPtrHolder<Promise>("Preferences::SavePrefFileAsync", promise));
+4327:   auto holder = MakeUnique<MozPromiseHolder<WritePrefFilePromise>>();
+4328:   RefPtr<WritePrefFilePromise> write = holder->Ensure(__func__);
+4329:   // Force a current snapshot even when mDirty is false. Preserve the legacy
+4330:   // save API's dirty timing; any outstanding autosave remains valid.
+4331:   nsresult rv = WritePrefFile(mCurrentFile, SaveMethod::Asynchronous,
+4332:                              std::move(holder));
+4333:   if (NS_FAILED(rv)) {
+4334:     HandleDirty();
+4335:   }
+4336:   write->Then(
+4337:       GetMainThreadSerialEventTarget(), __func__,
+4338:       [domPromise](bool) { domPromise.get()->MaybeResolveWithUndefined(); },
+4339:       [domPromise](nsresult result) { domPromise.get()->MaybeReject(result); });
+4340:   promise.forget(aPromise);
+4341:   return NS_OK;
+4342: }
+4343:
+4344: NS_IMETHODIMP
+4345: Preferences::BackupPrefFile(nsIFile* aFile, nsIPrefOverrideMap* aJSOverrideMap,
+4346:                             JSContext* aCx, Promise** aPromise) {
+4347:   MOZ_ASSERT(NS_IsMainThread());
+4348:
+4349:   if (!aFile) {
+4350:     return NS_ERROR_INVALID_ARG;
