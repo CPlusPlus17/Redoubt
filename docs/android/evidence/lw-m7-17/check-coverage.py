@@ -173,7 +173,7 @@ def check():
     require(not set(changed) & set(added), "followup input both added and changed")
     # Each added scope has an inspected source patch and separate pending target
     # acceptance. LW-M7-24 adds home, LW-M7-20 Sync, and LW-M7-26 Suggest; runtime stays open.
-    require(set(followup["counterparts_changed"]) == {"graphics", "translations", "home", "sync", "firefox-suggest"},
+    require(set(followup["counterparts_changed"]) == {"graphics", "translations", "home", "sync", "firefox-suggest", "extension-types", "default-bookmarks"},
             "followup counterpart scope changed")
     for path, item in (changed | added).items():
         require(item["sha256"] == coverage["repository_evidence"].get(path),

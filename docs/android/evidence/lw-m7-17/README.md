@@ -68,6 +68,16 @@ inspected desktop handler and must not turn into an Android localhost ban.
 
 ## Preserved evidence
 
+Root's later bounded audits under `../lw-m7-21/bookmark-seed-audit/` and
+`../lw-m7-21/extension-type-audit/` retain additional original inputs separately
+from this audit's original archive. Native Android bookmark initialization creates
+five folders and no URL bookmarks; a final APK database/UI check remains pending.
+The Android XPI loader already rejects non-extension types, including language
+packs. It also rejects dictionary/theme/sitepermission types allowed on desktop,
+so full type-support parity and existing locale-addon cleanup remain open. These
+findings supersede the earlier uncertainty about new language-pack rejection and
+bookmark startup above. No code change was made for either source finding.
+
 [source-index.md](source-index.md) lists the inspected portions of 46 complete
 files retained in [inspected-source.tar.gz](inspected-source.tar.gz). The archive
 includes relevant Android/Gecko source, desktop policy handlers and the exact

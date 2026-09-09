@@ -315,16 +315,16 @@ Provenance: inspected code; behavioral interpretation is an inference from that 
 
 ### extension-types
 
-**Open gap.** Android enterprise-policy service is not compiled, so ExtensionSettings.allowed_types and blocked_install_message are not enforced merely by packaging policies.json. The bounded mobile search found no allowed_types/blocked_install_message or desktop-style locale-addon removal loop. Desktop remove-language-packs additionally uninstalls already-installed locale add-ons at startup.
+**Mixed, open.** The inspected Android XPIInstall manifest loader already rejects every type other than extension with ERROR_UNSUPPORTED_ADDON_TYPE, including language packs. GeckoView ordinary URL/file installation reaches that loader through AddonManager. Packaging enterprise policies is not the enforcement mechanism. Dictionary, theme and sitepermission types allowed on desktop are also rejected by this Android path; existing locale-addon startup removal is separate and unverified.
 
-**Remaining:** Trace all GeckoView/AMO/file/extension API install routes and implement exact allowed types and useful error handling. Cover existing locale add-ons at upgrade/startup separately from rejecting new installs; preserve dictionary, extension, sitepermission and theme choices where supported. Do not treat an AMO curated list as policy enforcement.
+**Remaining:** Exercise a real signed language-pack rejection with a signed normal-extension control and inspect the error UI. Audit other install/upgrade entry points and existing locale add-ons. Account for unsupported desktop add-on types instead of claiming exact allowed_types equivalence. Automatic update controls are separate work under LW-M7-35.
 
-Inspected evidence:
+New retained source evidence:
 
-- Archived source **policy-build**: `toolkit/components/enterprisepolicies/moz.build`; inspected line ranges and SHA-256 in [source index](source-index.md#policy-build).
-- Bounded search **language-pack-removal**, including pattern, scope, exit status, output and file input hashes, in [bounded-searches.json.gz](bounded-searches.json.gz).
+- [source-inputs.json](../lw-m7-21/extension-type-audit/source-inputs.json) — SHA-256 pinned in coverage.json.
+- [source-inputs.tar.gz](../lw-m7-21/extension-type-audit/source-inputs.tar.gz) — SHA-256 pinned in coverage.json.
 
-Provenance: inspected code; behavioral interpretation is an inference from that code. No static check is presented as live evidence.
+Provenance: read-only source inspection and archive verification. No APK or database was exercised. Original policy/search references remain in coverage.json.
 
 ### ubo
 
@@ -617,14 +617,13 @@ Provenance: inspected code; behavioral interpretation is an inference from that 
 
 ### default-bookmarks
 
-**Mixed open.** Desktop NoDefaultBookmarks disallows the defaultBookmarks feature. Android has a separate initial_shortcuts.json containing Google/Wikipedia and region-specific entries. Those are home shortcuts, not evidence of bookmark-database insertion. Android policy service is absent, and bookmark-seeding equivalence has not been established by the inspected files.
+**Source implemented, runtime open.** The inspected Fenix startup warms PlacesBookmarksStorage in app files/places.sqlite; the in-tree native initializer creates five folder roots and no URL bookmarks. User actions, explicit import and Sync are separate insertion paths. This provides a source-level NoDefaultBookmarks counterpart without a new deletion or seeding patch. The task30 shortcut resource is separate. Existing empty-tree unit tests call deleteEverything first and do not prove fresh startup behavior.
 
-**Remaining:** Check a fresh bookmark database and startup seeding path. Keep NoDefaultBookmarks separate from the FirefoxHome.TopSites issue and preserve all user-created bookmarks.
+**Remaining:** On the exact final APK with in-tree AppServices verified, inspect a genuinely fresh initialized app bookmark DB without deleting records. Copy its database and any WAL/SHM together after force-stop; require zero type1 URL bookmarks and the expected five folder roots. Create/open a bookmark through real UI and verify its GUID, URL and title survive restart and upgrade; preserve imported/synced user data.
 
-Inspected evidence:
+New retained source evidence:
 
-- Archived source **desktop-policy-effects**: `browser/components/enterprisepolicies/Policies.sys.mjs`; inspected line ranges and SHA-256 in [source index](source-index.md#desktop-policy-effects).
-- Archived source **initial-shortcuts**: `mobile/android/fenix/app/src/main/res/raw/initial_shortcuts.json`; inspected line ranges and SHA-256 in [source index](source-index.md#initial-shortcuts).
-- Archived source **policy-build**: `toolkit/components/enterprisepolicies/moz.build`; inspected line ranges and SHA-256 in [source index](source-index.md#policy-build).
+- [source-inputs.json](../lw-m7-21/bookmark-seed-audit/source-inputs.json) — SHA-256 pinned in coverage.json.
+- [source-inputs.tar.gz](../lw-m7-21/bookmark-seed-audit/source-inputs.tar.gz) — SHA-256 pinned in coverage.json.
 
-Provenance: inspected code; behavioral interpretation is an inference from that code. No static check is presented as live evidence.
+Provenance: read-only source inspection and archive verification. No APK or database was exercised. Original policy/search references remain in coverage.json.

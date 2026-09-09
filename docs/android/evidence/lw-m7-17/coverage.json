@@ -148,14 +148,16 @@
       "remaining": "Compile/package the new home inputs and run actual fresh/region-change/restart/upgrade home controls. Verify the empty raw resource in the APK, preserve existing shortcuts/bookmarks and prove manual additions work. NoDefaultBookmarks remains a separate bookmark-database question. Recommendation/network regression remains pending."
     },
     "extension-types": {
-      "status": "open_gap",
-      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "Android enterprise-policy service is not compiled, so ExtensionSettings.allowed_types and blocked_install_message are not enforced merely by packaging policies.json. The bounded mobile search found no allowed_types/blocked_install_message or desktop-style locale-addon removal loop. Desktop remove-language-packs additionally uninstalls already-installed locale add-ons at startup.",
+      "status": "mixed_open",
+      "provenance": "read-only source audit; root verified retained input hashes and reviewed the load-bearing source. Actual APK behavior is not tested.",
+      "android": "The inspected Android XPIInstall manifest loader already rejects every type other than extension with ERROR_UNSUPPORTED_ADDON_TYPE, including language packs. GeckoView ordinary URL/file installation reaches that loader through AddonManager. Packaging enterprise policies is not the enforcement mechanism. Dictionary, theme and sitepermission types allowed on desktop are also rejected by this Android path; existing locale-addon startup removal is separate and unverified.",
       "evidence": [
         "source:policy-build",
-        "search:language-pack-removal"
+        "search:language-pack-removal",
+        "repo:docs/android/evidence/lw-m7-21/extension-type-audit/source-inputs.json",
+        "repo:docs/android/evidence/lw-m7-21/extension-type-audit/source-inputs.tar.gz"
       ],
-      "remaining": "Trace all GeckoView/AMO/file/extension API install routes and implement exact allowed types and useful error handling. Cover existing locale add-ons at upgrade/startup separately from rejecting new installs; preserve dictionary, extension, sitepermission and theme choices where supported. Do not treat an AMO curated list as policy enforcement."
+      "remaining": "Exercise a real signed language-pack rejection with a signed normal-extension control and inspect the error UI. Audit other install/upgrade entry points and existing locale add-ons. Account for unsupported desktop add-on types instead of claiming exact allowed_types equivalence. Automatic update controls are separate work under LW-M7-35."
     },
     "ubo": {
       "status": "source_implemented_runtime_open",
@@ -390,15 +392,17 @@
       "remaining": "This inference concerns exactly the pinned policy values. Re-audit if either array changes; do not claim Android supports arbitrary WebsiteFilter policies."
     },
     "default-bookmarks": {
-      "status": "mixed_open",
-      "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "Desktop NoDefaultBookmarks disallows the defaultBookmarks feature. Android has a separate initial_shortcuts.json containing Google/Wikipedia and region-specific entries. Those are home shortcuts, not evidence of bookmark-database insertion. Android policy service is absent, and bookmark-seeding equivalence has not been established by the inspected files.",
+      "status": "source_implemented_runtime_open",
+      "provenance": "read-only source audit; root verified retained input hashes and reviewed the load-bearing source. Actual APK behavior is not tested.",
+      "android": "The inspected Fenix startup warms PlacesBookmarksStorage in app files/places.sqlite; the in-tree native initializer creates five folder roots and no URL bookmarks. User actions, explicit import and Sync are separate insertion paths. This provides a source-level NoDefaultBookmarks counterpart without a new deletion or seeding patch. The task30 shortcut resource is separate. Existing empty-tree unit tests call deleteEverything first and do not prove fresh startup behavior.",
       "evidence": [
         "source:desktop-policy-effects",
         "source:initial-shortcuts",
-        "source:policy-build"
+        "source:policy-build",
+        "repo:docs/android/evidence/lw-m7-21/bookmark-seed-audit/source-inputs.json",
+        "repo:docs/android/evidence/lw-m7-21/bookmark-seed-audit/source-inputs.tar.gz"
       ],
-      "remaining": "Check a fresh bookmark database and startup seeding path. Keep NoDefaultBookmarks separate from the FirefoxHome.TopSites issue and preserve all user-created bookmarks."
+      "remaining": "On the exact final APK with in-tree AppServices verified, inspect a genuinely fresh initialized app bookmark DB without deleting records. Copy its database and any WAL/SHM together after force-stop; require zero type1 URL bookmarks and the expected five folder roots. Create/open a bookmark through real UI and verify its GUID, URL and title survive restart and upgrade; preserve imported/synced user data."
     }
   },
   "desktop_patches": [
@@ -1991,7 +1995,11 @@
     "patches/android/home-section-defaults.patch": "9253d3956aff79b8066b65e4521497ca8f1bceab9cab4fe8976137edc43e51fc",
     "patches/android/sync-opt-in.patch": "a68d04e8642e216be954253062a19f38089626df2c34d725317d82a23193ff29",
     "patches/android/firefox-suggest-policy.patch": "924d394c80e8a8ea71f727629b02328d586fabbdd1b10419df3f9cce839a0ee5",
-    "patches/android/no-default-shortcuts.patch": "5af4a5a142da21684efd0608145e1667df8f5bf26576ab806ddd7893abea5ee4"
+    "patches/android/no-default-shortcuts.patch": "5af4a5a142da21684efd0608145e1667df8f5bf26576ab806ddd7893abea5ee4",
+    "docs/android/evidence/lw-m7-21/extension-type-audit/source-inputs.json": "f65c84d04450529523ec0450cb1c09293eba524c8554d7bb2e6f1049967e40e1",
+    "docs/android/evidence/lw-m7-21/extension-type-audit/source-inputs.tar.gz": "1b502eb9d363a1c0ac4b72c10bb7d5245d2de9bc85ee3c8ca802d7a345e0cc81",
+    "docs/android/evidence/lw-m7-21/bookmark-seed-audit/source-inputs.json": "2c19f26738fdb126720eefc438ad0d84594b54d8d025a5c94358f8208ba229c3",
+    "docs/android/evidence/lw-m7-21/bookmark-seed-audit/source-inputs.tar.gz": "84168a3e599726f327a75675d92ba54681783c7018aca22ecd968d8abdb3b48b"
   },
   "source_capture_commit": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae"
 }
