@@ -24,5 +24,7 @@ independently verified every archived member and regraded the XML on the host.
 
 The full Fenix/AC run started separately under
 `redoubt-fenix-account-process-tests-20260909.service`, invocation
-`c02a8b984fae45dc859eff2b556b82f0`. Full test success, new APK compilation and new
-runtime are still pending. Diagnostic success does not establish them.
+`c02a8b984fae45dc859eff2b556b82f0`. It subsequently passed the full Fenix allowance
+and coverage gates plus147 component cases; the separate actual evidence is in
+`../current-account-process-tests/`. New APK compilation and runtime remain
+separate gates. Diagnostic success alone does not establish them.

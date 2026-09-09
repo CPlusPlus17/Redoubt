@@ -1,9 +1,12 @@
 # Current167 process-recovery checkpoint
 
 This is a separate copy of `../current167/` for the Task20 isolated-process
-startup correction. It is **prepared, not executed**. Root owns source staging,
-full tests, APK builds and runtime. The corrected source manifest and test
-invocation are not selected yet. The failed-runtime source `501d046…` is explicitly
+startup correction. Root owns source staging, full tests, APK builds and runtime.
+The selected source is now `4ff8b616…`; the actual full test invocation
+`c02a8b984fae45dc859eff2b556b82f0` passed (see Task21
+`current-account-process-tests`). APK execution started under invocation
+`598783f0987b4c139fb0053c501f5628`; APK completion and runtime remain pending.
+The failed-runtime source `501d046…` is explicitly
 rejected; a later native245/249 composition is also outside this 167-file driver.
 
 `parent-inputs.json` binds all four original source files. `copy-delta.patch` and
@@ -150,7 +153,8 @@ actual compilation, service launch, Android runtime or the Task20 fix. The initi
 `independent-review.json`; it refers to its recorded pre-correction driver hashes.
 `initial-recovery-4633c14.tar.gz` preserves all 11 initial files, including the
 34-test results, source receipts and exact copy delta. The collected-unit change
-and its new checks are recorded separately; target execution remains pending.
+and its new checks are recorded separately. The later actual target evidence is
+kept in Task21; these local checks do not establish that result.
 
 The frozen Task37 501d/9a911 staging driver is unchanged. A later corrected native
 composition must explicitly adopt this recovery checkpoint in a new reviewed
