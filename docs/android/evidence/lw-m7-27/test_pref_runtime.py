@@ -37,8 +37,8 @@ class PreferenceInventory(unittest.TestCase):
         self.assertEqual(new['xpcshell'][:len(old['xpcshell'])], old['xpcshell'])
         self.assertEqual(new['instrumentation'][:len(old['instrumentation'])], old['instrumentation'])
         self.assertEqual(new['pending_xpcshell'], old['pending_xpcshell'])
-        self.assertEqual(sum(len(s['tasks']) for s in new['xpcshell']), 59)
-        self.assertEqual(len(new['instrumentation']), 17)
+        self.assertEqual(sum(len(s['tasks']) for s in new['xpcshell']), 64)
+        self.assertEqual(len(new['instrumentation']), 20)
         self.assertEqual(len(new['shutdown_instrumentation']['expected_methods']), 1)
 
     def test_each_new_native_task_needs_a_finished_record(self):
@@ -61,13 +61,12 @@ class PreferenceInventory(unittest.TestCase):
 
     def test_final_source_receipts_override_old_shared_pins(self):
         pins = json.loads(driver.HARNESS.read_text())['files']
-        receipts = driver.HERE.parent / 'lw-m7-35/source-files.json'
-        for spec in json.loads(receipts.read_text())['files']:
-            self.assertEqual(pins[spec['path']], spec['after_sha256'], spec['path'])
-        for spec in json.loads((driver.HERE.parent / 'lw-m7-31/source-files.json').read_text())['files']:
-            if spec['path'] not in {'mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs',
-                                    'toolkit/components/extensions/test/xpcshell/xpcshell.toml'}:
-                self.assertEqual(pins[spec['path']], spec['after_sha256'])
+        final = {}
+        for task in ['lw-m7-31', 'lw-m7-35', 'lw-m7-36']:
+            for spec in json.loads((driver.HERE.parent / task / 'source-files.json').read_text())['files']:
+                final[spec['path']] = spec['after_sha256']
+        for name, digest in final.items():
+            self.assertEqual(pins[name], digest, name)
 
     def test_actual_old_native_preference_source_fails_reviewed_pin(self):
         name = 'modules/libpref/Preferences.cpp'
@@ -100,9 +99,9 @@ class PreferenceInventory(unittest.TestCase):
             for change in ['hash', 'ordinary', 'shutdown', 'native', 'helper']:
                 req = copy.deepcopy(original)
                 if change == 'hash': req['task35_inventory_sha256'] = '0' * 64
-                elif change == 'ordinary': req['instrumentation'] = req['instrumentation'][:-1]
+                elif change == 'ordinary': req['instrumentation'].remove(json.loads(driver.TASK35_INVENTORY.read_text())['regular_instrumentation_methods'][-1])
                 elif change == 'shutdown': req['shutdown_instrumentation']['instrumentation_arguments'].pop('redoubtAllowProfileShutdown')
-                elif change == 'native': req['xpcshell'][-1]['tasks'].pop()
+                elif change == 'native': next(s for s in req['xpcshell'] if s['path'].endswith('/test_ext_android_update_settings.js'))['tasks'].pop()
                 else: req['product_paths'].remove('mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js')
                 path.write_text(json.dumps(req))
                 with self.subTest(change=change), mock.patch.object(driver, 'REQUIREMENTS', path), self.assertRaises(InvalidResult):
@@ -125,8 +124,12 @@ class ShutdownProcessEvidence(unittest.TestCase):
         self.req['xpcshell'] = []  # This fixture isolates instrumentation evidence grading.
         self.write('requirements.json', self.req)
         (self.root / 'task35-inventory.json').write_bytes(driver.TASK35_INVENTORY.read_bytes())
+        (self.root / 'task36-inventory.json').write_bytes(driver.TASK36_INVENTORY.read_bytes())
+        (self.root / 'task36-source-receipt.json').write_bytes(driver.TASK36_SOURCE_RECEIPT.read_bytes())
         binding = {'requirements_sha256': sha(self.root / 'requirements.json'),
-                   'task35_inventory_sha256': sha(self.root / 'task35-inventory.json')}
+                   'task35_inventory_sha256': sha(self.root / 'task35-inventory.json'),
+                   'task36_inventory_sha256': sha(self.root / 'task36-inventory.json'),
+                   'task36_source_receipt_sha256': sha(self.root / 'task36-source-receipt.json')}
         self.write('source-binding.json', binding); self.write('source-after-tests.json', binding)
         build = {'status': 'PASS', 'source_binding_sha256': sha(self.root / 'source-binding.json'),
                  'requirements_sha256': sha(self.root / 'requirements.json')}

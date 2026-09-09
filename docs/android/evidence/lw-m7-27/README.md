@@ -18,12 +18,13 @@ native job count is two, Cargo one, Gradle one; commands have bounded timeouts.
 ## Source and configuration binding
 
 Preflight verifies every entry in the operator's integrated source SHA256SUMS and
-requires 129 product/test/source dependency paths, including all selected native
+requires 145 product/test/source dependency paths, including all selected native
 tests, the pending Android-excluded uninstall test, and instrumentation classes.
-It separately verifies 61 audited harness/build/preference/permission files against
+It separately verifies 77 audited harness/build/preference/permission files against
 `harness-sources.json`, read from the frozen Firefox 153.0esr beta tree or the
-merged Task31 plus corrected Task35 source candidates. Task35 supersedes the two
-shared Task31 file pins; stale native4 or pre-correction source cannot pass. Those pins describe the audited source subset, not a fresh
+merged Tasks31/35/36 source candidates. Task35 supersedes two shared Task31
+pins; Task36 supersedes five shared Task35 pins. Stale native4, pre-correction
+fixtures or superseded shared source cannot pass. Those pins describe the audited source subset, not a fresh
 verification of every file in the upstream source archive. A changed harness must
 be reviewed and re-pinned; it cannot silently reuse this parser contract.
 
@@ -69,8 +70,10 @@ and completion records are preserved.
 Use the actual provisioned paths. `plan` does not read the source manifest or
 create a workspace; `preflight` reads/verifies source files and writes nothing.
 The checked-in `local-plan.json` is a host-side plan against the real production
-mozconfig and frozen source path, with a deliberately nonexistent future integrated
-manifest. It is explicitly **NOT RUN**, and no proposed workspace was created.
+mozconfig and frozen source path, with the retained proposed native-test manifest.
+The frozen source path is a provisional location, not the composed target tree.
+This plan is explicitly **NOT RUN**, and no proposed workspace was created;
+actual preflight requires the complete matching integrated source.
 
 ```sh
 native_test_args=(
@@ -169,6 +172,8 @@ hash inventory. No expected native failure or required skip is allowlisted.
 | GeckoView current-profile save API | Three real-profile I/O methods: independent snapshots, clean-file recreation/reset, failed-write/suspend/retry |
 | GeckoView automatic extension update controls | Two methods: combined/mixed prefs and native completion order |
 | GeckoView preference-service shutdown | One method in a fresh, separately guarded instrumentation process; full application exit is outside its scope |
+| native global privacy service | Five Task36 xpcshell cases with real native pref/permission services and an explicit injected-save boundary; no actual disk-persistence claim |
+| GeckoView global privacy API | Three Task36 methods: acknowledged boolean/reset branches, referrer value1 and invalid-public-input rejection |
 
 Each xpcshell file runs separately and sequentially with a new raw mozlog file.
 The grader requires suite/file start and successful completion, every required
@@ -193,7 +198,7 @@ manifest override. After every runnable gate passes, the aggregate remains
 **PENDING**, and both `driver.py run` and archived `grade.py` exit **3** while that
 requirement is open. No skipped file or new mock uninstall test closes it.
 
-Ordinary instrumentation requests the exact seventeen `Class#method` names through
+Ordinary instrumentation requests the exact twenty `Class#method` names through
 `AndroidJUnitRunner`. The grader requires matched per-method start/success records,
 matching declared test count, a matching JUnit `OK` summary and a successful final
 instrumentation code. Failure, assumption, ignore/skip, missing/duplicate methods,
@@ -263,6 +268,53 @@ empty test or process-list logs still fail. The isolated invocation acknowledges
 the native preference-service shutdown observer and saved bytes; it does not
 establish the complete application's shutdown or release durability after death.
 
+## Task36 inventory and composed source
+
+`task36-inventory.json` is derived from the actual test definitions and all 21
+files in Task36's authoritative `source-files.json`. Planning/preflight binds its
+hash and the retained `task36-source-receipt.json`, all five exact xpcshell names,
+three ordinary GeckoView methods, explicit
+injected-save scope and all 21 final source hashes. The native tests use real
+preference/permission services, but supply a save function. Their recorded
+`execution_scope` therefore remains explicit in graded results; an injected
+completion cannot establish current-profile disk durability. The three API
+methods require normal GeckoRuntime initialization and the production controller.
+They check acknowledged native state/validation; Task35's separate actual-I/O
+methods retain their independent role. Assumption skips remain unaccepted.
+
+`previous-task35-selection.json` retains all 59+17+1 preceding requirements and
+the three Android exclusions. The current selection is **64 xpcshell tasks,
+20 ordinary instrumented methods and one guarded shutdown method**. Shutdown
+remains last and separate; Task36 adds no opt-in or preference mutation to the
+driver's command line. Fenix runtime behavior after restart/navigation/network
+changes remains separate release-APK acceptance.
+
+`global-privacy-source-bindings.json` records independent hashing of actual
+Task36 source and 45 materialized files from coverage_map's final scoped
+29/31/35/36 composition. The five shared Task35→36 before/after hashes match the
+producer's final source; native preference I/O and test-support hashes remain
+unchanged. The producer receipt and product manifest are retained separately.
+This is scoped source comparison, not compilation or a full integrated test
+preflight. Root's `301e662` Bundle constructor correction is separately retained in
+`root-bundle-source-overlay.json`. The producer then replayed the corrected
+composition; the updated product manifest differs only in that existing Fenix
+body. I independently compared the root-retained and newly composed body bytes.
+The three `pre-bundle-*` files preserve the earlier product/test manifests and
+receipt. Task36's refreshed source receipt (`35062553`) changes only that scoped
+predecessor digest; all 21 output hashes remain unchanged. Neither scoped replay
+nor this driver preparation claims a successful corrected target build.
+
+The product source union has 230 bindings. Four unchanged files already required
+by Task27 are absent from that changed-file union: `Extension.sys.mjs`,
+`ExtensionTaskScheduler.sys.mjs`, `test_ext_permissions.js` and
+`test_ext_permissions_uninstall.js`. Their actual frozen bodies were hashed
+against existing audited pins and retained in `native-test-extra-source-sha256.txt`.
+`proposed-native-test-source-sha256.txt` combines those four with the reviewed
+product union, preserves every existing binding, contains 234 distinct paths and
+covers all 145 required paths. Use that reviewed test manifest only with the
+complete matching target source. The driver still separately verifies the other
+unchanged harness pins; it does not waive a missing source or test.
+
 ## Evidence and replay
 
 Every command gets an exclusive log and a receipt with a new run id, source/build
@@ -284,18 +336,19 @@ built test artifact hashes. The replay verifies the recorded artifact binding; i
 does not claim to re-open absent APKs. Receipts provide local integrity and provenance
 checks, not protection against deliberate fabrication of all evidence files.
 
-The local suite currently passes **52 host driver/grader tests**, including
+The local suite currently passes **60 host driver/grader tests**, including
 parser failures, stale/foreign command receipts, source/selection tampering,
 pre-Task35 native bytes, missing/failed process boundaries and guarded shutdown
 skips. `local-tests.txt` records the observed invocation. Full integrated
-preflight, native compilation, API lint, **59 xpcshell tasks and 17+1 instrumented
+preflight, native compilation, API lint, **64 xpcshell tasks and 20+1 instrumented
 methods remain unrun**. Three further upstream uninstall tasks remain
 Android-excluded and pending. The aggregate therefore stays PENDING/exit 3 even
 if every currently runnable gate passes. A real failure must be investigated in
 the source/test environment, never converted into a parser allowlist.
 
-This followup starts from root `69615d7` plus Task35 metadata `2c7cc9b` and
-correction `67300f8`; Task27 metadata is `076fcad`. It preserves the prior
-permission-driver preparation from `ceb333e` and original driver preparation
-`5b472bc3afd4882d38c6ccbfc8c712f2cc002f91`. Older snapshots describe their older
+The Task36 inventory followup starts from root `bf5af6c`; metadata is `ff21bd3`.
+The previous corrected-preference driver was integrated as `4b9e30a` (original
+`6054033`, metadata `076fcad`). Earlier permission preparation is retained at
+`ceb333e`, and original driver preparation at
+`5b472bc3afd4882d38c6ccbfc8c712f2cc002f91`. Their snapshots describe their older
 selection and host-test counts. No guest, build or device command ran here.

@@ -24,6 +24,8 @@ HERE = Path(__file__).resolve().parent
 REQUIREMENTS = HERE / 'requirements.json'
 HARNESS = HERE / 'harness-sources.json'
 TASK35_INVENTORY = HERE / 'task35-inventory.json'
+TASK36_INVENTORY = HERE / 'task36-inventory.json'
+TASK36_SOURCE_RECEIPT = HERE / 'task36-source-receipt.json'
 
 
 def json_write(path, value):
@@ -53,6 +55,22 @@ def reviewed_requirements():
             'Task35 isolated shutdown inventory changed')
     require(set(inventory['extra_required_source_paths']) <= set(req['product_paths']),
             'Task35 real-profile helper/class source binding omitted')
+    require(sha(TASK36_INVENTORY) == req.get('task36_inventory_sha256'), 'Task36 inventory changed/unbound')
+    global_privacy = json.loads(TASK36_INVENTORY.read_text())
+    require(sha(TASK36_SOURCE_RECEIPT) == global_privacy['source_receipt_sha256'],
+            'Task36 authoritative source receipt changed/unbound')
+    for item in global_privacy['xpcshell_method_sets']:
+        specs = [spec for spec in req['xpcshell'] if spec['path'] == item['source']]
+        require(len(specs) == 1 and specs[0]['tasks'] == item['named_tests'] and not specs[0]['allowed_skips'] and
+                specs[0].get('execution_scope') == item['execution_scope'],
+                'Task36 native-service inventory or injected-save scope changed')
+    require(set(global_privacy['regular_instrumentation_methods']) <= set(req['instrumentation']),
+            'Task36 ordinary real-GeckoRuntime methods omitted')
+    require(set(global_privacy['extra_required_source_paths']) <= set(req['product_paths']),
+            'Task36 implementation/test source binding omitted')
+    audited = json.loads(HARNESS.read_text())['files']
+    require(all(audited.get(name) == digest for name, digest in global_privacy['required_source_hashes'].items()),
+            'Task36 final source pins were replaced by stale/mismatched shared hashes')
     require(len(req['instrumentation']) == len(set(req['instrumentation'])), 'duplicate ordinary methods')
     return req
 
@@ -110,7 +128,9 @@ def source_binding(source, manifest):
         require(re.search(r'fun\s+' + re.escape(name) + r'\s*\(', source_path(source, path).read_text()), 'missing method: ' + method)
     return {'manifest_sha256': sha(manifest), 'product_files': rows, 'audited_harness': audited,
             'requirements_sha256': sha(REQUIREMENTS), 'harness_pins_sha256': sha(HARNESS),
-            'task35_inventory_sha256': sha(TASK35_INVENTORY)}
+            'task35_inventory_sha256': sha(TASK35_INVENTORY),
+            'task36_inventory_sha256': sha(TASK36_INVENTORY),
+            'task36_source_receipt_sha256': sha(TASK36_SOURCE_RECEIPT)}
 
 
 def selection_arguments(spec):
@@ -276,7 +296,7 @@ def main():
         if properties.is_file():
             shutil.copy2(properties, workspace / 'gradle-home/gradle.properties')
         json_write(workspace / 'container-environment.json', environment)
-        json_write(workspace / 'driver-hashes.json', {p.name:sha(p) for p in [Path(__file__), HERE / 'grade.py', HERE / 'in-vm.py', REQUIREMENTS, HARNESS, TASK35_INVENTORY]})
+        json_write(workspace / 'driver-hashes.json', {p.name:sha(p) for p in [Path(__file__), HERE / 'grade.py', HERE / 'in-vm.py', REQUIREMENTS, HARNESS, TASK35_INVENTORY, TASK36_INVENTORY, TASK36_SOURCE_RECEIPT]})
         json_write(workspace / 'plan.json', plan)
         json_write(workspace / 'source-binding.json', binding)
         run_id = uuid.uuid4().hex
@@ -340,7 +360,9 @@ def main():
     shutil.copy2(workspace / 'source-binding.json', out / 'source-binding.json')
     shutil.copy2(REQUIREMENTS, out / 'requirements.json')
     shutil.copy2(TASK35_INVENTORY, out / 'task35-inventory.json')
-    json_write(out / 'driver-hashes.json', {p.name:sha(p) for p in [Path(__file__), HERE / 'grade.py', REQUIREMENTS, HARNESS, TASK35_INVENTORY]})
+    shutil.copy2(TASK36_INVENTORY, out / 'task36-inventory.json')
+    shutil.copy2(TASK36_SOURCE_RECEIPT, out / 'task36-source-receipt.json')
+    json_write(out / 'driver-hashes.json', {p.name:sha(p) for p in [Path(__file__), HERE / 'grade.py', REQUIREMENTS, HARNESS, TASK35_INVENTORY, TASK36_INVENTORY, TASK36_SOURCE_RECEIPT]})
     results = []
     try:
         for index, artifact in enumerate(build['artifacts']):

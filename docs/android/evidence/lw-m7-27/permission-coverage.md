@@ -62,3 +62,14 @@ shutdown method; all target execution remains pending. The updated inventory has
 corrected Task35 source; unchanged Task31 permissions logic and tests remain
 pinned. The three Android uninstall exclusions are unchanged. See README and
 preference-source-bindings.json for the exact source/receipt lineage.
+
+
+## Global privacy inventory followup
+
+Task36 adds five native-service xpcshell cases (with explicit injected saves)
+and three ordinary real-GeckoRuntime API methods. Current totals are 64 xpcshell,
+20 ordinary plus one isolated shutdown, 145 required source paths and 77 audited
+files. All prior requirements and the three Android uninstall exclusions remain.
+Five shared Task35 files now use their final Task36 hashes. The reviewed native
+test source union contains 234 paths: 230 product bindings plus the four unchanged
+permission inputs already required by this driver. No target execution is claimed.

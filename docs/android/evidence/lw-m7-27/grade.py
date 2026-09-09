@@ -121,7 +121,10 @@ def grade_xpcshell(raw, spec):
                 finished.add(name)
     require(suites == ends == starts == file_ends == 1 and running is None, 'incomplete suite/file lifecycle')
     require(started == finished == required and not required & skipped, 'missing/incomplete named tasks')
-    return {'file': spec['path'], 'passed_tasks': sorted(finished), 'allowed_skips_observed': sorted(skipped)}
+    result = {'file': spec['path'], 'passed_tasks': sorted(finished), 'allowed_skips_observed': sorted(skipped)}
+    if 'execution_scope' in spec:
+        result['execution_scope'] = spec['execution_scope']
+    return result
 
 
 def grade_instrumentation(raw, expected):
@@ -268,6 +271,12 @@ def grade_run(directory):
     if shutdown_spec:
         require(sha(directory / 'task35-inventory.json') == requirements.get('task35_inventory_sha256') ==
                 binding.get('task35_inventory_sha256'), 'Task35 inventory differs from built source binding')
+    if 'task36_inventory_sha256' in requirements:
+        require(sha(directory / 'task36-inventory.json') == requirements['task36_inventory_sha256'] ==
+                binding.get('task36_inventory_sha256'), 'Task36 inventory differs from built source binding')
+        inventory = load('task36-inventory.json')
+        require(sha(directory / 'task36-source-receipt.json') == inventory.get('source_receipt_sha256') ==
+                binding.get('task36_source_receipt_sha256'), 'Task36 source receipt differs from built source binding')
     names = [f'xpcshell-{i}.raw-receipt.json' for i in range(len(requirements['xpcshell']))] + ['instrumentation.log.receipt.json']
     if shutdown_spec:
         names.append('instrumentation-shutdown.log.receipt.json')

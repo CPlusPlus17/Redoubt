@@ -131,18 +131,6 @@
         "in-process-webextensions"
       ],
       "test_id_prefix": "xpcshell.toml:"
-    },
-    {
-      "path": "mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js",
-      "tasks": [
-        "native_locked_user_state_is_honest",
-        "native_int_one_and_reset_preserve_real_branches",
-        "final_save_failure_keeps_native_memory_and_uncertainty",
-        "WebGL_global_choices_preserve_actual_site_permissions",
-        "setting_the_native_default_does_not_invent_a_user_branch"
-      ],
-      "allowed_skips": [],
-      "execution_scope": "Real native preference/permission services with an explicitly injected save boundary; does not establish actual current-profile disk persistence."
     }
   ],
   "instrumentation": [
@@ -162,10 +150,7 @@
     "org.mozilla.geckoview.test.PrefSaveFileAsyncTest#cleanStateBarrierRecreatesCurrentFileAndPersistsReset",
     "org.mozilla.geckoview.test.PrefSaveFileAsyncTest#actualCurrentFileFailureRejectsSuspendAndRetries",
     "org.mozilla.geckoview.test.WebExtensionUpdateSettingsTest#combinedSettingWritesBothPrefsAndMixedStateIsUnchecked",
-    "org.mozilla.geckoview.test.WebExtensionUpdateSettingsTest#concurrentChoicesCompleteInNativeQueueOrder",
-    "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#acknowledgedBooleanWriteAndResetReadNativeBranches",
-    "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#middleReferrerPolicySurvivesTheActualPublicApi",
-    "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#publicApiRejectsAdditionalPrefsAndInvalidValuesBeforeDispatch"
+    "org.mozilla.geckoview.test.WebExtensionUpdateSettingsTest#concurrentChoicesCompleteInNativeQueueOrder"
   ],
   "product_paths": [
     "docshell/base/CanonicalBrowsingContext.cpp",
@@ -178,20 +163,16 @@
     "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorage.kt",
     "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoPermissionRequest.kt",
     "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorage.kt",
-    "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt",
     "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt",
     "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt",
     "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorageTest.kt",
     "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionRequestTest.kt",
     "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt",
-    "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt",
     "mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/ext/PermissionRequest.kt",
     "mobile/android/android-components/components/browser/state/src/test/java/mozilla/components/browser/state/ext/PermissionRequestTest.kt",
-    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt",
     "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/cookiehandling/CookieBannersStorage.kt",
     "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/OriginBoundPermission.kt",
     "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/PermissionRequest.kt",
-    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt",
     "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtensionRuntime.kt",
     "mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/AddonManager.kt",
     "mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/update/AddonUpdater.kt",
@@ -209,8 +190,6 @@
     "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt",
     "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt",
     "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt",
-    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt",
-    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt",
     "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt",
     "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreference.kt",
     "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteController.kt",
@@ -224,21 +203,17 @@
     "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt",
     "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt",
     "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",
-    "mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml",
     "mobile/android/fenix/app/src/main/res/values/cookie_banner_controls_ids.xml",
     "mobile/android/fenix/app/src/main/res/values/extension_update_controls.xml",
-    "mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml",
     "mobile/android/fenix/app/src/main/res/values/origin_bound_permissions_ids.xml",
     "mobile/android/fenix/app/src/main/res/values/preference_keys.xml",
     "mobile/android/fenix/app/src/main/res/values/strings.xml",
-    "mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml",
     "mobile/android/fenix/app/src/main/res/xml/preferences.xml",
     "mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml",
     "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt",
     "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt",
     "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt",
     "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt",
-    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt",
     "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreferenceTest.kt",
     "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSettingsTest.kt",
     "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteControllerTest.kt",
@@ -249,27 +224,21 @@
     "mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json",
     "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CanvasPermissionTest.kt",
     "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CookieBannerPrivateSessionTest.kt",
-    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt",
     "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncShutdownTest.kt",
     "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncTest.kt",
     "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt",
     "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/WebExtensionUpdateSettingsTest.kt",
-    "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java",
     "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java",
     "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java",
     "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java",
     "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java",
     "mobile/shared/actors/GeckoViewPermissionChild.sys.mjs",
     "mobile/shared/actors/GeckoViewPermissionParent.sys.mjs",
-    "mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs",
     "mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs",
     "mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs",
-    "mobile/shared/components/geckoview/moz.build",
     "mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs",
     "mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs",
     "mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs",
-    "mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js",
-    "mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml",
     "modules/libpref/Preferences.cpp",
     "modules/libpref/init/StaticPrefList.yaml",
     "modules/libpref/nsIPrefService.idl",
@@ -317,14 +286,13 @@
   "patches": {
     "ubo-preinstall.patch": "d48b3bde33ea39c4ddd6fbfa7336aae5ef01f6a5a420128c3265e1f3024b0ee9",
     "ubo-readiness.patch": "f6b7e404ff1e64c25bb7d0966a49b56287ac149bc1cf14dce2c4b0ae3be4b50f",
-    "canvas-webgl-permissions.patch": "11401e72ae0d2c862ccdd9c62e209b48cfb8bd3f444136a30f98fb48fcd2c275",
+    "canvas-webgl-permissions.patch": "2c6196b1f619223d7e2a185567d8866e83467e1e1b9380200789471d221a7c7f",
     "translation-assets.patch": "303edc22a85e56a6a7333f2516371de88fee21dfbe40c532446ce96c2e97cb26",
     "addon-state-durability.patch": "b1ba51cc8e55a6ab38ea76ecab4cdeacb925efd08084dfa0dede0aa72045c4ba",
     "cookie-banner-rules.patch": "c7265a76ace9371f7f6333a6ca12584fe45424a77d7dea659828c53abb7044b5",
     "cookie-banner-controls.patch": "ba81f852b04f0ff4614cf992f23d8090679e53dd4b4f416ed09d9334523d04db",
     "extension-permission-durability.patch": "b2a507ccf51c521e3a49693a040db6c6fad4ce0b786a9114f8468a3acdef27f4",
-    "extension-update-controls.patch": "901b811c298c6112dc07a8ef25a7baa46704284d764ba1b3c9fd10e08d027795",
-    "global-privacy-controls.patch": "b0d132130cb4e02ac687a9c384e314be6f7c1124405a794ed8d3f31a91cb4109"
+    "extension-update-controls.patch": "901b811c298c6112dc07a8ef25a7baa46704284d764ba1b3c9fd10e08d027795"
   },
   "build_image_sha256": "c5b57d94cf9e0ed1de7061cee9e0dbfde19d5651e3e2f3824b0e1466116fd687",
   "pending_xpcshell": [
@@ -373,6 +341,5 @@
     ],
     "receipt_scope": "Actual preference-service shutdown acknowledgment and real prefs.js bytes; does not prove full application shutdown."
   },
-  "task35_inventory_sha256": "bcafbe4f99dd3e61e7e1a16ee585ee8c52655342da7906b547cf16fc8241aaad",
-  "task36_inventory_sha256": "60896116bb175d4b3c9a9a18f0da03f15c8a8b975b42b4452ebce76f5b2ef932"
+  "task35_inventory_sha256": "bcafbe4f99dd3e61e7e1a16ee585ee8c52655342da7906b547cf16fc8241aaad"
 }
