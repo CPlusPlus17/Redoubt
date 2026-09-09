@@ -1,0 +1,94 @@
+{
+  "method": "Forward replay is check-source.py. Inverse omits one of three predecessors, applies Task29, then applies the omitted patch; compare all 17 final code files.",
+  "candidate_patch_sha256": "aca7d6db70fd53dfd4d7ec161fb47b2065711afd20238846c75ef68de54c4c60",
+  "results": [
+    {
+      "predecessor": "patches/android/rs-blocker-android.patch",
+      "shared_paths": [
+        "third_party/application-services/components/remote_settings/src/client.rs"
+      ],
+      "inverse_source_identical": true,
+      "inverse_reached_candidate": true,
+      "steps": [
+        {
+          "patch": "patches/android/search-config.patch",
+          "exit_code": 0,
+          "stderr": ""
+        },
+        {
+          "patch": "patches/android/firefox-suggest-policy.patch",
+          "exit_code": 0,
+          "stderr": ""
+        },
+        {
+          "patch": "patches/android/firefox-suggest-data.patch",
+          "exit_code": 0,
+          "stderr": ""
+        },
+        {
+          "patch": "patches/android/rs-blocker-android.patch",
+          "exit_code": 0,
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "predecessor": "patches/android/search-config.patch",
+      "shared_paths": [
+        "third_party/application-services/components/remote_settings/src/client.rs"
+      ],
+      "inverse_source_identical": true,
+      "inverse_reached_candidate": true,
+      "steps": [
+        {
+          "patch": "patches/android/rs-blocker-android.patch",
+          "exit_code": 0,
+          "stderr": ""
+        },
+        {
+          "patch": "patches/android/firefox-suggest-policy.patch",
+          "exit_code": 0,
+          "stderr": ""
+        },
+        {
+          "patch": "patches/android/firefox-suggest-data.patch",
+          "exit_code": 0,
+          "stderr": ""
+        },
+        {
+          "patch": "patches/android/search-config.patch",
+          "exit_code": 0,
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "predecessor": "patches/android/firefox-suggest-policy.patch",
+      "shared_paths": [
+        "mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt",
+        "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt",
+        "mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml",
+        "mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml"
+      ],
+      "inverse_source_identical": false,
+      "inverse_reached_candidate": true,
+      "steps": [
+        {
+          "patch": "patches/android/rs-blocker-android.patch",
+          "exit_code": 0,
+          "stderr": ""
+        },
+        {
+          "patch": "patches/android/search-config.patch",
+          "exit_code": 0,
+          "stderr": ""
+        },
+        {
+          "patch": "patches/android/firefox-suggest-data.patch",
+          "exit_code": 1,
+          "stderr": "error: patch failed: mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt:90\nerror: mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt: patch does not apply\nerror: patch failed: mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt:205\nerror: mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt: patch does not apply\nerror: mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml: No such file or directory\nerror: patch failed: mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml:86\nerror: mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml: patch does not apply\n"
+        }
+      ]
+    }
+  ]
+}

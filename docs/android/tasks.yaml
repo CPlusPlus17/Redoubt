@@ -4818,11 +4818,16 @@ tasks:
       - "selected language/region data survives locale mismatch and restart; UI accurately reports availability and download size"
       - "affected native/Kotlin targets compile, meaningful unit suites and source-bound APK download/ingest/off/restart tests pass before completion"
       - "official collection snapshots and their provenance, timestamps, hashes and byte counts are retained"
-      - "AMP/Wikipedia type dependencies include global configuration and icons with attachment pins; payload-reference verification remains an explicit next gate"
+      - "AMP/Wikipedia type dependencies include global configuration and icons with attachment pins; exact payload-reference receipts and retained test fixture bytes match the catalog"
       - "the input plan matches the actual native collection and packaged-attachment API and states cache/upgrade limitations"
       - "concrete bounded packaging and ingestion tests are specified without claiming native compilation or runtime success"
       - "offline evidence validation and board validation pass"
-    verify: "python3 docs/android/evidence/lw-m7-29/check-input-plan.py && python3 docs/android/board.py --check"
+    verify: >
+      python3 docs/android/evidence/lw-m7-29/check-input-plan.py &&
+      python3 docs/android/evidence/lw-m7-29/check-source.py &&
+      python3 docs/android/evidence/lw-m7-29/check-catalog-review.py &&
+      python3 scripts/tests/test-firefox-suggest-assets.py &&
+      python3 docs/android/board.py --check
     effort_h: "12-20"
     skills: [android, kotlin, rust]
     agent_safe: yes

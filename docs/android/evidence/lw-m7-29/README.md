@@ -1,156 +1,147 @@
-# LW-M7-29 — local Suggest input preparation
+# LW-M7-29 — explicitly installed local Firefox Suggest data
 
-Prepared by `/root/coverage_map` on the Fedora host, from Task26 candidate
-`558561d44351ac531fea31564ce1684e6b3be5e4`. This checkpoint is metadata/API
-preparation. It does not install data, implement a downloader, compile native
-code, or prove APK behavior. The parent subsequently authorized an explicit
-selected-data download/import implementation; that requires a later scoped
-candidate and separate execution evidence.
+Host source candidate by `/root/coverage_map`, reviewed independently by
+`/root/entry_audit`. This implements an explicit language/phone-region download
+and atomic native cache import on top of Task26's default-off controls. It has
+**not compiled or run on Android**. The task remains pending target compilation,
+Rust/Kotlin tests and source-bound APK acceptance. Host replay and asset checks
+are reported separately in `implementation-verification.txt`.
 
-## Retained official inputs
+## User-visible behavior implemented in source
 
-`official/` contains exact responses from the production endpoint defined in
-app-services' `RemoteSettingsServer::Prod`: service capabilities and metadata
-plus complete records for `quicksuggest-amp` and `quicksuggest-other`. URLs,
-fetch times, response headers, ETags, byte counts and SHA256 are retained in
-`official/requests.json`. Both records requests returned one page without a
-`Next-Page` header. The two complete record snapshots contain 218 and 151 rows.
-The raw records response ETags are 1788890559407 and 1788319975333; collection
-metadata modification times are different and are retained separately. Collection
-signatures were retained as provenance; their cryptographic verification was
-**not run**. HTTPS provenance and local SHA256 consistency are the claims here.
+Search settings has Web suggestion data and Sponsored suggestion data actions.
+With Suggest and the corresponding leaf enabled, regular browsing offers 21
+Wikipedia language choices and five sponsored phone regions: France, Germany,
+Italy, United Kingdom and United States. Sponsored data is visibly unavailable
+on tablets. Choosing a dataset shows its language/region and exact total download
+size. Only the separate **Download** button starts traffic; changing a switch,
+opening settings or waking a worker does not download these datasets.
 
-Official references: [AMP records](https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/quicksuggest-amp/records),
-[Other records](https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/quicksuggest-other/records).
-`fetch-metadata.py` is an explicit review-time utility requiring a new destination.
-It is not a build or runtime step. It refuses redirects, unexpected hosts and
-unbounded metadata responses. No attachment was fetched at this checkpoint.
+Each action downloads the chosen pinned payload and its exact icons from
+Mozilla's attachment CDN. No metadata refresh, redirects, cookies, referrer,
+search query, background retry or automatic dataset update is added. The largest
+choice is 8,213,442 bytes. The generic RS network blocker and existing Task26
+admission rules remain in place. Ordinary query suggestions, local history,
+bookmarks, custom search and home shortcuts are outside this patch.
 
-`input-plan.json` retains every attachment URL/hash/size/filename plus the
-proposed record-ID file key and sidecar for a conservative mobile type closure.
-`plan-data.py` derives it solely from the retained snapshots:
+The language/region choice applies even when the browser locale differs. The
+actual Fenix `LocaleManager.updateResources` sets `Locale.setDefault` from the
+saved app locale or system fallback. Consequently RS `Locale.getDefault()` is
+not necessarily the device language. The UI uses that explicit app-language
+API as a selection hint, and the native importer removes targeting only from
+copies of the exact selected catalog records. It does not change global RS
+context. An English selection on `de-CH` therefore remains eligible for local
+ingestion. The original official targeting is retained in the catalog.
 
-| Input | Records | Attachment bytes |
-| --- | ---: | ---: |
-| AMP phone datasets | 5 | 10,990,312 |
-| AMP icons | 208 | 3,262,601 |
-| Wikipedia datasets | 21 | 68,035,027 |
-| Other icons | 2 | 27,434 |
-| Inline global configuration | 1 | 0 |
-| Total | 237 | 82,315,374 |
+## Data, source and packaging evidence
 
-This 78.5 MiB alternative is a size/coverage plan, **not** an automatic bulk APK
-addition. All icons are a conservative type dependency set; exact references
-inside the payloads have not yet been checked. The first proposed payload
-inspection is German phone AMP (6,957 bytes) plus German Wikipedia (3,373,384
-bytes), followed by only the referenced pinned icons. The generic RS blocker
-remains unchanged throughout.
+* `source-files.json` pins the scoped pristine archive, three predecessors,
+  before/after hashes, 17 source-patch files and 13 generated files. Replay uses
+  the actual Android RS blocker, search-config and Task26 policy patch.
+* `assets/firefox-suggest/catalog.json` is 52,962 bytes, SHA256
+  `4960be774112710a938ec47bfea0588697dd35de445aea909be675595ae503aa`.
+  It contains 26 exact official primary records, 67 referenced icon records,
+  inline global configuration and official collection timestamps.
+* `payload-inspection.json` retains host fetch/hash/field/icon-reference receipts
+  for all 26 selected payloads; `icon-inspection.json` retains the 67 icon byte
+  checks. `check-catalog-review.py` matches every catalog record back to the
+  retained official snapshot and all graph/hash/size receipts. Those receipts
+  are historical observations, not retained copies of all payloads.
+* Seven compressed **test-only** files retain English Wikipedia, German phone
+  AMP and their five icons. Their compressed and decompressed pins are checked
+  before staging. Rust test modules use those real bytes; they are not production
+  attachment assets. PNG/JPEG magic was inspected; Android decoding is pending.
+* `scripts/package-firefox-suggest.py` performs no network operations. It stages
+  the same catalog into native and Fenix assets, empty AMP/config-only Other
+  baseline seeds and native test fixtures. All inputs are validated before
+  writing. Makefile extraction dependencies and the Android-only patcher hook
+  invoke this actual packager. The 78.5 MiB conservative closure remains a plan
+  in `INPUT-PREPARATION.md`; it is not bundled per ABI.
+* `implementation-sources.json` pins inspected locale/fetch API excerpts.
+  `source-pins.json`, `official/`, `rs-replay.json` and `INPUT-PREPARATION.md`
+  retain the earlier metadata/API checkpoint. Official signatures were retained
+  but not cryptographically verified; HTTPS provenance and byte pins are the
+  claims made here.
 
-## Native packaging and applied API evidence
+## Native publication and lifecycle
 
-`source-pins.json` retains exact excerpts with whole-source and excerpt hashes.
-`rs-scoped-pristine.tar.gz` and `rs-replay.json` independently reverse/replay the
-current RS blocker and search-config patch over four API files. Their final
-hashes equal the inspected frozen source. No new source patch is applied by
-this checkpoint. This establishes the actually applied APIs, not compilation.
+The exported native import API accepts a dataset ID and byte arrays, not caller
+records or URLs. Native code derives canonical metadata from the compiled
+catalog, rejects unknown/duplicate/extra/missing input, and checks every actual
+size and SHA256. Records, attachments and the official metadata timestamp replace
+one collection in one SQLite transaction. The two provider collections use
+separate databases; the UI does not imply a cross-collection atomic operation.
+Previously usable records and bytes survive validation, insertion and COMMIT
+failure. Successful replacement deliberately replaces that type's prior data.
 
-The two macro interfaces have different requirements:
+A one-use native token arbitrates cancellation versus publication. Cancellation
+that wins before COMMIT publication rolls back. Once publication has begun,
+`cancel()` returns false and no rollback is promised. A request already sent may
+finish; the fetch API does not expose an in-flight request handle before its
+response exists. The UI closes an available response stream, bounds connection
+and read time, rejects late results and prevents later requests/import. Stream
+close failure cannot bypass token cancellation. Navigating away or changing a
+Task26 admission generation cancels the attempt, with no implicit retry. A
+cancelled coroutine remains owned until its blocking cleanup finishes, preventing
+an old finalizer from overwriting a new attempt's UI state.
 
-* Collection registration consumes `dumps/main/<collection>.json`, parsed as
-  `{data: [...], timestamp: u64}`, and a matching `<collection>.timestamp`.
-* Attachment registration consumes an explicit macro key plus
-  `dumps/main/attachments/<collection>/<key>` and `<key>.meta.json`.
-  The real `get_attachment` caller uses **record.id**, despite nearby comments
-  saying `Attachment::filename`. Sidecars have `{location, hash, size}`. Original
-  attachment filenames remain provenance, not the package lookup key.
-* The packaged read path compares the record's hash/size to the sidecar, but
-  does not rehash embedded bytes before first returning them. A build packager
-  must verify actual file bytes. Cached reads do verify both bytes and hash.
-* Packaged data is used only for the production server and when its timestamp
-  is newer than the cache. A full packaged snapshot replaces existing records.
-  Import/upgrade design must not silently erase a usable downloaded dataset.
-* Native default ingestion includes AMP, Wikipedia, AMO, Yelp and MDN; Yelp
-  adds geo dependencies. Fenix's intended local providers are AMP/Wikipedia,
-  so selected delivery must constrain ingestion accordingly. Both providers
-  need their collection's icons, and every ingest also requires Other's inline
-  global configuration. Metadata-only payload rows produce an attachment error
-  behind the blocker and do not establish usable local suggestions.
+Config changes have an issued/applied generation fence, including the interval
+where a reader has taken a pending config but not yet acquired the inner lock.
+Older config applications cannot restore an older server. **All existing caches
+for the two Suggest collections** are retained across config changes, including
+older catalog installs; this is broader than retaining only current pinned data.
+Other RS collection reset behavior stays in place. Existing collection-URL
+scoping and the exact production-main import check prevent stage/custom reads
+of the production cache. Retention also prevents another client sharing the
+collection database from clearing a freshly installed dataset.
 
-The exported `remote_settings::RemoteSettingsClient` in `lib.rs` adapts the
-internal generic client. Its `get_records` returns `Option`, converting internal
-errors to `None`. The internal `client.rs` method returns `Result<Option<_>>`.
-Suggest imports the exported wrapper; there is no missing-`?` defect here.
+Status reports a current pinned install only after matching canonical records,
+metadata timestamp and every cached attachment hash/size. It does not claim
+that Suggest indexing succeeded merely because the RS cache is complete. Import
+is followed by actual local Suggest ingestion; a later ingestion error has a
+separate message saying verified data was saved but preparation failed. Native
+AMP/Wikipedia provider constraints exclude unrelated AMO/Yelp/MDN dependencies.
 
-## Explicit selected-download implementation direction
+## Upgrade and availability limits
 
-The public Kotlin-facing client exposes reads, sync, reset and shutdown, with no
-cache import method. Internal storage has record/attachment writers, but each
-commits separately and record insertion merges same-URL rows. Calling those in
-sequence is not atomic. Direct Kotlin SQLite writes would bypass native locking,
-schema and validation and are excluded from the proposed implementation.
+The two packaged seed timestamps are deliberately zero, not fabricated official
+revision numbers. Any successful positive-timestamp import wins over these seeds
+on restart or a new APK. There is no background update path. Existing valid data
+from an older catalog remains usable, while the current-catalog status check may
+return no current match; it does not label an incomplete new install as complete.
+A cached seed/global configuration is also not automatically refreshed by another
+zero seed. An explicit new installation replaces that collection/configuration.
 
-A narrow new native API can accept a pinned dataset ID and exactly its payload
-and referenced icons. Native code must derive canonical metadata from the
-packaged catalog, reject unknown IDs/duplicates/extra or missing attachments,
-verify every byte count/hash before publishing, and commit all rows and bytes
-for **one collection** in a single transaction. A failed transaction must retain
-the previous usable dataset. Wikipedia language and sponsored phone-region
-installs have separate explicit actions; two separate SQLite databases are not
-represented as one atomic commit. The tiny global-configuration dependency must
-be available offline even for AMP-only installs, without a newer baseline seed
-overwriting cached Wikipedia data.
+Data availability is release-pinned to the 21 Wikipedia language choices and
+five phone regions above. The code accepts explicitly selected data outside its
+original locale filter, but this does not create new language or tablet content.
+Future official CDN retention and compatibility are not guaranteed: unavailable
+or changed bytes fail without replacing a previously usable dataset.
 
-The UI should present language, sponsored region, availability and download
-size. Choosing or enabling Suggest alone must not start a download. Only the
-explicit Download action authorizes exact pinned CDN URLs; no metadata refresh,
-redirect, credentials, query text, background retry or generic RS exception is
-needed. Cancellation/admission checks must cover queued work, completed network
-responses and native publication; a request already sent cannot be retracted.
-A failed or partial download cannot be labeled installed. Ordinary search-engine
-suggestions, bookmarks, history, custom search and home shortcuts remain outside
-this path.
+## Executed and pending gates
 
-The current Fenix RS context uses `Locale.getDefault().toLanguageTag()` and
-`.country`, and `phone`/`tablet` from screen size. It does not use a network region
-lookup. AMP has US/GB/DE/IT/FR phone rows and no tablet row; Wikipedia has exact
-locale lists. `de-CH` matches neither DE AMP nor Wikipedia's `de`/`de-DE` filter.
-An explicit selection such as English data on a Swiss German device must either
-be visibly unavailable or use a narrowly scoped explicit-selection context for
-these pinned Suggest records. Merely importing it while retaining a mismatching
-filter is an inert control. Inspect the app-selected locale separately from the
-device/default locale before deciding selection defaults; the UI need not expose
-filter/native implementation details.
+Host checks are reproducible without the frozen tree or network:
 
-## Required implementation and execution gates
+```sh
+python3 docs/android/evidence/lw-m7-29/check-input-plan.py
+python3 docs/android/evidence/lw-m7-29/check-source.py
+python3 docs/android/evidence/lw-m7-29/check-catalog-review.py
+python3 docs/android/evidence/lw-m7-29/check-ordering.py
+python3 scripts/tests/test-firefox-suggest-assets.py
+python3 docs/android/board.py --check
+```
 
-Before code changes, extend Task29 ownership/dependencies and exact source paths.
-The anticipated shared files are native `remote_settings/src/{lib,client,storage}.rs`,
-Fenix/A-C ingestion and Search settings, and the extraction asset packager hook.
-Root owns global patch-order/scope review. A small catalog can be staged into
-native and Android assets with matching pins; selected payloads are downloaded
-into the app cache, not embedded into each ABI.
+The real Python asset packager has nine executed adversarial tests. Source replay
+counts **16 Rust and 13 Kotlin tests authored, not executed**. Rust coverage uses
+actual native client/storage/Suggest APIs and real payloads, including genuine
+open-transaction cancellation, deferred-constraint COMMIT failure, config races,
+locale mismatch and positive queries. Kotlin coverage exercises factories,
+transport controls, late responses, off/on generations, close failure and
+production storage provider constraints. Rustfmt parsed the candidate; that is
+not Rust compilation. The existing RS-blocker trace formatting was preserved.
 
-The later test candidate must cover:
-
-1. Catalog/asset staging: hashes, sizes, duplicate IDs, path traversal, wrong
-   sidecar/file keys, missing graph members, schema incompatibility, accidental
-   extra payload bundling, deterministic outputs and Android-only build inputs.
-2. Real native import/cache reads: known good payload and icons; wrong digest,
-   truncation, missing/duplicate/extra bytes; atomic rollback preserving old rows
-   and attachments; a changed server; restart; catalog/cache upgrade behavior.
-3. Actual native Suggest ingestion/query: first install into empty caches,
-   real keyword positive controls for AMP and Wikipedia, decoded icons and
-   global config, explicit provider constraints, unsupported locale behavior,
-   and an explicit choice on a different device locale. Use the production
-   pinned-input path, not only a mock RS record provider.
-4. Admission/cancellation: off before construction, cancelled while queued,
-   off during response/import, interrupted partial download, failed persistence,
-   a retained installer reference, and process death. No scheduler or worker may
-   turn an incomplete install into an implicit network retry.
-5. Root target gates: affected Rust/Kotlin compilation and unit suites, then a
-   source-bound APK UI/download/import/restart/off run with network positive and
-   negative controls. The box executing these gates owns their result.
-
-Run `python3 docs/android/evidence/lw-m7-29/check-input-plan.py` for the retained
-metadata/API checks. It deliberately reports payload/import/ingest/runtime as
-not executed. `verification.txt` records this checkpoint and board validation.
+Root owns global scope/order integration. `ordering-review.json` records both
+orders: RS blocker and search-config are order-free with Task29 on this scoped
+source; Task26 must precede Task29 across all four shared paths. Required target
+execution is listed in `RUNTIME-ACCEPTANCE.md`. Per `docs/android/AGENTS.md`, source
+application and an APK build do not substitute for the meaningful test suites.

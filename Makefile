@@ -426,7 +426,10 @@ $(targets_stamp):
 # Android translation pins participate in extraction; desktop inputs stay identical.
 android_translation_inputs := $(if $(filter android,$(target_list)),scripts/package-translation-assets.py assets/translations/catalog.json assets/translations/bergamot-translator.wasm.zst assets/translations/provenance.json)
 
-$(lw_source_dir): $(ff_source_tarball) $(version_files) scripts/librewolf-patches.py assets/mozconfig assets/l10n-pin.txt $(patch_lists) $(targets_stamp) $(android_translation_inputs)
+# Android Suggest ships a small catalog; fixture bytes are only compiled by native tests.
+android_suggest_inputs := $(if $(filter android,$(target_list)),scripts/package-firefox-suggest.py assets/firefox-suggest/catalog.json assets/firefox-suggest/provenance.json assets/firefox-suggest/testing/sponsored-suggestions-de-phone.gz assets/firefox-suggest/testing/data-wikipedia-en.gz assets/firefox-suggest/testing/icon-111a1ffa7f487e807bec4a71460454933db0fe2e7c77bade620375b41530e9a0.gz assets/firefox-suggest/testing/icon-161351842074695.gz assets/firefox-suggest/testing/icon-c5684e5a98855b2ad5af82e1a2d4ee2328e6a8518e12c94dc113240fed29e8fe.gz assets/firefox-suggest/testing/icon-e1612973a8b621ef95218b9b0b99674cb3e03c410fde57bcf5277ecc61ba1651.gz assets/firefox-suggest/testing/icon-f46c92ccdc88eb3d4f0fdedc24374aa01fc4ffaf395169b818af92b0020d87b2.gz)
+
+$(lw_source_dir): $(ff_source_tarball) $(version_files) scripts/librewolf-patches.py assets/mozconfig assets/l10n-pin.txt $(patch_lists) $(targets_stamp) $(android_translation_inputs) $(android_suggest_inputs)
 	$(lw_tree_guard)
 	rm -rf "$(ff_tarball_dir)" $(lw_source_dir)
 	tar xf $(ff_source_tarball)

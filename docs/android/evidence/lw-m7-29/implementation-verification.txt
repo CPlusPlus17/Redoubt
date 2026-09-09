@@ -1,0 +1,59 @@
+LW-M7-29 host implementation checks — 2026-09-09 01:55:19 UTC
+Actor: /root/coverage_map on Fedora host; no guest or device execution.
+Candidate patch SHA256: aca7d6db70fd53dfd4d7ec161fb47b2065711afd20238846c75ef68de54c4c60
+Native/Kotlin target compilation, unit test execution, image decode and APK runtime: NOT RUN.
+
+$ python3 docs/android/evidence/lw-m7-29/check-input-plan.py
+exit_code=0
+PASS: 5 official metadata responses, 369 records, deterministic 237-record / 236-attachment mobile type closure.
+PASS: 19 pinned source excerpts; 2 existing RS patches replayed over 4 files.
+PAYLOAD FETCH / NATIVE IMPORT / INGEST / APK RUNTIME: NOT RUN by this metadata-only check.
+
+$ python3 docs/android/evidence/lw-m7-29/check-source.py
+exit_code=0
+PASS staged 13 pinned Suggest catalog/config/test-fixture files; no production attachment payloads or network
+SOURCE REPLAY PASS: 3 scoped predecessors; 17 patch files + 13 staged files match individual pins.
+AUTHORED KOTLIN TESTS: 13; NOT EXECUTED by this replay.
+AUTHORED RUST TESTS: 16; NOT EXECUTED by this replay.
+TARGET COMPILATION / APK RUNTIME: NOT RUN. See README.md for required acceptance evidence.
+
+$ python3 docs/android/evidence/lw-m7-29/check-catalog-review.py
+exit_code=0
+CATALOG REVIEW PASS: 26 original official dataset records; exact 67-icon dependency graph; global configuration and timestamps.
+Maximum selected download: 8,213,442 bytes.
+All 26 payload and 67 icon host fetch/hash receipts match catalog pins; only 2 payloads + 5 icons retain raw test fixtures.
+Other payload inspection receipts are historical observations, not repeated native parsing. Android image decode and target ingestion NOT RUN.
+
+$ python3 docs/android/evidence/lw-m7-29/check-ordering.py
+exit_code=0
+patches/android/rs-blocker-android.patch: inverse identical=True; candidate reached=True
+patches/android/search-config.patch: inverse identical=True; candidate reached=True
+patches/android/firefox-suggest-policy.patch: inverse identical=False; candidate reached=True
+ORDER RECEIPT PASS; global classification remains root integration ownership.
+
+$ python3 scripts/tests/test-firefox-suggest-assets.py -v
+exit_code=0
+test_actual_pins_and_complete_retained_fixture_graph (__main__.SuggestAssetTests.test_actual_pins_and_complete_retained_fixture_graph) ... ok
+test_catalog_corruption_cannot_be_reauthorized_by_editing_provenance (__main__.SuggestAssetTests.test_catalog_corruption_cannot_be_reauthorized_by_editing_provenance) ... ok
+test_failed_validation_stages_nothing (__main__.SuggestAssetTests.test_failed_validation_stages_nothing) ... ok
+test_missing_fixture_is_not_silently_omitted (__main__.SuggestAssetTests.test_missing_fixture_is_not_silently_omitted) ... ok
+test_provenance_cannot_replace_the_required_payload_fixture_with_an_icon (__main__.SuggestAssetTests.test_provenance_cannot_replace_the_required_payload_fixture_with_an_icon) ... ok
+test_staging_uses_actual_macro_paths_and_no_payload_in_fenix_assets (__main__.SuggestAssetTests.test_staging_uses_actual_macro_paths_and_no_payload_in_fenix_assets) ... ok
+test_unexpected_production_payload_is_rejected (__main__.SuggestAssetTests.test_unexpected_production_payload_is_rejected) ... ok
+test_wrong_compressed_fixture_fails_before_decompression (__main__.SuggestAssetTests.test_wrong_compressed_fixture_fails_before_decompression) ... ok
+test_wrong_extracted_tree_fails_closed (__main__.SuggestAssetTests.test_wrong_extracted_tree_fails_closed) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.137s
+
+OK
+
+$ python3 docs/android/board.py --check
+exit_code=0
+ok: 110 tasks, 26 waves, 0 warning(s)
+
+$ git diff --check
+exit_code=0
+
+$ git diff --cached --check
+exit_code=0

@@ -433,6 +433,21 @@ def android_translation_assets():
         script_exit(1)
 
 
+def android_suggest_data():
+    # Stage only the reviewed small catalog and empty/configuration cache seeds.
+    # Actual dataset attachments require an explicit in-app Download action.
+    command = [sys.executable, str(REPO_DIR / "scripts/package-firefox-suggest.py"),
+               "--source-tree", "."]
+    print(shlex.join(command), flush=True)
+    if options.no_execute:
+        return
+    try:
+        subprocess.run(command, check=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        print("fatal error: could not package pinned Suggest catalog: {}".format(error), flush=True)
+        script_exit(1)
+
+
 def patch(patchfile):
     cmd = "{} -p1 -i {}".format(PATCH_BIN, patchfile)
     print("\n*** -> {}".format(cmd))
@@ -536,6 +551,7 @@ def librewolf_patches():
         android_search_config()
         android_ubo_extension()
         android_translation_assets()
+        android_suggest_data()
 
     # apply common.txt, then one list per --targets. The lists are read from
     # PATCH_LIST_DIR (absolute), the patches themselves are applied from '../'
