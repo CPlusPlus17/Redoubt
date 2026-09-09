@@ -141,7 +141,34 @@ class CheckpointTests(unittest.TestCase):
     def test_native_only_cases_are_explicit_separate_gates(self):
         self.assertIn('LW-M7-31', INVENTORY['separate_required_gates'])
         self.assertFalse(any(row['task'] == 'LW-M7-31' for row in INVENTORY['tests']))
-        self.assertEqual(sum(len(row['required_methods']) for row in INVENTORY['tests']), 41)
+        self.assertEqual(sum(len(row['required_methods']) for row in INVENTORY['tests']), 45)
+        self.assertIn('LW-M7-37', INVENTORY['separate_required_gates'])
+
+    def test_final_product245_and_test249_preserve_every_required_unit_body(self):
+        root = HERE.parents[1] / 'lw-m7-27'
+        product = c.source_manifest(root / 'composed-product-source-sha256.txt', 245)
+        native = c.source_manifest(root / 'proposed-native-test-source-sha256.txt', 249)
+        extras = c.source_manifest(root / 'native-test-extra-source-sha256.txt', 4)
+        self.assertEqual(native, product | extras)
+        for row in INVENTORY['tests']:
+            self.assertEqual(product[row['source_path']], row['source_sha256'])
+        before = json.loads((HERE / 'pre-current245-unit-inventory.json').read_text())
+        self.assertEqual(INVENTORY['tests'][:-1], before['tests'])
+
+    def test_each_actual_home_route_method_is_required_even_when_class_is_present(self):
+        row = next(r for r in INVENTORY['tests'] if r['task'] == 'LW-M7-20')
+        suite = g.suites(INVENTORY)['fenix']
+        suite = dict(suite, required={row['class']}, minimum_classes=1, minimum_tests=0,
+                     methods={row['class']: row['required_methods']},
+                     class_counts={row['class']: 4})
+        for omitted in [None, *row['required_methods']]:
+            xml = ET.Element('testsuite', name=row['class'], failures='0', errors='0', skipped='0')
+            names = [m for m in row['required_methods'] if m != omitted]
+            xml.set('tests', str(len(names)))
+            for name in names: ET.SubElement(xml, 'testcase', classname=row['class'], name=name)
+            ET.ElementTree(xml).write(self.root / 'TEST-home.xml')
+            issues = g.inspect(self.root, time.time() - 5, time.time() + 5, suite, True)['issues']
+            self.assertEqual(bool(issues), omitted is not None)
 
     def test_compiler_failure_cannot_borrow_fenix_allowance(self):
         allowed = '> Task :fenix:testDebugUnitTest FAILED\n'

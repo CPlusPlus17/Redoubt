@@ -58,10 +58,11 @@ seven prior suite selections/minimums and adds an eighth A-C addon selection.
 |35|`:components:feature-addons:testDebugUnitTest`|`mozilla.components.feature.addons.update.AddonUpdaterWorkerTest`|1 new; whole class selected|
 |35|same|`mozilla.components.feature.addons.AddonManagerTest`|1 new; whole class selected|
 |29|`:components:feature-fxsuggest:testDebugUnitTest`|`mozilla.components.feature.fxsuggest.PinnedSuggestIngestionTest`|3|
+|20|full Fenix|`org.mozilla.fenix.HomeActivityAccountSettingsTest`|4|
 
 `AddonManagerTest.kt` is located directly under `src/test/java` but its actual
 package is `mozilla.components.feature.addons`; using its filesystem placement
-as the class filter would miss it. The nine classes have 41 explicitly required
+as the class filter would miss it. The ten classes have 45 explicitly required
 methods. New classes require every authored method; modified existing classes
 run in full and specifically require the new method, at least the declared
 source test count, and complete passing class XML. The changed existing classes
@@ -71,8 +72,10 @@ Task31 adds xpcshell tests, not Gradle tests. Its permission/uninstall durabilit
 checks remain in Task27's native inventory. Task35 real profile save/shutdown,
 Task36 native/GeckoView API cases, Task29 Rust remote-settings tests and all APK
 lifecycle/fixture controls are also explicitly pending separate gates. They
-cannot be claimed from this unit checkpoint. Future Task37 coverage must be
-reviewed separately when its composition is selected.
+cannot be claimed from this unit checkpoint. The reviewed Task37 increment adds
+nine cookie-service xpcshell cases and five FrameLoader GeckoView methods to
+Task27; they are explicitly separate, and the complete cleanup coordinator remains
+unimplemented.
 
 ## Run-input preparation
 
@@ -156,7 +159,8 @@ No native or unit target was run during this host-only preparation.
 
 ## Host validation
 
-All 26 host driver/grader controls passed; `host-tests.txt` retains the run. They
+All 35 host driver/grader controls passed; `current245-review-tests.txt` retains
+the run, with earlier runs preserved in `host-tests.txt`. They
 cover valid bare/prefixed and wrong/malformed image identity, wrong native
 source/exit/time/AAR identities, incomplete source checks,
 missing artifacts, APK set mismatch, preserved prior selections, source-declared
@@ -165,3 +169,25 @@ failed-build stop, and a plan that cannot invoke target execution or create its
 workspace. Board validation passed with 122 tasks and no warnings. These tests
 use explicitly identified host fixtures for the evidence parser and execution
 boundaries, and do not establish any target pass.
+
+## Review against the current composition
+
+The final reviewed product manifest has 245 rows, SHA256
+`9a911246fb9dcf2a55fdfe7827fd2eff000fdfecc97d8f1346c94dc018e0f995`.
+All ten selected unit bodies match it. Task27 uses a separate 249-row inventory
+with four unchanged supplemental bindings, SHA256
+`35957863ba69c5ead83279a9686015a268b1de7ee20929881b21ba65c218bea5`.
+The native5 product build and APK checkpoint still require the exact same
+operator-reviewed manifest; the test-only supplement does not silently replace it.
+`current245-review.json` retains the inspected driver/source identity, old template
+and inventory lineage, exact unit method comparison, and execution limits.
+
+The native stage receipt is hash-bound provenance; its metadata shape is not a
+second source inventory. `native.py` checks the selected manifest and actual
+bodies before/after all three ABI builds and the merge. Its output fields agree
+with the APK checkpoint's reader. Use image
+`sha256:c5b57d94cf9e0ed1de7061cee9e0dbfde19d5651e3e2f3824b0e1466116fd687`
+and date `20260906190000` only after matching the actual stage/native inputs.
+Keep the native service with `RemainAfterExit=yes` through the checkpoint.
+The initial integrated review ran 72 Task27 and 33 candidate5 host tests; subsequent
+local changes ran 79 and 35 respectively. No target execution is claimed here.
