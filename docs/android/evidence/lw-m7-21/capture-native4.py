@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Retain the successfully terminal native4 checkpoint before later builds."""
 import hashlib
+import argparse
 import json
 import os
 from pathlib import Path
@@ -31,11 +32,16 @@ def query(args):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--unit', default='redoubt-parity-native4-20260909.service')
+    parser.add_argument('--invocation', default=INVOCATION)
+    parser.add_argument('--started', default='2026-09-09T00:53:49+00:00')
+    args = parser.parse_args()
     require(query(['systemd-detect-virt', '--vm']) == 'kvm', 'requires KVM guest')
     require(pwd.getpwuid(os.getuid()).pw_name == 'runner', 'requires guest runner')
     os.environ['XDG_RUNTIME_DIR'] = '/run/user/' + str(os.getuid())
     os.chdir(WORK/'repo')
-    service = query(['systemctl', '--user', 'show', 'redoubt-parity-native4-20260909.service',
+    service = query(['systemctl', '--user', 'show', args.unit,
                      '-p', 'LoadState', '-p', 'ActiveState', '-p', 'SubState', '-p', 'ExecMainStatus',
                      '-p', 'InvocationID', '-p', 'ExecMainStartTimestamp',
                      '-p', 'ExecMainExitTimestamp'])
@@ -44,16 +50,16 @@ def main():
     # systemd collects successful transient units. Bind the previously observed
     # invocation as well as the driver timestamps, exact manifest and ABI logs.
     observed = (WORK/'evidence/native4-checkpoint/initial-service.txt').read_text()
-    require('InvocationID=' + INVOCATION in observed, 'initial invocation differs')
+    require('InvocationID=' + args.invocation in observed, 'initial invocation differs')
     if state['LoadState'] != 'not-found':
-        require(state['InvocationID'] == INVOCATION and state['ExecMainStatus'] == '0',
+        require(state['InvocationID'] == args.invocation and state['ExecMainStatus'] == '0',
                 'native invocation or service exit differs')
     require(not query(['podman', '--remote=false', 'ps', '--format', '{{.Names}}']),
             'another container is active')
     native = WORK/'evidence/parity-extended-native'
     require((native/'build-exit.txt').read_text().strip() == '0' and
             (native/'finished.txt').is_file(), 'native driver did not finish successfully')
-    require((native/'started.txt').read_text().strip() == '2026-09-09T00:53:49+00:00',
+    require((native/'started.txt').read_text().strip() == args.started,
             'native driver start changed')
     require(sha(native/'source-sha256.txt') == MANIFEST, 'wrong native source manifest')
     rows = (native/'source-sha256.txt').read_text().splitlines()
@@ -70,7 +76,7 @@ def main():
     (destination/'memory-events.txt').write_text(Path('/sys/fs/cgroup/user.slice/user-1001.slice/memory.events').read_text())
     (destination/'memory.txt').write_text(query(['free', '-b']) + '\n')
     (destination/'journal.txt').write_text(query(['journalctl', '--user', '--no-pager',
-                                                '-u', 'redoubt-parity-native4-20260909.service']) + '\n')
+                                                '-u', args.unit]) + '\n')
     artifacts = WORK/'native4-artifacts'
     artifacts.mkdir()
     results = {}
@@ -120,9 +126,12 @@ def main():
     merged_result = {'sha256': sha(retained), 'bytes': retained.stat().st_size,
                      'retained': str(retained), 'jni': jni, 'log_sha256': sha(fat_log)}
     receipt = {'status': 'PASS', 'scope': 'Three native ABI builds and Maven packaging only; APK/tests/runtime pending',
-               'invocation': INVOCATION, 'source_manifest_sha256': MANIFEST, 'source_count': len(rows),
+               'invocation': args.invocation, 'source_manifest_sha256': MANIFEST, 'source_count': len(rows),
                'artifacts': results, 'merged': merged_result,
                'captured': datetime.now(timezone.utc).isoformat()}
+    if (native/'compilation-parent.json').is_file():
+        receipt['compilation_parent'] = json.loads((native/'compilation-parent.json').read_text())
+        receipt['scope'] = 'Three source-bound ABI compilations across retained parent/recovery and successful merge; APK/tests/runtime pending'
     (destination/'result.json').write_text(json.dumps(receipt, indent=2) + '\n')
     archive = WORK/'evidence/native4-terminal.tar.gz'
     require(not archive.exists(), 'capture archive already exists')

@@ -729,6 +729,17 @@ record() {
 # Pass 1..N: one full build per ABI
 # ---------------------------------------------------------------------------
 
+isolate_maven_repository() {
+    local objdir=$1 pass=$2 previous
+    if [ -d "$objdir/gradle/maven" ]; then
+        previous=$(mktemp -d "$objdir/gradle/maven-before-$pass.XXXXXX") ||
+            die "$pass: cannot reserve prior Maven output"
+        mv "$objdir/gradle/maven" "$previous/maven" ||
+            die "$pass: cannot preserve prior Maven output at $previous"
+        log "$pass: previous Maven publication retained at $previous/maven"
+    fi
+}
+
 for abi in $abi_list; do
     zip_out="$OUTDIR/$abi/target.maven.zip"
 
@@ -740,6 +751,12 @@ for abi in $abi_list; do
 
     mkdir -p "$OUTDIR/$abi" || die "cannot create '$OUTDIR/$abi'"
     write_mozconfig "$abi" "$OUTDIR/mozconfig.$abi"
+
+    # A reused objdir may still contain the previous fat publication or another
+    # version. The upstream Maven packer archives every publication it finds.
+    # Start this pass's publication directory empty so only this successful
+    # build's artifacts can enter its per-ABI input zip. Keep prior bytes.
+    isolate_maven_repository "$(objdir_for "$abi")" "$abi"
 
     log "$abi: building (-j$JOBS), log: $OUTDIR/logs/$abi.log"
     # A stale peak from an earlier run would be reported as this run's.
