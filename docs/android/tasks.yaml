@@ -5023,6 +5023,18 @@ tasks:
     shared_edit:
     - assets/patches/android.txt
     tree_paths:
+    - dom/base/nsFrameLoader.cpp
+    - dom/base/nsFrameLoader.h
+    - dom/chrome-webidl/FrameLoader.webidl
+    - netwerk/cookie/nsICookieManager.idl
+    - netwerk/cookie/CookieService.h
+    - netwerk/cookie/CookieService.cpp
+    - netwerk/cookie/CookiePersistentStorage.h
+    - netwerk/cookie/CookiePersistentStorage.cpp
+    - netwerk/cookie/CookieStorage.h
+    - netwerk/cookie/CookieStorage.cpp
+    - netwerk/cookie/test/unit/test_cookie_session_cleanup.js
+    - netwerk/cookie/test/unit/xpcshell.toml
     - mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
     - mobile/shared/modules/geckoview/GeckoViewSessionCleanup.sys.mjs
     - mobile/shared/modules/geckoview/moz.build
@@ -5074,7 +5086,7 @@ tasks:
     - patches/android/translation-assets.patch
     - docs/android/evidence/lw-m7-35/
     - docs/android/evidence/lw-m7-36/
-    what: Implement selected-category completion through actual native and storage callbacks, distinguish manual deletion from session cleanup, and propagate clear-data failed-category masks. Honor desktop cookie ALLOW/domain retention semantics for session cookies and storage while preserving complete origin attributes and unselected data. Persist the selected session cleanup journal before browsing starts; reconcile explicit master/category changes without resetting choices. Recover a previous pending session before restored, incoming-intent or background browsing navigation. Retain failed work for visible retry and do not call exit-success on errors. Investigate and prove a native content-quiescence boundary before successful Quit; a Java close dispatch is not completion evidence. Declare any additional native closure or storage acknowledgment paths before editing them. Root owns composition, target builds and runtime. No settings-submodule or guest changes.
+    what: First implement independently testable frame-destruction completion and a cleanup-owned cookie token/scopes/checked database operation; leave all writer/cache admission and journal-success wiring blocked until their real completion contracts exist. Implement selected-category completion through actual native and storage callbacks, distinguish manual deletion from session cleanup, and propagate clear-data failed-category masks. Honor desktop cookie ALLOW/domain retention semantics for session cookies and storage while preserving complete origin attributes and unselected data. Persist the selected session cleanup journal before browsing starts; reconcile explicit master/category changes without resetting choices. Recover a previous pending session before restored, incoming-intent or background browsing navigation. Retain failed work for visible retry and do not call exit-success on errors. Investigate and prove a native content-quiescence boundary before successful Quit; a Java close dispatch is not completion evidence. Declare any additional native closure or storage acknowledgment paths before editing them. Root owns composition, target builds and runtime. No settings-submodule or guest changes.
     acceptance:
     - Actual callback and storage outcomes govern selected-category completion; partial failures and cancellation retain pending work and never report successful cleanup or exit
     - Manual deletion preserves its explicit-clear semantics; session cleanup honors desktop cookie ALLOW/DENY/SESSION matching with actual complete origin attributes and preserves unselected categories
