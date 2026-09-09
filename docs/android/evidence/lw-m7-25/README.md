@@ -48,3 +48,22 @@ Native attempt 3 began at 2026-09-09 00:09:39 UTC, invocation
 `7b886043b1ff4f47b4d72e0d7590797e`, using that 100-file manifest and the new native
 wrapper (`native-attempt-3-start.txt`). Its build result and observed peak remain
 pending. No release signing or publication occurs in this work.
+
+
+Attempt 3 failed at 00:29:30 UTC: driver exit 1, armeabi-v7a mach exit 2.
+The gkrust compiler was killed by SIGKILL and the runner cgroup recorded one
+OOM kill. Its peak was 19,019,694,080 bytes RAM and 6,442,450,944 bytes swap.
+Both source checks still matched all 100 inputs. Neither remaining ABI ran;
+the existing AAR directories contain earlier artifacts. The log's literal
+`PASS armeabi-v7a END` is a pass-name marker, not a successful exit verdict.
+`native-third-attempt/` retains the full per-ABI log, source/config hashes,
+build resource profile, service journal, cgroup observations and result.
+
+The recorded rustc command combined release optimization, fat LTO and
+`-C debuginfo=2`. The pinned configure source unconditionally chooses Rust
+level 2 whenever debug symbols are enabled, even for a lower C++ symbol level.
+The archived root Cargo release profiles do not enable debug data independently.
+The next configuration adds the supported `--disable-debug-symbols` option.
+Optimization, Rust LTO and the hardening options remain unchanged; diagnostic
+symbols will be unavailable. This is a build-memory adjustment, with no claim
+that the revised build fits until it actually finishes.

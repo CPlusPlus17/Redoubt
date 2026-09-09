@@ -220,6 +220,10 @@ fi
 # Build type -- straight carry-over from assets/mozconfig
 # ---------------------------------------------------------------------------
 ac_add_options --disable-debug
+# LW-M7-25: gkrust fat LTO with debuginfo=2 exceeded the bounded CI guest.
+# Keep release optimization/LTO and hardening, but omit diagnostic symbols.
+# rust.configure maps any enabled symbol level to Rust debuginfo=2.
+ac_add_options --disable-debug-symbols
 ac_add_options --disable-tests
 ac_add_options --enable-optimize
 ac_add_options --enable-release
