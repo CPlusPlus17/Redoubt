@@ -1,10 +1,10 @@
 # Desktop patch and policy effect map — LW-M7-17
 
-Audit snapshot: `3466ea18db777805c38c313bac849edadfda4fd2`; settings `2206f8d1e59c0a0c0f69ee3fe5121eb353426687`.
+Original audit: `3466ea18db777805c38c313bac849edadfda4fd2`; focused repository review: `83b73da45bda1c1247545ee3ba8e098e579fc6ad`; settings `2206f8d1e59c0a0c0f69ee3fe5121eb353426687`.
 
 All pinned desktop patches, all policy leaves and all copied pane settings/buttons/registrations. Human semantic review plus mechanical enumeration; not a build/runtime parity gate.
 
-**This is source coverage, not feature completion. No browser runtime check was executed by this audit.** Each counterpart below has explicit remaining work; “source implemented” does not mean its behavior has passed on the APK. The scoped followup includes the integrated LW-M7-14/LW-M7-16 source candidates; their native/GeckoView/Fenix compilation and APK behavior remain pending. Original archived source capture is unchanged; [followup-review.json](followup-review.json) records the separate repository review.
+**This is source coverage, not feature completion. No browser runtime check was executed by this audit.** Each counterpart below has explicit remaining work; “source implemented” does not mean its behavior has passed on the APK. The latest scoped followup updates graphics, RFP, extension-update and network controls against LW-M7-35/36 source. Their target compilation and APK behavior remain pending; no older build supplies that verdict. Original archived source capture and unrelated counterpart records are unchanged; [followup-review.json](followup-review.json) records the separate repository review.
 
 ## Desktop patches
 
@@ -268,9 +268,9 @@ Provenance: inspected code; behavioral interpretation is an inference from that 
 
 ### graphics
 
-**Mixed open.** At repository snapshot 3466ea1, the integrated LW-M7-14 candidate adds the Android path from CanvasUtils/ClientWebGLContext through GeckoView actors, Java and Android Components into Fenix. Native WebGL creation and canvas readback consult exact-principal permissions; unknown WebGL requests remain blocked while a choice is pending. The parent derives the current requesting document principal, checks the active tab/document before applying a response, and acknowledges the permission write before exposing a one-use reload of that document/frame. Permission records retain session/permanent lifetime and private/context identity. Fenix presents Allow, Block and Ask/reset, Remember for normal browsing, a quiet-request Review action, and saved exception lists through site permissions, quick settings and the trust panel. Stored edits wait for a native acknowledgement and offer a separate explicit reload. The later registered candidate supersedes the historical Android prompt=false guard and restores prompt=true alongside the bridge. These are inspected implementation paths; compilation and behavior have not been demonstrated by this audit.
+**Mixed open.** The integrated LW-M7-14 source adds the Android path from CanvasUtils/ClientWebGLContext through GeckoView actors, Java and Android Components into Fenix. Native WebGL creation and canvas readback consult exact-principal permissions; unknown WebGL requests remain blocked while a choice is pending. The parent derives the current requesting document principal, checks the active tab/document before applying a response, and acknowledges the permission write before exposing a one-use reload of that document/frame. Permission records retain session/permanent lifetime and private/context identity. Fenix presents Allow, Block and Ask/reset, Remember for normal browsing, a quiet-request Review action, and saved exception lists through site permissions, quick settings and the trust panel. Stored edits wait for a native acknowledgement and offer a separate explicit reload. The later registered candidate supersedes the historical Android prompt=false guard and restores prompt=true alongside the bridge. These are inspected implementation paths; compilation and behavior have not been demonstrated by this audit. LW-M7-36 separately adds Always allow WebGL (inverse librewolf.webgl.prompt) and Hide WebGL popup (direct librewolf.webgl.prompt.hide). The latter is disabled while approval is bypassed. Their dedicated native get/set/reset API reads effective/default/user-presence/lock state, serializes validated writes through the Task 35 actual-save promise and returns current state with save/supersession errors. Fenix uses nonpersistent controls and never rewrites site grants. The later compiler correction replaces only deprecated bundleOf in the permission dialog with Bundle.putString/putBoolean, preserving nullable tab/context strings, private=false fallback and argument keys.
 
-**Remaining:** Compile the native/GeckoView/Fenix path for every release ABI and run the required Fenix unit gate. On the resulting APK measure protection before choice, actual prompt/quiet indicator, allow/deny/ask, session/permanent/private lifetimes across reload/restart/private close, exact-origin/context isolation, revoke/delete and real rendered pixels, including worker/iframe and stale-document paths. The new permission list is not a global WebGL/quiet-mode preference control; those desktop pane controls remain an implementation/UI gap. Source acknowledgements and authored tests do not prove live IPC, rendering or persistence. The generic EME permission path is separate and inherits no lifetime verdict from this graphics candidate.
+**Remaining:** Compile the native/GeckoView/Fenix path for every release ABI and run the required Fenix unit gate. On the resulting APK measure protection before choice, actual prompt/quiet indicator, allow/deny/ask, session/permanent/private lifetimes across reload/restart/private close, exact-origin/context isolation, revoke/delete and real rendered pixels, including worker/iframe and stale-document paths. Tasks 35/36 native/API/Fenix compilation and global-control runtime remain pending. Exercise global bypass and quiet controls through the actual UI, new DOM/offscreen/worker contexts, preserved site grants/blocks, reset and immediate restart. The separate webgl.disabled control remains excluded because the plain common pref write would overwrite a saved choice at startup; existing contexts are not proven destroyed by a preference change. Source acknowledgements and authored tests do not prove live IPC, rendering or persistence. The generic EME permission path is separate and inherits no lifetime verdict from this graphics candidate.
 
 Inspected evidence:
 
@@ -279,6 +279,16 @@ Inspected evidence:
 - Archived source **gv-permission**: `mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs`; inspected line ranges and SHA-256 in [source index](source-index.md#gv-permission).
 - [patches/android/canvas-webgl-permissions.patch](../../../../patches/android/canvas-webgl-permissions.patch) — SHA-256 in `coverage.json` → `repository_evidence`.
 - [assets/patches/android.txt](../../../../assets/patches/android.txt) — SHA-256 in `coverage.json` → `repository_evidence`.
+
+- [global-privacy-controls.patch](../../../../patches/android/global-privacy-controls.patch) — current source/failure lineage pinned in `coverage.json`.
+- [Task 36 source files](../lw-m7-36/source-files.json) — current source/failure lineage pinned in `coverage.json`.
+- [source-inputs.json](../../../../docs/android/evidence/lw-m7-36/original-audit/source-inputs.json) — current source/failure lineage pinned in `coverage.json`.
+- [source-inputs.tar.gz](../../../../docs/android/evidence/lw-m7-36/original-audit/source-inputs.tar.gz) — current source/failure lineage pinned in `coverage.json`.
+- [extension-update-controls.patch](../../../../patches/android/extension-update-controls.patch) — current source/failure lineage pinned in `coverage.json`.
+- [Task 35 source files](../lw-m7-35/source-files.json) — current source/failure lineage pinned in `coverage.json`.
+- [source-overlay.json](../../../../docs/android/evidence/lw-m7-21/permission-bundle-correction/source-overlay.json) — current source/failure lineage pinned in `coverage.json`.
+- [OriginBoundPermissionsDialogFragment.kt](../../../../docs/android/evidence/lw-m7-21/permission-bundle-correction/OriginBoundPermissionsDialogFragment.kt) — current source/failure lineage pinned in `coverage.json`.
+- [original-graphics.patch](../../../../docs/android/evidence/lw-m7-21/permission-bundle-correction/original-graphics.patch) — current source/failure lineage pinned in `coverage.json`.
 
 Provenance: inspected code; behavioral interpretation is an inference from that code. No static check is presented as live evidence.
 
@@ -416,9 +426,9 @@ Provenance: inspected code; behavioral interpretation is an inference from that 
 
 ### rfp-controls
 
-**Mixed open.** common.cfg defaults privacy.resistFingerprinting true. Desktop letterboxing defaults false and is optional. The bounded Fenix search has no letterboxing pref reader/control, and a browser-window resizing implementation cannot be inferred from the pref. Desktop website appearance UI disables its chooser under RFP; Android theme code is a different frontend, so its effective page color scheme and opt-out controls need checking.
+**Mixed open.** common.cfg defaults privacy.resistFingerprinting true. LW-M7-36 now implements a Resist Fingerprinting switch in Global privacy controls, backed by a separate authoritative native allowlist and typed GeckoView/Android Components API. Fenix holds no persisted mirror and the preference is not added to RuntimeSettings reset ownership. Native state exposes effective/default values, locks and user presence; a locked hidden user value is explicitly unknown. Writes/reset prevalidate, serialize, await Task 35 current-profile persistence and reread. Failed saves retain actual memory with disk uncertainty, without inferred rollback; superseded choices are reported. Setting a non-sticky preference equal to its default follows Gecko normalization and may remove the user branch. The screen distinguishes global/private RFP, separate FPP and configured exceptions/overrides. Desktop letterboxing defaults false and remains optional/unimplemented on Android; website-appearance interaction under RFP is still a separate frontend question.
 
-**Remaining:** Implement optional mobile letterboxing and accessible RFP controls as appropriate, then measure coherent viewport/screen/color scheme/timezone/language behavior across devices and opt-out/restart. A pref value alone cannot prove fingerprinting parity.
+**Remaining:** Compile/package Tasks 35/36 and execute actual API/UI, failed-save/lock/supersession and immediate restart/reset tests. Measure fresh normal/private documents and workers, parent/opener inheritance, viewport/screen/color scheme/timezone/language effects and applicable exceptions. The RFP control is source implemented; optional mobile letterboxing and coherent website-appearance controls remain open. A preference value or host mock cannot establish fingerprinting behavior or disk durability.
 
 Inspected evidence:
 
@@ -427,13 +437,20 @@ Inspected evidence:
 - Bounded search **mobile-specific-pane-controls**, including pattern, scope, exit status, output and file input hashes, in [bounded-searches.json.gz](bounded-searches.json.gz).
 - Archived source **core**: `mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt`; inspected line ranges and SHA-256 in [source index](source-index.md#core).
 
+- [global-privacy-controls.patch](../../../../patches/android/global-privacy-controls.patch) — current source/failure lineage pinned in `coverage.json`.
+- [Task 36 source files](../lw-m7-36/source-files.json) — current source/failure lineage pinned in `coverage.json`.
+- [source-inputs.json](../../../../docs/android/evidence/lw-m7-36/original-audit/source-inputs.json) — current source/failure lineage pinned in `coverage.json`.
+- [source-inputs.tar.gz](../../../../docs/android/evidence/lw-m7-36/original-audit/source-inputs.tar.gz) — current source/failure lineage pinned in `coverage.json`.
+- [extension-update-controls.patch](../../../../patches/android/extension-update-controls.patch) — current source/failure lineage pinned in `coverage.json`.
+- [Task 35 source files](../lw-m7-35/source-files.json) — current source/failure lineage pinned in `coverage.json`.
+
 Provenance: inspected code; behavioral interpretation is an inference from that code. No static check is presented as live evidence.
 
 ### addon-updates
 
-**Mixed open.** Fenix constructs DefaultAddonUpdater at 12-hour frequency, registers WorkManager periodic jobs and calls AddonManager.updateAddon -> GeckoEngine.updateWebExtension. GeckoViewWebExtension refreshes stale AddonRepository metadata first, then honors AddonManager.updateEnabled before checking/installing updates. This path does not consult autoUpdateDefault before install. Thus extensions.update.enabled is honored; saying both Gecko prefs are simply ignored would be wrong. The desktop combined checkbox writes both prefs.
+**Source implemented, runtime open.** LW-M7-35 adds Settings → Advanced → Update extensions automatically, backed by native extensions.update.enabled and extensions.update.autoUpdateDefault. Checked means both true; opening Settings preserves existing mixed/user values, and either lock disables editing. The nonpersistent Fenix switch writes both prefs through a serialized native API that closes automatic admission when queued, preflights the current profile, rechecks locks and awaits an actual saved snapshot. Failed persistence retains actual memory, reports saveConfirmed=false and keeps automatic admission closed until a successful save; reads cannot clear uncertainty and no rollback is inferred. Periodic/restored workers use the separate automatic AddonManager/Engine/GeckoView route; native checks occur before repository metadata, after metadata/extension lookup and before starting installation. AddonManager.shouldAutoUpdate applies per-addon policy before automatic install. Existing immediate work and explicit user-requested checks remain separate. Mixed values (update.enabled=true, autoUpdateDefault=false) appear unchecked while metadata and per-addon Enable overrides can remain allowed, as on desktop; choosing Off sets both false. WorkManager jobs can still wake, unrelated catalog reads remain separate, and a previously started install is not cancelled.
 
-**Remaining:** Add the Android combined control and align scheduler, metadata traffic and per-addon semantics; prove disabled means the intended network silence and enabled ordinary updates still work. Do not count the pref as an Android settings UI or assume the metadata request is prevented by the later updateEnabled guard.
+**Remaining:** Compile Task 35 C++/Java/Kotlin and run real current-profile save fixtures plus addon/Fenix suites. Prove actual UI Off→force-stop→restart behavior, failed-write retry, and no update metadata/manifest/XPI traffic from restored automatic work while Off. Prove On with a correctly signed upgrade, explicit manual checks, per-addon overrides and permission acceptance/rejection. The authored xpcshell no-profile/backup cases and host JS doubles do not replace the corrected GeckoView current-profile I/O fixture. No compile, scheduler/network, persistence or runtime success is claimed here.
 
 Inspected evidence:
 
@@ -443,6 +460,11 @@ Inspected evidence:
 - Archived source **gecko-engine**: `mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt`; inspected line ranges and SHA-256 in [source index](source-index.md#gecko-engine).
 - Archived source **gv-addons**: `mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs`; inspected line ranges and SHA-256 in [source index](source-index.md#gv-addons).
 - Archived source **gecko-addon-manager**: `toolkit/mozapps/extensions/AddonManager.sys.mjs`; inspected line ranges and SHA-256 in [source index](source-index.md#gecko-addon-manager).
+
+- [extension-update-controls.patch](../../../../patches/android/extension-update-controls.patch) — current source/failure lineage pinned in `coverage.json`.
+- [Task 35 source files](../lw-m7-35/source-files.json) — current source/failure lineage pinned in `coverage.json`.
+
+- [Task 35 ordering receipt](../lw-m7-35/ordering-receipt.json) — compiler-corrected input binding; measured pair results unchanged.
 
 Provenance: inspected code; behavioral interpretation is an inference from that code. No static check is presented as live evidence.
 
@@ -465,15 +487,22 @@ Provenance: inspected code; behavioral interpretation is an inference from that 
 
 ### network-controls
 
-**Open gap.** Desktop pane provides IPv6 enablement through network.dns.disableIPv6 inversion and a strict cross-origin referrer checkbox setting XOriginPolicy to 2 or 0. The bounded Fenix source search has no readers of those prefs. common.cfg supplies engine defaults, but a default is not a matching Android control. Safe Browsing pref registrations in the pane are largely leftover registrations, not a visible opt-in checkbox.
+**Source implemented, runtime open.** LW-M7-36 implements Enable IPv6 by inverting network.dns.disableIPv6 and a Cross-host referrers list preserving all three native XOriginPolicy values: 0 no additional host restriction, 1 same base domain, 2 same host. The desktop checkbox writes only 0/2; Android does not erase an existing middle choice. The native referrer implementation compares ASCII host for mode 2, ignoring scheme and port, while other referrer/trimming rules remain effective. IPv6 is a DNS address-family control, not an operating-system IPv6 shutdown or a connection-close guarantee. These nonpersistent Fenix controls use the same allowlisted native effective/default/user/lock read, validated serial save/reset and explicit failure/supersession contract as RFP. Safe Browsing pane registrations remain separate and do not become a visible opt-in checkbox.
 
-**Remaining:** Provide usable IPv6/referrer controls and verify network effects plus restarts. Audit locked/runtime-written preferences separately; an [ANDROID: LOCK] comment is not lockPref.
+**Remaining:** Tasks 35/36 compilation and actual native/API/UI tests remain pending. Through the final APK, verify uncached dual-stack DNS plus IPv4 positive controls with the actual TRR configuration; evaluate literals/existing connections separately. Capture server Referer receipts for same host across scheme/port, sibling subdomains and different base domains for 0/1/2, preserving other restrictions. Test stored choices, locks, failed saves, reset and immediate restart. No network effect is passed by this source audit.
 
 Inspected evidence:
 
 - Archived source **settings-common.cfg**: `common.cfg`; inspected line ranges and SHA-256 in [source index](source-index.md#settings-commoncfg).
 - Bounded search **mobile-specific-pane-controls**, including pattern, scope, exit status, output and file input hashes, in [bounded-searches.json.gz](bounded-searches.json.gz).
 - [patches/pref-pane/librewolf.js](../../../../patches/pref-pane/librewolf.js) — SHA-256 in `coverage.json` → `repository_evidence`.
+
+- [global-privacy-controls.patch](../../../../patches/android/global-privacy-controls.patch) — current source/failure lineage pinned in `coverage.json`.
+- [Task 36 source files](../lw-m7-36/source-files.json) — current source/failure lineage pinned in `coverage.json`.
+- [source-inputs.json](../../../../docs/android/evidence/lw-m7-36/original-audit/source-inputs.json) — current source/failure lineage pinned in `coverage.json`.
+- [source-inputs.tar.gz](../../../../docs/android/evidence/lw-m7-36/original-audit/source-inputs.tar.gz) — current source/failure lineage pinned in `coverage.json`.
+- [extension-update-controls.patch](../../../../patches/android/extension-update-controls.patch) — current source/failure lineage pinned in `coverage.json`.
+- [Task 35 source files](../lw-m7-35/source-files.json) — current source/failure lineage pinned in `coverage.json`.
 
 Provenance: inspected code; behavioral interpretation is an inference from that code. No static check is presented as live evidence.
 

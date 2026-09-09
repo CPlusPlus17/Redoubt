@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "task": "LW-M7-17",
-  "snapshot_commit": "3466ea18db777805c38c313bac849edadfda4fd2",
+  "snapshot_commit": "83b73da45bda1c1247545ee3ba8e098e579fc6ad",
   "scope": "All pinned desktop patches, all policy leaves and all copied pane settings/buttons/registrations. Human semantic review plus mechanical enumeration; not a build/runtime parity gate.",
   "runtime_verdict": "NOT RUN by this audit; no counterpart is certified feature-complete.",
   "counterparts": {
@@ -111,15 +111,24 @@
     "graphics": {
       "status": "mixed_open",
       "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "At repository snapshot 3466ea1, the integrated LW-M7-14 candidate adds the Android path from CanvasUtils/ClientWebGLContext through GeckoView actors, Java and Android Components into Fenix. Native WebGL creation and canvas readback consult exact-principal permissions; unknown WebGL requests remain blocked while a choice is pending. The parent derives the current requesting document principal, checks the active tab/document before applying a response, and acknowledges the permission write before exposing a one-use reload of that document/frame. Permission records retain session/permanent lifetime and private/context identity. Fenix presents Allow, Block and Ask/reset, Remember for normal browsing, a quiet-request Review action, and saved exception lists through site permissions, quick settings and the trust panel. Stored edits wait for a native acknowledgement and offer a separate explicit reload. The later registered candidate supersedes the historical Android prompt=false guard and restores prompt=true alongside the bridge. These are inspected implementation paths; compilation and behavior have not been demonstrated by this audit.",
+      "android": "The integrated LW-M7-14 source adds the Android path from CanvasUtils/ClientWebGLContext through GeckoView actors, Java and Android Components into Fenix. Native WebGL creation and canvas readback consult exact-principal permissions; unknown WebGL requests remain blocked while a choice is pending. The parent derives the current requesting document principal, checks the active tab/document before applying a response, and acknowledges the permission write before exposing a one-use reload of that document/frame. Permission records retain session/permanent lifetime and private/context identity. Fenix presents Allow, Block and Ask/reset, Remember for normal browsing, a quiet-request Review action, and saved exception lists through site permissions, quick settings and the trust panel. Stored edits wait for a native acknowledgement and offer a separate explicit reload. The later registered candidate supersedes the historical Android prompt=false guard and restores prompt=true alongside the bridge. These are inspected implementation paths; compilation and behavior have not been demonstrated by this audit. LW-M7-36 separately adds Always allow WebGL (inverse librewolf.webgl.prompt) and Hide WebGL popup (direct librewolf.webgl.prompt.hide). The latter is disabled while approval is bypassed. Their dedicated native get/set/reset API reads effective/default/user-presence/lock state, serializes validated writes through the Task 35 actual-save promise and returns current state with save/supersession errors. Fenix uses nonpersistent controls and never rewrites site grants. The later compiler correction replaces only deprecated bundleOf in the permission dialog with Bundle.putString/putBoolean, preserving nullable tab/context strings, private=false fallback and argument keys.",
       "evidence": [
         "repo:patches/android/webgl-prompt-default.patch",
         "repo:patches/webgl-permission-common.patch",
         "source:gv-permission",
         "repo:patches/android/canvas-webgl-permissions.patch",
-        "repo:assets/patches/android.txt"
+        "repo:assets/patches/android.txt",
+        "repo:patches/android/global-privacy-controls.patch",
+        "repo:docs/android/evidence/lw-m7-36/source-files.json",
+        "repo:docs/android/evidence/lw-m7-36/original-audit/source-inputs.json",
+        "repo:docs/android/evidence/lw-m7-36/original-audit/source-inputs.tar.gz",
+        "repo:patches/android/extension-update-controls.patch",
+        "repo:docs/android/evidence/lw-m7-35/source-files.json",
+        "repo:docs/android/evidence/lw-m7-21/permission-bundle-correction/source-overlay.json",
+        "repo:docs/android/evidence/lw-m7-21/permission-bundle-correction/OriginBoundPermissionsDialogFragment.kt",
+        "repo:docs/android/evidence/lw-m7-21/permission-bundle-correction/original-graphics.patch"
       ],
-      "remaining": "Compile the native/GeckoView/Fenix path for every release ABI and run the required Fenix unit gate. On the resulting APK measure protection before choice, actual prompt/quiet indicator, allow/deny/ask, session/permanent/private lifetimes across reload/restart/private close, exact-origin/context isolation, revoke/delete and real rendered pixels, including worker/iframe and stale-document paths. The new permission list is not a global WebGL/quiet-mode preference control; those desktop pane controls remain an implementation/UI gap. Source acknowledgements and authored tests do not prove live IPC, rendering or persistence. The generic EME permission path is separate and inherits no lifetime verdict from this graphics candidate."
+      "remaining": "Compile the native/GeckoView/Fenix path for every release ABI and run the required Fenix unit gate. On the resulting APK measure protection before choice, actual prompt/quiet indicator, allow/deny/ask, session/permanent/private lifetimes across reload/restart/private close, exact-origin/context isolation, revoke/delete and real rendered pixels, including worker/iframe and stale-document paths. Tasks 35/36 native/API/Fenix compilation and global-control runtime remain pending. Exercise global bypass and quiet controls through the actual UI, new DOM/offscreen/worker contexts, preserved site grants/blocks, reset and immediate restart. The separate webgl.disabled control remains excluded because the plain common pref write would overwrite a saved choice at startup; existing contexts are not proven destroyed by a preference change. Source acknowledgements and authored tests do not prove live IPC, rendering or persistence. The generic EME permission path is separate and inherits no lifetime verdict from this graphics candidate."
     },
     "app-update": {
       "status": "source_implemented_runtime_open",
@@ -235,28 +244,38 @@
     "rfp-controls": {
       "status": "mixed_open",
       "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "common.cfg defaults privacy.resistFingerprinting true. Desktop letterboxing defaults false and is optional. The bounded Fenix search has no letterboxing pref reader/control, and a browser-window resizing implementation cannot be inferred from the pref. Desktop website appearance UI disables its chooser under RFP; Android theme code is a different frontend, so its effective page color scheme and opt-out controls need checking.",
+      "android": "common.cfg defaults privacy.resistFingerprinting true. LW-M7-36 now implements a Resist Fingerprinting switch in Global privacy controls, backed by a separate authoritative native allowlist and typed GeckoView/Android Components API. Fenix holds no persisted mirror and the preference is not added to RuntimeSettings reset ownership. Native state exposes effective/default values, locks and user presence; a locked hidden user value is explicitly unknown. Writes/reset prevalidate, serialize, await Task 35 current-profile persistence and reread. Failed saves retain actual memory with disk uncertainty, without inferred rollback; superseded choices are reported. Setting a non-sticky preference equal to its default follows Gecko normalization and may remove the user branch. The screen distinguishes global/private RFP, separate FPP and configured exceptions/overrides. Desktop letterboxing defaults false and remains optional/unimplemented on Android; website-appearance interaction under RFP is still a separate frontend question.",
       "evidence": [
         "source:settings-common.cfg",
         "source:settings-desktop.cfg",
         "search:mobile-specific-pane-controls",
-        "source:core"
+        "source:core",
+        "repo:patches/android/global-privacy-controls.patch",
+        "repo:docs/android/evidence/lw-m7-36/source-files.json",
+        "repo:docs/android/evidence/lw-m7-36/original-audit/source-inputs.json",
+        "repo:docs/android/evidence/lw-m7-36/original-audit/source-inputs.tar.gz",
+        "repo:patches/android/extension-update-controls.patch",
+        "repo:docs/android/evidence/lw-m7-35/source-files.json"
       ],
-      "remaining": "Implement optional mobile letterboxing and accessible RFP controls as appropriate, then measure coherent viewport/screen/color scheme/timezone/language behavior across devices and opt-out/restart. A pref value alone cannot prove fingerprinting parity."
+      "remaining": "Compile/package Tasks 35/36 and execute actual API/UI, failed-save/lock/supersession and immediate restart/reset tests. Measure fresh normal/private documents and workers, parent/opener inheritance, viewport/screen/color scheme/timezone/language effects and applicable exceptions. The RFP control is source implemented; optional mobile letterboxing and coherent website-appearance controls remain open. A preference value or host mock cannot establish fingerprinting behavior or disk durability."
     },
     "addon-updates": {
-      "status": "mixed_open",
+      "status": "source_implemented_runtime_open",
       "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "Fenix constructs DefaultAddonUpdater at 12-hour frequency, registers WorkManager periodic jobs and calls AddonManager.updateAddon -> GeckoEngine.updateWebExtension. GeckoViewWebExtension refreshes stale AddonRepository metadata first, then honors AddonManager.updateEnabled before checking/installing updates. This path does not consult autoUpdateDefault before install. Thus extensions.update.enabled is honored; saying both Gecko prefs are simply ignored would be wrong. The desktop combined checkbox writes both prefs.",
+      "android": "LW-M7-35 adds Settings \u2192 Advanced \u2192 Update extensions automatically, backed by native extensions.update.enabled and extensions.update.autoUpdateDefault. Checked means both true; opening Settings preserves existing mixed/user values, and either lock disables editing. The nonpersistent Fenix switch writes both prefs through a serialized native API that closes automatic admission when queued, preflights the current profile, rechecks locks and awaits an actual saved snapshot. Failed persistence retains actual memory, reports saveConfirmed=false and keeps automatic admission closed until a successful save; reads cannot clear uncertainty and no rollback is inferred. Periodic/restored workers use the separate automatic AddonManager/Engine/GeckoView route; native checks occur before repository metadata, after metadata/extension lookup and before starting installation. AddonManager.shouldAutoUpdate applies per-addon policy before automatic install. Existing immediate work and explicit user-requested checks remain separate. Mixed values (update.enabled=true, autoUpdateDefault=false) appear unchecked while metadata and per-addon Enable overrides can remain allowed, as on desktop; choosing Off sets both false. WorkManager jobs can still wake, unrelated catalog reads remain separate, and a previously started install is not cancelled.",
       "evidence": [
         "source:addon-scheduler",
         "source:addon-worker",
         "source:addon-manager",
         "source:gecko-engine",
         "source:gv-addons",
-        "source:gecko-addon-manager"
+        "source:gecko-addon-manager",
+        "repo:patches/android/extension-update-controls.patch",
+        "repo:docs/android/evidence/lw-m7-35/source-files.json",
+        "repo:patches/pref-pane/librewolf.js",
+        "repo:docs/android/evidence/lw-m7-35/ordering-receipt.json"
       ],
-      "remaining": "Add the Android combined control and align scheduler, metadata traffic and per-addon semantics; prove disabled means the intended network silence and enabled ordinary updates still work. Do not count the pref as an Android settings UI or assume the metadata request is prevented by the later updateEnabled guard."
+      "remaining": "Compile Task 35 C++/Java/Kotlin and run real current-profile save fixtures plus addon/Fenix suites. Prove actual UI Off\u2192force-stop\u2192restart behavior, failed-write retry, and no update metadata/manifest/XPI traffic from restored automatic work while Off. Prove On with a correctly signed upgrade, explicit manual checks, per-addon overrides and permission acceptance/rejection. The authored xpcshell no-profile/backup cases and host JS doubles do not replace the corrected GeckoView current-profile I/O fixture. No compile, scheduler/network, persistence or runtime success is claimed here."
     },
     "sync": {
       "status": "mixed_open",
@@ -272,15 +291,21 @@
       "remaining": "Compile and run the new target classes and full Fenix gate. On the final APK verify fresh/default and existing-account behavior, real enable/disable controls, PID replacement, private-session ending, preserved account/engine/custom-server data, traffic cessation after restart, manual sync and send/receive polling. Failed write/rollback and already-running native calls must retain the documented error and restart boundary; no local source check proves these runtime behaviors."
     },
     "network-controls": {
-      "status": "open_gap",
+      "status": "source_implemented_runtime_open",
       "provenance": "read inspected code; the interpretation is an inference from the cited implementation",
-      "android": "Desktop pane provides IPv6 enablement through network.dns.disableIPv6 inversion and a strict cross-origin referrer checkbox setting XOriginPolicy to 2 or 0. The bounded Fenix source search has no readers of those prefs. common.cfg supplies engine defaults, but a default is not a matching Android control. Safe Browsing pref registrations in the pane are largely leftover registrations, not a visible opt-in checkbox.",
+      "android": "LW-M7-36 implements Enable IPv6 by inverting network.dns.disableIPv6 and a Cross-host referrers list preserving all three native XOriginPolicy values: 0 no additional host restriction, 1 same base domain, 2 same host. The desktop checkbox writes only 0/2; Android does not erase an existing middle choice. The native referrer implementation compares ASCII host for mode 2, ignoring scheme and port, while other referrer/trimming rules remain effective. IPv6 is a DNS address-family control, not an operating-system IPv6 shutdown or a connection-close guarantee. These nonpersistent Fenix controls use the same allowlisted native effective/default/user/lock read, validated serial save/reset and explicit failure/supersession contract as RFP. Safe Browsing pane registrations remain separate and do not become a visible opt-in checkbox.",
       "evidence": [
         "source:settings-common.cfg",
         "search:mobile-specific-pane-controls",
-        "repo:patches/pref-pane/librewolf.js"
+        "repo:patches/pref-pane/librewolf.js",
+        "repo:patches/android/global-privacy-controls.patch",
+        "repo:docs/android/evidence/lw-m7-36/source-files.json",
+        "repo:docs/android/evidence/lw-m7-36/original-audit/source-inputs.json",
+        "repo:docs/android/evidence/lw-m7-36/original-audit/source-inputs.tar.gz",
+        "repo:patches/android/extension-update-controls.patch",
+        "repo:docs/android/evidence/lw-m7-35/source-files.json"
       ],
-      "remaining": "Provide usable IPv6/referrer controls and verify network effects plus restarts. Audit locked/runtime-written preferences separately; an [ANDROID: LOCK] comment is not lockPref."
+      "remaining": "Tasks 35/36 compilation and actual native/API/UI tests remain pending. Through the final APK, verify uncached dual-stack DNS plus IPv4 positive controls with the actual TRR configuration; evaluate literals/existing connections separately. Capture server Referer receipts for same host across scheme/port, sibling subdomains and different base domains for 0/1/2, preserving other restrictions. Test stored choices, locks, failed saves, reset and immediate restart. No network effect is passed by this source audit."
     },
     "profile-config": {
       "status": "mixed_open",
@@ -1971,7 +1996,7 @@
     "patches/android/about-config.patch": "5db30d645f7a1b1e9eb3e9ad7c626d6e2c91095d5b9a39a099da6a66501b6858",
     "patches/android/autoconfig-resource-fallback.patch": "a477f20154b86abc16e09a6182ac8772e023a28389eb6badfbcba011605143b6",
     "patches/android/branding.patch": "caba349f53a7f224b7d50067578efaa1075bb160cc7f697b2e21829afc18edec",
-    "patches/android/canvas-webgl-permissions.patch": "2c6196b1f619223d7e2a185567d8866e83467e1e1b9380200789471d221a7c7f",
+    "patches/android/canvas-webgl-permissions.patch": "11401e72ae0d2c862ccdd9c62e209b48cfb8bd3f444136a30f98fb48fcd2c275",
     "patches/android/disable-data-reporting-android.patch": "0c0e004f4773c5245ce3a0966881b976b1373064a4d0ac32e4d1d76243e6a081",
     "patches/android/neterror-jar.patch": "6208f779895a6cac7bb363f1110a99b209eb798b481c27c27eaa5fb3b897c1f9",
     "patches/android/no-adjust.patch": "f55c2a49db94c9b60202219aec1db42f07237a75b363eacf4a525bfc6d9b66c2",
@@ -2015,7 +2040,14 @@
     "docs/android/evidence/lw-m7-29/ordering-review.json": "3d1fa8f72a8c5e58a329bb5a4a634506cd6fed842b0dee9d8f7b67fa411bfcd7",
     "patches/android/extension-update-controls.patch": "901b811c298c6112dc07a8ef25a7baa46704284d764ba1b3c9fd10e08d027795",
     "docs/android/evidence/lw-m7-35/source-files.json": "c91d08e982ba98645c1b6f765c391a069c9cd6abd1f54375ead995c9fa39c10e",
-    "docs/android/evidence/lw-m7-35/ordering-receipt.json": "7d93d10f9d5c0afe0fe10505245ec3ead2afa185376bdf8398c4bc858ec7c580"
+    "docs/android/evidence/lw-m7-35/ordering-receipt.json": "02344a63e08ed495e70fcea1b03addd058d7c8653013af307954261af789238d",
+    "patches/android/global-privacy-controls.patch": "b0d132130cb4e02ac687a9c384e314be6f7c1124405a794ed8d3f31a91cb4109",
+    "docs/android/evidence/lw-m7-36/source-files.json": "53af70a5559a513e2ead11e2f511a09ab41eafa06d8c19f3472d1f6b36fcc04b",
+    "docs/android/evidence/lw-m7-36/original-audit/source-inputs.json": "c5c14be639b78d83b0894294d9277027eb576b953aeb519ab85bab01fdb9dce2",
+    "docs/android/evidence/lw-m7-36/original-audit/source-inputs.tar.gz": "06818c659abf99a9a1296ea278c4b375e68148ab8ec760877d4d854e1ee2c5b3",
+    "docs/android/evidence/lw-m7-21/permission-bundle-correction/source-overlay.json": "d4df59d18fba047676d19eb82dd82c21c36058244b1df77ef1ecf420722af66d",
+    "docs/android/evidence/lw-m7-21/permission-bundle-correction/OriginBoundPermissionsDialogFragment.kt": "16ac2bd2dfd7d2fa1fcfef7078e6a2b80e0e5cd58eb9efc70440db132bb9d4bd",
+    "docs/android/evidence/lw-m7-21/permission-bundle-correction/original-graphics.patch": "2c6196b1f619223d7e2a185567d8866e83467e1e1b9380200789471d221a7c7f"
   },
   "source_capture_commit": "7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae"
 }

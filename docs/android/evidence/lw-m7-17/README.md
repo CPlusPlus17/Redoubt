@@ -2,123 +2,104 @@
 
 All 36 registered desktop patches, 22 policy keys (46 exact scalar/array leaves),
 four copied preference-pane assets, 16 settings/buttons and 15 active preference
-registrations now have an input-bound effect mapping. **This is not a browser
-parity pass.** The audit ran no APK, emulator, network or native-build checks.
+registrations have an input-bound effect mapping. **This is not a browser parity
+pass.** This audit ran no APK, emulator, network or target-build checks.
 
-Start with [coverage-map.md](coverage-map.md), the readable effect map. Its
-machine-readable counterpart is [coverage.json](coverage.json). Each Android
-claim cites inspected source or a pinned repository patch and states what remains
-missing or unverified. The scoped followup at
-`3466ea18db777805c38c313bac849edadfda4fd2` adds the integrated graphics and
-translation source candidates. **Their target compilation and APK behavior remain
-pending.** [followup-review.json](followup-review.json) records the reviewed
-ranges, changed input hashes and limits. All other counterpart records and all
-desktop/policy/pane mappings are retained from the original audit.
+[coverage-map.md](coverage-map.md) is the readable effect map;
+[coverage.json](coverage.json) carries the corresponding source claims and pins.
+The latest focused review updates four counterparts: graphics, RFP controls,
+extension updates and network controls. It reads the implemented LW-M7-35/36
+source and retains their pending target gates. All other counterpart records and
+all desktop/policy/pane mappings remain unchanged from the preceding review.
+[followup-review.json](followup-review.json) retains the earlier followups and
+the distinct source-capture and repository-review revisions.
 
-Produced by the `coverage_map` agent in its isolated `android/LW-M7-17` worktree
-on the Fedora host. Source inspection was read-only; no guest was accessed.
+The four updated counterparts now record these source implementations:
 
-The most consequential distinctions found in the inspected code are:
+- **Extension updates:** Settings has a native-backed combined switch for
+  `extensions.update.enabled` and `extensions.update.autoUpdateDefault`. Opening
+  Settings preserves mixed values; checked means both are true. Explicit Off
+  writes both false. Automatic work checks native admission before update
+  metadata and before installation. A mixed unchecked state can still allow
+  metadata and per-addon Enable overrides. Scheduled jobs may wake; manual
+  checks, unrelated catalog reads and already-started installation remain
+  separate. Network silence, real signed upgrades and restart persistence still
+  require target execution.
+- **Graphics:** the existing exact-principal request and saved-exception source
+  is joined by Always allow WebGL (inverse `librewolf.webgl.prompt`) and Hide
+  WebGL popup. The quiet control is disabled during global bypass. These global
+  controls preserve site grants. Rendering, document/worker behavior, private
+  lifetimes and immediate restart remain unverified. A separate `webgl.disabled`
+  control is excluded because the common startup write would overwrite its
+  saved value.
+- **RFP:** Global privacy controls now exposes Resist Fingerprinting through a
+  dedicated native API. Global/private RFP, separate FPP and configured
+  exceptions still matter to observed behavior. Optional letterboxing and
+  website-appearance interaction remain open; a preference read cannot establish
+  a fingerprinting result.
+- **Network controls:** Enable IPv6 inverts `network.dns.disableIPv6` and governs
+  DNS address-family selection. Cross-host referrers preserves native values
+  0/1/2; mode 2 compares host, ignoring scheme and port. Other referrer rules
+  still apply. Controlled DNS/server receipts, locks, reset and immediate
+  restart remain pending.
 
-- **Extension updates:** Fenix schedules updates every 12 hours. GeckoView does
-  honor `extensions.update.enabled`, but refreshes stale add-on repository
-  metadata before checking it. Its update/install path does not consult
-  `extensions.update.autoUpdateDefault`. Desktop's combined two-pref control
-  therefore needs an Android UI and network/scheduler treatment.
-- **Sync:** removing sign-in onboarding does not gate Fenix's account manager.
-  It starts when its lazy component is resolved; the bounded Fenix search found
-  no `identity.fxaccounts.enabled` reader.
-- **Home:** removing ads/Pocket does not implement `TopSites=false` or
-  `Highlights=false`. Fenix's frozen home defaults enable ordinary top sites,
-  recent tabs, bookmarks and recent activity. Shortcuts are not bookmark-database
-  entries; `NoDefaultBookmarks` must be checked separately.
-- **Firefox Suggest:** its persisted web/sponsored controls and FML release
-  default are separate from ordinary search-engine query suggestions. The
-  existing `no-suggest` patch alone cannot prove all three policy leaves.
-- **Site-data retention:** desktop stores exact-principal, permanent cookie
-  `ALLOW`. Fenix quit cleanup uses unscoped cookie/storage deletion. ETP exceptions
-  and a clear-site-data button do not implement retention exceptions.
-- **Graphics:** the integrated candidate now connects native exact-principal
-  checks to GeckoView and Fenix request/exception controls, with explicit
-  lifetimes and permission-write acknowledgements before reload. Real rendering,
-  private/restart behavior and native compilation remain unverified. Global
-  WebGL and quiet-mode controls remain a separate UI gap.
-- **Translations:** global enable and automatic offer controls already exist in
-  Fenix, with persistence code. The integrated candidate adds a pinned local
-  catalog/WASM and explicit cancellable model transfers with integrity checks.
-  The audit verified the bundled package inputs only. Actual translation,
-  downloads, offline reuse and the effective control/restart matrix remain open;
-  the internal translation page has no separate explicit asset-download action.
-- **Other explicit gaps:** optional password-manager hiding, existing locale
-  add-on removal as well as install-type restrictions, `ku` locale support
-  (`ckb` is distinct), optional letterboxing, the JPEG XL control/actual decoding,
-  IPv6/referrer controls, and appropriate support/repository links.
-- **Feedback:** Fenix has a WebCompatReporter route enabled for ordinary URLs.
-  `WebCompatFeature` is a separate bundled compatibility intervention extension;
-  it must not be removed as if it were the reporter. No-telemetry source changes
-  do not by themselves make remaining report UI accurate.
+These nonpersistent Fenix controls read authoritative native effective/default,
+user and lock state. Writes are validated and serialized through Task 35's
+current-profile save promise. A failed save reports the actual memory state and
+unconfirmed disk state, without inferred rollback. For extension updates, a failed
+save also closes automatic admission until a successful explicit save. **Tasks 35/36
+target compilation, API/UI tests, disk durability and runtime behavior are still
+pending.** Host mocks and authored fixtures do not satisfy those gates.
 
-Desktop OS integrations are recorded individually: D-Bus command routing,
-Windows MSIX/COM/manifest details, macOS relaunch/assets, GTK profile paths and XUL
-presentation do not run in the Android frontend. Explaining that boundary never
-marks a surviving functional requirement implemented. Likewise, the enterprise
-policy service is omitted on Android; packaging `policies.json` is not policy
-enforcement. The identical WebsiteFilter block/exception rule is a no-op in the
-inspected desktop handler and must not turn into an Android localhost ban.
+The current graphics patch pin also includes the compiler correction from
+deprecated `bundleOf` to platform `Bundle.putString/putBoolean`. The preserved
+original patch binds the earlier reviewed line ranges; the separate correction
+receipt pins the corrected dialog and preserves nullable tab/context IDs,
+private fallback and argument keys. This is a source correction, without an
+inferred native or runtime result. Task 35's ordering receipt now binds that
+corrected input; its six measured pair results are unchanged.
 
 ## Preserved evidence
 
-Root's later bounded audits under `../lw-m7-21/bookmark-seed-audit/` and
-`../lw-m7-21/extension-type-audit/` retain additional original inputs separately
-from this audit's original archive. Native Android bookmark initialization creates
-five folders and no URL bookmarks; a final APK database/UI check remains pending.
-The Android XPI loader already rejects non-extension types, including language
-packs. It also rejects dictionary/theme/sitepermission types allowed on desktop,
-so full type-support parity and existing locale-addon cleanup remain open. These
-findings supersede the earlier uncertainty about new language-pack rejection and
-bookmark startup above. No code change was made for either source finding.
-
 [source-index.md](source-index.md) lists the inspected portions of 46 complete
 files retained in [inspected-source.tar.gz](inspected-source.tar.gz). The archive
-includes relevant Android/Gecko source, desktop policy handlers and the exact
-settings inputs. Every file and the archive itself have SHA-256 bindings in
-[source-evidence.json](source-evidence.json). These original capture bytes and
-their provenance at `7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae` are unchanged.
-Thirty-six repository counterpart files are additionally pinned in
-`coverage.json` at the followup snapshot, including both new patches, Android
-registration order and the translation packaging inputs.
+includes Android/Gecko source, desktop policy handlers and exact settings inputs.
+Every file and the archive have SHA-256 bindings in
+[source-evidence.json](source-evidence.json). These original bytes and their
+provenance at `7c78e8a3a86d6feed5ea0517b9c824ce0cbfa8ae` are unchanged.
 
-[bounded-searches.json.gz](bounded-searches.json.gz) preserves five search
-patterns, their scopes, exit status/output, searched file hashes and the Fenix
-resource-directory list. A zero-match result is only a bounded observation, not
-proof of semantic absence throughout Android. The source tree name is not treated
-as a revision identifier. The retained files are a frozen host input, while
-newer M7 code is cited by its separate patch hash; neither is silently described
-as the final APK source.
+[before-review.tar.gz](global-controls-followup/before-review.tar.gz) separately
+retains the exact five Task17 documents/scripts preceding this focused review,
+including their historical findings. [review.json](global-controls-followup/review.json)
+pins that archive, the four-counterpart scope and the inspected Task 35/36 source
+file hashes. The current patches, source receipts, original 38-file global
+privacy audit and Bundle correction are pinned in `coverage.json`.
+
+[bounded-searches.json.gz](bounded-searches.json.gz) preserves the original five
+search patterns, scopes, exit status/output, file hashes and Fenix resource list.
+A zero-match result is a bounded historical observation. Later implementation is
+cited through separate patches; neither source set is silently relabelled as the
+final APK. Other existing gaps and target obligations remain in `coverage.json`.
+Unrelated counterpart prose was not re-audited in this followup.
 
 ## Verification
 
-Run from the repository root, without an SDK, VM, device or extracted source tree:
+Run from the repository root without an SDK, VM, device or extracted source tree:
 
 ```sh
 python3 docs/android/evidence/lw-m7-17/check-coverage.py
+python3 docs/android/evidence/lw-m7-17/global-controls-followup/test-checker.py
 python3 docs/android/board.py --check
 ```
 
-The checker compares the current desktop list and patch bytes, all changed
-desktop paths, exact policy leaves/values, settings gitlink, copied pane
-settings/buttons/registrations, counterpart references and evidence hashes. It
-fails if a mapped input changes. It validates that the inventory is accounted
-for; it cannot prove a human semantic interpretation or browser behavior.
+The checker binds the desktop inventory, exact policy leaves, settings gitlink,
+pane controls and evidence hashes. The new scoped checks additionally preserve
+the original mapping, reject unrelated counterpart changes, compare the four
+readable sections with their JSON records, and bind inspected source and compiler
+correction lineage. These checks cannot prove a semantic interpretation or target
+behavior.
 
-The recorded successful output is in [verification.txt](verification.txt).
-Eleven deliberate negative controls rejected missing patches/subkeys/controls,
-changed policy values, unknown counterparts, changed source hashes, false
-runtime/compile verdicts and inconsistent followup provenance; see
-[checker-negative-controls.txt](checker-negative-controls.txt).
-The followup also checks its original capture provenance and distinct repository
-snapshot. `python3 scripts/package-translation-assets.py` verified the exact local
-catalog and compressed/decompressed WASM pins, without fetching assets or running
-the engine. No target code was modified, so no APK/native/Fenix test suite was run
-for this documentation task. Graphics, cookie rules, translations and the broader
-feature goal still require their own build/runtime acceptance evidence.
+The original [verification.txt](verification.txt) and eleven original
+[negative controls](checker-negative-controls.txt) are retained. Current results
+and additional drift/overclaim negative controls are recorded separately in
+[global-controls-followup/verification.txt](global-controls-followup/verification.txt).

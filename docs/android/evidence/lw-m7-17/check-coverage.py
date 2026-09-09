@@ -40,6 +40,80 @@ def leaves(value, pointer=""):
         yield pointer, value
 
 
+def check_global_controls(coverage, followup, source):
+    """Bind this scoped source review; these checks do not run its target code."""
+    scope = {"graphics", "rfp-controls", "addon-updates", "network-controls"}
+    current = followup["global_controls_followup"]
+    require(current["review_receipt"] == "global-controls-followup/review.json",
+            "unexpected global-controls review receipt")
+    review = json.loads((HERE / current["review_receipt"]).read_text())
+    require(set(current["scope"]) == set(review["scope"]) == scope,
+            "global-controls review scope changed")
+    require(current["repository_before_edit"] == review["repository_before_edit"] ==
+            coverage["snapshot_commit"], "global-controls repository provenance changed")
+    for item in (current, review):
+        require(item["compile_verdict"].startswith("NOT RUN") and
+                item["runtime_verdict"].startswith("NOT RUN"),
+                "global-controls source review must not claim target success")
+    require(review["unchanged_original_archive_sha256"] == source["archive_sha256"],
+            "global-controls review relabels original source")
+    archive = (HERE / "global-controls-followup/before-review.tar.gz").read_bytes()
+    require(digest(archive) == review["before_review_archive_sha256"],
+            "before-review archive changed")
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
+        names = [member.name for member in tf.getmembers()]
+        require(len(names) == len(set(names)) and set(names) == {
+            "coverage.json", "coverage-map.md", "followup-review.json", "check-coverage.py", "README.md",
+        }, "before-review archive/member mismatch")
+        require(all(member.isfile() for member in tf.getmembers()), "non-file before-review input")
+        previous = json.loads(tf.extractfile("coverage.json").read())
+        previous_map = tf.extractfile("coverage-map.md").read().decode()
+    for key in ("desktop_patches", "policies", "pane_controls", "pane_registered_prefs", "pane_assets",
+                "source_capture_commit"):
+        require(coverage[key] == previous[key], f"global-controls review changed original mapping: {key}")
+    require(set(coverage["counterparts"]) == set(previous["counterparts"]),
+            "global-controls review changed counterpart inventory")
+    actual_changes = {key for key in coverage["counterparts"]
+                      if coverage["counterparts"][key] != previous["counterparts"][key]}
+    require(actual_changes == scope, "global-controls review changed unrelated counterpart or omitted a control")
+    required = review["required_repository_evidence"]
+    require(set(required) == scope, "global-controls evidence scope changed")
+    for key, paths in required.items():
+        require({"repo:" + path for path in paths} <= set(coverage["counterparts"][key]["evidence"]),
+                f"global-controls counterpart lacks reviewed dependency: {key}")
+
+    manifests = {}
+    for task, patch in (("35", "extension-update-controls"), ("36", "global-privacy-controls")):
+        path = f"docs/android/evidence/lw-m7-{task}/source-files.json"
+        manifest = json.loads((ROOT / path).read_text())
+        require(manifest["patch_sha256"] ==
+                coverage["repository_evidence"][f"patches/android/{patch}.patch"],
+                f"global-controls source/patch lineage mismatch: {task}")
+        manifests[task] = {item["path"]: item["after_sha256"] for item in manifest["files"]}
+    unique(review["inspected_files"], "path", "global-controls inspected source")
+    require({item["task"] for item in review["inspected_files"]} == set(manifests),
+            "global-controls inspected source task missing")
+    for item in review["inspected_files"]:
+        require(manifests[item["task"]].get(item["path"]) == item["sha256"],
+                f"global-controls inspected source pin changed: {item['path']}")
+
+    def sections(markdown):
+        return {match.group(1): match.group(2) for match in
+                re.finditer(r"^### ([^\n]+)\n(.*?)(?=^### |\Z)", markdown, re.M | re.S)}
+
+    markdown = sections((HERE / "coverage-map.md").read_text())
+    old_markdown = sections(previous_map)
+    require(set(markdown) == set(old_markdown), "readable counterpart inventory changed")
+    labels = {"mixed_open": "Mixed open", "source_implemented_runtime_open": "Source implemented, runtime open"}
+    for key in scope:
+        item = coverage["counterparts"][key]
+        require(f"**{labels[item['status']]}.** {item['android']}\n" in markdown[key] and
+                f"**Remaining:** {item['remaining']}\n" in markdown[key],
+                f"readable global-controls mapping differs: {key}")
+    require(all(markdown[key] == old_markdown[key] for key in markdown if key not in scope),
+            "global-controls review changed unrelated readable counterpart")
+
+
 def check():
     inputs = json.loads((HERE / "input-inventory.json").read_text())
     coverage = json.loads((HERE / "coverage.json").read_text())
@@ -171,18 +245,38 @@ def check():
     changed = followup["changed_previously_pinned_inputs"]
     added = followup["added_repository_inputs"]
     require(not set(changed) & set(added), "followup input both added and changed")
-    # Each added scope has an inspected source patch and separate pending target
-    # acceptance. LW-M7-24 adds home, LW-M7-20 Sync, and LW-M7-26 Suggest; runtime stays open.
-    require(set(followup["counterparts_changed"]) == {"graphics", "translations", "home", "sync", "firefox-suggest", "extension-types", "default-bookmarks"},
+    # Every followup retains separate pending target acceptance. Task35/36 add
+    # automatic updates and global privacy controls without a runtime verdict.
+    require(set(followup["counterparts_changed"]) == {
+        "graphics", "translations", "home", "sync", "firefox-suggest", "extension-types", "default-bookmarks",
+        "rfp-controls", "addon-updates", "network-controls",
+    },
             "followup counterpart scope changed")
     for path, item in (changed | added).items():
         require(item["sha256"] == coverage["repository_evidence"].get(path),
                 f"followup input not pinned: {path}")
+        reviewed_path = path
+        correction = item.get("compiler_followup", {})
+        if "original_reviewed_patch" in correction:
+            reviewed_path = correction["original_reviewed_patch"]
+            require(coverage["repository_evidence"].get(reviewed_path) == correction["previous_sha256"],
+                    f"historical reviewed patch is not pinned: {path}")
+            require(correction["evidence"] in coverage["repository_evidence"],
+                    f"compiler correction is not pinned: {path}")
+            overlay = json.loads((ROOT / correction["evidence"]).read_text())
+            require(overlay["old_patch_sha256"] == correction["previous_sha256"] and
+                    overlay["patch_sha256"] == item["sha256"], f"compiler correction lineage differs: {path}")
+            require(len(overlay["files"]) == 1, f"compiler correction scope differs: {path}")
+            corrected = overlay["files"][0]
+            body = str(Path(correction["evidence"]).parent / Path(corrected["path"]).name)
+            require(coverage["repository_evidence"].get(body) == corrected["after_sha256"],
+                    f"compiler correction body differs: {path}")
         for start, end in item["reviewed_lines"]:
-            require(1 <= start <= end <= len((ROOT / path).read_text().splitlines()),
+            require(1 <= start <= end <= len((ROOT / reviewed_path).read_text().splitlines()),
                     f"followup reviewed range invalid: {path}")
     for path, item in changed.items():
         require(item["previous_sha256"] != item["sha256"], f"unchanged followup input: {path}")
+    check_global_controls(coverage, followup, source)
     print(f"COVERAGE INPUTS VERIFIED: {len(paths)} desktop patches / {effect_count} effect groups; "
           f"{len(policies)} policy keys / {len(all_leaves)} exact leaves; "
           f"{len(pane_assets)} copied assets / {len(controls)} controls / {len(registrations)} pref registrations.")
