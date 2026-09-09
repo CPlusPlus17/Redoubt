@@ -59,10 +59,13 @@ seven prior suite selections/minimums and adds an eighth A-C addon selection.
 |35|same|`mozilla.components.feature.addons.AddonManagerTest`|1 new; whole class selected|
 |29|`:components:feature-fxsuggest:testDebugUnitTest`|`mozilla.components.feature.fxsuggest.PinnedSuggestIngestionTest`|3|
 |20|full Fenix|`org.mozilla.fenix.HomeActivityAccountSettingsTest`|4|
+|20|`:components:service-firefox-accounts:testDebugUnitTest`|`mozilla.components.service.fxa.AccountServicesTest`|1 new; whole class selected|
+|20|full Fenix|`org.mozilla.fenix.settings.AccountServicesPreferenceTest`|1 new; whole class selected|
+|26|full Fenix|`org.mozilla.fenix.settings.search.FirefoxSuggestPolicyTest`|1 new; whole class selected|
 
 `AddonManagerTest.kt` is located directly under `src/test/java` but its actual
 package is `mozilla.components.feature.addons`; using its filesystem placement
-as the class filter would miss it. The ten classes have 45 explicitly required
+as the class filter would miss it. The thirteen classes have 48 explicitly required
 methods. New classes require every authored method; modified existing classes
 run in full and specifically require the new method, at least the declared
 source test count, and complete passing class XML. The changed existing classes
@@ -159,8 +162,9 @@ No native or unit target was run during this host-only preparation.
 
 ## Host validation
 
-All 35 host driver/grader controls passed; `current245-review-tests.txt` retains
-the run, with earlier runs preserved in `host-tests.txt`. They
+All 36 host driver/grader controls passed; `process-tests.txt` retains the run.
+The35-test review remains in `current245-review-tests.txt`, with earlier runs
+preserved in `host-tests.txt`. They
 cover valid bare/prefixed and wrong/malformed image identity, wrong native
 source/exit/time/AAR identities, incomplete source checks,
 missing artifacts, APK set mismatch, preserved prior selections, source-declared
@@ -170,9 +174,9 @@ workspace. Board validation passed with 122 tasks and no warnings. These tests
 use explicitly identified host fixtures for the evidence parser and execution
 boundaries, and do not establish any target pass.
 
-## Review against the current composition
+## Review before the isolated-process correction
 
-The final reviewed product manifest has 245 rows, SHA256
+The previously reviewed product manifest has 245 rows, SHA256
 `9a911246fb9dcf2a55fdfe7827fd2eff000fdfecc97d8f1346c94dc018e0f995`.
 All ten selected unit bodies match it. Task27 uses a separate 249-row inventory
 with four unchanged supplemental bindings, SHA256
@@ -191,3 +195,23 @@ and date `20260906190000` only after matching the actual stage/native inputs.
 Keep the native service with `RemainAfterExit=yes` through the checkpoint.
 The initial integrated review ran 72 Task27 and 33 candidate5 host tests; subsequent
 local changes ran 79 and 35 respectively. No target execution is claimed here.
+
+## Current isolated-process inventory
+
+The corrected product245 manifest is
+`40da1bf9c42187b1e037fba5b443e4b26fd2758ffa7b07212710df72693eb806`;
+Task27's separate249 manifest is
+`84da9b400d228cf87b2e08f02ac034c3c049dcb42eefa2783bb57007552610ff`.
+All13 selected unit bodies match this exact product composition. The prior10
+classes/45 required methods remain unchanged in `pre-process-unit-inventory.json`.
+The added three methods require full AccountServices, AccountServicesPreference
+and FirefoxSuggestPolicy class reports containing at least11,9 and6 cases.
+Missing, skipped or failed new methods cannot pass through a complete legacy
+class count. No allowance rule or native selection changes.
+
+`process-review.json` binds the exact source manifests, unit inventory and
+unchanged checkpoint/native/grader code. The input template is regenerated with
+the current inventory digest; future source/native artifact identities remain
+explicit unset inputs until supplied. Preserve `pre-process-inputs.template.json`
+as history. Source comparison and host checks pass; candidate5 native builds,
+full units and APK runtime remain separate, unexecuted gates here.

@@ -141,7 +141,7 @@ class CheckpointTests(unittest.TestCase):
     def test_native_only_cases_are_explicit_separate_gates(self):
         self.assertIn('LW-M7-31', INVENTORY['separate_required_gates'])
         self.assertFalse(any(row['task'] == 'LW-M7-31' for row in INVENTORY['tests']))
-        self.assertEqual(sum(len(row['required_methods']) for row in INVENTORY['tests']), 45)
+        self.assertEqual(sum(len(row['required_methods']) for row in INVENTORY['tests']), 48)
         self.assertIn('LW-M7-37', INVENTORY['separate_required_gates'])
 
     def test_final_product245_and_test249_preserve_every_required_unit_body(self):
@@ -153,7 +153,7 @@ class CheckpointTests(unittest.TestCase):
         for row in INVENTORY['tests']:
             self.assertEqual(product[row['source_path']], row['source_sha256'])
         before = json.loads((HERE / 'pre-current245-unit-inventory.json').read_text())
-        self.assertEqual(INVENTORY['tests'][:-1], before['tests'])
+        self.assertEqual(INVENTORY['tests'][:len(before['tests'])], before['tests'])
 
     def test_each_actual_home_route_method_is_required_even_when_class_is_present(self):
         row = next(r for r in INVENTORY['tests'] if r['task'] == 'LW-M7-20')
@@ -169,6 +169,31 @@ class CheckpointTests(unittest.TestCase):
             ET.ElementTree(xml).write(self.root / 'TEST-home.xml')
             issues = g.inspect(self.root, time.time() - 5, time.time() + 5, suite, True)['issues']
             self.assertEqual(bool(issues), omitted is not None)
+
+    def test_three_process_regressions_cannot_hide_behind_complete_legacy_class_counts(self):
+        previous = json.loads((HERE / 'pre-process-unit-inventory.json').read_text())
+        self.assertEqual(INVENTORY['tests'][:-3], previous['tests'])
+        self.assertEqual([r['declared_test_count'] for r in INVENTORY['tests'][-3:]], [11, 9, 6])
+        for row in INVENTORY['tests'][-3:]:
+            with self.subTest(klass=row['class']), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+                suite = dict(g.suites(INVENTORY)[row['suite']], required={row['class']},
+                             minimum_classes=1, minimum_tests=0,
+                             methods={row['class']: row['required_methods']},
+                             class_counts={row['class']: row['declared_test_count']})
+                for mode in ['present', 'missing', 'skipped', 'failed']:
+                    names = [f'legacy {i}' for i in range(row['declared_test_count'] - 1)]
+                    names += row['required_methods'] if mode != 'missing' else ['unrelated legacy control']
+                    root = ET.Element('testsuite', name=row['class'], tests=str(len(names)),
+                                      failures=str(int(mode == 'failed')), errors='0',
+                                      skipped=str(int(mode == 'skipped')))
+                    for name in names:
+                        case = ET.SubElement(root, 'testcase', name=name, classname=row['class'])
+                        if name in row['required_methods'] and mode in ['skipped', 'failed']:
+                            ET.SubElement(case, 'skipped' if mode == 'skipped' else 'failure')
+                    ET.ElementTree(root).write(folder / 'TEST-process.xml')
+                    issues = g.inspect(folder, time.time() - 5, time.time() + 5, suite, row['suite'] == 'fenix')['issues']
+                    self.assertEqual(bool(issues), mode != 'present', mode)
 
     def test_compiler_failure_cannot_borrow_fenix_allowance(self):
         allowed = '> Task :fenix:testDebugUnitTest FAILED\n'
