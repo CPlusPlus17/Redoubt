@@ -162,8 +162,7 @@ No native or unit target was run during this host-only preparation.
 
 ## Host validation
 
-All 42 host driver/grader controls passed; `stage-admission-tests.txt` retains the run.
-The36-test inventory review remains in `process-tests.txt`.
+All 36 host driver/grader controls passed; `process-tests.txt` retains the run.
 The35-test review remains in `current245-review-tests.txt`, with earlier runs
 preserved in `host-tests.txt`. They
 cover valid bare/prefixed and wrong/malformed image identity, wrong native
@@ -216,18 +215,3 @@ the current inventory digest; future source/native artifact identities remain
 explicit unset inputs until supplied. Preserve `pre-process-inputs.template.json`
 as history. Source comparison and host checks pass; candidate5 native builds,
 full units and APK runtime remain separate, unexecuted gates here.
-
-## Successful source staging before native5
-
-The native runner now validates the versioned completed stage and checks its
-actual successful terminal invocation before creating build output. Exact source,
-manifest, configuration, composition receipt and final source-check records must
-agree; a failed stage cannot be admitted just because its source writes finished.
-`native-run.md` describes the retained-service requirement and precise file paths.
-The local plan remains free of guest queries. The stage-success/live-invocation
-check is additional to the existing source, image, date, guest and output guards.
-
-`stage-admission-review.json` records the reviewed frozen stager hashes, current
-native driver and12 native/42 total host controls. `pre-stage-admission/` retains
-the earlier driver and review, which relied on root's manual stage-success gate.
-This preparation does not execute source staging or a native build.

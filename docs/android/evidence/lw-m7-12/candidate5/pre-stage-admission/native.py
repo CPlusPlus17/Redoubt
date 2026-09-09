@@ -23,78 +23,6 @@ DEPENDENCIES = (
     'docs/android/evidence/lw-m7-12/candidate5/grade.py',
     'docs/android/evidence/lw-m7-12/grade-extended-tests.py',
 )
-STAGE_KIND = 'account-process245-source-stage'
-STAGE_SERVICE = 'redoubt-account-process245-source-stage-20260909.service'
-
-
-def stage_record(row):
-    path = c.checked_file(row)
-    c.require(c.record(path) == row, 'staging record path/size differs')
-    return path
-
-
-def checked_stage(path, manifest, rows, source, work):
-    """Validate the completed versioned stage; no service/guest query here."""
-    state = json.loads(path.read_text())
-    c.require(state.get('schema') == 1 and state.get('kind') == STAGE_KIND
-              and state.get('status') == 'PASS' and not state.get('error'),
-              'source staging did not finish successfully')
-    c.require(state['source_dir'] == str(source) and state['source_count'] == len(rows),
-              'staging source selection differs')
-    folder = path.parent
-    c.require(folder.is_relative_to(work / 'evidence') and path.name == 'receipt.json'
-              and manifest == folder / 'source-sha256.txt'
-              and stage_record(state['source_manifest']) == manifest,
-              'staging manifest/receipt path differs')
-    config_path = stage_record(state['inputs'])
-    c.require(config_path == folder / 'inputs.json', 'staging config path differs')
-    config = json.loads(config_path.read_text())
-    c.require(config['schema'] == 1 and config['kind'] == STAGE_KIND
-              and config['service_name'] == STAGE_SERVICE
-              and config['source_dir'] == str(source) and config['evidence_dir'] == str(folder)
-              and config['source_count'] == len(rows)
-              and c.sha(config['before_manifest_sha256'])
-              and config['final_manifest_sha256'] == c.digest(manifest),
-              'staging config/source linkage differs')
-    plan_path = stage_record(state['source_plan_receipt'])
-    c.require(plan_path == folder / 'source-plan-receipt.json'
-              and c.digest(plan_path) == config['source_plan_receipt_sha256'],
-              'staging source plan receipt differs')
-    plan = json.loads(plan_path.read_text())
-    c.require(plan['final_union_count'] == len(rows)
-              and plan['outputs']['proposed-source-sha256.txt']['sha256'] == c.digest(manifest)
-              and plan['outputs']['expected-current167-source-sha256.txt']['sha256'] == config['before_manifest_sha256'],
-              'staging reviewed source plan differs')
-    after_path = stage_record(state['source_after'])
-    c.require(after_path == folder / 'source-after.json', 'staging completion source check path differs')
-    after = json.loads(after_path.read_text())
-    c.require(len(after) == len(rows) and {row['path'] for row in after} == set(rows)
-              and all(row['expected_sha256'] == rows[row['path']] == row['observed'] for row in after),
-              'staging final source verification incomplete')
-    start, end = (dt.datetime.fromisoformat(state[key]) for key in ('started', 'finished'))
-    c.require(start.tzinfo and end.tzinfo and start <= end <= dt.datetime.now(dt.timezone.utc),
-              'staging completion time invalid')
-    service = state['service']
-    c.require(re.fullmatch('[0-9a-f]{32}', service['InvocationID']) is not None
-              and service['RemainAfterExit'] == 'yes'
-              and service['ActiveState'] == 'active' and service['SubState'] == 'running',
-              'staging initial invocation is missing or invalid')
-    return config['service_name'], service['InvocationID']
-
-
-def terminal_stage(name, invocation):
-    keys = ('InvocationID', 'RemainAfterExit', 'ActiveState', 'SubState', 'Result', 'ExecMainStatus')
-    command = ['systemctl', '--user', 'show', name]
-    for key in keys:
-        command += ['-p', key]
-    lines = c.query(command).splitlines()
-    observed = dict(line.split('=', 1) for line in lines)
-    c.require(len(lines) == len(keys) and set(observed) == set(keys)
-              and observed['InvocationID'] == invocation and observed['RemainAfterExit'] == 'yes'
-              and observed['Result'] == 'success' and observed['ExecMainStatus'] == '0'
-              and (observed['ActiveState'], observed['SubState']) in {('active', 'exited'), ('inactive', 'dead')},
-              'source staging invocation is not successfully terminal')
-    return observed
 
 
 def load(path):
@@ -119,8 +47,9 @@ def load(path):
     manifest = c.checked_file(inputs['source_manifest'])
     rows = c.source_manifest(manifest, inputs['source_manifest']['count'])
     c.verify_sources(source, rows)
-    stage = stage_record(inputs['source_staging_receipt'])
-    checked_stage(stage, manifest, rows, source, work)
+    stage = c.checked_file(inputs['source_staging_receipt'])
+    # The complete staging receipt is retained as provenance; the selected
+    # reviewed manifest is the authoritative inventory verified above.
     seed = c.absolute(inputs['gradle_home_seed'])
     c.require(seed.is_dir() and seed.is_relative_to(work) and not seed.is_relative_to(destination),
               'existing guest Gradle cache seed required')
@@ -153,23 +82,18 @@ def run(path, context):
               'launch matching service with RemainAfterExit=yes to preserve terminal identity')
     # Repeat read-only validation immediately before creating any output.
     c.require(load(path) == context, 'inputs changed after preflight')
-    stage_identity = checked_stage(stage, manifest, rows, source, c.absolute(inputs['work']))
-    stage_terminal = terminal_stage(*stage_identity)
     destination.mkdir()
     evidence = destination / 'evidence'; evidence.mkdir()
     out = destination / 'aar'; out.mkdir()
     shutil.copy2(path, evidence / 'inputs.json')
     shutil.copy2(manifest, evidence / 'source-sha256.txt')
     shutil.copy2(stage, evidence / 'source-staging-receipt.json')
-    (evidence / 'source-staging-terminal.json').write_text(json.dumps(stage_terminal, indent=2) + '\n')
     (evidence / 'initial-service.json').write_text(json.dumps(service, indent=2) + '\n')
     (evidence / 'boot-id.txt').write_text(Path('/proc/sys/kernel/random/boot_id').read_text())
     (evidence / 'started.txt').write_text(dt.datetime.now(dt.timezone.utc).isoformat() + '\n')
     state = {'schema': 1, 'status': 'RUNNING', 'service_name': inputs['service_name'],
              'invocation_id': invocation, 'source_dir': str(source),
              'build_date': inputs['build_date'], 'container_image_id': inputs['container_image_id'],
-             'source_staging_receipt': c.record(evidence / 'source-staging-receipt.json'),
-             'source_staging_service': {'name': stage_identity[0], 'terminal': stage_terminal},
              'reviewed_scope_note': inputs['reviewed_scope_note'], 'command': command}
 
     def save():
