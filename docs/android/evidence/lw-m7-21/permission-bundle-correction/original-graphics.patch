@@ -994,10 +994,10 @@ index c3bd0a4..4fac9b3 100644
                  context = context,
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt
 new file mode 100644
-index 0000000..59722d5
+index 0000000..1a9b6e5
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt
-@@ -0,0 +1,342 @@
+@@ -0,0 +1,339 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1016,6 +1016,7 @@ index 0000000..59722d5
 +import android.widget.TextView
 +import android.widget.Toast
 +import androidx.appcompat.app.AlertDialog
++import androidx.core.os.bundleOf
 +import androidx.fragment.app.DialogFragment
 +import androidx.fragment.app.FragmentManager
 +import androidx.lifecycle.lifecycleScope
@@ -1299,11 +1300,7 @@ index 0000000..59722d5
 +        fun show(manager: FragmentManager, tab: SessionState? = null) {
 +            if (manager.isStateSaved || manager.findFragmentByTag(TAG) != null) return
 +            OriginBoundPermissionsDialogFragment().apply {
-+                arguments = Bundle().apply {
-+                    putString(TAB_ID, tab?.id)
-+                    putBoolean(PRIVATE, tab?.content?.private ?: false)
-+                    putString(CONTEXT_ID, tab?.contextId)
-+                }
++                arguments = bundleOf(TAB_ID to tab?.id, PRIVATE to (tab?.content?.private ?: false), CONTEXT_ID to tab?.contextId)
 +            }.show(manager, TAG)
 +        }
 +    }
