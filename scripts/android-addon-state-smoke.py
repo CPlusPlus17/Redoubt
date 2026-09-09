@@ -82,6 +82,10 @@ def grade_state(data, *, installed, enabled, private_allowed, version):
         require(addon is None and database == [] and cache == [] and data.get("memory") is None,
                 "Removed add-on remains in registry or startup persistence")
         require(data.get("policy") is False and data["listeners"] == 0, "Removed add-on retains a live policy/listener")
+        require(data.get("privatePermission") is False, "Removed add-on retains its stored private permission")
+        require(data.get("permissionBackend") in ("legacy-json", "rkv"), "Unknown extension permission backend")
+        if data["permissionBackend"] == "legacy-json":
+            require(data.get("privatePermissionDisk") is False, "Removed add-on retains private permission in the legacy file")
         return data
     require(isinstance(addon, dict) and addon.get("id") == ADDON_ID and addon.get("version") == version,
             "Installed add-on identity/version differs from the pinned fixture")
