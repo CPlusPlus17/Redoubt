@@ -14,6 +14,29 @@ The new workspace is `account-process-runtime`; evidence is under
 `evidence/account-process-runtime`. This run creates a fresh Android30 x86_64
 emulator and uses the unchanged canonical smoke/pref scripts.
 
-The run is active. Complete uBO lifecycle, baseline, preference audit and emulator
-cleanup are required. No runtime PASS is claimed yet. `capture.py` will preserve
-the actual terminal outcome, including failures, without promoting partial work.
+The run finished **FAIL**, retained invocation `a172ec…`, main exit1. uBO exited1
+before recording any check: `wait_for_initial_document` called `.get` on a null
+script result. Baseline recorded actual passing HTTPS-only interstitial, HTTP
+exception and HTTPS page checks, then its graphics runner failed on a list
+decoded as a dictionary. The baseline recovery path hit the same null-readiness
+exception. Neither uBO nor graphics acceptance completed.
+
+The independent preference audit exited0:58 curated prefs were dumped;20 of the
+137 must-lock keys were in that universe, with zero violations.117 keys remain
+outside this audit's runtime coverage. The WebGL prompt differed from the older
+non-must-lock baseline; that note is not a preference violation. Emulator cleanup
+exited0. The subsequent read-only logcat request found no device, so no startup
+logcat was captured and no absence-of-crash claim is made from it.
+
+`capture.py` retained55 members, all independently hash-checked by root in
+`result.json`. `runtime-failure.tar.gz` SHA-256:
+`7be5d87a93ac83c983bbe93dd28679b101d6c381fce564627cdb16cc011382b1`.
+The nested graphics report and both failure screenshots are retained separately
+with their actual hashes in `graphics-failure.tar.gz`:
+`a7811e1792a973837227dd67b6acb453a15b23035a40c43841eb884033966dec`.
+The graphics report contains no completed graphics checks and names the exact
+installed APK. No target source or APK change followed this harness failure.
+
+This failed run cannot admit the future245 source stage. A separately reviewed
+harness correction and fresh complete runtime are required; passing early
+browsing checks or the independent preference audit does not waive that gate.
