@@ -40,6 +40,17 @@ single-space context line is intentional patch syntax, not source whitespace.
 The earlier custom-tab correction's checksums/patch digest remain historical;
 use the format followup's current receipt/checksums for the current patch bytes.
 
+[The navigation-fixture correction](navigation-fixture-correction/receipt.json)
+retains the next run's four-case XML: both custom-tab controls and the false-flag
+control passed, while the normal navigation control failed in the lazy navHost
+lookup. The corrected setup uses a real anonymous activity and its public
+fragment-manager override, avoiding a spy copy of an already-created lazy
+initializer. The actual handler, lazy lookup, intent consumption and navigation
+assertions remain exercised. All four methods and assertions are preserved.
+Only that test file changes; corrected target execution and the full gate remain
+pending. This receipt supersedes the format followup's current patch digest while
+preserving every historical patch/source overlay and all production hashes.
+
 The earlier [Boolean fixture receipt](boolean-matcher-correction/receipt.json)
 and original 23-file/28-definition source evidence remain historical and intact.
 

@@ -1971,7 +1971,7 @@ diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivi
 new file mode 100644
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityAccountSettingsTest.kt
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,84 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -2001,15 +2001,13 @@ new file mode 100644
 +class HomeActivityAccountSettingsTest {
 +    @Test
 +    fun `normal activity consumes account settings request and opens settings`() {
++        val activity = spyk(HomeActivity())
 +        val navController = mockk<NavController>(relaxed = true)
 +        val navHost = mockk<NavHostFragment>()
 +        val fragments = mockk<FragmentManager>()
 +        every { navHost.navController } returns navController
 +        every { fragments.findFragmentById(R.id.container) } returns navHost
-+        // The real lazy navHost must capture this activity, not a copied spy.
-+        val activity = object : HomeActivity() {
-+            override fun getSupportFragmentManager(): FragmentManager = fragments
-+        }
++        every { activity.supportFragmentManager } returns fragments
 +        val intent = Intent().putExtra(AccountServicesPreference.OPEN_SETTINGS, true)
 +
 +        activity.handleNewIntent(intent)

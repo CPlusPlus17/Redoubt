@@ -1,0 +1,50 @@
+{
+  "status": "SOURCE FIXTURE CANDIDATE; corrected target test UNRUN",
+  "recorded_utc": "2026-09-09T04:56:02.167946+00:00",
+  "observed_run_scope": "Current167 Fenix regression run; this complete four-case XML was copied read-only while the enclosing full suite was still running. No terminal full-suite result claimed.",
+  "observed_class_summary": {
+    "name": "org.mozilla.fenix.HomeActivityAccountSettingsTest",
+    "tests": "4",
+    "skipped": "0",
+    "failures": "1",
+    "errors": "0",
+    "timestamp": "2026-09-09T04:43:47.537Z",
+    "hostname": "c11f8b4a0784",
+    "time": "2.493"
+  },
+  "observed_class_xml_sha256": "fcfd08ea5f1149c091cb43b4baf21f153b78797d0ec73e076adb921af94c01eb",
+  "observed_log_excerpt_sha256": "abc2cb24ef81fe8ef3bde5fc23cbe60905bd99b0c4f07eeabdab76c54d817e5d",
+  "observed_test_source_sha256": "bacc852ccc5eb97bbdf22200f4cc0535b5fc6acabee71aae0c30787939b766c2",
+  "actual_failure": {
+    "class": "org.mozilla.fenix.HomeActivityAccountSettingsTest",
+    "method": "normal activity consumes account settings request and opens settings",
+    "failure": "java.lang.NullPointerException: null cannot be cast to non-null type androidx.navigation.fragment.NavHostFragment",
+    "first_stack_frames": [
+      "\tat org.mozilla.fenix.HomeActivity.navHost_delegate$lambda$0(HomeActivity.kt:355)",
+      "\tat kotlin.SynchronizedLazyImpl.getValue(LazyJVM.kt:86)",
+      "\tat org.mozilla.fenix.HomeActivity.getNavHost(HomeActivity.kt:354)"
+    ]
+  },
+  "diagnosis": "The observed failure occurs in the real lazy navHost initializer. The fixture supplied a copied MockK spy and stubbed its manager after HomeActivity construction; the initializer closure retains the original instance. Use a real anonymous activity with an overridden public manager getter so initializer and fixture share the same object.",
+  "fixture_API_proof": "fragment-manager-method.json and fragment-api-class.tar.gz retain the exact guest-cached AndroidX1.8.9 public nonfinal getter identity; no new runtime library or dependency added",
+  "source_overlay": {
+    "classification": "test fixture only; no production/source behavior change",
+    "previous_patch_sha256": "28bda8b4944365f404270bfe61dc25b71862aa915490b688e0c845b46314e2d8",
+    "patch_sha256": "ac0bc252eafcc7d4a73e581447eafa3f477d5aab7ac66eba6835414df73724b5",
+    "files": [
+      {
+        "path": "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityAccountSettingsTest.kt",
+        "before_sha256": "bacc852ccc5eb97bbdf22200f4cc0535b5fc6acabee71aae0c30787939b766c2",
+        "after_sha256": "f8f04a72ca2ca1de051ff1a235c8cc56d89a4c6ea764d69340077d27578c102e",
+        "test_count_before": 4,
+        "test_count_after": 4
+      }
+    ]
+  },
+  "production_files_changed": 0,
+  "source_files_unchanged": 23,
+  "test_methods_and_assertions": "All four names/counts preserved; the intent execution and all assertions plus three other cases are byte-identical after the fixture setup",
+  "verification": "Eight scoped predecessor patches; Git and GNU2.8 --fuzz=0 replay all24 source hashes; no offsets; board PASS. Target Kotlin correction not compiled/executed here.",
+  "required_target_class": "org.mozilla.fenix.HomeActivityAccountSettingsTest",
+  "required_full_gate": "Fresh full Fenix suite through unchanged allowance gate; target run inputs must stay frozen until current attempt ends"
+}
