@@ -1,7 +1,7 @@
 # Current167 APK and runtime checkpoint
 
 These drivers are prepared but **not run on the guest**. Local Python syntax and
-21 synthetic input/result contract tests pass. No new APK, emulator, resource or
+24 synthetic input/result contract tests pass. No new APK, emulator, resource or
 browser acceptance is claimed here. Root owns launch and evidence collection.
 
 The fourth full test invocation `784b8ec5172a487d83970eb9879dee3c` failed its
@@ -13,7 +13,11 @@ never picks the newest directory or treats an elapsed wait as success.
 The selected service must have `RemainAfterExit=yes` and a successful terminal
 state. The selected complete source manifest, before/after source checks,
 `finished.txt`, container/AC/full-allowance/fresh-XML gate exit files, summary and
-all seven XML archives are required and pinned in the reviewed config. Fenix's
+all seven XML archives are required and pinned in the reviewed config. The
+recorded `driver-sha256.txt` must name exactly the board, allowance, fresh-results
+grader and one supported full-test runner; every recorded digest must match the
+current repository bytes. Both full-run scripts are also explicit config
+dependencies. Hashing a stale driver manifest alone cannot qualify. Fenix's
 upstream allowance is retained: Gradle exit 1 is accepted only when its sole
 failed task is `:fenix:testDebugUnitTest` and both independent gates passed.
 Compiler failures, skipped required suites and incomplete source checks cannot

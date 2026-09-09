@@ -139,6 +139,40 @@ class CheckpointContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             c.checked(row)
 
+    def recorded_driver_fixture(self):
+        repo = self.root / 'repo'
+        evidence = self.root / 'evidence'
+        evidence.mkdir()
+        names = ['docs/android/board.py', 'docs/android/fenix-test-allowlist.yaml',
+                 'docs/android/evidence/lw-m7-12/grade-extended-tests.py',
+                 'docs/android/evidence/lw-m7-12/run-fenix-navigation-tests.sh']
+        for name in names:
+            path = repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('synthetic recorded input: ' + name)
+        (evidence / 'driver-sha256.txt').write_text(''.join(c.digest(repo / n) + '  ' + n + '\n' for n in names))
+        return repo, evidence, names
+
+    def test_selected_navigation_driver_matches_actual_recorded_bytes(self):
+        repo, evidence, names = self.recorded_driver_fixture()
+        with patch.object(c, 'REPO', repo), patch.object(c, 'TESTS', evidence):
+            self.assertEqual(set(c.recorded_test_driver_check()), set(names))
+
+    def test_changed_selected_test_driver_rejected(self):
+        repo, evidence, names = self.recorded_driver_fixture()
+        (repo / names[-1]).write_text('changed after the completed test run')
+        with patch.object(c, 'REPO', repo), patch.object(c, 'TESTS', evidence):
+            with self.assertRaises(ValueError):
+                c.recorded_test_driver_check()
+
+    def test_incomplete_recorded_driver_inventory_rejected(self):
+        repo, evidence, _names = self.recorded_driver_fixture()
+        path = evidence / 'driver-sha256.txt'
+        path.write_text('\n'.join(path.read_text().splitlines()[:-1]) + '\n')
+        with patch.object(c, 'REPO', repo), patch.object(c, 'TESTS', evidence):
+            with self.assertRaises(ValueError):
+                c.recorded_test_driver_check()
+
     def test_failed_or_running_service_never_terminal_success(self):
         state = {'InvocationID': 'a' * 32, 'RemainAfterExit': 'yes', 'ActiveState': 'active',
                  'SubState': 'exited', 'Result': 'success', 'ExecMainStatus': '0'}

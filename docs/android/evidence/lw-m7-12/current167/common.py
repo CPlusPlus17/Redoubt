@@ -39,6 +39,7 @@ DEPENDENCIES = (
     'scripts/android-apk.sh', 'assets/mozconfig.android',
     'docs/android/evidence/lw-m7-15/podman-bounded.sh',
     'docs/android/evidence/lw-m7-12/run-fenix-regression-tests.sh',
+    'docs/android/evidence/lw-m7-12/run-fenix-navigation-tests.sh',
     'docs/android/evidence/lw-m7-12/grade-extended-tests.py',
     'docs/android/board.py', 'docs/android/fenix-test-allowlist.yaml',
     'docs/android/evidence/lw-m7-30/check-source.py',
@@ -199,8 +200,22 @@ def guest_guard():
                 for key in os.environ), 'unexpected inherited build/runtime override')
 
 
+def recorded_test_driver_check():
+    rows = manifest(TESTS / 'driver-sha256.txt')
+    fixed = {'docs/android/board.py', 'docs/android/fenix-test-allowlist.yaml',
+             'docs/android/evidence/lw-m7-12/grade-extended-tests.py'}
+    allowed = {'docs/android/evidence/lw-m7-12/run-fenix-regression-tests.sh',
+               'docs/android/evidence/lw-m7-12/run-fenix-navigation-tests.sh'}
+    require(len(rows) == 4 and fixed <= set(rows) and len(set(rows) & allowed) == 1,
+            'recorded full-test driver inventory differs')
+    for name, value in rows.items():
+        require(digest(REPO / name) == value, 'recorded full-test driver changed: ' + name)
+    return rows
+
+
 def tests_check():
     observed = service(SERVICES['tests'], TEST_INVOCATION, terminal=True)
+    recorded_test_driver_check()
     require(digest(TESTS / 'source-sha256.txt') == CURRENT, 'tests used another source manifest')
     rows = source_check()
     for name in ('source-before.txt', 'source-after.txt'):
