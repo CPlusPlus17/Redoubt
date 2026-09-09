@@ -6,6 +6,8 @@ All pinned desktop patches, all policy leaves and all copied pane settings/butto
 
 **This is source coverage, not feature completion. No browser runtime check was executed by this audit.** Each counterpart below has explicit remaining work; “source implemented” does not mean its behavior has passed on the APK. The latest scoped followup updates graphics, RFP, extension-update and network controls against LW-M7-35/36 source. Their target compilation and APK behavior remain pending; no older build supplies that verdict. Original archived source capture and unrelated counterpart records are unchanged; [followup-review.json](followup-review.json) records the separate repository review.
 
+A later [fixture lineage review](fixture-lineage-followup/review.json) refreshes current source pins through the Bundle correction (114), permission fixture correction (A8) and coroutine opt-in (B10), plus Sync, cookie and startup-metrics test fixtures. A separate production fix restores the existing custom-tab early return before account-settings intent inspection; its four regression cases remain target-gated. The one appended Task37 registry line is also pinned; its full session coordinator remains pending. These are distinct historical steps; all counterpart claims and pending Task35/36 target gates remain unchanged.
+
 ## Desktop patches
 
 | Input | Effects | Android counterpart / remaining work |

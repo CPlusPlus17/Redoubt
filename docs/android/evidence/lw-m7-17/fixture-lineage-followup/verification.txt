@@ -1,0 +1,49 @@
+Host source-evidence verification only; no target compilation or execution.
+UTC: 2026-09-09T05:11:29.754802+00:00
+Input snapshot: bb075f7339bcf31f794dcab0c9418d6d65cbd62a
+Existing temporary-evidence checks exposed a helper path-binding issue during development; the helper now receives the caller's evidence and repository roots. Original nine guard cases remain unchanged.
+
+$ python3 docs/android/evidence/lw-m7-17/check-coverage.py
+LINEAGE VERIFIED: Bundle114 -> fixtureA8 -> OptInB10; 8 fixture bodies; Home routing9f -> GNU28 -> navigationAC0; current20/23/26/29/35/36. No target verdict.
+COVERAGE INPUTS VERIFIED: 36 desktop patches / 46 effect groups; 22 policy keys / 46 exact leaves; 4 copied assets / 16 controls / 15 pref registrations.
+Pinned evidence: 46 archived source files, 59 repository counterpart inputs, 5 bounded searches.
+RUNTIME PARITY: NOT TESTED by this audit. Open gaps and proof obligations remain in coverage.json.
+
+exit=0
+
+$ python3 docs/android/evidence/lw-m7-17/fixture-lineage-followup/test-checker.py
+PASS: exact baseline fixture lineage accepted
+PASS: rejected false target verdict: fixture review must not claim target success
+PASS: rejected relabelled original archive: fixture review relabels original archive
+PASS: rejected changed counterpart semantics: fixture review changes coverage semantics: counterparts
+PASS: rejected Bundle stage overwritten by current hash: Bundle graphics lineage differs
+PASS: rejected missing intermediate fixture stage: permission fixture lineage differs
+PASS: rejected changed authored test body: fixture input differs: docs/android/evidence/lw-m7-21/test-optin-correction/OriginBoundPermissionsFeatureTest.kt
+PASS: exact fixture lineage accepted after every negative control
+
+exit=0
+
+$ python3 docs/android/evidence/lw-m7-17/global-controls-followup/test-checker.py
+PASS: unmodified evidence accepted
+PASS: stale_markdown rejected
+PASS: omit_save_dependency rejected
+PASS: wrong_inspected_hash rejected
+PASS: unrelated_counterpart rejected
+PASS: false_compile rejected
+PASS: false_runtime rejected
+PASS: wrong_historical_patch rejected
+PASS: changed_before_archive rejected
+PASS: altered_original_effect rejected
+9 negative controls passed; no target code executed.
+
+exit=0
+
+$ python3 docs/android/board.py --check
+ok: 122 tasks, 31 waves, 0 warning(s)
+
+exit=0
+
+$ git diff --check
+
+
+exit=0

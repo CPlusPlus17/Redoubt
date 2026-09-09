@@ -14,6 +14,8 @@ all desktop/policy/pane mappings remain unchanged from the preceding review.
 [followup-review.json](followup-review.json) retains the earlier followups and
 the distinct source-capture and repository-review revisions.
 
+A later [fixture lineage review](fixture-lineage-followup/review.json) refreshes current source pins through the Bundle correction (114), permission fixture correction (A8) and coroutine opt-in (B10), plus Sync, cookie and startup-metrics test fixtures. A separate production fix restores the existing custom-tab early return before account-settings intent inspection; its four regression cases remain target-gated. The one appended Task37 registry line is also pinned; its full session coordinator remains pending. These are distinct historical steps; all counterpart claims and pending Task35/36 target gates remain unchanged.
+
 The four updated counterparts now record these source implementations:
 
 - **Extension updates:** Settings has a native-backed combined switch for

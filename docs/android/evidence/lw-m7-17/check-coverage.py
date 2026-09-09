@@ -3,6 +3,7 @@
 
 import gzip
 import hashlib
+import importlib.util
 import io
 import json
 from pathlib import Path
@@ -265,18 +266,25 @@ def check():
                     f"compiler correction is not pinned: {path}")
             overlay = json.loads((ROOT / correction["evidence"]).read_text())
             require(overlay["old_patch_sha256"] == correction["previous_sha256"] and
-                    overlay["patch_sha256"] == item["sha256"], f"compiler correction lineage differs: {path}")
+                    overlay["patch_sha256"] == correction.get("result_patch_sha256", item["sha256"]), f"compiler correction lineage differs: {path}")
             require(len(overlay["files"]) == 1, f"compiler correction scope differs: {path}")
             corrected = overlay["files"][0]
             body = str(Path(correction["evidence"]).parent / Path(corrected["path"]).name)
             require(coverage["repository_evidence"].get(body) == corrected["after_sha256"],
                     f"compiler correction body differs: {path}")
+        if "historical_reviewed_patch" in item:
+            reviewed_path = item["historical_reviewed_patch"]
         for start, end in item["reviewed_lines"]:
             require(1 <= start <= end <= len((ROOT / reviewed_path).read_text().splitlines()),
                     f"followup reviewed range invalid: {path}")
     for path, item in changed.items():
         require(item["previous_sha256"] != item["sha256"], f"unchanged followup input: {path}")
     check_global_controls(coverage, followup, source)
+    spec = importlib.util.spec_from_file_location("fixture_lineage", HERE / "check-fixture-lineage.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.HERE, module.ROOT = HERE, ROOT
+    module.check(coverage, followup)
     print(f"COVERAGE INPUTS VERIFIED: {len(paths)} desktop patches / {effect_count} effect groups; "
           f"{len(policies)} policy keys / {len(all_leaves)} exact leaves; "
           f"{len(pane_assets)} copied assets / {len(controls)} controls / {len(registrations)} pref registrations.")
