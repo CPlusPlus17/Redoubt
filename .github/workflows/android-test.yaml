@@ -143,6 +143,14 @@ jobs:
           # only reaches that guard after downloading a second tarball.
           make dir TARGETS=android
 
+      - name: Check every Firefox brand image has a Redoubt replacement
+        run: |
+          # LW-M4-07. Needs the extracted tree, so it runs after `make dir`.
+          # A signed beta candidate shipped the Firefox flame as its home-screen
+          # wordmark on 2026-09-08 because nothing looked at images; this is what
+          # looks at them.
+          python3 scripts/android-brand-check.py "librewolf-$(cat version.android)-$(cat release.android)"
+
       - name: Check the shipped prefs against GeckoView's declarations
         run: |
           # --check-policies needs the extracted tree (it reads GeckoRuntimeSettings
