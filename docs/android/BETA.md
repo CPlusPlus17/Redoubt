@@ -33,10 +33,30 @@ linked. "Green on the maintainer's machine" counts only where the line says so.
 | E11 | First-run network capture uses a resolver that does **not** sinkhole Mozilla hosts | Candidate pcap, DNS control and parsed events | **Met 2026-09-08.** The final candidate was captured with emulator DNS `9.9.9.9`; direct controls return public addresses for telemetry, ads and security hosts. The authoritative `final-candidate/first-run-capture-final.json` records 11 outbound transport events, including three complete security-host SNI names. Raw pcap and DNS controls are retained. These are transport observations, not decrypted requests or complete app-UID attribution. |
 | E12 | The Remote Settings allowlist has been decided **for Android**, and the beta carries that decision | `settings/android.cfg`, `evidence/lw-m4-08/RESULT.md`, candidate pref dump | **Met 2026-09-08.** The final candidate’s effective `librewolf.services.settings.allowedCollections` matches all seven approved entries in `settings/android.cfg`; the eleven local `allowedCollectionsFromDump` entries are unchanged. See the candidate audit’s `final-candidate/prefs-all.json`. The two strict zero-traffic checks remain red and retain their original assertions; hostnames alone cannot establish which encrypted collections were requested. |
 
-**Current result: all twelve beta entry criteria are satisfied, including the
-dated, candidate-specific E7 custody exception. The candidate is published for
-beta testing.** The exception is limited to the four signed hashes recorded in
-the owner decision; it does not amend future/public-release signing requirements.
+**WITHDRAWN 2026-09-13: do not hand the 2026-09-08 candidate to testers.** The
+twelve criteria were satisfied as written, and two defects got through anyway
+because no criterion asked about either. Both were found by inspecting the signed
+APK, not the sources:
+
+1. **It ships Firefox branding.** The home-screen wordmark is the full-colour
+   Firefox flame with the word "Firefox" beside it; `ic_firefox` and four more
+   in-app logos are Mozilla's; and eight *user-selectable* app icons include the
+   classic 2004 Firefox logo. `--check-strings` passed honestly — the string
+   layer is clean — but it has no view of images and nothing else did either.
+   This is a trademark exposure, not a cosmetic one.
+2. **It has no uBlock Origin.** LW-M3-07 landed at 23:02 on 2026-09-08; the
+   candidate was built at 16:13 the same day, seven hours earlier. The signed
+   artifact predates the work. uBO is the most visible privacy feature LibreWolf
+   desktop ships, and testers would have reported its absence as the headline.
+
+Neither invalidates the E7 signing evidence: the four hashes are genuine, the
+custody exception stands, and the verification is reproducible. What is withdrawn
+is the *candidate*, not the process that signed it.
+
+A replacement candidate carrying both fixes is being built. The criteria
+themselves gained nothing from this episode except a demonstration that "all
+twelve green" describes the checklist, not the product — so `scripts/android-brand-check.py`
+now exists, and E3 names it.
 
 **Audit reopened 2026-09-08.** The previous “eleven of twelve met” summary was
 not supported for the final unsigned APKs. Their hashes and version codes differed
