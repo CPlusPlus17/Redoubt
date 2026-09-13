@@ -97,6 +97,20 @@ index 0000000..bd2a003
 +        verify { native.ingest(match { it.providers == null }) }
 +    }
 +}
+diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
+--- a/mobile/android/fenix/app/build.gradle
++++ b/mobile/android/fenix/app/build.gradle
+@@
+     implementation ComponentsDependencies.mozilla_appservices_syncmanager
+     implementation ComponentsDependencies.mozilla_appservices_merino
++    // This patch makes Fenix itself reference mozilla.appservices.suggest
++    // (FxSuggest.kt's defaultIngestionProviders, and the SuggestData* files it
++    // adds). Upstream Fenix never names that package -- feature-fxsuggest wraps
++    // it and depends on it as `implementation`, which does not put it on Fenix's
++    // compile classpath. Without this line the build fails with "Cannot access
++    // class 'mozilla.appservices.suggest.SuggestionProvider'".
++    implementation ComponentsDependencies.mozilla_appservices_suggest
+ 
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
 index 8c68bab..c7baedc 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
