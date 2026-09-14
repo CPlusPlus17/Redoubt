@@ -141,9 +141,15 @@ def raster_for(src: Path, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     svg = dest.with_suffix(".svg.tmp")
     svg.write_text("\n".join(svg_parts))
-    # -define webp:method=6 and a fixed quality keep the encoder deterministic.
+    # Determinism matters: these bytes are committed, and a generator that emits
+    # a different file every run buries a real change in encoder noise. -strip
+    # and the PNG date exclusions remove the creation timestamp ImageMagick
+    # writes by default -- measured, the three PNGs differed run to run at
+    # identical pixels (compare -metric AE = 0) until this was added. webp was
+    # already stable; method=6 and a fixed quality keep it that way.
     subprocess.run(["magick", "-background", "none", str(svg),
-                    "-resize", "%dx%d!" % (w, h),
+                    "-resize", "%dx%d!" % (w, h), "-strip",
+                    "-define", "png:exclude-chunk=date,time,tIME,tEXt",
                     "-define", "webp:method=6", "-quality", "92", str(dest)],
                    check=True, capture_output=True)
     svg.unlink()
