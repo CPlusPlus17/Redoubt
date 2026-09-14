@@ -100,24 +100,36 @@ def raster_for(src: Path, dest: Path) -> None:
 
     svg_parts = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" '
                  'viewBox="0 0 %d %d">' % (w, h, w, h)]
+    # Bold sans at ~0.58em average advance over "Redoubt" (7 glyphs). Used to
+    # SHRINK the type so the word always fits the box it is given: Gecko's
+    # about.png is 258x94, where a height-derived size overflows and the word
+    # renders as "Redou". Measured, not guessed -- that clipping is what this
+    # calculation exists to prevent.
+    advance = 0.58 * len("Redoubt")
+
+    def fit(preferred, available):
+        return min(preferred, available / advance)
+
     if text_only:
-        fs = h * 0.72
+        left = w * 0.02
+        fs = fit(h * 0.72, w - 2 * left)
         svg_parts.append(
             '<text x="%g" y="%g" font-family="DejaVu Sans,Noto Sans,sans-serif" '
             'font-weight="700" font-size="%g" fill="%s" '
-            'dominant-baseline="central">Redoubt</text>' % (w * 0.02, h * 0.54, fs, colour))
+            'dominant-baseline="central">Redoubt</text>' % (left, h * 0.54, fs, colour))
     elif wide:
         m = h * 0.82
         pad = h * 0.09
         s = m / 108.0
         svg_parts.append('<g transform="translate(%g,%g) scale(%g)">'
                          '<path d="%s" fill="%s"/></g>' % (pad, pad, s, FORT, colour))
-        fs = h * 0.62
+        text_x = pad + m + h * 0.14
+        fs = fit(h * 0.62, w - text_x - pad)
         svg_parts.append(
             '<text x="%g" y="%g" font-family="DejaVu Sans,Noto Sans,sans-serif" '
             'font-weight="700" font-size="%g" fill="%s" '
             'dominant-baseline="central">Redoubt</text>'
-            % (pad + m + h * 0.14, h * 0.54, fs, colour))
+            % (text_x, h * 0.54, fs, colour))
     else:
         m = min(w, h) * 0.8
         s = m / 108.0
