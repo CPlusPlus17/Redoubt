@@ -62,6 +62,55 @@ SHIPPED_MODULES = ("fenix", "android-components")
 IMAGE_SUFFIXES = {".xml", ".webp", ".png", ".jpg", ".svg"}
 
 
+
+# Gecko's branding is a separate layer from Fenix's resources and a separate
+# failure: assets/mozconfig.android builds --with-branding=mobile/android/
+# branding/unofficial, whose upstream contents name the product "Fennec", the
+# vendor "Mozilla" and the family "Firefox", and ship a fennec-fox logo. Those
+# are compiled into omni.ja and travel in the APK.
+#
+# Checked by VALUE, after patching, rather than by file coverage: the question
+# is not "did we write a file here" but "does the artifact still say Fennec".
+GECKO_BRANDING = Path("branding") / "unofficial"
+MOZILLA_MARKS = re.compile(r"\b(fennec|mozilla|firefox)\b", re.IGNORECASE)
+
+
+def check_gecko_branding(root: Path) -> list:
+    """Brand VALUES in the Gecko branding directory, with comments ignored."""
+    problems = []
+    base = root / GECKO_BRANDING
+    if not base.is_dir():
+        return ["mobile/android/%s is missing -- upstream moved Gecko's Android "
+                "branding; regenerate the replacement set" % GECKO_BRANDING]
+
+    text_files = {
+        "locales/en-US/brand.ftl": r"^\s*-?[A-Za-z][A-Za-z0-9_-]*\s*=\s*(.+)$",
+        "locales/en-US/brand.properties": r"^\s*[A-Za-z][A-Za-z0-9_]*\s*=\s*(.+)$",
+        "configure.sh": r'^\s*MOZ_APP_DISPLAYNAME\s*=\s*"?([^"]+)"?\s*$',
+    }
+    for rel, pattern in text_files.items():
+        path = base / rel
+        if not path.exists():
+            problems.append("%s/%s is missing" % (GECKO_BRANDING, rel))
+            continue
+        rx = re.compile(pattern)
+        for lineno, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue
+            m = rx.match(line)
+            if m and MOZILLA_MARKS.search(m.group(1)):
+                problems.append("%s/%s:%d still a Mozilla mark: %s"
+                                % (GECKO_BRANDING, rel, lineno, line.strip()))
+
+    for name in ("about.png", "favicon32.png", "favicon64.png"):
+        if not (base / "content" / name).exists():
+            problems.append("%s/content/%s is missing" % (GECKO_BRANDING, name))
+        elif not (REPLACEMENTS / GECKO_BRANDING / "content" / name).exists():
+            problems.append("%s/content/%s has no Redoubt replacement checked in"
+                            % (GECKO_BRANDING, name))
+    return problems
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: android-brand-check.py <extracted-tree>", file=sys.stderr)
@@ -118,7 +167,17 @@ def main() -> int:
         print("       Harmless to ship -- the copy step asserts destinations exist and")
         print("       would have failed first -- but regenerate to keep the set honest.")
 
-    print("ok: every Firefox brand image in the tree has a Redoubt replacement")
+    gecko = check_gecko_branding(root)
+    if gecko:
+        print("error: Gecko's branding layer still carries Mozilla marks:")
+        for g in gecko:
+            print("         %s" % g)
+        print("       These compile into omni.ja and ship in the APK, where")
+        print("       --check-strings cannot see them. Regenerate:")
+        print("         python3 scripts/gen-android-brand.py %s" % sys.argv[1])
+        return 1
+    print("ok: %d brand image(s) replaced, and Gecko's branding names no Mozilla mark"
+          % found)
     return 0
 
 
