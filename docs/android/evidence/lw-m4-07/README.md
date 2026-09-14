@@ -74,3 +74,53 @@ The branch had not been built since 2026-09-09 and did not compile:
 
 Both are the same shape as `update-check.patch` in September: applies cleanly,
 passes every patch gate, does not compile.
+
+## Gecko's branding layer, done afterwards
+
+The first pass covered Fenix's Android resources. Gecko ships its own branding
+underneath, and it was still Mozilla's — `assets/mozconfig.android` builds
+`--with-branding=mobile/android/branding/unofficial`, whose upstream contents are:
+
+    MOZ_APP_DISPLAYNAME="Fennec"
+    -brand-short-name   = Fennec     -brand-full-name   = Mozilla Fennec
+    -brand-product-name = Firefox    -vendor-short-name = Mozilla
+    content/about.png                a fennec-fox logo reading "mozilla Fennec"
+
+Those compile into `omni.ja` and travel inside the APK — read out of the signed
+artifact, not inferred. `--check-strings` cannot see them: it reads the Android
+resource table, and `omni.ja` is not in it. Same blind spot as the images, one
+layer down.
+
+**Where it surfaced is narrower than it looks**, and is recorded so nobody
+re-derives it: error pages are Fenix's own and say "The browser", not "Fennec";
+`about:rights`, `about:support` and `about:buildconfig` are all unavailable on
+Android. No screen was found that displays it. So this was trademark hygiene in
+the shipped artifact rather than a visible defect — worth fixing because "we
+could not find where it renders" is a weaker answer than "it is not there".
+
+Now, read back out of the rebuilt APK's `omni.ja`:
+
+    -brand-short-name = Redoubt      -brand-full-name   = Redoubt
+    -brand-product-name = Redoubt    -vendor-short-name = Redoubt
+
+`gecko-branding-after.png` is that build's `about.png`.
+
+The directory keeps its upstream name. Renaming it would mean editing
+`assets/mozconfig.android`, which another task owns and a gate diffs, and
+"unofficial" is accurate — this is not a Mozilla-official build.
+
+`android-brand-check.py` now checks this layer **by value, after patching**: the
+question is whether the artifact still says Fennec, not whether a file was
+written. It caught all seven strings before they were replaced.
+
+Two defects found in the generated output itself, both by rendering it and
+looking rather than trusting the code:
+
+- Gecko's `about.png` is 258x94, where type sized from the image height
+  overflows: the word rendered as "Redou". The lockup now fits type to the
+  remaining width.
+- The generator was not deterministic — three PNGs differed byte-for-byte every
+  run at identical pixels (`compare -metric AE` = 0), because ImageMagick writes
+  a creation timestamp. Harmless to the reproducible build, since the bytes are
+  committed, but it buries real changes in encoder noise. Fixed and verified by
+  generating twice and hashing the set.
