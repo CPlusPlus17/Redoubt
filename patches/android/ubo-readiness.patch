@@ -10,6 +10,14 @@
 # UUID-bound cancellation immediately removes timer/listeners and cannot affect
 # unrelated requests or a later request reusing a completed identifier.
 #
+# On every launch after installation (APP_STARTUP) Gecko delays a persistent
+# background until the first browser window paints, and the embedder holds
+# every window on this wait: nothing starts uBO and each relaunch times out.
+# The wait therefore starts a delayed background itself, as install/enable
+# and a primed request do, once runManifest() has registered that handler.
+# It judges the policy Extension.startup() settles on, not the early stub
+# whose permissions are not loaded yet.
+#
 diff --git a/mobile/android/geckoview/api.txt b/mobile/android/geckoview/api.txt
 index 9f87309..96ce621 100644
 --- a/mobile/android/geckoview/api.txt
@@ -26,7 +34,7 @@ diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExt
 index 30381ff..5bdfa93 100644
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
-@@ -906,6 +906,45 @@ public class WebExtensionController {
+@@ -906,6 +906,49 @@ public class WebExtensionController {
          .accept(result -> unregisterWebExtension(extension));
    }
 
@@ -37,6 +45,10 @@ index 30381ff..5bdfa93 100644
 +   * actual registration of a blocking onHeadersReceived listener by the running
 +   * extension. It does not guarantee that arbitrary extension internals are ready.
 +   * The embedding app must establish that relationship for its selected extension.
++   *
++   * <p>At app startup Gecko delays an installed extension's background until a
++   * browser window exists. An embedder holding its windows on this result would
++   * never see that happen, so this starts a delayed background itself.
 +   *
 +   * @param extensionId The ID of an already-installed and enabled extension.
 +   * @param expectedVersion The version whose readiness the caller is awaiting.
@@ -86,7 +98,7 @@ index 3d46ebe..42bba85 100644
                "GeckoView:WebExtension:PortMessageFromApp",
                "GeckoView:WebExtension:SetPBAllowed",
 diff --git a/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
-index 2f2120d..9a0d0a4 100644
+index 2f2120d..7e9e764 100644
 --- a/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
 +++ b/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
 @@ -32,6 +32,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
@@ -98,7 +110,7 @@ index 2f2120d..9a0d0a4 100644
    PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
  });
 
-@@ -1023,6 +1025,105 @@ export var GeckoViewWebExtension = {
+@@ -1023,6 +1025,135 @@ export var GeckoViewWebExtension = {
      return exportExtension(addon, /* aSourceURI */ null);
    },
 
@@ -125,6 +137,7 @@ index 2f2120d..9a0d0a4 100644
 +      let timer;
 +      let extension;
 +      let onListener;
++      let onReady;
 +      let settled = false;
 +      const finish = error => {
 +        if (settled) {
@@ -134,6 +147,7 @@ index 2f2120d..9a0d0a4 100644
 +        lazy.clearTimeout(timer);
 +        extension?.off("redoubt-blocking-response-listener", onListener);
 +        extension?.off("shutdown", onShutdown);
++        extension?.off("ready", onReady);
 +        this.blockingResponseWaiters.delete(aRequestId);
 +        if (error) {
 +          reject(error);
@@ -156,15 +170,24 @@ index 2f2120d..9a0d0a4 100644
 +
 +      // Register the cancellable request before the first asynchronous lookup.
 +      // Cancellation during lookup must not later attach listeners or resolve.
-+      this.extensionById(aId).then(addon => {
++      this.extensionById(aId).then(async addon => {
 +        if (settled) {
 +          return;
 +        }
-+        const policy = WebExtensionPolicy.getByID(aId);
++        // At app startup the add-on manager is ready before each extension
++        // finishes Extension.startup(): the policy registered first is a
++        // temporary stub whose extension has not loaded its permissions yet.
++        // Judge the policy that startup settles on (null if interrupted).
++        const early = WebExtensionPolicy.getByID(aId);
++        const policy = early?.readyPromise ? await early.readyPromise : early;
++        if (settled) {
++          return;
++        }
 +        const currentExtension = policy?.extension;
 +        if (
 +          !addon?.isActive ||
 +          addon.version !== aExpectedVersion ||
++          WebExtensionPolicy.getByID(aId) !== policy ||
 +          !currentExtension?.hasPermission("webRequestBlocking")
 +        ) {
 +          finish(new Error("No matching active blocking extension"));
@@ -182,9 +205,28 @@ index 2f2120d..9a0d0a4 100644
 +            finish();
 +          }
 +        };
++        // At app startup ext-backgroundPage.js delays a persistent background
++        // until the first browser window has painted, and the embedder holds
++        // every window until this wait resolves: without this, neither ever
++        // happens. Start it now, as install, enable and a primed request do.
++        // primeBackground() registers that handler during runManifest(),
++        // which completes before "ready".
++        onReady = () => {
++          if (!settled && extension.backgroundState === "stopped") {
++            extension.emit("start-background-script");
++          }
++        };
 +        extension.on("redoubt-blocking-response-listener", onListener);
 +        extension.on("shutdown", onShutdown);
 +        onListener();
++        if (settled) {
++          return;
++        }
++        if (extension.promiseBackgroundStarted) {
++          onReady();
++        } else {
++          extension.on("ready", onReady);
++        }
 +      }).catch(finish);
 +    });
 +  },
@@ -204,7 +246,7 @@ index 2f2120d..9a0d0a4 100644
    async uninstallWebExtension(aId) {
      const extension = await this.extensionById(aId);
      if (!extension) {
-@@ -1418,6 +1519,31 @@ export var GeckoViewWebExtension = {
+@@ -1418,6 +1549,31 @@ export var GeckoViewWebExtension = {
          break;
        }
 

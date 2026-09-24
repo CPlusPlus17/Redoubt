@@ -3058,7 +3058,21 @@ def run_ubo_behavior(app, adb, apk, origin, res, lifecycle=False):
         res.add("ubo-preinstalled-signature", addon_ok,
                 "the pinned ordinary AMO-signed add-on must be active on first navigation",
                 {"addon": addon, "bundle": bundle})
-        if not lifecycle or not first_ok or not addon_ok:
+        if not first_ok or not addon_ok:
+            return
+
+        # Every launch after the first: uBO is installed and enabled, Gecko
+        # delays its background until a browser window paints, and the startup
+        # gate holds every window until uBO's blocking listener is live. Beta 2
+        # deadlocked there into "uBlock Origin setup failed" on every relaunch;
+        # this harness only ever restarted with uBO disabled or removed.
+        m.close()
+        m = None
+        token = "ubo-enabled-restart-" + os.urandom(8).hex()
+        m = open_session(app, base + token)
+        wait_for_initial_document(m, base + token)
+        restart_ok = measure_ubo_navigation(m, res, origin, token, True, "ubo-enabled-restart")
+        if not lifecycle or not restart_ok:
             return
 
         # This is also the negative control for the block assertion: the same

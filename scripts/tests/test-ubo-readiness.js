@@ -21,10 +21,15 @@ const waitMethod = gv.slice(gv.indexOf('  async awaitBlockingResponseListener(')
 assert.ok(registrar.startsWith('function registerEvent('));
 assert.ok(waitMethod.includes('30000'));
 
+// A hung wait leaves no pending timer, so Node would exit 0 without reaching
+// the summary. Only the completed run below may report success.
+process.exitCode = 1;
+
 function fixture({ active = true, permission = true, version = '1.74.0' } = {}) {
+  const granted = { permission };
   const extension = Object.assign(new EventEmitter(), {
     id: 'uBlock0@raymondhill.net',
-    hasPermission: name => permission && name === 'webRequestBlocking',
+    hasPermission: name => granted.permission && name === 'webRequestBlocking',
   });
   const addon = { isActive: active, version };
   const policy = { extension };
@@ -72,8 +77,27 @@ function fixture({ active = true, permission = true, version = '1.74.0' } = {}) 
     assert.equal(controller.blockingResponseWaiters?.size || 0, 0, 'active request cleaned');
     assert.equal(extension.listenerCount('shutdown'), 0, 'shutdown listener cleaned');
     assert.equal(extension.listenerCount('redoubt-blocking-response-listener'), 0, 'readiness listener cleaned');
+    assert.equal(extension.listenerCount('ready'), 0, 'startup listener cleaned');
   };
-  return { extension, addon, policies, timers, register, wait, cancel, clean, warnings, controller };
+  // ext-backgroundPage.js at APP_STARTUP: primeBackground() primes persisted
+  // listeners and registers the one-shot start handler, which Gecko itself
+  // only answers after the first browser window paints.
+  const primeDelayedBackground = () => {
+    extension.backgroundState = 'stopped';
+    extension.promiseBackgroundStarted = () => new Promise(() => {});
+    const primed = register('onHeadersReceived', true, false);
+    const started = { count: 0 };
+    extension.once('start-background-script', () => {
+      started.count++;
+      extension.backgroundState = 'starting';
+      // uBO re-registers its blocking listener once its filters are loaded.
+      setImmediate(() => primed.convert({}, { xulBrowser: { frameLoader: { remoteTab: {} } } }));
+    });
+    return started;
+  };
+  const grant = value => { granted.permission = value; };
+  return { extension, addon, policies, timers, register, wait, cancel, clean, warnings, controller,
+    primeDelayedBackground, grant };
 }
 const tick = async () => { await Promise.resolve(); await Promise.resolve(); };
 let passed = 0;
@@ -198,5 +222,63 @@ async function test(name, run) { await run(); passed++; process.stdout.write('PA
     const f = fixture(); const result = f.wait(); const checked = assert.rejects(result, /changed/);
     await tick(); f.addon.version = '1.75.0'; f.register(); await checked; f.clean();
   });
+  // Every launch after the first: the embedder holds all windows until this
+  // wait resolves, so Gecko's own start trigger (first paint) never arrives.
+  await test('delayed app-startup background is started rather than awaited forever', async () => {
+    const f = fixture(); const started = f.primeDelayedBackground();
+    const result = f.wait(); await tick(); await tick();
+    assert.equal(started.count, 1, 'delayed background was started');
+    await result; f.clean();
+    f.extension.emit('start-background-script'); assert.equal(started.count, 1);
+  });
+  await test('background already starting or running is not started again', async () => {
+    for (const state of ['starting', 'running']) {
+      const f = fixture(); const started = f.primeDelayedBackground();
+      f.extension.backgroundState = state;
+      let settled = false; const result = f.wait().then(() => { settled = true; });
+      await tick(); await tick();
+      assert.equal(started.count, 0); assert.equal(settled, false);
+      f.register(); await result; f.clean();
+    }
+  });
+  await test('wait during extension startup judges the settled policy then starts its background', async () => {
+    const f = fixture({ permission: false }); let settle;
+    f.policies.set(f.extension.id, { extension: f.extension, readyPromise: new Promise(resolve => { settle = resolve; }) });
+    let outcome; const result = f.wait().then(() => { outcome = 'resolved'; }, error => { outcome = error; });
+    await tick(); await tick();
+    assert.equal(outcome, undefined, 'judged before Extension.startup() loaded permissions');
+    // Extension.startup(): the real policy replaces the temporary one.
+    const real = { extension: f.extension }; f.policies.set(f.extension.id, real); f.grant(true); settle(real);
+    await tick(); await tick(); assert.equal(outcome, undefined);
+    // runManifest(): primeBackground(), then "ready".
+    const started = f.primeDelayedBackground();
+    await tick(); assert.equal(started.count, 0, 'started before its handler existed');
+    f.extension.emit('ready'); await result;
+    assert.equal(outcome, 'resolved'); assert.equal(started.count, 1); f.clean();
+  });
+  await test('interrupted extension startup rejects', async () => {
+    const f = fixture(); let settle;
+    f.policies.set(f.extension.id, { extension: f.extension, readyPromise: new Promise(resolve => { settle = resolve; }) });
+    const checked = assert.rejects(f.wait(), /No matching active/);
+    await tick(); f.policies.delete(f.extension.id); settle(null); await checked; f.clean();
+  });
+  await test('cancel during extension startup cannot later start a background or attach listeners', async () => {
+    const f = fixture(); let settle;
+    f.policies.set(f.extension.id, { extension: f.extension, readyPromise: new Promise(resolve => { settle = resolve; }) });
+    const result = f.wait('1.74.0', requestA); const checked = assert.rejects(result, /cancelled/);
+    await tick(); assert.equal(f.cancel(requestA), true); await checked; f.clean();
+    const started = f.primeDelayedBackground();
+    const real = { extension: f.extension }; f.policies.set(f.extension.id, real); settle(real);
+    await tick(); await tick(); f.extension.emit('ready'); await tick();
+    assert.equal(started.count, 0); f.clean();
+  });
+  await test('wait settled before ready does not start a background afterwards', async () => {
+    const f = fixture(); const result = f.wait(); await tick();
+    assert.equal(f.extension.listenerCount('ready'), 1);
+    f.register(); await result; f.clean();
+    const started = f.primeDelayedBackground(); f.extension.emit('ready'); await tick();
+    assert.equal(started.count, 0);
+  });
   process.stdout.write(`${passed} readiness lifecycle tests passed\n`);
+  process.exitCode = 0;
 })().catch(error => { console.error(error); process.exitCode = 1; });

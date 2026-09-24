@@ -107,6 +107,14 @@ The gate requires the completed page, execution of the allowed script, and the
 origin server's request log. A late registry entry cannot erase an earlier leaked
 request. The installed add-on must also be the pinned ordinary AMO-signed uBO.
 
+It then force-stops the app and relaunches it on a new fixture URL with uBO
+still enabled (`ubo-enabled-restart`), requiring the same block. That is the
+state every launch after the first is in, and the one Beta 2 broke: Gecko delays
+an installed extension's background until a browser window paints, while the
+startup gate held every window until uBO's blocking listener was live, so each
+relaunch timed out into "uBlock Origin setup failed". Earlier runs restarted only
+with uBO disabled or removed, where the gate does not wait, so none caught it.
+
 `--check-ubo-lifecycle` adds a negative control by disabling uBO through the real
 AddonManager API and requiring both scripts to execute and reach the server.
 It then checks disabled-state retention across a restart, removal across another

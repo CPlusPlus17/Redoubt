@@ -2120,6 +2120,21 @@ tasks:
       Keep the Gecko filter-assets pref independent of the XPI installation path.
       The following dated findings describe the old patch, not completed work.
 
+      REGRESSION 2026-09-24, in the published Beta 2: every launch after the first
+      showed "uBlock Origin setup failed". At APP_STARTUP Gecko delays a persistent
+      background until the first browser window paints (ext-backgroundPage.js
+      onManifestEntry; geckoview.js sends both notifications), while the session
+      gate holds every window until uBO's blocking listener is live: a deadlock that
+      ends in the 30 s timeout, and Retry repeats it. The wait could also judge
+      Extension.startup()'s temporary policy before permissions load, an immediate
+      "No matching active blocking extension". ubo-readiness.patch now waits for the
+      settled policy and starts a delayed background itself; six new cases in
+      test-ubo-readiness.js cover it, four of which fail against the Beta 2 patch.
+      The Kotlin attempt timeout is 45 s so Gecko's own reason reaches the log.
+      android-smoke.sh --check-ubo-preinstall now relaunches with uBO enabled
+      (ubo-enabled-restart); every earlier restart ran with uBO disabled or removed,
+      where the gate does not wait. Not yet built or run on a device.
+
       NOT DONE — patch written, measured, and PARKED 2026-08-27. It is on disk and applies
       cleanly (check-patchfail --targets=android exit 0) with its ordering measured against
       four partners (docs/android/evidence/lw-m3-07/order-free.txt, byte-identical either
