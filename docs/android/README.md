@@ -51,6 +51,7 @@ canary is locked at runtime.)
 | file | what it is |
 |---|---|
 | [`HANDOVER.md`](HANDOVER.md) | **start here** — current state, open blockers, how work has actually failed here |
+| [`LIBREWOLF-GAPS.md`](LIBREWOLF-GAPS.md) | what LibreWolf does that the published beta does not, in order of consequence |
 | [`IDENTITY.md`](IDENTITY.md) | this is a fork, not the LibreWolf project, and what that constrains |
 | [`ROADMAP.md`](ROADMAP.md) | the shape: strategy, milestones, what we can and cannot promise |
 | [`AGENTS.md`](AGENTS.md) | the rules: how to claim a task, ownership, the five landmines |
