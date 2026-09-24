@@ -355,6 +355,13 @@ CONSTRAINTS = (
         "changes a shipped byte - it keeps `make check-patchfail` green, which "
         "patches the whole tree regardless of subproject",
     ),
+    # LW-M7-37 interrupted-session cleanup, measured 2026-09-24.
+    ('patches/android/fission-isolation.patch', 'patches/android/interrupted-session-cleanup.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt',), 'Candidate context includes ubo-preinstall, which follows this predecessor; moving the candidate before it fails at the candidate on 153.3.0esr (docs/android/evidence/lw-m7-37-startup/ordering-swap.txt).'),
+    ('patches/android/no-adjust.patch', 'patches/android/interrupted-session-cleanup.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt'), 'Candidate context includes ubo-preinstall, which follows this predecessor; moving the candidate before it fails at the candidate on 153.3.0esr (docs/android/evidence/lw-m7-37-startup/ordering-swap.txt).'),
+    ('patches/android/no-crashreporter.patch', 'patches/android/interrupted-session-cleanup.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt',), 'Candidate context includes ubo-preinstall, which follows this predecessor; moving the candidate before it fails at the candidate on 153.3.0esr (docs/android/evidence/lw-m7-37-startup/ordering-swap.txt).'),
+    ('patches/android/no-glean.patch', 'patches/android/interrupted-session-cleanup.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'Candidate context includes ubo-preinstall, which follows this predecessor; moving the candidate before it fails at the candidate on 153.3.0esr (docs/android/evidence/lw-m7-37-startup/ordering-swap.txt).'),
+    ('patches/android/no-gms.patch', 'patches/android/interrupted-session-cleanup.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt'), 'Candidate context includes ubo-preinstall, which follows this predecessor; moving the candidate before it fails at the candidate on 153.3.0esr (docs/android/evidence/lw-m7-37-startup/ordering-swap.txt).'),
+    ('patches/android/ubo-preinstall.patch', 'patches/android/interrupted-session-cleanup.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt'), 'Candidate context includes ubo-preinstall, which follows this predecessor; moving the candidate before it fails at the candidate on 153.3.0esr (docs/android/evidence/lw-m7-37-startup/ordering-swap.txt).'),
 )
 
 
@@ -886,6 +893,9 @@ REVIEWED_ORDER_FREE = (
      ("mobile/android/fenix/app/build.gradle",),
      "update-check appends two buildConfigFields to defaultConfig (:88); branding edits applicationId / identity lines; "
      "byte-identical both ways (sha256 2ef204e5...) (LW-M6-06)"),
+    # LW-M7-37 interrupted-session cleanup, measured 2026-09-24.
+    ('patches/android/sync-opt-in.patch', 'patches/android/interrupted-session-cleanup.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'Candidate swapped immediately before this predecessor applies and every pair-shared path is byte-identical on 153.3.0esr (docs/android/evidence/lw-m7-37-startup/ordering-swap.txt).'),
+    ('patches/android/firefox-suggest-policy.patch', 'patches/android/interrupted-session-cleanup.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'Candidate swapped immediately before this predecessor applies and every pair-shared path is byte-identical on 153.3.0esr (docs/android/evidence/lw-m7-37-startup/ordering-swap.txt).'),
 )
 
 

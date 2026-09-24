@@ -1,0 +1,392 @@
+# Redoubt LW-M7-37: clean an interrupted session before the next one browses.
+#
+# LibreWolf deletes cookies, site data and cache whenever the browser closes
+# (desktop.cfg privacy.sanitize.sanitizeOnShutdown). Fenix deletes only from its
+# explicit Quit menu item, and even there does not wait for Gecko's clearData
+# callbacks, so a session that was swiped away or killed kept everything.
+# On every cold start with "Delete browsing data on quit" on, run the selected
+# categories before any engine session exists, awaiting each Gecko deletion.
+# Engine sessions are held by a second instance of the uBO startup middleware
+# (ubo-preinstall.patch) until cleanup has finished; a failure or the 30 s bound
+# is logged and browsing continues, and the next start retries. Tabs are removed
+# only after restore completes, so restore cannot bring them back.
+# Requires ubo-preinstall.patch. Per-site cookie retention is not implemented.
+#
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+@@ -237,6 +237,8 @@ class Components(private val context: Context) {
+
+     val uboPreinstaller by lazyMonitored { LibreWolfUboPreinstaller(context) }
+
++    val startupCleanup by lazyMonitored { LibreWolfStartupCleanup(context) }
++
+     val addonManager by lazyMonitored {
+         AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
+     }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+@@ -368,6 +368,8 @@ class Core(
+         val middlewareList =
+             listOf(
+                 LibreWolfUboPreinstallMiddleware(context.components.uboPreinstaller),
++                // The same session hold, released once interrupted-session cleanup has run.
++                LibreWolfUboPreinstallMiddleware(context.components.startupCleanup),
+                 ProfileMarkerMiddleware(markerName = "BrowserStore", profiler = engine.profiler),
+                 LogMiddleware(tag = "BrowserStore", shouldIncludeDetailedData = { Config.channel.isDebug }),
+                 LastAccessMiddleware(),
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+@@ -827,6 +827,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+             logger.error("Failed to initialize web extension support", e)
+         }
+         components.uboPreinstaller.start()
++        components.startupCleanup.start()
+     }
+
+     @VisibleForTesting
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfStartupCleanup.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfStartupCleanup.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfStartupCleanup.kt
+@@ -0,0 +1,178 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.components
++
++import android.content.Context
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.TimeoutCancellationException
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.suspendCancellableCoroutine
++import kotlinx.coroutines.withContext
++import kotlinx.coroutines.withTimeout
++import mozilla.components.browser.state.action.EngineAction
++import mozilla.components.browser.state.action.RecentlyClosedAction
++import mozilla.components.concept.engine.Engine
++import mozilla.components.support.base.log.logger.Logger
++import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType
++import kotlin.coroutines.resume
++import kotlin.coroutines.resumeWithException
++
++/**
++ * LibreWolf deletes cookies, site data and cache whenever the browser closes
++ * (desktop.cfg privacy.sanitize.sanitizeOnShutdown). Fenix deletes only from its
++ * explicit Quit menu item, so a session that was swiped away or killed kept
++ * everything. This runs the user's "Delete browsing data on quit" selection once
++ * per cold start, before any engine session exists: the start of the next
++ * session is the first moment an interrupted one can be cleaned. Quit keeps
++ * working as before; running again after it only deletes what is already gone.
++ *
++ * The session middleware holds engine sessions on [state] exactly as it does for
++ * uBlock Origin, so no restored tab, incoming link or custom tab can load, and so
++ * repopulate site data, before deletion has finished. A failed or timed-out
++ * category is logged and browsing continues: the next cold start tries again.
++ */
++class LibreWolfStartupCleanup internal constructor(
++    private val dependencies: Dependencies,
++    private val scope: CoroutineScope,
++    private val timeoutMillis: Long = TIMEOUT_MILLIS,
++) : LibreWolfUboStartupGate {
++    constructor(context: Context) : this(
++        AndroidDependencies(context.applicationContext),
++        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
++    )
++
++    internal interface Dependencies {
++        /** Categories selected for deletion on quit; empty when the feature is off. */
++        suspend fun selectedTypes(): List<DeleteBrowsingDataOnQuitType>
++
++        /** Delete one category, returning only once it has actually completed. */
++        suspend fun delete(type: DeleteBrowsingDataOnQuitType)
++    }
++
++    private val mutableState = MutableStateFlow<LibreWolfUboPreinstaller.State>(
++        LibreWolfUboPreinstaller.State.Preparing,
++    )
++
++    // The middleware only distinguishes Ready from not ready; the uBO-specific
++    // fields carry no meaning for this gate.
++    override val state: StateFlow<LibreWolfUboPreinstaller.State> = mutableState.asStateFlow()
++    private var started = false
++
++    /** Categories that did not complete in the last run, for tests and logs. */
++    internal var incomplete: List<DeleteBrowsingDataOnQuitType> = emptyList()
++        private set
++
++    fun start() {
++        if (started) return
++        started = true
++        scope.launch {
++            val remaining = mutableListOf<DeleteBrowsingDataOnQuitType>()
++            try {
++                withTimeout(timeoutMillis) {
++                    remaining += dependencies.selectedTypes()
++                    for (type in remaining.toList()) {
++                        try {
++                            dependencies.delete(type)
++                            remaining -= type
++                        } catch (exception: CancellationException) {
++                            throw exception
++                        } catch (exception: Exception) {
++                            logger.error("Startup deletion of $type failed; retried on next start", exception)
++                        }
++                    }
++                }
++            } catch (exception: TimeoutCancellationException) {
++                logger.error("Startup deletion timed out; $remaining retried on next start", exception)
++            } catch (exception: CancellationException) {
++                throw exception
++            } catch (exception: Exception) {
++                logger.error("Could not read the delete-on-quit selection", exception)
++            } finally {
++                incomplete = remaining.toList()
++                mutableState.value = RELEASED
++            }
++        }
++    }
++
++    override suspend fun awaitReady() {
++        state.first { it is LibreWolfUboPreinstaller.State.Ready }
++    }
++
++    private class AndroidDependencies(private val context: Context) : Dependencies {
++        override suspend fun selectedTypes() = withContext(Dispatchers.IO) {
++            val settings = context.components.settings
++            if (!settings.shouldDeleteBrowsingDataOnQuit) {
++                emptyList()
++            } else {
++                DeleteBrowsingDataOnQuitType.entries.filter { settings.getDeleteDataOnQuit(it) }
++            }
++        }
++
++        override suspend fun delete(type: DeleteBrowsingDataOnQuitType) {
++            val components = context.components
++            when (type) {
++                DeleteBrowsingDataOnQuitType.TABS -> {
++                    // Removing tabs before restore finished would let restore bring them back.
++                    components.core.store.stateFlow.first { it.restoreComplete }
++                    withContext(Dispatchers.Main) {
++                        components.useCases.tabsUseCases.removeAllTabs.invoke(false)
++                    }
++                }
++                DeleteBrowsingDataOnQuitType.HISTORY -> {
++                    components.core.historyStorage.deleteEverything()
++                    components.core.store.dispatch(EngineAction.PurgeHistoryAction)
++                    components.core.store.dispatch(RecentlyClosedAction.RemoveAllClosedTabAction)
++                    awaitEngine { onSuccess, onError ->
++                        components.core.engine.clearTrackingProtectionData(onSuccess, onError)
++                    }
++                }
++                DeleteBrowsingDataOnQuitType.COOKIES -> {
++                    clear(Engine.BrowsingData.select(Engine.BrowsingData.COOKIES, Engine.BrowsingData.AUTH_SESSIONS))
++                    clear(Engine.BrowsingData.select(Engine.BrowsingData.DOM_STORAGES))
++                }
++                DeleteBrowsingDataOnQuitType.CACHE -> {
++                    clear(Engine.BrowsingData.select(Engine.BrowsingData.ALL_CACHES))
++                }
++                DeleteBrowsingDataOnQuitType.PERMISSIONS -> {
++                    clear(Engine.BrowsingData.select(Engine.BrowsingData.ALL_SITE_SETTINGS))
++                    components.core.permissionStorage.deleteAllSitePermissions()
++                }
++                DeleteBrowsingDataOnQuitType.DOWNLOADS -> withContext(Dispatchers.Main) {
++                    components.useCases.downloadUseCases.removeAllDownloads.invoke()
++                }
++            }
++        }
++
++        private suspend fun clear(data: Engine.BrowsingData) = awaitEngine { onSuccess, onError ->
++            context.components.core.engine.clearData(data, null, onSuccess, onError)
++        }
++
++        // Fenix's Quit path does not wait for these callbacks; this does.
++        private suspend fun awaitEngine(
++            call: (onSuccess: () -> Unit, onError: (Throwable) -> Unit) -> Unit,
++        ) = withContext(Dispatchers.Main) {
++            suspendCancellableCoroutine<Unit> { continuation ->
++                call(
++                    { if (continuation.isActive) continuation.resume(Unit) },
++                    { error -> if (continuation.isActive) continuation.resumeWithException(error) },
++                )
++            }
++        }
++    }
++
++    internal companion object {
++        val RELEASED = LibreWolfUboPreinstaller.State.Ready(installed = false, enabled = false)
++        private const val TIMEOUT_MILLIS = 30_000L
++        private val logger = Logger("LibreWolfStartupCleanup")
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfStartupCleanupTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfStartupCleanupTest.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfStartupCleanupTest.kt
+@@ -0,0 +1,155 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.components
++
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.test.advanceTimeBy
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.runTest
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.CACHE
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.COOKIES
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.HISTORY
++
++@OptIn(ExperimentalCoroutinesApi::class)
++class LibreWolfStartupCleanupTest {
++    private class FakeDependencies(
++        val selected: List<DeleteBrowsingDataOnQuitType> = emptyList(),
++        val failing: Set<DeleteBrowsingDataOnQuitType> = emptySet(),
++        val selectionError: Exception? = null,
++    ) : LibreWolfStartupCleanup.Dependencies {
++        val deleted = mutableListOf<DeleteBrowsingDataOnQuitType>()
++        val gates = mutableMapOf<DeleteBrowsingDataOnQuitType, CompletableDeferred<Unit>>()
++        var selections = 0
++
++        override suspend fun selectedTypes(): List<DeleteBrowsingDataOnQuitType> {
++            selections++
++            selectionError?.let { throw it }
++            return selected
++        }
++
++        override suspend fun delete(type: DeleteBrowsingDataOnQuitType) {
++            gates[type]?.await()
++            if (type in failing) throw IllegalStateException("clear failed")
++            deleted += type
++        }
++    }
++
++    private val ready = LibreWolfStartupCleanup.RELEASED
++
++    @Test
++    fun `nothing selected releases sessions without deleting`() = runTest {
++        val dependencies = FakeDependencies()
++        val cleanup = LibreWolfStartupCleanup(dependencies, backgroundScope)
++
++        cleanup.start()
++        runCurrent()
++
++        assertEquals(ready, cleanup.state.value)
++        assertEquals(emptyList<DeleteBrowsingDataOnQuitType>(), dependencies.deleted)
++        assertEquals(emptyList<DeleteBrowsingDataOnQuitType>(), cleanup.incomplete)
++    }
++
++    @Test
++    fun `sessions stay held until every selected category has completed`() = runTest {
++        val dependencies = FakeDependencies(selected = listOf(COOKIES, CACHE))
++        val cookies = CompletableDeferred<Unit>().also { dependencies.gates[COOKIES] = it }
++        val cleanup = LibreWolfStartupCleanup(dependencies, backgroundScope)
++
++        cleanup.start()
++        runCurrent()
++        assertEquals(LibreWolfUboPreinstaller.State.Preparing, cleanup.state.value)
++        assertEquals(emptyList<DeleteBrowsingDataOnQuitType>(), dependencies.deleted)
++
++        cookies.complete(Unit)
++        runCurrent()
++        assertEquals(listOf(COOKIES, CACHE), dependencies.deleted)
++        assertEquals(ready, cleanup.state.value)
++        assertEquals(emptyList<DeleteBrowsingDataOnQuitType>(), cleanup.incomplete)
++    }
++
++    @Test
++    fun `a failed category is reported and the others still run`() = runTest {
++        val dependencies = FakeDependencies(selected = listOf(HISTORY, COOKIES, CACHE), failing = setOf(COOKIES))
++        val cleanup = LibreWolfStartupCleanup(dependencies, backgroundScope)
++
++        cleanup.start()
++        runCurrent()
++
++        assertEquals(listOf(HISTORY, CACHE), dependencies.deleted)
++        assertEquals(listOf(COOKIES), cleanup.incomplete)
++        assertEquals(ready, cleanup.state.value)
++    }
++
++    @Test
++    fun `a category that never completes times out and releases sessions`() = runTest {
++        val dependencies = FakeDependencies(selected = listOf(COOKIES, CACHE))
++        dependencies.gates[COOKIES] = CompletableDeferred()
++        val cleanup = LibreWolfStartupCleanup(dependencies, backgroundScope, timeoutMillis = 1_000)
++
++        cleanup.start()
++        advanceTimeBy(999)
++        runCurrent()
++        assertEquals(LibreWolfUboPreinstaller.State.Preparing, cleanup.state.value)
++
++        advanceTimeBy(2)
++        runCurrent()
++        assertEquals(ready, cleanup.state.value)
++        assertEquals(listOf(COOKIES, CACHE), cleanup.incomplete)
++        assertEquals(emptyList<DeleteBrowsingDataOnQuitType>(), dependencies.deleted)
++    }
++
++    @Test
++    fun `an unreadable selection releases sessions`() = runTest {
++        val dependencies = FakeDependencies(selectionError = IllegalStateException("prefs"))
++        val cleanup = LibreWolfStartupCleanup(dependencies, backgroundScope)
++
++        cleanup.start()
++        runCurrent()
++
++        assertEquals(ready, cleanup.state.value)
++    }
++
++    @Test
++    fun `start runs once per process`() = runTest {
++        val dependencies = FakeDependencies(selected = listOf(CACHE))
++        val cleanup = LibreWolfStartupCleanup(dependencies, backgroundScope)
++
++        cleanup.start()
++        cleanup.start()
++        runCurrent()
++        cleanup.start()
++        runCurrent()
++
++        assertEquals(1, dependencies.selections)
++        assertEquals(listOf(CACHE), dependencies.deleted)
++    }
++
++    @Test
++    fun `awaitReady returns once deletion has finished`() = runTest {
++        val dependencies = FakeDependencies(selected = listOf(COOKIES))
++        val cookies = CompletableDeferred<Unit>().also { dependencies.gates[COOKIES] = it }
++        val cleanup = LibreWolfStartupCleanup(dependencies, backgroundScope)
++        var released = false
++        backgroundScope.launch {
++            cleanup.awaitReady()
++            released = true
++        }
++
++        cleanup.start()
++        runCurrent()
++        assertFalse(released)
++
++        cookies.complete(Unit)
++        runCurrent()
++        assertTrue(released)
++    }
++}

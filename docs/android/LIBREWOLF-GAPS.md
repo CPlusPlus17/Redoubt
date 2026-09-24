@@ -116,7 +116,7 @@ them should raise or reshape the first-run wait once measured on a slow network.
 
 | LibreWolf does | Redoubt Android | Where |
 |---|---|---|
-| Deletes cookies, site data and cache every time the browser closes (`desktop.cfg`: `privacy.sanitize.sanitizeOnShutdown`) | Cleans up only on the explicit **Quit** menu action. Swiping the app away or the OS killing it keeps everything; recovering an interrupted session is not implemented (LW-M7-37 has only its native building blocks). This is the gap users would notice first. | F04, LW-M7-37 |
+| Deletes cookies, site data and cache every time the browser closes (`desktop.cfg`: `privacy.sanitize.sanitizeOnShutdown`) | **Fixed in source on this branch:** the delete-on-quit selection now also runs on every cold start, before any tab loads, awaiting Gecko's deletion callbacks ([`evidence/lw-m7-37-startup/`](evidence/lw-m7-37-startup/README.md)). Before: only the explicit **Quit** action cleaned, so a swiped-away or killed session kept everything. JVM-tested against stubs; not yet compiled in Fenix or run on a device. | F04, LW-M7-37 |
 | Per-site "keep cookies for this site" exception, respected by cleanup (`allow_cookies_for_site.patch`) | No control; cleanup has no retention exceptions | F04, coverage map *cookie-exemption* |
 | Gecko content-process sandbox | Absent: not compiled on Android upstream. Partly offset by site isolation, `isolatedProcess` and RLBox | PARITY §3.1 |
 | Enterprise policies (`policies.json`) enforced by Gecko | No policy engine on Android; each key mapped by hand, residual gaps P1–P8 | [`POLICIES.md`](POLICIES.md) |
