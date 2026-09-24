@@ -19,7 +19,7 @@ const gv = read('mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs')
 const registrar = web.slice(web.indexOf('function registerEvent('), web.indexOf('function makeWebRequestEventAPI('));
 const waitMethod = gv.slice(gv.indexOf('  async awaitBlockingResponseListener('), gv.indexOf('  async uninstallWebExtension('));
 assert.ok(registrar.startsWith('function registerEvent('));
-assert.ok(waitMethod.includes('30000'));
+assert.ok(waitMethod.includes('90000'));
 
 // A hung wait leaves no pending timer, so Node would exit 0 without reaching
 // the summary. Only the completed run below may report success.
@@ -52,7 +52,7 @@ function fixture({ active = true, permission = true, version = '1.74.0' } = {}) 
     WebExtensionPolicy: { getByID: id => policies.get(id) },
     lazy: {
       setTimeout: (callback, milliseconds) => {
-        assert.equal(milliseconds, 30000);
+        assert.equal(milliseconds, 90000);
         timers.set(++nextTimer, callback);
         return nextTimer;
       },

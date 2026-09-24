@@ -53,7 +53,7 @@ index 30381ff..5742e9b 100644
 +   * @param extensionId The ID of an already-installed and enabled extension.
 +   * @param expectedVersion The version whose readiness the caller is awaiting.
 +   * @return A result resolving on listener activation, or failing if the extension
-+   *     is unavailable, changes, stops, or does not register within 30 seconds.
++   *     is unavailable, changes, stops, or does not register within 90 seconds.
 +   */
 +  @HandlerThread
 +  @NonNull
@@ -110,7 +110,7 @@ index 2f2120d..7e9e764 100644
    PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
  });
 
-@@ -1023,6 +1025,135 @@ export var GeckoViewWebExtension = {
+@@ -1023,6 +1025,137 @@ export var GeckoViewWebExtension = {
      return exportExtension(addon, /* aSourceURI */ null);
    },
 
@@ -165,7 +165,9 @@ index 2f2120d..7e9e764 100644
 +      });
 +      timer = lazy.setTimeout(
 +        () => finish(new Error("Timed out awaiting blocking response listener")),
-+        30000
++        // uBO's first install may fetch its registry and unpackaged lists, each
++        // bounded by its own 30 s assetFetchTimeout, before filters are ready.
++        90000
 +      );
 +
 +      // Register the cancellable request before the first asynchronous lookup.
@@ -246,7 +248,7 @@ index 2f2120d..7e9e764 100644
    async uninstallWebExtension(aId) {
      const extension = await this.extensionById(aId);
      if (!extension) {
-@@ -1418,6 +1549,31 @@ export var GeckoViewWebExtension = {
+@@ -1418,6 +1551,31 @@ export var GeckoViewWebExtension = {
          break;
        }
 

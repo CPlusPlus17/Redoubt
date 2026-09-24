@@ -58,7 +58,16 @@ is the largest security gap after the content sandbox — and unlike the sandbox
 is fixable by rebasing. LibreWolf desktop follows Firefox release, which is now
 `156.0.1`.
 
-### 1.3 uBO's filter configuration is fetched from LibreWolf's servers
+### 1.3 uBO's filter configuration is fetched from LibreWolf's servers — fixed on this branch
+
+Android now fetches `assets/uBOAssets.android.json` from this repository at a fixed
+commit (`settings/android.cfg`): LibreWolf's list definitions and selection byte for
+byte, with only the registry's self-update entry replaced by stock uBO's
+(`scripts/gen-ubo-assets-android.py`, `--check`). Gecko's first-run listener wait is
+90 s and the app's 120 s, above uBO's worst case of two sequential 30 s fetches.
+The pinned commit `bb19808` must stay reachable (no squash merge, or tag it). The
+three unpackaged lists still download on first install, as on desktop. The
+original finding follows.
 
 `settings/common.cfg:703` sets `librewolf.uBO.assetsBootstrapLocation` to
 `https://codeberg.org/librewolf/source/raw/branch/main/assets/uBOAssets.json`
