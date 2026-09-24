@@ -30,6 +30,9 @@ uBO fetches its list selection once, from a fixed file in Redoubt's repository
 
 **"Report broken site" is gone.** Reports went nowhere: the upload path is removed.
 
+**DRM can be switched on in Settings.** It stays off by default; in Beta 2 the
+Settings entry could not enable it.
+
 ## Verify what you downloaded
 
     sha256sum -c SHA256SUMS.signed
@@ -48,8 +51,8 @@ The certificate digest must be:
 - **DNS-over-HTTPS is off by default, as in LibreWolf,** with LibreWolf's
   providers (Quad9, DNS4All fallback) offered in Settings. *(Beta 2's notes said
   the configuration did not apply; that was true of Beta 1.)*
-- **DRM:** off by default; enabling it currently needs `about:config`
-  (`media.eme.enabled`). The Settings > Site permissions entry cannot turn it on.
+- **DRM:** off by default, as in LibreWolf. Turn it on in Settings > Site
+  permissions > DRM-controlled content, for all sites or per site.
 - Delete-on-close has no per-site "keep cookies" exceptions yet.
 - First run contacts: the Remote Settings collections recorded in
   `settings/android.cfg`, uBO's list file on `raw.githubusercontent.com`, and the

@@ -382,6 +382,16 @@ Branch and lock: **default branch, unlocked** — matching desktop exactly.
 startup and no lock is required. It therefore works through `MOZ_DEFAULT_PREFS`
 today and needs nothing from LW-M3-08.
 
+**Superseded 2026-09-24 by LW-M7-39.** That pref made DRM impossible to enable:
+Gecko rejects proprietary key systems on it before any permission check
+(`MediaKeySystemAccessManager.cpp:424`), so Fenix's DRM-controlled content setting did
+nothing, while the desktop policy is unlocked. The mechanism is now
+`patches/android/drm-permission-default.patch`: the DRM site permission defaults to
+*Blocked*. Because GeckoView sets `media.eme.require-app-approval`, Gecko asks the app
+before any key system is used, and a Blocked rule denies it without a prompt, on every
+site. That is the blanket disable, now with a working switch. `android.cfg` no longer
+sets `media.eme.enabled`; the next generated pref baseline changes that row to `true`.
+
 ### 13. `ExtensionSettings` → gap **P5**, preinstall half is **LW-M3-07**
 
 Desktop: `Policies.sys.mjs:1542-1560` (`manager.setExtensionSettings(param)` +

@@ -1,0 +1,69 @@
+# Redoubt LW-M7-39: DRM off by default through Fenix's own DRM permission.
+#
+# LibreWolf's EncryptedMediaExtensions policy ships DRM off, unlocked: the user
+# can turn it on. On Android android.cfg forced media.eme.enabled=false, and
+# Gecko rejects every proprietary key system on that pref before any permission
+# check (MediaKeySystemAccessManager.cpp:424), so Fenix's Settings > Site
+# permissions > DRM-controlled content could never enable DRM.
+# GeckoView sets media.eme.require-app-approval, so Gecko asks the app before a
+# key system is used. Defaulting that permission to Blocked denies DRM on every
+# site without a prompt, and the existing Settings entry (Ask/Blocked/Allowed and
+# per-site exceptions) turns it on. Stored user choices are kept. Pairs with the
+# settings change that drops media.eme.enabled=false from android.cfg.
+#
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
+@@ -169,6 +169,10 @@ enum class PhoneFeature(val androidPermissionsList: Array<String>) : Parcelable
+         return when (this) {
+             AUTOPLAY_AUDIBLE -> SitePermissionsRules.Action.BLOCKED
+             AUTOPLAY_INAUDIBLE -> SitePermissionsRules.Action.ALLOWED
++            // LibreWolf ships DRM off (EncryptedMediaExtensions policy). Gecko asks the app
++            // before any key system is used (media.eme.require-app-approval), so Blocked
++            // denies every site without a prompt while Settings can still allow it.
++            MEDIA_KEY_SYSTEM_ACCESS -> SitePermissionsRules.Action.BLOCKED
+             else -> SitePermissionsRules.Action.ASK_TO_ALLOW
+         }
+     }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+@@ -1840,7 +1840,7 @@ class Settings(
+             ),
+             persistentStorage = getSitePermissionsPhoneFeatureAction(PhoneFeature.PERSISTENT_STORAGE),
+             crossOriginStorageAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.CROSS_ORIGIN_STORAGE_ACCESS),
+-            mediaKeySystemAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS),
++            mediaKeySystemAccess = PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS.getAction(this),
+             localDeviceAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.LOCAL_DEVICE_ACCESS),
+             localNetworkAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.LOCAL_NETWORK_ACCESS),
+         )
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
+@@ -92,6 +92,14 @@ class PhoneFeatureTest {
+         assertEquals(Action.ASK_TO_ALLOW, PhoneFeature.AUTOPLAY_AUDIBLE.getAction(settings))
+     }
+
++    @Test
++    fun `DRM defaults to blocked`() {
++        every {
++            settings.getSitePermissionsPhoneFeatureAction(PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS, Action.BLOCKED)
++        } returns Action.BLOCKED
++        assertEquals(Action.BLOCKED, PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS.getAction(settings))
++    }
++
+     @Test
+     fun findFeatureBy() {
+         assertEquals(PhoneFeature.CAMERA, PhoneFeature.findFeatureBy(arrayOf(Manifest.permission.CAMERA)))
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+@@ -57,7 +57,7 @@ class SettingsTest {
+         autoplayAudible = AutoplayAction.BLOCKED,
+         autoplayInaudible = AutoplayAction.ALLOWED,
+         persistentStorage = ASK_TO_ALLOW,
+-        mediaKeySystemAccess = ASK_TO_ALLOW,
++        mediaKeySystemAccess = BLOCKED,
+         crossOriginStorageAccess = ASK_TO_ALLOW,
+         localDeviceAccess = ASK_TO_ALLOW,
+         localNetworkAccess = ASK_TO_ALLOW,

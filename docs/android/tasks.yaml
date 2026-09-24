@@ -5235,3 +5235,35 @@ tasks:
     agent_safe: true
     isolation: worktree
     risk: A visible reporter whose submissions go nowhere tells users their report was sent.
+
+  - id: LW-M7-39
+    title: DRM off by default through a switch that works
+    milestone: M7
+    depends_on:
+    - LW-M3-06
+    - LW-M7-38
+    owns:
+    - patches/android/drm-permission-default.patch
+    - docs/android/evidence/lw-m7-39/
+    shared_edit:
+    - assets/patches/android.txt
+    tree_paths:
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
+    - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
+    reads:
+    - settings/android.cfg
+    - docs/android/POLICIES.md
+    what: LibreWolf's EncryptedMediaExtensions policy ships DRM off but unlocked. android.cfg's media.eme.enabled=false made Gecko reject key systems before any permission check (MediaKeySystemAccessManager.cpp:424), so Fenix's DRM site permission could never enable DRM. Default that permission to Blocked instead (GeckoView sets media.eme.require-app-approval, so Gecko asks the app first) and drop the cfg override.
+    acceptance:
+    - A fresh profile denies DRM on every site without a prompt
+    - Setting DRM-controlled content to Allowed or Ask in Settings, or a per-site exception, makes DRM playback work
+    - Stored user choices are preserved on upgrade
+    - Fenix compiles and the Fenix unit gate passes; the regenerated pref baseline's media.eme.enabled change is reviewed
+    verify: python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope && python3 docs/android/board.py --check-cfg-split
+    effort_h: 1-3
+    skills:
+    - android
+    - kotlin
+    agent_safe: true
+    isolation: worktree
+    risk: A default expressed as an engine pref that the visible control cannot change leaves users with a switch that does nothing.

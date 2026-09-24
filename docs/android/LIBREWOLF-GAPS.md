@@ -60,12 +60,12 @@ is fixable by rebasing. LibreWolf desktop follows Firefox release, which is now
 
 ### 1.3 uBO's filter configuration is fetched from LibreWolf's servers — fixed on this branch
 
-Android now fetches `assets/uBOAssets.android.json` from this repository at a fixed
-commit (`settings/android.cfg`): LibreWolf's list definitions and selection byte for
+Android now fetches `assets/uBOAssets.android.json` from this repository's `main`
+branch (`settings/android.cfg`): LibreWolf's list definitions and selection byte for
 byte, with only the registry's self-update entry replaced by stock uBO's
 (`scripts/gen-ubo-assets-android.py`, `--check`). Gecko's first-run listener wait is
 90 s and the app's 120 s, above uBO's worst case of two sequential 30 s fetches.
-The pinned commit `bb19808` must stay reachable (no squash merge, or tag it). The
+Until this lands on `main`, uBO falls back to its packaged registry. The
 three unpackaged lists still download on first install, as on desktop. The
 original finding follows.
 
@@ -121,7 +121,7 @@ them should raise or reshape the first-run wait once measured on a slow network.
 | Gecko content-process sandbox | Absent: not compiled on Android upstream. Partly offset by site isolation, `isolatedProcess` and RLBox | PARITY §3.1 |
 | Enterprise policies (`policies.json`) enforced by Gecko | No policy engine on Android; each key mapped by hand, residual gaps P1–P8 | [`POLICIES.md`](POLICIES.md) |
 | Feedback and "report broken site" routed away from Mozilla; support menu points at LibreWolf's tracker | **"Report broken site" removed on this branch** (LW-M7-38): its report was a Glean ping with no upload path, so submissions were silently discarded. Other support routes still unaudited | F17, P1 |
-| Global EME (DRM) switch with a LibreWolf explanation | **Owner decision needed.** `android.cfg` sets `media.eme.enabled=false`, and Gecko rejects `requestMediaKeySystemAccess` before any permission check, so Fenix's Settings > Site permissions > DRM-controlled content can never enable DRM; only `about:config` can. Option: keep EME compiled on, make that site-permission default *Blocked*, and drop the cfg override. That gives off-by-default with a working switch, as desktop's toggle plus prompt does. Changes an LW-M3-06 decision, so not done here | coverage map *eme* |
+| Global EME (DRM) switch with a LibreWolf explanation | **Fixed in source on this branch** (LW-M7-39): `android.cfg` forced `media.eme.enabled=false`, which Gecko checks before any permission (`MediaKeySystemAccessManager.cpp:424`), so Settings > Site permissions > DRM-controlled content could never enable DRM. Now that permission defaults to *Blocked*: every site is denied without a prompt, and the setting turns DRM on. Fenix compilation pending | coverage map *eme* |
 | Optional "hide password manager" (`librewolf.hidePasswdmgr`) | Save/autofill default off; no hide option | F06, *password* |
 | Optional JPEG XL decoding | Decoder compiled in (`--disable-jxl` is the only off switch; neither mozconfig sets it), `image.jxl.enabled` off on release as on desktop, switchable in release `about:config`. No Settings switch; it would join the native-backed controls of `global-privacy-controls.patch` | *jxl* |
 | Kurdish (`ku`) UI locale | **Not a gap:** Fenix ships Kurmanji (`values-kmr`) and Sorani (`values-ckb`) and no Redoubt patch filters locales; `l10n-strings.patch` already brands the Kurmanji strings | *locale* |
@@ -197,10 +197,11 @@ built or run on a device yet:
 |---|---|
 | §1.1 uBO "setup failed" on every relaunch | `ubo-readiness.patch` starts the delayed background; smoke check `ubo-enabled-restart` |
 | §1.2 three ESR security releases behind | `version.android` = `153.3.0esr`; all patches re-ported ([`evidence/esr-153.3/`](evidence/esr-153.3/README.md)) |
-| §1.3 uBO registry from LibreWolf's servers; slow first run | Android points at `assets/uBOAssets.android.json` at a fixed Redoubt commit; waits 90 s / 120 s |
+| §1.3 uBO registry from LibreWolf's servers; slow first run | Android points at `assets/uBOAssets.android.json` on Redoubt's `main`; waits 90 s / 120 s |
 | §1.4 stale statements | `PARITY.md` rows 5–8 corrected; [`RELEASE-NOTES-BETA3-DRAFT.md`](RELEASE-NOTES-BETA3-DRAFT.md) for the release page |
 | §2 delete-on-close after kill or swipe | `interrupted-session-cleanup.patch` ([`evidence/lw-m7-37-startup/`](evidence/lw-m7-37-startup/README.md)) |
 | §2 "Report broken site" that went nowhere | `no-webcompat-reporter.patch` (LW-M7-38) |
+| §2 DRM switch that could not enable DRM | `drm-permission-default.patch` (LW-M7-39) + `android.cfg` |
 | §2 Kurdish locale, link preview | not gaps: Fenix ships `kmr`/`ckb`; link preview is desktop-only |
 
 Before Beta 3: `make check-patchfail TARGETS=android` on the real 153.3.0esr
@@ -209,8 +210,7 @@ tarball, `make android-apk`, `board.py --check-fenix-tests`, then on an emulator
 
 Still open, and why:
 
-- **Owner decisions:** DRM switch (§2, option recorded); per-site cookie
-  retention needs a UI design.
+- **Owner decision:** per-site cookie retention needs a UI design.
 - **Needs a device:** everything in §3, plus §4's speculative-connect capture.
 - **Needs network this environment lacks:** §5 upstream drift (Codeberg).
 - **Small, deferred:** JPEG XL and hide-password-manager Settings switches.
