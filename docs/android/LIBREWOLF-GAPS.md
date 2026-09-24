@@ -121,11 +121,11 @@ them should raise or reshape the first-run wait once measured on a slow network.
 | Gecko content-process sandbox | Absent: not compiled on Android upstream. Partly offset by site isolation, `isolatedProcess` and RLBox | PARITY §3.1 |
 | Enterprise policies (`policies.json`) enforced by Gecko | No policy engine on Android; each key mapped by hand, residual gaps P1–P8 | [`POLICIES.md`](POLICIES.md) |
 | Feedback and "report broken site" routed away from Mozilla; support menu points at LibreWolf's tracker | **"Report broken site" removed on this branch** (LW-M7-38): its report was a Glean ping with no upload path, so submissions were silently discarded. Other support routes still unaudited | F17, P1 |
-| Global EME (DRM) switch with a LibreWolf explanation | DRM off by default, but only a per-site permission; no global control | coverage map *eme* |
+| Global EME (DRM) switch with a LibreWolf explanation | **Owner decision needed.** `android.cfg` sets `media.eme.enabled=false`, and Gecko rejects `requestMediaKeySystemAccess` before any permission check, so Fenix's Settings > Site permissions > DRM-controlled content can never enable DRM; only `about:config` can. Option: keep EME compiled on, make that site-permission default *Blocked*, and drop the cfg override. That gives off-by-default with a working switch, as desktop's toggle plus prompt does. Changes an LW-M3-06 decision, so not done here | coverage map *eme* |
 | Optional "hide password manager" (`librewolf.hidePasswdmgr`) | Save/autofill default off; no hide option | F06, *password* |
-| Optional JPEG XL decoding | No verified decoder or control | *jxl* |
-| Kurdish (`ku`) UI locale | Not shipped | *locale* |
-| Link preview without the AI key-points | No equivalent | *link-preview* |
+| Optional JPEG XL decoding | Decoder compiled in (`--disable-jxl` is the only off switch; neither mozconfig sets it), `image.jxl.enabled` off on release as on desktop, switchable in release `about:config`. No Settings switch; it would join the native-backed controls of `global-privacy-controls.patch` | *jxl* |
+| Kurdish (`ku`) UI locale | **Not a gap:** Fenix ships Kurmanji (`values-kmr`) and Sorani (`values-ckb`) and no Redoubt patch filters locales; `l10n-strings.patch` already brands the Kurmanji strings | *locale* |
+| Link preview without the AI key-points | **Desktop boundary:** link preview is a desktop-frontend feature with no Fenix counterpart upstream; LibreWolf's patch only decouples it from AI there | *link-preview* |
 | Dictionary, theme and site-permission add-on types | Android installs extensions only | F14 |
 | Distinct code-signing identity | Irreducible: a fork cannot carry LibreWolf's; Redoubt's key has one holder | PARITY §3.2, `SIGNING.md` |
 
@@ -188,14 +188,30 @@ hide.
 
   Settings changes matter most: `common.cfg` reaches Android directly.
 
-## 6. Suggested order
+## 6. Status and what remains
 
-1. Build the §1.1 fix and run `android-smoke.sh --check-ubo-preinstall` on an
-   emulator; ship it as Beta 3 so testers can use the app past the first launch.
-2. Rebase to `153.3.0esr` in the same candidate (§1.2).
-3. Decide §1.3 (where uBO's list configuration comes from) and measure the first
-   run on a throttled network.
-4. Correct the release notes and `PARITY.md` (§1.4).
-5. Session cleanup on interrupted sessions and per-site cookie retention (§2,
-   LW-M7-37) — the largest user-visible LibreWolf behaviour still missing.
-6. Work through §3 on the Beta 3 APK; each row already names its evidence.
+Fixed in source on branch `claude/librewolf-gaps-ublock-setup-k0ri3t`, none of it
+built or run on a device yet:
+
+| gap | fix |
+|---|---|
+| §1.1 uBO "setup failed" on every relaunch | `ubo-readiness.patch` starts the delayed background; smoke check `ubo-enabled-restart` |
+| §1.2 three ESR security releases behind | `version.android` = `153.3.0esr`; all patches re-ported ([`evidence/esr-153.3/`](evidence/esr-153.3/README.md)) |
+| §1.3 uBO registry from LibreWolf's servers; slow first run | Android points at `assets/uBOAssets.android.json` at a fixed Redoubt commit; waits 90 s / 120 s |
+| §1.4 stale statements | `PARITY.md` rows 5–8 corrected; [`RELEASE-NOTES-BETA3-DRAFT.md`](RELEASE-NOTES-BETA3-DRAFT.md) for the release page |
+| §2 delete-on-close after kill or swipe | `interrupted-session-cleanup.patch` ([`evidence/lw-m7-37-startup/`](evidence/lw-m7-37-startup/README.md)) |
+| §2 "Report broken site" that went nowhere | `no-webcompat-reporter.patch` (LW-M7-38) |
+| §2 Kurdish locale, link preview | not gaps: Fenix ships `kmr`/`ckb`; link preview is desktop-only |
+
+Before Beta 3: `make check-patchfail TARGETS=android` on the real 153.3.0esr
+tarball, `make android-apk`, `board.py --check-fenix-tests`, then on an emulator
+`android-smoke.sh --check-ubo-preinstall` and a seeded-cookie kill-and-relaunch.
+
+Still open, and why:
+
+- **Owner decisions:** DRM switch (§2, option recorded); per-site cookie
+  retention needs a UI design.
+- **Needs a device:** everything in §3, plus §4's speculative-connect capture.
+- **Needs network this environment lacks:** §5 upstream drift (Codeberg).
+- **Small, deferred:** JPEG XL and hide-password-manager Settings switches.
+- **Irreducible:** content sandbox, policy engine, add-on types, signing identity.
