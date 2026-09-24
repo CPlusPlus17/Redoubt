@@ -1,0 +1,55 @@
+# LW-M4-08 — compile evidence for rs-blocker-android.patch
+#
+# Added 2026-08-25 by the board-owner session during verification. The task
+# shipped without a build ("NOT verified: no emulator/device"), which left the
+# central question open: a Rust patch that does not compile is worth nothing,
+# and neither `patch --dry-run` nor any of the scope/order gates can tell you.
+#
+# Method: apply the patch to the extracted tree, run cargo check inside the
+# build container (which is where the vendored crate sources resolve), revert.
+# The container is required: obj-x86_64/.cargo/config.toml maps every git
+# dependency to `vendored-sources`, whose `directory` is the CONTAINER path
+# /work/src/third_party/rust. Running cargo from the host, or from /work/src
+# rather than /work/src/obj-x86_64, fails on `allocator-api2` in offline mode —
+# cargo discovers config by walking up from the cwd, and the config lives in
+# the objdir, not the srcdir.
+#
+#   podman run --rm -v <tree>:/work/src:z -w /work/src/obj-x86_64 \
+#     localhost/librewolf-android-build:latest \
+#     bash -lc 'cargo check -p remote_settings --offline \
+#                 --manifest-path /work/src/Cargo.toml --message-format=short'
+#
+# RESULT: compiles. 10 warnings, 0 errors, "Finished dev profile in 42.85s".
+#
+# The warnings are all dead-code/unused-import fallout from removing the network
+# bodies, and they CANNOT break this build: build/moz.configure/rust.configure:797
+# adds -Dwarnings only under --enable-warnings-as-errors, which assets/mozconfig
+# .android does not set. The objdir proves it rather than the source implying it:
+#   obj-x86_64/config.status:645
+#   'MOZ_RUST_DEFAULT_FLAGS': ['-C', 'debuginfo=2', '--cap-lints', 'warn']
+# --cap-lints warn caps every lint at warning level for the whole graph.
+#
+# Tree left pristine afterwards (0 "LibreWolf" markers in service.rs/client.rs,
+# patch -p1 --dry-run from the TREE ROOT exits 0, no .rej files).
+#
+# --- verbatim tail of the cargo output ---
+    Checking viaduct v0.1.0 (/work/src/third_party/application-services/components/viaduct)
+   Compiling askama v0.14.0
+   Compiling uniffi_bindgen v0.31.0
+    Checking rusqlite v0.37.0
+   Compiling uniffi_build v0.31.0
+   Compiling interrupt-support v0.1.0 (/work/src/third_party/application-services/components/support/interrupt)
+    Checking sql-support v0.1.0 (/work/src/third_party/application-services/components/support/sql)
+    Checking remote_settings v0.1.0 (/work/src/third_party/application-services/components/remote_settings)
+third_party/application-services/components/remote_settings/src/client.rs:18:15: warning: unused import: `Request`
+third_party/application-services/components/remote_settings/src/service.rs:15:5: warning: unused import: `viaduct::Request`
+third_party/application-services/components/remote_settings/src/service.rs:18:43: warning: unused import: `error::Error`
+third_party/application-services/components/remote_settings/src/client.rs:45:7: warning: constant `HEADER_BACKOFF` is never used
+third_party/application-services/components/remote_settings/src/client.rs:46:7: warning: constant `HEADER_RETRY_AFTER` is never used
+third_party/application-services/components/remote_settings/src/client.rs:361:8: warning: methods `perform_sync_operation` and `verify_signature` are never used
+third_party/application-services/components/remote_settings/src/client.rs:828:5: warning: field `backoff` is never read
+third_party/application-services/components/remote_settings/src/client.rs:841:12: warning: methods `handle_backoff_hint` and `ensure_no_backoff` are never used
+third_party/application-services/components/remote_settings/src/client.rs:886:5: warning: variant `Backoff` is never constructed
+third_party/application-services/components/remote_settings/src/service.rs:33:5: warning: field `remote_state` is never read
+warning: `remote_settings` (lib) generated 10 warnings (run `cargo fix --lib -p remote_settings` to apply 3 suggestions)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 42.85s

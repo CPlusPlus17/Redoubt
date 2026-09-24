@@ -1,0 +1,69 @@
+# Patches applied to every target.
+#
+# scripts/librewolf-patches.py applies this list first, then desktop.txt
+# and/or android.txt according to --targets. Paths are relative to the repo
+# root. Blank lines and '#' comments are ignored; everything else is a patch
+# path, applied top to bottom.
+#
+# These lists are the ONLY patch inputs. The old assets/patches.txt shim - a
+# generated common+desktop concatenation kept for downstream builders - was
+# retired by LW-M7-01 and no longer exists; do not regenerate it. The patcher,
+# scripts/check-patchfail.sh, scripts/fuzzfail.sh and the enable/disable helpers
+# all read assets/patches/*.txt directly.
+#
+# ORDER IS LOAD-BEARING. Four pairs share a tree file and only apply in one
+# order (docs/android/AGENTS.md, "Patch ordering constraints"). Three of them
+# are now entirely inside this file - the webgl pair became a within-file pair
+# when LW-M1-08 split webgl-permission and its common half landed here:
+#
+#   autoconfig-setEnv  before  profile-directory        extensions/.../prefcalls.js
+#   firefox-in-ua      before  moz-configure            toolkit/moz.configure
+#   fpp-canvas-fix     before  webgl-permission-common  dom/canvas/ClientWebGLContext.cpp
+#
+# The fourth holds across files, because common.txt is applied first:
+#
+#   mozilla_dirs   (here)  before  xdg-dir          (desktop.txt)
+#
+# STATUS: REVIEWED by LW-M1-01. Every entry below was opened and classified by
+# what it does, against the pristine firefox-153.0.4 tree; the per-patch
+# evidence is the "why common" column in docs/android/PATCH-SCOPE.md. The
+# heuristic '(?)' markers left by LW-M0-02 are resolved and gone. Five entries
+# that used to sit here moved to desktop.txt - each was demonstrated inert on
+# Android by a build guard, not assumed inert from its filename:
+#
+#   add-mojeek                      services/settings/dumps/main/moz.build:46
+#   dbus_name                       toolkit/components/remote/moz.build:25-35
+#   macos-relaunch-without-updater  .mm, toolkit/xre/moz.build cocoa-only
+#   ui-patches/lw-logo-devtools     devtools/moz.build:5-8 (MOZ_DEVTOOLS=all)
+#   xdg-dir                         nsXREDirProvider.cpp:1309-1539 MOZ_WIDGET_GTK
+#
+# Nothing was dropped from this file to make a build compile, and nothing may
+# be. See "What not to do" in docs/android/AGENTS.md.
+
+patches/always-fetch-latest-toolchain-artifact.patch    # build tooling: python/mozbuild artifact_commands, read by mach on every target
+patches/autoconfig-setEnv.patch                         # prefcalls.js ships on Android (MOZ_PREF_EXTENSIONS defaults on, toolkit.mozbuild:135-136)
+patches/bootstrap.patch                                 # build tooling: python/mozversioncontrol path normalisation
+patches/custom-ubo-assets-bootstrap-location.patch      # ext-storage.js ships unguarded (jar.mn:45); the added try/catch is what makes storage.managed work on Android at all
+patches/devtools-bypass.patch                           # devtools/moz.build:11-16 ships server/ + shared/ on Android with no guard
+patches/extensions-setUninstallURL.patch                # ext-runtime.js ships unguarded (jar.mn:43)
+patches/firefox-in-ua.patch                             # toolkit/moz.configure, shared; Android re-implies the same value, so it is a safe no-op there
+patches/fix-canvas-extraction-permission.patch          # dom/html/HTMLCanvasElement.cpp, core DOM
+patches/fpp-canvas-fix.patch                            # dom/canvas + nsRFPService, core; must apply BEFORE webgl-permission-common, further down this file (shared dom/canvas/ClientWebGLContext.cpp)
+patches/limit-access.patch                              # caps/nsScriptSecurityManager.cpp, core security
+patches/moz-configure.patch                             # MOZ_APP_PROFILE default reaches Android (nothing implies it there) -> application.ini Profile via build/moz.build:88-89
+patches/mozilla_dirs.patch                              # NOT inert: XP_UNIX is defined on Android, so the XRE_MOZ_*_NATIVE_MANIFESTS keys and the .mozilla -> .librewolf rename compile there; must apply BEFORE xdg-dir (desktop.txt)
+patches/profile-directory.patch                         # same file as autoconfig-setEnv; must apply AFTER it
+patches/remove-openai.patch                             # MANDATORY on Android: toolkit/components/moz.build:59 traverses ml/, and librewolf-patches.py deletes the OpenAI paths for every target
+patches/remove-pingsender-common.patch                  # LW-M1-06 common half: toolkit/components/telemetry/moz.build:9-11 has DIRS = ["pingsender"] with NO guard, so this really does stop the build traversing it on Android; TelemetrySend + artifacts.py hunks ride along (see PATCH-SCOPE.md)
+patches/rs-blocker.patch                                # services/settings + toolkit/components/search both ship on Android; the allowlist prefs are Android's too -> LW-M4-08 must populate them
+patches/rust-gentoo-musl.patch                          # host-triple disambiguation in build/moz.configure/rust.configure; runs for host AND target, only on the path that would otherwise die()
+patches/ui-patches/neterror-common.patch                # LW-M1-07 split of ui-patches/neterror: toolkit/content/{net-error-card,errors/net-error-illustrations}.mjs ship unguarded (toolkit/content/jar.mn:18,214) and aboutNetError.css + illustrations/warning.svg are shared theme files; the desktop-jar.inc.mn hunk is in neterror-desktop.patch
+patches/vendor-name.patch                               # ext-runtime.js + nsAppRunner.cpp, both core
+
+# Appended by the M1 straddler splits. No ordering constraint applies to these
+# entries unless the comment says so.
+patches/disable-data-reporting-common.patch             # LW-M1-02: common half of disable-data-reporting-at-compile-time (mach telemetry, glean init, Telemetry.cpp, gkrust features). Touches no browser/ file and no file another patch touches, so its position here is free. The compile-time switch itself is per-front-end: desktop half flips browser/moz.configure, Android needs patches/android/disable-data-reporting-android.patch (android.txt) or MOZ_SERVICES_HEALTHREPORT stays on
+patches/webgl-permission-common.patch                   # LW-M1-08 common half: dom/canvas + dom/ipc + libpref, all core Gecko; must apply AFTER fpp-canvas-fix (shared ClientWebGLContext.cpp). Android's default for librewolf.webgl.prompt is flipped to false by patches/android/webgl-prompt-default.patch (landmine L1) - that file ships in this same change, see assets/patches/android.txt
+patches/xmas-common.patch                               # LW-M1-09 common half of the old xmas straddler: root moz.build `DIRS += ["lw"]` + lw/moz.build. This is what puts lw/ into the build on both targets; no other patch in any list touches either file, so its position here is free. CAVEAT: on Android this is necessary but NOT sufficient - FINAL_TARGET_FILES does not reach the APK (GeckoView packages from mobile/android/), so there is still no librewolf.cfg and therefore no autoconfig/lockPref channel there; see the patch header and landmine L2. Desktop half is patches/xmas-desktop.patch
+patches/eme-permission-common.patch                     # LW-M1-03 common half of the old eme-permission straddler: dom/media/eme/MediaKeySystemAccessManager.cpp only (dom/media/moz.build:28,32 puts "eme" in DIRS with no guard). No other patch in any list touches that file, so its position here is free. NO Android companion patch: Android answers the same media-key-system-access request through GeckoViewPermission -> Fenix's own site-permission prompt (default ASK_TO_ALLOW), so this is NOT landmine L1 - the trace is in the patch header. Desktop half is patches/eme-permission-desktop.patch
+patches/moz-official-common.patch                       # LW-M1-04 common half of the old moz-official straddler: the two CDM host-verification hunks, dom/media/gmp/ChromiumCDMAdapter.cpp (dom/media/moz.build:28-36 DIRS has "gmp" unguarded; gmp/moz.build:65-67 UNIFIED_SOURCES) and media/gmp-clearkey/0.1/gmp-clearkey.cpp (toolkit/toolkit.mozbuild:167-169 DIRS is unconditional, and clearkey moz.build:13-16 has an explicit Android FINAL_TARGET branch, i.e. it is packaged into the APK). No other patch in any list touches either file, so its position here is free. Keeps librewolf.eme.gmp-clearkey.enabled meaningful on Android - without it an unsigned build cannot create a clearkey CDM even when the pref is on. NO Android companion patch; desktop half is patches/moz-official-desktop.patch

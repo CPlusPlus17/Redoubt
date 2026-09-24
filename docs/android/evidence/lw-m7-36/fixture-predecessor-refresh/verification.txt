@@ -1,0 +1,51 @@
+Task36 current predecessor refresh after four target test fixture corrections.
+No Task36 source implementation changes or target execution.
+
+$ python3 docs/android/evidence/lw-m7-36/check-source.py
+SOURCE REPLAY PASS: 7 scoped predecessors; 21 patch files match before/after pins; 38 original audit inputs verified.
+AUTHORED KOTLIN TESTS: 21; NOT EXECUTED by this replay.
+AUTHORED XPCSHELL TESTS: 5; NOT EXECUTED by this replay.
+TARGET COMPILATION / API GENERATION / APK RUNTIME: NOT RUN.
+exit_code: 0
+
+$ python3 scripts/tests/test-global-privacy-controls.py
+PASS native defaults and existing middle referrer choice are read without writes
+PASS locked hidden user state is not confused with effective default
+PASS unknown malformed mixed-batch and invalid typed writes reject before save or mutation
+PASS locked requests and absent native pref types never touch persistence
+PASS preflight failure leaves this operation without any pref mutation
+PASS lock changes during preflight are revalidated before mutation
+PASS type changes during preflight are revalidated before mutation
+PASS native same-default normalization saves successfully and reset clears non-default choice
+PASS failed final save preserves actual memory and uncertainty across later read
+PASS same-choice retry performs actual saves and clears prior uncertainty
+PASS queued reads and reset wait until final I/O of the preceding change finishes
+PASS external write while final snapshot saves is superseded and current disk state unconfirmed
+PASS synchronous observer supersession cannot acknowledge the requested choice
+PASS setter throwing after mutation reports memory truth and unconfirmed save
+PASS queued request captures caller choice before caller mutation
+PASS a failed read cannot poison later serialized operations
+PASS unknown existing referrer integer is preserved by read but not admitted as a write
+PASS global WebGL mode and quiet flag leave exact site decisions intact
+PASS 18 actual-module host tests with explicit pref/I/O doubles; native/Android execution NOT RUN
+INTEGRATION SOURCE CHECKS PASS: native registration/packaging, nonpersistent controls, XML resources and enum0/1/2.
+HOST ONLY: target C++/Java/Kotlin compilation, native/GV/Fenix suites and APK behavior remain unrun.
+exit_code: 0
+
+$ python3 docs/android/evidence/lw-m7-36/check-ordering.py
+patches/android/no-glean.patch: inverse identical=True; candidate reached=True; shared position swap identical=True
+patches/android/update-check.patch: inverse identical=True; candidate reached=True; shared position swap identical=True
+patches/android/ubo-readiness.patch: inverse identical=True; candidate reached=True; shared position swap identical=True
+patches/android/canvas-webgl-permissions.patch: inverse identical=False; candidate reached=False; shared position swap identical=True
+patches/android/sync-opt-in.patch: inverse identical=False; candidate reached=False; shared position swap identical=True
+patches/android/cookie-banner-controls.patch: inverse identical=True; candidate reached=True; shared position swap identical=True
+patches/android/extension-update-controls.patch: inverse identical=True; candidate reached=True; shared position swap identical=True
+ORDER RECEIPT PASS; global classification remains root integration ownership.
+exit_code: 0
+
+$ python3 docs/android/board.py --check
+ok: 122 tasks, 31 waves, 0 warning(s)
+exit_code: 0
+
+$ git diff --check
+exit_code: 0

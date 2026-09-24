@@ -1,0 +1,702 @@
+# Redoubt -- mozconfig
+#
+# Android counterpart of assets/mozconfig (== assets/mozconfig.new, the file
+# scripts/librewolf-patches.py copies into the tree as ./mozconfig).
+#
+# Owner: LW-M0-03.  Every option below was checked against the extracted
+# Firefox 153.0.4 source tree; the file:line the check came from is quoted in
+# the comment next to it.  Re-check the quoted line numbers on the next Firefox
+# rebase.
+#
+# This file was originally written with NO toolchain available, so every claim
+# in it was static, against moz.configure sources.  That is no longer uniformly
+# true: M1 built it (aarch64 GeckoView AAR + APK, ./mach build exit 0), so
+# where a comment says "verified in the artefact" it means exactly that.
+# Comments that still read as static reasoning have not been re-checked against
+# a build; do not upgrade their confidence without doing so.
+#
+# LW-M5-03 re-derived the whole hardening block from three built objdirs
+# (LW-M2-01's stock baseline and LW-M2-02's two patched trees) and from the
+# aarch64 ELF they produced, measured every candidate addition with the pinned
+# NDK clang, added the two options below that close a real desktop/Android
+# asymmetry (--enable-phc and -Wl,--rosegment), and re-built this file twice from
+# a fresh stock 153.0.4 tree -- ./mach build exit 0 both times.  It also ran
+# configure with --target=arm-linux-androideabi, --target=x86_64-linux-android and
+# --target=x86_64-pc-linux-gnu, so the per-ABI and desktop numbers quoted below
+# are measured rather than derived.  The findings, the residual gaps and the
+# options that were considered and rejected are written up in
+# docs/android/parity/hardening-flags.md.
+#
+# Mozilla's own working Android mozconfigs, used as the shape reference:
+#   mobile/android/config/mozconfigs/common
+#   mobile/android/config/mozconfigs/android-aarch64/{release,beta,nightly}
+#   mobile/android/config/mozconfigs/common.override
+# We deliberately do NOT source them: they hardcode taskcluster
+# ($MOZ_FETCHES_DIR) paths, Mozilla API keyfiles and -fcrash-diagnostics-dir.
+# This file is standalone, exactly like the desktop one.
+#
+# The "DROPPED / CHANGED FROM DESKTOP" block at the bottom is the summary that
+# docs/android/parity/hardening-flags.md expands.  Keep both in sync when you
+# edit this file.
+
+
+# ---------------------------------------------------------------------------
+# Application and target
+# ---------------------------------------------------------------------------
+# --enable-application is an accepted alias that implies --enable-project
+# (build/moz.configure/init.configure:388-401, "Same as --enable-project").
+# Mozilla's own mobile mozconfigs spell it --enable-project=mobile/android;
+# both land in the same place, and --enable-application keeps this file
+# line-for-line comparable with the desktop one.
+ac_add_options --enable-application=mobile/android
+
+# aarch64 is the primary (and, for M0-M4, only) target.  arm64-v8a is the only
+# ABI worth shipping first; armv7/x86_64 come later via LW-M6-xx multi-arch.
+# mobile/android/moz.configure:140-152 hard-dies unless target.os == "Android".
+ac_add_options --target=aarch64-linux-android
+
+
+# ---------------------------------------------------------------------------
+# app-services in tree  (REQUIRED -- consumed by LW-M2-05)
+# ---------------------------------------------------------------------------
+# Verified spelling: toolkit/moz.configure:4525-4536 declares
+#   option("--enable-appservices-in-tree", help="Enables building from an
+#   in-tree app-services")
+# and sets MOZ_APPSERVICES_IN_TREE.  The option name in 153 is exactly the one
+# the board asked for -- no rename.  Consumers that read the subst:
+#   moz.build:184, settings.gradle:36, mobile/android/fenix/settings.gradle:42,
+#   mobile/android/android-components/settings.gradle:38,
+#   mobile/android/focus-android/settings.gradle:41,
+#   third_party/application-services/moz.build:5
+#
+# LW-M2-05 VERIFIED THIS AGAINST A BUILT ARTEFACT (the M1 GeckoView build in
+# ~/lw-m2-01b, whose /work/mozconfig.android is byte-identical to this file).
+# What the flag actually buys, and what it does NOT:
+#
+#   * config.status carries 'MOZ_APPSERVICES_IN_TREE': '1'; the build log shows
+#     `Compiling remote_settings v0.1.0 (.../third_party/application-services/
+#     components/remote_settings)` and the same for search, nimbus-fml,
+#     toolchain-nimbus-fml and embedded-uniffi-bindgen.  Zero `org.mozilla.
+#     appservices:*` maven artifacts are fetched.  `uniffi v0.31.0` builds from
+#     the vendored third_party/rust copy (.cargo/config.toml.in replaces
+#     crates.io with vendored-sources), so it is in-tree too.
+#   * The concrete thing the flag prevents is a network fetch of the
+#     *nimbus-fml tool*: NimbusGradlePlugin.kt:121 branches on the subst; the
+#     else branch downloads nimbus-fml.zip from archive.mozilla.org (:267) or
+#     firefox-ci-tc (:276).  With the flag on it uses the NIMBUS_FML subst,
+#     which is $DIST/host/bin/nimbus-fml, built by services/moz.build:30-31
+#     (Android-only, and NOT itself gated on this flag).
+#   * It also swaps `org.mozilla.appservices:<mod>` maven coordinates for
+#     project(':<mod>') -- but only under ProjectPlugin.kt:112's *second*
+#     condition: MOZ_APPSERVICES_IN_TREE AND (DOWNLOAD_ALL_GRADLE_DEPENDENCIES
+#     OR :geckoview is in this Gradle build).  A standalone
+#     `cd mobile/android/fenix && gradlew ...` invocation has no :geckoview,
+#     so the substitution silently does NOT happen and Fenix consumes Mozilla's
+#     prebuilt app-services AARs while this flag is still set.  LW-M2-04 must
+#     drive the APK from a Gradle build that includes :geckoview, or the
+#     "no prebuilt artifact" acceptance criterion fails invisibly.
+#
+# NOT what the old comment here claimed.  The remote_settings dumps are ours to
+# *edit* regardless of this flag: Cargo.toml:19-58 lists every app-services
+# component as a workspace member unconditionally, and the dumps are pulled in
+# by include_str!/include_bytes! (components/remote_settings/src/macros.rs:10,
+# 28,56,65) from CARGO_MANIFEST_DIR.  What the flag decides is whether the
+# *megazord* that contains them is built here (moz.build:184 ->
+# third_party/application-services/moz.build:5 -> megazords/full +
+# megazords/fenix-dylib).  Verified in the artefact: search-config-v2.json is
+# embedded byte-for-byte in dist/geckoview/lib/arm64-v8a/libmegazord.so at
+# offset 0x169150, all 7 packaged collections and the regions attachments are
+# there, and none of them is in libxul.so.
+#
+# Where Android search config really comes from -- input for LW-M4-06:
+#   Fenix -> SearchEngineSelectorRepository.kt -> mozilla.appservices.search
+#   -> Rust `search` crate -> RemoteSettingsService -> the dumps compiled into
+#   libmegazord.so.  services/settings/dumps/ never reaches Android at all:
+#   services/settings/dumps/main/moz.build:19 excludes search-config-v2.json
+#   for any MOZ_BUILD_APP starting with "mobile/", and the built omni.ja proves
+#   it (its defaults/settings/ has only gfx, last_modified, doh-config,
+#   doh-providers, password-recipes and onecrl).  So scripts/
+#   librewolf-patches.py:366-372, which cp's assets/search-config-v2.json into
+#   services/settings/dumps/main/, is inert on Android -- landmine L4's shape,
+#   and it is the whole LibreWolf search config, not just add-mojeek.patch.
+#
+# Three mechanics LW-M4-06 has to get right when it writes the app-services
+# side, all read out of components/remote_settings/src/client.rs:
+#   * The dump is only preferred over cached/synced records when its timestamp
+#     is NEWER (get_packaged_data_if_newer, :277-295).  A replacement dump
+#     whose timestamp is not bumped past whatever the device already synced is
+#     simply ignored -- it will look like the edit did nothing.
+#   * Both the `timestamp` field inside the .json and the sibling .timestamp
+#     file must be updated together; client.rs:249 debug_asserts they are equal.
+#   * That whole branch is gated on is_prod_server() (:309), so a build pointed
+#     at a non-prod remote-settings server never loads the packaged dump at all.
+# And note that patches/rs-blocker.patch does NOT cover this path: it touches
+# only services/settings/*.mjs plus SearchEngineSelector.sys.mjs, so
+# librewolf.services.settings.allowedCollections has no effect on the Rust
+# RemoteSettingsService that Fenix actually uses.  That is LW-M4-08's problem.
+#
+# MOZ_ESR does NOT change which search config the Android build resolves.
+# LW-M0-07 flagged SearchUtils.sys.mjs:361 and
+# RustSharedRemoteSettingsService.sys.mjs:44 as both selecting an "esr" channel,
+# and version.android pins 153.0esr, so this looked like a real divergence.  It
+# is not, for two independent reasons:
+#   1. Both sites are Gecko-JS-only and unreachable on Android.
+#      toolkit/components/moz.build:103-110 drops uniffi-js and
+#      uniffi-bindgen-gecko-js/components for MOZ_BUILD_APP == "mobile/android",
+#      and toolkit/library/rust/shared/Cargo.toml:135 /lib.rs:107-108 drop
+#      gkrust-uniffi-components under cfg(not(target_os = "android")).  So
+#      generated/RustSearch.sys.mjs and generated/RustRemoteSettings.sys.mjs do
+#      not exist in the Android build -- confirmed by extracting the built
+#      omni.ja: 2275 files, zero matching *uniffi*, while
+#      SearchEngineSelector.sys.mjs:17-25, SearchService.sys.mjs:2809,
+#      ConfigSearchEngine.sys.mjs and RustSharedRemoteSettingsService.sys.mjs
+#      are all packaged and all import them.  SearchUtils.MODIFIED_APP_CHANNEL
+#      has exactly one non-test consumer (SearchService.sys.mjs:2809) and that
+#      code path cannot run.
+#   2. The path that does run is Kotlin and never sees MOZ_ESR.  Fenix's
+#      Components.kt:258 passes channel = BuildConfig.BUILD_TYPE to the Rust
+#      RemoteSettingsService, and Core.kt:785-790/799-803 derives the search
+#      updateChannel from Config.kt:47's ReleaseChannel, whose `when` accepts
+#      only debug/nightly/benchmark/beta/release and throws on anything else.
+#      There is no ESR value to reach, even though the Rust enum has one
+#      (components/search/src/types.rs:43).  `grep -rn "MOZ_ESR\|IS_ESR"
+#      mobile/android/` returns one hit and it is a unit test.
+# For the record, had the channel been "esr" the delta would have been small:
+# in Mozilla's shipped dump only bing/ddg/google carry an esr subVariant, and
+# each changes only partnerCode + telemetrySuffix (MOZR, ftsa, firefox-b-e,
+# firefox-b-1-e).  assets/search-config-v2.json has 92 records -- ddg,
+# startpage, mojeek and 87 wikipedia* -- and contains the strings
+# "partnerCode", "telemetrySuffix" and "esr" zero times each, so once LW-M4-06
+# lands the equivalent replacement on the app-services side there is nothing
+# for an esr channel to select.  LW-M4-06 therefore does not differ from
+# desktop on this axis.
+ac_add_options --enable-appservices-in-tree
+
+
+# ---------------------------------------------------------------------------
+# Toolchain locations -- these belong to the container image, NOT to this file
+# ---------------------------------------------------------------------------
+# LW-M0-06 (assets/Dockerfile.android) owns installing and pinning the SDK,
+# NDK, JDK and Gradle, and must export the variables read below.  Nothing here
+# hardcodes a path.  Each block is guarded so that an unset variable falls back
+# to configure's own default (~/.mozbuild lookup + `mach bootstrap`), instead
+# of passing an empty --with-... that configure would reject.
+#
+# Hard requirement LW-M0-06 must satisfy, read out of the tree:
+#   NDK  r29  -- python/mozboot/mozboot/android.py:28 (NDK_VERSION = "r29");
+#                build/moz.configure/android-ndk.configure:113-121 dies with
+#                "The only supported version of the NDK is %s" on a mismatch.
+#   SDK  build-tools 37.0.0, compileSdk 37, targetSdk 36, minSdk 26
+#                -- build/moz.configure/android-sdk.configure:152-161.
+# mozboot also honours $ANDROID_NDK_HOME (android.py:46), hence the fallback.
+
+if [ -n "$ANDROID_SDK_ROOT" ]; then
+    ac_add_options --with-android-sdk="$ANDROID_SDK_ROOT"
+fi
+
+if [ -n "$ANDROID_NDK_ROOT" ]; then
+    ac_add_options --with-android-ndk="$ANDROID_NDK_ROOT"
+elif [ -n "$ANDROID_NDK_HOME" ]; then
+    ac_add_options --with-android-ndk="$ANDROID_NDK_HOME"
+fi
+
+# build/moz.configure/java.configure:8-35.  Passing this explicitly is better
+# than JAVA_HOME alone: configure logs "Ignoring JAVA_HOME value" when it
+# auto-detects a different JDK.
+if [ -n "$JAVA_HOME" ]; then
+    ac_add_options --with-java-bin-path="$JAVA_HOME/bin"
+fi
+
+# mobile/android/gradle.configure:9-46.  With no --with-gradle, configure falls
+# back to the in-tree ./gradlew wrapper, which downloads Gradle at build time.
+# LW-M0-06 should set GRADLE_BIN to a pinned, pre-installed gradle so the build
+# has no network dependency.
+if [ -n "$GRADLE_BIN" ]; then
+    ac_add_options --with-gradle="$GRADLE_BIN"
+fi
+
+
+# ---------------------------------------------------------------------------
+# Build type -- straight carry-over from assets/mozconfig
+# ---------------------------------------------------------------------------
+ac_add_options --disable-debug
+# LW-M7-25: gkrust fat LTO with debuginfo=2 exceeded the bounded CI guest.
+# Keep release optimization/LTO and hardening, but omit diagnostic symbols.
+# rust.configure maps any enabled symbol level to Rust debuginfo=2.
+ac_add_options --disable-debug-symbols
+ac_add_options --disable-tests
+ac_add_options --enable-optimize
+ac_add_options --enable-release
+# build/moz.configure/rust.configure:711
+ac_add_options --disable-cargo-incremental
+
+# Crash reporting.  Supported and properly conditionalised on Android:
+# toolkit/moz.configure:3463-3479 (crashreporter_default has an explicit
+# target.os == "Android" branch), and the Java side degrades cleanly --
+# mobile/android/geckoview/build.gradle:70 emits the BuildConfig flag,
+# GeckoRuntime.java:429 early-returns when it is false, and
+# android-components/components/lib/crash/build.gradle:41 reads the same subst.
+ac_add_options --disable-crashreporter
+
+# Already the default for mobile/android -- build/moz.configure/
+# update-programs.configure:8-19 returns False when build_project ==
+# "mobile/android".  Kept explicit so the intent survives an upstream default
+# flip; passing --disable on an already-False default is not an error.
+ac_add_options --disable-updater
+
+
+# ---------------------------------------------------------------------------
+# HARDENING -- the whole point of this file
+# ---------------------------------------------------------------------------
+# Every hardening option from assets/mozconfig is below.  NONE were dropped.
+#
+# LW-M5-03 confirmed, from the built artefact rather than from this file, that
+# each one is in effect on aarch64-linux-android.  The three Android objdirs
+# (LW-M2-01 stock, LW-M2-02 patched 153.0.4 and patched 153.0esr) carry a
+# byte-identical hardening block in config.status, and the ELF shows the
+# mitigations really landed:
+#   * 22 distinct fortified bionic entry points imported by libxul.so
+#     (__memcpy_chk, __strcpy_chk, __vsnprintf_chk, __FD_SET_chk, ...)
+#                                                      -> _FORTIFY_SOURCE=2 live
+#   * __stack_chk_fail@LIBC imported; every non-leaf frame loads the cookie
+#     from TPIDR_EL0                                   -> -fstack-protector-strong live
+#   * _ZNSt6__ndk122__libcpp_verbose_abortEPKcz imported from libmozglue.so
+#     -- libc++ only emits that call when hardening assertions are compiled in
+#                                                      -> STL hardening live
+#   * full RELRO + BIND_NOW, RW (not RWX) GNU_STACK, no TEXTREL
+# The link-side set (-Wl,-z,{noexecstack,text,relro,now,nocopyreloc}) comes from
+# build/moz.configure/flags.configure:358-362, gated only on
+# building_with_gnu_compatible_cc -- identical on desktop clang and NDK clang.
+
+# --enable-hardening: fully meaningful on Android.
+# build/moz.configure/toolchain.configure:2665-2799.  On aarch64-linux-android
+# with clang this yields, all of which bionic/NDK support:
+#   -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2   (requires --enable-optimize, set above)
+#   -fstack-protector-strong                (cflags + ldflags)
+#   -fstack-clash-protection                (:2720-2729 excludes only WINNT,
+#                                            OSX, OpenBSD and iOS -- Android is
+#                                            NOT excluded -- but on aarch64 it
+#                                            additionally requires clang
+#                                            >= 18.1.0.  RESOLVED by LW-M5-03:
+#                                            the NDK r29 clang is 21.0.0, and
+#                                            compiling a large-frame function
+#                                            for aarch64-linux-android26 with
+#                                            and without the flag differs by a
+#                                            real probing loop
+#                                            "sub sp,sp,#0x1000 / cmp sp,x9 /
+#                                            str xzr,[sp] / b.ne" -- so this is
+#                                            measured codegen, not an inferred
+#                                            version comparison.  Note Mozilla
+#                                            builds Android with their own
+#                                            clang, not the NDK's -- see
+#                                            mobile/android/config/mozconfigs/
+#                                            common:18 pointing LD_LIBRARY_PATH
+#                                            at $MOZ_FETCHES_DIR/clang/lib.
+#                                            If LW-M0-06 ever downgrades clang
+#                                            below 18.1.0 this silently stops
+#                                            applying.)
+#   THE ONE UNAVOIDABLE PER-ABI SPLIT, measured by LW-M5-03 rather than assumed:
+#   on --target=arm-linux-androideabi (armeabi-v7a, the fat AAR's third ABI)
+#   MOZ_HARDENING_CFLAGS comes out as
+#     [-U_FORTIFY_SOURCE, -D_FORTIFY_SOURCE=2, -fstack-protector-strong,
+#      -fstrict-flex-arrays=1]
+#   -- NO -fstack-clash-protection, because the condition at :2723-2725 lists
+#   x86/x86_64/ppc64/s390x (clang >= 11.0.1) and aarch64 (clang >= 18.1.0) and
+#   32-bit "arm" appears in neither.  Nothing in this file can fix that; it is a
+#   clang limitation.  x86_64-linux-android gets the full five, verified the same
+#   way.
+#   -fstrict-flex-arrays=1                  (clang >= 16.  Level 1 is the
+#                                            desktop value and is deliberate:
+#                                            :2749-2751 records that level 3
+#                                            breaks the [0] GNU syntax the tree
+#                                            uses everywhere and level 2 breaks
+#                                            sqlite3 and icu.  Raising it on
+#                                            Android alone would be a
+#                                            divergence, not a parity fix.)
+# The only target excluded wholesale at :2700 is WASI.
+#
+# NOT raised to -D_FORTIFY_SOURCE=3, and that is not caution -- it is measured.
+# bionic keys its object-size mode on the level being EXACTLY 2:
+# sys/cdefs.h:240-247 sets __bos_level to 1 when _FORTIFY_SOURCE == 2 and to 0
+# otherwise, so 3 falls into the *else* branch.  Compiled against the NDK r29
+# sysroot, __builtin_object_size(s->a, __bos_level) for a char[8] member of a
+# struct returns 8 at level 2 and -1 (unknown, i.e. unbounded) at both level 1
+# and level 3.  On glibc, 3 is stronger; on bionic it is strictly weaker.
+ac_add_options --enable-hardening
+
+# --enable-stl-hardening: supported on Android, and NOT the default there.
+# build/moz.configure/toolchain.configure:2802-2812 -- want_stl_hardening is
+# `debug or target.os in ("WINNT", "OSX")`, so an Android release build gets
+# NO STL hardening unless we ask.  This line is a real parity fix, not a no-op.
+# :2837-2844 -- Android always uses libc++ (the NDK sysroot ships no libstdc++),
+# so the using_libcxx branch is taken and the die("C++ STL does not support
+# hardening") at :2851 is unreachable.  A non-debug build then gets either
+#   -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE   (libc++ >= 19)
+# or the older
+#   -D_LIBCPP_ENABLE_ASSERTIONS=1                               (libc++ < 19)
+# -- both are real hardening, so this is safe either way.  RESOLVED by LW-M2-01
+# and re-derived by LW-M5-03: we get the STRONGER branch.  All three Android
+# objdirs carry
+#   'MOZ_STL_HARDENING_FLAGS': ['-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE']
+# and that -D is on the real per-file command line -- counted, not spot-checked:
+# 8193 of the 8193 C++ entries in obj-*/clangd/compile_commands.json carry it,
+# and none of the 1773 C entries does, which is correct.
+#
+# AND THIS ROW IS BETTER ON ANDROID THAN ON DESKTOP.  LW-M5-03 ran a real
+# --enable-application=browser --target=x86_64-pc-linux-gnu configure: desktop
+# resolves to libstdc++ and gets MOZ_STL_HARDENING_FLAGS =
+# ['-D_GLIBCXX_ASSERTIONS=1'], which covers materially less than libc++'s
+# EXTENSIVE mode.  So do not describe this as "the same on both platforms".
+ac_add_options --enable-stl-hardening
+
+# --enable-jemalloc: supported; already the default on Android, kept explicit.
+# build/moz.configure/memory.configure:6-11 defaults on when
+# target.kernel in ("Darwin", "Linux", "WINNT"); an Android triplet canonicalises
+# to os="Android", kernel="Linux" (build/moz.configure/init.configure:485-487),
+# so the default is already True.  mozjemalloc has explicit Android handling --
+# memory/build/moz.build:60.
+ac_add_options --enable-jemalloc
+
+# --enable-replace-malloc: supported, and NOT the default on a release build.
+# build/moz.configure/memory.configure:38-52 -- replace_malloc_default is only
+# True for early-beta-or-earlier, and 153.0.4 is release, so without this line
+# MOZ_REPLACE_MALLOC would be off.  Another real parity fix.
+# It is gated `when="--enable-jemalloc"` (:49), which is satisfied above.
+# Links statically into libmozglue (MOZ_REPLACE_MALLOC_STATIC, :58-65); nothing
+# in memory/replace/moz.build excludes Android.
+ac_add_options --enable-replace-malloc
+
+# --enable-rust-simd: supported and effective on aarch64.
+# js/moz.configure:636-650 -- rust_simd only returns True for
+# target.cpu in ("aarch64", "arm", "x86", "x86_64"); aarch64 qualifies, so
+# encoding_rs gets its simd-accel feature exactly as on desktop x86_64.
+ac_add_options --enable-rust-simd
+
+# --enable-phc: ADDED BY LW-M5-03.  One of the two hardening asymmetries between
+# the desktop and Android configurations that a mozconfig can close (the other is
+# the LDFLAGS block further down), and it goes the wrong way by default.
+# build/moz.configure/memory.configure:74-104.  phc_default returns True for
+#   target.cpu in ("x86_64","aarch64") AND (
+#       (target.os == "GNU" and target.kernel == "Linux")   <- desktop LibreWolf
+#    or  target.kernel == "WINNT" or target.os == "OSX"
+#    or (target.os == "Android" and milestone.is_early_beta_or_earlier))
+# An Android triplet is os="Android", kernel="Linux", so it misses the first
+# arm, and version.android pins a *release* milestone, so it misses the fourth.
+# Result: desktop LibreWolf ships MOZ_PHC=1 and Android shipped MOZ_PHC unset --
+# confirmed absent from all three built Android config.status files.
+# PHC puts a sampled fraction of heap allocations on their own guard-page-flanked
+# page and keeps freed ones PROT_NONE, so an overflow or use-after-free on a
+# sampled allocation becomes a deterministic SIGSEGV instead of silent
+# corruption.  Mozilla gates it on "platforms that have a crash reporter"
+# (memory.configure:72-73) for reporting value; we run it with
+# --disable-crashreporter, exactly as desktop LibreWolf already does, and keep
+# it for the fail-fast behaviour alone.
+# Cost, read out of the shipped defaults rather than guessed:
+#   * StaticPrefList.yaml:13963-13973 -- memory.phc.size_kb is 1024+128 on a
+#     release milestone, i.e. ~1.1 MB of PHC pages per process, not the 16 MB
+#     the early-beta branch uses.
+#   * xpcom/base/PHCManager.cpp:36-69 -- PHC self-disables (SetPHCState(OnlyFree))
+#     unless PR_GetPhysicalMemorySize() >= memory.phc.min_ram_mb, default 8000.
+#     On a phone with less than ~8 GB of RAM this option therefore costs code
+#     size and nothing else.  Whoever owns settings/*.cfg should decide whether
+#     to lower memory.phc.min_ram_mb for Android; that pref is not this file's.
+#   * NO codegen change: memory.configure:107-126 implies --enable-frame-pointers
+#     only for WINNT/x86, Darwin, or (x86|ppc) without unwind info.  aarch64
+#     falls through to False, and MOZ_FRAMEPTR_FLAGS stays
+#     ['-fomit-frame-pointer', '-funwind-tables'].
+# Android support in the code is real, not incidental: memory/build/PHC.cpp:132-136
+# has an #ifdef ANDROID pthread_atfork declaration, mozglue/misc/StackWalk.cpp:54
+# counts ANDROID as a MOZ_STACKWALK_SUPPORTS_LINUX platform, and the
+# glean::memory_phc::* metrics PHCManager.cpp needs are already generated in the
+# Android objdir (obj-*/dist/include/mozilla/glean/XpcomMetrics.h:520-540).
+# No LibreWolf patch touches memory/build/ or xpcom/base/.
+#
+# ONE CONSEQUENCE FOR THE FAT AAR, measured, flagged for LW-M2-03.
+# scripts/android-fat-aar.sh:464 generates each per-ABI mozconfig by sed'ing ONLY
+# the `ac_add_options --target=` line of this file, so this option reaches the
+# armeabi-v7a pass too -- and there `target.cpu` is "arm", which phc_default does
+# NOT list, so upstream's default would be OFF.  Confirmed by running
+# `./mach configure` with --target=arm-linux-androideabi and this file:
+# MOZ_PHC = "1".  That is deliberate: PHC's guard-page mechanism is
+# architecture-independent, memory.configure's "we've only been testing on 64bit
+# processors" note is about Win32 stack tracing, and a mitigation present on
+# arm64-v8a and absent on armeabi-v7a would be a second per-ABI parity split on
+# top of the unavoidable one below.  But it IS untested by upstream on 32-bit
+# ARM, so if the armv7 pass or its smoke test misbehaves, this is the first thing
+# to switch off -- for that ABI only.
+ac_add_options --enable-phc
+
+# RLBox wasm sandboxing: ON, by default, and there is deliberately no option
+# here.  toolkit/moz.configure:2817-2833 returns the full library list for every
+# little-endian target, so aarch64-linux-android gets graphite, ogg, hunspell,
+# expat, woff2 and soundtouch sandboxed with no flag from us.  Verified in the
+# artefact: MOZ_USING_WASM_SANDBOXING and all six MOZ_WASM_SANDBOXING_* are 1 in
+# mozilla-config.h, WASI_SYSROOT resolves, obj-*/security/rlbox/ holds 52
+# per-library .wasm modules and an aarch64 rlbox.wasm.o carrying 8907 DISTINCT
+# w2c_* symbol names (401 graphite, 182 hunspell, 110 woff2, 88 expat XML_*,
+# 85 ogg), and toolkit/library/build/libxul_so.list links it into libxul.
+# (SANDBOX-SPIKE.md quotes 8937 for the same object; that is a different filter
+# over the same symbol table -- 15788 raw entries, 8907 unique names -- not a
+# disagreement.)
+#
+# DO NOT add --without-wasm-sandboxed-libraries.  Configure suggests it whenever
+# anything about the WASI sysroot or the wasm32 compiler-rt is missing, and
+# taking that suggestion is a silent security-parity loss: the build goes green
+# and six parsers move back into the libxul address space.  The fix is always to
+# repair the sysroot -- docs/android/BUILD.md section 4.4 -- never to take the
+# suggestion.  LW-M2-01 refused it once and LW-M5-03 refused it again.
+# Not pinned with an explicit --with-wasm-sandboxed-libraries=<list> either: the
+# default tracks upstream, so a library Mozilla sandboxes in a future ESR is
+# picked up automatically, whereas a hardcoded list would silently exclude it.
+
+# The desktop CFLAGS/CXXFLAGS hardening pair, carried verbatim.
+#   -ftrivial-auto-var-init=zero : plain clang flag, no target restriction.
+#       Note it deliberately *overrides* what --enable-hardening would do:
+#       toolchain.configure:2732-2745 only adds -ftrivial-auto-var-init=pattern
+#       and only on debug builds, so on a release build these two lines are the
+#       ONLY thing zero-initialising locals.  Dropping them would silently lose
+#       the mitigation on Android while --enable-hardening still "looks" set.
+#       The linux32 carve-out at :2733 is x86-only and does not apply to aarch64.
+#   -fwrapv : plain clang flag, target-independent.
+#   -Wno-backend-plugin : warning suppression only, target-independent.
+export CFLAGS="-ftrivial-auto-var-init=zero -fwrapv -Wno-backend-plugin $CFLAGS"
+export CXXFLAGS="-ftrivial-auto-var-init=zero -fwrapv -Wno-backend-plugin $CXXFLAGS"
+
+# LDFLAGS -- ADDED BY LW-M5-03.  Android-only, because this is the one place the
+# Android toolchain is measurably WEAKER than the desktop one and it is not our
+# doing: the NDK's clang driver passes --no-rosegment to ld.lld unconditionally
+# (visible in `clang -### --target=aarch64-linux-android26 -shared`).  The result
+# is a single R+E PT_LOAD covering .rodata, .eh_frame, .eh_frame_hdr,
+# .gcc_except_table, .dynstr, .rela.* AND .text -- i.e. read-only DATA mapped
+# executable.  Measured on our own libxul.so: the R+E segment is 151,379,792
+# bytes of which only 109,086,052 are code, so 42,290,043 bytes (40.3 MiB,
+# 27.9%) of non-code was executable.  The SAME lld targeting
+# x86_64-unknown-linux-gnu emits a separate read-only segment, so desktop
+# LibreWolf already ships the layout this line restores.
+#
+# Measured cost: zero.  With the flag, libxul.so is 4 LOAD segments
+# (R 42,293,728 / R+E 109,086,064 / RW / RW), executable-mapped non-code is 0
+# bytes, and the file is byte-for-byte the SAME SIZE as without it -- the segment
+# boundary already fell on the 16 KB alignment.  ./mach build exits 0.
+#
+# Why it is safe to pass here rather than in a CFLAGS-style hack:
+#   * CORRECTION (skeptical verification of LW-M5-03): the original claim here --
+#     that flags.configure routes user link flags through
+#     check_and_add_linker_flag, so a future NDK rejecting the flag would make
+#     configure DROP it rather than fail -- is FALSE, and it was marked (M) for
+#     measured.  build/moz.configure/flags.configure:46-47 extends
+#     os.environ["LDFLAGS"] straight into env_flags: a raw passthrough with no
+#     link test.  check_and_add_linker_flag is used only for configure's OWN
+#     flags (:354-361, -Wl,-z,relro and friends).
+#     So this flag is NOT self-disabling.  If a future NDK rejects it the build
+#     FAILS, loudly, at link time.  That is an acceptable failure mode -- loud
+#     beats a silently dropped hardening flag -- but it is a rebase hazard and
+#     must be re-checked, not assumed away.  The measurement that DOES hold is
+#     the one that matters: with this flag, ./mach build exits 0 on NDK r29
+#     clang 21.0.0 and the segment boundary falls on the 16 KB alignment.
+#   * config/rules.mk:493-497 links the RLBox .wasm archive with $(WASM_CXX) and
+#     its own flag list; wasm-ld never sees LDFLAGS.
+#   * libxul.so on Android is linked through relrhack (RELRHACK=1), which rewrites
+#     program headers.  Verified in the resulting ELF: DT_RELR/DT_RELRSZ are
+#     unchanged at 101,704 bytes, DT_INIT still points into the code segment, and
+#     every ALLOC section is covered by a LOAD segment.
+#   * MOZ_LINKER=1 on Android, and mozglue/linker/CustomElf.cpp:100-120 collects
+#     PT_LOADs into a vector -- no fixed segment count.
+# NOT verified: nobody has run this binary.  A segment layout the loader rejects
+# fails loudly at process start, so ./scripts/android-smoke.sh owns the final
+# word.  If it regresses, delete this line -- that is the whole revert.
+export LDFLAGS="-Wl,--rosegment $LDFLAGS"
+
+
+# ---------------------------------------------------------------------------
+# Telemetry / data-reporting kill switches
+# ---------------------------------------------------------------------------
+# Same option names as desktop -- all three are toolkit-level, not browser-level.
+#
+# MOZ_TELEMETRY_REPORTING: toolkit/moz.configure:1123-1127, an env-style option
+# whose default is `mozilla_official`.  Because we set MOZILLA_OFFICIAL=1 below,
+# this empty override is load-bearing: without it telemetry reporting would be
+# compiled IN.  Mozilla themselves use the same trick in
+# mobile/android/config/mozconfigs/android-x86_64/debug-fuzzing:4.
+export MOZ_TELEMETRY_REPORTING=
+
+# MOZ_REQUIRE_SIGNING: toolkit/moz.configure:2040-2047, defaults to True on
+# release/non-ESR.  Empty value disables the add-on signing requirement, which
+# is what upstream Android does too (mobile/android/config/mozconfigs/
+# common.override:8).
+export MOZ_REQUIRE_SIGNING=
+
+# Kept identical to desktop.  IMPORTANT: these are make-level only.
+# python/mozbuild/mozbuild/mozconfig.py:245-272 routes every `mk_add_options
+# NAME=VALUE` into result["make_extra"]; it never reaches configure's
+# environment.  That matters here, because mobile/android/moz.configure:132
+# does `imply_option("MOZ_SERVICES_HEALTHREPORT", True)` -- if these lines were
+# `export`ed instead, configure would die on the implied/explicit conflict.
+# (browser/moz.configure:6 does the same imply on desktop, which is why the
+# desktop config gets away with it too.)  So: carried for parity, but do not
+# mistake them for an actual off switch -- MOZ_DATA_REPORTING is computed at
+# toolkit/moz.configure:3493-3507 from telemetry|healthreport|crashreporter|
+# normandy, and it is --disable-crashreporter plus the empty
+# MOZ_TELEMETRY_REPORTING above that do the real work.
+mk_add_options MOZ_CRASHREPORTER=0
+mk_add_options MOZ_DATA_REPORTING=0
+mk_add_options MOZ_SERVICES_HEALTHREPORT=0
+mk_add_options MOZ_TELEMETRY_REPORTING=0
+
+# The Android-only telemetry stack (Glean, Adjust, Play Integrity/Firebase)
+# lives in the Fenix/android-components Gradle layer and is NOT reachable from
+# a mozconfig option.  It is removed by LW-M4-01, LW-M4-02 and LW-M4-05.
+# --enable-geckoview-lite (mobile/android/moz.configure:78-83) would drop Glean
+# from GeckoView, but Fenix references Glean classes directly, so turning it on
+# here breaks the APK build.  Left off deliberately; revisit under LW-M4-01.
+
+
+# ---------------------------------------------------------------------------
+# Official build / naming
+# ---------------------------------------------------------------------------
+export MOZILLA_OFFICIAL=1
+
+# --with-app-name is a real, target-independent option (js/moz.configure:19-24,
+# env MOZ_APP_NAME).  On Android it is far less load-bearing than on desktop:
+# the only two consumers in mobile/ are
+#   mobile/android/installer/Makefile.in:32 (-DMOZ_APP_NAME, unused by
+#     package-manifest.in) and
+#   mobile/android/geckoview/build.gradle:43 (a BuildConfig string field).
+# There is no `librewolf` binary on Android and no profile path derived from it.
+# Carried anyway for parity and for what about:buildconfig reports.
+ac_add_options --with-app-name=librewolf
+
+# NOT set: MOZ_APP_BASENAME.  Defaults to "Fennec" on Android
+# (build/moz.configure/init.configure:1283-1290) rather than desktop's
+# "Firefox".  Changing it is display-name/branding work -> LW-M4-07.
+
+
+# ---------------------------------------------------------------------------
+# Branding  -- placeholder, real work is LW-M4-07
+# ---------------------------------------------------------------------------
+# The desktop LibreWolf branding directory (the one assets/mozconfig points at,
+# under the desktop "browser" tree) DOES NOT EXIST for Android and must never
+# be referenced here: mobile/android/confvars.sh:5-6 sets
+#   MOZ_BRANDING_DIRECTORY=mobile/android/branding/unofficial
+#   MOZ_OFFICIAL_BRANDING_DIRECTORY=mobile/android/branding/official
+# and the only branding dirs that exist are mobile/android/branding/{beta,
+# nightly,official,unofficial}.  Pointing --with-branding at a desktop path
+# would break mobile/android/locales/Makefile.in:7-9, which pulls
+# $(MOZ_BRANDING_DIRECTORY)/Makefile and .../locales/Makefile into the build.
+#
+# TODO(LW-M4-07): create mobile/android/branding/librewolf (configure.sh with
+# MOZ_APP_DISPLAYNAME, content/, locales/, moz.build -- copy the shape of
+# mobile/android/branding/unofficial/) and point this line at it.  Until then
+# we use the upstream unofficial branding, which is the non-trademarked one
+# (its configure.sh sets MOZ_APP_DISPLAYNAME="Fennec", not "Firefox").
+# Do NOT switch to --enable-official-branding: that is Mozilla trademark
+# material (toolkit/moz.configure:3208-3215).
+ac_add_options --with-branding=mobile/android/branding/unofficial
+
+
+# ---------------------------------------------------------------------------
+# Localisation
+# ---------------------------------------------------------------------------
+# --with-l10n-base is toolkit-level (toolkit/moz.configure:493-514), not
+# browser-only, and mobile/android DOES use it: mobile/android/locales/l10n.toml
+# resolves every path through `l = "{l10n_base}/{locale}/"`, which is exactly
+# the per-locale layout scripts/librewolf-patches.py:288 unpacks into lw/l10n
+# from the pinned mozilla-l10n/firefox-l10n archive.  So the desktop value is
+# still correct here.  ($topsrcdir rather than $PWD: identical in practice --
+# the mozconfig is sourced with cwd == topsrcdir -- but it does not depend on
+# the caller's working directory.)
+#
+# CAVEAT, and it is a big one: this only covers the *Gecko/GeckoView* strings,
+# and on Android those are almost nothing -- mobile/android/locales/en-US
+# contains just geckoViewConsole.ftl and aboutConfig.ftl.  The entire Fenix UI
+# is localised through a completely different mechanism:
+# mobile/android/fenix/l10n.toml has `basepath = "."` and its values-<locale>/
+# strings.xml files are synced into the tree from mozilla-l10n/android-l10n by
+# Mozilla automation.  --with-l10n-base has no effect on them, and neither does
+# the l10n pin in assets/l10n-pin.txt.  Whoever ends up owning Android string
+# overrides (the "Firefox" -> "LibreWolf" sed at librewolf-patches.py:290-292
+# only touches appstrings.properties) needs a separate mechanism.  Not solved
+# by this file; flagged for LW-M4-07 / LW-M5-03.
+ac_add_options --with-l10n-base="$topsrcdir/lw/l10n"
+
+
+# ---------------------------------------------------------------------------
+# DROPPED / CHANGED FROM DESKTOP  -- worked through by LW-M5-03
+# ---------------------------------------------------------------------------
+# HARDENING OPTIONS DROPPED: none.  All eight of --enable-hardening,
+# --enable-stl-hardening, --enable-jemalloc, --enable-replace-malloc,
+# --enable-rust-simd, -ftrivial-auto-var-init=zero, -fwrapv and
+# -Wno-backend-plugin are present above and, since LW-M5-03, verified IN EFFECT
+# on aarch64-linux-android from the built ELF and the real compiler command
+# lines -- not merely "supported".
+#
+# HARDENING ADDED by LW-M5-03 -- the two asymmetries a mozconfig can close:
+#   1. --enable-phc.  Desktop gets MOZ_PHC from configure's default (verified in
+#      a real x86_64-pc-linux-gnu config.status) and Android did not.
+#   2. export LDFLAGS="-Wl,--rosegment ...".  The NDK clang driver passes
+#      --no-rosegment, so 42,290,043 bytes of read-only DATA in libxul.so were
+#      mapped executable; desktop's lld does not do this and needs no flag.
+#      After: 0 bytes, same file size.
+#
+# ONE ROW WHERE ANDROID IS AHEAD OF DESKTOP: STL hardening.  Android gets
+# _LIBCPP_HARDENING_MODE_EXTENSIVE, desktop gets _GLIBCXX_ASSERTIONS=1.
+#
+# ONE RESIDUAL GAP NO FLAG CAN CLOSE: MOZ_SANDBOX is 1 on desktop and absent on
+# every Android target.  See docs/android/SANDBOX-SPIKE.md (LW-M5-07).
+#
+# ONE PER-ABI SPLIT NO FLAG CAN CLOSE: armeabi-v7a gets no
+# -fstack-clash-protection.  See the --enable-hardening block above.
+#
+# Considered and deliberately NOT added -- full reasoning, measurements and
+# residual gaps in docs/android/parity/hardening-flags.md:
+#   -mbranch-protection=pac-ret / =standard (BTI), -fsanitize=shadow-call-stack,
+#   -fzero-call-used-regs, -D_FORTIFY_SOURCE=3, -fstrict-flex-arrays>1,
+#   --enable-sandbox, --enable-lto + CFI, MTE.
+#
+# Non-hardening desktop lines not carried, with reasons:
+#
+# 1. ac_add_options --enable-application=browser
+#    -> replaced by --enable-application=mobile/android.  Obviously.
+#
+# 2. ac_add_options --disable-default-browser-agent
+#    -> DROPPED.  build/moz.configure/update-programs.configure:228-246: the
+#       default is `target.os == "WINNT" and build_project == "browser"`, i.e.
+#       already False for us, and set_config is gated `when=target_is_windows`.
+#       The option is declared unconditionally so passing it would not actually
+#       error, but it is dead weight on Android and the board explicitly asked
+#       for desktop-only options to stay out.
+#
+# 3. the desktop --with-branding line (it names a directory in the desktop
+#    "browser" tree, which does not exist for Android)
+#    -> REPLACED with mobile/android/branding/unofficial; see the branding
+#       block above.  Placeholder pending LW-M4-07.
+#
+# 4. export MOZ_APP_REMOTINGNAME=LibreWolf
+#    -> DROPPED.  toolkit/moz.configure:3336-3354; the value only reaches
+#       build/application.ini.in:21 (RemotingName) and
+#       toolkit/xre/nsAppRunner.cpp:6397, both of which implement the
+#       X11/DBus single-instance remoting protocol.  Android has no XRE
+#       remoting path -- GeckoView is started by the Android framework -- so
+#       setting it changes nothing.  Harmless but meaningless; left out rather
+#       than carried as noise.  If a future task finds it in about:buildconfig
+#       output and wants it for cosmetic consistency, re-adding is safe.
+#
+# 5. mk_add_options MOZ_* lines
+#    -> KEPT verbatim, but see the note above: they are make-level only and
+#       never reach configure.  This is true on desktop too.
+#
+# Android-only additions that have no desktop counterpart:
+#   --target=aarch64-linux-android, --enable-appservices-in-tree,
+#   --with-android-sdk / --with-android-ndk / --with-java-bin-path /
+#   --with-gradle (all env-driven, LW-M0-06), --disable-updater (explicit).
+#
+# Added by LW-M2-04, which wired up the APK build (mobile/android/moz.configure:85-100
+# selects the Fenix Gradle task set).  It was deliberately withheld through M0/M1
+# so those milestones stayed a GeckoView-only build and a failure there could not
+# be confused with a Fenix-stage failure.  That reason has expired.
+#
+# The APK LW-M2-04 verified was built from a private copy of this file carrying
+# this line; the repo file was left without it, so `make android-apk` died at
+# preflight and the deliverable was not reproducible from the repository. Caught
+# by the skeptical verification of LW-M2-04.
+ac_add_options --enable-android-subproject=fenix

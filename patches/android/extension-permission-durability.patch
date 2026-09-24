@@ -1,0 +1,302 @@
+diff --git a/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+--- a/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+@@ -1130,7 +1130,34 @@
+       throw new Error(`Could not find an extension with id='${aId}'.`);
+     }
+ 
+-    return extension.uninstall();
++    // onUninstalled starts permission cleanup but does not await it. Observe
++    // that original task before uninstalling, so the public GeckoView result
++    // acknowledges its persistence and propagates its failure without retrying.
++    let permissionCleanup;
++    const onCleanup = (_event, id, tasks) => {
++      if (id != aId) {
++        return;
++      }
++      const matches = tasks.filter(
++        task => task.name == `Clear ExtensionPermissions for ${aId}`
++      );
++      if (matches.length == 1) {
++        permissionCleanup = matches[0].promise;
++        // The task can reject before extension.uninstall finishes. Observe it
++        // now, then await the same result below to return the real error.
++        permissionCleanup.catch(() => {});
++      }
++    };
++    lazy.Management.on("cleanupAfterUninstall", onCleanup);
++    try {
++      await extension.uninstall();
++      if (!permissionCleanup) {
++        throw new Error(`Missing extension permission cleanup for '${aId}'.`);
++      }
++      await permissionCleanup;
++    } finally {
++      lazy.Management.off("cleanupAfterUninstall", onCleanup);
++    }
+   },
+ 
+   async browserActionClick(aId) {
+diff --git a/toolkit/components/extensions/ExtensionPermissions.sys.mjs b/toolkit/components/extensions/ExtensionPermissions.sys.mjs
+--- a/toolkit/components/extensions/ExtensionPermissions.sys.mjs
++++ b/toolkit/components/extensions/ExtensionPermissions.sys.mjs
+@@ -69,6 +69,15 @@
+         Cu.reportError(e);
+       }
+     }
++    if (AppConstants.platform == "android") {
++      // JSONFile's saver is not armed on this path. Keep the full queue alive
++      // during graceful shutdown, including writes not yet submitted to IOUtils.
++      this._shutdownBlocker = () => this._pendingWrite.catch(() => {});
++      IOUtils.profileBeforeChange.addBlocker(
++        "Flush Android extension permission writes",
++        this._shutdownBlocker
++      );
++    }
+   }
+ 
+   async has(extensionId) {
+@@ -84,17 +93,50 @@
+       perms = emptyPermissions();
+     }
+ 
+-    return perms;
++    // Public add/remove mutate these arrays before calling put. Keep an Android
++    // failed write from changing the committed value and suppressing a retry.
++    return AppConstants.platform == "android" ? structuredClone(perms) : perms;
++  }
++
++  _pendingWrite = Promise.resolve();
++
++  _writeAndroid(change) {
++    // Different extension IDs have independent public queues but share one
++    // JSON file. Serialize complete snapshots, including after a failed write.
++    const write = this._pendingWrite.catch(() => {}).then(async () => {
++      const snapshot = structuredClone(prefs.data);
++      change(snapshot);
++      await IOUtils.writeJSON(prefs.path, snapshot, {
++        tmpPath: `${prefs.path}.tmp`,
++        flush: true,
++      });
++      // Publish only after the atomic write succeeds. JSONFile._save catches
++      // write errors, so use IOUtils directly to preserve the caller's failure.
++      prefs.data = snapshot;
++    });
++    this._pendingWrite = write;
++    return write;
+   }
+ 
+   async put(extensionId, permissions) {
+     await this.lazyInit();
++    if (AppConstants.platform == "android") {
++      const value = structuredClone(permissions);
++      return this._writeAndroid(data => {
++        data[extensionId] = value;
++      });
++    }
+     prefs.data[extensionId] = permissions;
+     prefs.saveSoon();
+   }
+ 
+   async delete(extensionId) {
+     await this.lazyInit();
++    if (AppConstants.platform == "android") {
++      return this._writeAndroid(data => {
++        delete data[extensionId];
++      });
++    }
+     if (prefs.data[extensionId]) {
+       delete prefs.data[extensionId];
+       prefs.saveSoon();
+@@ -107,6 +149,11 @@
+     }
+ 
+     await this._initPromise;
++    await this._pendingWrite.catch(() => {});
++    if (this._shutdownBlocker) {
++      IOUtils.profileBeforeChange.removeBlocker(this._shutdownBlocker);
++      this._shutdownBlocker = null;
++    }
+     await prefs.finalize();
+     prefs = null;
+     this._initPromise = null;
+@@ -333,6 +380,20 @@
+   },
+ 
+   async _getCached(extensionId) {
++    if (AppConstants.platform == "android") {
++      // This derived cache is saved on a separate five-second timer. A process
++      // killed after a completed choice may retain either an old grant or an
++      // old denial. Both JSON and KV backends are authoritative on Android.
++      const perms = await this._get(extensionId);
++      const cached = await lazy.StartupCache.permissions.get(
++        extensionId,
++        () => perms
++      );
++      if (JSON.stringify(cached) != JSON.stringify(perms)) {
++        await lazy.StartupCache.permissions.set(extensionId, perms);
++      }
++      return perms;
++    }
+     return lazy.StartupCache.permissions.get(extensionId, () =>
+       this._get(extensionId)
+     );
+@@ -553,11 +614,17 @@
+ 
+   async removeAll(extensionId) {
+     return extPermAccessQueues.runWriteTask(extensionId, async () => {
+-      this.tempOrigins.delete(extensionId);
+-      lazy.StartupCache.permissions.delete(extensionId);
++      if (AppConstants.platform != "android") {
++        this.tempOrigins.delete(extensionId);
++        lazy.StartupCache.permissions.delete(extensionId);
++      }
+ 
+       let removed = store.get(extensionId);
+       await store.delete(extensionId);
++      if (AppConstants.platform == "android") {
++        this.tempOrigins.delete(extensionId);
++        await lazy.StartupCache.permissions.delete(extensionId);
++      }
+       lazy.Management.emit("change-permissions", {
+         extensionId,
+         removed: await removed,
+diff --git a/toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js b/toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js
+new file mode 100644
+--- /dev/null
++++ b/toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js
+@@ -0,0 +1,121 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++"use strict";
++
++AddonTestUtils.init(this);
++AddonTestUtils.createAppInfo(
++  "xpcshell@tests.mozilla.org",
++  "XPCShell",
++  "1",
++  "42"
++);
++
++const { ExtensionPermissions } = ChromeUtils.importESModule(
++  "resource://gre/modules/ExtensionPermissions.sys.mjs"
++);
++const { GeckoViewWebExtension } = ChromeUtils.importESModule(
++  "resource://gre/modules/GeckoViewWebExtension.sys.mjs"
++);
++const { sinon } = ChromeUtils.importESModule(
++  "resource://testing-common/Sinon.sys.mjs"
++);
++const ID = "permission-durability@tests.mozilla.org";
++const OTHER = "permission-durability-other@tests.mozilla.org";
++const permission = () => ({
++  permissions: ["internal:privateBrowsingAllowed"],
++  origins: [],
++  data_collection: [],
++});
++const PERMISSIONS_PATH = PathUtils.join(do_get_profile().path, "extension-preferences.json");
++
++add_setup(async function setup() {
++  ExtensionPermissions._useLegacyStorageBackend = true;
++  await ExtensionPermissions._uninit();
++  registerCleanupFunction(async () => {
++    await ExtensionPermissions.removeAll(ID);
++    await ExtensionPermissions.removeAll(OTHER);
++    await ExtensionPermissions._uninit({ recreateStore: false });
++  });
++});
++
++add_task(async function completion_is_already_on_disk() {
++  await Promise.all([
++    ExtensionPermissions.add(ID, permission()),
++    ExtensionPermissions.add(OTHER, permission()),
++  ]);
++  let disk = await IOUtils.readJSON(PERMISSIONS_PATH);
++  Assert.deepEqual(disk[ID], permission(), "add completion persisted the choice");
++  Assert.deepEqual(disk[OTHER], permission(), "other ID survived a shared-file write");
++  await ExtensionPermissions.remove(ID, permission());
++  disk = await IOUtils.readJSON(PERMISSIONS_PATH);
++  Assert.deepEqual(disk[ID].permissions, [], "remove completion persisted revocation");
++  await ExtensionPermissions.removeAll(OTHER);
++  disk = await IOUtils.readJSON(PERMISSIONS_PATH);
++  Assert.ok(!(OTHER in disk), "removeAll completion already removed the disk record");
++});
++
++add_task(async function failed_writes_preserve_retry_and_cache() {
++  const sandbox = sinon.createSandbox();
++  try {
++    sandbox.stub(IOUtils, "writeJSON").rejects(new Error("controlled write failure"));
++    await Assert.rejects(ExtensionPermissions.add(ID, permission()), /controlled write failure/);
++    Assert.deepEqual((await ExtensionPermissions.get(ID)).permissions, [], "failed grant not published");
++  } finally {
++    sandbox.restore();
++  }
++  await ExtensionPermissions.add(ID, permission());
++  Assert.deepEqual((await IOUtils.readJSON(PERMISSIONS_PATH))[ID], permission(), "same grant retries persistence");
++  try {
++    sandbox.stub(IOUtils, "writeJSON").rejects(new Error("controlled write failure"));
++    await Assert.rejects(ExtensionPermissions.remove(ID, permission()), /controlled write failure/);
++    await Assert.rejects(ExtensionPermissions.removeAll(ID), /controlled write failure/);
++    Assert.deepEqual(await ExtensionPermissions.get(ID), permission(), "failed removals leave the committed grant");
++  } finally {
++    sandbox.restore();
++  }
++  await ExtensionPermissions.removeAll(ID);
++  Assert.ok(!(ID in (await IOUtils.readJSON(PERMISSIONS_PATH))), "removeAll retries the failed write");
++});
++
++add_task(async function stale_derived_cache_is_never_authority() {
++  // Exercise the real JSON and modern KV backends; only unit setup switches it.
++  for (const legacy of [true, false]) {
++    ExtensionPermissions._useLegacyStorageBackend = legacy;
++    await ExtensionPermissions._uninit();
++    await ExtensionPermissions.removeAll(ID);
++    await ExtensionParent.StartupCache.permissions.set(ID, permission());
++    Assert.deepEqual((await ExtensionPermissions.get(ID)).permissions, [], "stale cache cannot resurrect grant");
++    await ExtensionPermissions.add(ID, permission());
++    await ExtensionParent.StartupCache.permissions.set(ID, { permissions: [], origins: [] });
++    Assert.deepEqual(await ExtensionPermissions.get(ID), permission(), "stale cache cannot erase grant");
++    await ExtensionPermissions.removeAll(ID);
++  }
++  ExtensionPermissions._useLegacyStorageBackend = true;
++  await ExtensionPermissions._uninit();
++});
++
++add_task(async function geckoview_uninstall_waits_original_permission_cleanup() {
++  const sandbox = sinon.createSandbox();
++  const cleanup = Promise.withResolvers();
++  let emitted = false;
++  sandbox.stub(GeckoViewWebExtension, "extensionById").resolves({
++    async uninstall() {
++      Management.emit("cleanupAfterUninstall", ID, [
++        { name: `Clear ExtensionPermissions for ${ID}`, promise: cleanup.promise },
++      ]);
++      emitted = true;
++    },
++  });
++  try {
++    let completed = false;
++    const result = GeckoViewWebExtension.uninstallWebExtension(ID);
++    result.then(() => { completed = true; }, () => {});
++    await TestUtils.waitForCondition(() => emitted);
++    Assert.ok(!completed, "uninstall completion waits for permission persistence");
++    cleanup.reject(new Error("original permission write failed"));
++    await Assert.rejects(result, /original permission write failed/);
++  } finally {
++    sandbox.restore();
++  }
++});
+diff --git a/toolkit/components/extensions/test/xpcshell/xpcshell.toml b/toolkit/components/extensions/test/xpcshell/xpcshell.toml
+--- a/toolkit/components/extensions/test/xpcshell/xpcshell.toml
++++ b/toolkit/components/extensions/test/xpcshell/xpcshell.toml
+@@ -74,6 +74,9 @@
+ ]
+ 
+ ["test_ext_experiments_glean.js"]
++
++["test_ext_permissions_android_durability.js"]
++run-if = ["os == 'android'"]
+ 
+ ["test_ext_geckoProfiler_schema.js"]
+ run-if = [

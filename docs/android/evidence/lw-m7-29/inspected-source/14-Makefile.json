@@ -1,0 +1,10 @@
+{
+  "path": "Makefile",
+  "ranges": [
+    {
+      "start": 425,
+      "end": 436,
+      "text": "\n# Android translation pins participate in extraction; desktop inputs stay identical.\nandroid_translation_inputs := $(if $(filter android,$(target_list)),scripts/package-translation-assets.py assets/translations/catalog.json assets/translations/bergamot-translator.wasm.zst assets/translations/provenance.json)\n\n$(lw_source_dir): $(ff_source_tarball) $(version_files) scripts/librewolf-patches.py assets/mozconfig assets/l10n-pin.txt $(patch_lists) $(targets_stamp) $(android_translation_inputs)\n\t$(lw_tree_guard)\n\trm -rf \"$(ff_tarball_dir)\" $(lw_source_dir)\n\ttar xf $(ff_source_tarball)\n\tmv \"$(ff_tarball_dir)\" $(lw_source_dir)\n\t$(patcher_cmd)\n\n$(lw_source_tarball): $(lw_source_dir)\n"
+    }
+  ]
+}

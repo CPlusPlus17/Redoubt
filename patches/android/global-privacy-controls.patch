@@ -1,0 +1,1632 @@
+diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
+index 8b3e821..0c3d447 100644
+--- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
+@@ -29,6 +29,7 @@ import mozilla.components.browser.engine.gecko.ipprotection.GeckoIPProtectionHan
+ import mozilla.components.browser.engine.gecko.mediaquery.from
+ import mozilla.components.browser.engine.gecko.mediaquery.toGeckoValue
+ import mozilla.components.browser.engine.gecko.preferences.DefaultGeckoPreferenceAccessor
++import mozilla.components.browser.engine.gecko.preferences.GeckoGlobalPrivacyController
+ import mozilla.components.browser.engine.gecko.preferences.GeckoPreferenceAccessor
+ import mozilla.components.browser.engine.gecko.preferences.GeckoPreferenceObserverDelegate
+ import mozilla.components.browser.engine.gecko.preferences.GeckoPreferencesUtils.intoBrowserPreference
+@@ -70,6 +71,7 @@ import mozilla.components.concept.engine.preferences.Branch
+ import mozilla.components.concept.engine.preferences.BrowserPrefObserverDelegate
+ import mozilla.components.concept.engine.preferences.BrowserPreference
+ import mozilla.components.concept.engine.preferences.BrowserPreferencesRuntime
++import mozilla.components.concept.engine.preferences.GlobalPrivacyController
+ import mozilla.components.concept.engine.preferences.SetBrowserPreference
+ import mozilla.components.concept.engine.serviceworker.ServiceWorkerDelegate
+ import mozilla.components.concept.engine.translate.LanguageModel
+@@ -1478,6 +1480,8 @@ class GeckoEngine(
+         addressStructureAccessor.getAddressStructure(countryCode, onSuccess, onError)
+     }
+
++    override val globalPrivacyController: GlobalPrivacyController by lazy { GeckoGlobalPrivacyController() }
++
+     /**
+      * See [Engine.profiler].
+      */
+diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt
+new file mode 100644
+index 0000000..8e97e24
+--- /dev/null
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt
+@@ -0,0 +1,105 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.browser.engine.gecko.preferences
++
++import mozilla.components.concept.engine.preferences.CrossHostReferrerPolicy
++import mozilla.components.concept.engine.preferences.GlobalPrivacyChangeResult
++import mozilla.components.concept.engine.preferences.GlobalPrivacyContext
++import mozilla.components.concept.engine.preferences.GlobalPrivacyController
++import mozilla.components.concept.engine.preferences.GlobalPrivacyPreference
++import mozilla.components.concept.engine.preferences.GlobalPrivacySaveStatus
++import mozilla.components.concept.engine.preferences.GlobalPrivacySetting
++import mozilla.components.concept.engine.preferences.GlobalPrivacyState
++import org.mozilla.geckoview.GeckoResult
++import org.mozilla.geckoview.GeckoGlobalPrivacyController as NativeController
++
++internal interface NativeGlobalPrivacyApi {
++    fun read(): GeckoResult<NativeController.State>
++    fun setBoolean(id: String, value: Boolean): GeckoResult<NativeController.ChangeResult>
++    fun setReferrerPolicy(value: Int): GeckoResult<NativeController.ChangeResult>
++    fun reset(id: String): GeckoResult<NativeController.ChangeResult>
++}
++
++private object DefaultNativeGlobalPrivacyApi : NativeGlobalPrivacyApi {
++    override fun read() = NativeController.getState()
++    override fun setBoolean(id: String, value: Boolean) = NativeController.setBoolean(id, value)
++    override fun setReferrerPolicy(value: Int) = NativeController.setReferrerPolicy(value)
++    override fun reset(id: String) = NativeController.reset(id)
++}
++
++/** Translates the native authoritative contract without caching or duplicating pref storage. */
++internal class GeckoGlobalPrivacyController(
++    private val native: NativeGlobalPrivacyApi = DefaultNativeGlobalPrivacyApi,
++) : GlobalPrivacyController {
++    override fun read(onSuccess: (GlobalPrivacyState) -> Unit, onError: (Throwable) -> Unit) {
++        deliver({ native.read() }, { onSuccess(it.into()) }, onError)
++    }
++
++    override fun setBoolean(setting: GlobalPrivacySetting, value: Boolean, onResult: (GlobalPrivacyChangeResult) -> Unit, onError: (Throwable) -> Unit) {
++        if (!setting.isBoolean) {
++            onError(IllegalArgumentException("Referrer policy is not a boolean control"))
++            return
++        }
++        deliver({ native.setBoolean(setting.id, value) }, { onResult(it.into()) }, onError)
++    }
++
++    override fun setReferrerPolicy(policy: CrossHostReferrerPolicy, onResult: (GlobalPrivacyChangeResult) -> Unit, onError: (Throwable) -> Unit) {
++        deliver({ native.setReferrerPolicy(policy.value) }, { onResult(it.into()) }, onError)
++    }
++
++    override fun reset(setting: GlobalPrivacySetting, onResult: (GlobalPrivacyChangeResult) -> Unit, onError: (Throwable) -> Unit) {
++        deliver({ native.reset(setting.id) }, { onResult(it.into()) }, onError)
++    }
++}
++
++private fun NativeController.State.into() = GlobalPrivacyState(
++    settings = settings.associate { entry ->
++        val setting = GlobalPrivacySetting.entries.single { it.id == entry.id }
++        setting to GlobalPrivacyPreference(
++            value = entry.value.takeIf { entry.available },
++            defaultValue = entry.defaultValue,
++            userValue = entry.userValue,
++            locked = entry.locked,
++            hasUserValue = entry.hasUserValue,
++            userValueKnown = entry.userValueKnown,
++            persistenceUnconfirmed = entry.persistenceUnconfirmed,
++        )
++    },
++    context = GlobalPrivacyContext(
++        context.rfpPrivate, context.fingerprintingProtection, context.fingerprintingProtectionPrivate,
++        context.rfpExemptions, context.fingerprintingOverrides, context.webglDisabled,
++        context.referrerTrimming, context.dnsOverHttpsMode,
++    ),
++)
++
++private fun NativeController.ChangeResult.into() = GlobalPrivacyChangeResult(
++    status = when (status) {
++        NativeController.ChangeResult.SAVED -> GlobalPrivacySaveStatus.SAVED
++        NativeController.ChangeResult.REJECTED -> GlobalPrivacySaveStatus.REJECTED
++        NativeController.ChangeResult.UNCONFIRMED -> GlobalPrivacySaveStatus.UNCONFIRMED
++        NativeController.ChangeResult.SUPERSEDED -> GlobalPrivacySaveStatus.SUPERSEDED
++        else -> error("Unknown native persistence status")
++    },
++    reason = reason,
++    state = state.into(),
++)
++
++private fun <T : Any> deliver(request: () -> GeckoResult<T>, onSuccess: (T) -> Unit, onError: (Throwable) -> Unit) {
++    try {
++        request().then(
++            { value ->
++                try {
++                    if (value == null) onError(IllegalStateException("Missing native privacy state")) else onSuccess(value)
++                } catch (error: Exception) {
++                    onError(error)
++                }
++                GeckoResult<Void>()
++            },
++            { error -> onError(error); GeckoResult<Void>() },
++        )
++    } catch (error: Exception) {
++        onError(error)
++    }
++}
+diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt
+new file mode 100644
+index 0000000..9f425df
+--- /dev/null
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt
+@@ -0,0 +1,91 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++package mozilla.components.browser.engine.gecko.preferences
++
++import android.os.Looper
++import mozilla.components.concept.engine.preferences.GlobalPrivacyChangeResult
++import mozilla.components.concept.engine.preferences.GlobalPrivacySaveStatus
++import mozilla.components.concept.engine.preferences.GlobalPrivacySetting
++import mozilla.components.concept.engine.preferences.GlobalPrivacyState
++import org.junit.Assert.*
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.gecko.util.GeckoBundle
++import org.mozilla.geckoview.GeckoResult
++import org.mozilla.geckoview.GeckoGlobalPrivacyController as Native
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.Shadows.shadowOf
++
++@RunWith(RobolectricTestRunner::class)
++class GeckoGlobalPrivacyControllerTest {
++    private fun stateBundle(locked: Boolean = false, unconfirmed: Boolean = false): GeckoBundle = GeckoBundle().apply {
++        putBundleArray("settings", GlobalPrivacySetting.entries.map { key -> GeckoBundle().apply {
++            putString("id", key.id); putString("type", if (key.isBoolean) "bool" else "int")
++            putBoolean("available", true); putBoolean("hasDefault", true); putBoolean("hasUser", true)
++            putBoolean("locked", locked); putBoolean("userValueKnown", !locked)
++            putBoolean("persistenceUnconfirmed", unconfirmed); putInt("value", 1); putInt("defaultValue", 0)
++            if (locked) putString("userValue", null) else putInt("userValue", 1)
++        } }.toTypedArray())
++        putBundle("context", GeckoBundle())
++    }
++    // Exercise the real GV bundle parser without starting the native runtime.
++    private inline fun <reified T> parse(bundle: GeckoBundle): T = T::class.java.getDeclaredConstructor(GeckoBundle::class.java)
++        .apply { isAccessible = true }.newInstance(bundle)
++    private fun resultBundle(status: String, unconfirmed: Boolean = false) = GeckoBundle().apply {
++        putString("status", status); putString("reason", if (unconfirmed) "save-failed" else "")
++        putBundle("state", stateBundle(unconfirmed = unconfirmed))
++    }
++    private inner class Api : NativeGlobalPrivacyApi {
++        var calls = 0; var lastId: String? = null; var lastValue: Boolean? = null
++        var locked = false; var unconfirmed = false; var throwOnRead = false; var rejectRead = false
++        override fun read(): GeckoResult<Native.State> {
++            calls++
++            if (throwOnRead) error("dispatch failed")
++            if (rejectRead) return GeckoResult.fromException(IllegalStateException("native read failed"))
++            return GeckoResult.fromValue(parse(stateBundle(locked)))
++        }
++        override fun setBoolean(id: String, value: Boolean): GeckoResult<Native.ChangeResult> {
++            calls++; lastId = id; lastValue = value
++            return GeckoResult.fromValue(parse(resultBundle(if (unconfirmed) "unconfirmed" else "saved", unconfirmed)))
++        }
++        override fun setReferrerPolicy(value: Int): GeckoResult<Native.ChangeResult> = error("not used")
++        override fun reset(id: String): GeckoResult<Native.ChangeResult> {
++            calls++; lastId = id; return GeckoResult.fromValue(parse(resultBundle("saved")))
++        }
++    }
++
++    @Test fun `locked actual GV state preserves hidden user uncertainty and enum one`() {
++        val api = Api().apply { locked = true }; var state: GlobalPrivacyState? = null
++        GeckoGlobalPrivacyController(api).read({ state = it }, { throw it }); shadowOf(Looper.getMainLooper()).idle()
++        val preference = state!!.settings.getValue(GlobalPrivacySetting.REFERRER_HOST_POLICY)
++        assertEquals(1, preference.value); assertTrue(preference.locked); assertTrue(preference.hasUserValue)
++        assertFalse(preference.userValueKnown); assertNull(preference.userValue)
++    }
++    @Test fun `wrong boolean key is rejected before any native call`() {
++        val api = Api(); var failure: Throwable? = null
++        GeckoGlobalPrivacyController(api).setBoolean(GlobalPrivacySetting.REFERRER_HOST_POLICY, true, { fail("must reject") }, { failure = it })
++        assertEquals(0, api.calls); assertTrue(failure is IllegalArgumentException)
++    }
++    @Test fun `native failed save is a typed unconfirmed result with actual state`() {
++        val api = Api().apply { unconfirmed = true }; var result: GlobalPrivacyChangeResult? = null
++        GeckoGlobalPrivacyController(api).setBoolean(GlobalPrivacySetting.RESIST_FINGERPRINTING, false, { result = it }, { throw it })
++        shadowOf(Looper.getMainLooper()).idle()
++        assertEquals("rfp", api.lastId); assertEquals(false, api.lastValue)
++        assertEquals(GlobalPrivacySaveStatus.UNCONFIRMED, result!!.status)
++        assertTrue(result!!.state.settings.getValue(GlobalPrivacySetting.RESIST_FINGERPRINTING).persistenceUnconfirmed)
++    }
++    @Test fun `synchronous and asynchronous native failures both reach the error callback`() {
++        for (synchronous in listOf(false, true)) {
++            val api = Api().apply { throwOnRead = synchronous; rejectRead = !synchronous }; var failure: Throwable? = null
++            GeckoGlobalPrivacyController(api).read({ fail("must fail") }, { failure = it }); shadowOf(Looper.getMainLooper()).idle()
++            assertNotNull(failure)
++        }
++    }
++    @Test fun `reset delegates exact native key and maps the result instead of rewriting a default`() {
++        val api = Api(); var result: GlobalPrivacyChangeResult? = null
++        GeckoGlobalPrivacyController(api).reset(GlobalPrivacySetting.WEBGL_HIDE_POPUP, { result = it }, { throw it })
++        shadowOf(Looper.getMainLooper()).idle()
++        assertEquals("webglHide", api.lastId); assertEquals(GlobalPrivacySaveStatus.SAVED, result!!.status)
++    }
++}
+diff --git a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt
+index b825c01..d84d7f1 100644
+--- a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt
++++ b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt
+@@ -21,6 +21,7 @@ import mozilla.components.concept.engine.content.blocking.TrackingProtectionExce
+ import mozilla.components.concept.engine.ipprotection.IPProtectionDelegate
+ import mozilla.components.concept.engine.ipprotection.IPProtectionHandler
+ import mozilla.components.concept.engine.preferences.BrowserPreferencesRuntime
++import mozilla.components.concept.engine.preferences.GlobalPrivacyController
+ import mozilla.components.concept.engine.serviceworker.ServiceWorkerDelegate
+ import mozilla.components.concept.engine.translate.TranslationsRuntime
+ import mozilla.components.concept.engine.utils.EngineVersion
+@@ -39,6 +40,9 @@ interface Engine :
+     BrowserPreferencesRuntime,
+     AddressStructureRuntime,
+     DataCleanable {
++    /** Authoritative global privacy controls, or null when an engine does not support them. */
++    val globalPrivacyController: GlobalPrivacyController? get() = null
++
+     /**
+      * Describes a combination of browsing data types stored by the engine.
+      */
+diff --git a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt
+new file mode 100644
+index 0000000..d9608c6
+--- /dev/null
++++ b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt
+@@ -0,0 +1,67 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.concept.engine.preferences
++
++import androidx.annotation.MainThread
++
++/** Keys for the five supported native user preferences; no arbitrary-pref write route. */
++enum class GlobalPrivacySetting(val id: String, val isBoolean: Boolean = true) {
++    RESIST_FINGERPRINTING("rfp"),
++    WEBGL_PERMISSION_REQUIRED("webglPrompt"),
++    WEBGL_HIDE_POPUP("webglHide"),
++    DISABLE_IPV6_DNS("disableIPv6"),
++    REFERRER_HOST_POLICY("referrerPolicy", false),
++}
++
++/** Additional referrer constraint; scheme, port and other policies are separate. */
++enum class CrossHostReferrerPolicy(val value: Int) {
++    NO_EXTRA_HOST_CONSTRAINT(0), SAME_BASE_DOMAIN(1), SAME_HOST(2),
++}
++
++/** Booleans use0/1. An unfamiliar existing integer remains visible instead of being overwritten. */
++data class GlobalPrivacyPreference(
++    val value: Int?,
++    val defaultValue: Int?,
++    val userValue: Int?,
++    val locked: Boolean,
++    val hasUserValue: Boolean,
++    val userValueKnown: Boolean,
++    val persistenceUnconfirmed: Boolean,
++)
++
++/** Context helps the UI describe scope without changing additional native preferences. */
++data class GlobalPrivacyContext(
++    val rfpPrivate: Boolean?,
++    val fingerprintingProtection: Boolean?,
++    val fingerprintingProtectionPrivate: Boolean?,
++    val rfpExemptions: Boolean?,
++    val fingerprintingOverrides: Boolean?,
++    val webglDisabled: Boolean?,
++    val referrerTrimming: Int?,
++    val dnsOverHttpsMode: Int?,
++)
++
++/** A snapshot of memory state is not an assertion that all preferences are saved. */
++data class GlobalPrivacyState(
++    val settings: Map<GlobalPrivacySetting, GlobalPrivacyPreference>,
++    val context: GlobalPrivacyContext,
++)
++
++enum class GlobalPrivacySaveStatus { SAVED, REJECTED, UNCONFIRMED, SUPERSEDED }
++
++data class GlobalPrivacyChangeResult(
++    val status: GlobalPrivacySaveStatus,
++    val reason: String,
++    val state: GlobalPrivacyState,
++)
++
++/** Reads and mutations serialize in native code. These operations do not own RuntimeSettings defaults. */
++@MainThread
++interface GlobalPrivacyController {
++    fun read(onSuccess: (GlobalPrivacyState) -> Unit, onError: (Throwable) -> Unit)
++    fun setBoolean(setting: GlobalPrivacySetting, value: Boolean, onResult: (GlobalPrivacyChangeResult) -> Unit, onError: (Throwable) -> Unit)
++    fun setReferrerPolicy(policy: CrossHostReferrerPolicy, onResult: (GlobalPrivacyChangeResult) -> Unit, onError: (Throwable) -> Unit)
++    fun reset(setting: GlobalPrivacySetting, onResult: (GlobalPrivacyChangeResult) -> Unit, onError: (Throwable) -> Unit)
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt
+new file mode 100644
+index 0000000..212fb58
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt
+@@ -0,0 +1,176 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings
++
++import android.os.Bundle
++import androidx.appcompat.app.AlertDialog
++import androidx.preference.ListPreference
++import androidx.preference.Preference
++import androidx.preference.PreferenceFragmentCompat
++import androidx.preference.SwitchPreferenceCompat
++import mozilla.components.concept.engine.preferences.GlobalPrivacySaveStatus
++import mozilla.components.concept.engine.preferences.GlobalPrivacySetting
++import org.mozilla.fenix.R
++import org.mozilla.fenix.e2e.SystemInsetsPaddedFragment
++import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.ext.showToolbar
++
++/** Native-backed global controls; every Preference explicitly opts out of local persistence. */
++class GlobalPrivacySettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment {
++    private var model: GlobalPrivacySettingsModel? = null
++    private val switches = mutableMapOf<GlobalPrivacySetting, SwitchPreferenceCompat>()
++    private lateinit var policy: ListPreference
++    private lateinit var status: Preference
++    private lateinit var reset: Preference
++    private lateinit var retry: Preference
++    private lateinit var contextInfo: Preference
++    private var wasBusy = false
++
++    override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
++        setPreferencesFromResource(R.xml.global_privacy_settings, rootKey)
++        val controller = requireContext().components.core.engine.globalPrivacyController
++        model = controller?.let(::GlobalPrivacySettingsModel)
++        GlobalPrivacySetting.entries.filter { it.isBoolean }.forEach { setting ->
++            val preference = requireNotNull(findPreference<SwitchPreferenceCompat>(setting.id))
++            switches[setting] = preference
++            preference.onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, value ->
++                (value as? Boolean)?.let { model?.setDisplayedBoolean(setting, it) }
++                false // The widget changes only after an authoritative native reread.
++            }
++        }
++        policy = requireNotNull(findPreference(GlobalPrivacySetting.REFERRER_HOST_POLICY.id))
++        policy.onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, value ->
++            (value as? String)?.toIntOrNull()?.let { model?.setReferrerPolicy(it) }
++            false
++        }
++        status = requireNotNull(findPreference("global_privacy_status"))
++        contextInfo = requireNotNull(findPreference("global_privacy_context"))
++        reset = requireNotNull(findPreference("global_privacy_reset"))
++        retry = requireNotNull(findPreference("global_privacy_retry"))
++        reset.setOnPreferenceClickListener { chooseSetting(reset = true); true }
++        retry.setOnPreferenceClickListener { chooseSetting(reset = false); true }
++        status.setOnPreferenceClickListener { model?.refresh(); true }
++        render(GlobalPrivacyUiState(transportError = controller == null))
++    }
++
++    override fun onResume() {
++        super.onResume()
++        showToolbar(getString(R.string.global_privacy_title))
++        model?.attach(::render)
++        model?.refresh()
++    }
++
++    override fun onPause() {
++        model?.detach()
++        super.onPause()
++    }
++
++    override fun onDestroyView() {
++        model?.detach()
++        super.onDestroyView()
++    }
++
++    private fun title(setting: GlobalPrivacySetting): CharSequence =
++        requireNotNull(if (setting.isBoolean) requireNotNull(switches[setting]).title else policy.title)
++
++    private fun chooseSetting(reset: Boolean) {
++        val current = model ?: return
++        val available = GlobalPrivacySetting.entries.filter { setting ->
++            if (reset) current.editable(setting) && current.state.native?.settings?.get(setting)?.hasUserValue == true
++            else current.canSaveDisplayed(setting)
++        }
++        if (available.isEmpty()) return
++        AlertDialog.Builder(requireContext())
++            .setTitle(if (reset) R.string.global_privacy_reset else R.string.global_privacy_retry)
++            .setItems(available.map(::title).toTypedArray()) { _, index ->
++                // Revalidate the current model when a dialog outlives a lock or write.
++                if (reset) current.reset(available[index]) else current.saveDisplayed(available[index])
++            }
++            .setNegativeButton(android.R.string.cancel, null)
++            .show()
++    }
++
++    private fun render(state: GlobalPrivacyUiState) {
++        val current = model
++        if (wasBusy && !state.busy && view != null &&
++            (state.transportError || state.status in setOf(GlobalPrivacySaveStatus.REJECTED, GlobalPrivacySaveStatus.UNCONFIRMED, GlobalPrivacySaveStatus.SUPERSEDED))) {
++            val message = when {
++                state.transportError -> R.string.global_privacy_transport_error
++                state.status == GlobalPrivacySaveStatus.REJECTED -> R.string.global_privacy_rejected
++                state.status == GlobalPrivacySaveStatus.SUPERSEDED -> R.string.global_privacy_superseded
++                else -> R.string.global_privacy_unconfirmed
++            }
++            AlertDialog.Builder(requireContext()).setMessage(message).setPositiveButton(android.R.string.ok, null).show()
++        }
++        wasBusy = state.busy
++        switches.forEach { (setting, preference) ->
++            preference.isEnabled = current?.editable(setting) == true
++            preference.isChecked = current?.displayedBoolean(setting) == true
++            preference.summary = summary(setting, state)
++        }
++        val nativePolicy = state.native?.settings?.get(GlobalPrivacySetting.REFERRER_HOST_POLICY)?.value
++        policy.value = nativePolicy?.toString()
++        policy.isEnabled = current?.editable(GlobalPrivacySetting.REFERRER_HOST_POLICY) == true
++        policy.summary = summary(GlobalPrivacySetting.REFERRER_HOST_POLICY, state)
++        reset.isEnabled = !state.busy && state.native?.settings?.any { (key, value) -> current?.editable(key) == true && value.hasUserValue } == true
++        retry.isEnabled = !state.busy && GlobalPrivacySetting.entries.any { current?.canSaveDisplayed(it) == true }
++        status.isEnabled = !state.busy
++        status.setSummary(when {
++            state.busy -> R.string.global_privacy_busy
++            state.transportError -> R.string.global_privacy_transport_error
++            state.native?.settings?.values?.any { it.persistenceUnconfirmed } == true -> R.string.global_privacy_unconfirmed
++            state.status == GlobalPrivacySaveStatus.UNCONFIRMED -> R.string.global_privacy_unconfirmed
++            state.status == GlobalPrivacySaveStatus.REJECTED -> R.string.global_privacy_rejected
++            state.status == GlobalPrivacySaveStatus.SUPERSEDED -> R.string.global_privacy_superseded
++            state.status == GlobalPrivacySaveStatus.SAVED -> R.string.global_privacy_saved
++            else -> R.string.global_privacy_current
++        })
++        val context = state.native?.context
++        val globalRfp = state.native?.settings?.get(GlobalPrivacySetting.RESIST_FINGERPRINTING)?.value
++        val privateRfp = if (globalRfp == 1) true else if (globalRfp == 0) context?.rfpPrivate else null
++        val privateFpp = when {
++            context?.fingerprintingProtection == true || context?.fingerprintingProtectionPrivate == true -> true
++            context?.fingerprintingProtection == false && context.fingerprintingProtectionPrivate == false -> false
++            else -> null
++        }
++        contextInfo.summary = getString(
++            R.string.global_privacy_context_summary,
++            booleanLabel(privateRfp), booleanLabel(context?.fingerprintingProtection),
++            booleanLabel(privateFpp), booleanLabel(context?.rfpExemptions),
++            booleanLabel(context?.fingerprintingOverrides), booleanLabel(context?.webglDisabled),
++        )
++    }
++
++    private fun booleanLabel(value: Boolean?) = getString(when (value) {
++        true -> R.string.global_privacy_on
++        false -> R.string.global_privacy_off
++        null -> R.string.global_privacy_unknown
++    })
++
++    private fun valueLabel(setting: GlobalPrivacySetting, value: Int?): String {
++        if (value == null) return getString(R.string.global_privacy_unknown)
++        if (!setting.isBoolean) return resources.getStringArray(R.array.global_privacy_referrer_entries).getOrNull(value)
++            ?: getString(R.string.global_privacy_custom_value, value)
++        val displayed = if (setting == GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED || setting == GlobalPrivacySetting.DISABLE_IPV6_DNS) value == 0 else value == 1
++        return booleanLabel(displayed)
++    }
++
++    private fun summary(setting: GlobalPrivacySetting, state: GlobalPrivacyUiState): String {
++        val description = getString(when (setting) {
++            GlobalPrivacySetting.RESIST_FINGERPRINTING -> R.string.global_privacy_rfp_summary
++            GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED -> R.string.global_privacy_webgl_summary
++            GlobalPrivacySetting.WEBGL_HIDE_POPUP -> R.string.global_privacy_hide_summary
++            GlobalPrivacySetting.DISABLE_IPV6_DNS -> R.string.global_privacy_ipv6_summary
++            GlobalPrivacySetting.REFERRER_HOST_POLICY -> R.string.global_privacy_referrer_summary
++        })
++        val pref = state.native?.settings?.get(setting) ?: return description
++        val source = getString(when {
++            pref.locked -> R.string.global_privacy_locked
++            pref.hasUserValue -> R.string.global_privacy_custom
++            else -> R.string.global_privacy_default
++        })
++        return getString(R.string.global_privacy_value_summary, description, valueLabel(setting, pref.value), valueLabel(setting, pref.defaultValue), source)
++    }
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt
+new file mode 100644
+index 0000000..36d6736
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt
+@@ -0,0 +1,113 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings
++
++import mozilla.components.concept.engine.preferences.CrossHostReferrerPolicy
++import mozilla.components.concept.engine.preferences.GlobalPrivacyChangeResult
++import mozilla.components.concept.engine.preferences.GlobalPrivacyController
++import mozilla.components.concept.engine.preferences.GlobalPrivacySaveStatus
++import mozilla.components.concept.engine.preferences.GlobalPrivacySetting
++import mozilla.components.concept.engine.preferences.GlobalPrivacyState
++
++/** Presentation state only. Values originate in Gecko and are never persisted by Fenix. */
++internal data class GlobalPrivacyUiState(
++    val native: GlobalPrivacyState? = null,
++    val busy: Boolean = false,
++    val status: GlobalPrivacySaveStatus? = null,
++    val transportError: Boolean = false,
++)
++
++/** Keeps an authorized save running across view detach; late callbacks never touch a detached view. */
++internal class GlobalPrivacySettingsModel(private val controller: GlobalPrivacyController) {
++    var state = GlobalPrivacyUiState()
++        private set
++    private var listener: ((GlobalPrivacyUiState) -> Unit)? = null
++
++    fun attach(listener: (GlobalPrivacyUiState) -> Unit) {
++        this.listener = listener
++        listener(state)
++    }
++
++    fun detach() { listener = null }
++
++    private fun publish(state: GlobalPrivacyUiState) {
++        this.state = state
++        listener?.invoke(state)
++    }
++
++    fun refresh() {
++        if (state.busy) return
++        publish(state.copy(busy = true, status = null))
++        try {
++            controller.read(
++                { native -> publish(state.copy(native = native, busy = false, transportError = false)) },
++                { publish(state.copy(busy = false, transportError = true)) },
++            )
++        } catch (_: Exception) {
++            publish(state.copy(busy = false, transportError = true))
++        }
++    }
++
++    fun editable(setting: GlobalPrivacySetting): Boolean {
++        val native = state.native ?: return false
++        val preference = native.settings[setting] ?: return false
++        if (state.busy || state.transportError || preference.locked || preference.value == null) return false
++        return setting != GlobalPrivacySetting.WEBGL_HIDE_POPUP ||
++            native.settings[GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED]?.value == 1
++    }
++
++    fun displayedBoolean(setting: GlobalPrivacySetting): Boolean? {
++        val value = state.native?.settings?.get(setting)?.value ?: return null
++        if (!setting.isBoolean || value !in 0..1) return null
++        val nativeValue = value == 1
++        return if (setting == GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED ||
++            setting == GlobalPrivacySetting.DISABLE_IPV6_DNS) !nativeValue else nativeValue
++    }
++
++    fun setDisplayedBoolean(setting: GlobalPrivacySetting, value: Boolean) {
++        if (!setting.isBoolean || !editable(setting)) return
++        val nativeValue = if (setting == GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED ||
++            setting == GlobalPrivacySetting.DISABLE_IPV6_DNS) !value else value
++        change { success, failure -> controller.setBoolean(setting, nativeValue, success, failure) }
++    }
++
++    fun setReferrerPolicy(value: Int) {
++        if (!editable(GlobalPrivacySetting.REFERRER_HOST_POLICY)) return
++        val policy = CrossHostReferrerPolicy.entries.firstOrNull { it.value == value } ?: return
++        change { success, failure -> controller.setReferrerPolicy(policy, success, failure) }
++    }
++
++    fun reset(setting: GlobalPrivacySetting) {
++        if (!editable(setting)) return
++        change { success, failure -> controller.reset(setting, success, failure) }
++    }
++
++    fun canSaveDisplayed(setting: GlobalPrivacySetting): Boolean = editable(setting) &&
++        if (setting.isBoolean) displayedBoolean(setting) != null else
++            CrossHostReferrerPolicy.entries.any { it.value == state.native?.settings?.get(setting)?.value }
++
++    fun saveDisplayed(setting: GlobalPrivacySetting) {
++        if (!canSaveDisplayed(setting)) return
++        if (setting.isBoolean) {
++            displayedBoolean(setting)?.let { setDisplayedBoolean(setting, it) }
++        } else {
++            state.native?.settings?.get(setting)?.value?.let(::setReferrerPolicy)
++        }
++    }
++
++    private fun change(operation: ((GlobalPrivacyChangeResult) -> Unit, (Throwable) -> Unit) -> Unit) {
++        if (state.busy) return
++        // Keep the previous native value displayed until Gecko returns its reread.
++        publish(state.copy(busy = true, status = null, transportError = false))
++        try {
++            operation(
++                { result -> publish(GlobalPrivacyUiState(native = result.state, status = result.status)) },
++                { publish(state.copy(busy = false, transportError = true)) },
++            )
++        } catch (_: Exception) {
++            publish(state.copy(busy = false, transportError = true))
++        }
++    }
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+index 9dbc79c..1e0e7b0 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+@@ -215,6 +215,11 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+
+     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+         setPreferencesFromResource(R.xml.preferences, rootKey)
++        findPreference<Preference>("global_privacy_controls")?.setOnPreferenceClickListener {
++            findNavController().navigate(R.id.action_settingsFragment_to_globalPrivacySettingsFragment)
++            true
++        }
++
+     }
+
+     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+diff --git a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
+index b94d1f9..617afff 100644
+--- a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
++++ b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
+@@ -577,6 +577,9 @@
+             android:name="search_in_progress"
+             android:defaultValue="false"
+             app:argType="boolean" />
++        <action
++            android:id="@+id/action_settingsFragment_to_globalPrivacySettingsFragment"
++            app:destination="@id/globalPrivacySettingsFragment" />
+         <action
+             android:id="@+id/action_settingsFragment_to_settingsSearchFragment"
+             app:destination="@id/settingsSearchFragment"
+@@ -2011,4 +2014,8 @@
+     <dialog
+         android:id="@+id/customReviewPromptDialogFragment"
+         android:name="org.mozilla.fenix.reviewprompt.CustomReviewPromptBottomSheetFragment" />
++    <fragment
++        android:id="@+id/globalPrivacySettingsFragment"
++        android:name="org.mozilla.fenix.settings.GlobalPrivacySettingsFragment"
++        android:label="@string/global_privacy_title" />
+ </navigation>
+diff --git a/mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml b/mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml
+new file mode 100644
+index 0000000..2ffca35
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml
+@@ -0,0 +1,47 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="global_privacy_title">Global privacy controls</string>
++    <string name="global_privacy_rfp">Resist Fingerprinting</string>
++    <string name="global_privacy_webgl">Always allow WebGL</string>
++    <string name="global_privacy_hide">Hide WebGL popup</string>
++    <string name="global_privacy_ipv6">Enable IPv6</string>
++    <string name="global_privacy_referrer">Cross-host referrers</string>
++    <string name="global_privacy_rfp_summary">Apply Resist Fingerprinting globally. Website exceptions and other fingerprinting protections can still affect individual pages.</string>
++    <string name="global_privacy_webgl_summary">Bypass WebGL site approval. Existing site grants and blocks are kept for when this is off.</string>
++    <string name="global_privacy_hide_summary">Keep site approval required and review pending requests without automatic popups.</string>
++    <string name="global_privacy_ipv6_summary">Allow IPv6 addresses in DNS lookups. This does not disable operating-system IPv6 or close existing connections.</string>
++    <string name="global_privacy_referrer_summary">Limit which hosts can receive a referrer. Same-host matching ignores scheme and port. Other referrer protections still apply.</string>
++    <string name="global_privacy_reset">Reset a setting to its default</string>
++    <string name="global_privacy_retry">Save a displayed setting again</string>
++    <string name="global_privacy_status">Setting status</string>
++    <string name="global_privacy_context">Other active privacy settings</string>
++    <string name="global_privacy_current">Values are read from the browser. Reload relevant pages after changes; existing connections and graphics contexts may continue. Select to refresh.</string>
++    <string name="global_privacy_busy">Waiting for the browser to read or save the setting…</string>
++    <string name="global_privacy_saved">The setting was saved and reread from the browser. Reload relevant pages after changes.</string>
++    <string name="global_privacy_rejected">The browser rejected the change before applying it. Current values are shown; check locks or retry saving.</string>
++    <string name="global_privacy_unconfirmed">Saving could not be confirmed. Current session values are shown; values after a restart may differ. Retry saving before restarting.</string>
++    <string name="global_privacy_superseded">Another change occurred while saving. Current values are shown; save the displayed setting again if that is your intended choice.</string>
++    <string name="global_privacy_transport_error">Could not confirm the current browser state. Select to refresh before making another change.</string>
++    <string name="global_privacy_value_summary">%1$s
++Last read: %2$s · Default: %3$s · %4$s</string>
++    <string name="global_privacy_context_summary">Private-tab RFP before website exceptions: %1$s
++Other fingerprinting protection configured: %2$s (private tabs: %3$s)
++RFP website exceptions configured: %4$s
++Fingerprinting overrides configured: %5$s
++WebGL disabled by another setting: %6$s</string>
++    <string name="global_privacy_on">On</string>
++    <string name="global_privacy_off">Off</string>
++    <string name="global_privacy_unknown">Unknown</string>
++    <string name="global_privacy_custom">Custom choice</string>
++    <string name="global_privacy_default">Using default</string>
++    <string name="global_privacy_locked">Locked by browser configuration</string>
++    <string name="global_privacy_custom_value">Custom value %1$d</string>
++    <string-array name="global_privacy_referrer_entries">
++        <item>No added host restriction</item>
++        <item>Same base domain only</item>
++        <item>Same host only</item>
++    </string-array>
++    <string-array name="global_privacy_referrer_values">
++        <item>0</item><item>1</item><item>2</item>
++    </string-array>
++</resources>
+diff --git a/mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml b/mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml
+new file mode 100644
+index 0000000..1a9b0e5
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml
+@@ -0,0 +1,12 @@
++<?xml version="1.0" encoding="utf-8"?>
++<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
++    <Preference android:key="global_privacy_status" android:title="@string/global_privacy_status" android:persistent="false" />
++    <androidx.preference.SwitchPreferenceCompat android:key="rfp" android:title="@string/global_privacy_rfp" android:persistent="false" />
++    <androidx.preference.SwitchPreferenceCompat android:key="webglPrompt" android:title="@string/global_privacy_webgl" android:persistent="false" />
++    <androidx.preference.SwitchPreferenceCompat android:key="webglHide" android:title="@string/global_privacy_hide" android:persistent="false" />
++    <androidx.preference.SwitchPreferenceCompat android:key="disableIPv6" android:title="@string/global_privacy_ipv6" android:persistent="false" />
++    <androidx.preference.ListPreference android:key="referrerPolicy" android:title="@string/global_privacy_referrer" android:entries="@array/global_privacy_referrer_entries" android:entryValues="@array/global_privacy_referrer_values" android:persistent="false" />
++    <Preference android:key="global_privacy_reset" android:title="@string/global_privacy_reset" android:persistent="false" />
++    <Preference android:key="global_privacy_retry" android:title="@string/global_privacy_retry" android:persistent="false" />
++    <Preference android:key="global_privacy_context" android:title="@string/global_privacy_context" android:selectable="false" android:persistent="false" />
++</PreferenceScreen>
+diff --git a/mobile/android/fenix/app/src/main/res/xml/preferences.xml b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
+index 24621c9..8d61f46 100644
+--- a/mobile/android/fenix/app/src/main/res/xml/preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
+@@ -117,6 +117,10 @@
+         android:title="@string/preferences_category_privacy_security"
+         android:key="@string/pref_key_privacy_security_category"
+         android:layout="@layout/preference_category_no_icon_style">
++        <Preference android:key="global_privacy_controls"
++            android:title="@string/global_privacy_title"
++            android:persistent="false" />
++
+
+         <androidx.preference.Preference
+             android:key="@string/pref_key_private_browsing"
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt
+new file mode 100644
+index 0000000..9116453
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt
+@@ -0,0 +1,172 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++package org.mozilla.fenix.settings
++
++import androidx.appcompat.app.AppCompatActivity
++import androidx.preference.ListPreference
++import androidx.preference.SwitchPreferenceCompat
++import io.mockk.every
++import mozilla.components.concept.engine.preferences.CrossHostReferrerPolicy
++import mozilla.components.concept.engine.preferences.GlobalPrivacyChangeResult
++import mozilla.components.concept.engine.preferences.GlobalPrivacyContext
++import mozilla.components.concept.engine.preferences.GlobalPrivacyController
++import mozilla.components.concept.engine.preferences.GlobalPrivacyPreference
++import mozilla.components.concept.engine.preferences.GlobalPrivacySaveStatus
++import mozilla.components.concept.engine.preferences.GlobalPrivacySetting
++import mozilla.components.concept.engine.preferences.GlobalPrivacyState
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.Assert.*
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.fenix.ext.components
++import org.robolectric.Robolectric
++import org.robolectric.RobolectricTestRunner
++
++@RunWith(RobolectricTestRunner::class)
++class GlobalPrivacySettingsModelTest {
++    private class Controller : GlobalPrivacyController {
++        val calls = mutableListOf<Pair<GlobalPrivacySetting, Any?>>()
++        var readSuccess: ((GlobalPrivacyState) -> Unit)? = null
++        var result: ((GlobalPrivacyChangeResult) -> Unit)? = null
++        var error: ((Throwable) -> Unit)? = null
++        override fun read(onSuccess: (GlobalPrivacyState) -> Unit, onError: (Throwable) -> Unit) { readSuccess = onSuccess; error = onError }
++        override fun setBoolean(setting: GlobalPrivacySetting, value: Boolean, onResult: (GlobalPrivacyChangeResult) -> Unit, onError: (Throwable) -> Unit) {
++            calls += setting to value; result = onResult; error = onError
++        }
++        override fun setReferrerPolicy(policy: CrossHostReferrerPolicy, onResult: (GlobalPrivacyChangeResult) -> Unit, onError: (Throwable) -> Unit) {
++            calls += GlobalPrivacySetting.REFERRER_HOST_POLICY to policy; result = onResult; error = onError
++        }
++        override fun reset(setting: GlobalPrivacySetting, onResult: (GlobalPrivacyChangeResult) -> Unit, onError: (Throwable) -> Unit) { calls += setting to null; result = onResult; error = onError }
++    }
++
++    private fun snapshot() = GlobalPrivacyState(
++        GlobalPrivacySetting.entries.associateWith { key ->
++            val value = if (key == GlobalPrivacySetting.DISABLE_IPV6_DNS) 0 else 1
++            GlobalPrivacyPreference(value, value, null, false, false, true, false)
++        }, GlobalPrivacyContext(false, true, false, false, false, false, 2, 2),
++    )
++    private fun GlobalPrivacyState.with(setting: GlobalPrivacySetting, update: (GlobalPrivacyPreference) -> GlobalPrivacyPreference) =
++        copy(settings = settings + (setting to update(settings.getValue(setting))))
++    private fun loaded(controller: Controller, native: GlobalPrivacyState = snapshot()) = GlobalPrivacySettingsModel(controller).also {
++        it.refresh(); controller.readSuccess!!(native)
++    }
++
++    @Test fun `native defaults and referrer middle value are preserved with both inversions`() {
++        val controller = Controller(); val model = loaded(controller)
++        assertEquals(false, model.displayedBoolean(GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED))
++        assertEquals(true, model.displayedBoolean(GlobalPrivacySetting.DISABLE_IPV6_DNS))
++        assertEquals(1, model.state.native!!.settings.getValue(GlobalPrivacySetting.REFERRER_HOST_POLICY).value)
++        assertTrue(controller.calls.isEmpty())
++    }
++
++    @Test fun `always allow waits for actual native acknowledgment and writes inverse`() {
++        val controller = Controller(); val model = loaded(controller)
++        model.setDisplayedBoolean(GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED, true)
++        assertEquals(GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED to false, controller.calls.single())
++        assertTrue(model.state.busy); assertEquals(false, model.displayedBoolean(GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED))
++        controller.result!!(GlobalPrivacyChangeResult(GlobalPrivacySaveStatus.SAVED, "", snapshot().with(GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED) { it.copy(value = 0, userValue = 0, hasUserValue = true) }))
++        assertEquals(true, model.displayedBoolean(GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED)); assertFalse(model.state.busy)
++    }
++
++    @Test fun `disable IPv6 in the UI sets native DNS disable true`() {
++        val controller = Controller(); val model = loaded(controller)
++        model.setDisplayedBoolean(GlobalPrivacySetting.DISABLE_IPV6_DNS, false)
++        assertEquals(GlobalPrivacySetting.DISABLE_IPV6_DNS to true, controller.calls.single())
++    }
++
++    @Test fun `locks and hidden user value never permit a change or reset`() {
++        val controller = Controller(); val model = loaded(controller, snapshot().with(GlobalPrivacySetting.RESIST_FINGERPRINTING) {
++            it.copy(locked = true, hasUserValue = true, userValueKnown = false)
++        })
++        model.setDisplayedBoolean(GlobalPrivacySetting.RESIST_FINGERPRINTING, false); model.reset(GlobalPrivacySetting.RESIST_FINGERPRINTING)
++        assertFalse(model.editable(GlobalPrivacySetting.RESIST_FINGERPRINTING)); assertTrue(controller.calls.isEmpty())
++    }
++
++    @Test fun `quiet control is unavailable during bypass without replacing its stored choice`() {
++        val controller = Controller(); val native = snapshot().with(GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED) { it.copy(value = 0) }
++            .with(GlobalPrivacySetting.WEBGL_HIDE_POPUP) { it.copy(value = 0, hasUserValue = true) }
++        val model = loaded(controller, native); model.setDisplayedBoolean(GlobalPrivacySetting.WEBGL_HIDE_POPUP, true)
++        assertFalse(model.editable(GlobalPrivacySetting.WEBGL_HIDE_POPUP)); assertTrue(controller.calls.isEmpty())
++        assertEquals(false, model.displayedBoolean(GlobalPrivacySetting.WEBGL_HIDE_POPUP))
++    }
++
++    @Test fun `busy state blocks a second user operation until the first result`() {
++        val controller = Controller(); val model = loaded(controller)
++        model.setDisplayedBoolean(GlobalPrivacySetting.RESIST_FINGERPRINTING, false)
++        model.reset(GlobalPrivacySetting.DISABLE_IPV6_DNS); model.setReferrerPolicy(2)
++        assertEquals(1, controller.calls.size)
++    }
++
++    @Test fun `save failure displays changed native memory and retains unconfirmed state`() {
++        val controller = Controller(); val model = loaded(controller)
++        model.setDisplayedBoolean(GlobalPrivacySetting.RESIST_FINGERPRINTING, false)
++        val changed = snapshot().with(GlobalPrivacySetting.RESIST_FINGERPRINTING) { it.copy(value = 0, userValue = 0, hasUserValue = true, persistenceUnconfirmed = true) }
++        controller.result!!(GlobalPrivacyChangeResult(GlobalPrivacySaveStatus.UNCONFIRMED, "save-failed", changed))
++        assertEquals(false, model.displayedBoolean(GlobalPrivacySetting.RESIST_FINGERPRINTING))
++        assertEquals(GlobalPrivacySaveStatus.UNCONFIRMED, model.state.status)
++        model.refresh(); controller.readSuccess!!(changed)
++        assertNull(model.state.status) // A reread cannot claim the previous save status for later state.
++        assertTrue(model.state.native!!.settings.getValue(GlobalPrivacySetting.RESIST_FINGERPRINTING).persistenceUnconfirmed)
++    }
++
++    @Test fun `transport failure disables stale controls until a successful reread`() {
++        val controller = Controller(); val model = loaded(controller)
++        model.setDisplayedBoolean(GlobalPrivacySetting.RESIST_FINGERPRINTING, false); controller.error!!(IllegalStateException("response lost"))
++        assertFalse(model.editable(GlobalPrivacySetting.RESIST_FINGERPRINTING)); assertTrue(model.state.transportError)
++        model.refresh(); controller.readSuccess!!(snapshot()); assertTrue(model.editable(GlobalPrivacySetting.RESIST_FINGERPRINTING))
++    }
++
++    @Test fun `detached view is not called while authorized save still completes`() {
++        val controller = Controller(); val model = loaded(controller); var rendered = 0
++        model.attach { rendered++ }; model.setReferrerPolicy(2); model.detach(); val prior = rendered
++        controller.result!!(GlobalPrivacyChangeResult(GlobalPrivacySaveStatus.SAVED, "", snapshot().with(GlobalPrivacySetting.REFERRER_HOST_POLICY) { it.copy(value = 2, hasUserValue = true) }))
++        assertEquals(prior, rendered); assertFalse(model.state.busy)
++        model.attach { rendered++ }; assertEquals(prior + 1, rendered)
++        assertEquals(2, model.state.native!!.settings.getValue(GlobalPrivacySetting.REFERRER_HOST_POLICY).value)
++    }
++
++    @Test fun `reset delegates clearing user state and accepts the actual native default`() {
++        val controller = Controller(); val model = loaded(controller)
++        model.reset(GlobalPrivacySetting.REFERRER_HOST_POLICY)
++        assertEquals(GlobalPrivacySetting.REFERRER_HOST_POLICY to null, controller.calls.single())
++        val resetState = snapshot().with(GlobalPrivacySetting.REFERRER_HOST_POLICY) { it.copy(value = 2, defaultValue = 2, hasUserValue = false) }
++        controller.result!!(GlobalPrivacyChangeResult(GlobalPrivacySaveStatus.SAVED, "", resetState))
++        assertEquals(2, model.state.native!!.settings.getValue(GlobalPrivacySetting.REFERRER_HOST_POLICY).value)
++    }
++
++    @Test fun `actual nonpersistent switch listener waits for authoritative inverse result`() {
++        val controller = Controller(); every { testContext.components.core.engine.globalPrivacyController } returns controller
++        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).create().get()
++        val fragment = GlobalPrivacySettingsFragment()
++        activity.supportFragmentManager.beginTransaction().add(fragment, "privacy").commitNow()
++        fragment.onResume(); controller.readSuccess!!(snapshot())
++        val preference = requireNotNull(fragment.findPreference<SwitchPreferenceCompat>("webglPrompt"))
++        assertFalse(preference.isPersistent); assertFalse(preference.isChecked)
++        assertFalse(preference.callChangeListener(true)); assertFalse(preference.isChecked)
++        assertEquals(GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED to false, controller.calls.single())
++        controller.result!!(GlobalPrivacyChangeResult(GlobalPrivacySaveStatus.SAVED, "", snapshot().with(GlobalPrivacySetting.WEBGL_PERMISSION_REQUIRED) { it.copy(value = 0, hasUserValue = true) }))
++        assertTrue(preference.isChecked); fragment.onPause()
++    }
++
++    @Test fun `actual referrer list preserves one and shows locked native value without persistence`() {
++        val controller = Controller(); every { testContext.components.core.engine.globalPrivacyController } returns controller
++        val activity = Robolectric.buildActivity(AppCompatActivity::class.java).create().get()
++        val fragment = GlobalPrivacySettingsFragment()
++        activity.supportFragmentManager.beginTransaction().add(fragment, "privacy").commitNow()
++        fragment.onResume(); controller.readSuccess!!(snapshot().with(GlobalPrivacySetting.REFERRER_HOST_POLICY) { it.copy(locked = true, hasUserValue = true, userValueKnown = false) })
++        val preference = requireNotNull(fragment.findPreference<ListPreference>("referrerPolicy"))
++        assertEquals("1", preference.value); assertFalse(preference.isPersistent); assertFalse(preference.isEnabled)
++        assertFalse(preference.callChangeListener("2")); assertTrue(controller.calls.isEmpty()); fragment.onPause()
++    }
++    @Test fun `unsupported existing referrer integer is visible and resettable but cannot be resaved`() {
++        val controller = Controller()
++        val setting = GlobalPrivacySetting.REFERRER_HOST_POLICY
++        val model = loaded(controller, snapshot().with(setting) { it.copy(value = 99, hasUserValue = true) })
++        assertEquals(99, model.state.native!!.settings.getValue(setting).value)
++        assertTrue(model.editable(setting)); assertFalse(model.canSaveDisplayed(setting))
++        model.saveDisplayed(setting); assertTrue(controller.calls.isEmpty())
++        model.reset(setting); assertEquals(setting to null, controller.calls.single())
++    }
++
++}
+diff --git a/mobile/android/geckoview/api.txt b/mobile/android/geckoview/api.txt
+index 2f154fd..3f05b8c 100644
+--- a/mobile/android/geckoview/api.txt
++++ b/mobile/android/geckoview/api.txt
+@@ -96,6 +96,7 @@ import org.mozilla.geckoview.CrashPullController;
+ import org.mozilla.geckoview.DeprecationSchedule;
+ import org.mozilla.geckoview.ExperimentDelegate;
+ import org.mozilla.geckoview.GeckoDisplay;
++import org.mozilla.geckoview.GeckoGlobalPrivacyController;
+ import org.mozilla.geckoview.GeckoPreferenceController;
+ import org.mozilla.geckoview.GeckoResult;
+ import org.mozilla.geckoview.GeckoRuntime;
+@@ -906,6 +907,56 @@ package org.mozilla.geckoview {
+     method @NonNull @UiThread public GeckoDisplay.SurfaceInfo.Builder surfaceControl(@Nullable SurfaceControl);
+   }
+
++  public final class GeckoGlobalPrivacyController {
++    method @NonNull @UiThread public static GeckoResult<GeckoGlobalPrivacyController.State> getState();
++    method @NonNull @UiThread public static GeckoResult<GeckoGlobalPrivacyController.ChangeResult> reset(@NonNull String);
++    method @NonNull @UiThread public static GeckoResult<GeckoGlobalPrivacyController.ChangeResult> setBoolean(@NonNull String, boolean);
++    method @NonNull @UiThread public static GeckoResult<GeckoGlobalPrivacyController.ChangeResult> setReferrerPolicy(int);
++    field public static final String DISABLE_IPV6 = "disableIPv6";
++    field public static final String REFERRER_POLICY = "referrerPolicy";
++    field public static final String RFP = "rfp";
++    field public static final String WEBGL_HIDE = "webglHide";
++    field public static final String WEBGL_PROMPT = "webglPrompt";
++  }
++
++  public static final class GeckoGlobalPrivacyController.ChangeResult {
++    field public static final int REJECTED = 1;
++    field public static final int SAVED = 0;
++    field public static final int SUPERSEDED = 3;
++    field public static final int UNCONFIRMED = 2;
++    field @NonNull public final String reason;
++    field @NonNull public final GeckoGlobalPrivacyController.State state;
++    field public final int status;
++  }
++
++  public static final class GeckoGlobalPrivacyController.Context {
++    field @Nullable public final Integer dnsOverHttpsMode;
++    field @Nullable public final Boolean fingerprintingOverrides;
++    field @Nullable public final Boolean fingerprintingProtection;
++    field @Nullable public final Boolean fingerprintingProtectionPrivate;
++    field @Nullable public final Integer referrerTrimming;
++    field @Nullable public final Boolean rfpExemptions;
++    field @Nullable public final Boolean rfpPrivate;
++    field @Nullable public final Boolean webglDisabled;
++  }
++
++  public static final class GeckoGlobalPrivacyController.PreferenceState {
++    field public final boolean available;
++    field @Nullable public final Integer defaultValue;
++    field public final boolean hasUserValue;
++    field @NonNull public final String id;
++    field public final boolean locked;
++    field public final boolean persistenceUnconfirmed;
++    field @Nullable public final Integer userValue;
++    field public final boolean userValueKnown;
++    field @Nullable public final Integer value;
++  }
++
++  public static final class GeckoGlobalPrivacyController.State {
++    field @NonNull public final GeckoGlobalPrivacyController.Context context;
++    field @NonNull public final List<GeckoGlobalPrivacyController.PreferenceState> settings;
++  }
++
+   public class GeckoPreferenceController {
+     ctor public GeckoPreferenceController();
+     method @HandlerThread @NonNull public static GeckoResult<Void> clearGeckoUserPref(@NonNull String);
+diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt
+new file mode 100644
+index 0000000..48dba90
+--- /dev/null
++++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt
+@@ -0,0 +1,64 @@
++/* Any copyright is dedicated to the Public Domain.
++   http://creativecommons.org/publicdomain/zero/1.0/ */
++package org.mozilla.geckoview.test
++
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.test.filters.MediumTest
++import org.junit.Assert.*
++import org.junit.Assume.assumeTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.geckoview.GeckoGlobalPrivacyController as Controller
++
++/** These tests require a real GeckoRuntime profile; host source tests cannot replace them. */
++@RunWith(AndroidJUnit4::class)
++@MediumTest
++class GlobalPrivacySettingsTest : BaseSessionTest() {
++    private fun state() = sessionRule.waitForResult(Controller.getState())
++    private fun preference(id: String) = state().settings.single { it.id == id }
++    private fun restore(original: Controller.PreferenceState) {
++        if (!original.hasUserValue) {
++            assertEquals(Controller.ChangeResult.SAVED, sessionRule.waitForResult(Controller.reset(original.id)).status)
++        } else if (original.id == Controller.REFERRER_POLICY) {
++            assertEquals(Controller.ChangeResult.SAVED, sessionRule.waitForResult(Controller.setReferrerPolicy(requireNotNull(original.userValue))).status)
++        } else {
++            assertEquals(Controller.ChangeResult.SAVED, sessionRule.waitForResult(Controller.setBoolean(original.id, original.userValue == 1)).status)
++        }
++    }
++
++    @Test fun acknowledgedBooleanWriteAndResetReadNativeBranches() {
++        val original = preference(Controller.RFP); assumeTrue(original.available && !original.locked)
++        try {
++            val value = original.value != 1
++            val changed = sessionRule.waitForResult(Controller.setBoolean(Controller.RFP, value))
++            assertEquals(Controller.ChangeResult.SAVED, changed.status)
++            val read = preference(Controller.RFP)
++            assertEquals(if (value) 1 else 0, read.value); assertTrue(read.hasUserValue); assertFalse(read.persistenceUnconfirmed)
++            val reset = sessionRule.waitForResult(Controller.reset(Controller.RFP))
++            assertEquals(Controller.ChangeResult.SAVED, reset.status)
++            val restoredDefault = preference(Controller.RFP)
++            assertFalse(restoredDefault.hasUserValue); assertEquals(restoredDefault.defaultValue, restoredDefault.value)
++            val sameDefault = sessionRule.waitForResult(Controller.setBoolean(Controller.RFP, restoredDefault.value == 1))
++            assertEquals(Controller.ChangeResult.SAVED, sameDefault.status)
++            assertFalse(preference(Controller.RFP).hasUserValue)
++        } finally { restore(original) }
++    }
++
++    @Test fun middleReferrerPolicySurvivesTheActualPublicApi() {
++        val original = preference(Controller.REFERRER_POLICY)
++        assumeTrue(original.available && !original.locked && (!original.hasUserValue || original.userValue?.let { it in 0..2 } == true))
++        try {
++            assertEquals(Controller.ChangeResult.SAVED, sessionRule.waitForResult(Controller.setReferrerPolicy(1)).status)
++            assertEquals(1, preference(Controller.REFERRER_POLICY).value)
++            assertEquals(Controller.ChangeResult.SAVED, sessionRule.waitForResult(Controller.setReferrerPolicy(2)).status)
++            assertEquals(2, preference(Controller.REFERRER_POLICY).value)
++        } finally { restore(original) }
++    }
++
++    @Test fun publicApiRejectsAdditionalPrefsAndInvalidValuesBeforeDispatch() {
++        try { Controller.setBoolean("webgl.disabled", true); fail("must reject") } catch (_: IllegalArgumentException) { }
++        try { Controller.setBoolean(Controller.REFERRER_POLICY, true); fail("must reject") } catch (_: IllegalArgumentException) { }
++        try { Controller.setReferrerPolicy(3); fail("must reject") } catch (_: IllegalArgumentException) { }
++        assertEquals(5, state().settings.size)
++    }
++}
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java
+new file mode 100644
+index 0000000..c2d6e7e
+--- /dev/null
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java
+@@ -0,0 +1,217 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.geckoview;
++
++import androidx.annotation.NonNull;
++import androidx.annotation.Nullable;
++import androidx.annotation.UiThread;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Set;
++import org.mozilla.gecko.EventDispatcher;
++import org.mozilla.gecko.util.GeckoBundle;
++import org.mozilla.gecko.util.ThreadUtils;
++
++/** Authoritative, durable user controls for five global privacy preferences. */
++public final class GeckoGlobalPrivacyController {
++  /** ResistFingerprinting. */
++  public static final String RFP = "rfp";
++  /** Require WebGL permission; false means always allow. */
++  public static final String WEBGL_PROMPT = "webglPrompt";
++  /** Keep WebGL permission enforcement quiet. */
++  public static final String WEBGL_HIDE = "webglHide";
++  /** Restrict DNS lookups to IPv4; false permits IPv6 DNS results. */
++  public static final String DISABLE_IPV6 = "disableIPv6";
++  /** Additional referrer host constraint: 0 unrestricted, 1 base domain, 2 host. */
++  public static final String REFERRER_POLICY = "referrerPolicy";
++
++  private static final Set<String> IDS = Collections.unmodifiableSet(
++      new HashSet<>(Arrays.asList(RFP, WEBGL_PROMPT, WEBGL_HIDE, DISABLE_IPV6, REFERRER_POLICY)));
++  private static final String EVENT = "GeckoView:GlobalPrivacy:Operation";
++
++  private GeckoGlobalPrivacyController() {}
++
++  /** State is reread from Gecko; reading does not persist or change preferences. */
++  @UiThread
++  public static @NonNull GeckoResult<State> getState() {
++    final GeckoBundle request = new GeckoBundle(1);
++    request.putString("action", "get");
++    return query(request).map(State::new);
++  }
++
++  /**
++   * Change one of the four boolean controls. An acknowledgment reports actual
++   * disk completion separately from effective memory state. Existing documents,
++   * connections and WebGL contexts may require reload or recreation.
++   *
++   * @param id One of RFP, WEBGL_PROMPT, WEBGL_HIDE, DISABLE_IPV6.
++   * @param value Native preference value; inverse UI labels invert this value.
++   * @return Refreshed native state and explicit persistence status.
++   */
++  @UiThread
++  public static @NonNull GeckoResult<ChangeResult> setBoolean(
++      @NonNull final String id, final boolean value) {
++    if (!IDS.contains(id) || REFERRER_POLICY.equals(id)) {
++      throw new IllegalArgumentException("Not an allowlisted boolean control");
++    }
++    final GeckoBundle request = operation("set", id);
++    request.putBoolean("value", value);
++    return query(request).map(ChangeResult::new);
++  }
++
++  /**
++   * Set the additional cross-host referrer constraint. Mode 2 compares ASCII host,
++   * not scheme or port. Other referrer policies may impose stricter restrictions.
++   * @param value 0 (no additional host constraint), 1 (same base domain), or 2 (same host).
++   * @return Refreshed native state and explicit persistence status.
++   */
++  @UiThread
++  public static @NonNull GeckoResult<ChangeResult> setReferrerPolicy(final int value) {
++    if (value < 0 || value > 2) throw new IllegalArgumentException("Referrer policy must be 0, 1 or 2");
++    final GeckoBundle request = operation("set", REFERRER_POLICY);
++    request.putInt("value", value);
++    return query(request).map(ChangeResult::new);
++  }
++
++  /** Clear only this setting's user branch and await the current-profile save result. */
++  @UiThread
++  public static @NonNull GeckoResult<ChangeResult> reset(@NonNull final String id) {
++    if (!IDS.contains(id)) throw new IllegalArgumentException("Not an allowlisted control");
++    return query(operation("reset", id)).map(ChangeResult::new);
++  }
++
++  private static GeckoBundle operation(final String action, final String id) {
++    final GeckoBundle request = new GeckoBundle(3);
++    request.putString("action", action);
++    request.putString("id", id);
++    return request;
++  }
++
++  private static GeckoResult<GeckoBundle> query(final GeckoBundle request) {
++    ThreadUtils.assertOnUiThread();
++    return EventDispatcher.getInstance().queryBundle(EVENT, request).map(result -> {
++      if (result == null) throw new IllegalStateException("Missing global privacy response");
++      return result;
++    });
++  }
++
++  /** Native state for one setting. Boolean values use 0/1; referrer values are integers. */
++  public static final class PreferenceState {
++    public final @NonNull String id;
++    /** True only when Gecko's actual pref type matches this control. */
++    public final boolean available;
++    public final boolean locked;
++    public final boolean hasUserValue;
++    /** False when a lock hides a stored user value; no temporary unlock is performed. */
++    public final boolean userValueKnown;
++    /** This controller has an earlier write whose current value has not been confirmed saved. */
++    public final boolean persistenceUnconfirmed;
++    public final @Nullable Integer value;
++    public final @Nullable Integer defaultValue;
++    public final @Nullable Integer userValue;
++
++    private PreferenceState(final GeckoBundle data) {
++      id = data.getString("id");
++      if (id == null || !IDS.contains(id)) throw new IllegalStateException("Unknown native control");
++      final String expectedType = REFERRER_POLICY.equals(id) ? "int" : "bool";
++      if (!expectedType.equals(data.getString("type"))) throw new IllegalStateException("Wrong native control type");
++      available = data.getBoolean("available");
++      locked = data.getBoolean("locked");
++      hasUserValue = data.getBoolean("hasUser");
++      userValueKnown = data.getBoolean("userValueKnown");
++      persistenceUnconfirmed = data.getBoolean("persistenceUnconfirmed");
++      value = nullableInt(data, "value");
++      defaultValue = nullableInt(data, "defaultValue");
++      userValue = nullableInt(data, "userValue");
++    }
++  }
++
++  /** Read-only surrounding settings; these are not writable through this controller. */
++  public static final class Context {
++    public final @Nullable Boolean rfpPrivate;
++    public final @Nullable Boolean fingerprintingProtection;
++    public final @Nullable Boolean fingerprintingProtectionPrivate;
++    public final @Nullable Boolean rfpExemptions;
++    public final @Nullable Boolean fingerprintingOverrides;
++    public final @Nullable Boolean webglDisabled;
++    public final @Nullable Integer referrerTrimming;
++    public final @Nullable Integer dnsOverHttpsMode;
++
++    private Context(final GeckoBundle data) {
++      rfpPrivate = nullableBoolean(data, "rfpPrivate");
++      fingerprintingProtection = nullableBoolean(data, "fingerprintingProtection");
++      fingerprintingProtectionPrivate = nullableBoolean(data, "fingerprintingProtectionPrivate");
++      rfpExemptions = nullableBoolean(data, "rfpExemptions");
++      fingerprintingOverrides = nullableBoolean(data, "fingerprintingOverrides");
++      webglDisabled = nullableBoolean(data, "webglDisabled");
++      referrerTrimming = nullableInt(data, "referrerTrimming");
++      dnsOverHttpsMode = nullableInt(data, "dnsOverHttpsMode");
++    }
++  }
++
++  /** Complete current native state; this object alone makes no disk-durability claim. */
++  public static final class State {
++    public final @NonNull List<PreferenceState> settings;
++    public final @NonNull Context context;
++
++    private State(final GeckoBundle data) {
++      final GeckoBundle[] entries = data.getBundleArray("settings");
++      final GeckoBundle contextBundle = data.getBundle("context");
++      if (entries == null || entries.length != IDS.size() || contextBundle == null) {
++        throw new IllegalStateException("Incomplete global privacy state");
++      }
++      final List<PreferenceState> result = new ArrayList<>();
++      final Set<String> seen = new HashSet<>();
++      for (final GeckoBundle entry : entries) {
++        final PreferenceState pref = new PreferenceState(entry);
++        if (!seen.add(pref.id)) throw new IllegalStateException("Duplicate native control");
++        result.add(pref);
++      }
++      settings = Collections.unmodifiableList(result);
++      context = new Context(contextBundle);
++    }
++  }
++
++  /** Persistence result for one operation. A failed save does not promise rollback. */
++  public static final class ChangeResult {
++    /** Saved snapshot still matches this setting's reread state. */
++    public static final int SAVED = 0;
++    /** Validation or preflight failed before this operation mutated the setting. */
++    public static final int REJECTED = 1;
++    /** Mutation/write failed; displayed memory state is authoritative, disk state is unconfirmed. */
++    public static final int UNCONFIRMED = 2;
++    /** Snapshot was saved, but an independent change superseded this operation. */
++    public static final int SUPERSEDED = 3;
++    public final int status;
++    public final @NonNull String reason;
++    public final @NonNull State state;
++
++    private ChangeResult(final GeckoBundle data) {
++      final String result = data.getString("status", "");
++      switch (result) {
++        case "saved": status = SAVED; break;
++        case "rejected": status = REJECTED; break;
++        case "unconfirmed": status = UNCONFIRMED; break;
++        case "superseded": status = SUPERSEDED; break;
++        default: throw new IllegalStateException("Unknown persistence status");
++      }
++      reason = data.getString("reason", "");
++      final GeckoBundle stateBundle = data.getBundle("state");
++      if (stateBundle == null) throw new IllegalStateException("Missing native state after change");
++      state = new State(stateBundle);
++    }
++  }
++
++  private static Integer nullableInt(final GeckoBundle data, final String key) {
++    return data.get(key) == null ? null : data.getInt(key);
++  }
++
++  private static Boolean nullableBoolean(final GeckoBundle data, final String key) {
++    return data.get(key) == null ? null : data.getBoolean(key);
++  }
++}
+diff --git a/mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs b/mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs
+new file mode 100644
+index 0000000..092a419
+--- /dev/null
++++ b/mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs
+@@ -0,0 +1,187 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++// A deliberately separate interface from generic GeckoView preferences and
++// RuntimeSettings: these five user prefs must survive startup reset ownership.
++const SETTINGS = Object.freeze({
++  rfp: { name: "privacy.resistFingerprinting", type: "bool" },
++  webglPrompt: { name: "librewolf.webgl.prompt", type: "bool" },
++  webglHide: { name: "librewolf.webgl.prompt.hide", type: "bool" },
++  disableIPv6: { name: "network.dns.disableIPv6", type: "bool" },
++  referrerPolicy: { name: "network.http.referer.XOriginPolicy", type: "int" },
++});
++
++export class GlobalPrivacySettings {
++  constructor(prefs = Services.prefs) {
++    this.prefs = prefs;
++    this.queue = Promise.resolve();
++    this.unconfirmed = new Set();
++  }
++
++  // Reads join the same queue so an acknowledgment cannot be overtaken by a
++  // later UI read/reset. External native pref writers remain independent.
++  request(operation) {
++    const captured = operation && typeof operation === "object" && !Array.isArray(operation)
++      ? Object.freeze({ ...operation }) : operation;
++    const run = this.queue.then(() => this.perform(captured));
++    this.queue = run.catch(() => {});
++    return run;
++  }
++
++  readValue(branch, definition) {
++    return definition.type === "bool"
++      ? Number(branch.getBoolPref(definition.name))
++      : branch.getIntPref(definition.name);
++  }
++
++  readSetting(id) {
++    const definition = SETTINGS[id];
++    const { prefs } = this;
++    const expectedType = definition.type === "bool"
++      ? Ci.nsIPrefBranch.PREF_BOOL : Ci.nsIPrefBranch.PREF_INT;
++    const available = prefs.getPrefType(definition.name) === expectedType;
++    const hasUser = prefs.prefHasUserValue(definition.name);
++    const hasDefault = prefs.prefHasDefaultValue(definition.name);
++    const locked = prefs.prefIsLocked(definition.name);
++    // A normal user-branch getter resolves locks to the default. Never unlock
++    // to inspect, and never pretend that effective value is a hidden user value.
++    const userValueKnown = !hasUser || (!locked && available);
++    return {
++      id, type: definition.type, available, hasUser, hasDefault, locked, userValueKnown,
++      persistenceUnconfirmed: this.unconfirmed.has(id),
++      value: available ? this.readValue(prefs, definition) : null,
++      defaultValue: available && hasDefault
++        ? this.readValue(prefs.getDefaultBranch(""), definition) : null,
++      userValue: available && hasUser && !locked
++        ? this.readValue(prefs, definition) : null,
++    };
++  }
++
++  context() {
++    const bool = name => {
++      try { return this.prefs.getBoolPref(name); } catch (_) { return null; }
++    };
++    const integer = name => {
++      try { return this.prefs.getIntPref(name); } catch (_) { return null; }
++    };
++    const configured = name => {
++      try { return Boolean(this.prefs.getStringPref(name).trim()); } catch (_) { return null; }
++    };
++    return {
++      rfpPrivate: bool("privacy.resistFingerprinting.pbmode"),
++      fingerprintingProtection: bool("privacy.fingerprintingProtection"),
++      fingerprintingProtectionPrivate: bool("privacy.fingerprintingProtection.pbmode"),
++      rfpExemptions: configured("privacy.resistFingerprinting.exemptedDomains"),
++      fingerprintingOverrides: configured("privacy.fingerprintingProtection.overrides"),
++      webglDisabled: bool("webgl.disabled"),
++      referrerTrimming: integer("network.http.referer.XOriginTrimmingPolicy"),
++      dnsOverHttpsMode: integer("network.trr.mode"),
++    };
++  }
++
++  snapshot() {
++    return { settings: Object.keys(SETTINGS).map(id => this.readSetting(id)), context: this.context() };
++  }
++
++  validate(operation) {
++    if (!operation || typeof operation !== "object" || Array.isArray(operation) ||
++        typeof operation.id !== "string" || !Object.hasOwn(SETTINGS, operation.id) ||
++        (operation.action !== "set" && operation.action !== "reset")) {
++      return "invalid-request";
++    }
++    const allowedKeys = operation.action === "set" ? ["action", "id", "value"] : ["action", "id"];
++    if (Object.keys(operation).some(key => !allowedKeys.includes(key))) return "invalid-request";
++    const definition = SETTINGS[operation.id];
++    if (operation.action === "set" &&
++        (definition.type === "bool" ? typeof operation.value !== "boolean" :
++          !Number.isInteger(operation.value) || operation.value < 0 || operation.value > 2)) {
++      return "invalid-value";
++    }
++    const state = this.readSetting(operation.id);
++    if (!state.available) return "unavailable";
++    if (state.locked) return "locked";
++    return null;
++  }
++
++  identity(state) {
++    const { persistenceUnconfirmed, ...nativeState } = state;
++    return JSON.stringify(nativeState);
++  }
++
++  async flush() {
++    const pending = new Map([...this.unconfirmed].map(id => [id, this.identity(this.readSetting(id))]));
++    await this.prefs.savePrefFileAsync();
++    for (const [id, saved] of pending) {
++      if (this.identity(this.readSetting(id)) === saved) this.unconfirmed.delete(id);
++    }
++  }
++
++  async perform(operation) {
++    const rejected = reason => ({ status: "rejected", reason, state: this.snapshot() });
++    if (!operation || typeof operation !== "object" || Array.isArray(operation)) return rejected("invalid-request");
++    if (operation.action === "get" && Object.keys(operation).length === 1) {
++      return this.snapshot();
++    }
++    let reason = this.validate(operation);
++    if (reason) return rejected(reason);
++    // A forced preflight rejects no-profile, shutdown and write-path errors
++    // before this operation mutates a preference. It is not a future guarantee.
++    try {
++      await this.flush();
++    } catch (_) {
++      return rejected("preflight-save-failed");
++    }
++    reason = this.validate(operation); // Recheck locks/type after the await.
++    if (reason) return rejected(reason);
++    const definition = SETTINGS[operation.id];
++    this.unconfirmed.add(operation.id);
++    try {
++      if (operation.action === "reset") {
++        this.prefs.clearUserPref(definition.name);
++      } else if (definition.type === "bool") {
++        this.prefs.setBoolPref(definition.name, operation.value);
++      } else {
++        this.prefs.setIntPref(definition.name, operation.value);
++      }
++    } catch (_) {
++      // Synchronous observers can intervene while setters notify. Report actual
++      // state and do not claim this error proves that no mutation happened.
++      return { status: "unconfirmed", reason: "write-failed", state: this.snapshot() };
++    }
++    const written = this.readSetting(operation.id);
++    // Native SetUserValue clears a non-sticky user value that equals its
++    // default. Match the requested effective value without inventing a user
++    // branch or treating normal native normalization as supersession.
++    const requested = !written.locked && written.available &&
++      (operation.action === "reset" ? !written.hasUser :
++        written.value === Number(operation.value));
++    try {
++      // Task35 owns an immutable snapshot and resolves only the actual current
++      // profile write result. An already-started save cannot be cancelled.
++      await this.flush();
++    } catch (_) {
++      return { status: "unconfirmed", reason: "save-failed", state: this.snapshot() };
++    }
++    const state = this.snapshot();
++    const current = state.settings.find(entry => entry.id === operation.id);
++    // An independent writer or lock may change this pref while disk I/O runs.
++    // Saved refers to this setting's snapshot, never a promise about other prefs.
++    const matches = requested && this.identity(current) === this.identity(written);
++    return { status: matches ? "saved" : "superseded", reason: matches ? "" : "changed-during-save", state };
++  }
++}
++
++const settings = new GlobalPrivacySettings();
++export const GeckoViewGlobalPrivacy = {
++  onEvent(event, data, callback) {
++    if (event !== "GeckoView:GlobalPrivacy:Operation") {
++      callback.onError("Unsupported global privacy operation");
++      return;
++    }
++    settings.request(data).then(
++      state => callback.onSuccess(state),
++      () => callback.onError("Could not read native global privacy state")
++    );
++  },
++};
+diff --git a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+index 25434a8..754c6ef 100644
+--- a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
++++ b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+@@ -14,6 +14,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
+   NimbusGeckoViewQATelemetry:
+     "resource://gre/modules/NimbusGeckoViewQATelemetry.sys.mjs",
+   PdfJs: "resource://pdf.js/PdfJs.sys.mjs",
++  GeckoViewGlobalPrivacy: "resource://gre/modules/GeckoViewGlobalPrivacy.sys.mjs",
+   GeckoViewPreferences: "resource://gre/modules/GeckoViewPreferences.sys.mjs",
+ });
+
+@@ -280,6 +281,11 @@ export class GeckoViewStartup {
+           ged: ["GeckoView:Autofill:GetAddressStructure"],
+         });
+
++        lazy.EventDispatcher.instance.registerListener(
++          lazy.GeckoViewGlobalPrivacy,
++          ["GeckoView:GlobalPrivacy:Operation"]
++        );
++
+         // We don't register this using the LazyGetter because it needs to be ready before
+         // the first call to the listener is received.
+         lazy.EventDispatcher.instance.registerListener(
+diff --git a/mobile/shared/components/geckoview/moz.build b/mobile/shared/components/geckoview/moz.build
+index 88778c5..926bb12 100644
+--- a/mobile/shared/components/geckoview/moz.build
++++ b/mobile/shared/components/geckoview/moz.build
+@@ -22,6 +22,7 @@ EXTRA_COMPONENTS += [
+ EXTRA_JS_MODULES += [
+     "ColorPickerDelegate.sys.mjs",
+     "FilePickerDelegate.sys.mjs",
++    "GeckoViewGlobalPrivacy.sys.mjs",
+     "GeckoViewPermission.sys.mjs",
+     "GeckoViewPreferences.sys.mjs",
+     "GeckoViewPrompt.sys.mjs",
+diff --git a/mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js b/mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js
+new file mode 100644
+index 0000000..45ba0b7
+--- /dev/null
++++ b/mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js
+@@ -0,0 +1,89 @@
++/* Any copyright is dedicated to the Public Domain.
++   http://creativecommons.org/publicdomain/zero/1.0/ */
++
++const { GlobalPrivacySettings } = ChromeUtils.importESModule("resource://gre/modules/GeckoViewGlobalPrivacy.sys.mjs");
++const RFP = "privacy.resistFingerprinting";
++const POLICY = "network.http.referer.XOriginPolicy";
++const WEBGL = "librewolf.webgl.prompt";
++
++// xpcshell do_get_profile does not establish Preferences.mCurrentFile. These
++// tests use actual native pref/permission services and an explicitly injected
++// save boundary. Real current-profile durability is covered by Task35 and the
++// GeckoRuntime GlobalPrivacySettingsTest; it is not asserted by this file.
++function controller(save = async () => {}) {
++  const names = ["getPrefType", "prefHasUserValue", "prefHasDefaultValue", "prefIsLocked", "getDefaultBranch",
++    "getBoolPref", "getIntPref", "getStringPref", "setBoolPref", "setIntPref", "clearUserPref"];
++  const prefs = Object.fromEntries(names.map(name => [name, Services.prefs[name].bind(Services.prefs)]));
++  prefs.savePrefFileAsync = save;
++  return new GlobalPrivacySettings(prefs);
++}
++function entry(state, id) { return state.settings.find(row => row.id === id); }
++
++add_setup(function setup() {
++  do_get_profile();
++  for (const [name, value] of [[RFP, true], [WEBGL, true], ["librewolf.webgl.prompt.hide", true], ["network.dns.disableIPv6", false], [POLICY, 0]]) {
++    const defaults = Services.prefs.getDefaultBranch("");
++    Assert.ok(Services.prefs.prefHasDefaultValue(name), "patched target defines each supported native preference");
++    const oldDefault = typeof value === "boolean" ? defaults.getBoolPref(name) : defaults.getIntPref(name);
++    const hadUser = Services.prefs.prefHasUserValue(name);
++    const wasLocked = Services.prefs.prefIsLocked(name);
++    Assert.ok(!wasLocked, "isolated xpcshell fixture must not begin with a hidden locked user value");
++    const before = typeof value === "boolean" ? Services.prefs.getBoolPref(name, value) : Services.prefs.getIntPref(name, value);
++    if (typeof value === "boolean") defaults.setBoolPref(name, value); else defaults.setIntPref(name, value);
++    Services.prefs.clearUserPref(name);
++    registerCleanupFunction(() => {
++      Services.prefs.unlockPref(name);
++      if (typeof value === "boolean") defaults.setBoolPref(name, oldDefault); else defaults.setIntPref(name, oldDefault);
++      if (hadUser) { if (typeof value === "boolean") Services.prefs.setBoolPref(name, before); else Services.prefs.setIntPref(name, before); }
++      else Services.prefs.clearUserPref(name);
++    });
++  }
++});
++
++add_task(async function native_locked_user_state_is_honest() {
++  Services.prefs.setBoolPref(RFP, false); Services.prefs.lockPref(RFP);
++  try {
++    const service = controller(); const read = entry(await service.request({ action: "get" }), "rfp");
++    Assert.equal(read.value, 1); Assert.ok(read.hasUser); Assert.ok(read.locked);
++    Assert.equal(read.userValue, null); Assert.ok(!read.userValueKnown);
++    Assert.equal((await service.request({ action: "set", id: "rfp", value: false })).reason, "locked");
++  } finally { Services.prefs.unlockPref(RFP); Services.prefs.clearUserPref(RFP); }
++});
++
++add_task(async function native_int_one_and_reset_preserve_real_branches() {
++  const service = controller();
++  const changed = await service.request({ action: "set", id: "referrerPolicy", value: 1 });
++  Assert.equal(changed.status, "saved"); Assert.equal(Services.prefs.getIntPref(POLICY), 1);
++  Assert.ok(Services.prefs.prefHasUserValue(POLICY));
++  await service.request({ action: "reset", id: "referrerPolicy" });
++  Assert.ok(!Services.prefs.prefHasUserValue(POLICY)); Assert.equal(Services.prefs.getIntPref(POLICY), 0);
++});
++
++add_task(async function final_save_failure_keeps_native_memory_and_uncertainty() {
++  let calls = 0; const service = controller(async () => { if (++calls === 2) throw new Error("injected final-save failure"); });
++  const changed = await service.request({ action: "set", id: "rfp", value: false });
++  Assert.equal(changed.status, "unconfirmed"); Assert.ok(!Services.prefs.getBoolPref(RFP));
++  Assert.ok(entry(await service.request({ action: "get" }), "rfp").persistenceUnconfirmed);
++  Assert.equal(calls, 2); Services.prefs.clearUserPref(RFP);
++});
++
++add_task(async function WebGL_global_choices_preserve_actual_site_permissions() {
++  const principal = Services.scriptSecurityManager.createContentPrincipal(Services.io.newURI("https://global-privacy.example:8443"), {});
++  Services.perms.addFromPrincipal(principal, "webgl", Ci.nsIPermissionManager.DENY_ACTION);
++  try {
++    const service = controller(); await service.request({ action: "set", id: "webglPrompt", value: false });
++    Assert.equal(Services.perms.testExactPermissionFromPrincipal(principal, "webgl"), Ci.nsIPermissionManager.DENY_ACTION);
++    await service.request({ action: "reset", id: "webglPrompt" });
++    Assert.equal(Services.perms.testExactPermissionFromPrincipal(principal, "webgl"), Ci.nsIPermissionManager.DENY_ACTION);
++  } finally { Services.perms.removeFromPrincipal(principal, "webgl"); Services.prefs.clearUserPref(WEBGL); }
++});
++
++add_task(async function setting_the_native_default_does_not_invent_a_user_branch() {
++  const service = controller();
++  Services.prefs.setBoolPref(RFP, false);
++  const result = await service.request({ action: "set", id: "rfp", value: true });
++  Assert.equal(result.status, "saved");
++  Assert.ok(!Services.prefs.prefHasUserValue(RFP));
++  Assert.ok(!entry(result.state, "rfp").hasUser);
++  Assert.equal(entry(result.state, "rfp").value, 1);
++});
+diff --git a/mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml b/mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml
+index a051366..d0b21aa 100644
+--- a/mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml
++++ b/mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml
+@@ -14,3 +14,5 @@ prefs = "browser.crashReports.onDemand=true"
+ ["test_GeckoViewTrackingDB.js"]
+
+ ["test_RemoteSettingsCrashPull.js"]
++
++["test_global_privacy_settings.js"]

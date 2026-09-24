@@ -1,0 +1,48 @@
+{
+  "status": "READ-ONLY REVIEW + GNU/Git/combined167 REPLAY PASS; target execution pending",
+  "utc": "2026-09-09T05:41:15.184046+00:00",
+  "paths": [
+    {
+      "path": "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt",
+      "original26_sha256": "3ebe3166359a1366f77a1cc065e92cd38175136efeca0af79e1893b51508421d",
+      "new20_predecessor_sha256": "e21cdc6058852ef29016e4ebed544ac7ed65c8bd95e2540ec68f134f11b1ae2a",
+      "candidate_sha256": "a6182cd6e15d8560f456b5db79829f9817c0e42d2e4bcd298ca450a373e0bc16"
+    },
+    {
+      "path": "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt",
+      "original26_sha256": "70870940b7bb76ab7770928c0318e4dad6815d59341c75deab5fbf3570b98abe",
+      "new20_predecessor_sha256": "99c54bda37b0b24d2cb9a24db340ef4a1e075f6a8ae9d4b42e45117c5afe7623",
+      "candidate_sha256": "ce2d756c823d43a1e1a5568572e6ceae04b4ab9c9ddad62d937237f6c6a4dea7"
+    },
+    {
+      "path": "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt",
+      "original26_sha256": "d47ecde5222a8140e7f74deda76d5c9d3b00be234fdc18f819f853dbded2a182",
+      "new20_predecessor_sha256": null,
+      "candidate_sha256": "45f9924fb4590fdbaa109365036eee4b2b00dda0b5c844f90e4e24aa3e7e987d"
+    }
+  ],
+  "findings": [
+    "Main-process branch alone initializes both saved policies before locale/super attachment/providers.",
+    "Non-main configures constant FxSuggestChoices(false,false,false,false), increments admission generation and closes AccountServices before super; no Context access in either operation.",
+    "Legacy host fixture opts into accounts/Suggest after super; both production initialization overrides are Unit. Plain production policy tests bypass the legacy helper.",
+    "New production child test verifies both closed admissions, stale ticket rejection, unchanged saved Suggest choices and throwing Context access; actual process detector is mocked.",
+    "Other A-C embedder defaults and existing parent saved-choice/no-choice/ordinary query tests remain unchanged."
+  ],
+  "target": "Native/device/real-API process classification UNRUN by this review",
+  "recorded_final_utc": "2026-09-09T05:45:31.139256+00:00",
+  "task20_commit": "82b46cb",
+  "task26_commit": "dab6a7e04d8cf46d6aeec5159fc15fadf9f0f830",
+  "final_inputs": {
+    "patches/android/sync-opt-in.patch": "8caefdd78441b945ae7d55875ab3cce48ef21963c3d29e0fcd693b56b788607d",
+    "patches/android/firefox-suggest-policy.patch": "36e2a7d1941b4656f71098213c22900564e4a2676d0a18954bdc098b297682ad",
+    "docs/android/evidence/lw-m7-26/source-files.json": "4ed1ad98043f6b3c95378893454620e28cd66152f6ef4d61933cbbcdafddbb7e",
+    "docs/android/evidence/lw-m7-26/isolated-process-correction/proposed-current167-source-sha256.txt": "4ff8b61617049c56710a406c1ff30ab73b370dd0e614b97aba5f038b0eb89739",
+    "docs/android/evidence/lw-m7-26/isolated-process-correction/current167-source-overlay.tar.gz": "f3fb6976ba854c510a8b653e90a60d000be144e52228822221ecb4c4aef20da4"
+  },
+  "logs": {
+    "frozen20-replay.txt": "4bb1705a0af60dc6f3dd184f7c06353d03fdd7ed7991f3a11aeeff5ae9fa06b3",
+    "frozen26-combined-replay.txt": "9b653be28e758e802bfae2428a53c76d734f523cd99221e5df8c533096ef5aaf"
+  },
+  "final_import_dedup": "FxSuggestAdmission import appears exactly once; production control flow otherwise matches reviewed candidate.",
+  "next": "Preserve historical245/249; await independently derived corrected245 before Task27/candidate5 source-binding refresh."
+}

@@ -1,0 +1,91 @@
+50:  * of the preferences themselves.
+51:  *
+52:  * @see nsIPrefBranch
+53:  */
+54:
+55: [scriptable, uuid(1f84fd56-3956-40df-b86a-1ea01402ee96)]
+56: interface nsIPrefService : nsISupports
+57: {
+58:   /**
+59:    * Called to completely flush and re-initialize the preferences system.
+60:    *
+61:    * @throws Error The preference service failed to restart correctly.
+62:    */
+63:   void resetPrefs();
+64:
+65:   /**
+66:    * Called to write current preferences state to a file.
+67:    *
+68:    * @param aFile The file to be written.
+69:    *
+70:    * @note
+71:    * If nullptr is passed in for the aFile parameter the preference data is
+72:    * written out to the current preferences file (usually prefs.js.)
+73:    *
+74:    * @throws Error File failed to write.
+75:    *
+76:    * @see readUserPrefsFromFile
+77:    * @see nsIFile
+78:    */
+79:   void savePrefFile(in nsIFile aFile);
+80:
+81:   /**
+82:    * Write an ordered snapshot to the current profile preferences file. The
+83:    * promise resolves only after that snapshot's write succeeds and rejects on
+84:    * its actual write/dispatch error. Forces a write even if prefs are not dirty.
+85:    * Later queued snapshots may supersede this one. No profile or profile
+86:    * shutdown rejects the request; this method never chooses an alternate file.
+87:    */
+88:   [implicit_jscontext]
+89:   Promise savePrefFileAsync();
+90:
+91:   /**
+92:    * Called to write current preferences state to a file off of the main thread.
+93:    * This differs from savePrefFile in that null is not accepted for the aFile
+94:    * parameter, and aFile cannot be pointing at the current preferences file.
+95:    *
+96:    * The backup will be written to disk off of the main thread, unless the
+97:    * preferences service is not configured to write to disk off of the main
+98:    * thread.
+99:    *
+100:    * @param aFile The file to be written.
+101:    * @param aOverrideMap Map of pref names to values that will "override"
+102:    *                     current pref values in the backup.
+103:    * @returns A DOM promise that resolves when the backup is complete.
+104:    *
+105:    * @see readUserPrefsFromFile
+106:    * @see nsIFile
+107:    */
+108:   [implicit_jscontext]
+109:   Promise backupPrefFile(
+110:       in nsIFile aFile,
+111:       [optional] in nsIPrefOverrideMap aOverrideMap);
+112:
+113:   /**
+114:    * Call to get a Preferences "Branch" which accesses user preference data.
+115:    * Using a Set method on this object will always create or set a user
+116:    * preference value. When using a Get method a user set value will be
+117:    * returned if one exists, otherwise a default value will be returned.
+118:    *
+119:    * @param aPrefRoot The preference "root" on which to base this "branch".
+120:    *                  For example, if the root "browser.startup." is used, the
+121:    *                  branch will be able to easily access the preferences
+122:    *                  "browser.startup.page", "browser.startup.homepage", or
+123:    *                  "browser.startup.homepage_override" by simply requesting
+124:    *                  "page", "homepage", or "homepage_override". nullptr or ""
+125:    *                  may be used to access to the entire preference "tree".
+126:    *
+127:    * @return nsIPrefBranch The object representing the requested branch.
+128:    *
+129:    * @see getDefaultBranch
+130:    */
+131:   nsIPrefBranch getBranch(in string aPrefRoot);
+132:
+133:   /**
+134:    * Call to get a Preferences "Branch" which accesses only the default
+135:    * preference data. Using a Set method on this object will always create or
+136:    * set a default preference value. When using a Get method a default value
+137:    * will always be returned.
+138:    *
+139:    * @param aPrefRoot The preference "root" on which to base this "branch".
+140:    *                  For example, if the root "browser.startup." is used, the

@@ -1,0 +1,1 @@
+Historical source before automatic successful-stage admission. The native driver checked an opaque staging receipt hash; root manual launch review supplied the stage-success check. Do not use this historical driver for new native builds.

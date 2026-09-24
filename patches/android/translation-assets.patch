@@ -1,0 +1,1191 @@
+diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt
+--- a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt
++++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt
+@@ -229,6 +229,33 @@
+                 te.code == ERROR_MODEL_DOWNLOAD_REQUIRED,
+             )
+         }
++    }
++
++    @Test
++    fun cacheOnlyTranslationUsesRealCatalogAndPreservesMissingModels() {
++        // This exercises the packaged catalog and real parent boundary, not the
++        // fixed-size metadata mock used by simpleTranslateFailureTest.
++        sessionRule.setPrefsUntilTestEnd(
++            mapOf("browser.translations.geckoview.enableAllTestMocks" to false),
++        )
++        val deleteAll = ModelManagementOptions.Builder()
++            .operation(DELETE)
++            .operationLevel(ALL)
++            .build()
++        sessionRule.waitForResult(RuntimeTranslation.manageLanguageModel(deleteAll))
++        val before = sessionRule.waitForResult(RuntimeTranslation.checkPairDownloadSize("es", "en"))
++        assertTrue("Pinned Spanish model is missing", before > 0)
++        mainSession.loadTestPath(TRANSLATIONS_ES)
++        mainSession.waitForPageStop()
++        val options = TranslationOptions.Builder().downloadModel(false).build()
++        try {
++            sessionRule.waitForResult(mainSession.sessionTranslation!!.translate("es", "en", options))
++            fail("A cache-only request must report missing models")
++        } catch (error: RuntimeException) {
++            assertEquals(ERROR_MODEL_DOWNLOAD_REQUIRED, (error.cause as TranslationsException).code)
++        }
++        val after = sessionRule.waitForResult(RuntimeTranslation.checkPairDownloadSize("es", "en"))
++        assertEquals("No model became cached by a cache-only request", before, after)
+     }
+ 
+     @Test
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java
+@@ -19,6 +19,7 @@
+ import java.util.Locale;
+ import java.util.Map;
+ import java.util.Objects;
++import java.util.UUID;
+ import org.mozilla.gecko.EventDispatcher;
+ import org.mozilla.gecko.util.EventCallback;
+ import org.mozilla.gecko.util.GeckoBundle;
+@@ -31,6 +32,27 @@
+ public class TranslationsController {
+   private static final boolean DEBUG = false;
+   private static final String LOGTAG = "TranslationsController";
++
++  // Private protocol identity scopes cancellation to this one operation. It is
++  // never a reusable permission for subsequent or automatic translations.
++  private static @NonNull GeckoResult<Void> cancellableTranslationQuery(
++      final @NonNull EventDispatcher dispatcher,
++      final @NonNull String event,
++      final @NonNull GeckoBundle bundle) {
++    final String requestId = UUID.randomUUID().toString();
++    bundle.putString("requestId", requestId);
++    final GeckoResult<Void> result = dispatcher.queryVoid(event, bundle);
++    result.setCancellationDelegate(
++        new GeckoResult.CancellationDelegate() {
++          @Override
++          public @NonNull GeckoResult<Boolean> cancel() {
++            final GeckoBundle cancellation = new GeckoBundle(1);
++            cancellation.putString("cancelId", requestId);
++            return dispatcher.queryBoolean(event, cancellation);
++          }
++        });
++    return result;
++  }
+ 
+   /**
+    * Runtime translation coordinates runtime messaging between the translations toolkit actor and
+@@ -145,8 +167,8 @@
+       if (DEBUG) {
+         Log.d(LOGTAG, "Requesting management of the language model.");
+       }
+-      return EventDispatcher.getInstance()
+-          .queryVoid(MANAGE_MODEL_EVENT, options.toBundle())
++      return cancellableTranslationQuery(
++              EventDispatcher.getInstance(), MANAGE_MODEL_EVENT, options.toBundle())
+           .map(
+               result -> result,
+               exception -> {
+@@ -766,26 +788,11 @@
+                 + options);
+       }
+ 
+-      if (options != null && options.downloadModel == false) {
+-        final var translateResult = new GeckoResult<Void>();
+-        TranslationsController.RuntimeTranslation.checkPairDownloadSize(fromLanguage, toLanguage)
+-            .then(
+-                (GeckoResult.OnValueListener<Long, Void>)
+-                    downloadBytes -> {
+-                      if (downloadBytes > 0) {
+-                        translateResult.completeExceptionally(
+-                            new TranslationsException(
+-                                TranslationsException.ERROR_MODEL_DOWNLOAD_REQUIRED));
+-                      } else {
+-                        // No download required
+-                        translateResult.completeFrom(this.baseTranslate(fromLanguage, toLanguage));
+-                      }
+-                      return null;
+-                    });
+-        return translateResult;
+-      }
+-
+-      return this.baseTranslate(fromLanguage, toLanguage);
++      // Enforce cache-only requests in the parent operation itself, not a
++      // separate size precheck that can race deletion or cancellation.
++      return this.baseTranslate(
++          fromLanguage, toLanguage, options == null || options.downloadModel);
++
+     }
+ 
+     /**
+@@ -817,18 +824,24 @@
+      */
+     @HandlerThread
+     private @NonNull GeckoResult<Void> baseTranslate(
+-        @NonNull final String sourceLanguage, @NonNull final String targetLanguage) {
++        @NonNull final String sourceLanguage,
++        @NonNull final String targetLanguage,
++        final boolean allowDownload) {
+       ThreadUtils.warnOnHandlerThread();
+ 
+-      final GeckoBundle bundle = new GeckoBundle(2);
++      final GeckoBundle bundle = new GeckoBundle(4);
+       bundle.putString("sourceLanguage", sourceLanguage);
+       bundle.putString("targetLanguage", targetLanguage);
+-      return mSession
+-          .getEventDispatcher()
+-          .queryVoid(TRANSLATE_EVENT, bundle)
++      bundle.putBoolean("allowDownload", allowDownload);
++      return cancellableTranslationQuery(mSession.getEventDispatcher(), TRANSLATE_EVENT, bundle)
+           .map(
+               result -> result,
+               exception -> {
++                if (exception instanceof EventDispatcher.QueryException
++                    && String.valueOf(((EventDispatcher.QueryException) exception).data)
++                        .contains("MODEL_DOWNLOAD_REQUIRED")) {
++                  return new TranslationsException(TranslationsException.ERROR_MODEL_DOWNLOAD_REQUIRED);
++                }
+                 if (TranslationsException.isEngineDeactivated(exception)) {
+                   return new TranslationsException(TranslationsException.ERROR_ENGINE_DEACTIVATED);
+                 }
+diff --git a/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs
+--- a/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs
+@@ -12,7 +12,30 @@
+ 
+ import { GeckoViewModule } from "resource://gre/modules/GeckoViewModule.sys.mjs";
+ 
++// These operations are created only by the existing explicit native commands.
++// Metadata/status and actor auto-translation never pass through this boundary.
++const modelDownloads = new Map();
++function runDownload(requests, requestId, action) {
++  if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(requestId) || requests.has(requestId)) {
++    return Promise.reject(new Error("Invalid or duplicate translation request ID"));
++  }
++  const controller = new AbortController();
++  requests.set(requestId, controller);
++  return Promise.resolve().then(() => {
++    if (controller.signal.aborted) {
++      throw new DOMException("Translation request was cancelled", "AbortError");
++    }
++    return action(controller.signal);
++  }).finally(() => requests.delete(requestId));
++}
++function cancelDownload(requests, requestId) {
++  const controller = requests.get(requestId);
++  controller?.abort();
++  return !!controller;
++}
++
+ export class GeckoViewTranslations extends GeckoViewModule {
++  #translationDownloads = new Map();
+   onInit() {
+     debug`onInit`;
+     this.registerListener([
+@@ -30,6 +53,9 @@
+   }
+ 
+   onDisable() {
++    for (const controller of this.#translationDownloads.values()) {
++      controller.abort();
++    }
+     debug`onDisable`;
+     this.window.removeEventListener(
+       "TranslationsParent:OfferTranslation",
+@@ -42,6 +68,10 @@
+     debug`onEvent: event=${aEvent}, data=${aData}`;
+     switch (aEvent) {
+       case "GeckoView:Translations:Translate": {
++        if (aData.cancelId) {
++          aCallback.onSuccess(cancelDownload(this.#translationDownloads, aData.cancelId));
++          break;
++        }
+         try {
+           const { sourceLanguage, targetLanguage } = aData;
+ 
+@@ -49,15 +79,14 @@
+             lazy.TranslationsUtils.isLangTagValid(sourceLanguage) &&
+             lazy.TranslationsUtils.isLangTagValid(targetLanguage)
+           ) {
+-            this.getActor("Translations")
+-              .translate(
+-                {
+-                  sourceLanguage,
+-                  targetLanguage,
+-                  // Model variants are not currently supported. See Bug 1943444.
+-                },
+-                /* reportAsAutoTranslate */ false
++            const actor = this.getActor("Translations");
++            runDownload(this.#translationDownloads, aData.requestId, signal =>
++              actor.translateFromUser(
++                { sourceLanguage, targetLanguage },
++                aData.allowDownload === true,
++                signal
+               )
++            )
+               .then(
+                 () => aCallback.onSuccess(),
+                 error => aCallback.onError(`Could not translate: ${error}`)
+@@ -184,7 +213,30 @@
+         return;
+       }
+       case "GeckoView:Translations:ManageModel": {
++        if (aData.cancelId) {
++          aCallback.onSuccess(cancelDownload(modelDownloads, aData.cancelId));
++          return;
++        }
+         const { language, operation, operationLevel } = aData;
++        if (operation === "download") {
++          if (operationLevel !== "all" && operationLevel !== "language") {
++            aCallback.onError("COULD_NOT_DOWNLOAD - Invalid download operation level");
++            return;
++          }
++          if (operationLevel === "language" && !lazy.TranslationsUtils.isLangTagValid(language)) {
++            aCallback.onError("LANGUAGE_REQUIRED - A valid language is required");
++            return;
++          }
++          runDownload(modelDownloads, aData.requestId, signal =>
++            operationLevel === "all"
++              ? lazy.TranslationsParent.downloadAllFiles(signal)
++              : lazy.TranslationsParent.downloadLanguageFiles(language, signal)
++          ).then(
++            () => aCallback.onSuccess(),
++            error => aCallback.onError(`COULD_NOT_DOWNLOAD - ${error}`)
++          );
++          return;
++        }
+         if (operation === "delete") {
+           if (operationLevel === "all") {
+             lazy.TranslationsUtils.deleteAllLanguageFiles().then(
+@@ -227,44 +279,6 @@
+                   `COULD_NOT_DELETE - An issue occurred while deleting the cache: ${error}`
+                 );
+               }
+-            );
+-          }
+-        } else if (operation === "download") {
+-          if (operationLevel === "all") {
+-            lazy.TranslationsParent.downloadAllFiles().then(
+-              function () {
+-                aCallback.onSuccess();
+-              },
+-              function (error) {
+-                aCallback.onError(
+-                  `COULD_NOT_DOWNLOAD - An issue occurred while downloading all language files: ${error}`
+-                );
+-              }
+-            );
+-            return;
+-          }
+-          if (operationLevel === "language") {
+-            if (language === undefined) {
+-              aCallback.onError(
+-                `LANGUAGE_REQUIRED - A specified language is required language level operations.`
+-              );
+-              return;
+-            }
+-            lazy.TranslationsParent.downloadLanguageFiles(language).then(
+-              function () {
+-                aCallback.onSuccess();
+-              },
+-              function (error) {
+-                aCallback.onError(
+-                  `COULD_NOT_DOWNLOAD - An issue occurred while downloading a language files: ${error}`
+-                );
+-              }
+-            );
+-          }
+-          if (operationLevel === "cache") {
+-            aCallback.onError(
+-              `COULD_NOT_DOWNLOAD - Downloading the cache is not a valid option. Please check the parameters and try again.
+-               Language: ${language}, Operation: ${operation}, Operation Level: ${operationLevel}`
+             );
+           }
+         } else {
+diff --git a/toolkit/components/translations/AndroidTranslationAssets.sys.mjs b/toolkit/components/translations/AndroidTranslationAssets.sys.mjs
+new file mode 100644
+--- /dev/null
++++ b/toolkit/components/translations/AndroidTranslationAssets.sys.mjs
+@@ -0,0 +1,435 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++const lazy = {};
++ChromeUtils.defineESModuleGetters(lazy, {
++  AppConstants: "resource://gre/modules/AppConstants.sys.mjs",
++  setTimeout: "resource://gre/modules/Timer.sys.mjs",
++  clearTimeout: "resource://gre/modules/Timer.sys.mjs",
++});
++
++const DATA_ROOT = "chrome://global/content/translations/android-data/";
++const CATALOG_SIZE = 245592;
++const CATALOG_HASH =
++  "ce8c163e97d9d5b136cd673f7e63684dada00b45514442bf282b387174100d96";
++const ATTACHMENT_ROOT = "https://firefox-settings-attachments.cdn.mozilla.net/";
++const MAX_COMPRESSED = 48 * 1024 * 1024;
++const MAX_DECOMPRESSED = 64 * 1024 * 1024;
++const OPERATION_TIMEOUT_MS = 15 * 60 * 1000;
++const TRANSFER_TIMEOUT_MS = 60 * 1000;
++const HASH = /^[a-f0-9]{64}$/;
++const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
++
++function abortError() {
++  return new DOMException("Translation download was cancelled", "AbortError");
++}
++function checkSignal(signal) {
++  if (signal?.aborted) {
++    throw abortError();
++  }
++}
++async function abortable(promise, signal) {
++  let abort;
++  const cancelled = new Promise((_, reject) => {
++    abort = () => reject(abortError());
++    signal.addEventListener("abort", abort, { once: true });
++    if (signal.aborted) {
++      abort();
++    }
++  });
++  try {
++    return await Promise.race([promise, cancelled]);
++  } finally {
++    signal.removeEventListener("abort", abort);
++  }
++}
++
++function validSize(value, maximum) {
++  return Number.isSafeInteger(value) && value > 0 && value <= maximum;
++}
++async function verifyHash(bytes, size, hash) {
++  if (bytes.byteLength !== size || !HASH.test(hash)) {
++    throw new Error("Translation asset size or hash pin is invalid");
++  }
++  const digest = await crypto.subtle.digest("SHA-256", bytes);
++  const actual = Array.from(new Uint8Array(digest), byte =>
++    byte.toString(16).padStart(2, "0")
++  ).join("");
++  if (actual !== hash) {
++    throw new Error("Translation asset integrity check failed");
++  }
++}
++
++async function readBounded(stream, size, signal) {
++  if (!stream) {
++    throw new Error("Translation asset has no response body");
++  }
++  checkSignal(signal);
++  const reader = stream.getReader();
++  const abort = () => reader.cancel(abortError()).catch(() => {});
++  signal?.addEventListener("abort", abort, { once: true });
++  const chunks = [];
++  let length = 0;
++  try {
++    while (true) {
++      checkSignal(signal);
++      const { value, done } = await reader.read();
++      checkSignal(signal);
++      if (done) {
++        break;
++      }
++      length += value.byteLength;
++      if (length > size) {
++        throw new Error("Translation asset exceeds its pinned size");
++      }
++      chunks.push(value);
++    }
++    if (length !== size) {
++      throw new Error("Translation asset is incomplete");
++    }
++    const bytes = new Uint8Array(length);
++    let offset = 0;
++    for (const chunk of chunks) {
++      bytes.set(chunk, offset);
++      offset += chunk.byteLength;
++    }
++    return bytes;
++  } finally {
++    signal?.removeEventListener("abort", abort);
++    await reader.cancel().catch(() => {});
++    reader.releaseLock();
++  }
++}
++
++// Used again at the inference boundary, including cached data after a restart.
++export async function decompressAndroidTranslationAsset(blob, record, signal) {
++  if (
++    !validSize(record?.decompressedSize, MAX_DECOMPRESSED) ||
++    !HASH.test(record.decompressedHash)
++  ) {
++    throw new Error("Translation decompression pins are invalid");
++  }
++  const bytes = await readBounded(
++    blob.stream().pipeThrough(new DecompressionStream("zstd")),
++    record.decompressedSize,
++    signal
++  );
++  await verifyHash(bytes, record.decompressedSize, record.decompressedHash);
++  checkSignal(signal);
++  return bytes.buffer;
++}
++
++function isEligible(record) {
++  switch (record.filter_expression ?? "") {
++    case "":
++    case "env.appinfo.OS == 'Android'":
++      return true;
++    case "env.appinfo.OS != 'Android'":
++      return false;
++    case "env.channel == 'default' || env.channel == 'nightly'":
++      return ["default", "nightly"].includes(lazy.AppConstants.MOZ_UPDATE_CHANNEL);
++    default:
++      throw new Error("Unsupported translation catalog targeting");
++  }
++}
++
++function validateRecord(record, kind) {
++  const attachment = record?.attachment;
++  if (
++    !UUID.test(record?.id) ||
++    typeof record.name !== "string" || !record.name ||
++    !Number.isSafeInteger(record.last_modified) ||
++    !Number.isSafeInteger(record.schema) ||
++    !validSize(attachment?.size, MAX_COMPRESSED) ||
++    !HASH.test(attachment.hash) ||
++    attachment.mimetype !== "application/zstd" ||
++    !validSize(record.decompressedSize, MAX_DECOMPRESSED) ||
++    !HASH.test(record.decompressedHash) ||
++    !new RegExp(`^main-workspace/translations-${kind}-v2/[a-f0-9-]+\\.zst$`).test(attachment.location) ||
++    !/^[^/\\]+\.zst$/.test(attachment.filename) ||
++    !/^\d+\.\d+(?:a\d+)?$/.test(record.version)
++  ) {
++    throw new Error("Invalid pinned translation record");
++  }
++  // Evaluate every targeting expression, including currently ineligible records.
++  isEligible(record);
++  if (kind === "models") {
++    if (
++      !["model", "lex", "vocab", "srcvocab", "trgvocab"].includes(record.fileType) ||
++      !["tiny", "base", "base-memory"].includes(record.architecture) ||
++      typeof record.sourceLanguage !== "string" ||
++      typeof record.targetLanguage !== "string" ||
++      record.sourceLanguage === record.targetLanguage ||
++      record.variant !== undefined ||
++      !record.version.startsWith("3.")
++    ) {
++      throw new Error("Unsupported pinned translation model");
++    }
++    new Intl.Locale(record.sourceLanguage);
++    new Intl.Locale(record.targetLanguage);
++  } else if (record.version !== "4.0" || record.license !== "MPL-2.0") {
++    throw new Error("Unsupported pinned translations engine");
++  }
++}
++
++export class AndroidTranslationAssets {
++  static #instance;
++  static get instance() {
++    return (this.#instance ??= new AndroidTranslationAssets());
++  }
++
++  #catalog;
++  #operations = new Set();
++  #mutations = Promise.resolve();
++  #transfers = Promise.resolve();
++  #shuttingDown = false;
++
++  constructor() {
++    Services.obs.addObserver(() => {
++      this.#shuttingDown = true;
++      for (const operation of this.#operations) {
++        operation.controller.abort();
++      }
++    }, "quit-application");
++  }
++
++  async #getCatalog() {
++    if (!this.#catalog) {
++      const pending = (async () => {
++        const response = await fetch(DATA_ROOT + "catalog.json");
++        if (!response.ok) {
++          throw new Error("Packaged translations catalog is unavailable");
++        }
++        const bytes = await readBounded(response.body, CATALOG_SIZE);
++        await verifyHash(bytes, CATALOG_SIZE, CATALOG_HASH);
++        const data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
++        if (
++          data.format !== 1 || data.models?.length !== 377 ||
++          data.wasm?.length !== 1 ||
++          Object.keys(data).some(key => !["format", "models", "wasm"].includes(key))
++        ) {
++          throw new Error("Invalid translations catalog envelope");
++        }
++        const ids = new Set();
++        for (const kind of ["models", "wasm"]) {
++          for (const record of data[kind]) {
++            validateRecord(record, kind);
++            if (ids.has(record.id)) {
++              throw new Error("Duplicate translation catalog ID");
++            }
++            ids.add(record.id);
++          }
++        }
++        return data;
++      })();
++      this.#catalog = pending;
++      pending.catch(() => {
++        if (this.#catalog === pending) {
++          this.#catalog = null;
++        }
++      });
++    }
++    return this.#catalog;
++  }
++
++  async #resolve(record) {
++    const catalog = await this.#getCatalog();
++    const pinned = [...catalog.models, ...catalog.wasm].find(r => r.id === record?.id);
++    if (!pinned || !isEligible(pinned) || JSON.stringify(pinned) !== JSON.stringify(record)) {
++      throw new Error("Unlisted or altered translation asset");
++    }
++    return pinned;
++  }
++
++  #path(record) {
++    return PathUtils.join(PathUtils.profileDir, "redoubt-translations-v1", record.attachment.hash + ".zst");
++  }
++
++  async #verify(bytes, record, signal) {
++    await verifyHash(bytes, record.attachment.size, record.attachment.hash);
++    await decompressAndroidTranslationAsset(new Blob([bytes]), record, signal);
++    checkSignal(signal);
++    return { buffer: bytes.buffer, record };
++  }
++
++  async read(record) {
++    record = await this.#resolve(record);
++    if (record.name === "bergamot-translator") {
++      const response = await fetch(DATA_ROOT + "bergamot-translator.wasm.zst");
++      if (!response.ok) {
++        throw new Error("Packaged translations engine is unavailable");
++      }
++      const bytes = await readBounded(response.body, record.attachment.size);
++      return this.#verify(bytes, record);
++    }
++    const bytes = await IOUtils.read(this.#path(record), { maxBytes: record.attachment.size + 1 });
++    // Cache commits already verified decompression. Rehash compressed bytes for
++    // status/use without repeatedly expanding every installed language model;
++    // the engine child independently checks expanded bounds/hash before use.
++    await verifyHash(bytes, record.attachment.size, record.attachment.hash);
++    return { buffer: bytes.buffer, record };
++  }
++
++  // A local adapter for existing selection/status/delete code. Its download()
++  // deliberately means verified cache-only retrieval; it never grants network.
++  client(kind) {
++    if (!["models", "wasm"].includes(kind)) {
++      throw new Error("Unknown translation catalog");
++    }
++    return {
++      get: async ({ filters = {} } = {}) => {
++        const catalog = await this.#getCatalog();
++        return structuredClone(catalog[kind].filter(record =>
++          isEligible(record) && Object.entries(filters).every(([key, value]) => record[key] === value)
++        ));
++      },
++      sync: async () => { throw new Error("Translation collection sync is disabled"); },
++      attachments: {
++        download: record => this.read(record),
++        isDownloaded: async record => {
++          try {
++            await this.read(record);
++            return true;
++          } catch (_) {
++            return false;
++          }
++        },
++        deleteDownloaded: record => this.delete(record),
++      },
++    };
++  }
++
++  #checkOperation(operation) {
++    if (!this.#operations.has(operation) || this.#shuttingDown) {
++      throw abortError();
++    }
++    checkSignal(operation.controller.signal);
++    operation.checkCurrent();
++  }
++
++  async withDownloadOperation(callback, signal, checkCurrent = () => {}) {
++    checkSignal(signal);
++    if (this.#shuttingDown) {
++      throw abortError();
++    }
++    const operation = { controller: new AbortController(), records: null, checkCurrent };
++    const abort = () => operation.controller.abort();
++    signal?.addEventListener("abort", abort, { once: true });
++    const timer = lazy.setTimeout(abort, OPERATION_TIMEOUT_MS);
++    this.#operations.add(operation);
++    try {
++      return await abortable(callback(operation), operation.controller.signal);
++    } finally {
++      abort();
++      lazy.clearTimeout(timer);
++      signal?.removeEventListener("abort", abort);
++      this.#operations.delete(operation);
++    }
++  }
++
++  async downloadRecords(records, operation) {
++    this.#checkOperation(operation);
++    // Seal each operation to exactly one selected record set.
++    if (operation.records) {
++      throw new Error("Translation operation already has a selected asset set");
++    }
++    const pinned = await Promise.all(records.map(record => this.#resolve(record)));
++    this.#checkOperation(operation);
++    operation.records = new Set(pinned.map(record => record.id));
++    for (const record of pinned) {
++      this.#checkOperation(operation);
++      try {
++        await this.read(record);
++        this.#checkOperation(operation);
++        continue;
++      } catch (error) {
++        this.#checkOperation(operation);
++        if (record.name === "bergamot-translator") {
++          throw error; // Broken bundled WASM must never trigger a network fallback.
++        }
++      }
++      // Serialize transfers to bound memory even with concurrent tabs/downloads.
++      const transfer = this.#transfers.then(() => this.#download(record, operation));
++      this.#transfers = transfer.catch(() => {});
++      await transfer;
++    }
++  }
++
++  async #download(record, operation) {
++    this.#checkOperation(operation);
++    const signal = operation.controller.signal;
++    const timer = lazy.setTimeout(() => operation.controller.abort(), TRANSFER_TIMEOUT_MS);
++    try {
++      const url = ATTACHMENT_ROOT + record.attachment.location;
++      // No discovery, credentials, referrer, ambient cache or cross-origin redirect.
++      const response = await fetch(url, {
++        credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store",
++        redirect: "error", signal,
++      });
++      this.#checkOperation(operation);
++      if (!response.ok || response.redirected || response.url !== url) {
++        throw new Error("Translation asset response is not the pinned URL");
++      }
++      const length = response.headers.get("content-length");
++      if (length !== null && length !== String(record.attachment.size)) {
++        throw new Error("Translation response length differs from its pin");
++      }
++      const bytes = await readBounded(response.body, record.attachment.size, signal);
++      await this.#verify(bytes, record, signal);
++      this.#checkOperation(operation);
++      await this.#mutate(async () => {
++        this.#checkOperation(operation);
++        const file = this.#path(record);
++        await IOUtils.makeDirectory(PathUtils.parent(file), { permissions: 0o700 });
++        this.#checkOperation(operation);
++        const temporary = file + "." + Services.uuid.generateUUID().toString() + ".tmp";
++        let committed = false;
++        let validatedCommit = false;
++        try {
++          await IOUtils.write(temporary, bytes, { mode: "create" });
++          this.#checkOperation(operation);
++          await IOUtils.move(temporary, file);
++          committed = true;
++          this.#checkOperation(operation);
++          validatedCommit = true;
++        } finally {
++          await IOUtils.remove(temporary, { ignoreAbsent: true });
++          if (committed && (!validatedCommit || signal.aborted)) {
++            await IOUtils.remove(file, { ignoreAbsent: true });
++          }
++        }
++      });
++    } finally {
++      lazy.clearTimeout(timer);
++    }
++  }
++
++  #mutate(callback) {
++    const next = this.#mutations.then(callback);
++    this.#mutations = next.catch(() => {});
++    return next;
++  }
++
++  async delete(record) {
++    record = await this.#resolve(record);
++    for (const operation of this.#operations) {
++      if (!operation.records || operation.records.has(record.id)) {
++        operation.controller.abort();
++      }
++    }
++    await this.#mutate(() => IOUtils.remove(this.#path(record), { ignoreAbsent: true }));
++  }
++
++  async deleteAll() {
++    for (const operation of this.#operations) {
++      operation.controller.abort();
++    }
++    const catalog = await this.#getCatalog();
++    await this.#mutate(() => IOUtils.remove(
++      PathUtils.join(PathUtils.profileDir, "redoubt-translations-v1"),
++      { recursive: true, ignoreAbsent: true }
++    ));
++    return catalog.models.map(record => record.id);
++  }
++}
+diff --git a/toolkit/components/translations/TranslationsUtils.mjs b/toolkit/components/translations/TranslationsUtils.mjs
+--- a/toolkit/components/translations/TranslationsUtils.mjs
++++ b/toolkit/components/translations/TranslationsUtils.mjs
+@@ -169,6 +169,15 @@
+    * @returns {Promise<string[]>} - A list of record IDs.
+    */
+   static async deleteAllLanguageFiles() {
++    const { AppConstants } = ChromeUtils.importESModule(
++      "resource://gre/modules/AppConstants.sys.mjs"
++    );
++    if (AppConstants.platform === "android") {
++      const { AndroidTranslationAssets } = ChromeUtils.importESModule(
++        "resource://gre/modules/translations/AndroidTranslationAssets.sys.mjs"
++      );
++      return AndroidTranslationAssets.instance.deleteAll();
++    }
+     const { RemoteSettings } = ChromeUtils.importESModule(
+       "resource://services-settings/remote-settings.sys.mjs"
+     );
+diff --git a/toolkit/components/translations/actors/TranslationsChild.sys.mjs b/toolkit/components/translations/actors/TranslationsChild.sys.mjs
+--- a/toolkit/components/translations/actors/TranslationsChild.sys.mjs
++++ b/toolkit/components/translations/actors/TranslationsChild.sys.mjs
+@@ -1,6 +1,8 @@
+ /* This Source Code Form is subject to the terms of the Mozilla Public
+  * License, v. 2.0. If a copy of the MPL was not distributed with this
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
+ 
+ const lazy = {};
+ ChromeUtils.defineESModuleGetters(lazy, {
+@@ -33,12 +35,20 @@
+ 
+   #isDestroyed = false;
+ 
++  actorCreated() {
++    if (AppConstants.platform === "android") {
++      this.contentWindow.addEventListener("pagehide", this, { capture: true });
++    }
++  }
++
+   handleEvent(event) {
+     if (this.#isDestroyed) {
+       return;
+     }
+ 
+-    if (event.type === "DOMContentLoaded") {
++    if (event.type === "pagehide") {
++      this.sendAsyncMessage("Translations:PageHidden");
++    } else if (event.type === "DOMContentLoaded") {
+       this.sendAsyncMessage("Translations:DOMContentLoaded", {
+         htmlLangAttribute: this.document.documentElement.lang,
+       });
+@@ -48,6 +58,9 @@
+   }
+ 
+   didDestroy() {
++    if (AppConstants.platform === "android") {
++      this.contentWindow?.removeEventListener("pagehide", this, { capture: true });
++    }
+     this.#isDestroyed = true;
+     this.#translatedDoc?.destroy();
+     this.#translatedDoc = null;
+diff --git a/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs b/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs
+--- a/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs
++++ b/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs
+@@ -1,6 +1,8 @@
+ /* This Source Code Form is subject to the terms of the Mozilla Public
+  * License, v. 2.0. If a copy of the MPL was not distributed with this
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
+ 
+ const lazy = {};
+ 
+@@ -12,6 +14,7 @@
+ });
+ 
+ ChromeUtils.defineESModuleGetters(lazy, {
++  decompressAndroidTranslationAsset: "resource://gre/modules/translations/AndroidTranslationAssets.sys.mjs",
+   handleActorMessage:
+     "chrome://global/content/translations/translations-engine.sys.mjs",
+ });
+@@ -31,9 +34,13 @@
+  * @param {boolean} isMocked - Whether the TranslationsEngine payload is mocked for testing.
+  * @returns {ArrayBuffer}
+  */
+-async function decompressFromZstdBlob(blob, isMocked) {
++async function decompressFromZstdBlob(blob, isMocked, record) {
+   if (isMocked) {
+     return new ArrayBuffer();
++  }
++
++  if (AppConstants.platform === "android") {
++    return lazy.decompressAndroidTranslationAsset(blob, record);
+   }
+ 
+   /* global DecompressionStream */
+@@ -198,13 +205,14 @@
+ 
+     const wasmPromise = decompressFromZstdBlob(
+       payload.bergamotWasmBlob,
+-      payload.isMocked
++      payload.isMocked,
++      payload.bergamotWasmRecord
+     ).then(buffer => {
+       payload.bergamotWasmArrayBuffer = buffer;
+       payload.bergamotWasmBlob = null;
+     });
+ 
+-    payload.translationModelPayloads = await Promise.all(
++    const modelPayloadsPromise = Promise.all(
+       payload.translationModelPayloads.map(async modelPayload => {
+         const entries = Object.values(modelPayload.languageModelFiles);
+ 
+@@ -212,7 +220,8 @@
+           entries.map(async entry => {
+             entry.buffer = await decompressFromZstdBlob(
+               entry.blob,
+-              payload.isMocked
++              payload.isMocked,
++              entry.record
+             );
+             entry.blob = null;
+           })
+@@ -222,7 +231,8 @@
+       })
+     );
+ 
+-    await wasmPromise;
++    const [, modelPayloads] = await Promise.all([wasmPromise, modelPayloadsPromise]);
++    payload.translationModelPayloads = modelPayloads;
+ 
+     return payload;
+   }
+diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b/toolkit/components/translations/actors/TranslationsParent.sys.mjs
+--- a/toolkit/components/translations/actors/TranslationsParent.sys.mjs
++++ b/toolkit/components/translations/actors/TranslationsParent.sys.mjs
+@@ -98,6 +98,7 @@
+ });
+ 
+ ChromeUtils.defineESModuleGetters(lazy, {
++  AndroidTranslationAssets: "resource://gre/modules/translations/AndroidTranslationAssets.sys.mjs",
+   LanguageDetector:
+     "resource://gre/modules/translations/LanguageDetector.sys.mjs",
+   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
+@@ -1869,6 +1870,10 @@
+     }
+ 
+     switch (name) {
++      case "Translations:PageHidden": {
++        this.#androidDownloadController?.abort();
++        return undefined;
++      }
+       case "Translations:DOMContentLoaded": {
+         if (
+           this.languageState?.detectedLanguages ||
+@@ -2029,6 +2034,9 @@
+ 
+     return {
+       bergamotWasmBlob,
++      bergamotWasmRecord: AppConstants.platform === "android" &&
++        !TranslationsParent.#isTranslationsEngineMocked
++        ? await TranslationsParent.#getBergamotWasmRecord() : null,
+       bergamotWasmArrayBuffer: null,
+       translationModelPayloads,
+       isMocked: TranslationsParent.#isTranslationsEngineMocked,
+@@ -2499,6 +2507,11 @@
+       return TranslationsParent.#translationModelsRemoteClient;
+     }
+ 
++    if (AppConstants.platform === "android") {
++      return (TranslationsParent.#translationModelsRemoteClient =
++        lazy.AndroidTranslationAssets.instance.client("models"));
++    }
++
+     /** @type {RemoteSettingsClient} */
+     const client = lazy.RemoteSettings(
+       lazy.TranslationsUtils.translationsModelsCollectionName
+@@ -2860,6 +2873,11 @@
+       return TranslationsParent.#translationsWasmRemoteClient;
+     }
+ 
++    if (AppConstants.platform === "android") {
++      return (TranslationsParent.#translationsWasmRemoteClient =
++        lazy.AndroidTranslationAssets.instance.client("wasm"));
++    }
++
+     /** @type {RemoteSettingsClient} */
+     const client = lazy.RemoteSettings(
+       lazy.TranslationsUtils.translationsWasmCollectionName
+@@ -2985,6 +3003,11 @@
+    * @returns {Promise<Blob>}
+    */
+   static async #getBergamotWasmBlob() {
++    if (AppConstants.platform === "android" && !this.#isTranslationsEngineMocked) {
++      const record = await this.#getBergamotWasmRecord();
++      const payload = await lazy.AndroidTranslationAssets.instance.read(record);
++      return new Blob([payload.buffer]);
++    }
+     const start = Date.now();
+     const client = TranslationsParent.#getTranslationsWasmRemoteClient();
+ 
+@@ -3069,7 +3092,19 @@
+    *
+    * @param {string} language The BCP 47 language tag.
+    */
+-  static async downloadLanguageFiles(language) {
++  static async downloadLanguageFiles(language, signal) {
++    if (AppConstants.platform === "android" && !this.#isTranslationsEngineMocked) {
++      const assets = lazy.AndroidTranslationAssets.instance;
++      return assets.withDownloadOperation(async operation => {
++        const records = Array.from(await this.getRecordsForTranslatingToAndFromAppLanguage(
++          language, /* includePivotRecords */ true
++        ));
++        if (!records.length) {
++          throw new Error("No pinned models are available for this language");
++        }
++        return assets.downloadRecords(records, operation);
++      }, signal);
++    }
+     const client = TranslationsParent.#getTranslationModelsRemoteClient();
+ 
+     const queue = [];
+@@ -3092,7 +3127,14 @@
+   /**
+    * Download all files used for translations.
+    */
+-  static async downloadAllFiles() {
++  static async downloadAllFiles(signal) {
++    if (AppConstants.platform === "android" && !this.#isTranslationsEngineMocked) {
++      const assets = lazy.AndroidTranslationAssets.instance;
++      return assets.withDownloadOperation(async operation => {
++        const records = Array.from((await this.#getTranslationModelRecords()).values());
++        return assets.downloadRecords(records, operation);
++      }, signal);
++    }
+     const client = TranslationsParent.#getTranslationModelsRemoteClient();
+ 
+     const queue = [];
+@@ -3652,6 +3694,82 @@
+    * @param {boolean} reportAsAutoTranslate - In telemetry, report this as
+    *   an auto-translate.
+    */
++  #androidDownloadController = null;
++
++  async translateFromUser(languagePair, allowDownload, signal) {
++    this.#androidDownloadController?.abort();
++    const controller = new AbortController();
++    this.#androidDownloadController = controller;
++    const abort = () => controller.abort();
++    signal?.addEventListener("abort", abort, { once: true });
++    const checkCurrent = () => {
++      if (signal?.aborted || controller.signal.aborted || this.#isDestroyed ||
++          this.browsingContext.currentWindowGlobal !== this.manager) {
++        throw new DOMException("Translation document is no longer current", "AbortError");
++      }
++    };
++    try {
++      checkCurrent();
++      if (!lazy.TranslationsUtils.isLangTagValid(languagePair.sourceLanguage) ||
++          !lazy.TranslationsUtils.isLangTagValid(languagePair.targetLanguage) ||
++          lazy.TranslationsUtils.langTagsMatch(
++            languagePair.sourceLanguage, languagePair.targetLanguage
++          )) {
++        throw new Error("Invalid translation language pair");
++      }
++      if (AppConstants.platform === "android" && allowDownload === true &&
++          !TranslationsParent.#isTranslationsEngineMocked) {
++        const assets = lazy.AndroidTranslationAssets.instance;
++        await assets.withDownloadOperation(async operation => {
++          const allRecords = Array.from((await TranslationsParent.#getTranslationModelRecords()).values());
++          checkCurrent();
++          const { sourceLanguage, targetLanguage, sourceVariant, targetVariant } = languagePair;
++          const pairs = sourceLanguage === PIVOT_LANGUAGE
++            ? [[sourceLanguage, targetLanguage, targetVariant]]
++            : targetLanguage === PIVOT_LANGUAGE
++              ? [[sourceLanguage, targetLanguage, sourceVariant]]
++              : [[sourceLanguage, PIVOT_LANGUAGE, sourceVariant],
++                 [PIVOT_LANGUAGE, targetLanguage, targetVariant]];
++          const records = [];
++          for (const [source, target, variant] of pairs) {
++            const selected = allRecords.filter(record =>
++              lazy.TranslationsUtils.langTagsMatch(record.sourceLanguage, source) &&
++              lazy.TranslationsUtils.langTagsMatch(record.targetLanguage, target) &&
++              record.variant === variant
++            );
++            const types = new Set(selected.map(record => record.fileType));
++            if (!types.has("model") ||
++                !(types.has("vocab") || (types.has("srcvocab") && types.has("trgvocab"))) ||
++                (lazy.useLexicalShortlist && !types.has("lex"))) {
++              throw new Error("No complete pinned translation model for requested pair");
++            }
++            records.push(...selected);
++          }
++          // Check the bundled engine before spending network on the selected models.
++          await TranslationsParent.#getBergamotWasmBlob();
++          checkCurrent();
++          await assets.downloadRecords(records, operation);
++        }, controller.signal, checkCurrent);
++      }
++      checkCurrent();
++      if (AppConstants.platform === "android" && allowDownload !== true &&
++          !TranslationsParent.#isTranslationsEngineMocked &&
++          await TranslationsParent.getExpectedTranslationDownloadSize(
++            languagePair.sourceLanguage, languagePair.targetLanguage
++          ) > 0) {
++        throw new Error("MODEL_DOWNLOAD_REQUIRED");
++      }
++      checkCurrent();
++      return await this.translate(languagePair, /* reportAsAutoTranslate */ false);
++    } finally {
++      abort();
++      signal?.removeEventListener("abort", abort);
++      if (this.#androidDownloadController === controller) {
++        this.#androidDownloadController = null;
++      }
++    }
++  }
++
+   async translate(languagePair, reportAsAutoTranslate) {
+     const { sourceLanguage, targetLanguage } = languagePair;
+     if (!sourceLanguage || !targetLanguage) {
+@@ -3703,7 +3821,8 @@
+     const detectedLanguages =
+       await this.#ensureDetectedLanguagesForTranslation();
+ 
+-    if (this.#isDestroyed) {
++    if (this.#isDestroyed || (AppConstants.platform === "android" &&
++        this.browsingContext.currentWindowGlobal !== this.manager)) {
+       return;
+     }
+ 
+@@ -3726,7 +3845,8 @@
+       this
+     );
+ 
+-    if (this.#isDestroyed) {
++    if (this.#isDestroyed || (AppConstants.platform === "android" &&
++        this.browsingContext.currentWindowGlobal !== this.manager)) {
+       return;
+     }
+ 
+@@ -4704,6 +4824,7 @@
+   }
+ 
+   didDestroy() {
++    this.#androidDownloadController?.abort();
+     if (!TranslationsParent.AIFeature.isEnabled) {
+       // If the actor is getting destroyed due to the feature becoming disabled,
+       // we have a few things we need to cache in case the user re-enables Translations.
+diff --git a/toolkit/components/translations/jar.mn b/toolkit/components/translations/jar.mn
+--- a/toolkit/components/translations/jar.mn
++++ b/toolkit/components/translations/jar.mn
+@@ -17,3 +17,8 @@
+ 
+     # Uncomment the following line to test a local build of Bergamot. It will automatically be loaded in.
+     # content/global/translations/bergamot-translator.wasm.zst   (bergamot-translator/thirdparty/translations/inference/build-wasm/bergamot-translator.wasm.zst)
++
++#ifdef MOZ_WIDGET_ANDROID
++    content/global/translations/android-data/catalog.json (android-data/catalog.json)
++    content/global/translations/android-data/bergamot-translator.wasm.zst (android-data/bergamot-translator.wasm.zst)
++#endif
+diff --git a/toolkit/components/translations/moz.build b/toolkit/components/translations/moz.build
+--- a/toolkit/components/translations/moz.build
++++ b/toolkit/components/translations/moz.build
+@@ -23,3 +23,6 @@
+ 
+ with Files("docs/**"):
+     SCHEDULES.exclusive = ["docs"]
++
++if CONFIG["MOZ_BUILD_APP"] == "mobile/android":
++    EXTRA_JS_MODULES.translations += ["AndroidTranslationAssets.sys.mjs"]
+diff --git a/toolkit/components/translations/tests/unit/test_android_translation_assets.js b/toolkit/components/translations/tests/unit/test_android_translation_assets.js
+new file mode 100644
+--- /dev/null
++++ b/toolkit/components/translations/tests/unit/test_android_translation_assets.js
+@@ -0,0 +1,50 @@
++/* Any copyright is dedicated to the Public Domain.
++ * http://creativecommons.org/publicdomain/zero/1.0/ */
++
++const { AppConstants } = ChromeUtils.importESModule(
++  "resource://gre/modules/AppConstants.sys.mjs"
++);
++
++add_task({ skip_if: () => AppConstants.platform !== "android" }, async function test_packaged_catalog_and_wasm_offline() {
++  do_get_profile();
++  const { AndroidTranslationAssets, decompressAndroidTranslationAsset } =
++    ChromeUtils.importESModule(
++      "resource://gre/modules/translations/AndroidTranslationAssets.sys.mjs"
++    );
++  const assets = AndroidTranslationAssets.instance;
++  const wasOffline = Services.io.offline;
++  Services.io.offline = true;
++  try {
++    const models = await assets.client("models").get();
++    const nightly = ["default", "nightly"].includes(AppConstants.MOZ_UPDATE_CHANNEL);
++    Assert.equal(models.length, nightly ? 362 : 347);
++    Assert.ok(models.every(record => record.filter_expression !== "env.appinfo.OS != 'Android'"));
++    const [wasm] = await assets.client("wasm").get();
++    Assert.equal(wasm.version, "4.0");
++    const payload = await assets.read(wasm);
++    const bytes = await decompressAndroidTranslationAsset(new Blob([payload.buffer]), wasm);
++    Assert.equal(bytes.byteLength, 4960506);
++    Assert.deepEqual(Array.from(new Uint8Array(bytes).slice(0, 4)), [0, 97, 115, 109]);
++    await Assert.rejects(assets.client("models").sync(), /sync is disabled/);
++    await Assert.rejects(assets.read({ ...models[0], id: "unlisted" }), /Unlisted/);
++  } finally {
++    Services.io.offline = wasOffline;
++  }
++});
++
++add_task({ skip_if: () => AppConstants.platform !== "android" }, async function test_delete_and_passive_missing_cache() {
++  const { AndroidTranslationAssets } = ChromeUtils.importESModule(
++    "resource://gre/modules/translations/AndroidTranslationAssets.sys.mjs"
++  );
++  const assets = AndroidTranslationAssets.instance;
++  Assert.equal((await assets.deleteAll()).length, 377);
++  const [model] = await assets.client("models").get();
++  Assert.ok(!(await assets.client("models").attachments.isDownloaded(model)));
++  await Assert.rejects(assets.client("models").attachments.download(model), /./);
++  const controller = new AbortController();
++  controller.abort();
++  await Assert.rejects(assets.withDownloadOperation(
++    operation => assets.downloadRecords([model], operation), controller.signal
++  ), /cancelled/);
++  Assert.ok(!(await assets.client("models").attachments.isDownloaded(model)));
++});
+diff --git a/toolkit/components/translations/tests/unit/xpcshell.toml b/toolkit/components/translations/tests/unit/xpcshell.toml
+--- a/toolkit/components/translations/tests/unit/xpcshell.toml
++++ b/toolkit/components/translations/tests/unit/xpcshell.toml
+@@ -6,3 +6,5 @@
+ 
+ ["test_telemetry_sampling.js"]
+ requesttimeoutfactor = 4
++
++["test_android_translation_assets.js"]
+diff --git a/toolkit/components/translations/translations.d.ts b/toolkit/components/translations/translations.d.ts
+--- a/toolkit/components/translations/translations.d.ts
++++ b/toolkit/components/translations/translations.d.ts
+@@ -279,6 +279,7 @@
+  */
+ interface TranslationsEnginePayload {
+   bergamotWasmBlob: Blob | null;
++  bergamotWasmRecord?: WasmRecord | null;
+   bergamotWasmArrayBuffer?: ArrayBuffer;
+   translationModelPayloads: TranslationModelPayload[];
+   isMocked: boolean;

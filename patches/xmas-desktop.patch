@@ -1,0 +1,33 @@
+# LW-M1-09: desktop half of the old patches/xmas.patch.
+#
+# browser/installer/package-manifest.in is the desktop packaging manifest
+# (browser/installer/Makefile.in -> MOZ_PKG_MANIFEST). It lists the three files
+# lw/moz.build installs so they end up in the desktop package. Android packages
+# from mobile/android/installer/package-manifest.in instead and never reads
+# this file, so this hunk is desktop-only; the build-system half that installs
+# the files at all is patches/xmas-common.patch (assets/patches/common.txt).
+#
+# APPLY ORDER: this entry is LAST in assets/patches/desktop.txt on purpose.
+# The pre-split code applied xmas.patch from its own call site in
+# scripts/librewolf-patches.py, after every entry in the patch list, and
+# patches/remove-pingsender-desktop.patch and patches/temp-macos-fix.patch also
+# edit browser/installer/package-manifest.in. Keeping this last reproduces the
+# old sequence exactly. The hunk is byte-identical to the one in the pre-split
+# xmas.patch, context included - do not widen it.
+#
+diff --git a/browser/installer/package-manifest.in b/browser/installer/package-manifest.in
+index 725a639..2b88218 100644
+--- a/browser/installer/package-manifest.in
++++ b/browser/installer/package-manifest.in
+@@ -251,6 +251,11 @@
+ ; Remote Settings JSON dumps
+ @RESPATH@/browser/defaults/settings
+ 
++; LibreWolf specific files.
++@RESPATH@/defaults/pref/local-settings.js
++@RESPATH@/distribution/policies.json
++@RESPATH@/librewolf.cfg
++
+ # channel-prefs.js has been removed on macOS.
+ #ifndef XP_MACOSX
+ ; Warning: changing the path to channel-prefs.js can cause bugs (Bug 756325)

@@ -1,0 +1,253 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+package mozilla.components.service.fxa
+
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runTest
+import mozilla.appservices.fxaclient.FxaConfig
+import mozilla.appservices.fxaclient.FxaEvent
+import mozilla.appservices.fxaclient.FxaServer
+import mozilla.appservices.fxaclient.FxaState
+import mozilla.components.concept.sync.AccessTokenInfo
+import mozilla.components.concept.sync.AccountObserver
+import mozilla.components.concept.sync.DeviceConfig
+import mozilla.components.concept.sync.DeviceType
+import mozilla.components.concept.sync.Profile
+import mozilla.components.service.fxa.manager.FxaAccountManager
+import mozilla.components.service.fxa.manager.SCOPE_SYNC
+import mozilla.components.service.fxa.sync.SyncManager
+import mozilla.components.service.fxa.sync.SyncReason
+import mozilla.components.support.test.any
+import mozilla.components.support.test.mock
+import mozilla.components.support.test.robolectric.testContext
+import mozilla.components.support.test.whenever
+import org.junit.After
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.mockito.ArgumentMatchers.anyBoolean
+import org.mockito.Mockito.clearInvocations
+import org.mockito.Mockito.never
+import org.mockito.Mockito.verify
+import org.mockito.Mockito.verifyNoInteractions
+import org.mockito.invocation.InvocationOnMock
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
+
+@RunWith(AndroidJUnit4::class)
+class AccountServicesDisabledTest {
+    @Before
+    fun setUp() {
+        testContext.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE).edit().clear().commit()
+        AccountServices.initialize(testContext, defaultEnabled = false)
+    }
+
+    @After
+    fun tearDown() {
+        testContext.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE).edit().clear().commit()
+        SyncAuthInfoCache(testContext).clear()
+        AccountServices.initialize(testContext, defaultEnabled = true)
+    }
+
+    @Test
+    fun `disabled startup login callbacks manual sync and logout never construct native account or sync manager`() = runTest {
+        val manager = DisabledManager(coroutineContext)
+        val observer: AccountObserver = mock()
+        manager.register(observer)
+        manager.start()
+        assertNull(manager.beginAuthentication(entrypoint = mock()))
+        assertFalse(manager.finishAuthentication(mock()))
+        manager.handleWebChannelLogin("unexpected callback payload")
+        manager.syncNow(SyncReason.User)
+        manager.setEngineEnabled(SyncEngine.History, true)
+        manager.logout()
+        manager.simulateNetworkError()
+        manager.simulateTemporaryAuthTokenIssue()
+        manager.simulatePermanentAuthTokenIssue()
+        assertNull(manager.authenticatedAccount())
+        assertNull(manager.connectedAccount())
+        assertNull(manager.accountProfile())
+        assertFalse(manager.isSyncActive())
+        verifyNoInteractions(observer)
+    }
+
+    @Test
+    fun `retained disabled shell cannot activate during opt-in commit or a later initialization`() = runTest {
+        val manager = DisabledManager(coroutineContext)
+        org.junit.Assert.assertTrue(AccountServices.commitChoiceForRestart(testContext, true))
+        manager.start()
+        assertNull(manager.beginAuthentication(entrypoint = mock()))
+        // Simulates the new-process initialization without discarding this adversarial old reference.
+        AccountServices.initialize(testContext, defaultEnabled = false)
+        org.junit.Assert.assertTrue(AccountServices.isEnabled)
+        manager.start()
+        manager.handleWebChannelLogin("stale callback")
+        assertFalse(manager.finishAuthentication(mock()))
+        manager.syncNow(SyncReason.User)
+        testContext.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
+    @Test
+    fun `closing an unused disabled shell cannot load its lazy account`() {
+        val manager = DisabledManager(SupervisorJob() + Dispatchers.Unconfined)
+        manager.close()
+    }
+
+    @Test
+    fun `failed opt-in write cannot activate a retained disabled shell`() = runTest {
+        val manager = DisabledManager(coroutineContext)
+        val context: Context = mock()
+        val preferences: SharedPreferences = mock()
+        val editor: SharedPreferences.Editor = mock()
+        whenever(context.getSharedPreferences(AccountServices.PREFERENCES, Context.MODE_PRIVATE)).thenReturn(preferences)
+        whenever(preferences.edit()).thenReturn(editor)
+        whenever(editor.putBoolean(AccountServices.ENABLED, true)).thenReturn(editor)
+        whenever(editor.commit()).thenReturn(false)
+        assertFalse(AccountServices.commitChoiceForRestart(context, true))
+        assertFalse(AccountServices.isEnabled)
+        manager.start()
+        manager.syncNow(SyncReason.User)
+        assertNull(manager.beginAuthentication(entrypoint = mock()))
+        assertFalse(manager.finishAuthentication(mock()))
+    }
+
+    @Test
+    fun `token arriving after disable cannot fetch endpoint device profile or notify or reset account`() = runTest {
+        AccountServices.initialize(testContext, defaultEnabled = true)
+        val manager = enabledManager(coroutineContext, withSync = true)
+        val account = manager.testableStorageWrapper.account
+        val observer: AccountObserver = mock()
+        manager.register(observer)
+        val requested = CompletableDeferred<Unit>()
+        val token = CompletableDeferred<AccessTokenInfo?>()
+        whenever(account.getAccessToken(SCOPE_SYNC)).thenAnswer { invocation ->
+            suspendedAnswer(invocation) { requested.complete(Unit); token.await() }
+        }
+        val startup = launch { manager.start() }
+        requested.await()
+        assertTrue(AccountServices.commitChoiceForRestart(testContext, false))
+        token.complete(mock())
+        startup.join()
+        verify(account, never()).getTokenServerEndpointURL()
+        verify(account, never()).getCurrentDeviceId()
+        verify(account, never()).getProfile(anyBoolean())
+        verify(account, never()).processEvent(FxaEvent.Disconnect)
+        verify(manager.storage, never()).clear()
+        verifyNoInteractions(observer)
+    }
+
+    @Test
+    fun `late missing-key failure after disable does not disconnect or clear the saved account`() = runTest {
+        AccountServices.initialize(testContext, defaultEnabled = true)
+        val manager = enabledManager(coroutineContext, withSync = true)
+        val account = manager.testableStorageWrapper.account
+        val observer: AccountObserver = mock()
+        manager.register(observer)
+        val requested = CompletableDeferred<Unit>()
+        val token = CompletableDeferred<AccessTokenInfo?>()
+        whenever(account.getAccessToken(SCOPE_SYNC)).thenAnswer { invocation ->
+            suspendedAnswer(invocation) { requested.complete(Unit); token.await() }
+        }
+        val startup = launch { manager.start() }
+        requested.await()
+        assertTrue(AccountServices.commitChoiceForRestart(testContext, false))
+        token.completeExceptionally(mock<FxaSyncScopedKeyMissingException>())
+        startup.join()
+        verify(account, never()).processEvent(FxaEvent.Disconnect)
+        verify(account, never()).getCurrentDeviceId()
+        verify(manager.storage, never()).clear()
+        verifyNoInteractions(observer)
+    }
+
+    @Test
+    fun `endpoint arriving after disable cannot populate cache device profile or account notifications`() = runTest {
+        AccountServices.initialize(testContext, defaultEnabled = true)
+        val manager = enabledManager(coroutineContext, withSync = true)
+        val account = manager.testableStorageWrapper.account
+        val observer: AccountObserver = mock()
+        manager.register(observer)
+        val requested = CompletableDeferred<Unit>()
+        val endpoint = CompletableDeferred<String?>()
+        whenever(account.getAccessToken(SCOPE_SYNC)).thenReturn(mock())
+        whenever(account.getTokenServerEndpointURL()).thenAnswer { invocation ->
+            suspendedAnswer(invocation) { requested.complete(Unit); endpoint.await() }
+        }
+        val startup = launch { manager.start() }
+        requested.await()
+        assertTrue(AccountServices.commitChoiceForRestart(testContext, false))
+        endpoint.complete("https://sync.invalid/token")
+        startup.join()
+        assertTrue(SyncAuthInfoCache(testContext).expired())
+        verify(account, never()).getCurrentDeviceId()
+        verify(account, never()).getProfile(anyBoolean())
+        verify(account, never()).processEvent(FxaEvent.Disconnect)
+        verify(manager.storage, never()).clear()
+        verifyNoInteractions(observer)
+    }
+
+    @Test
+    fun `profile arriving after disable cannot notify readiness or profile changes or reset account`() = runTest {
+        AccountServices.initialize(testContext, defaultEnabled = true)
+        val manager = enabledManager(coroutineContext, withSync = false)
+        val account = manager.testableStorageWrapper.account
+        val observer: AccountObserver = mock()
+        manager.register(observer)
+        val requested = CompletableDeferred<Unit>()
+        val profile = CompletableDeferred<Profile?>()
+        whenever(account.getProfile(anyBoolean())).thenAnswer { invocation ->
+            suspendedAnswer(invocation) { requested.complete(Unit); profile.await() }
+        }
+        val startup = launch { manager.start() }
+        requested.await()
+        clearInvocations(observer) // Authentication happened while enabled, before the suspended profile.
+        assertTrue(AccountServices.commitChoiceForRestart(testContext, false))
+        profile.complete(mock())
+        startup.join()
+        assertNull(manager.accountProfile())
+        verify(account, never()).processEvent(FxaEvent.Disconnect)
+        verify(manager.storage, never()).clear()
+        verifyNoInteractions(observer)
+    }
+
+    private suspend fun enabledManager(context: CoroutineContext, withSync: Boolean): TestableFxaAccountManager {
+        SyncAuthInfoCache(testContext).clear()
+        return TestableFxaAccountManager(
+            context = testContext,
+            config = FxaConfig(FxaServer.Release, "dummyId", "https://auth.invalid/redirect"),
+            storage = mock(),
+            syncConfig = if (withSync) SyncConfig(setOf(SyncEngine.History), periodicSyncConfig = null) else null,
+            coroutineContext = context,
+        ).also {
+            whenever(it.testableStorageWrapper.account.processEvent(any())).thenReturn(FxaState.Connected)
+        }
+    }
+
+    /** Mockito exposes the suspend method's actual continuation in rawArguments. */
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> suspendedAnswer(invocation: InvocationOnMock, answer: suspend () -> T): Any? =
+        answer.startCoroutineUninterceptedOrReturn(invocation.rawArguments.last() as Continuation<T>)
+
+    private class DisabledManager(coroutineContext: CoroutineContext) : FxaAccountManager(
+        context = testContext,
+        serverConfig = mock(),
+        deviceConfig = DeviceConfig("test", DeviceType.UNKNOWN, emptySet()),
+        syncConfig = SyncConfig(setOf(SyncEngine.History), periodicSyncConfig = null),
+        coroutineContext = coroutineContext,
+    ) {
+        override fun getStorageWrapper(): StorageWrapper = error("Disabled account must not load or construct native state")
+        override fun getAccountStorage(): AccountStorage = error("Disabled account must not read or clear account storage")
+        override fun createSyncManager(config: SyncConfig): SyncManager = error("Disabled account must not initialize Sync")
+    }
+}

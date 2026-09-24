@@ -1,0 +1,17 @@
+[Unit]
+Description=Redoubt CI in an isolated QEMU/KVM virtual machine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/lib/redoubt-ci-vm/launch.sh
+ExecStop=%h/.local/lib/redoubt-ci-vm/stop.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=100
+KillMode=control-group
+UMask=0077
+
+[Install]
+WantedBy=default.target

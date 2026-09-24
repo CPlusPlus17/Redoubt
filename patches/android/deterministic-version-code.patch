@@ -1,0 +1,44 @@
+# Redoubt deterministic-version-code.patch (LW-M6-08)
+# Fenix used Date() for its hourly Android version code even when the build
+# date was pinned. Same-hour rebuilds masked this in the old E6 evidence.
+# Derive it from MOZ_BUILD_DATE in UTC, rejecting missing or invalid inputs.
+# The existing ABI bit layout and overflow guards remain in force.
+# This is Android Gradle tooling only; no other patch touches this file.
+
+--- a/mobile/android/android-components/plugins/config/src/main/java/ConfigPlugin.kt
++++ b/mobile/android/android-components/plugins/config/src/main/java/ConfigPlugin.kt
+@@ -10,6 +10,9 @@
+ import java.nio.file.Paths
+ import java.text.SimpleDateFormat
+ import java.time.LocalDateTime
++import java.time.ZoneOffset
++import java.time.format.DateTimeFormatter
++import java.time.format.ResolverStyle
+ import java.util.Date
+ import java.util.Locale
+ 
+@@ -58,11 +61,20 @@
+     }
+ 
+     private val fennecBaseVersionCode by lazy {
+-        val format = SimpleDateFormat("yyyyMMddHHmmss", Locale.US)
+-        val cutoff = format.parse("20141228000000")
+-        val build = Date()
++        // Redoubt: rebuilding the same release must preserve its Android
++        // version code, including when the build crosses an hour or time zone.
++        // Use the same UTC input as Gecko; never substitute the wall clock.
++        val buildId = System.getenv("MOZ_BUILD_DATE")
++            ?: error("MOZ_BUILD_DATE is required to calculate the release versionCode")
++        require(buildId.matches(Regex("[0-9]{14}"))) {
++            "MOZ_BUILD_DATE must be YYYYMMDDHHMMSS in UTC"
++        }
++        val format = DateTimeFormatter.ofPattern("uuuuMMddHHmmss", Locale.ROOT)
++            .withResolverStyle(ResolverStyle.STRICT)
++        val build = LocalDateTime.parse(buildId, format).toEpochSecond(ZoneOffset.UTC)
++        val cutoff = LocalDateTime.of(2014, 12, 28, 0, 0).toEpochSecond(ZoneOffset.UTC)
+ 
+-        Math.floor((build.time - cutoff.time) / (1000.0 * 60.0 * 60.0)).toInt()
++        Math.floorDiv(build - cutoff, 3600L).toInt()
+     }
+ 
+     /**

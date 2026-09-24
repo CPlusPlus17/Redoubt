@@ -1,0 +1,3024 @@
+# LW-M7-14: exact-origin WebGL/canvas permission controls for Android.
+# Apply after webgl-prompt-default.patch, ubo-readiness.patch,
+# ubo-preinstall.patch and privacy-defaults.patch in the Android stack.
+# Replaces the Android WebGL false default only together with the full native,
+# GeckoView, Android Components and Fenix bridge. Desktop behavior is unchanged.
+# Integration status and required ABI/runtime checks: docs/android/evidence/lw-m7-14/README.md.
+
+diff --git a/dom/canvas/CanvasUtils.cpp b/dom/canvas/CanvasUtils.cpp
+index f68c6df..ac55bb7 100644
+--- a/dom/canvas/CanvasUtils.cpp
++++ b/dom/canvas/CanvasUtils.cpp
+@@ -12,6 +12,7 @@
+ #include "mozilla/BasePrincipal.h"
+ #include "mozilla/Services.h"
+ #include "mozilla/StaticPrefs_gfx.h"
++#include "mozilla/StaticPrefs_librewolf.h"
+ #include "mozilla/StaticPrefs_privacy.h"
+ #include "mozilla/StaticPrefs_webgl.h"
+ #include "mozilla/dom/BrowserChild.h"
+@@ -37,6 +38,8 @@
+ #include "nsIScriptObjectPrincipal.h"
+ #include "nsPrintfCString.h"
+ #include "nsTArray.h"
++#include "nsThreadUtils.h"
++#include "nsPIDOMWindowInlines.h"
+ #include "nsUnicharUtils.h"
+ 
+ #define TOPIC_CANVAS_PERMISSIONS_PROMPT "canvas-permissions-prompt"
+@@ -67,6 +70,160 @@ static bool IsUnrestrictedPrincipal(nsIPrincipal* aPrincipal) {
+ 
+ namespace mozilla::CanvasUtils {
+ 
++#ifdef MOZ_WIDGET_ANDROID
++// The observer is attached to an inner window, never to an origin supplied by
++// content IPC. GeckoView's parent actor derives and checks its own principal.
++static void QueueAndroidCanvasPermission(nsPIDOMWindowInner* aWindow,
++                                         nsIPrincipal* aPrincipal, bool aWebGL,
++                                         bool aQuiet) {
++  AssertIsOnMainThread();
++  if (!aWindow || !aPrincipal || !aWindow->IsFullyActive()) {
++    return;
++  }
++  RefPtr<dom::Document> document = aWindow->GetExtantDoc();
++  if (!document || !aPrincipal->Equals(document->NodePrincipal())) {
++    return;
++  }
++  nsCOMPtr<nsPIDOMWindowInner> window = aWindow;
++  nsCOMPtr<nsIPrincipal> principal = aPrincipal;
++  // Canvas operations can run in script-unsafe callers. The observer executes
++  // JS, so defer it and validate the original document again at dispatch time.
++  window->AsGlobal()->SerialEventTarget()->Dispatch(NS_NewRunnableFunction(
++      "QueueAndroidCanvasPermission",
++      [window, principal, aWebGL, aQuiet]() {
++        RefPtr<dom::Document> current = window->GetExtantDoc();
++        if (!window->IsFullyActive() || !current ||
++            !principal->Equals(current->NodePrincipal())) {
++          return;
++        }
++        nsCOMPtr<nsIObserverService> observers = services::GetObserverService();
++        if (observers) {
++          observers->NotifyObservers(
++              window,
++              aWebGL ? "geckoview-webgl-permission"
++                     : "geckoview-canvas-permission",
++              aQuiet ? u"quiet" : u"prompt");
++        }
++      }));
++}
++
++class AndroidCanvasPermissionPromptRunnable final
++    : public dom::WorkerProxyToMainThreadRunnable {
++ public:
++  AndroidCanvasPermissionPromptRunnable(nsIPrincipal* aPrincipal,
++                                        bool aWebGL, bool aQuiet)
++      : mPrincipal(aPrincipal), mWebGL(aWebGL), mQuiet(aQuiet) {}
++
++  MOZ_CAN_RUN_SCRIPT_BOUNDARY
++  void RunOnMainThread(dom::WorkerPrivate* aWorkerPrivate) override {
++    QueueAndroidCanvasPermission(aWorkerPrivate->GetAncestorWindow(),
++                                 mPrincipal, mWebGL, mQuiet);
++  }
++
++  void RunBackOnWorkerThreadForCleanup(
++      dom::WorkerPrivate* aWorkerPrivate) override {}
++
++ private:
++  nsCOMPtr<nsIPrincipal> mPrincipal;
++  const bool mWebGL;
++  const bool mQuiet;
++};
++
++static void RequestAndroidCanvasPermission(dom::OffscreenCanvas* aCanvas,
++                                           nsIPrincipal* aPrincipal,
++                                           bool aWebGL, bool aQuiet) {
++  if (NS_IsMainThread()) {
++    nsCOMPtr<nsIGlobalObject> global = aCanvas->GetRelevantGlobal();
++    if (global) {
++      QueueAndroidCanvasPermission(global->GetAsInnerWindow(), aPrincipal,
++                                   aWebGL, aQuiet);
++    }
++  } else if (auto* worker = dom::GetCurrentThreadWorkerPrivate()) {
++    RefPtr<AndroidCanvasPermissionPromptRunnable> runnable =
++        new AndroidCanvasPermissionPromptRunnable(aPrincipal, aWebGL, aQuiet);
++    runnable->Dispatch(worker);
++  }
++}
++
++static uint32_t GetAndroidWebGLPermission(nsIPrincipal* aPrincipal);
++
++class AndroidWebGLPermissionRunnable final
++    : public dom::WorkerMainThreadRunnable {
++ public:
++  AndroidWebGLPermissionRunnable(dom::WorkerPrivate* aWorker,
++                                 nsIPrincipal* aPrincipal)
++      : WorkerMainThreadRunnable(aWorker, "AndroidWebGLPermissionRunnable"_ns),
++        mPrincipal(aPrincipal) {}
++
++  bool MainThreadRun() override {
++    mResult = GetAndroidWebGLPermission(mPrincipal);
++    return true;
++  }
++
++  uint32_t Result() const { return mResult; }
++
++ private:
++  nsCOMPtr<nsIPrincipal> mPrincipal;
++  uint32_t mResult = nsIPermissionManager::UNKNOWN_ACTION;
++};
++
++static uint32_t GetAndroidWebGLPermission(nsIPrincipal* aPrincipal) {
++  if (!aPrincipal) {
++    return nsIPermissionManager::UNKNOWN_ACTION;
++  }
++  if (NS_IsMainThread()) {
++    nsCOMPtr<nsIPermissionManager> manager =
++        do_GetService(NS_PERMISSIONMANAGER_CONTRACTID);
++    uint32_t result = nsIPermissionManager::UNKNOWN_ACTION;
++    if (manager) {
++      manager->TestExactPermissionFromPrincipal(aPrincipal, "webgl"_ns, &result);
++    }
++    return result;
++  }
++  if (auto* worker = dom::GetCurrentThreadWorkerPrivate()) {
++    RefPtr<AndroidWebGLPermissionRunnable> runnable =
++        new AndroidWebGLPermissionRunnable(worker, aPrincipal);
++    ErrorResult error;
++    runnable->Dispatch(worker, dom::WorkerStatus::Canceling, error);
++    if (!error.Failed()) {
++      return runnable->Result();
++    }
++    error.SuppressException();
++  }
++  return nsIPermissionManager::UNKNOWN_ACTION;
++}
++
++bool IsWebGLAllowedOnAndroid(dom::HTMLCanvasElement* aCanvas,
++                             dom::OffscreenCanvas* aOffscreenCanvas) {
++  if (!StaticPrefs::librewolf_webgl_prompt()) {
++    return true;
++  }
++  nsCOMPtr<nsIPrincipal> principal;
++  if (aCanvas) {
++    principal = aCanvas->NodePrincipal();
++  } else if (aOffscreenCanvas && aOffscreenCanvas->GetRelevantGlobal()) {
++    principal = aOffscreenCanvas->GetRelevantGlobal()->PrincipalOrNull();
++  }
++  if (IsUnrestrictedPrincipal(principal)) {
++    return true;
++  }
++  const uint32_t permission = GetAndroidWebGLPermission(principal);
++  if (permission == nsIPermissionManager::ALLOW_ACTION) {
++    return true;
++  }
++  if (permission != nsIPermissionManager::DENY_ACTION) {
++    const bool quiet = StaticPrefs::librewolf_webgl_prompt_hide();
++    if (aCanvas) {
++      QueueAndroidCanvasPermission(aCanvas->OwnerDoc()->GetInnerWindow(),
++                                   principal, true, quiet);
++    } else if (aOffscreenCanvas) {
++      RequestAndroidCanvasPermission(aOffscreenCanvas, principal, true, quiet);
++    }
++  }
++  return false;
++}
++#endif
++
+ class OffscreenCanvasPermissionRunnable final
+     : public dom::WorkerMainThreadRunnable {
+  public:
+@@ -109,8 +266,13 @@ uint32_t GetCanvasExtractDataPermission(nsIPrincipal* aPrincipal) {
+     NS_ENSURE_SUCCESS(rv, nsIPermissionManager::UNKNOWN_ACTION);
+ 
+     uint32_t permission;
+-    rv = permissionManager->TestPermissionFromPrincipal(
+-        aPrincipal, PERMISSION_CANVAS_EXTRACT_DATA, &permission);
++    rv = permissionManager->
++#ifdef MOZ_WIDGET_ANDROID
++        TestExactPermissionFromPrincipal(
++#else
++        TestPermissionFromPrincipal(
++#endif
++            aPrincipal, PERMISSION_CANVAS_EXTRACT_DATA, &permission);
+     NS_ENSURE_SUCCESS(rv, nsIPermissionManager::UNKNOWN_ACTION);
+ 
+     return permission;
+@@ -339,6 +501,11 @@ bool IsImageExtractionAllowed(dom::Document* aDocument, JSContext* aCx,
+   };
+ 
+   auto prompt = [&](bool hidePermissionDoorhanger) {
++#ifdef MOZ_WIDGET_ANDROID
++    QueueAndroidCanvasPermission(aDocument->GetInnerWindow(), aPrincipal, false,
++                                 hidePermissionDoorhanger);
++    return;
++#endif
+     if (!aPrincipal) {
+       return;
+     }
+@@ -462,6 +629,11 @@ bool IsImageExtractionAllowed(dom::OffscreenCanvas* aOffscreenCanvas,
+ 
+   RefPtr<dom::OffscreenCanvas> canvasRef = aOffscreenCanvas;
+   auto prompt = [=](bool hidePermissionDoorhanger) {
++#ifdef MOZ_WIDGET_ANDROID
++    RequestAndroidCanvasPermission(canvasRef, aPrincipal, false,
++                                   hidePermissionDoorhanger);
++    return;
++#endif
+     if (origin.IsEmpty()) {
+       return;
+     }
+diff --git a/dom/canvas/CanvasUtils.h b/dom/canvas/CanvasUtils.h
+index ff8d4fd..cdfc084 100644
+--- a/dom/canvas/CanvasUtils.h
++++ b/dom/canvas/CanvasUtils.h
+@@ -60,6 +60,12 @@ bool IsOffscreenCanvasEnabled(JSContext* aCx, JSObject* aObj);
+ // Check if the principal has "canvas" permission.
+ uint32_t GetCanvasExtractDataPermission(nsIPrincipal* aPrincipal);
+ 
++#ifdef MOZ_WIDGET_ANDROID
++// WebGL creation policy for both DOM and OffscreenCanvas, including workers.
++bool IsWebGLAllowedOnAndroid(dom::HTMLCanvasElement* aCanvas,
++                             dom::OffscreenCanvas* aOffscreenCanvas);
++#endif
++
+ // Check site-specific permission and display prompt if appropriate.
+ bool IsImageExtractionAllowed(dom::Document* aDocument, JSContext* aCx,
+                               nsIPrincipal* aPrincipal);
+diff --git a/dom/canvas/ClientWebGLContext.cpp b/dom/canvas/ClientWebGLContext.cpp
+index 103f191..252a816 100644
+--- a/dom/canvas/ClientWebGLContext.cpp
++++ b/dom/canvas/ClientWebGLContext.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include <bitset>
+ 
++#include "CanvasUtils.h"
+ #include "ClientWebGLExtensions.h"
+ #include "HostWebGLContext.h"
+ #include "TexUnpackBlob.h"
+@@ -842,6 +843,7 @@ void ClientWebGLContext::ResetBitmap() {
+   Run<RPROC(Resize)>(size);  // No-change resize still clears/resets everything.
+ }
+ 
++#ifndef MOZ_WIDGET_ANDROID
+ static uint32_t GetWebGLPermission(nsIPrincipal* aPrincipal) {
+   if (!aPrincipal) {
+     return nsIPermissionManager::UNKNOWN_ACTION;
+@@ -967,6 +969,8 @@ static bool IsWebGLAllowed(dom::Document* aDocument, JSContext* aCx,
+       reportToConsole, prompt);
+ }
+ 
++#endif
++
+ bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
+   const auto pNotLost = MakeRefPtr<webgl::NotLostData>(*this);
+   auto& notLost = *pNotLost;
+@@ -1005,6 +1009,11 @@ bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
+         .options = options,
+     };
+ 
++#ifdef MOZ_WIDGET_ANDROID
++    if (!CanvasUtils::IsWebGLAllowedOnAndroid(mCanvasElement, mOffscreenCanvas)) {
++      return Err("WebGL requires permission for this site.");
++    }
++#else
+        if (mCanvasElement && !StaticPrefs::webgl_disabled()) {
+                if(!IsWebGLAllowed(mCanvasElement->OwnerDoc(),
+                                   nsContentUtils::GetCurrentJSContext(),
+@@ -1013,6 +1022,7 @@ bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
+                        return Err("WebGL is currently disabled.");
+                }
+        }
++#endif
+ 
+ 
+ 
+diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt
+index 7036cf8..553b649 100644
+--- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt
+@@ -1574,6 +1574,16 @@ class GeckoEngineSession(
+     }
+ 
+     private fun createPermissionDelegate() = object : GeckoSession.PermissionDelegate {
++        override fun onContentPermissionRequestWithOptions(
++            session: GeckoSession,
++            geckoContentPermission: ContentPermission,
++        ): GeckoResult<GeckoSession.PermissionDelegate.PermissionDecision> {
++            val result = GeckoResult<GeckoSession.PermissionDelegate.PermissionDecision>()
++            val request = GeckoPermissionRequest.OriginBoundContent(geckoContentPermission, result)
++            notifyObservers { onContentPermissionRequest(request) }
++            return result
++        }
++
+         override fun onContentPermissionRequest(
+             session: GeckoSession,
+             geckoContentPermission: ContentPermission,
+diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoPermissionRequest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoPermissionRequest.kt
+index c00ac3b..83794b8 100644
+--- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoPermissionRequest.kt
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoPermissionRequest.kt
+@@ -11,7 +11,11 @@ import android.Manifest.permission.RECORD_AUDIO
+ import androidx.annotation.OptIn
+ import androidx.annotation.VisibleForTesting
+ import mozilla.components.ExperimentalAndroidComponentsApi
++import mozilla.components.browser.engine.gecko.await
++import mozilla.components.concept.engine.permission.OriginBoundPermission
++import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
+ import mozilla.components.concept.engine.permission.Permission
++import mozilla.components.concept.engine.permission.SitePermissions
+ import mozilla.components.concept.engine.permission.PermissionRequest
+ import org.mozilla.geckoview.ExperimentalGeckoViewApi
+ import org.mozilla.geckoview.GeckoResult
+@@ -136,6 +140,47 @@ sealed class GeckoPermissionRequest constructor(
+         }
+     }
+ 
++    /** An origin-bound request; identity remains unique even for two documents at the same URL. */
++    class OriginBoundContent(
++        internal val geckoPermission: PermissionDelegate.ContentPermission,
++        private val result: GeckoResult<PermissionDelegate.PermissionDecision>,
++    ) : GeckoPermissionRequest(
++        listOf(
++            when (geckoPermission.permission) {
++                PermissionDelegate.PERMISSION_WEBGL -> Permission.ContentWebGL()
++                PermissionDelegate.PERMISSION_CANVAS -> Permission.ContentCanvas()
++                else -> error("Unsupported origin-bound permission")
++            },
++        ),
++    ), OriginBoundPermissionRequest {
++        override val uri = geckoPermission.uri
++        override val permission = requireNotNull(geckoPermission.toOriginBoundPermission()).copy(permanent = false)
++        override val topLevelOrigin = geckoPermission.topLevelOrigin
++        override val isQuiet = geckoPermission.isQuiet
++        private var completed = false
++
++        override fun decide(status: SitePermissions.Status, permanent: Boolean) {
++            if (completed) return
++            completed = true
++            result.complete(
++                PermissionDelegate.PermissionDecision(
++                    status.toGeckoStatus(),
++                    permanent && !permission.privateMode,
++                ),
++            )
++        }
++
++        override fun grant(permissions: List<Permission>) = decide(SitePermissions.Status.ALLOWED)
++        override fun reject() = decide(SitePermissions.Status.NO_DECISION)
++        override fun merge(permissionRequest: PermissionRequest) = Unit
++        override suspend fun awaitDecisionApplied() = geckoPermission.awaitDecisionApplied().await() == true
++        override suspend fun reloadIfCurrent() = geckoPermission.reloadIfCurrent().await() == true
++
++        @OptIn(ExperimentalGeckoViewApi::class)
++        @kotlin.OptIn(ExperimentalAndroidComponentsApi::class)
++        override fun notifyShown() = geckoPermission.notifyShown()
++    }
++
+     /**
+      * Represents a gecko-based application permission request.
+      *
+diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorage.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorage.kt
+index 9cce5e4..e2e1e08 100644
+--- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorage.kt
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorage.kt
+@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.withContext
+ import mozilla.components.browser.engine.gecko.await
++import mozilla.components.concept.engine.permission.OriginBoundPermission
+ import mozilla.components.concept.engine.permission.PermissionRequest
+ import mozilla.components.concept.engine.permission.SitePermissions
+ import mozilla.components.concept.engine.permission.SitePermissions.AutoplayStatus
+@@ -35,6 +36,8 @@ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KE
+ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_PERSISTENT_STORAGE
+ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_STORAGE_ACCESS
+ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_TRACKING
++import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_WEBGL
++import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_CANVAS
+ import org.mozilla.geckoview.StorageController
+ import org.mozilla.geckoview.StorageController.ClearFlags
+ 
+@@ -61,6 +64,36 @@ class GeckoSitePermissionsStorage(
+     @VisibleForTesting
+     internal val geckoTemporaryPermissions = mutableListOf<ContentPermission>()
+ 
++    /** Lists engine-owned exceptions, including records without any Room row. */
++    suspend fun listOriginBoundPermissions(privateMode: Boolean, contextId: String?): List<OriginBoundPermission> =
++        withContext(mainScope.coroutineContext) {
++            requireNotNull(geckoStorage.allPermissions.await())
++                .mapNotNull { it.toOriginBoundPermission() }
++                .filter { it.privateMode == privateMode && it.contextId == contextId }
++                .sortedWith(compareBy({ it.origin }, { it.kind.name }))
++        }
++
++    /**
++     * Updates one exact principal/type and waits for Gecko to acknowledge it. The snapshot must still
++     * match, so an old settings dialog cannot overwrite a newer permission choice or recreate a
++     * permission removed when the private session ended. Room is never consulted or written.
++     */
++    suspend fun updateOriginBoundPermission(
++        permission: OriginBoundPermission,
++        status: Status,
++        permanent: Boolean = permission.permanent,
++    ): Boolean = withContext(mainScope.coroutineContext) {
++        val current = requireNotNull(geckoStorage.allPermissions.await()).firstOrNull {
++            it.toOriginBoundPermission() == permission
++        } ?: return@withContext false
++        geckoStorage.setPermissionWithLifetime(
++            current,
++            status.toGeckoStatus(),
++            permanent && !permission.privateMode,
++        ).await()
++        true
++    }
++
+     override suspend fun save(sitePermissions: SitePermissions, request: PermissionRequest?, private: Boolean) {
+         val geckoSavedPermissions = updateGeckoPermissionIfNeeded(sitePermissions, request, private)
+         onDiskStorage.save(geckoSavedPermissions, request, private)
+@@ -170,11 +203,20 @@ class GeckoSitePermissionsStorage(
+             val geckoLocalDeviceAccess = geckoPermissionsByType[PERMISSION_LOCAL_DEVICE_ACCESS]?.firstOrNull()
+             val geckoLocalNetworkAccess = geckoPermissionsByType[PERMISSION_LOCAL_NETWORK_ACCESS]?.firstOrNull()
+ 
+-            /*
+-             * To avoid GeckoView caching previous request, we need to clear, previous data
+-             * before updating. See: https://github.com/mozilla-mobile/android-components/issues/6322
+-             */
+-            clearGeckoCacheFor(updatedPermission.origin)
++            // Reset only the legacy records rewritten below. Clearing all permissions for a
++            // host would also erase exact-origin canvas/WebGL grants (including session grants)
++            // and other principals sharing that host. Do not snapshot and restore those records:
++            // that could undo a concurrent revocation while the asynchronous clear runs.
++            val rewrittenTypes = setOf(
++                PERMISSION_DESKTOP_NOTIFICATION, PERMISSION_GEOLOCATION,
++                PERMISSION_MEDIA_KEY_SYSTEM_ACCESS, PERMISSION_PERSISTENT_STORAGE,
++                PERMISSION_STORAGE_ACCESS, PERMISSION_AUTOPLAY_AUDIBLE,
++                PERMISSION_AUTOPLAY_INAUDIBLE, PERMISSION_LOCAL_DEVICE_ACCESS,
++                PERMISSION_LOCAL_NETWORK_ACCESS,
++            )
++            geckoPermissionsByType.filterKeys { it in rewrittenTypes }.values.forEach { records ->
++                records.firstOrNull()?.let { geckoStorage.setPermission(it, VALUE_PROMPT) }
++            }
+ 
+             if (geckoNotification != null) {
+                 removeTemporaryPermissionIfAny(geckoNotification)
+@@ -399,7 +441,7 @@ class GeckoSitePermissionsStorage(
+         findGeckoContentPermissionBy(
+             origin = origin,
+             private = private,
+-        )?.forEach { geckoPermissions ->
++        )?.filter { it.toOriginBoundPermission() == null }?.forEach { geckoPermissions ->
+             removeGeckoContentPermission(geckoPermissions)
+         }
+     }
+@@ -496,3 +538,22 @@ internal fun AutoplayStatus.toGeckoStatus(): Int {
+         AutoplayStatus.ALLOWED -> VALUE_ALLOW
+     }
+ }
++
++/** Convert only the two origin-bound types; engine lifetime is authoritative. */
++internal fun ContentPermission.toOriginBoundPermission(): OriginBoundPermission? {
++    val kind = when (permission) {
++        PERMISSION_WEBGL -> OriginBoundPermission.Kind.WEBGL
++        PERMISSION_CANVAS -> OriginBoundPermission.Kind.CANVAS
++        else -> return null
++    }
++    if (principalOrigin.isEmpty()) return null
++    return OriginBoundPermission(
++        kind = kind,
++        origin = uri,
++        principalOrigin = principalOrigin,
++        privateMode = privateMode,
++        contextId = contextId,
++        status = value.toStatus(),
++        permanent = expireType == 0 && !privateMode,
++    )
++}
+diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorageTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorageTest.kt
+index a6a9c7a..f677f72 100644
+--- a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorageTest.kt
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorageTest.kt
+@@ -714,6 +714,25 @@ class GeckoSitePermissionsStorageTest {
+         assertEquals(VALUE_ALLOW, AutoplayStatus.ALLOWED.toGeckoStatus())
+     }
+ 
++    @Test
++    fun `changing a legacy permission preserves engine-only canvas and WebGL records without a host clear`() = runTest {
++        val site = createNewSitePermission().copy(location = ALLOWED)
++        val location = geckoContentPermission(type = PERMISSION_GEOLOCATION)
++        val webgl = originPermission()
++        val canvas = originPermission(type = org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_CANVAS)
++        doReturn(listOf(location, webgl, canvas)).`when`(geckoStorage)
++            .findGeckoContentPermissionBy(site.origin, includeTemporary = true, private = false)
++
++        geckoStorage.updateGeckoPermissionIfNeeded(site, private = false)
++
++        verify(storageController).setPermission(location, VALUE_PROMPT)
++        verify(storageController).setPermission(location, VALUE_ALLOW)
++        verify(geckoStorage, org.mockito.Mockito.never()).clearGeckoCacheFor(site.origin)
++        verify(storageController, org.mockito.Mockito.never()).setPermission(webgl, VALUE_PROMPT)
++        verify(storageController, org.mockito.Mockito.never()).setPermission(canvas, VALUE_PROMPT)
++        verify(storageController, org.mockito.Mockito.never()).setPermissionWithLifetime(webgl, VALUE_ALLOW, true)
++    }
++
+     private fun createNewSitePermission(): SitePermissions {
+         return SitePermissions(
+             origin = "mozilla.dev",
+diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionRequestTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionRequestTest.kt
+new file mode 100644
+index 0000000..37c1e65
+--- /dev/null
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionRequestTest.kt
+@@ -0,0 +1,101 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.browser.engine.gecko.permission
++
++import mozilla.components.concept.engine.permission.OriginBoundPermission
++import mozilla.components.concept.engine.permission.Permission
++import mozilla.components.concept.engine.permission.SitePermissions.Status
++import mozilla.components.support.test.argumentCaptor
++import mozilla.components.support.test.mock
++import mozilla.components.test.ReflectionUtils
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.mockito.Mockito.times
++import org.mockito.Mockito.verify
++import org.mozilla.geckoview.GeckoResult
++import org.mozilla.geckoview.GeckoSession.PermissionDelegate
++import org.mozilla.geckoview.GeckoSession.PermissionDelegate.ContentPermission
++
++class OriginBoundPermissionRequestTest {
++    @Test
++    fun `maps both protected operations and keeps their exact origin attributes`() {
++        listOf(
++            PermissionDelegate.PERMISSION_WEBGL to Permission.ContentWebGL(),
++            PermissionDelegate.PERMISSION_CANVAS to Permission.ContentCanvas(),
++        ).forEach { (type, permission) ->
++            val gecko = originPermission(type = type, privateMode = true)
++            val request = GeckoPermissionRequest.OriginBoundContent(gecko, mock())
++            assertEquals(listOf(permission), request.permissions)
++            assertEquals("https://frame.test:8443^privateBrowsingId=1", request.permission.principalOrigin)
++            assertEquals("https://top.test", request.topLevelOrigin)
++            assertTrue(request.isQuiet)
++            assertFalse(request.permission.permanent)
++        }
++    }
++
++    @Test
++    fun `explicit remembered allow completes once with requested lifetime`() {
++        val result = mock<GeckoResult<PermissionDelegate.PermissionDecision>>()
++        val request = GeckoPermissionRequest.OriginBoundContent(originPermission(), result)
++        request.decide(Status.ALLOWED, true)
++        request.decide(Status.BLOCKED, false)
++        val decision = argumentCaptor<PermissionDelegate.PermissionDecision>()
++        verify(result, times(1)).complete(decision.capture())
++        assertEquals(ContentPermission.VALUE_ALLOW, decision.value.value)
++        assertTrue(decision.value.permanent)
++    }
++
++    @Test
++    fun `default grant is a browser session choice and private can never be remembered`() {
++        listOf(false, true).forEach { privateMode ->
++            val result = mock<GeckoResult<PermissionDelegate.PermissionDecision>>()
++            val request = GeckoPermissionRequest.OriginBoundContent(originPermission(privateMode = privateMode), result)
++            if (privateMode) request.decide(Status.ALLOWED, true) else request.grant()
++            val decision = argumentCaptor<PermissionDelegate.PermissionDecision>()
++            verify(result).complete(decision.capture())
++            assertEquals(ContentPermission.VALUE_ALLOW, decision.value.value)
++            assertFalse(decision.value.permanent)
++        }
++    }
++
++    @Test
++    fun `dismissing a request uses prompt rather than creating a stored denial`() {
++        val result = mock<GeckoResult<PermissionDelegate.PermissionDecision>>()
++        GeckoPermissionRequest.OriginBoundContent(originPermission(), result).reject()
++        val decision = argumentCaptor<PermissionDelegate.PermissionDecision>()
++        verify(result).complete(decision.capture())
++        assertEquals(ContentPermission.VALUE_PROMPT, decision.value.value)
++        assertFalse(decision.value.permanent)
++    }
++
++    @Test
++    fun `session and private engine records never become remembered records`() {
++        assertFalse(originPermission(expireType = 2).toOriginBoundPermission()!!.permanent)
++        assertFalse(originPermission(privateMode = true, expireType = 0).toOriginBoundPermission()!!.permanent)
++        assertTrue(originPermission(expireType = 0).toOriginBoundPermission()!!.permanent)
++        assertEquals(OriginBoundPermission.Kind.WEBGL, originPermission().toOriginBoundPermission()!!.kind)
++    }
++}
++
++internal fun originPermission(
++    type: Int = PermissionDelegate.PERMISSION_WEBGL,
++    privateMode: Boolean = false,
++    expireType: Int = 2,
++    uri: String = "https://frame.test:8443",
++    contextId: String? = null,
++    value: Int = ContentPermission.VALUE_ALLOW,
++): ContentPermission = mock<ContentPermission>().also {
++    ReflectionUtils.setField(it, "permission", type)
++    ReflectionUtils.setField(it, "privateMode", privateMode)
++    ReflectionUtils.setField(it, "expireType", expireType)
++    ReflectionUtils.setField(it, "uri", uri)
++    ReflectionUtils.setField(it, "principalOrigin", uri + if (privateMode) "^privateBrowsingId=1" else "")
++    ReflectionUtils.setField(it, "contextId", contextId)
++    ReflectionUtils.setField(it, "value", value)
++    ReflectionUtils.setField(it, "isQuiet", true)
++    ReflectionUtils.setField(it, "topLevelOrigin", "https://top.test")
++}
+diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt
+new file mode 100644
+index 0000000..2ff8dfa
+--- /dev/null
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt
+@@ -0,0 +1,121 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.browser.engine.gecko.permission
++
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import kotlinx.coroutines.async
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.test.StandardTestDispatcher
++import kotlinx.coroutines.test.resetMain
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.runTest
++import kotlinx.coroutines.test.setMain
++import mozilla.components.concept.engine.permission.SitePermissions.Status
++import mozilla.components.concept.engine.permission.SitePermissionsStorage
++import mozilla.components.support.test.any
++import mozilla.components.support.test.mock
++import mozilla.components.support.test.whenever
++import org.junit.After
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mockito.Mockito.never
++import org.mockito.Mockito.verify
++import org.mockito.Mockito.verifyNoInteractions
++import org.mozilla.geckoview.GeckoResult
++import org.mozilla.geckoview.GeckoRuntime
++import org.mozilla.geckoview.GeckoSession.PermissionDelegate.ContentPermission
++import org.mozilla.geckoview.StorageController
++
++@OptIn(ExperimentalCoroutinesApi::class)
++@RunWith(AndroidJUnit4::class)
++class OriginBoundPermissionsStorageTest {
++    private val dispatcher = StandardTestDispatcher()
++    private val controller = mock<StorageController>()
++    private val disk = mock<SitePermissionsStorage>()
++    private val runtime = mock<GeckoRuntime>()
++    private lateinit var storage: GeckoSitePermissionsStorage
++
++    @Before
++    fun setup() {
++        Dispatchers.setMain(dispatcher)
++        whenever(runtime.storageController).thenReturn(controller)
++        storage = GeckoSitePermissionsStorage(runtime, disk)
++    }
++
++    @After
++    fun tearDown() { Dispatchers.resetMain() }
++
++    @Test
++    fun `engine-only session and private records are visible without any Room row`() = runTest(dispatcher) {
++        val normal = originPermission()
++        val privateRecord = originPermission(privateMode = true)
++        val otherContainer = originPermission(contextId = "other")
++        whenever(controller.allPermissions).thenReturn(result(listOf(normal, privateRecord, otherContainer)))
++        assertEquals(listOf(normal.toOriginBoundPermission()), storage.listOriginBoundPermissions(false, null))
++        assertEquals(listOf(privateRecord.toOriginBoundPermission()), storage.listOriginBoundPermissions(true, null))
++        assertEquals(listOf(otherContainer.toOriginBoundPermission()), storage.listOriginBoundPermissions(false, "other"))
++        verifyNoInteractions(disk)
++    }
++
++    @Test
++    fun `revocation removes only the selected exact origin and preserves session lifetime`() = runTest(dispatcher) {
++        val selected = originPermission()
++        val anotherPort = originPermission(uri = "https://frame.test:9443")
++        whenever(controller.allPermissions).thenReturn(result(listOf(anotherPort, selected)))
++        whenever(controller.setPermissionWithLifetime(selected, ContentPermission.VALUE_PROMPT, false)).thenReturn(result(null))
++        assertTrue(storage.updateOriginBoundPermission(selected.toOriginBoundPermission()!!, Status.NO_DECISION))
++        verify(controller).setPermissionWithLifetime(selected, ContentPermission.VALUE_PROMPT, false)
++        verify(controller, never()).setPermissionWithLifetime(anotherPort, ContentPermission.VALUE_PROMPT, false)
++        verifyNoInteractions(disk)
++    }
++
++    @Test
++    fun `stale snapshot or ended private session cannot recreate an exception`() = runTest(dispatcher) {
++        val previous = originPermission(privateMode = true).toOriginBoundPermission()!!
++        whenever(controller.allPermissions).thenReturn(result(emptyList()))
++        assertFalse(storage.updateOriginBoundPermission(previous, Status.ALLOWED, true))
++        verify(controller, never()).setPermissionWithLifetime(any(), org.mockito.Mockito.anyInt(), org.mockito.Mockito.anyBoolean())
++        verifyNoInteractions(disk)
++    }
++
++    @Test
++    fun `editing a private record forces session lifetime`() = runTest(dispatcher) {
++        val record = originPermission(privateMode = true)
++        whenever(controller.allPermissions).thenReturn(result(listOf(record)))
++        whenever(controller.setPermissionWithLifetime(record, ContentPermission.VALUE_DENY, false)).thenReturn(result(null))
++        assertTrue(storage.updateOriginBoundPermission(record.toOriginBoundPermission()!!, Status.BLOCKED, true))
++        verify(controller).setPermissionWithLifetime(record, ContentPermission.VALUE_DENY, false)
++    }
++
++    @Test
++    fun `storage update waits for the exact engine write acknowledgement`() = runTest(dispatcher) {
++        val record = originPermission()
++        whenever(controller.allPermissions).thenReturn(result(listOf(record)))
++        val write = mock<GeckoResult<Void>>()
++        var acknowledge: GeckoResult.OnValueListener<Void, Void>? = null
++        whenever(write.then<Void>(any(), any())).thenAnswer { invocation ->
++            acknowledge = invocation.getArgument(0)
++            mock<GeckoResult<Void>>()
++        }
++        whenever(controller.setPermissionWithLifetime(record, ContentPermission.VALUE_DENY, false)).thenReturn(write)
++        val update = async { storage.updateOriginBoundPermission(record.toOriginBoundPermission()!!, Status.BLOCKED) }
++        runCurrent()
++        assertFalse(update.isCompleted)
++        requireNotNull(acknowledge).onValue(null)
++        assertTrue(update.await())
++    }
++
++    private fun <T> result(value: T?): GeckoResult<T> = mock<GeckoResult<T>>().also { result ->
++        whenever(result.then<Void>(any(), any())).thenAnswer { invocation ->
++            invocation.getArgument<GeckoResult.OnValueListener<T, Void>>(0).onValue(value)
++            mock<GeckoResult<Void>>()
++        }
++    }
++}
+diff --git a/mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/ext/PermissionRequest.kt b/mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/ext/PermissionRequest.kt
+index 037c8f6..b4678db 100644
+--- a/mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/ext/PermissionRequest.kt
++++ b/mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/ext/PermissionRequest.kt
+@@ -3,6 +3,7 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
+ package mozilla.components.browser.state.ext
++import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
+ import mozilla.components.concept.engine.permission.PermissionRequest
+ 
+ /**
+@@ -10,8 +11,7 @@ import mozilla.components.concept.engine.permission.PermissionRequest
+  * */
+ fun List<PermissionRequest>.containsPermission(permissionRequest: PermissionRequest): Boolean {
+     return this.any {
+-        it.uri == permissionRequest.uri &&
+-            it.permissions == permissionRequest.permissions
++        it.matchesPermissionRequest(permissionRequest)
+     }
+ }
+ 
+@@ -21,10 +21,17 @@ fun List<PermissionRequest>.containsPermission(permissionRequest: PermissionRequ
+ fun List<PermissionRequest>.mergePermissions(permissionRequest: PermissionRequest) {
+     run loop@{
+         this.forEach {
+-            if (it.uri == permissionRequest.uri && it.permissions == permissionRequest.permissions) {
++            if (it.matchesPermissionRequest(permissionRequest)) {
+                 it.merge(permissionRequest)
+                 return@loop
+             }
+         }
+     }
+ }
++
++private fun PermissionRequest.matchesPermissionRequest(other: PermissionRequest): Boolean =
++    if (this is OriginBoundPermissionRequest || other is OriginBoundPermissionRequest) {
++        id == other.id
++    } else {
++        uri == other.uri && permissions == other.permissions
++    }
+diff --git a/mobile/android/android-components/components/browser/state/src/test/java/mozilla/components/browser/state/ext/PermissionRequestTest.kt b/mobile/android/android-components/components/browser/state/src/test/java/mozilla/components/browser/state/ext/PermissionRequestTest.kt
+new file mode 100644
+index 0000000..fd8c3b8
+--- /dev/null
++++ b/mobile/android/android-components/components/browser/state/src/test/java/mozilla/components/browser/state/ext/PermissionRequestTest.kt
+@@ -0,0 +1,48 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.browser.state.ext
++
++import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
++import mozilla.components.concept.engine.permission.Permission
++import mozilla.components.concept.engine.permission.PermissionRequest
++import mozilla.components.support.test.mock
++import mozilla.components.support.test.whenever
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.mockito.Mockito.never
++import org.mockito.Mockito.verify
++
++class PermissionRequestTest {
++    @Test
++    fun `two documents at the same origin must keep independent origin-bound decisions`() {
++        val first = request("document-1")
++        val second = request("document-2")
++        val pending = listOf(first)
++        assertFalse(pending.containsPermission(second))
++        pending.mergePermissions(second)
++        verify(first, never()).merge(second)
++        assertTrue(pending.containsPermission(first))
++    }
++
++    @Test
++    fun `legacy permissions continue to merge by URI and permission kind`() {
++        val first = mock<PermissionRequest>()
++        val second = mock<PermissionRequest>()
++        listOf(first, second).forEach {
++            whenever(it.uri).thenReturn("https://example.test")
++            whenever(it.permissions).thenReturn(listOf(Permission.ContentGeoLocation()))
++        }
++        assertTrue(listOf(first).containsPermission(second))
++        listOf(first).mergePermissions(second)
++        verify(first).merge(second)
++    }
++
++    private fun request(id: String): OriginBoundPermissionRequest = mock<OriginBoundPermissionRequest>().also {
++        whenever(it.id).thenReturn(id)
++        whenever(it.uri).thenReturn("https://example.test")
++        whenever(it.permissions).thenReturn(listOf(Permission.ContentWebGL()))
++    }
++}
+diff --git a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/OriginBoundPermission.kt b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/OriginBoundPermission.kt
+new file mode 100644
+index 0000000..b7eb46b
+--- /dev/null
++++ b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/OriginBoundPermission.kt
+@@ -0,0 +1,38 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package mozilla.components.concept.engine.permission
++
++/** A canvas or WebGL exception owned by the engine, including its exact principal and lifetime. */
++data class OriginBoundPermission(
++    val kind: Kind,
++    val origin: String,
++    val principalOrigin: String,
++    val privateMode: Boolean,
++    val contextId: String?,
++    val status: SitePermissions.Status,
++    val permanent: Boolean,
++) {
++    /** Protected operations with an origin-specific exception. */
++    enum class Kind { WEBGL, CANVAS }
++}
++
++/**
++ * A request bound to one document and principal. These requests must not be merged by host or
++ * stored in a host-keyed permissions database. Dismissal is distinct from choosing Block.
++ */
++interface OriginBoundPermissionRequest : PermissionRequest {
++    val permission: OriginBoundPermission
++    val topLevelOrigin: String?
++    val isQuiet: Boolean
++
++    /** Completes this request once; private browsing always uses browser-session lifetime. */
++    fun decide(status: SitePermissions.Status, permanent: Boolean = false)
++
++    /** True only after the engine writes the decision for the still-current requesting document. */
++    suspend fun awaitDecisionApplied(): Boolean
++
++    /** Reloads only the original document, after an acknowledged decision. */
++    suspend fun reloadIfCurrent(): Boolean
++}
+diff --git a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/PermissionRequest.kt b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/PermissionRequest.kt
+index 820c47e..8fb76ed 100644
+--- a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/PermissionRequest.kt
++++ b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/PermissionRequest.kt
+@@ -90,6 +90,15 @@ sealed class Permission {
+         canonicalName?.substringAfterLast('.') ?: simpleName
+     }
+ 
++    data class ContentWebGL(
++        override val id: String? = "ContentWebGL",
++        override val desc: String? = "",
++    ) : Permission()
++    data class ContentCanvas(
++        override val id: String? = "ContentCanvas",
++        override val desc: String? = "",
++    ) : Permission()
++
+     data class ContentAudioCapture(
+         override val id: String? = "ContentAudioCapture",
+         override val desc: String? = "",
+diff --git a/mobile/android/android-components/components/feature/sitepermissions/src/main/java/mozilla/components/feature/sitepermissions/SitePermissionsFeature.kt b/mobile/android/android-components/components/feature/sitepermissions/src/main/java/mozilla/components/feature/sitepermissions/SitePermissionsFeature.kt
+index e5f336d..42ff186 100644
+--- a/mobile/android/android-components/components/feature/sitepermissions/src/main/java/mozilla/components/feature/sitepermissions/SitePermissionsFeature.kt
++++ b/mobile/android/android-components/components/feature/sitepermissions/src/main/java/mozilla/components/feature/sitepermissions/SitePermissionsFeature.kt
+@@ -61,6 +61,7 @@ import mozilla.components.concept.engine.permission.Permission.ContentNotificati
+ import mozilla.components.concept.engine.permission.Permission.ContentPersistentStorage
+ import mozilla.components.concept.engine.permission.Permission.ContentVideoCamera
+ import mozilla.components.concept.engine.permission.Permission.ContentVideoCapture
++import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
+ import mozilla.components.concept.engine.permission.PermissionRequest
+ import mozilla.components.concept.engine.permission.SitePermissions
+ import mozilla.components.concept.engine.permission.SitePermissions.Status.ALLOWED
+@@ -216,6 +217,9 @@ class SitePermissionsFeature(
+                 }
+                     .filterChanged { it }
+                     .collect { permissionRequest ->
++                        // The embedder's origin-bound feature owns these requests, their quiet UI,
++                        // exact principal and engine lifetime. Never route them through Room.
++                        if (permissionRequest is OriginBoundPermissionRequest) return@collect
+                         val origin: String = permissionRequest.uri?.getOrigin().orEmpty()
+ 
+                         if (origin.isEmpty()) {
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
+index c3bd0a4..4fac9b3 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
+@@ -310,6 +310,8 @@ abstract class BaseBrowserFragment :
+     internal val findInPageIntegration = ViewBoundFeatureWrapper<FindInPageIntegration>()
+     private val toolbarsIntegration = ViewBoundFeatureWrapper<ToolbarsIntegration>()
+     private val bottomToolbarContainerIntegration = ViewBoundFeatureWrapper<BottomToolbarContainerIntegration>()
++    private val originBoundPermissionsFeature =
++        ViewBoundFeatureWrapper<org.mozilla.fenix.browser.permissions.OriginBoundPermissionsFeature>()
+     private val sitePermissionsFeature = ViewBoundFeatureWrapper<SitePermissionsFeature>()
+     private val fullScreenFeature = ViewBoundFeatureWrapper<FullScreenFeature>()
+     protected val hideToolbarFeature = ViewBoundFeatureWrapper<WebAppHideToolbarFeature>()
+@@ -1227,6 +1229,39 @@ abstract class BaseBrowserFragment :
+             view = view,
+         )
+ 
++        originBoundPermissionsFeature.set(
++            feature = org.mozilla.fenix.browser.permissions.OriginBoundPermissionsFeature(
++                store = store,
++                sessionId = customTabSessionId,
++                shouldHide = {
++                    val state = requireComponents.appStore.state
++                    state.isPrivateScreenLocked && state.mode.isPrivate
++                },
++                onQuietRequest = { tabId, _ ->
++                    com.google.android.material.snackbar.Snackbar.make(
++                        view,
++                        R.string.origin_permissions_quiet_notice,
++                        com.google.android.material.snackbar.Snackbar.LENGTH_LONG,
++                    ).setAction(R.string.origin_permissions_review) {
++                        store.state.findTabOrCustomTab(tabId)?.let { tab ->
++                            org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.show(
++                                parentFragmentManager, tab,
++                            )
++                        }
++                    }.show()
++                },
++                onPromptRequest = { tabId, _ ->
++                    store.state.findTabOrCustomTab(tabId)?.let { tab ->
++                        org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.show(
++                            parentFragmentManager, tab,
++                        )
++                    }
++                },
++            ),
++            owner = this,
++            view = view,
++        )
++
+         sitePermissionsFeature.set(
+             feature = SitePermissionsFeature(
+                 context = context,
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt
+new file mode 100644
+index 0000000..1a9b6e5
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt
+@@ -0,0 +1,339 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.browser.permissions
++
++import android.app.Dialog
++import android.content.Context
++import android.content.DialogInterface
++import android.os.Bundle
++import android.view.View
++import android.widget.Button
++import android.widget.CheckBox
++import android.widget.LinearLayout
++import android.widget.ScrollView
++import android.widget.TextView
++import android.widget.Toast
++import androidx.appcompat.app.AlertDialog
++import androidx.core.os.bundleOf
++import androidx.fragment.app.DialogFragment
++import androidx.fragment.app.FragmentManager
++import androidx.lifecycle.lifecycleScope
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.flow.distinctUntilChanged
++import kotlinx.coroutines.flow.map
++import kotlinx.coroutines.launch
++import mozilla.components.ExperimentalAndroidComponentsApi
++import mozilla.components.browser.state.selector.findTabOrCustomTab
++import mozilla.components.browser.state.state.BrowserState
++import mozilla.components.browser.state.state.SessionState
++import mozilla.components.concept.engine.permission.OriginBoundPermission
++import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
++import mozilla.components.concept.engine.permission.SitePermissions.Status
++import org.mozilla.fenix.R
++import org.mozilla.fenix.ext.requireComponents
++
++/** Shared controls for pending requests and real engine-only persistent/session/private exceptions. */
++class OriginBoundPermissionsDialogFragment : DialogFragment() {
++    private lateinit var content: LinearLayout
++    private var refreshJob: Job? = null
++    private var requestsJob: Job? = null
++    private var lockJob: Job? = null
++    private var decisionDialog: AlertDialog? = null
++    private val tabId get() = arguments?.getString(TAB_ID)
++    private val privateMode get() = requireArguments().getBoolean(PRIVATE)
++    private val contextId get() = arguments?.getString(CONTEXT_ID)
++
++    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
++        content = LinearLayout(requireContext()).apply {
++            id = R.id.origin_permissions_dialog_list
++            orientation = LinearLayout.VERTICAL
++            val padding = (resources.displayMetrics.density * PADDING_DP).toInt()
++            setPadding(padding, padding, padding, padding)
++        }
++        return AlertDialog.Builder(requireContext())
++            .setTitle(R.string.origin_permissions_title)
++            .setView(ScrollView(requireContext()).apply { addView(content) })
++            .setPositiveButton(R.string.origin_permissions_close, null)
++            .create()
++    }
++
++    override fun onStart() {
++        super.onStart()
++        requestsJob = lifecycleScope.launch {
++            requireComponents.core.store.stateFlow
++                .map { state ->
++                    (state.tabs + state.customTabs).filter {
++                        it.content.private == privateMode && it.contextId == contextId &&
++                            (tabId == null || it.id == tabId)
++                    }.map { it.id to it.content.permissionRequestsList.map { request -> request.id } }
++                }.distinctUntilChanged().collect { refresh() }
++        }
++        lockJob = lifecycleScope.launch {
++            requireComponents.appStore.stateFlow.map { it.isPrivateScreenLocked }
++                .distinctUntilChanged().collect { locked ->
++                    if (privateMode && locked) dismissAllowingStateLoss()
++                }
++        }
++        refresh()
++    }
++
++    override fun onStop() {
++        requestsJob?.cancel()
++        lockJob?.cancel()
++        refreshJob?.cancel()
++        super.onStop()
++    }
++
++    override fun onDismiss(dialog: DialogInterface) {
++        decisionDialog?.dismiss()
++        super.onDismiss(dialog)
++    }
++
++    override fun onDestroyView() {
++        refreshJob?.cancel()
++        decisionDialog?.dismiss()
++        decisionDialog = null
++        super.onDestroyView()
++    }
++
++    private fun refresh() {
++        refreshJob?.cancel()
++        refreshJob = lifecycleScope.launch {
++            try {
++                val records = requireComponents.core.geckoSitePermissionsStorage
++                    .listOriginBoundPermissions(privateMode, contextId)
++                if (!isAdded) return@launch
++                content.removeAllViews()
++                addText(getString(R.string.origin_permissions_default))
++                addText(getString(if (privateMode) R.string.origin_permissions_private_scope else R.string.origin_permissions_scope))
++                val state = requireComponents.core.store.state
++                val pending = originBoundRequests(state, tabId, privateMode, contextId)
++                pending.forEach { (requestTabId, request) ->
++                    addButton(
++                        getString(R.string.origin_permissions_blocked_attempt, kindLabel(request.permission.kind), request.uri),
++                        if (request.permission.kind == OriginBoundPermission.Kind.WEBGL) {
++                            R.id.origin_permission_pending_webgl
++                        } else {
++                            R.id.origin_permission_pending_canvas
++                        },
++                    ) { showDecision(request.permission, request.topLevelOrigin, isRequest = true) { status, permanent ->
++                        applyRequest(requestTabId, request, status, permanent)
++                    } }
++                }
++                if (records.isEmpty() && pending.isEmpty()) addText(getString(R.string.origin_permissions_empty))
++                records.forEach { record ->
++                    addButton(
++                        recordLabel(record),
++                        if (record.kind == OriginBoundPermission.Kind.WEBGL) {
++                            R.id.origin_permission_saved_webgl
++                        } else {
++                            R.id.origin_permission_saved_canvas
++                        },
++                    ) {
++                        showDecision(record, null) { status, permanent -> applyStored(record, status, permanent) }
++                    }
++                }
++            } catch (error: CancellationException) {
++                throw error
++            } catch (_: Exception) {
++                showError()
++            }
++        }
++    }
++
++    private fun kindLabel(kind: OriginBoundPermission.Kind) = getString(
++        when (kind) {
++            OriginBoundPermission.Kind.WEBGL -> R.string.origin_permissions_webgl
++            OriginBoundPermission.Kind.CANVAS -> R.string.origin_permissions_canvas
++        },
++    )
++
++    private fun recordLabel(record: OriginBoundPermission): String = getString(
++        R.string.origin_permissions_record,
++        kindLabel(record.kind),
++        record.origin,
++        getString(
++            when (record.status) {
++                Status.ALLOWED -> R.string.origin_permissions_allowed
++                Status.BLOCKED -> R.string.origin_permissions_blocked
++                Status.NO_DECISION -> R.string.origin_permissions_ask
++            },
++        ),
++        getString(
++            when {
++                record.privateMode -> R.string.origin_permissions_private_lifetime
++                record.permanent -> R.string.origin_permissions_persistent_lifetime
++                else -> R.string.origin_permissions_session_lifetime
++            },
++        ),
++    )
++
++    @OptIn(ExperimentalAndroidComponentsApi::class)
++    private fun showDecision(
++        record: OriginBoundPermission,
++        topLevelOrigin: String?,
++        isRequest: Boolean = false,
++        onDecision: (Status, Boolean) -> Unit,
++    ) {
++        if (decisionDialog?.isShowing == true) return
++        val body = LinearLayout(requireContext()).apply {
++            orientation = LinearLayout.VERTICAL
++            val padding = (resources.displayMetrics.density * PADDING_DP).toInt()
++            setPadding(padding, padding, padding, padding)
++        }
++        val message = originBoundRequestMessage(requireContext(), record, topLevelOrigin)
++        body.addView(TextView(requireContext()).apply {
++            id = R.id.origin_permission_request_origin
++            text = message
++        })
++        body.addView(TextView(requireContext()).apply {
++            text = getString(if (record.privateMode) R.string.origin_permissions_private_explanation else R.string.origin_permissions_session_explanation)
++        })
++        val remember = originBoundRememberChoice(requireContext(), record)
++        body.addView(remember)
++        decisionDialog = AlertDialog.Builder(requireContext())
++            .setTitle(kindLabel(record.kind))
++            .setView(body)
++            .setPositiveButton(R.string.origin_permissions_allow) { _, _ -> onDecision(Status.ALLOWED, remember.isChecked) }
++            .setNegativeButton(R.string.origin_permissions_block) { _, _ -> onDecision(Status.BLOCKED, remember.isChecked) }
++            .setNeutralButton(R.string.origin_permissions_ask) { _, _ -> onDecision(Status.NO_DECISION, false) }
++            .create().also {
++                it.show()
++                it.getButton(AlertDialog.BUTTON_POSITIVE).id = R.id.origin_permission_allow
++                it.getButton(AlertDialog.BUTTON_NEGATIVE).id = R.id.origin_permission_block
++                it.getButton(AlertDialog.BUTTON_NEUTRAL).id =
++                    if (isRequest) R.id.origin_permission_ask else R.id.origin_permission_reset
++            }
++        // Dismissing this view leaves the protected request pending and reachable from site controls.
++        pendingRequests().firstOrNull { it.permission == record }?.notifyShown()
++    }
++
++    private fun pendingRequests(): List<OriginBoundPermissionRequest> {
++        val state = requireComponents.core.store.state
++        return originBoundRequests(state, tabId, privateMode, contextId).map { it.second }
++    }
++
++    private fun applyRequest(tabId: String, request: OriginBoundPermissionRequest, status: Status, permanent: Boolean) {
++        lifecycleScope.launch {
++            try {
++                val reloaded = applyOriginBoundDecision(requireComponents.core.store, tabId, request, status, permanent)
++                if (!reloaded && status != Status.NO_DECISION) {
++                    Toast.makeText(context, R.string.origin_permissions_page_changed, Toast.LENGTH_LONG).show()
++                }
++                refresh()
++            } catch (error: CancellationException) {
++                throw error
++            } catch (_: Exception) {
++                showError()
++            }
++        }
++    }
++
++    private fun applyStored(record: OriginBoundPermission, status: Status, permanent: Boolean) {
++        lifecycleScope.launch {
++            try {
++                val applied = requireComponents.core.geckoSitePermissionsStorage
++                    .updateOriginBoundPermission(record, status, permanent)
++                if (applied) {
++                    // This is explicitly a new user action on the current page, not a promise that
++                    // an old exception record still refers to the document that requested it.
++                    val requestTabId = tabId
++                    if (requestTabId != null) showReload(requestTabId)
++                    refresh()
++                } else {
++                    Toast.makeText(context, R.string.origin_permissions_page_changed, Toast.LENGTH_LONG).show()
++                    refresh()
++                }
++            } catch (error: CancellationException) {
++                throw error
++            } catch (_: Exception) {
++                showError()
++            }
++        }
++    }
++
++    private fun showReload(requestTabId: String) {
++        decisionDialog = AlertDialog.Builder(requireContext())
++            .setMessage(R.string.origin_permissions_reload_explanation)
++            .setPositiveButton(R.string.origin_permissions_reload) { _, _ ->
++                requireComponents.core.store.state.findTabOrCustomTab(requestTabId)?.let { tab ->
++                    if (tab.content.private == privateMode && tab.contextId == contextId) {
++                        tab.engineState.engineSession?.reload()
++                    }
++                }
++            }
++            .setNegativeButton(R.string.origin_permissions_close, null)
++            .create().also {
++                it.show()
++                it.getButton(AlertDialog.BUTTON_POSITIVE).id = R.id.origin_permission_reload
++            }
++    }
++
++    private fun addText(value: String) {
++        content.addView(TextView(requireContext()).apply { text = value })
++    }
++
++    private fun addButton(value: String, viewId: Int, action: () -> Unit) {
++        content.addView(Button(requireContext()).apply {
++            id = viewId
++            text = value
++            isAllCaps = false
++            setOnClickListener { action() }
++        })
++    }
++
++    private fun showError() {
++        if (isAdded) Toast.makeText(context, R.string.origin_permissions_error, Toast.LENGTH_LONG).show()
++    }
++
++    companion object {
++        private const val TAB_ID = "tabId"
++        private const val PRIVATE = "privateMode"
++        private const val CONTEXT_ID = "contextId"
++        private const val PADDING_DP = 16
++        internal const val TAG = "origin-bound-permissions"
++
++        /** Opens permissions for this browsing context; private records never enter normal UI. */
++        fun show(manager: FragmentManager, tab: SessionState? = null) {
++            if (manager.isStateSaved || manager.findFragmentByTag(TAG) != null) return
++            OriginBoundPermissionsDialogFragment().apply {
++                arguments = bundleOf(TAB_ID to tab?.id, PRIVATE to (tab?.content?.private ?: false), CONTEXT_ID to tab?.contextId)
++            }.show(manager, TAG)
++        }
++    }
++}
++
++/** Select requests for one explicit browsing context; never expose another tab's private data. */
++internal fun originBoundRequests(
++    state: BrowserState,
++    tabId: String?,
++    privateMode: Boolean,
++    contextId: String?,
++): List<Pair<String, OriginBoundPermissionRequest>> =
++    (state.tabs + state.customTabs).filter {
++        it.content.private == privateMode && it.contextId == contextId && (tabId == null || it.id == tabId)
++    }.flatMap { tab ->
++        tab.content.permissionRequestsList.filterIsInstance<OriginBoundPermissionRequest>()
++            .filter { it.permission.privateMode == privateMode && it.permission.contextId == contextId }
++            .map { tab.id to it }
++    }
++
++internal fun originBoundRequestMessage(
++    context: Context,
++    record: OriginBoundPermission,
++    topLevelOrigin: String?,
++): String = if (topLevelOrigin != null && topLevelOrigin != record.origin) {
++    context.getString(R.string.origin_permissions_frame, record.origin, topLevelOrigin)
++} else {
++    context.getString(R.string.origin_permissions_origin, record.origin)
++}
++
++internal fun originBoundRememberChoice(context: Context, record: OriginBoundPermission) = CheckBox(context).apply {
++    id = R.id.origin_permission_remember
++    setText(R.string.origin_permissions_remember)
++    isChecked = record.permanent && !record.privateMode
++    visibility = if (record.privateMode) View.GONE else View.VISIBLE
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt
+new file mode 100644
+index 0000000..ddcf570
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt
+@@ -0,0 +1,102 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.browser.permissions
++
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CoroutineDispatcher
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.currentCoroutineContext
++import kotlinx.coroutines.flow.distinctUntilChanged
++import kotlinx.coroutines.flow.map
++import kotlinx.coroutines.launch
++import mozilla.components.browser.state.action.ContentAction
++import mozilla.components.browser.state.selector.findTabOrCustomTab
++import mozilla.components.browser.state.selector.findTabOrCustomTabOrSelectedTab
++import mozilla.components.browser.state.store.BrowserStore
++import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
++import mozilla.components.concept.engine.permission.SitePermissions.Status
++import mozilla.components.lib.state.ext.flowScoped
++import mozilla.components.support.base.feature.LifecycleAwareFeature
++
++/** Presents a bounded prompt or a quiet, actionable notice for the actual requesting tab. */
++class OriginBoundPermissionsFeature(
++    private val store: BrowserStore,
++    private val sessionId: String?,
++    private val onQuietRequest: (String, OriginBoundPermissionRequest) -> Unit,
++    private val onPromptRequest: (String, OriginBoundPermissionRequest) -> Unit,
++    private val shouldHide: () -> Boolean = { false },
++    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
++) : LifecycleAwareFeature {
++    private var scope: CoroutineScope? = null
++    private val observed = mutableSetOf<String>()
++
++    override fun start() {
++        scope = store.flowScoped(dispatcher = mainDispatcher) { flow ->
++            flow.map { it.findTabOrCustomTabOrSelectedTab(sessionId) }
++                .distinctUntilChanged()
++                .collect { tab ->
++                    if (tab == null || shouldHide()) return@collect
++                    val requests = tab.content.permissionRequestsList.filterIsInstance<OriginBoundPermissionRequest>()
++                    requests.forEach { request ->
++                        if (observed.add(request.id)) {
++                            CoroutineScope(currentCoroutineContext()).launch {
++                                val applied = try {
++                                    request.awaitDecisionApplied()
++                                } catch (error: CancellationException) {
++                                    throw error
++                                } catch (_: Exception) {
++                                    // An engine failure terminates the request without granting it.
++                                    false
++                                }
++                                // Complete the Android result as well as the native actor so its
++                                // event-dispatch callback cannot outlive a canceled quiet request.
++                                if (!applied) request.reject()
++                                // Includes navigation and actor destruction before a user answers.
++                                store.dispatch(ContentAction.ConsumePermissionsRequest(tab.id, request))
++                                observed.remove(request.id)
++                            }
++                            if (request.isQuiet) {
++                                onQuietRequest(tab.id, request)
++                            } else {
++                                onPromptRequest(tab.id, request)
++                            }
++                        }
++                    }
++                }
++        }
++    }
++
++    override fun stop() {
++        scope?.cancel()
++        scope = null
++        observed.clear()
++    }
++}
++
++/** Apply one explicit choice and reload only through Gecko's original-document acknowledgment. */
++internal suspend fun applyOriginBoundDecision(
++    store: BrowserStore,
++    tabId: String,
++    request: OriginBoundPermissionRequest,
++    status: Status,
++    permanent: Boolean,
++): Boolean {
++    val tab = store.state.findTabOrCustomTab(tabId)
++    if (tab == null || tab.content.private != request.permission.privateMode ||
++        tab.contextId != request.permission.contextId ||
++        tab.content.permissionRequestsList.none { it.id == request.id }
++    ) {
++        request.reject()
++        return false
++    }
++    request.decide(status, permanent && !tab.content.private)
++    val applied = request.awaitDecisionApplied()
++    store.dispatch(ContentAction.ConsumePermissionsRequest(tabId, request))
++    // The engine checks the original WindowGlobal again in the same JS turn as the reload.
++    // An iframe decision reloads that frame, never a newly selected tab or a new document.
++    return applied && request.reloadIfCurrent()
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt
+index 7b1665b..eda0101 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt
+@@ -115,8 +115,11 @@ class QuickSettingsSheetDialogFragment : FenixDialogFragment() {
+ 
+         interactor = QuickSettingsInteractor(quickSettingsController)
+         websiteInfoView = WebsiteInfoView(binding.websiteInfoLayout, interactor = interactor)
+-        websitePermissionsView =
+-            WebsitePermissionsView(binding.websitePermissionsLayout, interactor)
++        val permissionsContainer = android.widget.LinearLayout(context).apply {
++            orientation = android.widget.LinearLayout.VERTICAL
++        }
++        binding.websitePermissionsLayout.addView(permissionsContainer)
++        websitePermissionsView = WebsitePermissionsView(permissionsContainer, interactor)
+         protectionsView =
+             ProtectionsView(
+                 binding.trackingProtectionLayout,
+@@ -133,6 +136,20 @@ class QuickSettingsSheetDialogFragment : FenixDialogFragment() {
+             navController = navController,
+         )
+ 
++        permissionsContainer.addView(android.widget.Button(context).apply {
++            id = R.id.origin_permissions_entry
++            setText(R.string.origin_permissions_title)
++            isAllCaps = false
++            setOnClickListener {
++                components.core.store.state.findTabOrCustomTab(args.sessionId)?.let { tab ->
++                    org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.show(
++                        parentFragmentManager, tab,
++                    )
++                }
++            }
++        })
++        showPermissionsView()
++
+         return rootView
+     }
+ 
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SiteSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SiteSettingsFragment.kt
+index fbf92fa..4e56a0f 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SiteSettingsFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SiteSettingsFragment.kt
+@@ -54,6 +54,10 @@ class SiteSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+     private fun setupPreferences() {
+         bindCategoryPhoneFeatures()
+         bindExceptions()
++        findPreference<Preference>("origin_bound_permissions")?.setOnPreferenceClickListener {
++            org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.show(parentFragmentManager)
++            true
++        }
+     }
+ 
+     private fun bindDesktopMode() {
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt
+index 13adc16..7baebff 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt
+@@ -327,6 +327,13 @@ class TrustPanelFragment : BottomSheetDialogFragment() {
+                         Route.ProtectionPanel -> {
+                             ProtectionPanel(
+                                 websiteInfoState = websiteInfoState,
++                                onOriginPermissionsClick = {
++                                    components.core.store.state.findTabOrCustomTab(args.sessionId)?.let { tab ->
++                                        org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.show(
++                                            parentFragmentManager, tab,
++                                        )
++                                    }
++                                },
+                                 ipProtectionMenuState = ipProtectionMenuState,
+                                 icon = sessionState?.content?.icon,
+                                 isTrackingProtectionEnabled = isTrackingProtectionEnabled,
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt
+index 965905e..40e7c31 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt
+@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.layout.onGloballyPositioned
+ import androidx.compose.ui.platform.LocalDensity
++import androidx.compose.ui.platform.testTag
+ import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.res.pluralStringResource
+ import androidx.compose.ui.res.stringResource
+@@ -48,6 +49,7 @@ import androidx.compose.ui.semantics.contentDescription
+ import androidx.compose.ui.semantics.onClick
+ import androidx.compose.ui.semantics.role
+ import androidx.compose.ui.semantics.semantics
++import androidx.compose.ui.semantics.testTagsAsResourceId
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.text.style.TextDecoration
+ import androidx.compose.ui.tooling.preview.PreviewLightDark
+@@ -113,6 +115,7 @@ internal fun ProtectionPanel(
+     onViewQWACClick: () -> Unit,
+     onIPProtectionToggle: () -> Unit,
+     onIPProtectionNavigate: () -> Unit,
++    onOriginPermissionsClick: () -> Unit = {},
+ ) {
+     val isSiteProtectionEnabled = isTrackingProtectionEnabled && isGlobalTrackingProtectionEnabled
+     MenuScaffold(
+@@ -163,6 +166,19 @@ internal fun ProtectionPanel(
+             }
+         }
+ 
++        if (!isLocalPdf) {
++            MenuGroup {
++                MenuItem(
++                    label = stringResource(R.string.origin_permissions_title),
++                    modifier = Modifier.testTag("origin_permissions_entry").semantics {
++                        testTagsAsResourceId = true
++                    },
++                    onClick = onOriginPermissionsClick,
++                    beforeIconPainter = painterResource(iconsR.drawable.mozac_ic_globe_24),
++                )
++            }
++        }
++
+         if (websitePermissions.isNotEmpty()) {
+             WebsitePermissionsMenuGroup(
+                 websitePermissions = websitePermissions,
+diff --git a/mobile/android/fenix/app/src/main/res/values/origin_bound_permissions_ids.xml b/mobile/android/fenix/app/src/main/res/values/origin_bound_permissions_ids.xml
+new file mode 100644
+index 0000000..403ffeb
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/res/values/origin_bound_permissions_ids.xml
+@@ -0,0 +1,19 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- This Source Code Form is subject to the terms of the Mozilla Public
++   - License, v. 2.0. If a copy of the MPL was not distributed with this
++   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
++<resources>
++    <item name="origin_permissions_dialog_list" type="id" />
++    <item name="origin_permission_pending_webgl" type="id" />
++    <item name="origin_permission_pending_canvas" type="id" />
++    <item name="origin_permission_saved_webgl" type="id" />
++    <item name="origin_permission_saved_canvas" type="id" />
++    <item name="origin_permission_request_origin" type="id" />
++    <item name="origin_permission_remember" type="id" />
++    <item name="origin_permission_allow" type="id" />
++    <item name="origin_permission_block" type="id" />
++    <item name="origin_permission_ask" type="id" />
++    <item name="origin_permission_reset" type="id" />
++    <item name="origin_permission_reload" type="id" />
++    <item name="origin_permissions_entry" type="id" />
++</resources>
+diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/android/fenix/app/src/main/res/values/strings.xml
+index 70da8ea..805984e 100644
+--- a/mobile/android/fenix/app/src/main/res/values/strings.xml
++++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
+@@ -4278,4 +4278,34 @@
+     <string name="librewolf_ubo_setup_failed_message">Browsing is paused because uBlock Origin could not be prepared. Retry setup or close Redoubt.</string>
+     <string name="librewolf_ubo_setup_retry">Retry</string>
+     <string name="librewolf_ubo_setup_close">Close Redoubt</string>
++    <!-- Canvas/WebGL controls use the exact requesting origin and Gecko permission lifetime. -->
++    <string name="origin_permissions_title">Canvas and WebGL permissions</string>
++    <string name="origin_permissions_default">Ask for each site. WebGL and canvas readback stay protected until you allow an exception.</string>
++    <string name="origin_permissions_scope">Requests for this page and saved exceptions. Each exception applies only to the listed website address.</string>
++    <string name="origin_permissions_private_scope">Private requests and exceptions only. They are cleared when the last private tab closes.</string>
++    <string name="origin_permissions_empty">No pending requests or exceptions.</string>
++    <string name="origin_permissions_webgl">WebGL</string>
++    <string name="origin_permissions_canvas">Canvas readback</string>
++    <string name="origin_permissions_record">%1$s — %2$s\n%3$s · %4$s</string>
++    <string name="origin_permissions_blocked_attempt">%1$s blocked — %2$s\nReview request</string>
++    <string name="origin_permissions_origin">Requesting site: %1$s</string>
++    <string name="origin_permissions_frame">Requesting frame: %1$s\nOn page: %2$s\nYour choice applies to the requesting frame’s origin.</string>
++    <string name="origin_permissions_session_explanation">Without Remember, your choice lasts for this browser session, including page reloads. Allow or Block reloads the requesting page or frame.</string>
++    <string name="origin_permissions_private_explanation">Your choice lasts only for this private browsing session. Allow or Block reloads the requesting page or frame.</string>
++    <string name="origin_permissions_remember">Remember after restarting the browser</string>
++    <string name="origin_permissions_allow">Allow</string>
++    <string name="origin_permissions_block">Block</string>
++    <string name="origin_permissions_ask">Ask / reset</string>
++    <string name="origin_permissions_allowed">Allowed</string>
++    <string name="origin_permissions_blocked">Blocked</string>
++    <string name="origin_permissions_persistent_lifetime">Remembered</string>
++    <string name="origin_permissions_session_lifetime">This browser session</string>
++    <string name="origin_permissions_private_lifetime">This private session</string>
++    <string name="origin_permissions_close">Close</string>
++    <string name="origin_permissions_review">Review</string>
++    <string name="origin_permissions_quiet_notice">Canvas or WebGL was protected. Review in site permissions.</string>
++    <string name="origin_permissions_reload">Reload page</string>
++    <string name="origin_permissions_reload_explanation">Permission updated. Reload this tab to apply the change to existing content.</string>
++    <string name="origin_permissions_page_changed">This request or exception changed. Review the current permissions.</string>
++    <string name="origin_permissions_error">Could not update permissions. The site remains protected unless an existing exception allows it.</string>
+ </resources>
+diff --git a/mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml
+index 805a058..62d5e03 100644
+--- a/mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml
+@@ -91,6 +91,12 @@
+             app:allowDividerBelow="true"
+             app:isPreferenceVisible="false" />
+ 
++        <androidx.preference.Preference
++            android:key="origin_bound_permissions"
++            android:title="@string/origin_permissions_title"
++            android:summary="@string/origin_permissions_default"
++            android:icon="@drawable/mozac_ic_globe_24" />
++
+         <androidx.preference.Preference
+             android:icon="@drawable/mozac_ic_globe_24"
+             android:key="@string/pref_key_show_site_exceptions"
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt
+new file mode 100644
+index 0000000..895f831
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt
+@@ -0,0 +1,63 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.browser.permissions
++
++import android.view.View
++import mozilla.components.browser.state.state.BrowserState
++import mozilla.components.browser.state.state.ContentState
++import mozilla.components.browser.state.state.TabSessionState
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++
++@RunWith(RobolectricTestRunner::class)
++class OriginBoundPermissionsDialogFragmentTest {
++    @Test
++    fun `frame explanation names the exact requesting scheme and port plus the top site`() {
++        val request = OriginRequest()
++        val message = originBoundRequestMessage(testContext, request.permission, request.topLevelOrigin)
++        assertTrue(message.contains("https://frame.test:8443"))
++        assertTrue(message.contains("https://top.test"))
++        assertFalse(message.contains("http://frame.test"))
++    }
++
++    @Test
++    fun `private permission never shows a checked persistent choice even for malformed persistent input`() {
++        val permission = OriginRequest(privateMode = true).permission.copy(permanent = true)
++        val checkbox = originBoundRememberChoice(testContext, permission)
++        assertEquals(View.GONE, checkbox.visibility)
++        assertFalse(checkbox.isChecked)
++    }
++
++    @Test
++    fun `session and remembered permissions expose their actual lifetime`() {
++        val session = OriginRequest().permission
++        assertFalse(originBoundRememberChoice(testContext, session).isChecked)
++        assertTrue(originBoundRememberChoice(testContext, session.copy(permanent = true)).isChecked)
++    }
++
++    @Test
++    fun `normal settings exclude private and other container requests`() {
++        val normal = OriginRequest(id = "normal")
++        val privateRequest = OriginRequest(privateMode = true, id = "private")
++        val container = OriginRequest(contextId = "other", id = "container")
++        val requests = listOf(normal, privateRequest, container)
++        val state = BrowserState(tabs = requests.map { request ->
++            TabSessionState(
++                request.id,
++                ContentState("https://top.test", private = request.permission.privateMode, permissionRequestsList = listOf(request)),
++                contextId = request.permission.contextId,
++            )
++        })
++        assertEquals(listOf("normal"), originBoundRequests(state, null, false, null).map { it.second.id })
++        assertEquals(listOf("private"), originBoundRequests(state, null, true, null).map { it.second.id })
++        assertEquals(listOf("container"), originBoundRequests(state, null, false, "other").map { it.second.id })
++        assertTrue(originBoundRequests(state, "normal", true, null).isEmpty())
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt
+new file mode 100644
+index 0000000..4e1c365
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt
+@@ -0,0 +1,172 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.browser.permissions
++
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.async
++import kotlinx.coroutines.test.StandardTestDispatcher
++import kotlinx.coroutines.test.advanceUntilIdle
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.runTest
++import mozilla.components.browser.state.state.BrowserState
++import mozilla.components.browser.state.state.ContentState
++import mozilla.components.browser.state.state.TabSessionState
++import mozilla.components.browser.state.store.BrowserStore
++import mozilla.components.concept.engine.permission.OriginBoundPermission
++import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
++import mozilla.components.concept.engine.permission.Permission
++import mozilla.components.concept.engine.permission.PermissionRequest
++import mozilla.components.concept.engine.permission.SitePermissions.Status
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class OriginBoundPermissionsFeatureTest {
++    @Test
++    fun `permission write must be acknowledged before the original document reloads`() = runTest {
++        val request = OriginRequest()
++        val store = requestStore(request)
++        val applied = async { applyOriginBoundDecision(store, "requesting", request, Status.ALLOWED, false) }
++        runCurrent()
++        assertEquals(listOf(Status.ALLOWED to false), request.decisions)
++        assertEquals(0, request.reloads)
++        request.applied.complete(true)
++        assertTrue(applied.await())
++        assertEquals(1, request.reloads)
++    }
++
++    @Test
++    fun `navigation before acknowledgement never reloads the new document`() = runTest {
++        val request = OriginRequest()
++        val applied = async { applyOriginBoundDecision(requestStore(request), "requesting", request, Status.ALLOWED, true) }
++        runCurrent()
++        request.applied.complete(false)
++        assertFalse(applied.await())
++        assertEquals(0, request.reloads)
++    }
++
++    @Test
++    fun `background request applies to its own tab even when another tab is selected`() = runTest {
++        val request = OriginRequest()
++        val store = requestStore(request, selected = "other")
++        request.applied.complete(true)
++        assertTrue(applyOriginBoundDecision(store, "requesting", request, Status.BLOCKED, true))
++        assertEquals(listOf(Status.BLOCKED to true), request.decisions)
++        assertEquals(1, request.reloads)
++        assertEquals("other", store.state.selectedTabId)
++    }
++
++    @Test
++    fun `private decisions cannot request permanent persistence`() = runTest {
++        val request = OriginRequest(privateMode = true)
++        request.applied.complete(true)
++        assertTrue(applyOriginBoundDecision(requestStore(request), "requesting", request, Status.ALLOWED, true))
++        assertEquals(listOf(Status.ALLOWED to false), request.decisions)
++    }
++
++    @Test
++    fun `closed tab or consumed request cannot be answered from an old dialog`() = runTest {
++        val request = OriginRequest()
++        assertFalse(applyOriginBoundDecision(BrowserStore(), "closed", request, Status.ALLOWED, true))
++        assertEquals(1, request.rejections)
++        assertTrue(request.decisions.isEmpty())
++        assertEquals(0, request.reloads)
++    }
++
++    @Test
++    fun `a private or container mismatch cannot receive a grant`() = runTest {
++        val request = OriginRequest(privateMode = true, contextId = "container")
++        val tab = TabSessionState("requesting", ContentState("https://top.test", permissionRequestsList = listOf(request)))
++        val store = BrowserStore(BrowserState(tabs = listOf(tab)))
++        assertFalse(applyOriginBoundDecision(store, "requesting", request, Status.ALLOWED, true))
++        assertEquals(1, request.rejections)
++        assertTrue(request.decisions.isEmpty())
++    }
++
++    @Test
++    fun `quiet request offers a notice without opening a modal and stopping keeps it actionable`() = runTest {
++        val dispatcher = StandardTestDispatcher(testScheduler)
++        val request = OriginRequest(quiet = true)
++        val store = requestStore(request)
++        var notices = 0
++        var modals = 0
++        val feature = OriginBoundPermissionsFeature(
++            store, null,
++            onQuietRequest = { _, _ -> notices++ },
++            onPromptRequest = { _, _ -> modals++ },
++            mainDispatcher = dispatcher,
++        )
++        feature.start()
++        runCurrent()
++        assertEquals(1, notices)
++        assertEquals(0, modals)
++        feature.stop()
++        advanceUntilIdle()
++        assertEquals(listOf(request), store.state.tabs.first().content.permissionRequestsList)
++        assertTrue(request.decisions.isEmpty())
++    }
++
++    @Test
++    fun `nonquiet request opens one prompt and an invalidated request is consumed`() = runTest {
++        val dispatcher = StandardTestDispatcher(testScheduler)
++        val request = OriginRequest(quiet = false)
++        val store = requestStore(request)
++        var modals = 0
++        val feature = OriginBoundPermissionsFeature(
++            store, null, { _, _ -> error("Must not be quiet") }, { _, _ -> modals++ },
++            mainDispatcher = dispatcher,
++        )
++        feature.start()
++        runCurrent()
++        assertEquals(1, modals)
++        request.applied.complete(false)
++        advanceUntilIdle()
++        assertTrue(store.state.tabs.first().content.permissionRequestsList.isEmpty())
++        assertEquals(1, request.rejections)
++        feature.stop()
++    }
++}
++
++internal class OriginRequest(
++    privateMode: Boolean = false,
++    contextId: String? = null,
++    quiet: Boolean = true,
++    override val id: String = "origin-request",
++) : OriginBoundPermissionRequest {
++    override val uri = "https://frame.test:8443"
++    override val permissions = listOf(Permission.ContentWebGL())
++    override val permission = OriginBoundPermission(
++        OriginBoundPermission.Kind.WEBGL, uri,
++        uri + if (privateMode) "^privateBrowsingId=1" else "",
++        privateMode, contextId, Status.NO_DECISION, false,
++    )
++    override val topLevelOrigin = "https://top.test"
++    override val isQuiet = quiet
++    val applied = CompletableDeferred<Boolean>()
++    val decisions = mutableListOf<Pair<Status, Boolean>>()
++    var reloads = 0
++    var rejections = 0
++    override fun decide(status: Status, permanent: Boolean) { decisions += status to permanent }
++    override suspend fun awaitDecisionApplied() = applied.await()
++    override suspend fun reloadIfCurrent(): Boolean { reloads++; return true }
++    override fun grant(permissions: List<Permission>) = decide(Status.ALLOWED, false)
++    override fun reject() { rejections++ }
++    override fun merge(permissionRequest: PermissionRequest) = Unit
++}
++
++internal fun requestStore(request: OriginRequest, selected: String = "requesting") = BrowserStore(
++    BrowserState(
++        tabs = listOf(
++            TabSessionState(
++                "requesting",
++                ContentState("https://top.test", private = request.permission.privateMode, permissionRequestsList = listOf(request)),
++                contextId = request.permission.contextId,
++            ),
++            TabSessionState("other", ContentState("https://other.test")),
++        ),
++        selectedTabId = selected,
++    ),
++)
+diff --git a/mobile/android/geckoview/api.txt b/mobile/android/geckoview/api.txt
+index 96ce621..e49eaf6 100644
+--- a/mobile/android/geckoview/api.txt
++++ b/mobile/android/geckoview/api.txt
+@@ -1604,9 +1604,11 @@ package org.mozilla.geckoview {
+   public static interface GeckoSession.PermissionDelegate {
+     method @UiThread default public void onAndroidPermissionsRequest(@NonNull GeckoSession, @Nullable String[], @NonNull GeckoSession.PermissionDelegate.Callback);
+     method @Nullable @UiThread default public GeckoResult<Integer> onContentPermissionRequest(@NonNull GeckoSession, @NonNull GeckoSession.PermissionDelegate.ContentPermission);
++    method @Nullable @UiThread default public GeckoResult<GeckoSession.PermissionDelegate.PermissionDecision> onContentPermissionRequestWithOptions(@NonNull GeckoSession, @NonNull GeckoSession.PermissionDelegate.ContentPermission);
+     method @UiThread default public void onMediaPermissionRequest(@NonNull GeckoSession, @NonNull String, @Nullable GeckoSession.PermissionDelegate.MediaSource[], @Nullable GeckoSession.PermissionDelegate.MediaSource[], @NonNull GeckoSession.PermissionDelegate.MediaCallback);
+     field public static final int PERMISSION_AUTOPLAY_AUDIBLE = 5;
+     field public static final int PERMISSION_AUTOPLAY_INAUDIBLE = 4;
++    field public static final int PERMISSION_CANVAS = 12;
+     field public static final int PERMISSION_DESKTOP_NOTIFICATION = 1;
+     field public static final int PERMISSION_GEOLOCATION = 0;
+     field public static final int PERMISSION_LOCAL_DEVICE_ACCESS = 9;
+@@ -1615,6 +1617,7 @@ package org.mozilla.geckoview {
+     field public static final int PERMISSION_PERSISTENT_STORAGE = 2;
+     field public static final int PERMISSION_STORAGE_ACCESS = 8;
+     field public static final int PERMISSION_TRACKING = 7;
++    field public static final int PERMISSION_WEBGL = 11;
+     field public static final int PERMISSION_XR = 3;
+   }
+ 
+@@ -1625,16 +1628,22 @@ package org.mozilla.geckoview {
+ 
+   public static class GeckoSession.PermissionDelegate.ContentPermission {
+     ctor protected ContentPermission();
++    method @AnyThread @NonNull public GeckoResult<Boolean> awaitDecisionApplied();
+     method @AnyThread @Nullable public static GeckoSession.PermissionDelegate.ContentPermission fromJson(@NonNull JSONObject);
+     method @AnyThread public void notifyShown();
++    method @AnyThread @NonNull public GeckoResult<Boolean> reloadIfCurrent();
+     method @AnyThread @NonNull public JSONObject toJson();
+     field public static final int VALUE_ALLOW = 1;
+     field public static final int VALUE_DENY = 2;
+     field public static final int VALUE_PROMPT = 3;
+     field @Nullable public final String contextId;
++    field public final int expireType;
++    field public final boolean isQuiet;
+     field public final int permission;
++    field @NonNull public final String principalOrigin;
+     field public final boolean privateMode;
+     field @Nullable public final String thirdPartyOrigin;
++    field @Nullable public final String topLevelOrigin;
+     field @NonNull public final String uri;
+     field public final int value;
+   }
+@@ -1669,6 +1678,12 @@ package org.mozilla.geckoview {
+   @Retention(value=RetentionPolicy.SOURCE) public static interface GeckoSession.PermissionDelegate.MediaSource.Type {
+   }
+ 
++  public static final class GeckoSession.PermissionDelegate.PermissionDecision {
++    ctor @AnyThread public PermissionDecision(int, boolean);
++    field public final boolean permanent;
++    field public final int value;
++  }
++
+   @AnyThread public static interface GeckoSession.PrintDelegate {
+     method default public void onPrint(@NonNull GeckoSession);
+     method default public void onPrint(@NonNull InputStream);
+@@ -2641,6 +2656,7 @@ package org.mozilla.geckoview {
+     method @HandlerThread @NonNull public GeckoResult<Void> setCookieBannerModeAndPersistInPrivateBrowsingForDomain(@NonNull String, int);
+     method @HandlerThread @NonNull public GeckoResult<Void> setCookieBannerModeForDomain(@NonNull String, int, boolean);
+     method @AnyThread public void setPermission(@NonNull GeckoSession.PermissionDelegate.ContentPermission, int);
++    method @AnyThread @NonNull public GeckoResult<Void> setPermissionWithLifetime(@NonNull GeckoSession.PermissionDelegate.ContentPermission, int, boolean);
+     method @AnyThread public void setPrivateBrowsingPermanentPermission(@NonNull GeckoSession.PermissionDelegate.ContentPermission, int);
+   }
+ 
+diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CanvasPermissionTest.kt b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CanvasPermissionTest.kt
+new file mode 100644
+index 0000000..d748d6f
+--- /dev/null
++++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CanvasPermissionTest.kt
+@@ -0,0 +1,325 @@
++/* Any copyright is dedicated to the Public Domain.
++   http://creativecommons.org/publicdomain/zero/1.0/ */
++
++package org.mozilla.geckoview.test
++
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.test.filters.MediumTest
++import androidx.test.platform.app.InstrumentationRegistry
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNotEquals
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.geckoview.GeckoResult
++import org.mozilla.geckoview.GeckoSession
++import org.mozilla.geckoview.GeckoSession.PermissionDelegate
++import org.mozilla.geckoview.GeckoSession.PermissionDelegate.ContentPermission
++import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PermissionDecision
++import org.mozilla.geckoview.GeckoSessionSettings
++import org.mozilla.geckoview.StorageController
++import org.mozilla.geckoview.test.rule.GeckoSessionTestRule.WithDisplay
++import org.mozilla.geckoview.test.util.TestServer
++
++/** Native permission enforcement and document-identity integration tests. */
++@RunWith(AndroidJUnit4::class)
++@MediumTest
++@WithDisplay(width = 100, height = 100)
++class CanvasPermissionTest : BaseSessionTest() {
++    private val storage get() = sessionRule.runtime.storageController
++    private lateinit var requested: GeckoResult<ContentPermission>
++    private lateinit var answer: GeckoResult<PermissionDecision>
++
++    @Before
++    fun prepare() {
++        sessionRule.waitForResult(storage.clearData(StorageController.ClearFlags.PERMISSIONS))
++        sessionRule.setPrefsUntilTestEnd(
++            mapOf(
++                "librewolf.webgl.prompt" to true,
++                "librewolf.webgl.prompt.hide" to true,
++                "privacy.resistFingerprinting" to false,
++                "privacy.fingerprintingProtection" to true,
++                "privacy.fingerprintingProtection.pbmode" to true,
++                "privacy.fingerprintingProtection.overrides" to
++                    "-AllTargets,+CanvasImageExtractionPrompt,+CanvasRandomization,+CanvasExtractionBeforeUserInputIsBlocked",
++            ),
++        )
++        nextRequest()
++        sessionRule.delegateUntilTestEnd(
++            object : PermissionDelegate {
++                override fun onContentPermissionRequestWithOptions(
++                    session: GeckoSession,
++                    perm: ContentPermission,
++                ): GeckoResult<PermissionDecision> {
++                    requested.complete(perm)
++                    return answer
++                }
++            },
++        )
++        mainSession.loadTestPath(HELLO_HTML_PATH)
++        mainSession.waitForPageStop()
++    }
++
++    private fun nextRequest() {
++        requested = GeckoResult()
++        answer = GeckoResult()
++    }
++
++    private fun allow(perm: ContentPermission, permanent: Boolean = false) {
++        answer.complete(PermissionDecision(ContentPermission.VALUE_ALLOW, permanent))
++        assertTrue(sessionRule.waitForResult(perm.awaitDecisionApplied()))
++    }
++
++    private fun revoke(perm: ContentPermission) {
++        val current = sessionRule.waitForResult(storage.allPermissions).single {
++            it.principalOrigin == perm.principalOrigin && it.permission == perm.permission
++        }
++        sessionRule.waitForResult(storage.setPermissionWithLifetime(current, ContentPermission.VALUE_PROMPT, false))
++    }
++
++    private fun worker(expression: String, transfer: Boolean = false): String = """
++        new Promise((resolve, reject) => {
++          const source = 'onmessage = event => { try { Promise.resolve(' + ${org.json.JSONObject.quote(expression)} + ').then(value => postMessage(value), e => postMessage({error:String(e)})); } catch (e) { postMessage({error:String(e)}); } };';
++          const url = URL.createObjectURL(new Blob([source], {type: 'text/javascript'}));
++          const worker = new Worker(url);
++          worker.onmessage = event => {
++            worker.terminate(); URL.revokeObjectURL(url);
++            event.data && event.data.error ? reject(event.data.error) : resolve(event.data);
++          };
++          worker.onerror = reject;
++          if ($transfer) {
++            const canvas = document.createElement('canvas').transferControlToOffscreen();
++            worker.postMessage({canvas}, [canvas]);
++          } else {
++            worker.postMessage(null);
++          }
++        })
++    """.trimIndent()
++
++    @Test
++    fun webglOneAndTwoDomOffscreenAndWorkerRequireMatchingGrant() {
++        for (kind in listOf("webgl", "webgl2")) {
++            for (mode in listOf("dom", "offscreen", "worker", "nested-worker", "transferred-worker")) {
++                nextRequest()
++                val expression = if (mode == "dom") {
++                    "!!document.createElement('canvas').getContext('$kind')"
++                } else if (mode == "transferred-worker") {
++                    "!!event.data.canvas.getContext('$kind')"
++                } else {
++                    "!!new OffscreenCanvas(64,64).getContext('$kind')"
++                }
++                val script = when (mode) {
++                    "worker" -> worker(expression)
++                    "nested-worker" -> worker(worker(expression))
++                    "transferred-worker" -> worker(expression, transfer = true)
++                    else -> expression
++                }
++                assertEquals("Unknown $kind/$mode must be blocked", false, mainSession.waitForJS(script))
++                val perm = sessionRule.waitForResult(requested)
++                assertEquals(PermissionDelegate.PERMISSION_WEBGL, perm.permission)
++                assertTrue(perm.isQuiet)
++                assertEquals(mainSession.evaluateJS("location.origin"), perm.uri)
++                allow(perm)
++                assertEquals("Matching grant must restore $kind/$mode", true, mainSession.waitForJS(script))
++                revoke(perm)
++                assertEquals("Revoke must affect new contexts", false, mainSession.waitForJS(script))
++                mainSession.reload()
++                mainSession.waitForPageStop()
++            }
++        }
++    }
++
++    @Test
++    fun realCanvasPixelsRequireGrantIncludingOffscreenWorkers() {
++        for (mode in listOf("dom", "offscreen", "worker", "nested-worker", "transferred-worker")) {
++            nextRequest()
++            val canvas = when (mode) {
++                "dom" -> "document.createElement('canvas')"
++                "transferred-worker" -> "event.data.canvas"
++                else -> "new OffscreenCanvas(64,64)"
++            }
++            val expression = """
++                (() => {
++                  const canvas = $canvas; canvas.width = canvas.height = 64;
++                  const ctx = canvas.getContext('2d');
++                  ctx.fillStyle = 'rgb(17,91,203)'; ctx.fillRect(0,0,64,64);
++                  return Array.from(ctx.getImageData(0,0,64,64).data).join(',');
++                })()
++            """.trimIndent()
++            val script = when (mode) {
++                "worker" -> worker(expression)
++                "nested-worker" -> worker(worker(expression))
++                "transferred-worker" -> worker(expression, transfer = true)
++                else -> expression
++            }
++            val expected = List(64 * 64) { "17,91,203,255" }.joinToString(",")
++            assertNotEquals("Readback must be protected for $mode", expected, mainSession.waitForJS(script))
++            val perm = sessionRule.waitForResult(requested)
++            assertEquals(PermissionDelegate.PERMISSION_CANVAS, perm.permission)
++            assertTrue("Pre-gesture request stays quiet", perm.isQuiet)
++            allow(perm)
++            assertEquals("Grant returns actual $mode pixels", expected, mainSession.waitForJS(script))
++            revoke(perm)
++            assertNotEquals("Revoke restores protection", expected, mainSession.waitForJS(script))
++            mainSession.reload()
++            mainSession.waitForPageStop()
++        }
++    }
++
++    @Test
++    fun webglRenderingReadbackRequiresBothPermissions() {
++        for (kind in listOf("webgl", "webgl2")) {
++            nextRequest()
++            mainSession.evaluateJS("document.createElement('canvas').getContext('$kind')")
++            val webgl = sessionRule.waitForResult(requested)
++            allow(webgl)
++            nextRequest()
++            val script = """
++                (() => {
++                  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
++                  const gl = canvas.getContext('$kind', {preserveDrawingBuffer:true});
++                  if (!gl) throw new Error('Granted WebGL context is unavailable');
++                  gl.clearColor(1,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
++                  const pixels = new Uint8Array(64*64*4);
++                  gl.readPixels(0,0,64,64,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
++                  return Array.from(pixels).join(',');
++                })()
++            """.trimIndent()
++            val expected = List(64 * 64) { "255,0,0,255" }.joinToString(",")
++            assertNotEquals("WebGL grant alone cannot expose canvas pixels", expected, mainSession.evaluateJS(script))
++            val canvas = sessionRule.waitForResult(requested)
++            assertEquals(PermissionDelegate.PERMISSION_CANVAS, canvas.permission)
++            allow(canvas)
++            assertEquals("Both grants restore actual rendered pixels", expected, mainSession.evaluateJS(script))
++            revoke(canvas)
++            assertNotEquals("Canvas revoke protects WebGL readPixels", expected, mainSession.evaluateJS(script))
++            revoke(webgl)
++            mainSession.reload()
++            mainSession.waitForPageStop()
++        }
++    }
++
++    @Test
++    fun storedSnapshotsCannotReloadOrRecreateRevokedException() {
++        mainSession.evaluateJS("document.createElement('canvas').getContext('webgl')")
++        val request = sessionRule.waitForResult(requested)
++        allow(request)
++        val stored = sessionRule.waitForResult(storage.allPermissions).single {
++            it.permission == PermissionDelegate.PERMISSION_WEBGL
++        }
++        val restored = requireNotNull(ContentPermission.fromJson(stored.toJson()))
++        assertEquals(stored.principalOrigin, restored.principalOrigin)
++        assertEquals(stored.expireType, restored.expireType)
++        assertFalse(sessionRule.waitForResult(restored.awaitDecisionApplied()))
++        assertFalse(sessionRule.waitForResult(restored.reloadIfCurrent()))
++        revoke(stored)
++        val failed = storage.setPermissionWithLifetime(stored, ContentPermission.VALUE_ALLOW, true).then<Boolean>(
++            { GeckoResult.fromValue(false) },
++            { GeckoResult.fromValue(true) },
++        )
++        assertTrue("Revoked snapshot must be rejected", sessionRule.waitForResult(failed))
++        assertTrue(sessionRule.waitForResult(storage.allPermissions).none { it.permission == PermissionDelegate.PERMISSION_WEBGL })
++    }
++
++    @Test
++    fun navigationRejectsOldDecisionEvenAtSameOrigin() {
++        mainSession.evaluateJS("document.createElement('canvas').getContext('webgl')")
++        val perm = sessionRule.waitForResult(requested)
++        mainSession.reload()
++        mainSession.waitForPageStop()
++        answer.complete(PermissionDecision(ContentPermission.VALUE_ALLOW, true))
++        assertFalse(sessionRule.waitForResult(perm.awaitDecisionApplied()))
++        assertFalse(sessionRule.waitForResult(perm.reloadIfCurrent()))
++        assertTrue(sessionRule.waitForResult(storage.allPermissions).none { it.permission == PermissionDelegate.PERMISSION_WEBGL })
++    }
++
++    @Test
++    fun privateGrantStaysSessionOnlyAndDoesNotChangeNormalException() {
++        mainSession.evaluateJS("document.createElement('canvas').getContext('webgl')")
++        val normal = sessionRule.waitForResult(requested)
++        allow(normal, permanent = true)
++        val privateSession = sessionRule.createOpenSession(
++            GeckoSessionSettings.Builder(mainSession.settings).usePrivateMode(true).build(),
++        )
++        privateSession.loadTestPath(HELLO_HTML_PATH)
++        privateSession.waitForPageStop()
++        nextRequest()
++        assertEquals(false, privateSession.evaluateJS("!!document.createElement('canvas').getContext('webgl')"))
++        val privatePerm = sessionRule.waitForResult(requested)
++        assertTrue(privatePerm.privateMode)
++        assertNotEquals(normal.principalOrigin, privatePerm.principalOrigin)
++        allow(privatePerm, permanent = true)
++        val records = sessionRule.waitForResult(storage.allPermissions).filter { it.permission == PermissionDelegate.PERMISSION_WEBGL }
++        assertEquals(0, records.single { !it.privateMode }.expireType)
++        assertEquals(2, records.single { it.privateMode }.expireType)
++        revoke(privatePerm)
++        assertEquals(true, mainSession.evaluateJS("!!document.createElement('canvas').getContext('webgl')"))
++        assertEquals(false, privateSession.evaluateJS("!!document.createElement('canvas').getContext('webgl')"))
++        privateSession.close()
++    }
++
++    @Test
++    fun crossOriginFrameGrantDoesNotGrantParentOrAnotherPort() {
++        sessionRule.setPrefsUntilTestEnd(mapOf("network.dns.localDomains" to "localhost,child.localhost"))
++        val alternate = TestServer(
++            InstrumentationRegistry.getInstrumentation().targetContext,
++            responseModifiers = mapOf(
++                HELLO_HTML_PATH to TestServer.ResponseModifier { html ->
++                    html + "<script>document.createElement('canvas').getContext('webgl');</script>"
++                },
++            ),
++        )
++        alternate.start(4246)
++        try {
++            val frameOrigin = "http://child.localhost:4246"
++            mainSession.evaluateJS(
++                "window.topDocumentMarker='still-current'; const f=document.createElement('iframe'); " +
++                    "f.src='$frameOrigin$HELLO_HTML_PATH'; document.body.appendChild(f);",
++            )
++            val frame = sessionRule.waitForResult(requested)
++            assertEquals(frameOrigin, frame.uri)
++            assertEquals(mainSession.evaluateJS("location.origin"), frame.topLevelOrigin)
++            allow(frame)
++            assertTrue(sessionRule.waitForResult(frame.reloadIfCurrent()))
++            assertEquals("still-current", mainSession.evaluateJS("window.topDocumentMarker"))
++            nextRequest()
++            assertEquals(false, mainSession.evaluateJS("!!document.createElement('canvas').getContext('webgl')"))
++            val parent = sessionRule.waitForResult(requested)
++            assertNotEquals(frame.principalOrigin, parent.principalOrigin)
++            answer.complete(PermissionDecision(ContentPermission.VALUE_DENY, false))
++            assertTrue(sessionRule.waitForResult(parent.awaitDecisionApplied()))
++
++            val anotherPort = sessionRule.createOpenSession()
++            anotherPort.loadUri(createTestUrl(HELLO_HTML_PATH).replace("localhost", "child.localhost"))
++            anotherPort.waitForPageStop()
++            nextRequest()
++            assertEquals(false, anotherPort.evaluateJS("!!document.createElement('canvas').getContext('webgl')"))
++            val other = sessionRule.waitForResult(requested)
++            assertEquals("http://child.localhost:4245", other.uri)
++            answer.complete(PermissionDecision(ContentPermission.VALUE_DENY, false))
++            assertTrue(sessionRule.waitForResult(other.awaitDecisionApplied()))
++            anotherPort.close()
++        } finally {
++            alternate.stop()
++        }
++    }
++
++    @Test
++    fun acknowledgedFrameReloadDoesNotReloadTopDocument() {
++        mainSession.evaluateJS(
++            """
++                window.topDocumentMarker = 'still-current';
++                const frame = document.createElement('iframe');
++                frame.srcdoc = '<script>document.createElement("canvas").getContext("webgl");<\/script>';
++                document.body.appendChild(frame);
++            """.trimIndent(),
++        )
++        val perm = sessionRule.waitForResult(requested)
++        allow(perm)
++        assertTrue(sessionRule.waitForResult(perm.reloadIfCurrent()))
++        assertEquals("still-current", mainSession.evaluateJS("window.topDocumentMarker"))
++        assertFalse("A request cannot trigger duplicate reload", sessionRule.waitForResult(perm.reloadIfCurrent()))
++    }
++}
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+index ef2510d..ea9ff55 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+@@ -1108,6 +1108,7 @@ public class GeckoSession {
+           new String[] {
+             "GeckoView:AndroidPermission",
+             "GeckoView:ContentPermission",
++            "GeckoView:ContentPermissionWithOptions",
+             "GeckoView:MediaPermission"
+           }) {
+         @Override
+@@ -1136,6 +1137,25 @@ public class GeckoSession {
+                 GeckoSession.this,
+                 permsList.toArray(new String[0]),
+                 new PermissionCallback("android", callback));
++          } else if ("GeckoView:ContentPermissionWithOptions".equals(event)) {
++            final GeckoResult<PermissionDelegate.PermissionDecision> result =
++                delegate.onContentPermissionRequestWithOptions(
++                    GeckoSession.this, new PermissionDelegate.ContentPermission(message));
++            if (result == null) {
++              callback.sendSuccess(
++                  new PermissionDelegate.PermissionDecision(
++                          PermissionDelegate.ContentPermission.VALUE_PROMPT, false)
++                      .toGeckoBundle());
++            } else {
++              callback.resolveTo(
++                  result.map(
++                      decision ->
++                          decision == null
++                              ? new PermissionDelegate.PermissionDecision(
++                                      PermissionDelegate.ContentPermission.VALUE_PROMPT, false)
++                                  .toGeckoBundle()
++                              : decision.toGeckoBundle()));
++            }
+           } else if ("GeckoView:ContentPermission".equals(event)) {
+             final GeckoResult<Integer> res =
+                 delegate.onContentPermissionRequest(
+@@ -7212,6 +7232,44 @@ public class GeckoSession {
+     /** Permission for local network access */
+     int PERMISSION_LOCAL_NETWORK_ACCESS = 10;
+ 
++    /** Permission to create WebGL contexts for this exact web origin. */
++    int PERMISSION_WEBGL = 11;
++
++    /** Permission to read actual canvas pixels for this exact web origin. */
++    int PERMISSION_CANVAS = 12;
++
++    /** A content-permission decision with an explicit storage lifetime. */
++    final class PermissionDecision {
++      /** One of {@link ContentPermission#VALUE_ALLOW}, VALUE_DENY or VALUE_PROMPT. */
++      public final @ContentPermission.Value int value;
++
++      /** Whether to persist the choice; private decisions always remain session-only. */
++      public final boolean permanent;
++
++      /**
++       * Construct a decision. PROMPT dismisses the request without storing a choice.
++       *
++       * @param value the permission decision
++       * @param permanent true for a persistent normal-mode choice; false for this browser session
++       */
++      @AnyThread
++      public PermissionDecision(final @ContentPermission.Value int value, final boolean permanent) {
++        if (value < ContentPermission.VALUE_ALLOW || value > ContentPermission.VALUE_PROMPT) {
++          throw new IllegalArgumentException("Invalid permission decision");
++        }
++        this.value = value;
++        this.permanent = permanent;
++      }
++
++      /* package */ @NonNull
++      GeckoBundle toGeckoBundle() {
++        final GeckoBundle bundle = new GeckoBundle(2);
++        bundle.putInt("value", value);
++        bundle.putBoolean("permanent", permanent);
++        return bundle;
++      }
++    }
++
+     /**
+      * Represents a content permission -- including the type of permission, the present value of the
+      * permission, the URL the permission pertains to, and other information.
+@@ -7245,6 +7303,20 @@ public class GeckoSession {
+        */
+       public final boolean privateMode;
+ 
++      /** Whether this blocked attempt should be exposed without automatically opening a dialog. */
++      public final boolean isQuiet;
++
++      /** The top-level origin, for distinguishing a requesting frame from the top-level site. */
++      public final @Nullable String topLevelOrigin;
++
++      /** Exact serialized origin including origin attributes, for matching permission records. */
++      public final @NonNull String principalOrigin;
++
++      /** Gecko expiration type: 0 for persistent and 2 for browser-session permissions. */
++      public final int expireType;
++
++      private final long mModificationTime;
++
+       /** The type of this permission; one of {@link #PERMISSION_GEOLOCATION PERMISSION_*}. */
+       public final int permission;
+ 
+@@ -7274,6 +7346,11 @@ public class GeckoSession {
+         this.uri = "";
+         this.thirdPartyOrigin = null;
+         this.privateMode = false;
++        this.isQuiet = false;
++        this.topLevelOrigin = null;
++        this.principalOrigin = "";
++        this.expireType = 0;
++        this.mModificationTime = 0;
+         this.permission = PERMISSION_GEOLOCATION;
+         this.value = VALUE_ALLOW;
+         this.mPrincipal = "";
+@@ -7285,6 +7362,11 @@ public class GeckoSession {
+         this.uri = bundle.getString("uri");
+         this.mPrincipal = bundle.getString("principal");
+         this.privateMode = bundle.getBoolean("privateMode");
++        this.isQuiet = bundle.getBoolean("isQuiet");
++        this.topLevelOrigin = bundle.getString("topLevelOrigin");
++        this.principalOrigin = bundle.getString("principalOrigin", "");
++        this.expireType = bundle.getInt("expireType", 0);
++        this.mModificationTime = bundle.getLong("modificationTime", 0);
+         this.mRequestId = bundle.getString("requestId");
+ 
+         final String permission = bundle.getString("perm");
+@@ -7363,6 +7445,10 @@ public class GeckoSession {
+           return PERMISSION_LOCAL_DEVICE_ACCESS;
+         } else if ("local-network".equals(type)) {
+           return PERMISSION_LOCAL_NETWORK_ACCESS;
++        } else if ("webgl".equals(type)) {
++          return PERMISSION_WEBGL;
++        } else if ("canvas".equals(type)) {
++          return PERMISSION_CANVAS;
+         } else {
+           return -1;
+         }
+@@ -7393,6 +7479,10 @@ public class GeckoSession {
+             return "loopback-network";
+           case PERMISSION_LOCAL_NETWORK_ACCESS:
+             return "local-network";
++          case PERMISSION_WEBGL:
++            return "webgl";
++          case PERMISSION_CANVAS:
++            return "canvas";
+           default:
+             return "";
+         }
+@@ -7437,6 +7527,42 @@ public class GeckoSession {
+         EventDispatcher.getInstance().dispatch("GeckoView:ContentPermissionShown", data);
+       }
+ 
++      /**
++       * Wait for this origin-bound prompt's decision to be written by Gecko. Returns false if the
++       * request was dismissed or its document changed. Restored permission records are not live
++       * requests and return false.
++       *
++       * @return whether the decision was applied to the still-current requesting document
++       */
++      @AnyThread
++      public @NonNull GeckoResult<Boolean> awaitDecisionApplied() {
++        if (mRequestId == null) {
++          return GeckoResult.fromValue(false);
++        }
++        final GeckoBundle bundle = new GeckoBundle(1);
++        bundle.putString("requestId", mRequestId);
++        return EventDispatcher.getInstance()
++            .queryBoolean("GeckoView:AwaitOriginPermissionDecision", bundle);
++      }
++
++      /**
++       * Reload the exact requesting document after its decision has been applied. Returns false for
++       * a stale/dismissed request or a restored permission record. A subframe request reloads that
++       * subframe, rather than the top-level page.
++       *
++       * @return whether the original document's reload was requested
++       */
++      @AnyThread
++      public @NonNull GeckoResult<Boolean> reloadIfCurrent() {
++        if (mRequestId == null) {
++          return GeckoResult.fromValue(false);
++        }
++        final GeckoBundle bundle = new GeckoBundle(1);
++        bundle.putString("requestId", mRequestId);
++        return EventDispatcher.getInstance()
++            .queryBoolean("GeckoView:ReloadOriginPermissionDocument", bundle);
++      }
++
+       /* package */ @NonNull
+       GeckoBundle toGeckoBundle() {
+         final GeckoBundle res = new GeckoBundle(7);
+@@ -7444,6 +7570,11 @@ public class GeckoSession {
+         res.putString("thirdPartyOrigin", thirdPartyOrigin);
+         res.putString("principal", mPrincipal);
+         res.putBoolean("privateMode", privateMode);
++        res.putBoolean("isQuiet", isQuiet);
++        res.putString("topLevelOrigin", topLevelOrigin);
++        res.putString("principalOrigin", principalOrigin);
++        res.putInt("expireType", expireType);
++        res.putLong("modificationTime", mModificationTime);
+         res.putString("perm", convertType(permission, privateMode));
+         res.putInt("value", value);
+         res.putString("contextId", contextId);
+@@ -7507,6 +7638,27 @@ public class GeckoSession {
+       return GeckoResult.fromValue(ContentPermission.VALUE_PROMPT);
+     }
+ 
++    /**
++     * Request an origin-bound WebGL or canvas exception with a choice of lifetime. Quiet requests
++     * should appear in site controls without automatically opening a dialog. The default adapts the
++     * legacy callback into a session-only decision.
++     *
++     * @param session the requesting session
++     * @param perm the exact requesting-origin permission and display metadata
++     * @return the decision and lifetime, or null to dismiss without storing a decision
++     */
++    @UiThread
++    default @Nullable GeckoResult<PermissionDecision> onContentPermissionRequestWithOptions(
++        @NonNull final GeckoSession session, @NonNull final ContentPermission perm) {
++      final GeckoResult<Integer> result = onContentPermissionRequest(session, perm);
++      return result == null
++          ? null
++          : result.map(
++              value ->
++                  new PermissionDecision(
++                      value == null ? ContentPermission.VALUE_PROMPT : value, false));
++    }
++
+     /** Defines the set of media source categories and types used for media capture. */
+     class MediaSource {
+       /** Media source type definitions for media device sources. */
+@@ -7684,7 +7836,11 @@ public class GeckoSession {
+     PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE,
+     PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS,
+     PermissionDelegate.PERMISSION_TRACKING,
+-    PermissionDelegate.PERMISSION_STORAGE_ACCESS
++    PermissionDelegate.PERMISSION_STORAGE_ACCESS,
++    PermissionDelegate.PERMISSION_LOCAL_DEVICE_ACCESS,
++    PermissionDelegate.PERMISSION_LOCAL_NETWORK_ACCESS,
++    PermissionDelegate.PERMISSION_WEBGL,
++    PermissionDelegate.PERMISSION_CANVAS
+   })
+   public @interface Permission {}
+ 
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
+index e26abea..39a107a 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
+@@ -286,6 +286,33 @@ public final class StorageController {
+     setPermissionInternal(perm, value, /* allowPermanentPrivateBrowsing */ false);
+   }
+ 
++  /**
++   * Set or reset an exact WebGL/canvas permission and acknowledge its application. PROMPT removes
++   * the exception. Private permissions always remain session-only. The record must still match the
++   * snapshot returned by getAllPermissions/getPermissions; a changed or removed record fails the
++   * result and must be refreshed before retrying.
++   *
++   * @param perm the exact permission returned by Gecko
++   * @param value ALLOW, DENY or PROMPT
++   * @param permanent whether a normal-mode decision should survive browser restart
++   * @return completion after Gecko has applied the write
++   */
++  @AnyThread
++  public @NonNull GeckoResult<Void> setPermissionWithLifetime(
++      final @NonNull ContentPermission perm,
++      final @ContentPermission.Value int value,
++      final boolean permanent) {
++    if (perm.permission != GeckoSession.PermissionDelegate.PERMISSION_WEBGL
++        && perm.permission != GeckoSession.PermissionDelegate.PERMISSION_CANVAS) {
++      return GeckoResult.fromException(
++          new IllegalArgumentException("Explicit lifetime requires a WebGL or canvas permission"));
++    }
++    final GeckoBundle bundle = perm.toGeckoBundle();
++    bundle.putInt("newValue", value);
++    bundle.putBoolean("permanent", permanent);
++    return EventDispatcher.getInstance().queryVoid("GeckoView:SetOriginPermission", bundle);
++  }
++
+   /**
+    * Set a permanent value for a permission in a private browsing session.
+    *
+diff --git a/mobile/shared/actors/GeckoViewPermissionChild.sys.mjs b/mobile/shared/actors/GeckoViewPermissionChild.sys.mjs
+index 6ca281f..0a70d5a 100644
+--- a/mobile/shared/actors/GeckoViewPermissionChild.sys.mjs
++++ b/mobile/shared/actors/GeckoViewPermissionChild.sys.mjs
+@@ -5,6 +5,30 @@
+ import { GeckoViewActorChild } from "resource://gre/modules/GeckoViewActorChild.sys.mjs";
+ 
+ export class GeckoViewPermissionChild extends GeckoViewActorChild {
++  handleEvent(event) {
++    if (event.type === "pagehide" && event.isTrusted) {
++      this.sendAsyncMessage("GeckoView:CancelCanvasPermissions");
++    }
++  }
++
++  observe(subject, topic, data) {
++    if (subject !== this.contentWindow || !["quiet", "prompt"].includes(data)) {
++      return;
++    }
++    const kind =
++      topic === "geckoview-webgl-permission"
++        ? "webgl"
++        : topic === "geckoview-canvas-permission"
++          ? "canvas"
++          : null;
++    if (kind) {
++      this.sendAsyncMessage("GeckoView:RequestCanvasPermission", {
++        kind,
++        quiet: data === "quiet",
++      });
++    }
++  }
++
+   getMediaPermission(aPermission) {
+     return this.sendQuery("GeckoView:MediaPermission", {
+       ...aPermission,
+diff --git a/mobile/shared/actors/GeckoViewPermissionParent.sys.mjs b/mobile/shared/actors/GeckoViewPermissionParent.sys.mjs
+index 294db7c..a836fd7 100644
+--- a/mobile/shared/actors/GeckoViewPermissionParent.sys.mjs
++++ b/mobile/shared/actors/GeckoViewPermissionParent.sys.mjs
+@@ -8,6 +8,18 @@ import { GeckoViewActorParent } from "resource://gre/modules/GeckoViewActorParen
+ export class GeckoViewPermissionParent extends GeckoViewActorParent {
+   _appPermissions = {};
+ 
++  _originPermissionKinds = new Set();
++
++  get originPermissionService() {
++    return Cc["@mozilla.org/content-permission/prompt;1"].getService(
++      Ci.nsIContentPermissionPrompt
++    ).wrappedJSObject;
++  }
++
++  didDestroy() {
++    this.originPermissionService.cancelOriginPermissions(this);
++  }
++
+   async getAppPermissions(aPermissions) {
+     const perms = aPermissions.filter(perm => !this._appPermissions[perm]);
+     if (!perms.length) {
+@@ -57,6 +69,29 @@ export class GeckoViewPermissionParent extends GeckoViewActorParent {
+     debug`receiveMessage ${aMessage.name}`;
+ 
+     switch (aMessage.name) {
++      case "GeckoView:CancelCanvasPermissions": {
++        this.originPermissionService.cancelOriginPermissions(this);
++        this._originPermissionKinds.clear();
++        return null;
++      }
++      case "GeckoView:RequestCanvasPermission": {
++        const { kind, quiet } = aMessage.data ?? {};
++        if (
++          !["canvas", "webgl"].includes(kind) ||
++          typeof quiet !== "boolean" ||
++          this._originPermissionKinds.has(kind)
++        ) {
++          return null;
++        }
++        // A page can request each exception only once. Reload creates a new
++        // actor; repeated readback/context attempts cannot flood the app UI.
++        this._originPermissionKinds.add(kind);
++        return this.originPermissionService.requestOriginPermission(
++          this,
++          kind,
++          quiet
++        );
++      }
+       case "GeckoView:AddCameraPermission": {
+         return this.addCameraPermission();
+       }
+diff --git a/mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs b/mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs
+index 316bafd..2df9cb2 100644
+--- a/mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs
++++ b/mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs
+@@ -29,10 +29,26 @@ export class GeckoViewPermission {
+     this.wrappedJSObject = this;
+     lazy.EventDispatcher.instance.registerListener(this, [
+       "GeckoView:ContentPermissionShown",
++      "GeckoView:AwaitOriginPermissionDecision",
++      "GeckoView:ReloadOriginPermissionDocument",
+     ]);
+   }
+ 
+   onEvent(aEvent, aData, aCallback) {
++    if (aEvent === "GeckoView:ReloadOriginPermissionDocument") {
++      this.reloadOriginPermissionDocument(aData?.requestId).then(
++        reloaded => aCallback.onSuccess(reloaded),
++        () => aCallback.onSuccess(false)
++      );
++      return;
++    }
++    if (aEvent === "GeckoView:AwaitOriginPermissionDecision") {
++      this.awaitOriginPermissionDecision(aData?.requestId).then(
++        applied => aCallback.onSuccess(applied),
++        () => aCallback.onSuccess(false)
++      );
++      return;
++    }
+     if (aEvent === "GeckoView:ContentPermissionShown") {
+       const id = aData?.requestId;
+       const request = id ? this.#pendingShownRequests.get(id) : null;
+@@ -53,6 +69,178 @@ export class GeckoViewPermission {
+     }
+   }
+ 
++  // Only document-bound parent actors create these requests. Values in the
++  // Android reply can choose a decision/lifetime, never a different principal.
++  #originRequests = new Map();
++
++  isCurrentOriginActor(actor, manager, principal) {
++    try {
++      return (
++        actor.manager === manager &&
++        manager.isCurrentGlobal &&
++        manager.isActiveInTab &&
++        actor.browsingContext.currentWindowGlobal === manager &&
++        actor.browser &&
++        actor.eventDispatcher &&
++        principal.equals(manager.documentPrincipal)
++      );
++    } catch {
++      return false;
++    }
++  }
++
++  async requestOriginPermission(actor, kind, quiet) {
++    if (!["canvas", "webgl"].includes(kind) || typeof quiet !== "boolean") {
++      return false;
++    }
++    let manager;
++    let principal;
++    try {
++      manager = actor.manager;
++      principal = manager.documentPrincipal;
++    } catch {
++      return false;
++    }
++    // Opaque, system, extension and non-web principals cannot acquire a website
++    // exception through this UI. Native privileged exemptions remain separate.
++    if (
++      !principal?.isContentPrincipal ||
++      !["http", "https"].includes(principal.URI.scheme) ||
++      !this.isCurrentOriginActor(actor, manager, principal)
++    ) {
++      return false;
++    }
++
++    const requestId = Services.uuid.generateUUID().toString().slice(1, -1);
++    let settle;
++    const applied = new Promise(resolve => {
++      settle = resolve;
++    });
++    const record = {
++      actor,
++      manager,
++      principal,
++      applied,
++      settle,
++      cancelled: false,
++    };
++    this.#originRequests.set(requestId, record);
++    const current = () =>
++      !record.cancelled && this.isCurrentOriginActor(actor, manager, principal);
++    let didApply = false;
++    try {
++      const permission = Services.perms.getPermissionObject(
++        principal,
++        kind,
++        true
++      );
++      const decision = await Promise.race([
++        actor.eventDispatcher.sendRequestForResult(
++          "GeckoView:ContentPermissionWithOptions",
++          {
++            uri: principal.originNoSuffix,
++            principalOrigin: principal.origin,
++            principal: lazy.E10SUtils.serializePrincipal(principal),
++            perm: kind,
++            value: permission?.capability ?? Services.perms.PROMPT_ACTION,
++            expireType: permission?.expireType ?? Services.perms.EXPIRE_SESSION,
++            contextId:
++              principal.originAttributes.geckoViewSessionContextId ?? null,
++            privateMode: principal.privateBrowsingId !== 0,
++            topLevelOrigin:
++              actor.browsingContext.top.currentWindowGlobal?.documentPrincipal
++                .originNoSuffix ?? null,
++            isQuiet: quiet,
++            requestId,
++          }
++        ),
++        applied.then(() => null),
++      ]);
++      if (
++        !current() ||
++        !decision ||
++        ![
++          Services.perms.ALLOW_ACTION,
++          Services.perms.DENY_ACTION,
++          Services.perms.PROMPT_ACTION,
++        ].includes(decision.value) ||
++        typeof decision.permanent !== "boolean"
++      ) {
++        return false;
++      }
++      // Dismissal keeps the default. It is not a persistent deny decision.
++      if (decision.value === Services.perms.PROMPT_ACTION) {
++        return false;
++      }
++      const latest = Services.perms.getPermissionObject(principal, kind, true);
++      if (
++        latest?.capability !== permission?.capability ||
++        latest?.expireType !== permission?.expireType ||
++        latest?.modificationTime !== permission?.modificationTime
++      ) {
++        return false;
++      }
++      const expiration =
++        decision.permanent && principal.privateBrowsingId === 0
++          ? Services.perms.EXPIRE_NEVER
++          : Services.perms.EXPIRE_SESSION;
++      Services.perms.addFromPrincipal(
++        principal,
++        kind,
++        decision.value,
++        expiration
++      );
++      didApply = true;
++      return true;
++    } catch (error) {
++      console.error("Origin permission request failed:", error);
++      return false;
++    } finally {
++      record.settle(didApply && current());
++    }
++  }
++
++  async awaitOriginPermissionDecision(requestId) {
++    const record = this.#originRequests.get(requestId);
++    if (!record) {
++      return false;
++    }
++    const applied = await record.applied;
++    return (
++      applied &&
++      this.isCurrentOriginActor(record.actor, record.manager, record.principal)
++    );
++  }
++
++  async reloadOriginPermissionDocument(requestId) {
++    const record = this.#originRequests.get(requestId);
++    if (
++      !record ||
++      record.reloaded ||
++      !(await record.applied) ||
++      record.reloaded ||
++      record.cancelled ||
++      !this.isCurrentOriginActor(record.actor, record.manager, record.principal)
++    ) {
++      return false;
++    }
++    // No await between the identity check and the reload. A frame request
++    // reloads that frame, not whichever tab the embedder has since selected.
++    record.reloaded = true;
++    record.actor.browsingContext.reload(0);
++    return true;
++  }
++
++  cancelOriginPermissions(actor) {
++    for (const [id, record] of this.#originRequests) {
++      if (record.actor === actor) {
++        record.cancelled = true;
++        record.settle(false);
++        this.#originRequests.delete(id);
++      }
++    }
++  }
++
+   async prompt(aRequest) {
+     const result = await this.promptPermission(aRequest);
+     if (!result.allow) {
+diff --git a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+index 42bba85..6448b6a 100644
+--- a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
++++ b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+@@ -63,6 +63,8 @@ const JSWINDOWACTORS = {
+     },
+     child: {
+       esModuleURI: "resource:///actors/GeckoViewPermissionChild.sys.mjs",
++      observers: ["geckoview-webgl-permission", "geckoview-canvas-permission"],
++      events: { pagehide: { capture: true, mozSystemGroup: true } },
+     },
+     allFrames: true,
+     includeChrome: true,
+@@ -127,6 +129,7 @@ export class GeckoViewStartup {
+             "GeckoView:GetAllPermissions",
+             "GeckoView:GetPermissionsByURI",
+             "GeckoView:SetPermission",
++            "GeckoView:SetOriginPermission",
+             "GeckoView:SetPermissionByURI",
+             "GeckoView:GetCookieBannerModeForDomain",
+             "GeckoView:SetCookieBannerModeForDomain",
+diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+index 3e93dbc..90e5b99 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+@@ -134,9 +134,14 @@ export const GeckoViewStorageController = {
+         const rawPerms = Services.perms.all;
+         const permissions = rawPerms.map(p => {
+           return {
+-            uri: Services.io.createExposableURI(p.principal.URI).displaySpec,
++            uri: ["canvas", "webgl"].includes(p.type)
++              ? p.principal.originNoSuffix
++              : Services.io.createExposableURI(p.principal.URI).displaySpec,
+             principal: lazy.E10SUtils.serializePrincipal(p.principal),
+             perm: p.type,
++            principalOrigin: p.principal.origin,
++            expireType: p.expireType,
++            modificationTime: p.modificationTime,
+             value: p.capability,
+             contextId: p.principal.originAttributes.geckoViewSessionContextId,
+             privateMode: p.principal.privateBrowsingId != 0,
+@@ -159,9 +164,14 @@ export const GeckoViewStorageController = {
+         const rawPerms = Services.perms.getAllForPrincipal(principal);
+         const permissions = rawPerms.map(p => {
+           return {
+-            uri: Services.io.createExposableURI(p.principal.URI).displaySpec,
++            uri: ["canvas", "webgl"].includes(p.type)
++              ? p.principal.originNoSuffix
++              : Services.io.createExposableURI(p.principal.URI).displaySpec,
+             principal: lazy.E10SUtils.serializePrincipal(p.principal),
+             perm: p.type,
++            principalOrigin: p.principal.origin,
++            expireType: p.expireType,
++            modificationTime: p.modificationTime,
+             value: p.capability,
+             contextId: p.principal.originAttributes.geckoViewSessionContextId,
+             privateMode: p.principal.privateBrowsingId != 0,
+@@ -170,6 +180,60 @@ export const GeckoViewStorageController = {
+         aCallback.onSuccess({ permissions });
+         break;
+       }
++      case "GeckoView:SetOriginPermission": {
++        try {
++          const principal = lazy.E10SUtils.deserializePrincipal(
++            aData.principal
++          );
++          if (
++            !["canvas", "webgl"].includes(aData.perm) ||
++            !principal?.isContentPrincipal ||
++            !["http", "https"].includes(principal.URI.scheme) ||
++            aData.principalOrigin !== principal.origin ||
++            ![
++              Services.perms.ALLOW_ACTION,
++              Services.perms.DENY_ACTION,
++              Services.perms.PROMPT_ACTION,
++            ].includes(aData.newValue) ||
++            typeof aData.permanent !== "boolean"
++          ) {
++            throw new Error("Invalid origin permission update");
++          }
++          const current = Services.perms.getPermissionObject(
++            principal,
++            aData.perm,
++            true
++          );
++          // Compare and write in one parent-thread turn. A settings snapshot
++          // cannot recreate a revoked/private-ended record or overwrite a newer choice.
++          if (
++            !current ||
++            current.capability !== aData.value ||
++            current.expireType !== aData.expireType ||
++            current.modificationTime !== aData.modificationTime
++          ) {
++            throw new Error(
++              "Origin permission changed; refresh the permission list"
++            );
++          }
++          if (aData.newValue === Services.perms.PROMPT_ACTION) {
++            Services.perms.removeFromPrincipal(principal, aData.perm);
++          } else {
++            Services.perms.addFromPrincipal(
++              principal,
++              aData.perm,
++              aData.newValue,
++              aData.permanent && principal.privateBrowsingId === 0
++                ? Services.perms.EXPIRE_NEVER
++                : Services.perms.EXPIRE_SESSION
++            );
++          }
++          aCallback.onSuccess(null);
++        } catch (error) {
++          aCallback.onError(error.message);
++        }
++        break;
++      }
+       case "GeckoView:SetPermission": {
+         const principal = lazy.E10SUtils.deserializePrincipal(aData.principal);
+         let key = aData.perm;
+diff --git a/modules/libpref/init/StaticPrefList.yaml b/modules/libpref/init/StaticPrefList.yaml
+index a4c98b7..6ed7456 100644
+--- a/modules/libpref/init/StaticPrefList.yaml
++++ b/modules/libpref/init/StaticPrefList.yaml
+@@ -11810,21 +11810,13 @@
+ # Prefs starting with "librewolf."
+ #---------------------------------------------------------------------------
+ 
+-# Redoubt (LW-M1-08, landmine L1): this must default to false on
+-# Android. The prompt has no UI there - the doorhanger, its observers and
+-# WebGLPermissionPromptHelper.sys.mjs all live under browser/, which an Android
+-# build never contains, and BrowserParent::RecvShowWebGLPermissionPrompt returns
+-# early because GeckoView has no XUL <browser> to notify. With the desktop
+-# default of true, IsWebGLAllowed_impl fails closed for every origin that has no
+-# explicit "webgl" permission and nothing can ever grant one, so every WebGL
+-# context dies with no crash and no console error. Desktop keeps true.
++# Android now has an origin-bound GeckoView permission bridge and Fenix
++# controls (LW-M7-14), including quiet requests and OffscreenCanvas workers.
++# Keep this enabled only with that complete bridge; the earlier Android
++# override was required while requests still depended on desktop XUL UI.
+ - name: librewolf.webgl.prompt
+   type: RelaxedAtomicBool
+-#if defined(ANDROID)
+-  value: false
+-#else
+   value: true
+-#endif
+   mirror: always
+ 
+ - name: librewolf.webgl.prompt.hide

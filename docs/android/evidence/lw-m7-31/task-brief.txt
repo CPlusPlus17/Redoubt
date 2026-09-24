@@ -1,0 +1,63 @@
+id: LW-M7-31
+title: Make Android legacy extension-permission completion durable
+milestone: M7
+depends_on:
+- LW-M7-19
+- LW-M7-28
+- LW-M7-12
+owns:
+- patches/android/extension-permission-durability.patch
+- scripts/tests/test-extension-permission-durability.py
+- scripts/tests/test-extension-permission-durability.js
+- scripts/android-addon-private-durability-check.py
+- scripts/android-addon-state-smoke.py
+- docs/android/evidence/lw-m7-31/
+shared_edit:
+- assets/patches/android.txt
+tree_paths:
+- toolkit/components/extensions/ExtensionPermissions.sys.mjs
+- mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+- toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js
+- toolkit/components/extensions/test/xpcshell/xpcshell.toml
+reads:
+- scripts/android-addon-state-smoke.py
+- patches/android/addon-state-durability.patch
+- docs/android/evidence/lw-m7-28/
+what: 'Audit the actual public private-permission completion route and the separate
+
+  non-Nightly legacy JSON permission store. If scheduled writes can outlive
+
+  acknowledged Android permission changes, serialize and await actual flushed
+
+  atomic persistence without changing the modern KV backend or desktop policy.
+
+  Exercise add/remove/removeAll, overlapping IDs, failures and retries through
+
+  actual source tests. Define target Gecko tests and an installed-release
+
+  callback-to-immediate-restart regression with real first-navigation private
+
+  blocking controls. Do not mutate a guest or claim runtime loss or target
+
+  acceptance from source findings; root owns target execution and integration.
+
+  '
+acceptance:
+- Android legacy public permission completion follows actual successful persistence and propagates
+  write failure
+- overlapping changes and same-value retries cannot acknowledge stale or lost permission data
+- modern KV backend behavior and desktop scheduled persistence remain intact
+- source and native test definitions cover real public APIs and failed writes without fabricating
+  release evidence
+- actual target compilation and callback-to-process-restart/private behavior regression pass
+  before acceptance
+verify: python3 scripts/tests/test-extension-permission-durability.py && python3 docs/android/board.py
+  --check
+effort_h: 6-12
+skills:
+- js
+- python
+- android
+agent_safe: true
+isolation: worktree
+risk: A private permission can be acknowledged while its legacy JSON write is still only scheduled.

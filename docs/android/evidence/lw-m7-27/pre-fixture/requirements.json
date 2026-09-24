@@ -1,0 +1,378 @@
+{
+  "schema": 1,
+  "scope": "separate Android x86_64 test build; never release APK acceptance",
+  "xpcshell": [
+    {
+      "path": "toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js",
+      "tasks": [
+        "acknowledged_operations_are_persisted",
+        "failed_writes_reject_and_same_choice_can_retry",
+        "existing_profiles_reconcile_both_cache_mismatches",
+        "known_first_install_missing_from_cache_is_recovered",
+        "removed_file_with_old_database_and_cache_stays_removed",
+        "missing_or_corrupt_database_preserves_cached_disable"
+      ],
+      "allowed_skips": []
+    },
+    {
+      "path": "toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_failures.js",
+      "tasks": [
+        "test_save_failure_on_new_profile",
+        "test_toomuchrecursion_failure",
+        "test_save_failure_on_app_version_changed",
+        "test_save_failure_on_app_buildid_changed",
+        "test_save_failure_on_unexpected_null_error"
+      ],
+      "allowed_skips": []
+    },
+    {
+      "path": "toolkit/components/cookiebanners/test/unit/test_cookiebannerlistservice.js",
+      "tasks": [
+        "test_android_packaged_snapshot",
+        "test_android_validated_test_rules",
+        "test_rule_test_pref"
+      ],
+      "allowed_skips": [
+        "test_initial_import",
+        "test_remotesettings_sync",
+        "test_runContext_conversion",
+        "test_empty_click_rule"
+      ]
+    },
+    {
+      "path": "toolkit/components/cookiebanners/test/unit/test_cookiebanner_private_session.js",
+      "tasks": [
+        "nested_initialization_teardown_rejects_before_map_mutation",
+        "delayed_dispatch_after_last_private_context_is_rejected",
+        "delayed_old_session_cannot_set_or_remove_new_session_data",
+        "scoped_private_changes_preserve_normal_domain_preference",
+        "autostart_scoped_choices_expire_without_changing_legacy_topic_semantics"
+      ],
+      "allowed_skips": []
+    },
+    {
+      "path": "toolkit/components/translations/tests/unit/test_android_translation_assets.js",
+      "tasks": [
+        "test_packaged_catalog_and_wasm_offline",
+        "test_delete_and_passive_missing_cache"
+      ],
+      "allowed_skips": []
+    },
+    {
+      "path": "toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js",
+      "tasks": [
+        "completion_is_already_on_disk",
+        "failed_writes_preserve_retry_and_cache",
+        "stale_derived_cache_is_never_authority",
+        "geckoview_uninstall_waits_original_permission_cleanup"
+      ],
+      "allowed_skips": [],
+      "tags": [
+        "in-process-webextensions"
+      ],
+      "test_id_prefix": "xpcshell.toml:"
+    },
+    {
+      "path": "toolkit/components/extensions/test/xpcshell/test_ext_permissions.js",
+      "tasks": [
+        "test_permissions_rkv_recovery_rename",
+        "test_permissions_on_startup",
+        "test_normal_mv2",
+        "test_normal_mv3_noInstallPrompt",
+        "test_normal_mv3",
+        "test_granted_for_temporary_mv3",
+        "test_granted_only_for_privileged_mv3",
+        "test_mv3_optional_host_permissions",
+        "test_startup",
+        "test_alreadyGranted_mv2",
+        "test_alreadyGranted_mv3_noInstallPrompt",
+        "test_alreadyGranted_mv3",
+        "test_permissions_have_localization_strings",
+        "test_permission_names_match_policy_schema",
+        "test_optional_all_urls",
+        "test_content_script_is_optional_mv2",
+        "test_content_script_is_optional_mv3_noInstallPrompt",
+        "test_content_script_is_optional_mv3",
+        "test_permissions_prompt_mv2",
+        "test_permissions_prompt_mv3_noInstallPrompt",
+        "test_permissions_prompt_mv3",
+        "test_internal_permissions",
+        "test_normalizeOptional",
+        "test_onAdded_all_urls",
+        "test_add_data_collection",
+        "test_remove_data_collection"
+      ],
+      "allowed_skips": [],
+      "tags": [
+        "in-process-webextensions"
+      ],
+      "test_id_prefix": "xpcshell.toml:"
+    },
+    {
+      "path": "modules/libpref/test/unit/test_savePrefFileAsync.js",
+      "tasks": [
+        "directory_registration_is_not_native_initialization",
+        "backup_snapshots_fail_independently_and_suspend_drains"
+      ],
+      "allowed_skips": []
+    },
+    {
+      "path": "toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js",
+      "tasks": [
+        "mixed_values_locks_and_missing_profile_are_reported_honestly",
+        "automatic_off_prevents_metadata_and_extension_lookup",
+        "off_during_metadata_prevents_manifest",
+        "automatic_install_respects_per_addon_policy",
+        "off_during_manifest_prevents_install",
+        "explicit_check_remains_available_with_automatic_off"
+      ],
+      "allowed_skips": [],
+      "tags": [
+        "in-process-webextensions"
+      ],
+      "test_id_prefix": "xpcshell.toml:"
+    },
+    {
+      "path": "mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js",
+      "tasks": [
+        "native_locked_user_state_is_honest",
+        "native_int_one_and_reset_preserve_real_branches",
+        "final_save_failure_keeps_native_memory_and_uncertainty",
+        "WebGL_global_choices_preserve_actual_site_permissions",
+        "setting_the_native_default_does_not_invent_a_user_branch"
+      ],
+      "allowed_skips": [],
+      "execution_scope": "Real native preference/permission services with an explicitly injected save boundary; does not establish actual current-profile disk persistence."
+    }
+  ],
+  "instrumentation": [
+    "org.mozilla.geckoview.test.CanvasPermissionTest#webglOneAndTwoDomOffscreenAndWorkerRequireMatchingGrant",
+    "org.mozilla.geckoview.test.CanvasPermissionTest#realCanvasPixelsRequireGrantIncludingOffscreenWorkers",
+    "org.mozilla.geckoview.test.CanvasPermissionTest#webglRenderingReadbackRequiresBothPermissions",
+    "org.mozilla.geckoview.test.CanvasPermissionTest#storedSnapshotsCannotReloadOrRecreateRevokedException",
+    "org.mozilla.geckoview.test.CanvasPermissionTest#navigationRejectsOldDecisionEvenAtSameOrigin",
+    "org.mozilla.geckoview.test.CanvasPermissionTest#privateGrantStaysSessionOnlyAndDoesNotChangeNormalException",
+    "org.mozilla.geckoview.test.CanvasPermissionTest#crossOriginFrameGrantDoesNotGrantParentOrAnotherPort",
+    "org.mozilla.geckoview.test.CanvasPermissionTest#acknowledgedFrameReloadDoesNotReloadTopDocument",
+    "org.mozilla.geckoview.test.TranslationsTest#cacheOnlyTranslationUsesRealCatalogAndPreservesMissingModels",
+    "org.mozilla.geckoview.test.CookieBannerPrivateSessionTest#delayedWriteAfterLastPrivateContextCannotRepopulateTemporaryException",
+    "org.mozilla.geckoview.test.CookieBannerPrivateSessionTest#oldTokenCannotRemoveOrReplaceANewPrivateSessionChoice",
+    "org.mozilla.geckoview.test.CookieBannerPrivateSessionTest#scopedPrivateChoiceLeavesNormalExceptionUnchanged",
+    "org.mozilla.geckoview.test.PrefSaveFileAsyncTest#currentAndBackupSnapshotsHaveIndependentOutcomes",
+    "org.mozilla.geckoview.test.PrefSaveFileAsyncTest#cleanStateBarrierRecreatesCurrentFileAndPersistsReset",
+    "org.mozilla.geckoview.test.PrefSaveFileAsyncTest#actualCurrentFileFailureRejectsSuspendAndRetries",
+    "org.mozilla.geckoview.test.WebExtensionUpdateSettingsTest#combinedSettingWritesBothPrefsAndMixedStateIsUnchecked",
+    "org.mozilla.geckoview.test.WebExtensionUpdateSettingsTest#concurrentChoicesCompleteInNativeQueueOrder",
+    "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#acknowledgedBooleanWriteAndResetReadNativeBranches",
+    "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#middleReferrerPolicySurvivesTheActualPublicApi",
+    "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#publicApiRejectsAdditionalPrefsAndInvalidValuesBeforeDispatch"
+  ],
+  "product_paths": [
+    "docshell/base/CanonicalBrowsingContext.cpp",
+    "docshell/base/CanonicalBrowsingContext.h",
+    "dom/canvas/CanvasUtils.cpp",
+    "dom/canvas/CanvasUtils.h",
+    "dom/canvas/ClientWebGLContext.cpp",
+    "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorage.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoPermissionRequest.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorage.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/cookiebanners/GeckoCookieBannersStorageTest.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorageTest.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionRequestTest.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt",
+    "mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/ext/PermissionRequest.kt",
+    "mobile/android/android-components/components/browser/state/src/test/java/mozilla/components/browser/state/ext/PermissionRequestTest.kt",
+    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt",
+    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/cookiehandling/CookieBannersStorage.kt",
+    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/OriginBoundPermission.kt",
+    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/PermissionRequest.kt",
+    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt",
+    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtensionRuntime.kt",
+    "mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/AddonManager.kt",
+    "mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/update/AddonUpdater.kt",
+    "mobile/android/android-components/components/feature/addons/src/test/java/AddonManagerTest.kt",
+    "mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt",
+    "mobile/android/android-components/components/feature/sitepermissions/src/main/java/mozilla/components/feature/sitepermissions/SitePermissionsFeature.kt",
+    "mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt",
+    "mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreference.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteController.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteDialogFragment.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/cookiebannerhandling/CustomCBHSwitchPreference.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/ProtectionsView.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerDetailsController.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/CookieBannerPanelDialogFragment.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SiteSettingsFragment.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",
+    "mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml",
+    "mobile/android/fenix/app/src/main/res/values/cookie_banner_controls_ids.xml",
+    "mobile/android/fenix/app/src/main/res/values/extension_update_controls.xml",
+    "mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml",
+    "mobile/android/fenix/app/src/main/res/values/origin_bound_permissions_ids.xml",
+    "mobile/android/fenix/app/src/main/res/values/preference_keys.xml",
+    "mobile/android/fenix/app/src/main/res/values/strings.xml",
+    "mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml",
+    "mobile/android/fenix/app/src/main/res/xml/preferences.xml",
+    "mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreferenceTest.kt",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSettingsTest.kt",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/cookiebannerhandling/CookieBannerSiteControllerTest.kt",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/ProtectionsViewTest.kt",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/quicksettings/protections/cookiebanners/DefaultCookieBannerDetailsControllerTest.kt",
+    "mobile/android/geckoview/api.txt",
+    "mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js",
+    "mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json",
+    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CanvasPermissionTest.kt",
+    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CookieBannerPrivateSessionTest.kt",
+    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt",
+    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncShutdownTest.kt",
+    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncTest.kt",
+    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt",
+    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/WebExtensionUpdateSettingsTest.kt",
+    "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java",
+    "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java",
+    "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java",
+    "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java",
+    "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java",
+    "mobile/shared/actors/GeckoViewPermissionChild.sys.mjs",
+    "mobile/shared/actors/GeckoViewPermissionParent.sys.mjs",
+    "mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs",
+    "mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs",
+    "mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs",
+    "mobile/shared/components/geckoview/moz.build",
+    "mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs",
+    "mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs",
+    "mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs",
+    "mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js",
+    "mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml",
+    "modules/libpref/Preferences.cpp",
+    "modules/libpref/init/StaticPrefList.yaml",
+    "modules/libpref/nsIPrefService.idl",
+    "modules/libpref/test/unit/test_savePrefFileAsync.js",
+    "modules/libpref/test/unit/xpcshell.toml",
+    "services/settings/dumps/main/moz.build",
+    "toolkit/components/cookiebanners/CookieBannerDomainPrefService.cpp",
+    "toolkit/components/cookiebanners/CookieBannerDomainPrefService.h",
+    "toolkit/components/cookiebanners/CookieBannerListService.sys.mjs",
+    "toolkit/components/cookiebanners/nsCookieBannerService.cpp",
+    "toolkit/components/cookiebanners/nsCookieBannerService.h",
+    "toolkit/components/cookiebanners/nsICookieBannerService.idl",
+    "toolkit/components/cookiebanners/test/unit/test_cookiebanner_private_session.js",
+    "toolkit/components/cookiebanners/test/unit/test_cookiebannerlistservice.js",
+    "toolkit/components/cookiebanners/test/unit/xpcshell.toml",
+    "toolkit/components/extensions/Extension.sys.mjs",
+    "toolkit/components/extensions/ExtensionPermissions.sys.mjs",
+    "toolkit/components/extensions/ExtensionTaskScheduler.sys.mjs",
+    "toolkit/components/extensions/parent/ext-webRequest.js",
+    "toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js",
+    "toolkit/components/extensions/test/xpcshell/test_ext_permissions.js",
+    "toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js",
+    "toolkit/components/extensions/test/xpcshell/test_ext_permissions_uninstall.js",
+    "toolkit/components/extensions/test/xpcshell/xpcshell.toml",
+    "toolkit/components/translations/AndroidTranslationAssets.sys.mjs",
+    "toolkit/components/translations/TranslationsUtils.mjs",
+    "toolkit/components/translations/actors/TranslationsChild.sys.mjs",
+    "toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs",
+    "toolkit/components/translations/actors/TranslationsParent.sys.mjs",
+    "toolkit/components/translations/jar.mn",
+    "toolkit/components/translations/moz.build",
+    "toolkit/components/translations/tests/unit/test_android_translation_assets.js",
+    "toolkit/components/translations/tests/unit/xpcshell.toml",
+    "toolkit/components/translations/translations.d.ts",
+    "toolkit/mozapps/extensions/internal/AddonTestUtils.sys.mjs",
+    "toolkit/mozapps/extensions/internal/AndroidAddonState.sys.mjs",
+    "toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs",
+    "toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs",
+    "toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs",
+    "toolkit/mozapps/extensions/internal/moz.build",
+    "toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_failures.js",
+    "toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js",
+    "toolkit/mozapps/extensions/test/xpcshell/xpcshell.toml"
+  ],
+  "patches": {
+    "ubo-preinstall.patch": "d48b3bde33ea39c4ddd6fbfa7336aae5ef01f6a5a420128c3265e1f3024b0ee9",
+    "ubo-readiness.patch": "f6b7e404ff1e64c25bb7d0966a49b56287ac149bc1cf14dce2c4b0ae3be4b50f",
+    "canvas-webgl-permissions.patch": "11401e72ae0d2c862ccdd9c62e209b48cfb8bd3f444136a30f98fb48fcd2c275",
+    "translation-assets.patch": "303edc22a85e56a6a7333f2516371de88fee21dfbe40c532446ce96c2e97cb26",
+    "addon-state-durability.patch": "b1ba51cc8e55a6ab38ea76ecab4cdeacb925efd08084dfa0dede0aa72045c4ba",
+    "cookie-banner-rules.patch": "c7265a76ace9371f7f6333a6ca12584fe45424a77d7dea659828c53abb7044b5",
+    "cookie-banner-controls.patch": "ba81f852b04f0ff4614cf992f23d8090679e53dd4b4f416ed09d9334523d04db",
+    "extension-permission-durability.patch": "b2a507ccf51c521e3a49693a040db6c6fad4ce0b786a9114f8468a3acdef27f4",
+    "extension-update-controls.patch": "901b811c298c6112dc07a8ef25a7baa46704284d764ba1b3c9fd10e08d027795",
+    "global-privacy-controls.patch": "b0d132130cb4e02ac687a9c384e314be6f7c1124405a794ed8d3f31a91cb4109"
+  },
+  "build_image_sha256": "c5b57d94cf9e0ed1de7061cee9e0dbfde19d5651e3e2f3824b0e1466116fd687",
+  "pending_xpcshell": [
+    {
+      "path": "toolkit/components/extensions/test/xpcshell/test_ext_permissions_uninstall.js",
+      "tasks": [
+        "test_permissions_removed",
+        "test_simulate_slow_storage",
+        "test_ExtensionData_does_not_write_permissions"
+      ],
+      "reason": "Upstream xpcshell-common.toml skips this whole file on Android (Bug 1350559); xpcshell-legacy-ep.toml also excludes Android. No skip override or target execution is claimed.",
+      "eligibility_sources": [
+        "toolkit/components/extensions/test/xpcshell/xpcshell-common.toml",
+        "toolkit/components/extensions/test/xpcshell/xpcshell-legacy-ep.toml"
+      ]
+    }
+  ],
+  "shutdown_instrumentation": {
+    "class": "org.mozilla.geckoview.test.PrefSaveFileAsyncShutdownTest",
+    "expected_methods": [
+      "org.mozilla.geckoview.test.PrefSaveFileAsyncShutdownTest#failedFinalSaveLeavesProfileOpenAndSuccessfulFinalSaveClosesIt"
+    ],
+    "instrumentation_arguments": {
+      "class": "org.mozilla.geckoview.test.PrefSaveFileAsyncShutdownTest",
+      "redoubtAllowProfileShutdown": "true"
+    },
+    "component": "org.mozilla.geckoview.test/androidx.test.runner.AndroidJUnitRunner",
+    "process_rule": "After ordinary instrumentation has ended, force-stop only org.mozilla.geckoview.test and confirm no old test process remains; then start this separate exact-class invocation. No release app mutation or profile wipe.",
+    "skip_policy": "Class-level assumption skips unless BOTH exact class selector and opt-in match. Skipped/empty/partial result is PENDING or failure, never PASS.",
+    "command_shape": [
+      "adb",
+      "-s",
+      "TEST_SERIAL",
+      "shell",
+      "am",
+      "instrument",
+      "-w",
+      "-r",
+      "-e",
+      "class",
+      "org.mozilla.geckoview.test.PrefSaveFileAsyncShutdownTest",
+      "-e",
+      "redoubtAllowProfileShutdown",
+      "true",
+      "org.mozilla.geckoview.test/androidx.test.runner.AndroidJUnitRunner"
+    ],
+    "receipt_scope": "Actual preference-service shutdown acknowledgment and real prefs.js bytes; does not prove full application shutdown."
+  },
+  "task35_inventory_sha256": "bcafbe4f99dd3e61e7e1a16ee585ee8c52655342da7906b547cf16fc8241aaad",
+  "task36_inventory_sha256": "60896116bb175d4b3c9a9a18f0da03f15c8a8b975b42b4452ebce76f5b2ef932"
+}

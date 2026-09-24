@@ -1,0 +1,69 @@
+// third_party/application-services/components/suggest/src/provider.rs:100-166
+    }
+
+    /// The collection that stores the provider's primary record.
+    pub(crate) fn primary_collection(&self) -> Collection {
+        match self {
+            Self::Amp => Collection::Amp,
+            _ => Collection::Other,
+        }
+    }
+
+    /// The provider's primary record type.
+    pub(crate) fn primary_record_type(&self) -> SuggestRecordType {
+        match self {
+            Self::Amp => SuggestRecordType::Amp,
+            Self::Wikipedia => SuggestRecordType::Wikipedia,
+            Self::Amo => SuggestRecordType::Amo,
+            Self::Yelp => SuggestRecordType::Yelp,
+            Self::Mdn => SuggestRecordType::Mdn,
+            Self::Weather => SuggestRecordType::Weather,
+            Self::Dynamic => SuggestRecordType::Dynamic,
+        }
+    }
+
+    /// Other record types and their collections that the provider depends on.
+    fn secondary_record_types(&self) -> Option<HashMap<Collection, HashSet<SuggestRecordType>>> {
+        match self {
+            Self::Amp => Some(HashMap::from([(
+                Collection::Amp,
+                HashSet::from([SuggestRecordType::Icon]),
+            )])),
+            Self::Wikipedia => Some(HashMap::from([(
+                Collection::Other,
+                HashSet::from([SuggestRecordType::Icon]),
+            )])),
+            Self::Yelp => Some(HashMap::from([(
+                Collection::Other,
+                HashSet::from([
+                    SuggestRecordType::Icon,
+                    SuggestRecordType::Geonames,
+                    SuggestRecordType::GeonamesAlternates,
+                ]),
+            )])),
+            Self::Weather => Some(HashMap::from([(
+                Collection::Other,
+                HashSet::from([
+                    SuggestRecordType::Geonames,
+                    SuggestRecordType::GeonamesAlternates,
+                ]),
+            )])),
+            _ => None,
+        }
+    }
+
+    /// All record types and their collections that the provider depends on,
+    /// including primary and secondary records.
+    pub(crate) fn record_types_by_collection(
+        &self,
+    ) -> HashMap<Collection, HashSet<SuggestRecordType>> {
+        let mut rts = self.secondary_record_types().unwrap_or_default();
+        rts.entry(self.primary_collection())
+            .or_default()
+            .insert(self.primary_record_type());
+        rts
+    }
+}
+
+impl ToSql for SuggestionProvider {
+

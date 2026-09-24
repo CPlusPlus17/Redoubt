@@ -1,0 +1,61 @@
+buildscript { dependencies { } }
+
+plugins {
+    id 'base'
+}
+
+// --------------------------------------------------------------------------
+// LW-M4-16: androidx.activity floor.  A DOWNGRADE MUST FAIL THE BUILD.
+//
+// ActivityResultContracts$PickVisualMedia carries two com.google.android.gms
+// string constants.  At >= 1.10.0 they are dead: upstream deleted
+// getGmsPicker/isGmsPickerAvailable and replaced them with
+// SystemFallbackPicker.  At <= 1.10.0-alpha01 they are a LIVE hand-off to the
+// Play Services photo picker -- same two literals, opposite behaviour, and no
+// com/google/android/gms class reference to give it away.
+//
+// scripts/android-smoke.sh --check-no-gms exempts those two strings ONLY on
+// that condition.  This assertion is what stops the condition from silently
+// ceasing to hold: the gate runs after a build, this runs before one.
+// Boundary measured 2026-08-25 across every release 1.8.0..1.13.0 --
+// docs/android/evidence/lw-m4-16/androidx-activity-version-bisect.txt
+// --------------------------------------------------------------------------
+def lwFloor = [1, 10, 0]
+// Read it through Gradle's own version-catalog accessor, not by re-parsing the
+// TOML: the accessor sees what the build will actually resolve, and it cannot
+// drift from the catalog's real syntax the way a regex can.
+def lwVersion = libs.versions.activity.get()
+def lwParts = (lwVersion =~ /^(\d+)\.(\d+)\.(\d+)(?:[-+](.+))?$/)
+if (!lwParts) {
+    throw new GradleException("LW-M4-16: androidx.activity is \"${lwVersion}\", which is not a " +
+        "version this assertion can compare against the ${lwFloor.join('.')} floor.")
+}
+def lwTriple = [lwParts[0][1] as int, lwParts[0][2] as int, lwParts[0][3] as int]
+def lwPrerelease = lwParts[0][4] != null
+def lwCmp = 0
+for (int i = 0; i < 3; i++) {
+    if (lwTriple[i] != lwFloor[i]) { lwCmp = lwTriple[i] <=> lwFloor[i]; break }
+}
+if (lwCmp == 0 && lwPrerelease) {
+    // 1.10.0-alpha01 still had the live GMS path; alpha02 was the first build
+    // without it.  Rather than encode which prereleases of the floor are safe,
+    // reject them all -- this tree ships stable AndroidX, and a prerelease here
+    // is a thing to look at deliberately, not to wave through.
+    throw new GradleException(
+        "LW-M4-16: androidx.activity is ${lwVersion}, a PRERELEASE of the ${lwFloor.join('.')} floor.\n" +
+        "  1.10.0-alpha01 still declared getGmsPicker/isGmsPickerAvailable, so prereleases of\n" +
+        "  the floor version are not accepted here even though alpha02 and later dropped them.\n" +
+        "  Use a stable ${lwFloor.join('.')} or newer.")
+}
+if (lwCmp < 0) {
+    throw new GradleException(
+        "LW-M4-16: androidx.activity is ${lwVersion}, BELOW the ${lwFloor.join('.')} floor.\n" +
+        "  At this version ActivityResultContracts\$PickVisualMedia still declares\n" +
+        "  getGmsPicker/isGmsPickerAvailable, so the two com.google.android.gms string\n" +
+        "  constants are a LIVE Play Services hand-off, not dead constants -- and the\n" +
+        "  exemption in scripts/android-smoke.sh --check-no-gms no longer holds.\n" +
+        "  Zero GMS is a hard F-Droid requirement (LW-M6-03).\n" +
+        "  Raise the version, or delete the exemption and the strings with it.")
+}
+logger.lifecycle("LW-M4-16: androidx.activity ${lwVersion} >= ${lwFloor.join('.')} -- " +
+    "the --check-no-gms GMS-string exemption holds.")

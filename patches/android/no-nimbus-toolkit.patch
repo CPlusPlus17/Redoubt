@@ -1,0 +1,526 @@
+# LibreWolf no-nimbus-toolkit.patch  (Android)
+# Owner: LW-M4-13 ("Finish the Nimbus removal -- test casualty and the second client")
+# BUILT AND PROVEN BY: LW-M4-15. LW-M4-13's verifier established that this patch
+#   had never been built: it unzipped assets/omni.ja out of the measurement APK and
+#   found ExperimentAPI.sys.mjs in its UNPATCHED form, so every probe said to
+#   exercise the second experiment client had exercised stock code. LW-M4-15 built
+#   it, verified it inside the shipped omni.ja, re-ran the probes against THAT
+#   build, and persisted both sides of the differential. See the two MEASURED
+#   sections below and /home/mgysin/lw-m4-15/final/.
+#
+# Upstream files touched
+# ----------------------
+#   toolkit/components/nimbus/ExperimentAPI.sys.mjs
+#
+# THE SECOND EXPERIMENT CLIENT
+# ----------------------------
+# patches/android/no-nimbus.patch (LW-M4-03) severs the Kotlin/Rust Nimbus SDK,
+# the one Fenix drives. It is not the only Nimbus in the build. There is a
+# second, completely independent implementation in Gecko itself -- the JS one,
+# toolkit/components/nimbus/{ExperimentAPI,lib/*}.sys.mjs -- and
+# toolkit/components/moz.build:147 is an unconditional `DIRS += ["nimbus"]`,
+# so it ships on Android. docs/android/POLICIES.md section 6 flagged it and
+# LW-M1-01 deliberately kept lockPref("app.shield.optoutstudies.enabled", false)
+# in the COMMON half of librewolf.cfg (common.cfg:633) precisely because this
+# client reads it.
+#
+# Confirmed from the BUILT APK, not from the source tree
+# (~/lw-m5-02/out-iso/apk/fenix-x86_64-debug.apk, versionName 1.0.2634):
+#
+#   * assets/omni.ja contains all 12 JS modules --
+#     chrome/toolkit/res/nimbus/ExperimentAPI.sys.mjs (33,574 bytes),
+#     FeatureManifest.sys.mjs (210,912), FirefoxLabs.sys.mjs (3,810) and the
+#     nine under lib/, among them RemoteSettingsExperimentLoader.sys.mjs
+#     (43,424) and ExperimentManager.sys.mjs (66,599) -- plus the three JSON
+#     schemas, i.e. 15 files under chrome/toolkit/res/nimbus/. (An earlier
+#     draft of this header said "13 JS modules"; the tree has 12. Counted with
+#     `find chrome/toolkit/res/nimbus -type f` on the unpacked omni.ja.)
+#   * omni.ja's chrome/chrome.manifest maps `resource nimbus toolkit/res/nimbus/`,
+#     so `resource://nimbus/...` really resolves in the shipped APK.
+#
+# So the component is present and importable. The question this patch had to
+# answer is whether it can FETCH or SYNC, and the answer -- before this patch --
+# is no, but only by accident, in four separate places. That is why the patch
+# exists: four accidents are not a barrier, and every one of them is upstream's
+# to change.
+#
+#
+# WHY IT CANNOT FETCH TODAY (four accidents, none of them a decision)
+# ------------------------------------------------------------------
+# All network traffic in this component goes through exactly one funnel:
+# RemoteSettingsExperimentLoader.updateRecipes() -> getRecipesFromAllCollections()
+# -> client.sync()/get() on the `nimbus-desktop-experiments` and
+# `nimbus-secure-experiments` remote-settings collections. updateRecipes()
+# returns immediately unless `this._enabled` is true, which only enable() sets.
+#
+#  1. NOBODY CALLS init(). ExperimentAPI.init() is the only caller of
+#     _rsLoader.enable() (ExperimentAPI.sys.mjs:330). `grep -rn
+#     "ExperimentAPI.init"` over the whole tree, tests excluded, returns FOUR
+#     call sites -- two under browser/ (never built for Android:
+#     browser/components/aboutwelcome/actors/AboutWelcomeParent.sys.mjs:117 and
+#     browser/components/defaultwindowslaunchonlogin/
+#     DefaultWindowsLaunchOnLogin.sys.mjs:116),
+#     toolkit/components/normandy/Normandy.sys.mjs:109 (normandy is added only
+#     for MOZ_BUILD_APP == "browser", toolkit/components/moz.build:141 -- and
+#     `resource normandy` is absent from the APK's chrome.manifest, so it is
+#     genuinely not there), and
+#     toolkit/components/backgroundtasks/BackgroundTasksUtils.sys.mjs:300,
+#     inside `enableNimbus()` (declared at :299).
+#
+#     That last one IS packaged on Android: modules/BackgroundTasksUtils.sys.mjs
+#     and modules/backgroundtasks/BackgroundTask_message.sys.mjs are both in the
+#     APK's omni.ja (--disable-backgroundtasks is not passed, and
+#     toolkit/moz.configure:3170 defaults it on). enableNimbus() has two callers
+#     in the tree -- BackgroundTask_message.sys.mjs:323 and
+#     toolkit/mozapps/update/BackgroundTask_backgroundupdate.sys.mjs:250, the
+#     second of which is NOT packaged on Android (no MOZ_UPDATER) -- and both
+#     are background tasks, which need `--backgroundtask <name>` on the command line
+#     (toolkit/xre/nsAppRunner.cpp:4337). Android has no command line in normal
+#     operation -- but a DEBUGGABLE build does: GeckoRuntime reads
+#     /data/local/tmp/<pkg>-geckoview-config.yaml and DebugConfig turns its
+#     `args:` list into Gecko's argv. That is the same channel
+#     scripts/android-smoke.sh uses to pass -remote-allow-system-access. So on
+#     the debug APK this is reachable with adb; on a release-configured build it
+#     is not.
+#
+#  2. THE POLL FALLBACK CANNOT ADOPT THE COLLECTION EITHER, and this one is
+#     worth spelling out because it is the non-obvious half. RemoteSettings'
+#     periodic pollChanges() does not only sync clients somebody instantiated:
+#     services/settings/remote-settings.sys.mjs:187-216 `_client()` will build a
+#     DEFAULT client for an unregistered collection in the `main` bucket, if
+#     `hasLocalData()` or `hasLocalDump()` is true. `hasLocalDump` is false --
+#     services/settings/dumps/main/moz.build ships no nimbus dump at all (and
+#     explicitly withholds most dumps from `mobile/*`); verified in the built
+#     APK, whose whole omni.ja defaults/settings/main/ is password-recipes.json,
+#     doh-providers.json and doh-config.json. So the loader's two lazy
+#     RemoteSettings clients are never constructed by anyone.
+#
+#     BUT `hasLocalData` IS TRUE, AND THE RECIPES ARE ON THE DEVICE ANYWAY.
+#     This was found by measurement and it contradicts the obvious reading of
+#     the paragraph above, so it is stated here rather than in a report.
+#     RemoteSettingsClient.get():476-500 has a `syncIfEmpty` path: when a
+#     collection has no local data AND no JSON dump (`_importJSONDump()` at
+#     :483 returns < 0), it calls `RemoteSettings.pullStartupBundle()` at :493
+#     -- the ONLY caller of it in the whole tree -- and
+#     that downloads ONE attachment, `<attachments>/bundles/startup.json.mozlz4`
+#     (Utils.fetchChangesetsBundle():575-600), containing the changesets of
+#     EVERY collection, and imports all of them into the local database.
+#     Android has plenty of legitimate consumers of dumpless collections
+#     (url-classifier-exceptions, tracking-protection-lists, query-stripping,
+#     remote-permissions, fingerprinting-protection-overrides ...), so this
+#     fires on any fresh profile.
+#
+#     MEASURED on the LW-M4-13 APK, wiped profile, plain startup, 150 s idle,
+#     nothing asked for nimbus and no nimbus module was touched by the probe:
+#     the profile's remote-settings IndexedDB then holds 18 collections,
+#     including main/nimbus-desktop-experiments with 241 records
+#     (lastModified 1787064911213), main/nimbus-secure-experiments with 16, and
+#     main/normandy-recipes-capabilities, main/cfr and main/message-groups --
+#     normandy and the messaging system not even being built for Android. The
+#     app's uid moved rx+12,589,592 tx+256,656 bytes in that window and the
+#     capture shows firefox-settings-attachments.cdn.mozilla.net.
+#     password-recipes, which DOES ship a dump, has lastModified null: dumps are
+#     not imported unless a client asks, so the 18 came over the wire.
+#
+#     So the honest statement is: the nimbus RECIPES reach the device, inside a
+#     bundle that is not nimbus's and that nimbus did not request. What does not
+#     happen is any per-client nimbus request (no nimbus-* .sql in the Kotlin
+#     RemoteSettingsService's app_remote-settings/, no rs-experiment-loader
+#     timer, no experimenter host in any capture), and -- with this patch --
+#     nothing can ever read those records: ExperimentManager.onStartup() is
+#     never reached, so no enrolment can happen from the local copy either.
+#     Closing the bundle itself is LW-M4-08's (services.settings.server), and it
+#     cannot be done by dropping the fetch: the same bundle carries the URL
+#     classifier and tracking-protection lists this browser needs.
+#
+#  3. TWO OF ITS resource:// DEPENDENCIES ARE NOT PACKAGED ON ANDROID.
+#     ExperimentAPI.sys.mjs:16 lazily imports
+#     resource://normandy/lib/CleanupManager.sys.mjs and :28-32 lazily imports
+#     resource://messaging-system/lib/Logger.sys.mjs for `lazy.log`. Neither
+#     `resource normandy` nor `resource messaging-system` appears in the APK
+#     omni.ja's chrome.manifest -- the only resource lines are pdf.js, autofill,
+#     content-accessible, gre-resources, nimbus, passwordmgr and three devtools
+#     ones. So on Android the FIRST `lazy.log.*` call in this component throws,
+#     and so does init()'s CleanupManager.addCleanupHandler() at :356.
+#     RemoteSettingsExperimentLoader.sys.mjs:25,32 and
+#     lib/{ExperimentManager,Enrollments,Migrations}.sys.mjs are in the same
+#     position. A half-working component whose error paths throw is not a
+#     privacy guarantee; it is a component whose behaviour nobody can predict.
+#
+#  4. `enabled` THROWS -- and if it ever stops throwing it flips to TRUE.
+#     RemoteSettingsExperimentLoader.enable():285 is `if
+#     (!lazy.ExperimentAPI.enabled) return;`. `enabled` is
+#     `labsEnabled || rolloutsEnabled || studiesEnabled`, and labsEnabled --
+#     evaluated first -- is a bare `Services.policies.isAllowed("FirefoxLabs")`.
+#     Services.policies is UNDEFINED on Android
+#     (toolkit/components/enterprisepolicies/moz.build:16 keeps components.conf,
+#     which declares js_name 'policies', inside an `!= "android"` branch), so
+#     that is a TypeError, swallowed by init()'s try/catch at :330-333.
+#
+#     THIS IS THE ACTUAL HOLE. labsEnabled reads no pref. Both LibreWolf
+#     lockPrefs -- app.shield.optoutstudies.enabled and nimbus.rollouts.enabled
+#     -- are irrelevant to it. If anything ever defines Services.policies on
+#     Android, or upstream writes `Services.policies?.isAllowed(...)` itself,
+#     labsEnabled becomes true (nothing disallows FirefoxLabs: our
+#     settings/distribution/policies.json has no such key), `enabled` becomes
+#     true, and the loader enables and syncs
+#     nimbus-desktop-experiments from firefox.settings.services.mozilla.com --
+#     with our two lockPrefs still in place and still looking like they cover
+#     this. That is exactly the shape of defect this project keeps finding.
+#
+# MEASURED (1): ON A BUILD THAT CONTAINS THIS PATCH
+# -------------------------------------------------
+# LW-M4-15. Everything in this block was read out of a running app that ships
+# THIS patch, or off the APK that app was installed from. Evidence, re-readable
+# by a third party, is under /home/mgysin/lw-m4-15/final/ (static/ and runtime/,
+# each with its own README.md); the probe is probe3.py and the runner run3.sh in
+# /home/mgysin/lw-m4-15/. Control channel: scripts/android-smoke.sh's own driver
+# -- see docs/android/SMOKE.md.
+#
+# The build:
+#   /home/mgysin/lw-batch-combined/apk/fenix-x86_64-debug.apk
+#   sha256 a5f2db16db5fa25ee738e8d947ab57866b18cdfc24a73db33152d957ba312962
+#
+# IT IS REALLY IN THERE, and the chain is closed at both ends:
+#   pristine 153.0.4 ExperimentAPI.sys.mjs                 sha256 15eb7e87... 33,574 B
+#   + this patch (patch -p1, rc 0, no fuzz)             -> sha256 db3adda3... 36,649 B
+#   == the file in the built tree                          sha256 db3adda3...
+#   == chrome/toolkit/res/nimbus/ExperimentAPI.sys.mjs
+#      unzipped from the APK's assets/omni.ja               sha256 db3adda3...
+#   == what the RUNNING app returns for
+#      resource://nimbus/ExperimentAPI.sys.mjs              sha256 db3adda3...
+#   with 4 `LibreWolf` markers, 2 `AppConstants.platform === "android"` guards
+#   and `Services.policies?.isAllowed("FirefoxLabs") ?? false` at line 538.
+#
+# How tight the A/B differential below is: a per-file sha256 comparison of the
+# two APKs' whole assets/omni.ja (2,276 vs 2,278 files) finds exactly TWO files
+# present in both and differing -- this module, and buildconfig.html (build
+# metadata) -- plus librewolf.cfg and local-settings.js present only on the
+# patched side and four other-ABI greprefs files present only on the stock side.
+# Within chrome/toolkit/res/nimbus/, 15 files each, ONE differs. The dex and the
+# native libraries are NOT compared: they are different builds.
+#
+# As shipped, untampered (a1-idle.json, a3-init.json):
+#   * AppConstants.platform === "android", Services.appinfo.OS === "Android".
+#     The guards this patch adds therefore fire. Do not assume this: it is the
+#     one thing that makes the whole patch a no-op if it is wrong.
+#   * ExperimentAPI.labsEnabled -> false. NOT a throw: hunk 3, live. On the
+#     stock build the identical read throws (see MEASURED (2)).
+#   * ExperimentAPI.enabled -> false; rolloutsEnabled, studiesEnabled,
+#     aiFeaturesEnabled -> false.
+#   * `await ExperimentAPI.init({forceSync:true})` RETURNED false in 0 ms.
+#     RemoteSettingsExperimentLoader.sys.mjs was never even loaded
+#     (Cu.loadedESModules), no `app.update.lastUpdateTime.rs-experiment-loader-timer`
+#     pref appeared, no `services.settings.main.nimbus-*.last_check` pref
+#     appeared, and the app's uid moved rx+0 tx+0 with 0 capture events across
+#     the window.
+#   * ExperimentAPI.sys.mjs IS nevertheless imported in the parent process at
+#     ordinary startup, together with ExperimentManager, ExperimentStore,
+#     Enrollments, SharedDataMap and FeatureManifest, by the toolkit consumers
+#     listed further down. So the constructor runs, and `nimbus.profileId` HAS a
+#     user value -- confirmed again here, in the profile's prefs.js on disk via
+#     `adb run-as`. See the note about that pref below.
+#   * Accident 2 reproduced on this build: after a 150 s idle on a wiped profile
+#     with nothing asking for nimbus, the profile's remote-settings IndexedDB
+#     holds main/nimbus-desktop-experiments with 243 records and
+#     main/nimbus-secure-experiments with 17. The recipes are on the device.
+#     What this patch guarantees is that nothing reads them.
+#
+# THE DIFFERENTIAL -- what happens when the accidents are taken away
+# (a4-negctl.json vs b4-negctl.json; both are TAINTED diagnostic runs and are
+# marked `_tainted` in the JSON, because they rewrite the process):
+# accidents 3 and 4 were removed in the live process on BOTH arms -- resource://
+# normandy/ and resource://messaging-system/ re-pointed at this tree's own
+# sources (36 files), and Services.policies defined in the module global. Both
+# arms took the setup identically, and on both `labsEnabled` and `enabled` then
+# read TRUE. From that identical starting point:
+#
+#                                        patched (A)      stock toolkit (B)
+#   init({forceSync:true}) returned       false, 0 ms      never returned (480 s)
+#   _rsLoader._enabled                    false            TRUE -- enable() RAN
+#   nimbus.migrations.init-started         absent          present (0)
+#   nimbus.migrations.after-store-init.    absent          present (4)
+#   then flip 4 prefs + _onEnabledPrefChange():
+#     studiesEnabled                      stays false      TRUE
+#     rolloutsEnabled                     stays false      TRUE
+#     aiFeaturesEnabled                   stays false      TRUE
+#
+# The two migration prefs are on disk in each arm's profile prefs.js, read back
+# with `adb run-as` -- so the differential survives as an artefact, not as a
+# claim (a5-runas-after-negctl.json vs b5-runas-after-negctl.json).
+#
+# THAT is the answer to "maybe the JS client cannot reach the network on Android
+# regardless, so the patch is unnecessary". It is not inert. Take away the two
+# accidents that are keeping it down -- neither of which is a decision anybody
+# made -- and the stock build enables the loader, runs the enrollment store's
+# migrations and computes itself enabled. The patched build, same emulator, same
+# session, same shims, does none of it.
+#
+# NOT claimed, deliberately: that arm B fetched recipes over the network in that
+# window. It did not -- uid rx+0 tx+0, 0 capture events, _hasUpdatedOnce false,
+# no services.settings.main.nimbus-*.last_check pref -- and its init() never
+# returned inside the 480 s script timeout. The loader reached "enabled and
+# armed"; the recipe update did not complete. The optInToExperiment probe was
+# NON-DISCRIMINATING: both arms answer `Error: Could not opt in.`, because the
+# slug used does not exist.
+#
+# Per-collection, both arms, before and after the negative control
+# (a2/a5-runas*.json, b2/b5-runas*.json): /data/data/<pkg>/app_remote-settings/
+# -- the Kotlin/Rust RemoteSettingsService's per-collection store -- holds
+# quicksuggest-amp, quicksuggest-other, search-config-icons, search-config-v2
+# and search-telemetry-v2 and NO nimbus-* file, and neither profile's prefs.js
+# has any services.settings.*nimbus* line. This is the evidence a hostname
+# capture cannot give, and both sides of it are now on disk.
+#
+# First-run capture on the patched build (150 s idle, wiped profile,
+# a1-idle.json): 57 rows, 27 classified OS noise, 30 app-or-unknown over five
+# hostnames -- firefox-settings-attachments.cdn.mozilla.net (7),
+# firefox.settings.services.mozilla.com (5), content-signature-2.cdn.mozilla.net
+# (3), www.google.com (2), ads.mozilla.org (2). The three Remote Settings hosts
+# are LW-M4-08's and ads.mozilla.org is LW-M4-11's; www.google.com is Android's
+# own captive-portal probe, interleaved with a
+# `connectivitycheck.gstatic.com GET /generate_204` in every one of its
+# occurrences across the whole 353-row capture, including before the app was
+# first installed. None of the five is nimbus's. Do not read this as "zero": it
+# is zero EXCEPT those hosts, named.
+#
+#
+# MEASURED (2): the stock-toolkit control arm
+# -------------------------------------------
+# The same probes, same emulator session, on an APK carrying THIS COMPONENT
+# UNMODIFIED (patched Kotlin, stock toolkit):
+# /home/mgysin/lw-m4-13/apk/fenix-x86_64-debug.apk, sha256 6a80d105...
+#
+#   * typeof Services.policies === "undefined", and
+#     "@mozilla.org/enterprisepolicies;1" in Cc === false -- accident 4, live.
+#   * Reading the getters directly:
+#       ExperimentAPI.labsEnabled -> THREW
+#         TypeError: can't access property "isAllowed", Services.policies is undefined
+#       ExperimentAPI.enabled     -> threw the same (labsEnabled is evaluated first)
+#       ExperimentAPI.rolloutsEnabled -> false
+#       ExperimentAPI.studiesEnabled  -> false
+#   * `await ExperimentAPI.init({forceSync:true})` REJECTED in 1 ms with
+#     `Error: Failed to load resource://messaging-system/lib/Logger.sys.mjs`
+#     -- accident 3, live -- and resolving
+#     resource://messaging-system/lib/Logger.sys.mjs and
+#     resource://normandy/lib/CleanupManager.sys.mjs each gave
+#     NS_ERROR_NOT_AVAILABLE, while resource://nimbus/... resolved fine.
+#     No rs-experiment-loader-timer pref before or after; uid rx+0 tx+0.
+#
+# So the stock build also reaches the network zero times -- and that is exactly
+# the point. Zero-by-accident and zero-by-decision look identical until you take
+# the accidents away, which is what the differential above does.
+#
+# Note what a hostname capture does and does not settle here: the nimbus
+# collections live on firefox.settings.services.mozilla.com, which this build
+# contacts anyway for search config and quicksuggest, so a hostname-level
+# capture cannot attribute traffic to nimbus by itself, and a request that
+# reuses an already-open TLS connection produces no new DNS/SNI/SYN event to
+# see. The per-collection evidence is what settles it, and it is in accident 2
+# and in the `adb run-as` artefacts above.
+#
+#
+# WHAT THIS PATCH DOES, AND WHAT IT DELIBERATELY DOES NOT DO
+# ---------------------------------------------------------
+# Three hunks, one file, no new file in the tree, nothing generated.
+#
+#   1. init() returns false immediately on Android. This is the one entry point
+#      that turns the component on. Not a throw and not a silent success:
+#      `false` is init()'s own documented "was not initialized" value, and its
+#      only Android-reachable caller (BackgroundTasksUtils.enableNimbus)
+#      ignores the return value. #initializedPromise stays null, the four pref
+#      observers are never registered, the enrollment store is never opened.
+#      No log call here, for the reason in accident 3.
+#
+#   2. #computeEnabled() returns before reading anything, leaving the cached
+#      values at their initialisers (rollouts/studies/telemetry false,
+#      aiFeatures "blocked"), so studiesEnabled and rolloutsEnabled cannot
+#      become true whatever the prefs say. That matters for
+#      RemoteSettingsExperimentLoader.onEnabledPrefChange(), finishedUpdating()
+#      and _optInToExperiment() -- the last being the one path that fetches a
+#      recipe without enable() ever running, gated on studiesEnabled at
+#      lib/RemoteSettingsExperimentLoader.sys.mjs:769.
+#
+#      BUT BE HONEST ABOUT WHAT THIS HUNK IS: with hunk 1 in place it is
+#      DEFENCE IN DEPTH, not an independently observable behaviour, and an
+#      earlier version of this header overstated it. #computeEnabled() has
+#      exactly three call sites -- twice inside #init() and once inside
+#      _onEnabledPrefChange(), which itself returns immediately when
+#      #initializedPromise is null. Hunk 1 stops #init() ever running, so
+#      #initializedPromise is null forever and #computeEnabled() is unreachable
+#      on Android anyway. LW-M4-15 tried to separate the two on the running
+#      build and COULD NOT: after removing accidents 3 and 4, unlocking and
+#      setting app.shield.optoutstudies.enabled, datareporting.healthreport.
+#      uploadEnabled and nimbus.rollouts.enabled to true and browser.ai.control.
+#      default to "available", and calling _onEnabledPrefChange(), the patched
+#      build left studiesEnabled/rolloutsEnabled/aiFeaturesEnabled all false --
+#      an outcome hunk 1 alone predicts just as well. The stock build, same
+#      sequence, flipped all three to true. Keep the hunk (it is free, and it
+#      makes the guarantee independent of hunk 1 surviving a rebase), but do not
+#      cite it as separately measured.
+#
+#   3. labsEnabled becomes `Services.policies?.isAllowed("FirefoxLabs") ?? false`.
+#      This is the hole from accident 4, and it is the only hunk that is not
+#      merely a short-circuit: labsEnabled reads no pref, so nothing else in
+#      this patch or in librewolf.cfg can make it false.
+#
+# NOT DONE, on purpose:
+#
+#   * `DIRS += ["nimbus"]` is NOT guarded out. It cannot be: lib/NimbusFeatures.cpp
+#     is compiled into libxul, and `mozilla/browser/NimbusFeatures.h` -- exported
+#     by that same moz.build line 8,
+#     `EXPORTS.mozilla.browser += ["!lib/NimbusFeatureManifest.h", ...]` -- is
+#     #included from C++ that is NOT under browser/ and does ship on Android:
+#     netwerk/protocol/http/HttpBaseChannel.cpp:36 (call at :3488,
+#     NimbusFeatures::RecordExposureEvent("opaqueResponseBlocking")) and
+#     toolkit/components/antitracking/bouncetrackingprotection/
+#     BounceTrackingProtection.cpp:48 (call at :1019). The only other includer
+#     is browser/components/about/AboutRedirector.cpp:17, which is desktop-only.
+#     (An earlier draft of this header named KeySystemConfig.cpp, GMPParent.cpp,
+#     UtilityProcessHost.cpp and Preferences.cpp here. That was wrong -- none of
+#     those four mentions NimbusFeatures at all; verified by
+#     `grep -rIl NimbusFeatures --include=*.cpp --include=*.h`, whose whole
+#     non-test answer is the three files above plus nimbus's own two.)
+#     Dropping the directory therefore breaks the build, and
+#     dropping only the jar.mn would break every consumer that imports
+#     resource://nimbus/ExperimentAPI.sys.mjs. There are 24 such modules outside
+#     browser/, mobile/, tests, and nimbus's and normandy's own; 19 of them are
+#     in this APK's omni.ja -- ConfigSearchEngine, LoginManagerParent,
+#     FormAutofillParent, DoHController, PictureInPictureChild,
+#     ContentRelevancyManager, IPPNimbusHelper, FirstStartup, Troubleshoot, the
+#     three DAP modules, four telemetry modules and the two backgroundtasks ones
+#     -- and all of them reach NimbusFeatures.*.getVariable() (the JS export of
+#     the same name, not the C++ class above).
+#     Those calls are safe: getVariable() reads the
+#     ExperimentStore, which with no enrollments returns the FeatureManifest
+#     default, and ExperimentAPI.ready() is documented as NOT initialising the
+#     API ("doing so breaks a lot of tests due to enabling the
+#     RemoteSettingsExperimentLoader"), so it simply never resolves on Android.
+#
+#   * The `nimbus.profileId` user pref is NOT removed. The ExperimentAPI
+#     constructor mints a UUID into it (ExperimentAPI.sys.mjs:198-215) the first
+#     time the module is imported in the parent process -- a persistent
+#     per-profile identifier. It DOES happen on Android: measured, the pref has
+#     a user value on a running build, because something imports the module at
+#     startup (see MEASURED above). This patch does not stop that -- hunk 1 is
+#     in init(), not in the constructor -- and the pref is inert with the patch
+#     applied (nothing sends it: the RecordedNimbusContext/Glean path is
+#     LW-M4-01's). Removing it would mean editing a constructor four other
+#     things depend on, and it would not stop the import. Flagged for M5 parity
+#     rather than fixed here, now as a measured fact rather than a suspicion.
+#
+#   * `services.settings.server` is not touched. Blocking remote settings
+#     wholesale is LW-M4-08's; this patch removes one collection's client, the
+#     way no-nimbus.patch removes the Kotlin SDK's, and does not touch the
+#     shared service that search config and the blocklist also use.
+#
+#   * Nothing in this patch changes fission.webContentIsolationStrategy. The
+#     effective value stays 2 on all four channels, from
+#     patches/android/no-nimbus.patch's FML default; LW-M5-01 owns the 1-vs-2
+#     decision and the strength order is 1 > 2 > 0.
+#
+#
+# WHY AN ANDROID PATCH THAT EDITS A COMMON FILE, AND WHY THE PLATFORM GUARDS
+# -------------------------------------------------------------------------
+# ExperimentAPI.sys.mjs is a shared toolkit file, not an Android-only one; this
+# patch is in assets/patches/android.txt, so it is only ever applied to an
+# Android build and the desktop tree stays byte-identical.
+# scripts/lint-patch-scope.py permits it because the rule for android.txt is
+# "touches no DESKTOP-ONLY file", and this file is demonstrably not desktop-only
+# (it is in the Android APK's omni.ja).
+#
+# The `AppConstants.platform === "android"` guards are therefore redundant
+# today, and they are kept deliberately, for one reason: they make the patch
+# safe to promote to common.txt without re-deciding anything. If a later task
+# concludes that desktop LibreWolf should also stop syncing
+# nimbus-desktop-experiments -- which it currently DOES, because labsEnabled is
+# true there -- moving this file between lists must not silently change desktop
+# behaviour as a side effect. With the guards, moving it is a no-op for desktop
+# and the desktop decision stays a separate, deliberate change.
+#
+#
+# Ordering: no constraint. No other patch in common.txt, desktop.txt or
+# android.txt touches toolkit/components/nimbus/ -- checked with
+#   grep -rn '^+++ b/toolkit/components/nimbus' patches/
+# which returns only this file.
+#
+# Nothing happens outside this diff (landmine L4): no file copy, no rm, no
+# generated file edited by hand.
+--- a/toolkit/components/nimbus/ExperimentAPI.sys.mjs
++++ b/toolkit/components/nimbus/ExperimentAPI.sys.mjs
+@@ -260,6 +260,31 @@
+    *          Whether or not the ExperimentAPI was initialized.
+    */
+   async init({ extraContext, forceSync = false } = {}) {
++    // LibreWolf (Android): the JS Nimbus client is never initialized.
++    //
++    // This is the single entry point that turns the component on: it is what
++    // constructs the RemoteSettingsExperimentLoader (via the #experimentLoader
++    // lazy getter), calls its enable(), which registers the
++    // "rs-experiment-loader-timer" update timer and calls updateRecipes(),
++    // which is the only code in this component that touches the network.
++    // Nothing else in the tree constructs that loader.
++    //
++    // Returning here is fail-closed rather than fail-quiet: init() returning
++    // false is its documented "was not initialized" value, #initializedPromise
++    // stays null, no pref observer is registered, and no enrollment store is
++    // opened, so nothing can re-enable the loader later through
++    // _onEnabledPrefChange.
++    //
++    // Deliberately no log call: lazy.log resolves
++    // resource://messaging-system/lib/Logger.sys.mjs, and messaging-system is
++    // NOT packaged on Android (toolkit/components/moz.build only adds it for
++    // MOZ_BUILD_APP == "browser"; verified absent from the APK's
++    // omni.ja chrome.manifest, which maps "resource nimbus" and no
++    // "resource messaging-system"). Logging here would throw.
++    if (AppConstants.platform === "android") {
++      return false;
++    }
++
+     if (this.#initializedPromise) {
+       // Either init has already finished, or it is in flight. Either way,
+       // chain off the promise so we only return once init is actually complete.
+@@ -454,6 +479,19 @@
+   }
+ 
+   #computeEnabled() {
++    // LibreWolf (Android): leave every cached value at its initialiser, i.e.
++    // rolloutsEnabled/studiesEnabled/telemetryEnabled false and
++    // aiFeaturesEnabled "blocked". Combined with the labsEnabled hunk below
++    // this makes `enabled` false on Android by construction rather than by
++    // pref value, which closes three call sites the init() hunk does not:
++    // RemoteSettingsExperimentLoader.onEnabledPrefChange(), its
++    // finishedUpdating(), and _optInToExperiment() -- the last of which is the
++    // one path that fetches a recipe without the loader ever being enabled,
++    // and it is gated on studiesEnabled.
++    if (AppConstants.platform === "android") {
++      return;
++    }
++
+     this.#prefValues.rolloutsEnabled = Services.prefs.getBoolPref(
+       Prefs.ROLLOUTS_ENABLED,
+       false
+@@ -482,7 +520,22 @@
+   }
+ 
+   get labsEnabled() {
+-    return Services.policies.isAllowed("FirefoxLabs");
++    // LibreWolf: optional call plus an explicit false, because Services.policies
++    // is UNDEFINED on Android -- toolkit/components/enterprisepolicies/
++    // moz.build:16 puts components.conf (which declares js_name 'policies')
++    // inside an `!= "android"` branch, so the contract ID has no
++    // implementation registered and the js_name property is never defined.
++    //
++    // The bare call therefore threw a TypeError here, and that accident was
++    // load-bearing: `enabled` is `labsEnabled || rolloutsEnabled ||
++    // studiesEnabled`, labsEnabled is evaluated FIRST, and it reads no pref -
++    // so on desktop, where policies exists and no policy disallows
++    // FirefoxLabs, it is true and `enabled` is true no matter what
++    // app.shield.optoutstudies.enabled and nimbus.rollouts.enabled say. The
++    // moment anything defines Services.policies on Android, Nimbus would
++    // become "enabled" again with both LibreWolf lockPrefs still in place.
++    // Relying on an exception for that is not a barrier; this is.
++    return Services.policies?.isAllowed("FirefoxLabs") ?? false;
+   }
+ 
+   get rolloutsEnabled() {

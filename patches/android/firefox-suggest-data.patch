@@ -1,0 +1,2149 @@
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
+index 91dd137..6fe90ac 100644
+--- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
+@@ -17,6 +17,7 @@ import mozilla.appservices.suggest.SuggestStore
+ import mozilla.appservices.suggest.SuggestStoreBuilder
+ import mozilla.appservices.suggest.Suggestion
+ import mozilla.appservices.suggest.SuggestionQuery
++import mozilla.appservices.suggest.SuggestionProvider
+ import mozilla.components.concept.base.crash.CrashReporting
+ import mozilla.components.feature.fxsuggest.facts.emitSuggestionQueryCountFact
+ import mozilla.components.support.base.log.logger.Logger
+@@ -35,6 +36,7 @@ class FxSuggestStorage(
+     context: Context,
+     remoteSettingsService: RemoteSettingsService,
+     private val crashReporter: CrashReporting? = null,
++    private val defaultIngestionProviders: List<SuggestionProvider>? = null,
+ ) {
+     // Lazily initializes the store on first use. `cacheDir` and using the `File` constructor
+     // does I/O, so `store.value` should only be accessed from the read or write scope.
+@@ -90,7 +92,7 @@ class FxSuggestStorage(
+      * @param constraints Optional limits on suggestions to ingest.
+      * @return `true` if ingestion succeeded; `false` if ingestion failed and should be retried.
+      */
+-    suspend fun ingest(constraints: SuggestIngestionConstraints = SuggestIngestionConstraints()): Boolean =
++    suspend fun ingest(constraints: SuggestIngestionConstraints = SuggestIngestionConstraints(providers = defaultIngestionProviders)): Boolean =
+         withContext(writeScope.coroutineContext) {
+             val admission = FxSuggestAdmission.snapshot()
+             if (!admission.choices.localEnabled) return@withContext true
+@@ -111,7 +113,7 @@ class FxSuggestStorage(
+      */
+     suspend fun runStartupIngestion() {
+         logger.info("runStartupIngestion")
+-        ingest(SuggestIngestionConstraints(emptyOnly = true))
++        ingest(SuggestIngestionConstraints(providers = defaultIngestionProviders, emptyOnly = true))
+     }
+
+     /**
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
+new file mode 100644
+index 0000000..bd2a003
+--- /dev/null
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
+@@ -0,0 +1,55 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++package mozilla.components.feature.fxsuggest
++
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import io.mockk.every
++import io.mockk.mockk
++import io.mockk.spyk
++import io.mockk.verify
++import kotlinx.coroutines.runBlocking
++import mozilla.appservices.suggest.SuggestStore
++import mozilla.appservices.suggest.SuggestionProvider
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.After
++import org.junit.Assert.assertFalse
++import org.junit.Test
++import org.junit.runner.RunWith
++
++@RunWith(AndroidJUnit4::class)
++class PinnedSuggestIngestionTest {
++    private val providers = listOf(SuggestionProvider.AMP, SuggestionProvider.WIKIPEDIA)
++    @After fun restore() { FxSuggestAdmission.configure { FxSuggestChoices() } }
++
++    @Test
++    fun `configured provider set reaches startup and periodic native ingestion`() = runBlocking {
++        FxSuggestAdmission.configure { FxSuggestChoices() }
++        val native = mockk<SuggestStore>(relaxed = true)
++        val storage = spyk(FxSuggestStorage(testContext, mockk(), defaultIngestionProviders = providers))
++        every { storage.store } returns lazy { native }
++        storage.runStartupIngestion()
++        storage.ingest()
++        verify { native.ingest(match { it.providers == providers && it.emptyOnly }) }
++        verify { native.ingest(match { it.providers == providers && !it.emptyOnly }) }
++    }
++
++    @Test
++    fun `an off restored storage reference does not initialize the native store`() = runBlocking {
++        FxSuggestAdmission.configure { FxSuggestChoices(false, false, false, false) }
++        val storage = FxSuggestStorage(testContext, mockk(), defaultIngestionProviders = providers)
++        storage.runStartupIngestion()
++        storage.ingest()
++        assertFalse(storage.store.isInitialized())
++    }
++
++    @Test
++    fun `other embedders retain their unspecified provider default`() = runBlocking {
++        FxSuggestAdmission.configure { FxSuggestChoices() }
++        val native = mockk<SuggestStore>(relaxed = true)
++        val storage = spyk(FxSuggestStorage(testContext, mockk()))
++        every { storage.store } returns lazy { native }
++        storage.ingest()
++        verify { native.ingest(match { it.providers == null }) }
++    }
++}
+diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
+--- a/mobile/android/fenix/app/build.gradle
++++ b/mobile/android/fenix/app/build.gradle
+@@
+     implementation ComponentsDependencies.mozilla_appservices_syncmanager
+     implementation ComponentsDependencies.mozilla_appservices_merino
++    // This patch makes Fenix itself reference mozilla.appservices.suggest
++    // (FxSuggest.kt's defaultIngestionProviders, and the SuggestData* files it
++    // adds). Upstream Fenix never names that package -- feature-fxsuggest wraps
++    // it and depends on it as `implementation`, which does not put it on Fenix's
++    // compile classpath. Without this line the build fails with "Cannot access
++    // class 'mozilla.appservices.suggest.SuggestionProvider'".
++    implementation ComponentsDependencies.mozilla_appservices_suggest
+ 
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
+index 8c68bab..c7baedc 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
+@@ -5,6 +5,7 @@
+ package org.mozilla.fenix.components
+
+ import android.content.Context
++import mozilla.appservices.suggest.SuggestionProvider
+ import mozilla.components.concept.base.crash.CrashReporting
+ import mozilla.components.feature.fxsuggest.FxSuggestIngestionScheduler
+ import mozilla.components.feature.fxsuggest.FxSuggestStorage
+@@ -28,6 +29,7 @@ class FxSuggest(
+             context,
+             remoteSettingsService,
+             crashReporter,
++            defaultIngestionProviders = listOf(SuggestionProvider.AMP, SuggestionProvider.WIKIPEDIA),
+         )
+     }
+
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
+index b908196..a764ffd 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
+@@ -37,6 +37,7 @@ import org.mozilla.gecko.search.SearchWidgetProvider
+  * Settings screen allowing users to configure the browser search functionality.
+  */
+ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment {
++    private var suggestDataPreferences: SuggestDataPreferences? = null
+
+     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+         setPreferencesFromResource(
+@@ -60,6 +61,7 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+             isVisible = canShowAddSearchWidgetPrompt(AppWidgetManager.getInstance(requireContext()))
+         }
+
++        suggestDataPreferences = SuggestDataPreferences(this)
+         view?.hideKeyboard()
+     }
+
+@@ -205,6 +207,12 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+         listOf(suggestMaster, showSponsoredSuggestionsPreference, showNonSponsoredSuggestionsPreference, showSuggestionCardsPreference)
+             .forEach { it.isPersistent = false }
+         updateSuggestControls()
++        suggestDataPreferences?.onResume()
++    }
++
++    override fun onStop() {
++        suggestDataPreferences?.onStop()
++        super.onStop()
+     }
+
+     /**
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt
+new file mode 100644
+index 0000000..ded8a5e
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt
+@@ -0,0 +1,80 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.search
++
++import org.json.JSONObject
++import java.security.MessageDigest
++import java.util.Locale
++
++internal data class SuggestDataAttachment(val recordId: String, val url: String, val size: Int, val sha256: String)
++
++internal data class SuggestDataSet(
++    val id: String,
++    val collection: String,
++    val kind: String,
++    val language: String?,
++    val country: String?,
++    val attachments: List<SuggestDataAttachment>,
++) {
++    val downloadBytes: Long get() = attachments.sumOf { it.size.toLong() }
++
++    fun label(displayLocale: Locale): String = if (kind == "wikipedia") {
++        Locale.forLanguageTag(requireNotNull(language)).getDisplayName(displayLocale)
++    } else {
++        Locale.Builder().setRegion(requireNotNull(country)).build().getDisplayCountry(displayLocale)
++    }
++}
++
++internal class SuggestDataCatalog(val datasets: List<SuggestDataSet>) {
++    fun preferred(kind: String, browserLocale: Locale): SuggestDataSet? = datasets.firstOrNull {
++        it.kind == kind && if (kind == "wikipedia") {
++            Locale.forLanguageTag(requireNotNull(it.language)).language == browserLocale.language
++        } else {
++            it.country == browserLocale.country
++        }
++    }
++
++    companion object {
++        const val ASSET = "firefox-suggest-catalog.json"
++        const val SHA256 = "4960be774112710a938ec47bfea0588697dd35de445aea909be675595ae503aa"
++        private const val CATALOG_SIZE = 52962
++        private const val CDN = "https://firefox-settings-attachments.cdn.mozilla.net/"
++
++        fun parse(bytes: ByteArray): SuggestDataCatalog {
++            require(bytes.size == CATALOG_SIZE && digest(bytes) == SHA256) { "Suggest catalog differs from the release pin" }
++            val root = JSONObject(bytes.toString(Charsets.UTF_8))
++            require(root.getInt("format") == 1)
++            val icons = root.getJSONArray("icons")
++            val iconRecords = (0 until icons.length()).associate {
++                val record = icons.getJSONObject(it)
++                record.getString("id") to record
++            }
++            val rows = root.getJSONArray("datasets")
++            val datasets = (0 until rows.length()).map { index ->
++                val row = rows.getJSONObject(index)
++                val required = mutableListOf(row.getJSONObject("record"))
++                val ids = row.getJSONArray("icon_ids")
++                for (i in 0 until ids.length()) required += iconRecords.getValue(ids.getString(i))
++                val attachments = required.map { record ->
++                    val attachment = record.getJSONObject("attachment")
++                    val location = attachment.getString("location")
++                    require(location.startsWith("main-workspace/quicksuggest-") && !location.contains(".."))
++                    SuggestDataAttachment(
++                        record.getString("id"), CDN + location, attachment.getInt("size"), attachment.getString("hash"),
++                    )
++                }
++                SuggestDataSet(
++                    row.getString("id"), row.getString("collection"), row.getString("kind"),
++                    row.optString("language").takeUnless { row.isNull("language") },
++                    row.optString("country").takeUnless { row.isNull("country") }, attachments,
++                ).also { require(it.downloadBytes == row.getLong("download_bytes")) }
++            }
++            return SuggestDataCatalog(datasets)
++        }
++
++        fun digest(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes)
++            .joinToString("") { "%02x".format(it) }
++    }
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt
+new file mode 100644
+index 0000000..0e57841
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt
+@@ -0,0 +1,113 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.search
++
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.currentCoroutineContext
++import kotlinx.coroutines.ensureActive
++import kotlinx.coroutines.withContext
++import mozilla.components.concept.fetch.Client
++import mozilla.components.concept.fetch.Request
++import mozilla.components.concept.fetch.Response
++import java.io.ByteArrayOutputStream
++import java.io.IOException
++import java.util.concurrent.TimeUnit
++
++/** An attempt owns one native cancellation token; tests can supply a native-free backend. */
++internal interface SuggestDataImport {
++    fun install(dataset: SuggestDataSet, attachments: List<Pair<String, ByteArray>>)
++    fun cancel(): Boolean
++}
++
++/** Only an explicit UI Download action calls this class. No worker uses it. */
++internal class SuggestDataInstaller(
++    private val clientFactory: () -> Client,
++    private val importFactory: (SuggestDataSet) -> SuggestDataImport,
++    private val isAllowed: () -> Boolean,
++) {
++    private class Attempt {
++        @Volatile var cancelled = false
++        @Volatile var importer: SuggestDataImport? = null
++        @Volatile var response: Response? = null
++    }
++
++    @Volatile private var active: Attempt? = null
++
++    /** A false result means native publication already began; no rollback is promised. */
++    fun cancel(): Boolean {
++        val attempt = active ?: return true
++        attempt.cancelled = true
++        // A failed stream close must not prevent native cancellation.
++        runCatching { attempt.response?.close() }
++        return attempt.importer?.cancel() ?: true
++    }
++
++    suspend fun install(dataset: SuggestDataSet) = withContext(Dispatchers.IO) {
++        val attempt = Attempt()
++        synchronized(this@SuggestDataInstaller) {
++            check(active == null) { "A Suggest install is already running" }
++            if (!isAllowed()) throw CancellationException("Suggest data installation is disabled")
++            active = attempt
++        }
++        fun checkAdmission() {
++            if (attempt.cancelled || !isAllowed()) throw CancellationException("Suggest data installation stopped")
++        }
++        try {
++            currentCoroutineContext().ensureActive()
++            checkAdmission()
++            val importer = importFactory(dataset)
++            attempt.importer = importer
++            checkAdmission()
++            val client = clientFactory()
++            val attachments = mutableListOf<Pair<String, ByteArray>>()
++            for (attachment in dataset.attachments) {
++                currentCoroutineContext().ensureActive()
++                checkAdmission()
++                val request = Request(
++                    url = attachment.url,
++                    redirect = Request.Redirect.MANUAL,
++                    cookiePolicy = Request.CookiePolicy.OMIT,
++                    useCaches = false,
++                    connectTimeout = 15L to TimeUnit.SECONDS,
++                    readTimeout = 30L to TimeUnit.SECONDS,
++                )
++                client.fetch(request).use { response ->
++                    attempt.response = response
++                    currentCoroutineContext().ensureActive()
++                    checkAdmission()
++                    if (response.status != 200 || response.url != attachment.url) throw IOException("Unexpected Suggest download response")
++                    val bytes = response.body.useStream { stream ->
++                        val output = ByteArrayOutputStream(attachment.size)
++                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
++                        while (true) {
++                            checkAdmission()
++                            val count = stream.read(buffer)
++                            if (count < 0) break
++                            if (output.size().toLong() + count > attachment.size) throw IOException("Suggest download is larger than its pin")
++                            output.write(buffer, 0, count)
++                        }
++                        output.toByteArray()
++                    }
++                    if (bytes.size != attachment.size || SuggestDataCatalog.digest(bytes) != attachment.sha256) {
++                        throw IOException("Suggest download does not match its pin")
++                    }
++                    attachments += attachment.recordId to bytes
++                    attempt.response = null
++                }
++            }
++            currentCoroutineContext().ensureActive()
++            checkAdmission()
++            importer.install(dataset, attachments)
++        } finally {
++            runCatching { attempt.response?.close() }
++            try {
++                attempt.importer?.cancel()
++            } finally {
++                synchronized(this@SuggestDataInstaller) { if (active === attempt) active = null }
++            }
++        }
++    }
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt
+new file mode 100644
+index 0000000..d42ebe6
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt
+@@ -0,0 +1,231 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.search
++
++import android.content.SharedPreferences
++import android.text.format.Formatter
++import androidx.appcompat.app.AlertDialog
++import androidx.core.os.ConfigurationCompat
++import androidx.lifecycle.lifecycleScope
++import androidx.preference.Preference
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++import mozilla.appservices.remotesettings.PinnedSuggestAttachment
++import mozilla.appservices.remotesettings.SuggestDataInstallToken
++import mozilla.appservices.suggest.SuggestIngestionConstraints
++import mozilla.appservices.suggest.SuggestionProvider
++import mozilla.components.feature.fxsuggest.FxSuggestAdmission
++import mozilla.components.support.locale.LocaleManager
++import org.mozilla.fenix.HomeActivity
++import org.mozilla.fenix.R
++import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.utils.isLargeScreenSize
++
++/** Explicit data actions alongside the default-off Suggest controls. */
++internal class SuggestDataPreferences(private val fragment: SearchEngineFragment) {
++    private val context = fragment.requireContext()
++    private val preferences = context.components.settings.preferences
++    private val catalog by lazy {
++        context.assets.open(SuggestDataCatalog.ASSET).use { SuggestDataCatalog.parse(it.readBytes()) }
++    }
++    private val web = requireNotNull(fragment.findPreference<Preference>(WEB_KEY))
++    private val sponsored = requireNotNull(fragment.findPreference<Preference>(SPONSORED_KEY))
++    private var installJob: Job? = null
++    private var statusJob: Job? = null
++    private var installer: SuggestDataInstaller? = null
++    private var progress: AlertDialog? = null
++    private var installSnapshot: FxSuggestAdmission.Snapshot? = null
++    @Volatile private var resumed = false
++    private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
++        installSnapshot?.let {
++            if (!FxSuggestAdmission.isCurrent(it)) {
++                installer?.cancel()
++                installJob?.cancel()
++            }
++        }
++        if (resumed) fragment.lifecycleScope.launch { refresh() }
++    }
++
++    init {
++        web.setOnPreferenceClickListener { choose("wikipedia"); true }
++        sponsored.setOnPreferenceClickListener { choose("amp"); true }
++    }
++
++    fun onResume() {
++        resumed = true
++        preferences.registerOnSharedPreferenceChangeListener(listener)
++        refresh()
++    }
++
++    fun onStop() {
++        resumed = false
++        preferences.unregisterOnSharedPreferenceChangeListener(listener)
++        installer?.cancel()
++        installJob?.cancel()
++        statusJob?.cancel()
++        progress?.dismiss()
++        progress = null
++    }
++
++    private fun displayLocale() =
++        ConfigurationCompat.getLocales(context.resources.configuration).get(0) ?: LocaleManager.getSystemDefault()
++
++    private fun inPrivateMode(): Boolean =
++        (fragment.activity as? HomeActivity)?.browsingModeManager?.mode?.isPrivate != false
++
++    private fun allowed(kind: String, snapshot: FxSuggestAdmission.Snapshot): Boolean =
++        resumed && !inPrivateMode() && FxSuggestAdmission.isCurrent(snapshot) && snapshot.choices.enabled &&
++            if (kind == "wikipedia") snapshot.choices.web else snapshot.choices.sponsored && !context.isLargeScreenSize()
++
++    private fun refresh() {
++        val snapshot = FxSuggestAdmission.snapshot()
++        val busy = installJob != null
++        web.isEnabled = !busy && allowed("wikipedia", snapshot)
++        sponsored.isEnabled = !busy && allowed("amp", snapshot)
++        web.setSummary(if (inPrivateMode()) R.string.suggest_data_private else R.string.suggest_data_web_available)
++        sponsored.setSummary(
++            when {
++                inPrivateMode() -> R.string.suggest_data_private
++                context.isLargeScreenSize() -> R.string.suggest_data_no_tablet
++                else -> R.string.suggest_data_regions_available
++            },
++        )
++        if (installJob?.isCancelled == true) {
++            web.setSummary(R.string.suggest_data_finishing)
++            sponsored.setSummary(R.string.suggest_data_finishing)
++        }
++        statusJob?.cancel()
++        if (busy || !snapshot.choices.localEnabled || inPrivateMode()) return
++        statusJob = fragment.lifecycleScope.launch {
++            for (kind in listOf("wikipedia", "amp")) {
++                if (!allowed(kind, snapshot)) continue
++                try {
++                    val available = catalog.datasets.filter { it.kind == kind }
++                    val installed = withContext(Dispatchers.IO) {
++                        if (!allowed(kind, snapshot)) return@withContext null
++                        context.components.remoteSettingsService.value.remoteSettingsService
++                            .makeClient(available.first().collection).installedPinnedSuggestData()
++                    }
++                    if (!allowed(kind, snapshot)) continue
++                    available.firstOrNull { it.id == installed }?.let { dataset ->
++                        (if (kind == "wikipedia") web else sponsored).summary = context.getString(
++                            R.string.suggest_data_installed, dataset.label(displayLocale()),
++                        )
++                    }
++                } catch (cancelled: CancellationException) {
++                    throw cancelled
++                } catch (_: Exception) {
++                    if (allowed(kind, snapshot)) (if (kind == "wikipedia") web else sponsored)
++                        .setSummary(R.string.suggest_data_status_failed)
++                }
++            }
++        }
++    }
++
++    private fun choose(kind: String) {
++        val snapshot = FxSuggestAdmission.snapshot()
++        if (!allowed(kind, snapshot) || installJob != null) return
++        val available = try {
++            // LocaleManager can override Locale.getDefault at app startup. The
++            // saved app language is the selection hint; it is not a data gate.
++            val browserLocale = LocaleManager.getCurrentLocale(context) ?: LocaleManager.getSystemDefault()
++            val preferred = catalog.preferred(kind, browserLocale)
++            catalog.datasets.filter { it.kind == kind }.sortedWith(
++                compareBy<SuggestDataSet> { it.id != preferred?.id }.thenBy { it.label(browserLocale) },
++            )
++        } catch (_: Exception) {
++            showFailure()
++            return
++        }
++        val displayLocale = displayLocale()
++        AlertDialog.Builder(context)
++            .setTitle(if (kind == "wikipedia") R.string.suggest_data_choose_language else R.string.suggest_data_choose_region)
++            .setItems(available.map { "${it.label(displayLocale)} (${Formatter.formatFileSize(context, it.downloadBytes)})" }.toTypedArray()) { _, index ->
++                val dataset = available[index]
++                if (!allowed(kind, snapshot)) return@setItems
++                AlertDialog.Builder(context)
++                    .setTitle(dataset.label(displayLocale))
++                    .setMessage(context.getString(R.string.suggest_data_download_disclosure, Formatter.formatFileSize(context, dataset.downloadBytes)))
++                    .setNegativeButton(android.R.string.cancel, null)
++                    .setPositiveButton(R.string.suggest_data_download) { _, _ -> start(dataset, snapshot) }
++                    .show()
++            }
++            .setNegativeButton(android.R.string.cancel, null)
++            .show()
++    }
++
++    private fun start(dataset: SuggestDataSet, snapshot: FxSuggestAdmission.Snapshot) {
++        if (!allowed(dataset.kind, snapshot) || installJob != null) return
++        installSnapshot = snapshot
++        val attempt = SuggestDataInstaller(
++            clientFactory = { context.components.core.client },
++            importFactory = { selected ->
++                val service = context.components.remoteSettingsService.value.remoteSettingsService
++                check(service.clientUrl().trimEnd('/') == "https://firefox.settings.services.mozilla.com/v1")
++                val client = service.makeClient(selected.collection)
++                val token = SuggestDataInstallToken()
++                object : SuggestDataImport {
++                    override fun cancel(): Boolean = token.cancel()
++                    override fun install(dataset: SuggestDataSet, attachments: List<Pair<String, ByteArray>>) {
++                        client.installPinnedSuggestData(
++                            dataset.id, attachments.map { (id, bytes) -> PinnedSuggestAttachment(id, bytes) }, token,
++                        )
++                    }
++                }
++            },
++            isAllowed = { allowed(dataset.kind, snapshot) },
++        )
++        installer = attempt
++        progress = AlertDialog.Builder(context)
++            .setMessage(R.string.suggest_data_downloading)
++            .setCancelable(false)
++            .setNegativeButton(android.R.string.cancel) { _, _ ->
++                attempt.cancel()
++                installJob?.cancel()
++            }.show()
++        installJob = fragment.lifecycleScope.launch {
++            var imported = false
++            try {
++                attempt.install(dataset)
++                imported = true
++                if (allowed(dataset.kind, snapshot)) {
++                    val provider = if (dataset.kind == "wikipedia") SuggestionProvider.WIKIPEDIA else SuggestionProvider.AMP
++                    val ready = context.components.fxSuggest.storage.ingest(SuggestIngestionConstraints(providers = listOf(provider)))
++                    if (!ready && allowed(dataset.kind, snapshot)) showFailure(dataSaved = true)
++                }
++            } catch (cancelled: CancellationException) {
++                // Native publication may already have won. refresh() reads the
++                // installed state; cancellation does not promise to retract it.
++                throw cancelled
++            } catch (_: Exception) {
++                if (resumed) showFailure(dataSaved = imported)
++            } finally {
++                // Keep the attempt owned until blocking fetch/native cleanup
++                // completes. A cancelled Job is not yet a finished operation.
++                installer = null
++                installSnapshot = null
++                progress?.dismiss()
++                progress = null
++                installJob = null
++                if (resumed) refresh()
++            }
++        }
++        refresh()
++    }
++
++    private fun showFailure(dataSaved: Boolean = false) {
++        if (resumed) AlertDialog.Builder(context)
++            .setMessage(if (dataSaved) R.string.suggest_data_prepare_failed else R.string.suggest_data_failed)
++            .setPositiveButton(android.R.string.ok, null).show()
++    }
++
++    companion object {
++        const val WEB_KEY = "redoubt_suggest_web_data"
++        const val SPONSORED_KEY = "redoubt_suggest_sponsored_data"
++    }
++}
+diff --git a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml
+new file mode 100644
+index 0000000..2f98202
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml
+@@ -0,0 +1,19 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <string name="suggest_data_web_title">Web suggestion data</string>
++    <string name="suggest_data_sponsored_title">Sponsored suggestion data</string>
++    <string name="suggest_data_web_available">Choose from 21 Wikipedia languages. Data downloads only when you select Download.</string>
++    <string name="suggest_data_regions_available">Phone data is available for France, Germany, Italy, the United Kingdom and the United States. Choose a region to download.</string>
++    <string name="suggest_data_no_tablet">Sponsored datasets are currently available for phones only. Web suggestion data is available above.</string>
++    <string name="suggest_data_private">Return to regular browsing to download suggestion data.</string>
++    <string name="suggest_data_choose_language">Choose a data language</string>
++    <string name="suggest_data_choose_region">Choose a sponsored data region</string>
++    <string name="suggest_data_download_disclosure">Download %1$s from Mozilla? This replaces previously installed data of this type after the new data is verified. The selected language or region applies even when your browser language differs. Downloads do not update automatically.</string>
++    <string name="suggest_data_download">Download</string>
++    <string name="suggest_data_downloading">Downloading and verifying suggestion data…</string>
++    <string name="suggest_data_finishing">Finishing the previous download. You can start another when it ends.</string>
++    <string name="suggest_data_installed">Installed: %1$s. Select to download different data.</string>
++    <string name="suggest_data_failed">Could not finish installing suggestion data. Any previously usable data is kept when download or verification fails. Try again to start a new download.</string>
++    <string name="suggest_data_prepare_failed">Data was downloaded and verified, but suggestions could not be prepared. The saved data remains available for the next preparation attempt.</string>
++    <string name="suggest_data_status_failed">Could not check installed data. Select to download data.</string>
++</resources>
+diff --git a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
+index e5c6bb8..5de2b37 100644
+--- a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
++++ b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
+@@ -6,8 +6,8 @@
+     <string name="firefox_suggest_master_title">Firefox Suggest</string>
+     <string name="firefox_suggest_master_summary">Allow the extra suggestion types selected below. Your search engine’s query suggestions use their own setting.</string>
+     <string name="firefox_suggest_local_data_title">Local suggestion data</string>
+-    <string name="firefox_suggest_local_data_summary">New installs have no bundled web or sponsored suggestion data, and new downloads are currently unavailable. Existing data on this device can still be used. Online suggestions use a separate service.</string>
+-    <string name="firefox_suggest_local_data_required">Requires suggestion data already stored on this device. New suggestion downloads are currently unavailable.</string>
++    <string name="firefox_suggest_local_data_summary">Download a language or region below to use local suggestions. New installs have no suggestion payloads. Installed data is used offline; online suggestions use a separate service.</string>
++    <string name="firefox_suggest_local_data_required">Uses suggestion data installed on this device. Choose data to download below.</string>
+     <string name="firefox_suggest_online_title">Online Firefox Suggest</string>
+     <string name="firefox_suggest_online_summary">Send text as you type to Mozilla’s suggestion service for online cards, such as flights, sports and stocks. Turning this off stops new requests; a request already sent may finish.</string>
+     <string name="firefox_suggest_stocks_title">Stock cards</string>
+diff --git a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
+index 7aa8322..0bd3871 100644
+--- a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
+@@ -86,6 +86,16 @@
+             android:selectable="false"
+             android:title="@string/firefox_suggest_local_data_title"
+             android:summary="@string/firefox_suggest_local_data_summary" />
++        <Preference
++            android:key="redoubt_suggest_web_data"
++            android:title="@string/suggest_data_web_title"
++            android:summary="@string/suggest_data_web_available"
++            app:iconSpaceReserved="false" />
++        <Preference
++            android:key="redoubt_suggest_sponsored_data"
++            android:title="@string/suggest_data_sponsored_title"
++            android:summary="@string/suggest_data_regions_available"
++            app:iconSpaceReserved="false" />
+         <SwitchPreferenceCompat
+             app:iconSpaceReserved="false"
+             android:key="@string/pref_key_show_nonsponsored_suggestions"
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt
+new file mode 100644
+index 0000000..08d0dc9
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt
+@@ -0,0 +1,49 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++package org.mozilla.fenix.settings.search
++
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertThrows
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import java.util.Locale
++
++@RunWith(AndroidJUnit4::class)
++class SuggestDataCatalogTest {
++    private fun bytes() = testContext.assets.open(SuggestDataCatalog.ASSET).use { it.readBytes() }
++
++    @Test
++    fun `production catalog exposes reviewed language and phone region choices`() {
++        val catalog = SuggestDataCatalog.parse(bytes())
++        assertEquals(21, catalog.datasets.count { it.kind == "wikipedia" })
++        assertEquals(setOf("DE", "FR", "GB", "IT", "US"), catalog.datasets.filter { it.kind == "amp" }.map { it.country }.toSet())
++        val german = catalog.datasets.single { it.id == "sponsored-suggestions-de-phone" }
++        assertEquals(5, german.attachments.size)
++        assertEquals(6957, german.attachments.first().size)
++        assertEquals("041f91936d4a986593b1e4418b7553e4f54227a113d0fc13efee938e69921a09", german.attachments.first().sha256)
++        assertTrue(catalog.datasets.all { d -> d.attachments.all { it.url.startsWith("https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/quicksuggest-") } })
++    }
++
++    @Test
++    fun `corrupt and truncated catalog cannot select any download`() {
++        val original = bytes()
++        val changed = original.copyOf().also { it[10] = (it[10].toInt() xor 1).toByte() }
++        assertThrows(IllegalArgumentException::class.java) { SuggestDataCatalog.parse(changed) }
++        assertThrows(IllegalArgumentException::class.java) { SuggestDataCatalog.parse(original.copyOf(original.size - 1)) }
++    }
++
++    @Test
++    fun `language hint remains separate from actual region and does not mutate system locale`() {
++        val catalog = SuggestDataCatalog.parse(bytes())
++        val before = Locale.getDefault()
++        assertEquals("data-wikipedia-de", catalog.preferred("wikipedia", Locale.forLanguageTag("de-CH"))?.id)
++        assertNull(catalog.preferred("amp", Locale.forLanguageTag("de-CH")))
++        assertNull(catalog.preferred("wikipedia", Locale.forLanguageTag("ja-JP")))
++        assertEquals(before, Locale.getDefault())
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt
+new file mode 100644
+index 0000000..178a61b
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt
+@@ -0,0 +1,170 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++package org.mozilla.fenix.settings.search
++
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.async
++import kotlinx.coroutines.runBlocking
++import mozilla.components.concept.fetch.Client
++import mozilla.components.concept.fetch.MutableHeaders
++import mozilla.components.concept.fetch.Request
++import mozilla.components.concept.fetch.Response
++import mozilla.components.feature.fxsuggest.FxSuggestAdmission
++import mozilla.components.feature.fxsuggest.FxSuggestChoices
++import org.junit.After
++import org.junit.Assert.assertArrayEquals
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Assert.fail
++import org.junit.Test
++import org.junit.runner.RunWith
++import java.io.IOException
++import java.io.InputStream
++import java.util.concurrent.CountDownLatch
++import java.util.concurrent.TimeUnit
++import java.util.concurrent.atomic.AtomicBoolean
++import java.util.concurrent.atomic.AtomicInteger
++
++@RunWith(AndroidJUnit4::class)
++class SuggestDataInstallerTest {
++    private val attachment = SuggestDataAttachment("fixture", "https://firefox-settings-attachments.cdn.mozilla.net/fixture", 3,
++        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
++    private val dataset = SuggestDataSet("fixture", "quicksuggest-other", "wikipedia", "en", null, listOf(attachment))
++    private class Backend : SuggestDataImport {
++        val installs = AtomicInteger()
++        val cancels = AtomicInteger()
++        var received = emptyList<Pair<String, ByteArray>>()
++        override fun cancel(): Boolean { cancels.incrementAndGet(); return true }
++        override fun install(dataset: SuggestDataSet, attachments: List<Pair<String, ByteArray>>) {
++            installs.incrementAndGet()
++            received = attachments
++        }
++    }
++    private fun client(block: (Request) -> Response) = object : Client() {
++        override fun fetch(request: Request): Response = block(request)
++    }
++    private fun response(request: Request, content: String = "abc", status: Int = 200, url: String = request.url) =
++        Response(url, status, MutableHeaders(), Response.Body(content.byteInputStream()))
++
++    @After fun resetAdmission() { FxSuggestAdmission.configure { FxSuggestChoices() } }
++
++    @Test
++    fun `off admission leaves both backend factories untouched`() = runBlocking {
++        val created = AtomicInteger()
++        val installer = SuggestDataInstaller({ created.incrementAndGet(); error("client") }, { created.incrementAndGet(); error("native") }, { false })
++        try { installer.install(dataset); fail("must reject off") } catch (_: CancellationException) { }
++        assertEquals(0, created.get())
++    }
++
++    @Test
++    fun `explicit download validates bytes and omits cookies redirects and referrer`() = runBlocking {
++        val backend = Backend()
++        val requests = mutableListOf<Request>()
++        val installer = SuggestDataInstaller({ client { request -> requests += request; response(request) } }, { backend }, { true })
++        installer.install(dataset)
++        assertEquals(1, backend.installs.get())
++        assertEquals(1, requests.size)
++        assertEquals(Request.CookiePolicy.OMIT, requests.single().cookiePolicy)
++        assertEquals(Request.Redirect.MANUAL, requests.single().redirect)
++        assertEquals(null, requests.single().referrerUrl)
++        assertFalse(requests.single().useCaches)
++        assertArrayEquals("abc".toByteArray(), backend.received.single().second)
++    }
++
++    @Test
++    fun `bad hash truncation oversize redirect and error status never reach import`() = runBlocking {
++        for (variant in 0..4) {
++            val backend = Backend()
++            val requests = AtomicInteger()
++            val installer = SuggestDataInstaller({ client { request ->
++                requests.incrementAndGet()
++                when (variant) {
++                    0 -> response(request, "abd")
++                    1 -> response(request, "ab")
++                    2 -> response(request, "abcd")
++                    3 -> response(request, url = "https://example.org/redirect")
++                    else -> response(request, status = 302)
++                }
++            } }, { backend }, { true })
++            try { installer.install(dataset); fail("must reject invalid response") } catch (_: IOException) { }
++            assertEquals(0, backend.installs.get())
++            assertEquals(1, requests.get())
++        }
++    }
++
++    @Test
++    fun `turning off after response prevents import and later attachment requests`() = runBlocking {
++        val allowed = AtomicBoolean(true)
++        val backend = Backend()
++        val requests = AtomicInteger()
++        val installer = SuggestDataInstaller({ client { request -> requests.incrementAndGet(); allowed.set(false); response(request) } }, { backend }, allowed::get)
++        try { installer.install(dataset.copy(attachments = listOf(attachment, attachment.copy(recordId = "second")))); fail("must stop") } catch (_: CancellationException) { }
++        assertEquals(1, requests.get())
++        assertEquals(0, backend.installs.get())
++    }
++
++    @Test
++    fun `off then on cannot revive a retained earlier admission snapshot`() = runBlocking {
++        FxSuggestAdmission.configure { FxSuggestChoices() }
++        val snapshot = FxSuggestAdmission.snapshot()
++        val backend = Backend()
++        val installer = SuggestDataInstaller({ client { request ->
++            FxSuggestAdmission.configure { FxSuggestChoices(false, false, false, false) }
++            FxSuggestAdmission.configure { FxSuggestChoices() }
++            response(request)
++        } }, { backend }, { FxSuggestAdmission.isCurrent(snapshot) })
++        try { installer.install(dataset); fail("must drop stale response") } catch (_: CancellationException) { }
++        assertEquals(0, backend.installs.get())
++    }
++
++    @Test
++    fun `cancellation during backend construction still cancels before network construction`() = runBlocking {
++        val constructing = CountDownLatch(1)
++        val release = CountDownLatch(1)
++        val backend = Backend()
++        val networkConstructed = AtomicInteger()
++        val installer = SuggestDataInstaller({ networkConstructed.incrementAndGet(); error("client must stay lazy") }, {
++            constructing.countDown()
++            check(release.await(5, TimeUnit.SECONDS))
++            backend
++        }, { true })
++        val job = async(Dispatchers.Default) { installer.install(dataset) }
++        assertTrue(constructing.await(5, TimeUnit.SECONDS))
++        assertTrue(installer.cancel())
++        release.countDown()
++        try { job.await(); fail("must cancel") } catch (_: CancellationException) { }
++        assertEquals(0, networkConstructed.get())
++        assertEquals(0, backend.installs.get())
++        assertTrue(backend.cancels.get() > 0)
++    }
++    @Test
++    fun `stream close failure cannot bypass native cancellation or cleanup`() = runBlocking {
++        val reading = CountDownLatch(1)
++        val release = CountDownLatch(1)
++        val backend = Backend()
++        val installer = SuggestDataInstaller({ client { request ->
++            val stream = object : InputStream() {
++                override fun read(): Int {
++                    reading.countDown()
++                    check(release.await(5, TimeUnit.SECONDS))
++                    return -1
++                }
++                override fun close() { throw IOException("close failed") }
++            }
++            Response(request.url, 200, MutableHeaders(), Response.Body(stream))
++        } }, { backend }, { true })
++        val job = async(Dispatchers.Default) { runCatching { installer.install(dataset) } }
++        assertTrue(reading.await(5, TimeUnit.SECONDS))
++        assertTrue(installer.cancel())
++        assertTrue(backend.cancels.get() > 0)
++        release.countDown()
++        assertTrue(job.await().isFailure)
++        assertEquals(0, backend.installs.get())
++        assertTrue(installer.cancel())
++    }
++
++}
+diff --git a/third_party/application-services/components/remote_settings/src/client.rs b/third_party/application-services/components/remote_settings/src/client.rs
+index 7d7ec68..88245a5 100644
+--- a/third_party/application-services/components/remote_settings/src/client.rs
++++ b/third_party/application-services/components/remote_settings/src/client.rs
+@@ -13,6 +13,7 @@ use crate::{packaged_attachments, packaged_collections, RemoteSettingsServer};
+ use parking_lot::{Mutex, MutexGuard};
+ use serde::{Deserialize, Serialize};
+ use sha2::{Digest, Sha256};
++use std::sync::atomic::{AtomicU64, Ordering};
+ use std::time::{Duration, Instant};
+ use url::Url;
+ use viaduct::{Request, Response};
+@@ -70,15 +71,18 @@ pub struct RemoteSettingsClient<C = ViaductApiClient> {
+     // Config that we got from `update_config`.  This should be applied to
+     // `RemoteSettingsClientInner` the next time it's used.
+     pending_config: Mutex<Option<RemoteSettingsClientConfig>>,
++    issued_config_generation: AtomicU64,
+ }
+
+ struct RemoteSettingsClientInner<C> {
++    applied_config_generation: u64,
+     storage: Storage,
+     api_client: C,
+     jexl_filter: JexlFilter,
+ }
+
+ struct RemoteSettingsClientConfig {
++    generation: u64,
+     server_url: BaseUrl,
+     bucket_name: String,
+     context: Option<RemoteSettingsContext>,
+@@ -93,6 +97,8 @@ struct RemoteSettingsClientConfig {
+ impl<C: ApiClient> RemoteSettingsClient<C> {
+     // One line per bucket + collection
+     packaged_collections! {
++        ("main", "quicksuggest-amp"), // Empty baseline; payloads require explicit installation.
++        ("main", "quicksuggest-other"), // Baseline global configuration only.
+         ("main", "regions"),
+         ("main", "search-config-icons"),
+         ("main", "search-config-v2"),
+@@ -218,11 +224,13 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
+         Self {
+             collection_name,
+             inner: Mutex::new(RemoteSettingsClientInner {
++                applied_config_generation: 0,
+                 storage,
+                 api_client,
+                 jexl_filter,
+             }),
+             pending_config: Mutex::new(None),
++            issued_config_generation: AtomicU64::new(0),
+         }
+     }
+
+@@ -233,18 +241,138 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
+         let pending_config = self.get_pending_config();
+         let mut inner = self.inner.lock();
+         if let Some(config) = pending_config {
+-            inner.api_client =
+-                C::create(config.server_url, config.bucket_name, &self.collection_name);
+-            inner.jexl_filter = JexlFilter::new(config.context);
+-            inner.storage.empty()?;
++            self.apply_taken_config(&mut inner, config)?;
+         }
+         Ok(inner)
+     }
+
++    fn apply_taken_config(
++        &self,
++        inner: &mut RemoteSettingsClientInner<C>,
++        config: RemoteSettingsClientConfig,
++    ) -> Result<()> {
++        if config.generation <= inner.applied_config_generation {
++            return Ok(());
++        }
++        // Several service clients share each collection's SQLite file. A late
++        // config application in one client must not erase a dataset another
++        // client just installed. Suggest caches remain keyed by their exact
++        // production collection URL; a stage/custom client cannot read them.
++        // This also retains previously installed data across catalog upgrades.
++        // Unrelated Remote Settings collections keep their existing reset behavior.
++        if self.collection_name != "quicksuggest-amp"
++            && self.collection_name != "quicksuggest-other"
++        {
++            inner.storage.empty()?;
++        }
++        inner.api_client = C::create(config.server_url, config.bucket_name, &self.collection_name);
++        inner.jexl_filter = JexlFilter::new(config.context);
++        inner.applied_config_generation = config.generation;
++        Ok(())
++    }
++
+     fn get_pending_config(&self) -> Option<RemoteSettingsClientConfig> {
+         self.pending_config.lock().take()
+     }
+
++    pub(crate) fn install_pinned_suggest_data(
++        &self,
++        dataset_id: &str,
++        attachments: Vec<crate::PinnedSuggestAttachment>,
++        token: &crate::SuggestDataInstallToken,
++    ) -> Result<()> {
++        token.start()?;
++        let result = (|| {
++            let expected_url =
++                crate::pinned_suggest::expected_collection_url(&self.collection_name)?;
++            let validated = crate::pinned_suggest::validate_dataset(
++                &self.collection_name,
++                dataset_id,
++                attachments,
++                token,
++            )?;
++            // A queued configuration change must not clear a usable cache as a
++            // side effect of a rejected import. Hold the same lock order as
++            // lock_inner (pending config, then inner), without applying it.
++            let pending = self.pending_config.lock();
++            if pending.is_some() {
++                return Err(crate::pinned_suggest::invalid(
++                    "Remote Settings configuration changed",
++                ));
++            }
++            let mut inner = self.inner.lock();
++            if inner.applied_config_generation
++                != self.issued_config_generation.load(Ordering::Acquire)
++            {
++                return Err(crate::pinned_suggest::invalid(
++                    "Remote Settings configuration is not yet applied",
++                ));
++            }
++            let url = inner.api_client.collection_url();
++            if url != expected_url {
++                return Err(crate::pinned_suggest::invalid(
++                    "Pinned data requires the production main collection",
++                ));
++            }
++            token.check()?;
++            inner
++                .storage
++                .replace_pinned_suggest_data(&url, validated, token)
++        })();
++        token.finish();
++        result
++    }
++
++    pub(crate) fn installed_pinned_suggest_data(&self) -> Result<Option<String>> {
++        let expected_url = crate::pinned_suggest::expected_collection_url(&self.collection_name)?;
++        let pending = self.pending_config.lock();
++        if pending.is_some() {
++            return Ok(None);
++        }
++        let mut inner = self.inner.lock();
++        if inner.applied_config_generation != self.issued_config_generation.load(Ordering::Acquire)
++        {
++            return Ok(None);
++        }
++        let url = inner.api_client.collection_url();
++        if url != expected_url {
++            return Ok(None);
++        }
++        let Some(records) = inner.storage.get_records(&url)? else {
++            return Ok(None);
++        };
++        for record in &records {
++            if record
++                .fields
++                .get("redoubt_explicit_suggest_dataset")
++                .and_then(|value| value.as_str())
++                != Some(record.id.as_str())
++            {
++                continue;
++            }
++            let Ok((expected, timestamp)) =
++                crate::pinned_suggest::records_for_dataset(&self.collection_name, &record.id)
++            else {
++                continue;
++            };
++            if inner.storage.get_last_modified_timestamp(&url)? != Some(timestamp)
++                || expected.len() != records.len()
++                || expected.iter().any(|r| !records.contains(r))
++            {
++                return Ok(None);
++            }
++            for record in expected {
++                if let Some(metadata) = record.attachment {
++                    if inner.storage.get_attachment(&url, metadata)?.is_none() {
++                        return Ok(None);
++                    }
++                }
++            }
++            return Ok(Some(record.id.clone()));
++        }
++        Ok(None)
++    }
++
+     pub fn collection_name(&self) -> &str {
+         &self.collection_name
+     }
+@@ -571,6 +699,7 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
+     ) {
+         let mut pending_config = self.pending_config.lock();
+         *pending_config = Some(RemoteSettingsClientConfig {
++            generation: self.issued_config_generation.fetch_add(1, Ordering::AcqRel) + 1,
+             server_url,
+             bucket_name,
+             context,
+@@ -1678,3 +1807,130 @@ mod test_reset_storage {
+         );
+     }
+ }
++
++#[cfg(test)]
++mod pinned_config_publication_tests {
++    use super::*;
++    use crate::pinned_suggest::fixture_attachments;
++    use crate::{RemoteSettingsConfig, RemoteSettingsService, SuggestDataInstallToken};
++    use std::sync::Arc;
++
++    #[test]
++    fn a_taken_but_unapplied_config_cannot_be_crossed_by_import_or_status() {
++        let root = tempfile::tempdir().unwrap();
++        let service = RemoteSettingsService::new(
++            root.path().to_str().unwrap().into(),
++            RemoteSettingsConfig::default(),
++        );
++        let client = service.make_client("quicksuggest-amp".into());
++        let id = "sponsored-suggestions-de-phone";
++        client
++            .install_pinned_suggest_data(
++                id.into(),
++                fixture_attachments(id),
++                Arc::new(SuggestDataInstallToken::new()),
++            )
++            .unwrap();
++        let previous = client.get_records(false).unwrap();
++        service
++            .update_config(RemoteSettingsConfig::default())
++            .unwrap();
++        // Pause at the exact legacy interval: get_pending_config consumed the
++        // value, but the reader has not locked inner or applied it yet.
++        let taken = client.internal.get_pending_config().unwrap();
++        assert!(client.internal.pending_config.lock().is_none());
++        assert!(client
++            .install_pinned_suggest_data(
++                id.into(),
++                fixture_attachments(id),
++                Arc::new(SuggestDataInstallToken::new())
++            )
++            .is_err());
++        assert_eq!(client.installed_pinned_suggest_data().unwrap(), None);
++        let url = crate::pinned_suggest::expected_collection_url("quicksuggest-amp").unwrap();
++        assert_eq!(
++            client
++                .internal
++                .inner
++                .lock()
++                .storage
++                .get_records(&url)
++                .unwrap()
++                .unwrap(),
++            previous
++        );
++        client
++            .internal
++            .apply_taken_config(&mut client.internal.inner.lock(), taken)
++            .unwrap();
++        assert_eq!(
++            client.installed_pinned_suggest_data().unwrap().as_deref(),
++            Some(id)
++        );
++    }
++
++    #[test]
++    fn another_client_applying_an_older_queued_config_preserves_newly_installed_data() {
++        let root = tempfile::tempdir().unwrap();
++        let service = RemoteSettingsService::new(
++            root.path().to_str().unwrap().into(),
++            RemoteSettingsConfig::default(),
++        );
++        let first = service.make_client("quicksuggest-amp".into());
++        let second = service.make_client("quicksuggest-amp".into());
++        service
++            .update_config(RemoteSettingsConfig::default())
++            .unwrap();
++        first.get_records(false).unwrap(); // First client catches up; second has not.
++        let id = "sponsored-suggestions-de-phone";
++        first
++            .install_pinned_suggest_data(
++                id.into(),
++                fixture_attachments(id),
++                Arc::new(SuggestDataInstallToken::new()),
++            )
++            .unwrap();
++        assert!(second.internal.pending_config.lock().is_some());
++        assert!(second
++            .get_records(false)
++            .unwrap()
++            .iter()
++            .any(|r| r.id == id));
++        assert_eq!(
++            second.installed_pinned_suggest_data().unwrap().as_deref(),
++            Some(id)
++        );
++        assert_eq!(
++            first.installed_pinned_suggest_data().unwrap().as_deref(),
++            Some(id)
++        );
++    }
++
++    #[test]
++    fn out_of_order_config_applications_cannot_restore_an_older_server() {
++        let root = tempfile::tempdir().unwrap();
++        let service = RemoteSettingsService::new(
++            root.path().to_str().unwrap().into(),
++            RemoteSettingsConfig::default(),
++        );
++        let client = service.make_client("quicksuggest-amp".into());
++        service
++            .update_config(RemoteSettingsConfig {
++                server: Some(RemoteSettingsServer::Stage),
++                ..RemoteSettingsConfig::default()
++            })
++            .unwrap();
++        let old = client.internal.get_pending_config().unwrap();
++        service
++            .update_config(RemoteSettingsConfig::default())
++            .unwrap();
++        let new = client.internal.get_pending_config().unwrap();
++        let mut inner = client.internal.inner.lock();
++        client.internal.apply_taken_config(&mut inner, new).unwrap();
++        client.internal.apply_taken_config(&mut inner, old).unwrap();
++        assert_eq!(
++            inner.api_client.collection_url(),
++            crate::pinned_suggest::expected_collection_url("quicksuggest-amp").unwrap()
++        );
++    }
++}
+diff --git a/third_party/application-services/components/remote_settings/src/lib.rs b/third_party/application-services/components/remote_settings/src/lib.rs
+index 9c5f80b..4db50a8 100644
+--- a/third_party/application-services/components/remote_settings/src/lib.rs
++++ b/third_party/application-services/components/remote_settings/src/lib.rs
+@@ -10,11 +10,13 @@ pub mod client;
+ pub mod config;
+ pub mod context;
+ pub mod error;
++mod pinned_suggest;
+ pub mod schema;
+ pub mod service;
+ #[cfg(feature = "signatures")]
+ pub(crate) mod signatures;
+ pub mod storage;
++pub use pinned_suggest::{PinnedSuggestAttachment, SuggestDataInstallToken};
+ pub mod telemetry;
+
+ pub(crate) mod jexl_filter;
+@@ -197,6 +199,24 @@ impl RemoteSettingsClient {
+         self.internal.reset_storage()
+     }
+
++    /// Install one complete release-pinned Suggest dataset without network access.
++    #[handle_error(Error)]
++    pub fn install_pinned_suggest_data(
++        &self,
++        dataset_id: String,
++        attachments: Vec<PinnedSuggestAttachment>,
++        token: Arc<SuggestDataInstallToken>,
++    ) -> ApiResult<()> {
++        self.internal
++            .install_pinned_suggest_data(&dataset_id, attachments, &token)
++    }
++
++    /// Return an installed dataset only after validating all cached attachments.
++    #[handle_error(Error)]
++    pub fn installed_pinned_suggest_data(&self) -> ApiResult<Option<String>> {
++        self.internal.installed_pinned_suggest_data()
++    }
++
+     /// Shutdown the client, releasing the SQLite connection used to cache records.
+     pub fn shutdown(&self) {
+         self.internal.shutdown()
+diff --git a/third_party/application-services/components/remote_settings/src/pinned_suggest.rs b/third_party/application-services/components/remote_settings/src/pinned_suggest.rs
+new file mode 100644
+index 0000000..2b304a1
+--- /dev/null
++++ b/third_party/application-services/components/remote_settings/src/pinned_suggest.rs
+@@ -0,0 +1,467 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++//! Offline import of one explicitly selected, release-pinned Suggest dataset.
++//! This module never performs HTTP requests or accepts caller-supplied records.
++
++use crate::{Error, RemoteSettingsRecord, Result};
++use serde::Deserialize;
++use sha2::{Digest, Sha256};
++use std::{
++    collections::{HashMap, HashSet},
++    sync::atomic::{AtomicU8, Ordering},
++};
++
++const CATALOG: &str = include_str!(concat!(
++    env!("CARGO_MANIFEST_DIR"),
++    "/dumps/main/redoubt-suggest-catalog.json"
++));
++const PENDING: u8 = 0;
++const VALIDATING: u8 = 1;
++const CANCELLED: u8 = 2;
++const COMMITTING: u8 = 3;
++const FINISHED: u8 = 4;
++
++#[derive(uniffi::Object, Default)]
++pub struct SuggestDataInstallToken {
++    state: AtomicU8,
++}
++
++#[uniffi::export]
++impl SuggestDataInstallToken {
++    #[uniffi::constructor]
++    pub fn new() -> Self {
++        Self::default()
++    }
++
++    /// True means cancellation won before publication. False means publication
++    /// already began or this operation ended; callers must not claim rollback.
++    pub fn cancel(&self) -> bool {
++        loop {
++            let state = self.state.load(Ordering::Acquire);
++            if state != PENDING && state != VALIDATING {
++                return false;
++            }
++            if self
++                .state
++                .compare_exchange(state, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
++                .is_ok()
++            {
++                return true;
++            }
++        }
++    }
++}
++
++impl SuggestDataInstallToken {
++    pub(crate) fn start(&self) -> Result<()> {
++        self.state
++            .compare_exchange(PENDING, VALIDATING, Ordering::AcqRel, Ordering::Acquire)
++            .map(|_| ())
++            .map_err(|_| invalid("Install token was cancelled or already used"))
++    }
++    pub(crate) fn check(&self) -> Result<()> {
++        if self.state.load(Ordering::Acquire) == VALIDATING {
++            Ok(())
++        } else {
++            Err(invalid("Install cancelled"))
++        }
++    }
++    pub(crate) fn begin_commit(&self) -> Result<()> {
++        self.state
++            .compare_exchange(VALIDATING, COMMITTING, Ordering::AcqRel, Ordering::Acquire)
++            .map(|_| ())
++            .map_err(|_| invalid("Install cancelled before publication"))
++    }
++    pub(crate) fn finish(&self) {
++        let _ =
++            self.state
++                .compare_exchange(VALIDATING, FINISHED, Ordering::AcqRel, Ordering::Acquire);
++        let _ =
++            self.state
++                .compare_exchange(COMMITTING, FINISHED, Ordering::AcqRel, Ordering::Acquire);
++    }
++}
++
++#[derive(uniffi::Record)]
++pub struct PinnedSuggestAttachment {
++    pub record_id: String,
++    pub data: Vec<u8>,
++}
++
++#[derive(Deserialize)]
++struct Catalog {
++    format: u32,
++    datasets: Vec<Dataset>,
++    icons: Vec<RemoteSettingsRecord>,
++    configuration: RemoteSettingsRecord,
++    timestamps: HashMap<String, u64>,
++}
++
++#[derive(Deserialize)]
++struct Dataset {
++    id: String,
++    collection: String,
++    record: RemoteSettingsRecord,
++    icon_ids: Vec<String>,
++}
++
++pub(crate) struct ValidatedDataset {
++    pub records: Vec<RemoteSettingsRecord>,
++    pub attachments: Vec<(String, Vec<u8>)>,
++    pub timestamp: u64,
++}
++
++pub(crate) fn invalid(message: &str) -> Error {
++    Error::ConfigError(format!("Pinned Suggest data: {message}"))
++}
++
++pub(crate) fn expected_collection_url(collection: &str) -> Result<String> {
++    if collection != "quicksuggest-amp" && collection != "quicksuggest-other" {
++        return Err(invalid("Only Suggest collections can import pinned data"));
++    }
++    Ok(format!(
++        "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/{collection}"
++    ))
++}
++
++pub(crate) fn records_for_dataset(
++    collection: &str,
++    dataset_id: &str,
++) -> Result<(Vec<RemoteSettingsRecord>, u64)> {
++    expected_collection_url(collection)?;
++    let catalog: Catalog = serde_json::from_str(CATALOG)?;
++    if catalog.format != 1 {
++        return Err(invalid("Unsupported catalog"));
++    }
++    let dataset = catalog
++        .datasets
++        .iter()
++        .find(|d| d.id == dataset_id && d.collection == collection)
++        .ok_or_else(|| invalid("Unknown dataset for this collection"))?;
++    let mut records = vec![dataset.record.clone()];
++    for icon_id in &dataset.icon_ids {
++        records.push(
++            catalog
++                .icons
++                .iter()
++                .find(|r| r.id == *icon_id)
++                .ok_or_else(|| invalid("Missing pinned icon record"))?
++                .clone(),
++        );
++    }
++    // This is the narrowly scoped explicit-selection context: a user selected
++    // these exact pinned language/region records. Device/app targeting must not
++    // silently discard that choice. No global RS context or other record changes.
++    for record in &mut records {
++        record.fields.remove("filter_expression");
++        record
++            .fields
++            .insert("redoubt_explicit_suggest_dataset".into(), dataset_id.into());
++    }
++    if collection == "quicksuggest-other" {
++        records.push(catalog.configuration);
++    }
++    let timestamp = *catalog
++        .timestamps
++        .get(collection)
++        .ok_or_else(|| invalid("Missing catalog timestamp"))?;
++    Ok((records, timestamp))
++}
++
++pub(crate) fn validate_dataset(
++    collection: &str,
++    dataset_id: &str,
++    supplied: Vec<PinnedSuggestAttachment>,
++    token: &SuggestDataInstallToken,
++) -> Result<ValidatedDataset> {
++    token.check()?;
++    let (records, timestamp) = records_for_dataset(collection, dataset_id)?;
++    let expected: HashMap<_, _> = records
++        .iter()
++        .filter_map(|r| r.attachment.as_ref().map(|a| (r.id.as_str(), a)))
++        .collect();
++    if supplied.len() != expected.len() {
++        return Err(invalid("Incomplete or extra attachments"));
++    }
++    let mut seen = HashSet::new();
++    let mut attachments = Vec::with_capacity(supplied.len());
++    for supplied in supplied {
++        token.check()?;
++        if !seen.insert(supplied.record_id.clone()) {
++            return Err(invalid("Duplicate attachment"));
++        }
++        let metadata = expected
++            .get(supplied.record_id.as_str())
++            .ok_or_else(|| invalid("Unknown attachment"))?;
++        if supplied.data.len() as u64 != metadata.size
++            || format!("{:x}", Sha256::digest(&supplied.data)) != metadata.hash
++        {
++            return Err(invalid("Attachment size or SHA256 mismatch"));
++        }
++        attachments.push((metadata.location.clone(), supplied.data));
++    }
++    token.check()?;
++    Ok(ValidatedDataset {
++        records,
++        attachments,
++        timestamp,
++    })
++}
++
++#[cfg(test)]
++pub(crate) fn fixture_attachments(dataset_id: &str) -> Vec<PinnedSuggestAttachment> {
++    let collection = if dataset_id.starts_with("data-wikipedia-") {
++        "quicksuggest-other"
++    } else {
++        "quicksuggest-amp"
++    };
++    records_for_dataset(collection, dataset_id).unwrap().0.into_iter()
++        .filter(|record| record.attachment.is_some()).map(|record| {
++            let data: &[u8] = match record.id.as_str() {
++                "sponsored-suggestions-de-phone" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/test-data/redoubt-suggest/sponsored-suggestions-de-phone")),
++                "data-wikipedia-en" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/test-data/redoubt-suggest/data-wikipedia-en")),
++                "icon-111a1ffa7f487e807bec4a71460454933db0fe2e7c77bade620375b41530e9a0" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/test-data/redoubt-suggest/icon-111a1ffa7f487e807bec4a71460454933db0fe2e7c77bade620375b41530e9a0")),
++                "icon-161351842074695" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/test-data/redoubt-suggest/icon-161351842074695")),
++                "icon-c5684e5a98855b2ad5af82e1a2d4ee2328e6a8518e12c94dc113240fed29e8fe" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/test-data/redoubt-suggest/icon-c5684e5a98855b2ad5af82e1a2d4ee2328e6a8518e12c94dc113240fed29e8fe")),
++                "icon-e1612973a8b621ef95218b9b0b99674cb3e03c410fde57bcf5277ecc61ba1651" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/test-data/redoubt-suggest/icon-e1612973a8b621ef95218b9b0b99674cb3e03c410fde57bcf5277ecc61ba1651")),
++                "icon-f46c92ccdc88eb3d4f0fdedc24374aa01fc4ffaf395169b818af92b0020d87b2" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/test-data/redoubt-suggest/icon-f46c92ccdc88eb3d4f0fdedc24374aa01fc4ffaf395169b818af92b0020d87b2")),
++                other => panic!("Missing explicit fixture {other}"),
++            };
++            PinnedSuggestAttachment { record_id: record.id, data: data.to_vec() }
++        }).collect()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::{
++        RemoteSettingsConfig, RemoteSettingsContext, RemoteSettingsServer, RemoteSettingsService,
++    };
++    use std::sync::Arc;
++
++    fn service(path: &std::path::Path) -> RemoteSettingsService {
++        RemoteSettingsService::new(
++            path.to_str().unwrap().into(),
++            RemoteSettingsConfig {
++                app_context: Some(RemoteSettingsContext {
++                    locale: Some("de-CH".into()),
++                    country: Some("CH".into()),
++                    form_factor: Some("phone".into()),
++                    ..RemoteSettingsContext::default()
++                }),
++                ..RemoteSettingsConfig::default()
++            },
++        )
++    }
++
++    #[test]
++    fn actual_pinned_wikipedia_install_survives_mismatched_locale_and_reopen() {
++        let root = tempfile::tempdir().unwrap();
++        let service = service(root.path());
++        let client = service.make_client("quicksuggest-other".into());
++        client
++            .install_pinned_suggest_data(
++                "data-wikipedia-en".into(),
++                fixture_attachments("data-wikipedia-en"),
++                Arc::new(SuggestDataInstallToken::new()),
++            )
++            .unwrap();
++        assert_eq!(
++            client.installed_pinned_suggest_data().unwrap().as_deref(),
++            Some("data-wikipedia-en")
++        );
++        let records = client.get_records(false).unwrap();
++        assert!(records.iter().any(|r| r.id == "data-wikipedia-en"));
++        assert!(records
++            .iter()
++            .all(|r| !r.fields.contains_key("filter_expression")));
++        assert!(records
++            .iter()
++            .any(|r| r.id == "firefox-suggest-configuration"));
++        assert!(client.get_last_modified_timestamp().unwrap() > 0);
++        let reopened = service.make_client("quicksuggest-other".into());
++        assert_eq!(
++            reopened.installed_pinned_suggest_data().unwrap().as_deref(),
++            Some("data-wikipedia-en")
++        );
++        assert_eq!(reopened.get_records(false).unwrap(), records);
++    }
++
++    #[test]
++    fn actual_pinned_amp_install_is_complete_and_does_not_change_search() {
++        let root = tempfile::tempdir().unwrap();
++        let service = service(root.path());
++        let search = service.make_client("search-config-v2".into());
++        let original_search = search.get_records(false);
++        let client = service.make_client("quicksuggest-amp".into());
++        client
++            .install_pinned_suggest_data(
++                "sponsored-suggestions-de-phone".into(),
++                fixture_attachments("sponsored-suggestions-de-phone"),
++                Arc::new(SuggestDataInstallToken::new()),
++            )
++            .unwrap();
++        assert_eq!(
++            client.installed_pinned_suggest_data().unwrap().as_deref(),
++            Some("sponsored-suggestions-de-phone")
++        );
++        for record in client.get_records(false).unwrap() {
++            assert_eq!(
++                client.get_attachment(&record).unwrap().len() as u64,
++                record.attachment.unwrap().size
++            );
++        }
++        assert_eq!(search.get_records(false), original_search);
++        let config = service
++            .make_client("quicksuggest-other".into())
++            .get_records(false)
++            .unwrap();
++        assert_eq!(config.len(), 1);
++        assert_eq!(config[0].id, "firefox-suggest-configuration");
++    }
++
++    #[test]
++    fn corrupt_truncated_duplicate_missing_and_extra_attachments_preserve_old_cache() {
++        let root = tempfile::tempdir().unwrap();
++        let service = service(root.path());
++        let client = service.make_client("quicksuggest-amp".into());
++        let id = "sponsored-suggestions-de-phone";
++        client
++            .install_pinned_suggest_data(
++                id.into(),
++                fixture_attachments(id),
++                Arc::new(SuggestDataInstallToken::new()),
++            )
++            .unwrap();
++        let previous = client.get_records(false).unwrap();
++        for variant in 0..5 {
++            let mut supplied = fixture_attachments(id);
++            match variant {
++                0 => supplied[0].data[0] ^= 1,
++                1 => {
++                    supplied[0].data.pop();
++                }
++                2 => supplied[1].record_id = supplied[0].record_id.clone(),
++                3 => {
++                    supplied.pop();
++                }
++                _ => supplied.push(PinnedSuggestAttachment {
++                    record_id: "extra".into(),
++                    data: vec![],
++                }),
++            }
++            assert!(client
++                .install_pinned_suggest_data(
++                    id.into(),
++                    supplied,
++                    Arc::new(SuggestDataInstallToken::new())
++                )
++                .is_err());
++            assert_eq!(client.get_records(false).unwrap(), previous);
++            assert_eq!(
++                client.installed_pinned_suggest_data().unwrap().as_deref(),
++                Some(id)
++            );
++        }
++    }
++
++    #[test]
++    fn cancelled_or_reused_token_cannot_publish() {
++        let root = tempfile::tempdir().unwrap();
++        let service = service(root.path());
++        let client = service.make_client("quicksuggest-amp".into());
++        let token = Arc::new(SuggestDataInstallToken::new());
++        assert!(token.cancel());
++        assert!(client
++            .install_pinned_suggest_data(
++                "sponsored-suggestions-de-phone".into(),
++                fixture_attachments("sponsored-suggestions-de-phone"),
++                token
++            )
++            .is_err());
++        assert!(!root.path().join("quicksuggest-amp.sql").exists());
++        let token = Arc::new(SuggestDataInstallToken::new());
++        client
++            .install_pinned_suggest_data(
++                "sponsored-suggestions-de-phone".into(),
++                fixture_attachments("sponsored-suggestions-de-phone"),
++                token.clone(),
++            )
++            .unwrap();
++        assert!(!token.cancel());
++        assert!(client
++            .install_pinned_suggest_data(
++                "sponsored-suggestions-de-phone".into(),
++                fixture_attachments("sponsored-suggestions-de-phone"),
++                token
++            )
++            .is_err());
++    }
++
++    #[test]
++    fn cancellation_and_publication_have_an_explicit_winner() {
++        let cancelled = SuggestDataInstallToken::new();
++        cancelled.start().unwrap();
++        assert!(cancelled.cancel());
++        assert!(cancelled.begin_commit().is_err());
++        let committed = SuggestDataInstallToken::new();
++        committed.start().unwrap();
++        committed.begin_commit().unwrap();
++        assert!(!committed.cancel());
++        committed.finish();
++        assert!(committed.start().is_err());
++    }
++
++    #[test]
++    fn unknown_dataset_collection_and_nonproduction_server_are_rejected() {
++        let root = tempfile::tempdir().unwrap();
++        let service = service(root.path());
++        for (collection, id) in [
++            ("search-config-v2", "sponsored-suggestions-de-phone"),
++            ("quicksuggest-amp", "unknown"),
++            ("quicksuggest-amp", "data-wikipedia-en"),
++        ] {
++            assert!(service
++                .make_client(collection.into())
++                .install_pinned_suggest_data(
++                    id.into(),
++                    vec![],
++                    Arc::new(SuggestDataInstallToken::new())
++                )
++                .is_err());
++        }
++        let stage = RemoteSettingsService::new(
++            root.path().join("stage").to_str().unwrap().into(),
++            RemoteSettingsConfig {
++                server: Some(RemoteSettingsServer::Stage),
++                ..RemoteSettingsConfig::default()
++            },
++        );
++        assert!(stage
++            .make_client("quicksuggest-amp".into())
++            .install_pinned_suggest_data(
++                "sponsored-suggestions-de-phone".into(),
++                fixture_attachments("sponsored-suggestions-de-phone"),
++                Arc::new(SuggestDataInstallToken::new())
++            )
++            .is_err());
++    }
++
++    #[test]
++    fn missing_payload_fallback_remains_blocked() {
++        let root = tempfile::tempdir().unwrap();
++        let service = service(root.path());
++        let client = service.make_client("quicksuggest-amp".into());
++        let record = records_for_dataset("quicksuggest-amp", "sponsored-suggestions-de-phone")
++            .unwrap()
++            .0
++            .remove(0);
++        let error = client.get_attachment(&record).unwrap_err();
++        assert!(error
++            .to_string()
++            .contains("Remote Settings network requests are disabled"));
++        assert_eq!(client.get_records(false).unwrap().len(), 0);
++    }
++}
+diff --git a/third_party/application-services/components/remote_settings/src/storage.rs b/third_party/application-services/components/remote_settings/src/storage.rs
+index 8677980..a5f27e8 100644
+--- a/third_party/application-services/components/remote_settings/src/storage.rs
++++ b/third_party/application-services/components/remote_settings/src/storage.rs
+@@ -316,6 +316,49 @@ impl Storage {
+         Ok(())
+     }
+
++    /// Replace only this Suggest collection in one transaction. Validation was
++    /// completed before opening the transaction; any write/cancellation failure
++    /// rolls back the old records and attachments together.
++    pub(crate) fn replace_pinned_suggest_data(
++        &mut self,
++        collection_url: &str,
++        dataset: crate::pinned_suggest::ValidatedDataset,
++        token: &crate::SuggestDataInstallToken,
++    ) -> Result<()> {
++        token.check()?;
++        let tx = self.transaction()?;
++        tx.execute(
++            "DELETE FROM records WHERE collection_url = ?",
++            [collection_url],
++        )?;
++        tx.execute(
++            "DELETE FROM attachments WHERE collection_url = ?",
++            [collection_url],
++        )?;
++        Self::update_record_rows(&tx, collection_url, &dataset.records)?;
++        Self::update_collection_metadata(
++            &tx,
++            collection_url,
++            dataset.timestamp,
++            CollectionMetadata {
++                bucket: "main".to_owned(),
++                signatures: Vec::new(),
++            },
++        )?;
++        for (location, data) in &dataset.attachments {
++            token.check()?;
++            tx.execute(
++                "INSERT OR REPLACE INTO attachments (id, collection_url, data) VALUES (?, ?, ?)",
++                params![location, collection_url, data],
++            )?;
++        }
++        // cancel() returning true is serialized before this publication point.
++        // Once this CAS wins, cancellation reports false and cannot promise rollback.
++        token.begin_commit()?;
++        tx.commit()?;
++        Ok(())
++    }
++
+     /// Empty out all cached values and start from scratch.  This is called when
+     /// RemoteSettingsService::update_config() is called, since that could change the remote
+     /// settings server which would invalidate all cached data.
+@@ -1142,3 +1185,183 @@ mod tests {
+         Ok(())
+     }
+ }
++
++#[cfg(test)]
++mod pinned_import_tests {
++    use super::*;
++    use crate::pinned_suggest::{fixture_attachments, validate_dataset, SuggestDataInstallToken};
++
++    #[test]
++    fn attachment_write_failure_rolls_back_deleted_records_and_prior_attachments() {
++        let mut storage = Storage::new(":memory:".into());
++        let url = "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/quicksuggest-amp";
++        let id = "sponsored-suggestions-de-phone";
++        let first = SuggestDataInstallToken::new();
++        first.start().unwrap();
++        let original =
++            validate_dataset("quicksuggest-amp", id, fixture_attachments(id), &first).unwrap();
++        storage
++            .replace_pinned_suggest_data(url, original, &first)
++            .unwrap();
++        let old_records = storage.get_records(url).unwrap().unwrap();
++        let old_timestamp = storage.get_last_modified_timestamp(url).unwrap();
++        let tx = storage.transaction().unwrap();
++        tx.execute_batch("CREATE TEMP TRIGGER reject_install BEFORE INSERT ON attachments BEGIN SELECT RAISE(FAIL, 'injected attachment write failure'); END;").unwrap();
++        tx.commit().unwrap();
++        let failed = SuggestDataInstallToken::new();
++        failed.start().unwrap();
++        let replacement =
++            validate_dataset("quicksuggest-amp", id, fixture_attachments(id), &failed).unwrap();
++        assert!(storage
++            .replace_pinned_suggest_data(url, replacement, &failed)
++            .is_err());
++        assert_eq!(storage.get_records(url).unwrap().unwrap(), old_records);
++        assert_eq!(
++            storage.get_last_modified_timestamp(url).unwrap(),
++            old_timestamp
++        );
++        for record in old_records {
++            assert!(storage
++                .get_attachment(url, record.attachment.unwrap())
++                .unwrap()
++                .is_some());
++        }
++    }
++
++    #[test]
++    fn cancellation_after_validation_preserves_prior_cache() {
++        let mut storage = Storage::new(":memory:".into());
++        let url = "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/quicksuggest-amp";
++        let id = "sponsored-suggestions-de-phone";
++        let first = SuggestDataInstallToken::new();
++        first.start().unwrap();
++        storage
++            .replace_pinned_suggest_data(
++                url,
++                validate_dataset("quicksuggest-amp", id, fixture_attachments(id), &first).unwrap(),
++                &first,
++            )
++            .unwrap();
++        let old = storage.get_records(url).unwrap();
++        let cancelled = SuggestDataInstallToken::new();
++        cancelled.start().unwrap();
++        let data =
++            validate_dataset("quicksuggest-amp", id, fixture_attachments(id), &cancelled).unwrap();
++        assert!(cancelled.cancel());
++        assert!(storage
++            .replace_pinned_suggest_data(url, data, &cancelled)
++            .is_err());
++        assert_eq!(storage.get_records(url).unwrap(), old);
++    }
++}
++
++#[cfg(test)]
++mod pinned_transaction_boundary_tests {
++    use super::*;
++    use crate::pinned_suggest::{fixture_attachments, validate_dataset, SuggestDataInstallToken};
++    use std::sync::{
++        atomic::{AtomicUsize, Ordering},
++        Arc,
++    };
++
++    fn installed() -> (Storage, String) {
++        let mut storage = Storage::new(":memory:".into());
++        let url = "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/quicksuggest-amp".to_owned();
++        let token = SuggestDataInstallToken::new();
++        token.start().unwrap();
++        let data = validate_dataset(
++            "quicksuggest-amp",
++            "sponsored-suggestions-de-phone",
++            fixture_attachments("sponsored-suggestions-de-phone"),
++            &token,
++        )
++        .unwrap();
++        storage
++            .replace_pinned_suggest_data(&url, data, &token)
++            .unwrap();
++        (storage, url)
++    }
++
++    #[test]
++    fn cancellation_from_inside_the_open_write_transaction_rolls_back_everything() {
++        let (mut storage, url) = installed();
++        let old = storage.get_records(&url).unwrap().unwrap();
++        let token = Arc::new(SuggestDataInstallToken::new());
++        token.start().unwrap();
++        let replacement = validate_dataset(
++            "quicksuggest-amp",
++            "sponsored-suggestions-de-phone",
++            fixture_attachments("sponsored-suggestions-de-phone"),
++            &token,
++        )
++        .unwrap();
++        let fired = Arc::new(AtomicUsize::new(0));
++        let ConnectionCell::Initialized(conn) = &mut storage.conn else {
++            panic!("fixture did not initialize storage");
++        };
++        let callback_token = token.clone();
++        let callback_fired = fired.clone();
++        conn.create_scalar_function(
++            "cancel_pinned_install",
++            0,
++            rusqlite::functions::FunctionFlags::SQLITE_UTF8
++                | rusqlite::functions::FunctionFlags::SQLITE_INNOCUOUS,
++            move |_| {
++                callback_fired.fetch_add(1, Ordering::SeqCst);
++                Ok(i32::from(callback_token.cancel()))
++            },
++        )
++        .unwrap();
++        conn.execute_batch("CREATE TEMP TRIGGER cancel_install AFTER INSERT ON attachments BEGIN SELECT cancel_pinned_install(); END;").unwrap();
++        assert!(storage
++            .replace_pinned_suggest_data(&url, replacement, &token)
++            .is_err());
++        assert_eq!(fired.load(Ordering::SeqCst), 1);
++        assert_eq!(storage.get_records(&url).unwrap().unwrap(), old);
++        for record in old {
++            assert!(storage
++                .get_attachment(&url, record.attachment.unwrap())
++                .unwrap()
++                .is_some());
++        }
++    }
++
++    #[test]
++    fn a_failure_at_commit_preserves_old_records_metadata_and_attachments() {
++        let (mut storage, url) = installed();
++        let old = storage.get_records(&url).unwrap().unwrap();
++        let timestamp = storage.get_last_modified_timestamp(&url).unwrap();
++        let token = SuggestDataInstallToken::new();
++        token.start().unwrap();
++        let replacement = validate_dataset(
++            "quicksuggest-amp",
++            "sponsored-suggestions-de-phone",
++            fixture_attachments("sponsored-suggestions-de-phone"),
++            &token,
++        )
++        .unwrap();
++        let ConnectionCell::Initialized(conn) = &mut storage.conn else {
++            panic!("fixture did not initialize storage");
++        };
++        // This fails at COMMIT, after every attachment INSERT succeeded.
++        conn.execute_batch("PRAGMA foreign_keys=ON;
++            CREATE TABLE pinned_parent(id INTEGER PRIMARY KEY);
++            CREATE TABLE pinned_child(parent_id INTEGER REFERENCES pinned_parent(id) DEFERRABLE INITIALLY DEFERRED);
++            CREATE TEMP TRIGGER fail_install_commit AFTER INSERT ON attachments BEGIN INSERT INTO pinned_child(parent_id) VALUES (999); END;").unwrap();
++        assert!(storage
++            .replace_pinned_suggest_data(&url, replacement, &token)
++            .is_err());
++        assert!(!token.cancel()); // Publication began; failed COMMIT rolled it back.
++        assert_eq!(storage.get_records(&url).unwrap().unwrap(), old);
++        assert_eq!(
++            storage.get_last_modified_timestamp(&url).unwrap(),
++            timestamp
++        );
++        for record in old {
++            assert!(storage
++                .get_attachment(&url, record.attachment.unwrap())
++                .unwrap()
++                .is_some());
++        }
++    }
++}
+diff --git a/third_party/application-services/components/suggest/tests/pinned_suggest.rs b/third_party/application-services/components/suggest/tests/pinned_suggest.rs
+new file mode 100644
+index 0000000..4f7aa24
+--- /dev/null
++++ b/third_party/application-services/components/suggest/tests/pinned_suggest.rs
+@@ -0,0 +1,153 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++use remote_settings::{
++    PinnedSuggestAttachment, RemoteSettingsConfig, RemoteSettingsContext, RemoteSettingsService,
++    SuggestDataInstallToken,
++};
++use std::{
++    path::PathBuf,
++    sync::Arc,
++    time::{SystemTime, UNIX_EPOCH},
++};
++use suggest::{
++    SuggestIngestionConstraints, SuggestStore, Suggestion, SuggestionProvider, SuggestionQuery,
++};
++
++struct Scratch(PathBuf);
++impl Scratch {
++    fn new() -> Self {
++        let path = std::env::temp_dir().join(format!(
++            "redoubt-suggest-test-{}-{}",
++            std::process::id(),
++            SystemTime::now()
++                .duration_since(UNIX_EPOCH)
++                .unwrap()
++                .as_nanos()
++        ));
++        std::fs::create_dir(&path).unwrap();
++        Self(path)
++    }
++}
++impl Drop for Scratch {
++    fn drop(&mut self) {
++        let _ = std::fs::remove_dir_all(&self.0);
++    }
++}
++
++fn fixture(id: &str) -> Vec<PinnedSuggestAttachment> {
++    let catalog: serde_json::Value = serde_json::from_str(include_str!(concat!(
++        env!("CARGO_MANIFEST_DIR"),
++        "/../remote_settings/dumps/main/redoubt-suggest-catalog.json"
++    )))
++    .unwrap();
++    let dataset = catalog["datasets"]
++        .as_array()
++        .unwrap()
++        .iter()
++        .find(|d| d["id"] == id)
++        .unwrap();
++    std::iter::once(id).chain(dataset["icon_ids"].as_array().unwrap().iter().map(|v| v.as_str().unwrap())).map(|id| {
++        let bytes: &[u8] = match id {
++            "sponsored-suggestions-de-phone" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../remote_settings/test-data/redoubt-suggest/sponsored-suggestions-de-phone")),
++            "data-wikipedia-en" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../remote_settings/test-data/redoubt-suggest/data-wikipedia-en")),
++            "icon-111a1ffa7f487e807bec4a71460454933db0fe2e7c77bade620375b41530e9a0" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../remote_settings/test-data/redoubt-suggest/icon-111a1ffa7f487e807bec4a71460454933db0fe2e7c77bade620375b41530e9a0")),
++            "icon-161351842074695" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../remote_settings/test-data/redoubt-suggest/icon-161351842074695")),
++            "icon-c5684e5a98855b2ad5af82e1a2d4ee2328e6a8518e12c94dc113240fed29e8fe" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../remote_settings/test-data/redoubt-suggest/icon-c5684e5a98855b2ad5af82e1a2d4ee2328e6a8518e12c94dc113240fed29e8fe")),
++            "icon-e1612973a8b621ef95218b9b0b99674cb3e03c410fde57bcf5277ecc61ba1651" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../remote_settings/test-data/redoubt-suggest/icon-e1612973a8b621ef95218b9b0b99674cb3e03c410fde57bcf5277ecc61ba1651")),
++            "icon-f46c92ccdc88eb3d4f0fdedc24374aa01fc4ffaf395169b818af92b0020d87b2" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../remote_settings/test-data/redoubt-suggest/icon-f46c92ccdc88eb3d4f0fdedc24374aa01fc4ffaf395169b818af92b0020d87b2")),
++            other => panic!("No retained fixture {other}"),
++        };
++        PinnedSuggestAttachment { record_id: id.into(), data: bytes.to_vec() }
++    }).collect()
++}
++
++fn services(root: &Scratch) -> (Arc<RemoteSettingsService>, SuggestStore) {
++    let remote = Arc::new(RemoteSettingsService::new(
++        root.0.join("rs").to_str().unwrap().into(),
++        RemoteSettingsConfig {
++            app_context: Some(RemoteSettingsContext {
++                locale: Some("de-CH".into()),
++                country: Some("CH".into()),
++                form_factor: Some("phone".into()),
++                ..RemoteSettingsContext::default()
++            }),
++            ..RemoteSettingsConfig::default()
++        },
++    ));
++    let store = SuggestStore::new(
++        root.0.join("suggest.sqlite").to_str().unwrap(),
++        remote.clone(),
++    );
++    (remote, store)
++}
++
++#[test]
++fn explicit_wikipedia_install_uses_real_offline_ingestion_despite_locale_mismatch() {
++    let root = Scratch::new();
++    let (remote, store) = services(&root);
++    let client = remote.make_client("quicksuggest-other".into());
++    client
++        .install_pinned_suggest_data(
++            "data-wikipedia-en".into(),
++            fixture("data-wikipedia-en"),
++            Arc::new(SuggestDataInstallToken::new()),
++        )
++        .unwrap();
++    store
++        .ingest(SuggestIngestionConstraints {
++            providers: Some(vec![SuggestionProvider::Amp, SuggestionProvider::Wikipedia]),
++            ..SuggestIngestionConstraints::default()
++        })
++        .unwrap();
++    let found = store.query(SuggestionQuery::wikipedia("2026 fi")).unwrap();
++    assert!(found.iter().any(|result| matches!(result, Suggestion::Wikipedia { icon: Some(icon), .. } if !icon.is_empty())));
++    assert_eq!(
++        store
++            .fetch_global_config()
++            .unwrap()
++            .show_less_frequently_cap,
++        3
++    );
++    assert!(store.query(SuggestionQuery::amp("gro")).unwrap().is_empty());
++}
++
++#[test]
++fn explicit_amp_only_install_uses_seed_configuration_and_all_verified_icons() {
++    let root = Scratch::new();
++    let (remote, store) = services(&root);
++    let client = remote.make_client("quicksuggest-amp".into());
++    client
++        .install_pinned_suggest_data(
++            "sponsored-suggestions-de-phone".into(),
++            fixture("sponsored-suggestions-de-phone"),
++            Arc::new(SuggestDataInstallToken::new()),
++        )
++        .unwrap();
++    store
++        .ingest(SuggestIngestionConstraints {
++            providers: Some(vec![SuggestionProvider::Amp, SuggestionProvider::Wikipedia]),
++            ..SuggestIngestionConstraints::default()
++        })
++        .unwrap();
++    let found = store.query(SuggestionQuery::amp("gro")).unwrap();
++    assert!(found.iter().any(
++        |result| matches!(result, Suggestion::Amp { icon: Some(icon), .. } if !icon.is_empty())
++    ));
++    assert_eq!(
++        store
++            .fetch_global_config()
++            .unwrap()
++            .show_less_frequently_cap,
++        3
++    );
++    assert!(store
++        .query(SuggestionQuery::wikipedia("2026 fi"))
++        .unwrap()
++        .is_empty());
++    client.sync().unwrap(); // Actual patched sync remains an offline no-op.
++    assert_eq!(
++        client.installed_pinned_suggest_data().unwrap().as_deref(),
++        Some("sponsored-suggestions-de-phone")
++    );
++}

@@ -1,0 +1,425 @@
+--- a/common.py
++++ b/common.py
+@@ -1 +1 @@
+-"""Fixed current167 checkpoint contracts. No operation runs at import time."""
++"""Versioned current167 process-recovery checkpoint contracts. No operation runs at import time."""
+@@ -11,0 +12 @@
++import tarfile
+@@ -20,4 +21,4 @@
+-OUTPUT = WORK / 'fenix-regression-apk-output'
+-BUILD = WORK / 'evidence/fenix-regression-apk'
+-RUNTIME = WORK / 'evidence/fenix-regression-runtime'
+-RUNTIME_WORK = WORK / 'fenix-regression-runtime'
++OUTPUT = WORK / 'account-process-apk-output'
++BUILD = WORK / 'evidence/account-process-apk'
++RUNTIME = WORK / 'evidence/account-process-runtime'
++RUNTIME_WORK = WORK / 'account-process-runtime'
+@@ -30 +31 @@
+-SERVICES = {s: f'redoubt-fenix-regression-{s}-20260909.service' for s in ('tests', 'apk', 'runtime')}
++SERVICES = {s: f'redoubt-account-process-{s}-20260909.service' for s in ('tests', 'apk', 'runtime')}
+@@ -36,3 +37,5 @@
+-    'docs/android/evidence/lw-m7-12/current167/common.py',
+-    'docs/android/evidence/lw-m7-12/current167/build.py',
+-    'docs/android/evidence/lw-m7-12/current167/runtime.py',
++    'docs/android/evidence/lw-m7-12/current167-process-recovery/common.py',
++    'docs/android/evidence/lw-m7-12/current167-process-recovery/build.py',
++    'docs/android/evidence/lw-m7-12/current167-process-recovery/runtime.py',
++    'docs/android/evidence/lw-m7-12/current167-process-recovery/parent-inputs.json',
++    'docs/android/evidence/lw-m7-21/current167-runtime-checkpoint/runtime-failure.tar.gz',
+@@ -42,0 +46 @@
++    'docs/android/evidence/lw-m7-12/run-fenix-account-process-tests.sh',
+@@ -52,0 +57,11 @@
++PRIOR_EVIDENCE = {
++    'apk': WORK / 'evidence/fenix-regression-apk',
++    'runtime': WORK / 'evidence/fenix-regression-runtime',
++}
++PRIOR_APKS = WORK / 'fenix-regression-apk-output/apk'
++PRIOR_INVOCATIONS = {'apk': '7a054c6290054e568f626c13bf8704a1',
++                     'runtime': '9513a070506a4a29baf9848b2ea7e8eb'}
++PRIOR_SOURCE = '501d04614edbc847b416cd5b6f1dac42dd0728a63125a3d9902c90d07a579c8b'
++PRIOR_RUNTIME_ARCHIVE = 'docs/android/evidence/lw-m7-21/current167-runtime-checkpoint/runtime-failure.tar.gz'
++PRIOR_RUNTIME_ARCHIVE_SHA = 'f931817d0a42c567bd68211b6804367e73d45511501b089f3e30430f192c1149'
++PRIOR_RUNTIME_SERVICE_SHA = '4c5143defa0bc0e4e81956624b5a85ec40cefe9f2386a3d9f79695f9f94373e4'
+@@ -69,0 +85,2 @@
++    require(selection['source_manifest_sha256'] != PRIOR_SOURCE,
++            'process recovery requires a corrected source, not the failed-runtime candidate')
+@@ -101,0 +119,130 @@
++
++
++def fresh_namespace(path):
++    require(not path.exists() and not path.is_symlink(), 'fresh checkpoint namespace required: ' + str(path))
++
++
++def preserved_tree(path):
++    """Exact regular-file inventory, excluding no entries inside this bounded root."""
++    require(path.is_dir() and not path.is_symlink(), 'prior evidence directory absent/linked: ' + str(path))
++    files = {}
++    for folder, directories, names in os.walk(path, followlinks=False):
++        for name in directories + names:
++            entry = Path(folder) / name
++            require(not entry.is_symlink(), 'linked prior evidence is not accepted: ' + str(entry))
++        for name in names:
++            entry = Path(folder) / name
++            require(entry.is_file(), 'nonregular prior evidence: ' + str(entry))
++            files[str(entry.relative_to(path))] = record(entry)
++    require(files, 'empty prior evidence inventory')
++    return {'root': str(path), 'files': {name: files[name] for name in sorted(files)}}
++
++
++def archived_runtime_history():
++    """Retained failure provenance only; never substitute for a new live gate."""
++    path = REPO / PRIOR_RUNTIME_ARCHIVE
++    require(digest(path) == PRIOR_RUNTIME_ARCHIVE_SHA, 'historical runtime archive differs')
++    wanted = {'service.txt'} | {'runtime-checkpoint/' + name for name in
++                               ('result.json', 'inputs.json', 'source-sha256.txt')}
++    contents = {}
++    with tarfile.open(path, mode='r:gz') as archive:
++        for member in archive:
++            if member.name in wanted:
++                require(member.isfile() and member.name not in contents,
++                        'historical runtime member is duplicated/nonregular')
++                contents[member.name] = archive.extractfile(member).read()
++    require(set(contents) == wanted, 'historical runtime archive is incomplete')
++    raw = contents['service.txt']
++    require(hashlib.sha256(raw).hexdigest() == PRIOR_RUNTIME_SERVICE_SHA and len(raw) == 199,
++            'archived terminal service record differs')
++    lines = raw.decode().splitlines()
++    terminal = dict(line.split('=', 1) for line in lines)
++    require(len(lines) == len(terminal) == 6 and terminal['ActiveState'] == 'active'
++            and terminal['SubState'] == 'exited' and terminal['ExecMainStatus'] == '2'
++            and terminal['InvocationID'] == PRIOR_INVOCATIONS['runtime'],
++            'archived terminal runtime identity differs')
++    state = json.loads(contents['runtime-checkpoint/result.json'])
++    require(state['status'] == 'FAIL' and state['kind'] == 'runtime'
++            and state['service']['InvocationID'] == terminal['InvocationID']
++            and state['source_manifest']['sha256'] == PRIOR_SOURCE,
++            'archived failed runtime receipt differs')
++    config = json.loads(contents['runtime-checkpoint/inputs.json'])
++    require(config['kind'] == 'runtime' and config['source_sha256'] == PRIOR_SOURCE,
++            'archived failed runtime config differs')
++    files = {name.removeprefix('runtime-checkpoint/'): {'sha256': hashlib.sha256(data).hexdigest(),
++                                                     'bytes': len(data)}
++             for name, data in contents.items() if name.startswith('runtime-checkpoint/')}
++    require(files['source-sha256.txt']['sha256'] == PRIOR_SOURCE, 'archived runtime source differs')
++    for name, key in (('inputs.json', 'inputs'), ('source-sha256.txt', 'source_manifest')):
++        require(state[key] == {'path': str(PRIOR_EVIDENCE['runtime'] / name), **files[name]},
++                'archived runtime receipt/file binding differs')
++    return {'archive': record(path), 'service_member': {'member': 'service.txt',
++            'sha256': PRIOR_RUNTIME_SERVICE_SHA, 'bytes': 199}, 'terminal': terminal,
++            'checkpoint_files': files}
++
++
++def prior_services():
++    apk = service('redoubt-fenix-regression-apk-20260909.service', PRIOR_INVOCATIONS['apk'], terminal=True)
++    history = archived_runtime_history()
++    keys = ('LoadState', 'ActiveState', 'SubState', 'InvocationID',
++            'RemainAfterExit', 'Result', 'ExecMainStatus')
++    command = ['systemctl', '--user', 'show', 'redoubt-fenix-regression-runtime-20260909.service']
++    for key in keys:
++        command += ['-p', key]
++    lines = query(command).splitlines()
++    observed = dict(line.split('=', 1) for line in lines)
++    require(len(lines) == len(keys) and set(observed) == set(keys), 'historical runtime unit inspection incomplete')
++    collected = {'LoadState': 'not-found', 'ActiveState': 'inactive', 'SubState': 'dead',
++                 'InvocationID': '', 'RemainAfterExit': 'no', 'Result': 'success', 'ExecMainStatus': '0'}
++    if observed != collected:
++        require(observed['LoadState'] == 'loaded'
++                and observed['InvocationID'] == PRIOR_INVOCATIONS['runtime']
++                and observed['RemainAfterExit'] == 'yes' and observed['ExecMainStatus'] == '2'
++                and (observed['ActiveState'], observed['SubState']) in
++                    {('active', 'exited'), ('inactive', 'dead'), ('failed', 'failed')},
++                'historical runtime has a running, conflicting or unrecognized replacement')
++    return {'apk': apk, 'runtime': {'history': history, 'current_unit': observed}}
++
++
++def prior_checkpoint_inputs():
++    terminal = prior_services()
++    parent = json.loads((HERE / 'parent-inputs.json').read_text())
++    code = {}
++    for name, pin in parent['original_driver_inputs'].items():
++        observed = record(REPO / name)
++        require(observed['sha256'] == pin['sha256'] and observed['bytes'] == pin['bytes'],
++                'historical checkpoint driver bytes changed: ' + name)
++        code[name] = observed
++    trees = {kind: preserved_tree(path) for kind, path in PRIOR_EVIDENCE.items()}
++    trees['apks'] = preserved_tree(PRIOR_APKS)
++    apks = apk_set(PRIOR_APKS)
++    for kind, path in PRIOR_EVIDENCE.items():
++        state = json.loads((path / 'result.json').read_text())
++        require(state['kind'] == kind and state['service']['InvocationID'] == PRIOR_INVOCATIONS[kind]
++                and state['source_manifest']['sha256'] == PRIOR_SOURCE,
++                'prior checkpoint identity differs')
++        require(checked(state['inputs']) == path / 'inputs.json'
++                and checked(state['source_manifest']) == path / 'source-sha256.txt',
++                'prior checkpoint input/source path differs')
++        config = json.loads((path / 'inputs.json').read_text())
++        require(config['source_sha256'] == PRIOR_SOURCE and config['kind'] == kind,
++                'prior checkpoint configuration differs')
++        for name in ('common.py', 'build.py', 'runtime.py'):
++            key = 'docs/android/evidence/lw-m7-12/current167/' + name
++            require(config['repository_files'][key] == code[key], 'prior config/code binding changed')
++        if kind == 'apk':
++            require(state['status'] == 'PASS' and state['apks'] == apks,
++                    'prior successful APK identity differs')
++        else:
++            require(config['apks'] == apks, 'prior runtime selected different APKs')
++            for name, pin in terminal['runtime']['history']['checkpoint_files'].items():
++                observed = record(path / name)
++                require(observed['sha256'] == pin['sha256'] and observed['bytes'] == pin['bytes'],
++                        'current historical runtime differs from its retained failure: ' + name)
++    require(prior_services() == terminal, 'prior checkpoint service changed during inventory')
++    return {'scope': 'Preserved successful old APK and failed/interrupted runtime; not recovery acceptance',
++            'services': terminal, 'trees': trees, 'original_driver_files': code}
++
++
++def check_prior_checkpoint(expected):
++    require(prior_checkpoint_inputs() == expected, 'historical checkpoint evidence/code/APKs changed')
+@@ -208 +355,2 @@
+-               'docs/android/evidence/lw-m7-12/run-fenix-navigation-tests.sh'}
++               'docs/android/evidence/lw-m7-12/run-fenix-navigation-tests.sh',
++               'docs/android/evidence/lw-m7-12/run-fenix-account-process-tests.sh'}
+@@ -289,0 +438 @@
++            'prior_checkpoint': prior_checkpoint_inputs(),
+@@ -316,0 +466 @@
++    check_prior_checkpoint(config['prior_checkpoint'])
+@@ -375,0 +526,2 @@
++        config = json.loads(checked(state['inputs']).read_text())
++        check_prior_checkpoint(config['prior_checkpoint'])
+--- a/build.py
++++ b/build.py
+@@ -14 +14 @@
+-    c.require(not c.BUILD.exists() and not c.OUTPUT.exists(), 'fresh APK evidence/output required')
++    c.fresh_namespace(c.BUILD); c.fresh_namespace(c.OUTPUT)
+@@ -22 +22 @@
+-    c.require(not c.BUILD.exists() and not c.OUTPUT.exists(), 'fresh APK evidence/output required')
++    c.fresh_namespace(c.BUILD); c.fresh_namespace(c.OUTPUT)
+--- a/runtime.py
++++ b/runtime.py
+@@ -82 +82 @@
+-    c.require(not c.RUNTIME.exists() and not c.RUNTIME_WORK.exists(), 'fresh runtime namespace required')
++    c.fresh_namespace(c.RUNTIME); c.fresh_namespace(c.RUNTIME_WORK)
+@@ -91 +91 @@
+-    c.require(not c.RUNTIME.exists() and not c.RUNTIME_WORK.exists(), 'fresh runtime namespace required')
++    c.fresh_namespace(c.RUNTIME); c.fresh_namespace(c.RUNTIME_WORK)
+--- a/test_contracts.py
++++ b/test_contracts.py
+@@ -15 +15 @@
+-        self.temp = tempfile.TemporaryDirectory(prefix='current167-contracts-')
++        self.temp = tempfile.TemporaryDirectory(prefix='current167-recovery-contracts-')
+@@ -142 +142 @@
+-    def recorded_driver_fixture(self):
++    def recorded_driver_fixture(self, runner='run-fenix-account-process-tests.sh'):
+@@ -148 +148 @@
+-                 'docs/android/evidence/lw-m7-12/run-fenix-navigation-tests.sh']
++                 'docs/android/evidence/lw-m7-12/' + runner]
+@@ -156 +156 @@
+-    def test_selected_navigation_driver_matches_actual_recorded_bytes(self):
++    def test_selected_account_process_driver_matches_actual_recorded_bytes(self):
+@@ -193 +193 @@
+-        self.assertEqual(command[command.index('--outdir') + 1], str(c.WORK / 'fenix-regression-apk-output'))
++        self.assertEqual(command[command.index('--outdir') + 1], str(c.WORK / 'account-process-apk-output'))
+@@ -198,0 +199,204 @@
++    def test_recovery_namespaces_do_not_reuse_old_outputs_or_services(self):
++        self.assertEqual(c.OUTPUT, c.WORK / 'account-process-apk-output')
++        self.assertEqual(c.RUNTIME_WORK, c.WORK / 'account-process-runtime')
++        self.assertEqual(c.BUILD, c.WORK / 'evidence/account-process-apk')
++        self.assertEqual(c.RUNTIME, c.WORK / 'evidence/account-process-runtime')
++        self.assertEqual(c.SERVICES['apk'], 'redoubt-account-process-apk-20260909.service')
++        self.assertEqual(c.SERVICES['runtime'], 'redoubt-account-process-runtime-20260909.service')
++        self.assertTrue(all('/current167-process-recovery/' in name for name in c.DEPENDENCIES[:4]))
++
++    def test_recovery_rejects_the_known_failed_source_even_with_reviewed_fields(self):
++        selection = {'source_stage': str(c.WORK / 'evidence/account-process-source'),
++                     'test_evidence': str(c.WORK / 'evidence/account-process-tests'),
++                     'native_manifest': str(c.WORK / 'evidence/fenix-regression-source/native-input-sha256.txt'),
++                     'source_manifest_sha256': c.PRIOR_SOURCE,
++                     'test_service_name': 'redoubt-fenix-account-process-tests-20260909.service',
++                     'test_invocation': 'c' * 32}
++        with self.assertRaisesRegex(ValueError, 'corrected source'):
++            c.select_inputs(selection)
++
++    def test_existing_or_broken_link_output_is_not_fresh(self):
++        output = self.root / 'output'
++        c.fresh_namespace(output)
++        output.symlink_to(self.root / 'missing')
++        with self.assertRaises(ValueError):
++            c.fresh_namespace(output)
++        output.unlink()
++        output.mkdir()
++        with self.assertRaises(ValueError):
++            c.fresh_namespace(output)
++
++    def test_prior_inventory_detects_added_deleted_and_changed_files(self):
++        path = self.root / 'history'
++        path.mkdir()
++        (path / 'log').write_text('original')
++        original = c.preserved_tree(path)
++        (path / 'new').write_text('added')
++        self.assertNotEqual(c.preserved_tree(path), original)
++        (path / 'new').unlink()
++        (path / 'log').write_text('changed')
++        self.assertNotEqual(c.preserved_tree(path), original)
++        (path / 'log').unlink()
++        with self.assertRaisesRegex(ValueError, 'empty prior'):
++            c.preserved_tree(path)
++
++    def test_prior_inventory_rejects_linked_files_and_directories(self):
++        path = self.root / 'history'
++        path.mkdir()
++        (path / 'real').write_text('original')
++        linked = path / 'link'
++        for target in (path / 'real', self.root):
++            linked.symlink_to(target)
++            with self.assertRaisesRegex(ValueError, 'linked prior evidence'):
++                c.preserved_tree(path)
++            linked.unlink()
++
++    def runtime_service_properties(self, **updates):
++        result = {'LoadState': 'not-found', 'ActiveState': 'inactive', 'SubState': 'dead',
++                  'InvocationID': '', 'RemainAfterExit': 'no', 'Result': 'success', 'ExecMainStatus': '0'}
++        result.update(updates)
++        return result
++
++    def inspect_prior(self, properties):
++        # Only the live systemd inspection is substituted. The real retained
++        # archive, member, failed receipt and source pins are parsed each time.
++        with patch.object(c, 'service', return_value={'synthetic_apk': 'terminal'}) as service, \
++             patch.object(c, 'query', return_value='\n'.join(k + '=' + v for k, v in properties.items())):
++            result = c.prior_services()
++        service.assert_called_once_with('redoubt-fenix-regression-apk-20260909.service',
++                                        c.PRIOR_INVOCATIONS['apk'], terminal=True)
++        return result
++
++    def test_collected_prior_runtime_uses_actual_archived_terminal_failure(self):
++        result = self.inspect_prior(self.runtime_service_properties())['runtime']
++        self.assertEqual(result['current_unit']['InvocationID'], '')
++        self.assertEqual(result['history']['archive']['sha256'], c.PRIOR_RUNTIME_ARCHIVE_SHA)
++        self.assertEqual(result['history']['terminal']['InvocationID'], c.PRIOR_INVOCATIONS['runtime'])
++        self.assertEqual(result['history']['terminal']['ExecMainStatus'], '2')
++        self.assertEqual(result['history']['checkpoint_files']['source-sha256.txt']['sha256'], c.PRIOR_SOURCE)
++
++    def test_matching_retained_terminal_failure_is_allowed(self):
++        state = self.runtime_service_properties(LoadState='loaded', InvocationID=c.PRIOR_INVOCATIONS['runtime'],
++                RemainAfterExit='yes', ActiveState='failed', SubState='failed', ExecMainStatus='2', Result='exit-code')
++        self.assertEqual(self.inspect_prior(state)['runtime']['current_unit'], state)
++
++    def test_running_or_conflicting_replacement_cannot_borrow_old_archive(self):
++        terminal = self.runtime_service_properties(LoadState='loaded', InvocationID=c.PRIOR_INVOCATIONS['runtime'],
++                RemainAfterExit='yes', ActiveState='active', SubState='exited', ExecMainStatus='2')
++        invalid = [dict(terminal, SubState='running'), dict(terminal, InvocationID='f' * 32),
++                   dict(terminal, ExecMainStatus='0'), self.runtime_service_properties(LoadState='loaded'),
++                   self.runtime_service_properties(LoadState='error')]
++        for state in invalid:
++            with self.subTest(state=state), self.assertRaisesRegex(ValueError, 'replacement'):
++                self.inspect_prior(state)
++
++    def test_incomplete_current_unit_inspection_is_rejected(self):
++        properties = self.runtime_service_properties()
++        del properties['LoadState']
++        with self.assertRaisesRegex(ValueError, 'inspection incomplete'):
++            self.inspect_prior(properties)
++
++    def test_changed_historical_archive_is_rejected_before_member_read(self):
++        path = self.root / c.PRIOR_RUNTIME_ARCHIVE
++        path.parent.mkdir(parents=True)
++        path.write_bytes((c.REPO / c.PRIOR_RUNTIME_ARCHIVE).read_bytes() + b'changed')
++        with patch.object(c, 'REPO', self.root), self.assertRaisesRegex(ValueError, 'archive differs'):
++            c.archived_runtime_history()
++
++    def test_archived_terminal_service_requires_its_exact_member_pin(self):
++        with patch.object(c, 'PRIOR_RUNTIME_SERVICE_SHA', 'a' * 64), self.assertRaisesRegex(ValueError, 'service record differs'):
++            c.archived_runtime_history()
++
++    def prior_fixture(self):
++        """Small real files; only fixed guest locations/services are substituted."""
++        from contextlib import ExitStack
++        stack = ExitStack()
++        self.addCleanup(stack.close)
++        repo = self.root / 'repo'
++        here = self.root / 'driver'
++        here.mkdir()
++        parent = json.loads((c.HERE / 'parent-inputs.json').read_text())
++        for name in parent['original_driver_inputs']:
++            path = repo / name
++            path.parent.mkdir(parents=True, exist_ok=True)
++            path.write_bytes((c.REPO / name).read_bytes())
++        (here / 'parent-inputs.json').write_text(json.dumps(parent))
++        stack.enter_context(patch.object(c, 'HERE', here))
++        stack.enter_context(patch.object(c, 'REPO', repo))
++        prior = {kind: self.root / kind for kind in ('apk', 'runtime')}
++        for path in prior.values():
++            path.mkdir()
++            (path / 'source-sha256.txt').write_text('synthetic retained manifest\n')
++        stack.enter_context(patch.object(c, 'PRIOR_SOURCE', c.digest(prior['apk'] / 'source-sha256.txt')))
++        stack.enter_context(patch.object(c, 'PRIOR_EVIDENCE', prior))
++        apks_path = self.root / 'prior-apks'
++        apks_path.mkdir()
++        for name in c.APKS:
++            (apks_path / name).write_bytes(name.encode())
++        stack.enter_context(patch.object(c, 'PRIOR_APKS', apks_path))
++        code = {name: c.record(repo / name) for name in parent['original_driver_inputs']}
++        for kind, path in prior.items():
++            config = {'source_sha256': c.PRIOR_SOURCE, 'kind': kind, 'repository_files': code,
++                      'apks': c.apk_set(apks_path)}
++            (path / 'inputs.json').write_text(json.dumps(config))
++            state = {'kind': kind, 'service': {'InvocationID': c.PRIOR_INVOCATIONS[kind]},
++                     'source_manifest': c.record(path / 'source-sha256.txt'),
++                     'inputs': c.record(path / 'inputs.json'),
++                     'status': 'PASS' if kind == 'apk' else 'FAIL', 'apks': c.apk_set(apks_path)}
++            (path / 'result.json').write_text(json.dumps(state))
++        history = {'checkpoint_files': {name: {key: value for key, value in
++                    c.record(prior['runtime'] / name).items() if key != 'path'}
++                    for name in ('result.json', 'inputs.json', 'source-sha256.txt')}}
++        stack.enter_context(patch.object(c, 'prior_services', return_value={'runtime': {'history': history}}))
++        return repo, prior
++
++    def test_prior_success_and_failed_runtime_bind_original_code_and_apks(self):
++        _repo, prior = self.prior_fixture()
++        expected = c.prior_checkpoint_inputs()
++        c.check_prior_checkpoint(expected)
++        (prior['runtime'] / 'new-late-log').write_text('changed history')
++        with self.assertRaisesRegex(ValueError, 'historical checkpoint'):
++            c.check_prior_checkpoint(expected)
++
++    def test_prior_driver_mutation_is_rejected(self):
++        repo, _prior = self.prior_fixture()
++        path = repo / 'docs/android/evidence/lw-m7-12/current167/common.py'
++        path.write_text('changed historical executable code')
++        with self.assertRaisesRegex(ValueError, 'driver bytes changed'):
++            c.prior_checkpoint_inputs()
++
++    def test_current_failed_receipt_must_still_equal_archived_failure(self):
++        _repo, prior = self.prior_fixture()
++        path = prior['runtime'] / 'result.json'
++        state = json.loads(path.read_text())
++        state['extra_late_mutation'] = 'a new receipt cannot replace archived history'
++        path.write_text(json.dumps(state))
++        with self.assertRaisesRegex(ValueError, 'retained failure: result.json'):
++            c.prior_checkpoint_inputs()
++
++    def test_prior_config_cannot_claim_another_driver_or_artifact(self):
++        _repo, prior = self.prior_fixture()
++        path = prior['runtime'] / 'inputs.json'
++        config = json.loads(path.read_text())
++        config['repository_files']['docs/android/evidence/lw-m7-12/current167/common.py']['sha256'] = 'b' * 64
++        path.write_text(json.dumps(config))
++        result_path = prior['runtime'] / 'result.json'
++        state = json.loads(result_path.read_text())
++        state['inputs'] = c.record(path)
++        result_path.write_text(json.dumps(state))
++        with self.assertRaisesRegex(ValueError, 'config/code binding changed'):
++            c.prior_checkpoint_inputs()
++
++    def test_finish_preservation_failure_prevents_success(self):
++        evidence = self.root / 'new-evidence'
++        evidence.mkdir()
++        path = evidence / 'inputs.json'
++        path.write_text('{"prior_checkpoint":{}}')
++        state = {'status': 'PASS', 'inputs': c.record(path)}
++        with patch.object(c, 'source_check'), patch.object(c, 'native_check'), \
++             patch.object(c, 'check_prior_checkpoint', side_effect=ValueError('old file changed')):
++            c.finish(state, evidence)
++        result = json.loads((evidence / 'result.json').read_text())
++        self.assertEqual(result['status'], 'FAIL')
++        self.assertIn('old file changed', result['final_input_error'])
++

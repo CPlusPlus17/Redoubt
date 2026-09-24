@@ -1,0 +1,361 @@
+# Android patch-set check (LW-M0-09), ported to GitHub.
+#
+# LOCATION: .github/workflows/, because this repository is hosted on GitHub.
+# The .forgejo/ copy is dead here — GitHub Actions does not read it (HANDOVER.md).
+#
+# This job answers exactly one question: does the Android patch list still apply
+# to the Firefox tree the Android track is pinned to?
+#
+# The first job does NOT build Gecko: it answers the patch-set question in minutes.
+# The second job (build-android, LW-M2-08) does build, on pushes and dispatches
+# only, with three caches that live on the self-hosted runner's disk because
+# actions/checkout wipes the workspace (git clean -ffdx) on every run:
+#
+#   1. the ESR tarball, keyed on version.android and re-verified against
+#      Mozilla's GPG signature on every hit -- a corrupt hit is discarded and
+#      re-fetched, never used;
+#   2. the extracted+patched tree with its per-ABI objdirs, keyed on a stamp of
+#      every input that shapes it (assets/ incl. mozconfig.android and
+#      Dockerfile.android, patches/, the patcher, the two build scripts, the
+#      settings submodule commit, version/release, the container image id, and
+#      the ABI flags) -- a miss re-extracts and rebuilds from cold, a hit runs
+#      mach incrementally;
+#   3. the Gradle user home (the Maven graph mach's Gradle stage downloads),
+#      which survives both hits and misses.
+#
+# The cache is keyed on content, not on the branch, so two branches with the
+# same inputs share it and a mozconfig or toolchain change can never be served
+# a stale objdir. What it does NOT do yet: sccache. moz.configure reads
+# --with-ccache from the CCACHE environment variable (toolchain.configure:826),
+# but scripts/android-fat-aar.sh and android-apk.sh forward a fixed env list
+# into the container and mount only src/out, so an object cache needs a small
+# change to both scripts (a --cache-dir mount and CCACHE=sccache) plus sccache in
+# the image. That is the next step once a stamp miss is measured too slow.
+#
+# NO `container:` BLOCK, DELIBERATELY (same measured finding as android-release.yaml).
+# The first draft ran this on `codeberg.org/librewolf/bsys6:dind`. Two reasons to
+# drop it:
+#   1. actions `container:` jobs do not work on this runner regardless of image —
+#      rootless podman behind the podman-docker shim, a dangling docker.sock,
+#      SELinux Enforcing with no :z mount flags (measured in android-release.yaml).
+#   2. the bare runner already carries the toolchain this job needs (make, python3,
+#      curl, gpg, tar, xz, patch, unzip): android-release.yaml's preflight checks
+#      for exactly these and its full mode runs the same `make fetch`/`make dir`
+#      this job runs, with no container.
+#
+# It references no secrets. Signing never happens in CI — see LW-M6-01 and
+# "What not to do" in docs/android/AGENTS.md.
+
+name: Test Android Patch Set
+
+on:
+  push:
+    branches:
+      - main
+      - beta
+      # The port lands on these until it reaches main. Without them this workflow
+      # would not run once during M0-M5, which is precisely when it is needed.
+      - android-port
+      - android/**
+  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+jobs:
+  test-android:
+    runs-on: librewolf-android
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          # settings/ is a submodule and scripts/librewolf-patches.py copies
+          # librewolf.cfg, policies.json and local-settings.js out of it, so
+          # `make dir` fails outright without this.
+          submodules: recursive
+
+      - name: Check the Android board
+        run: |
+          python3 docs/android/board.py --check
+
+      - name: Lint patch scope
+        run: |
+          # LW-M1-01 has landed, so this is blocking now: it exits non-zero on a
+          # common/desktop/android split that is not authoritative, which is a real
+          # failure, not an in-flight state. (Verified: exits 0 on this tree.)
+          python3 scripts/lint-patch-scope.py
+
+      - name: Check patch order
+        run: |
+          # LW-M1-10's acceptance says its test is "wired into
+          # .github/workflows/android-test.yaml", and it owns only
+          # scripts/check-patch-order.py and cannot edit this file. Wired here; it
+          # arms itself when that script lands.
+          if [ -f scripts/check-patch-order.py ]; then
+            python3 scripts/check-patch-order.py
+          else
+            echo "scripts/check-patch-order.py is not present yet (LW-M1-10); skipping."
+          fi
+
+      - name: Fetching Firefox ESR Source
+        run: |
+          # No detect-firefox-version.sh here: that script knows the release, beta
+          # and rc channels, and the Android track is pinned to an ESR version in
+          # ./version.android (docs/android/TRACK.md). TARGETS=android is what
+          # selects that pair, so the tarball fetched is the ESR one.
+          #
+          # This is ~766 MiB from archive.mozilla.org plus a GPG verify on every
+          # run, and it is deliberately uncached: caching is LW-M2-08's, keyed on
+          # the mozconfig and toolchain, and a half-measure here would be thrown
+          # away by it. For scale, source-test.yaml already pulls this tarball
+          # three times per pull request and then builds Firefox three times.
+          make fetch TARGETS=android
+
+      - name: Checking patches for rejects
+        run: |
+          # check-patchfail.sh is target-blind until LW-M1-11: it reads ./version
+          # (the desktop track), requires firefox-<desktop version>.source.tar.xz
+          # which this job never downloads, and walks the common+desktop shim.
+          # Unguarded it would fail every run for a reason that has nothing to do
+          # with the Android patch set. It arms itself when LW-M1-11 lands.
+          #
+          # It runs before `make dir` on purpose: it reports every rejected hunk,
+          # where the patcher stops at the first failing patch. On a rebase pull
+          # request that difference is the whole value of the step.
+          if grep -q -- '--targets' scripts/check-patchfail.sh; then
+            ./scripts/check-patchfail.sh --targets=android
+          else
+            echo "scripts/check-patchfail.sh has no --targets yet (LW-M1-11); skipping."
+            echo "The patch-application test below is the blocking one."
+          fi
+
+      - name: Applying the Android patch set
+        run: |
+          # The test. Extracts the ESR tarball and runs
+          # scripts/librewolf-patches.py --targets=android over it, which applies
+          # assets/patches/common.txt then assets/patches/android.txt and exits 1
+          # on the first patch that does not apply — so this step is green exactly
+          # when the Android patch list applies and red when it does not.
+          #
+          # TARGETS=desktop,android is not tested here: the Makefile refuses it at
+          # recipe time whenever ./version and ./version.android differ, and it
+          # only reaches that guard after downloading a second tarball.
+          make dir TARGETS=android
+
+      - name: Check every Firefox brand image has a Redoubt replacement
+        run: |
+          # LW-M4-07. Needs the extracted tree, so it runs after `make dir`.
+          # A signed beta candidate shipped the Firefox flame as its home-screen
+          # wordmark on 2026-09-08 because nothing looked at images; this is what
+          # looks at them.
+          python3 scripts/android-brand-check.py "librewolf-$(cat version.android)-$(cat release.android)"
+
+      - name: Check the shipped prefs against GeckoView's declarations
+        run: |
+          # --check-policies needs the extracted tree (it reads GeckoRuntimeSettings
+          # and ContentBlocking) and exits 2 without one, so it runs here, after
+          # `make dir`, and nowhere earlier.
+          LW_TREE=librewolf-$(cat version.android)-$(cat release.android) \
+            python3 docs/android/board.py --check-policies
+
+  # ---------------------------------------------------------------------------
+  # LW-M2-08: the real build, with the runner-side caches described at the top.
+  #
+  # Pushes and workflow_dispatch only. A pull request from a fork must not be
+  # able to spend an hour of the self-hosted runner, and the patch-set job above
+  # already answers the question a PR needs answered.
+  #
+  # One build at a time, globally: the tree cache is shared, the runner is one
+  # machine, and a Gecko compile peaks at ~34 GB of memory (build-times.txt).
+  # cancel-in-progress is off so a half-finished objdir is never left behind by
+  # this workflow; a stamp is written only after a build succeeds, so a torn tree
+  # from any other cause is treated as a miss and rebuilt.
+  # ---------------------------------------------------------------------------
+  build-android:
+    needs: test-android
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: librewolf-android
+    concurrency:
+      group: redoubt-android-build
+      cancel-in-progress: false
+    timeout-minutes: 360
+    env:
+      # Everything persistent lives here, outside the workspace.
+      LW_CI_ROOT: ${{ github.workspace }}/../../../redoubt-ci
+      # ALL THREE ABIs, and not as a nicety. scripts/android-apk.sh refuses to
+      # emit a universal APK whose ABI directories are not all backed by a
+      # libxul.so, and three AndroidX/JNA dependencies ship prebuilt .so files
+      # for armeabi-v7a whether or not that ABI was built -- so a one- or
+      # two-ABI run dies at that check with a message about the universal APK,
+      # which reads as a broken pipeline rather than the deliberate refusal it
+      # is. Measured 2026-09-06: exactly this killed a local two-ABI build after
+      # the Gradle stage had already succeeded.
+      #
+      # Cost, from build-times.txt: a COLD run is roughly 950 s per ABI plus a
+      # ~530 s merge plus the ~530 s Gradle stage, so about an hour -- inside the
+      # 360-minute timeout, and it is the price of the tree cache below being
+      # able to make every later run incremental.
+      LW_CI_ABIS: armeabi-v7a,arm64-v8a,x86_64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Preflight — engine, image, disk, cache root
+        run: |
+          set -eu
+          command -v podman >/dev/null || { echo "FATAL: podman is required" >&2; exit 1; }
+          command -v adb >/dev/null || { echo "FATAL: adb is required by the smoke harness's static checks" >&2; exit 1; }
+          podman image exists librewolf-android-build || {
+            echo "build image missing on this runner; building it from assets/Dockerfile.android"
+            make android-build-image CONTAINER_ENGINE=podman
+          }
+          avail=$(df -BG --output=avail "$HOME" | tail -1 | tr -dc '0-9')
+          echo "${avail} GB free under $HOME"
+          [ "${avail:-0}" -ge 120 ] || { echo "FATAL: a tree with one objdir is ~30 GB; refusing under 120 GB" >&2; exit 1; }
+          mkdir -p "$LW_CI_ROOT/tarballs" "$LW_CI_ROOT/out" "$LW_CI_ROOT/gradle-home"
+          echo "LW_CI_ROOT=$(cd "$LW_CI_ROOT" && pwd)" >> "$GITHUB_ENV"
+
+      - name: Tarball cache — hit only if Mozilla's signature still verifies
+        run: |
+          set -eu
+          ver=$(cat version.android)
+          tb="firefox-$ver.source.tar.xz"
+          cache="$LW_CI_ROOT/tarballs"
+          if [ -f "$cache/$tb" ] && [ -f "$cache/$tb.asc" ]; then
+            curl -so public_key.asc "https://keys.openpgp.org/vks/v1/by-fingerprint/14F26682D0916CDD81E37B6D61B7B526D98F0353"
+            gpg --import public_key.asc && rm -f public_key.asc
+            if gpg --verify "$cache/$tb.asc" "$cache/$tb"; then
+              ln -sf "$cache/$tb" "$tb"
+              ln -sf "$cache/$tb.asc" "$tb.asc"
+              echo "tarball cache HIT: $tb (signature verified)"
+            else
+              echo "tarball cache CORRUPT: $tb -- discarding, will re-fetch" >&2
+              rm -f "$cache/$tb" "$cache/$tb.asc"
+            fi
+          else
+            echo "tarball cache MISS: $tb"
+          fi
+
+      - name: Fetch the ESR tarball (no-op on a verified hit)
+        run: |
+          set -eu
+          ver=$(cat version.android)
+          tb="firefox-$ver.source.tar.xz"
+          # The Makefile rule is a file target: an existing (symlinked) tarball is
+          # not re-downloaded. A miss downloads and GPG-verifies as before.
+          make fetch TARGETS=android
+          if [ ! -L "$tb" ]; then
+            cp "$tb" "$LW_CI_ROOT/tarballs/$tb"
+            cp "$tb.asc" "$LW_CI_ROOT/tarballs/$tb.asc"
+            echo "tarball cached for the next run"
+          fi
+
+      - name: Tree cache — stamp every input that shapes the patched tree
+        id: stamp
+        run: |
+          set -eu
+          ver=$(cat version.android); rel=$(cat release.android)
+          tree="$LW_CI_ROOT/tree-$ver-$rel"
+          image=$(podman image inspect --format '{{.Id}}' librewolf-android-build)
+          stamp=$( {
+              git rev-parse HEAD:assets HEAD:patches HEAD:scripts/librewolf-patches.py \
+                            HEAD:scripts/android-fat-aar.sh HEAD:scripts/android-apk.sh \
+                            HEAD:settings
+              echo "$ver $rel $image abis=$LW_CI_ABIS"
+            } | sha256sum | cut -c1-64 )
+          echo "stamp=$stamp"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          echo "stamp=$stamp" >> "$GITHUB_OUTPUT"
+          if [ -d "$tree" ] && [ "$(cat "$tree/.lw-ci-stamp" 2>/dev/null || true)" = "$stamp" ]; then
+            echo "tree cache HIT: $tree"
+            echo "hit=1" >> "$GITHUB_OUTPUT"
+          else
+            if [ -d "$tree" ]; then
+              echo "tree cache MISS: stamp changed ($(cat "$tree/.lw-ci-stamp" 2>/dev/null || echo none) -> $stamp)"
+            else
+              echo "tree cache MISS: no tree"
+            fi
+            echo "hit=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tree cache miss — extract, patch, move into place, drop stale outputs
+        if: ${{ steps.stamp.outputs.hit == '0' }}
+        run: |
+          set -eu
+          ver=$(cat version.android); rel=$(cat release.android)
+          tree="${{ steps.stamp.outputs.tree }}"
+          make dir TARGETS=android
+          rm -rf "$tree"
+          mv "librewolf-$ver-$rel" "$tree"
+          # The AAR and APK outputs were built from the previous tree; only the
+          # Gradle home (a dependency cache, content-addressed by Gradle) carries
+          # over. build-times.txt is what `make android-package` keys the AAR
+          # rebuild on, so it must go with the rest.
+          rm -rf "$LW_CI_ROOT/out/aar" "$LW_CI_ROOT/out/apk"
+
+      - name: Build (AAR skipped on a hit; APK passes run incrementally)
+        run: |
+          set -eu
+          tree="${{ steps.stamp.outputs.tree }}"
+          test -x "$tree/mach" || { echo "FATAL: no mach in $tree" >&2; exit 1; }
+          start=$(date +%s)
+          make android-package \
+            TARGETS=android \
+            CONTAINER_ENGINE=podman \
+            LW_ANDROID_SRCDIR="$tree" \
+            ANDROID_AAR_OUTDIR="$LW_CI_ROOT/out/aar" \
+            ANDROID_APK_OUTDIR="$LW_CI_ROOT/out/apk" \
+            ANDROID_AAR_FLAGS="--abis=$LW_CI_ABIS --fat-host-abi=x86_64" \
+            ANDROID_APK_FLAGS="--variant=release --fat-host-abi=x86_64 --gradle-home $LW_CI_ROOT/gradle-home"
+          end=$(date +%s)
+          # Keep the Gradle home warm for the next run (copied, never written through).
+          rm -rf "$LW_CI_ROOT/gradle-home"
+          cp -a "$LW_CI_ROOT/out/apk/gradle-home" "$LW_CI_ROOT/gradle-home"
+          echo "$(date -u +%FT%TZ) commit=$(git rev-parse --short HEAD) hit=${{ steps.stamp.outputs.hit }} seconds=$((end-start))" \
+            | tee -a "$LW_CI_ROOT/times.log"
+          echo "== AAR ==";  cat "$LW_CI_ROOT/out/aar/build-times.txt"
+          echo "== APK ==";  cat "$LW_CI_ROOT/out/apk/build-times.txt"
+          echo "== history (this runner) =="; tail -n 20 "$LW_CI_ROOT/times.log"
+
+      - name: Gates that need the artifact
+        run: |
+          set -eu
+          tree="${{ steps.stamp.outputs.tree }}"
+          apk="$LW_CI_ROOT/out/apk/apk/fenix-x86_64-release.apk"
+          test -f "$apk" || { echo "FATAL: $apk was not produced" >&2; exit 1; }
+          LW_TREE="$tree" python3 docs/android/board.py --check-policies
+          # Every ABI directory in the universal APK must carry the engine. The
+          # build script already refuses otherwise; assert it here too, because a
+          # universal APK that installs on an ABI it has no libxul.so for is
+          # installable and dead on arrival, and that is the artifact a direct
+          # download hands people.
+          uni="$LW_CI_ROOT/out/apk/apk/fenix-universal-release.apk"
+          for a in armeabi-v7a arm64-v8a x86_64; do
+            unzip -l "$uni" "lib/$a/libxul.so" | grep -q libxul.so \
+              || { echo "FATAL: $uni has no libxul.so for $a" >&2; exit 1; }
+            echo "  universal: $a carries libxul.so"
+          done
+          # Static halves of the smoke harness: dex string tables, no device needed.
+          LW_SMOKE_REPO=. ./scripts/android-smoke.sh --apk "$apk" --check-no-gms --check-no-adjust \
+            --json ci-smoke-static.json
+          mkdir -p ci-out
+          cp "$LW_CI_ROOT/out/aar/build-times.txt" ci-out/aar-build-times.txt
+          cp "$LW_CI_ROOT/out/apk/build-times.txt" ci-out/apk-build-times.txt
+          cp "$LW_CI_ROOT/out/apk/apk/output-metadata.json" ci-out/
+          cp ci-smoke-static.json ci-out/
+          ( cd "$LW_CI_ROOT/out/apk/apk" && sha256sum *.apk ) > ci-out/SHA256SUMS
+
+      - name: Stamp the tree (only after a successful build and gates)
+        run: |
+          echo "${{ steps.stamp.outputs.stamp }}" > "${{ steps.stamp.outputs.tree }}/.lw-ci-stamp"
+          echo "stamped ${{ steps.stamp.outputs.tree }}"
+
+      - name: Upload build record
+        uses: actions/upload-artifact@v4
+        with:
+          name: redoubt-android-ci-build
+          path: ci-out/
+          retention-days: 30

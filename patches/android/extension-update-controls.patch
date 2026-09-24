@@ -1,0 +1,2010 @@
+--- a/modules/libpref/Preferences.cpp
++++ b/modules/libpref/Preferences.cpp
+@@ -3483,11 +3483,6 @@
+                                 []() { return sPendingWriteCount <= 0; });
+   }
+
+-  // This is the data that all of the runnables (see below) will attempt
+-  // to write.  It will always have the most up to date version, or be
+-  // null, if the up to date information has already been written out.
+-  static Atomic<PrefSaveData*> sPendingWriteData;
+-
+   // This is the number of writes via PWRunnables which have been dispatched
+   // but not yet completed. This is intended to be used by Flush to ensure
+   // that there are no outstanding writes left incomplete, and thus our prefs
+@@ -3498,101 +3493,83 @@
+   static StaticMutex sWritingToFile MOZ_UNANNOTATED;
+ };
+
+-Atomic<PrefSaveData*> PreferencesWriter::sPendingWriteData(nullptr);
+ Atomic<int> PreferencesWriter::sPendingWriteCount(0);
+ StaticMutex PreferencesWriter::sWritingToFile;
+
++// LibreWolf Android: each dispatched write owns its snapshot and completion.
++// The serial target orders current-file, explicit-file and backup requests.
++// Coalescing a shared snapshot could make one request write another file's data
++// or acknowledge a different request's result.
+ class PWRunnable : public Runnable {
+  public:
+   explicit PWRunnable(
+-      nsIFile* aFile,
+-      UniquePtr<MozPromiseHolder<Preferences::WritePrefFilePromise>>
+-          aPromiseHolder)
++      nsIFile* aFile, UniquePtr<PrefSaveData> aPrefs,
++      UniquePtr<MozPromiseHolder<Preferences::WritePrefFilePromise>> aPromiseHolder)
+       : Runnable("PWRunnable"),
+         mFile(aFile),
+-        mPromiseHolder(std::move(aPromiseHolder)) {}
++        mPrefs(std::move(aPrefs)),
++        mPromiseHolder(std::move(aPromiseHolder)) {
++    PreferencesWriter::sPendingWriteCount++;
++  }
+
+   NS_IMETHOD Run() override {
+-    // Preference writes are handled a bit strangely, in that a "newer"
+-    // write is generally regarded as always better. For this reason,
+-    // sPendingWriteData can be overwritten multiple times before anyone
+-    // gets around to actually using it, minimizing writes. However,
+-    // once we've acquired sPendingWriteData we've reached a
+-    // "point of no return" and have to complete the write.
+-    //
+-    // Unfortunately, this design allows the following behaviour:
+-    //
+-    // 1. write1 is queued up
+-    // 2. thread1 acquires write1
+-    // 3. write2 is queued up
+-    // 4. thread2 acquires write2
+-    // 5. thread1 and thread2 concurrently clobber each other
+-    //
+-    // To avoid this, we use this lock to ensure that only one thread
+-    // at a time is trying to acquire the write, and when it does,
+-    // all other threads are prevented from acquiring writes until it
+-    // completes the write. New writes are still allowed to be queued
+-    // up in this time.
+-    //
+-    // Although it's atomic, the acquire needs to be guarded by the mutex
+-    // to avoid reordering of writes -- we don't want an older write to
+-    // run after a newer one. To avoid this causing too much waiting, we check
+-    // if sPendingWriteData is already null before acquiring the mutex. If it
+-    // is, then there's definitely no work to be done (or someone is in the
+-    // middle of doing it for us).
+-    //
+-    // Note that every time a new write is queued up, a new write task is
+-    // is also queued up, so there will always be a task that can see the newest
+-    // write.
+-    //
+-    // Ideally this lock wouldn't be necessary, and the PreferencesWriter
+-    // would be used more carefully, but it's hard to untangle all that.
+-    nsresult rv = NS_OK;
+-    if (PreferencesWriter::sPendingWriteData) {
++    if (!mCounted) {
++      return NS_ERROR_ABORT;
++    }
++    {
+       StaticMutexAutoLock lock(PreferencesWriter::sWritingToFile);
+-      // If we get a nullptr on the exchange, it means that somebody
+-      // else has already processed the request, and we can just return.
+-      UniquePtr<PrefSaveData> prefs(
+-          PreferencesWriter::sPendingWriteData.exchange(nullptr));
+-      if (prefs) {
+-        rv = PreferencesWriter::Write(mFile, *prefs);
+-        // Make a copy of these so we can have them in runnable lambda.
+-        // nsIFile is only there so that we would never release the
+-        // ref counted pointer off main thread.
+-        nsresult rvCopy = rv;
+-        nsCOMPtr<nsIFile> fileCopy(mFile);
+-        SchedulerGroup::Dispatch(NS_NewRunnableFunction(
+-            "Preferences::WriterRunnable",
+-            [fileCopy, rvCopy, promiseHolder = std::move(mPromiseHolder)] {
+-              MOZ_RELEASE_ASSERT(NS_IsMainThread());
+-              if (NS_FAILED(rvCopy)) {
+-                Preferences::HandleDirty();
+-              }
+-              if (promiseHolder) {
+-                promiseHolder->ResolveIfExists(true, __func__);
+-              }
+-            }));
++      mResult = PreferencesWriter::Write(mFile, *mPrefs);
++    }
++    mPrefs = nullptr;
++    // Keep the final file reference and dirty bookkeeping on the main thread.
++    // Resolve the thread-safe MozPromise from the actual result, independently
++    // of when that bookkeeping runnable executes.
++    nsresult result = mResult;
++    SchedulerGroup::Dispatch(NS_NewRunnableFunction(
++        "Preferences::WriterRunnable", [file = std::move(mFile), result] {
++          MOZ_RELEASE_ASSERT(NS_IsMainThread());
++          if (NS_FAILED(result)) {
++            // A retry captures current prefs; it never replays this old snapshot.
++            Preferences::HandleDirty();
++          }
++        }));
++    if (mPromiseHolder) {
++      if (NS_FAILED(result)) {
++        mPromiseHolder->RejectIfExists(result, __func__);
++      } else {
++        mPromiseHolder->ResolveIfExists(true, __func__);
+       }
+     }
+-    // We've completed the write to the best of our abilities, whether
+-    // we had prefs to write or another runnable got to them first. If
+-    // PreferencesWriter::Write failed, this is still correct as the
+-    // write is no longer outstanding, and the above HandleDirty call
+-    // will just start the cycle again.
+-    PreferencesWriter::sPendingWriteCount--;
+-    return rv;
++    CompleteCount();
++    return result;
++  }
++
++  nsresult Result() const { return mResult; }
++
++  // A failed Dispatch may retain/leak its runnable. Explicitly balance the
++  // count and reject here; destruction is an additional exactly-once fallback.
++  void Cancel(nsresult aReason) {
++    if (mPromiseHolder) {
++      mPromiseHolder->RejectIfExists(aReason, __func__);
++    }
++    mPrefs = nullptr;
++    NS_ReleaseOnMainThread("PWRunnable::mFile", mFile.forget());
++    CompleteCount();
+   }
+
+  private:
+-  ~PWRunnable() {
+-    if (mPromiseHolder) {
+-      mPromiseHolder->RejectIfExists(NS_ERROR_ABORT, __func__);
+-    }
+-  }
+-
+- protected:
++  void CompleteCount() {
++    if (mCounted.exchange(false)) {
++      PreferencesWriter::sPendingWriteCount--;
++    }
++  }
++  ~PWRunnable() { Cancel(NS_ERROR_ABORT); }
++
+   nsCOMPtr<nsIFile> mFile;
++  UniquePtr<PrefSaveData> mPrefs;
+   UniquePtr<MozPromiseHolder<Preferences::WritePrefFilePromise>> mPromiseHolder;
++  Atomic<bool> mCounted{true};
++  nsresult mResult = NS_ERROR_ABORT;
+ };
+
+ // Although this is a member of Preferences, it measures sPreferences and
+@@ -4199,9 +4176,11 @@
+     // It's possible that a profile-before-change observer after ours
+     // set a pref. A blocking save here re-saves if necessary and also waits
+     // for any pending saves to complete.
+-    SavePrefFileBlocking();
+-    MOZ_ASSERT(!mDirty, "Preferences should not be dirty");
+-    mProfileShutdown = true;
++    rv = SavePrefFileBlocking();
++    if (NS_SUCCEEDED(rv)) {
++      MOZ_ASSERT(!mDirty, "Preferences should not be dirty");
++      mProfileShutdown = true;
++    }
+
+   } else if (!nsCRT::strcmp(aTopic, "suspend_process_notification")) {
+     // Our process is being suspended. The OS may wake our process later,
+@@ -4295,21 +4274,27 @@
+ }
+
+ nsresult Preferences::SavePrefFileBlocking() {
+-  if (mDirty) {
+-    return SavePrefFileInternal(nullptr, SaveMethod::Blocking);
+-  }
+-
+-  // If we weren't dirty to start, SavePrefFileInternal will early exit so
+-  // there is no guarantee that we don't have oustanding async saves in the
+-  // pipe. Since the contract of SavePrefFileOnMainThread is that the file on
+-  // disk matches the preferences, we have to make sure those requests are
+-  // completed.
+-
+-  if (AllowOffMainThreadSave()) {
+-    PreferencesWriter::Flush();
+-  }
+-
+-  return NS_OK;
++  // Always enqueue the latest state, even if a prior asynchronous request
++  // already cleared mDirty. Queue completion alone cannot prove that request
++  // succeeded, and its main-thread dirty callback may still be pending.
++  if (!mCurrentFile) {
++    // Backups are also available before current-profile initialization.
++    if (AllowOffMainThreadSave()) {
++      PreferencesWriter::Flush();
++    }
++    return NS_OK;
++  }
++  if (mProfileShutdown) {
++    return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
++  }
++  mSavePending = false;
++  nsresult rv = WritePrefFile(mCurrentFile, SaveMethod::Blocking);
++  if (NS_SUCCEEDED(rv)) {
++    mDirty = false;
++  } else {
++    HandleDirty();
++  }
++  return rv;
+ }
+
+ nsresult Preferences::SavePrefFileAsynchronous() {
+@@ -4320,6 +4305,40 @@
+ Preferences::SavePrefFile(nsIFile* aFile) {
+   // This is the method accessible from service API. Make it off main thread.
+   return SavePrefFileInternal(aFile, SaveMethod::Asynchronous);
++}
++
++NS_IMETHODIMP
++Preferences::SavePrefFileAsync(JSContext* aCx, Promise** aPromise) {
++  ENSURE_PARENT_PROCESS("Preferences::SavePrefFileAsync", "all prefs");
++  MOZ_ASSERT(NS_IsMainThread());
++  if (mProfileShutdown) {
++    return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
++  }
++  if (!mCurrentFile || !HashTable()) {
++    return NS_ERROR_NOT_INITIALIZED;
++  }
++  ErrorResult error;
++  RefPtr<Promise> promise = Promise::Create(xpc::CurrentNativeGlobal(aCx), error);
++  if (error.Failed()) {
++    return error.StealNSResult();
++  }
++  nsMainThreadPtrHandle<Promise> domPromise(
++      new nsMainThreadPtrHolder<Promise>("Preferences::SavePrefFileAsync", promise));
++  auto holder = MakeUnique<MozPromiseHolder<WritePrefFilePromise>>();
++  RefPtr<WritePrefFilePromise> write = holder->Ensure(__func__);
++  // Force a current snapshot even when mDirty is false. Preserve the legacy
++  // save API's dirty timing; any outstanding autosave remains valid.
++  nsresult rv = WritePrefFile(mCurrentFile, SaveMethod::Asynchronous,
++                             std::move(holder));
++  if (NS_FAILED(rv)) {
++    HandleDirty();
++  }
++  write->Then(
++      GetMainThreadSerialEventTarget(), __func__,
++      [domPromise](bool) { domPromise.get()->MaybeResolveWithUndefined(); },
++      [domPromise](nsresult result) { domPromise.get()->MaybeReject(result); });
++  promise.forget(aPromise);
++  return NS_OK;
+ }
+
+ NS_IMETHODIMP
+@@ -4762,73 +4781,31 @@
+     UniquePtr<PrefSaveData> prefs =
+         MakeUnique<PrefSaveData>(pref_savePrefs(aPrefOverrideMap));
+
++    // All snapshots use the same serial target. No runnable can consume a
++    // later request's data or write it to a different request's destination.
+     nsresult rv = NS_OK;
+-    bool writingToCurrent = false;
+-
+-    // The TaskQueue mAsyncTarget ensures that we'll only process one write at
+-    // a time, so we won't run into a deadlock if a previous write blocks.
+     if (!mAsyncTarget) {
+       rv = NS_CreateBackgroundTaskQueue("WritePrefFile",
+-                                        getter_AddRefs(mAsyncTarget));
++                                       getter_AddRefs(mAsyncTarget));
+       if (NS_FAILED(rv)) {
+         REJECT_IF_PROMISE_HOLDER_EXISTS(rv);
+       }
+     }
+-
+-    if (mCurrentFile) {
+-      rv = mCurrentFile->Equals(aFile, &writingToCurrent);
+-      if (NS_FAILED(rv)) {
+-        REJECT_IF_PROMISE_HOLDER_EXISTS(rv);
+-      }
+-    }
+-
+-    // Put the newly constructed preference data into sPendingWriteData
+-    // for the next request to pick up
+-    prefs.reset(PreferencesWriter::sPendingWriteData.exchange(prefs.release()));
+-    if (prefs && !writingToCurrent) {
+-      MOZ_ASSERT(!aPromiseHolder,
+-                 "Shouldn't be able to enter here if aPromiseHolder is set");
+-      // There was a previous request writing to the default location that
+-      // hasn't been processed. It will do the work of eventually writing this
+-      // latest batch of data to disk.
+-      return NS_OK;
+-    }
+-
+-    // There were no previous requests. Dispatch one since sPendingWriteData has
+-    // the up to date information.
++    RefPtr<PWRunnable> writer =
++        new PWRunnable(aFile, std::move(prefs), std::move(aPromiseHolder));
+     bool async = aSaveMethod == SaveMethod::Asynchronous;
+-
+-    // Increment sPendingWriteCount, even though it's redundant to track this
+-    // in the case of a sync runnable; it just makes it easier to simply
+-    // decrement this inside PWRunnable. We cannot use the constructor /
+-    // destructor for increment/decrement, as on dispatch failure we might
+-    // leak the runnable in order to not destroy it on the wrong thread, which
+-    // would make us get stuck in an infinite SpinEventLoopUntil inside
+-    // PreferencesWriter::Flush. Better that in future code we miss an
+-    // increment of sPendingWriteCount and cause a simple crash due to it
+-    // ending up negative.
+-    PreferencesWriter::sPendingWriteCount++;
+-
+-    // If aPromiseHolder is not null, ownership is transferred to PWRunnable.
+-    // The PWRunnable will automatically reject the MozPromise if it is
+-    // destroyed before being resolved or rejected by the Run method.
+     if (async) {
+-      rv = mAsyncTarget->Dispatch(
+-          new PWRunnable(aFile, std::move(aPromiseHolder)),
+-          nsIEventTarget::DISPATCH_EVENT_MAY_BLOCK);
++      rv = mAsyncTarget->Dispatch(do_AddRef(writer),
++                                 nsIEventTarget::DISPATCH_EVENT_MAY_BLOCK);
+     } else {
+-      rv = SyncRunnable::DispatchToThread(
+-          mAsyncTarget, new PWRunnable(aFile, std::move(aPromiseHolder)), true);
++      rv = SyncRunnable::DispatchToThread(mAsyncTarget, writer, true);
+     }
+     if (NS_FAILED(rv)) {
+-      // If our dispatch failed, we should correct our bookkeeping to
+-      // avoid shutdown hangs.
+-      PreferencesWriter::sPendingWriteCount--;
+-      // No need to reject the aPromiseHolder here, as the PWRunnable will
+-      // have already done so.
++      writer->Cancel(rv);
+       return rv;
+     }
+-    return NS_OK;
++    // SyncRunnable reports dispatch success, not the wrapped Run() result.
++    return async ? NS_OK : writer->Result();
+   }
+
+   // This will do a main thread write. It is safe to do it this way because
+--- a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
++++ b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
+@@ -12,6 +12,216 @@
+ const { Preferences } = ChromeUtils.importESModule(
+   "resource://gre/modules/Preferences.sys.mjs"
+ );
++
++// This helper is packaged only in the privileged instrumentation extension.
++// It exercises native I/O on the normal XRE_main-initialized test profile; it
++// does not initialize/mimic mCurrentFile or accept an arbitrary filesystem path.
++let prefSaveIOTestRunning = false;
++
++async function runPrefSaveFileAsyncIOTest(scenario, allowProfileShutdown) {
++  const PREF = "test.librewolf.savePrefFileAsync.value";
++  function requireCondition(condition, message) {
++    if (!condition) {
++      throw new Error(`Pref save I/O fixture: ${message}`);
++    }
++  }
++  requireCondition(!prefSaveIOTestRunning, "concurrent fixture refused");
++  requireCondition(
++    ["snapshots", "clean", "failure", "shutdown"].includes(scenario),
++    "unknown scenario"
++  );
++  requireCondition(
++    scenario !== "shutdown" || allowProfileShutdown === true,
++    "shutdown requires an explicitly isolated instrumentation invocation"
++  );
++  requireCondition(!Services.prefs.prefHasUserValue(PREF), "test pref already set");
++  requireCondition(
++    Services.prefs.getBoolPref("preferences.allow.omt-write"),
++    "queued native writer must be enabled by the test runtime at startup"
++  );
++  const profile = Services.dirsvc.get("ProfD", Ci.nsIFile);
++  const current = Services.dirsvc.get("PrefF", Ci.nsIFile);
++  requireCondition(
++    current.parent.equals(profile) && current.leafName === "prefs.js",
++    "unexpected current profile path"
++  );
++  // Unlike directory registration, this successful native call establishes
++  // that InitializeUserPrefs actually selected a current preferences file.
++  prefSaveIOTestRunning = true;
++  let initialized = false;
++  let fixture;
++  let profileClosed = false;
++  const receipt = { scenario, profile: profile.path, currentFile: current.path };
++  const observer = Services.prefs.QueryInterface(Ci.nsIObserver);
++  function suspend() {
++    // notifyObservers() discards individual nsresult failures.
++    observer.observe(null, "suspend_process_notification", null);
++  }
++  function errorReceipt(error) {
++    return { name: error.name, result: error.result, message: String(error) };
++  }
++  async function outcome(operation) {
++    try {
++      await operation();
++      return { resolved: true };
++    } catch (error) {
++      return { resolved: false, error: errorReceipt(error) };
++    }
++  }
++  function syncOutcome(operation) {
++    try {
++      operation();
++      return { resolved: true };
++    } catch (error) {
++      return { resolved: false, error: errorReceipt(error) };
++    }
++  }
++  function child(name) {
++    const file = fixture.clone();
++    file.append(name);
++    return file;
++  }
++  async function valueOnDisk(file) {
++    let value = null;
++    const errors = [];
++    const record = (_kind, name, saved) => {
++      if (name === PREF) {
++        value = saved;
++      }
++    };
++    Services.prefs.parsePrefsFromBuffer(await IOUtils.read(file.path), {
++      onStringPref: record,
++      onIntPref: record,
++      onBoolPref: record,
++      onError(message) {
++        errors.push(message);
++      },
++    });
++    requireCondition(!errors.length, `invalid saved prefs: ${errors.join("; ")}`);
++    return value;
++  }
++  async function withBlockedCurrentFile(operation) {
++    await Services.prefs.savePrefFileAsync();
++    suspend();
++    const saved = child("original-prefs.js");
++    requireCondition(!saved.exists(), "recovery file already exists");
++    current.clone().moveTo(fixture, saved.leafName);
++    try {
++      // A directory is a real rename/write failure even when tests run as root.
++      current.create(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
++      await operation();
++      requireCondition(current.isDirectory(), "failure target was replaced");
++    } finally {
++      // Drain before synchronous restore; an autosave cannot run on the main
++      // thread between removing the directory and moving the original back.
++      syncOutcome(suspend);
++      if (current.exists()) {
++        requireCondition(
++          current.isDirectory(),
++          `unexpected recovery target; original retained at ${saved.path}`
++        );
++        current.remove(false);
++      }
++      saved.moveTo(profile, current.leafName);
++    }
++  }
++  try {
++    await Services.prefs.savePrefFileAsync();
++    requireCondition(current.isFile(), "current profile save created no file");
++    initialized = true;
++    fixture = profile.clone();
++    fixture.append("lw-m7-35-io");
++    fixture.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
++    if (scenario === "snapshots") {
++      const firstBackup = child("a.js");
++      const secondBackup = child("b.js");
++      const failedBackup = child("directory");
++      failedBackup.create(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
++      // Capture requests without yielding, then inspect each distinct file.
++      Services.prefs.setStringPref(PREF, "first-current");
++      const first = outcome(() => Services.prefs.savePrefFileAsync());
++      Services.prefs.setStringPref(PREF, "backup-a");
++      const a = outcome(() => Services.prefs.backupPrefFile(firstBackup));
++      Services.prefs.setStringPref(PREF, "failed-backup");
++      const failed = outcome(() => Services.prefs.backupPrefFile(failedBackup));
++      Services.prefs.setStringPref(PREF, "backup-b");
++      const b = outcome(() => Services.prefs.backupPrefFile(secondBackup));
++      Services.prefs.setStringPref(PREF, "final-current");
++      const final = outcome(() => Services.prefs.savePrefFileAsync());
++      [
++        receipt.first,
++        receipt.backupA,
++        receipt.failed,
++        receipt.backupB,
++        receipt.final,
++      ] = await Promise.all([first, a, failed, b, final]);
++      receipt.backupAValue = await valueOnDisk(firstBackup);
++      receipt.backupBValue = await valueOnDisk(secondBackup);
++      receipt.currentValue = await valueOnDisk(current);
++      receipt.failedTargetIsDirectory = failedBackup.isDirectory();
++    } else if (scenario === "clean") {
++      Services.prefs.setStringPref(PREF, "clean-state");
++      suspend();
++      receipt.dirtyBeforeRemoval = Services.prefs.dirty;
++      requireCondition(!receipt.dirtyBeforeRemoval, "blocking save was not clean");
++      current.remove(false);
++      receipt.dirtyAfterRemoval = Services.prefs.dirty;
++      receipt.fileAbsentBeforeBarrier = !current.exists();
++      await Services.prefs.savePrefFileAsync();
++      receipt.recreatedValue = await valueOnDisk(current);
++      Services.prefs.clearUserPref(PREF);
++      await Services.prefs.savePrefFileAsync();
++      receipt.resetValue = await valueOnDisk(current);
++    } else {
++      await withBlockedCurrentFile(async () => {
++        Services.prefs.setStringPref(PREF, "after-disk-error");
++        receipt.failedSave = await outcome(() =>
++          Services.prefs.savePrefFileAsync()
++        );
++        receipt.failedSuspend = syncOutcome(suspend);
++        receipt.memoryValueAfterFailure = Services.prefs.getStringPref(PREF);
++        if (scenario === "shutdown") {
++          receipt.failedShutdown = syncOutcome(() =>
++            observer.observe(null, "profile-before-change-telemetry", null)
++          );
++          // If broken code acknowledged this failure, stop further mutation.
++          // The outer finally still restores the original physical file.
++          profileClosed = receipt.failedShutdown.resolved;
++        }
++        receipt.failureTargetIsDirectory = current.isDirectory();
++      });
++      requireCondition(!profileClosed, "failed I/O was acknowledged as shutdown");
++      receipt.retry = await outcome(() => Services.prefs.savePrefFileAsync());
++      receipt.retryValue = await valueOnDisk(current);
++      suspend();
++      receipt.dirtyAfterRetry = Services.prefs.dirty;
++      if (scenario === "shutdown") {
++        Services.prefs.setStringPref(PREF, "shutdown-final");
++        observer.observe(null, "profile-before-change-telemetry", null);
++        profileClosed = true;
++        receipt.finalValue = await valueOnDisk(current);
++        receipt.afterShutdown = await outcome(() =>
++          Services.prefs.savePrefFileAsync()
++        );
++        receipt.expectedShutdownError = Cr.NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
++      }
++    }
++    return receipt;
++  } finally {
++    // A successful final profile shutdown is intentionally irreversible. Its
++    // dedicated instrumentation process owns disposal of that test profile.
++    if (initialized && !profileClosed) {
++      Services.prefs.clearUserPref(PREF);
++      await Services.prefs.savePrefFileAsync();
++      suspend();
++    }
++    // Never discard the only recovery copy if restoration failed.
++    if (fixture?.exists() && !child("original-prefs.js").exists()) {
++      fixture.remove(true);
++    }
++    prefSaveIOTestRunning = false;
++  }
++}
+
+ this.test = class extends ExtensionAPI {
+   onStartup() {
+@@ -57,6 +267,10 @@
+
+     return {
+       test: {
++        async runPrefSaveFileAsyncIOTest(scenario, allowProfileShutdown) {
++          return runPrefSaveFileAsyncIOTest(scenario, allowProfileShutdown);
++        },
++
+         /* Set prefs and returns set of saved prefs */
+         async setPrefs(oldPrefs, newPrefs) {
+           // Save old prefs
+--- a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
++++ b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
+@@ -4,6 +4,20 @@
+     "description": "Additional APIs for test support in GeckoView.",
+     "functions": [
+       {
++        "name": "runPrefSaveFileAsyncIOTest",
++        "type": "function",
++        "async": true,
++        "description": "Exercise actual current-profile native I/O in the isolated GeckoView instrumentation profile.",
++        "parameters": [
++          {
++            "name": "scenario",
++            "type": "string",
++            "enum": ["snapshots", "clean", "failure", "shutdown"]
++          },
++          { "name": "allowProfileShutdown", "type": "boolean" }
++        ]
++      },
++      {
+         "name": "setPrefs",
+         "type": "function",
+         "async": true,
+--- /dev/null
++++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncTest.kt
+@@ -0,0 +1,70 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.geckoview.test
++
++import android.util.Log
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.test.filters.MediumTest
++import org.json.JSONObject
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++
++// Uses RuntimeCreator's normal XRE_main profile. Xpcshell, even Android
++// xpcshell, cannot cover mCurrentFile because it enters XRE_XPCShellMain.
++@RunWith(AndroidJUnit4::class)
++@MediumTest
++class PrefSaveFileAsyncTest : BaseSessionTest() {
++    private fun receipt(scenario: String): JSONObject {
++        val value = sessionRule.evaluateExtensionJS(
++            "return JSON.stringify(await browser.test.runPrefSaveFileAsyncIOTest('$scenario', false));",
++        ) as String
++        Log.i("PrefSaveFileAsyncTest", value)
++        return JSONObject(value).also {
++            assertEquals(scenario, it.getString("scenario"))
++            assertEquals(it.getString("profile") + "/prefs.js", it.getString("currentFile"))
++        }
++    }
++
++    @Test
++    fun currentAndBackupSnapshotsHaveIndependentOutcomes() {
++        val result = receipt("snapshots")
++        for (name in listOf("first", "backupA", "backupB", "final")) {
++            assertTrue("$name completed", result.getJSONObject(name).getBoolean("resolved"))
++        }
++        assertFalse(result.getJSONObject("failed").getBoolean("resolved"))
++        assertTrue(result.getJSONObject("failed").getJSONObject("error").getString("message").isNotEmpty())
++        assertEquals("backup-a", result.getString("backupAValue"))
++        assertEquals("backup-b", result.getString("backupBValue"))
++        assertEquals("final-current", result.getString("currentValue"))
++        assertTrue(result.getBoolean("failedTargetIsDirectory"))
++    }
++
++    @Test
++    fun cleanStateBarrierRecreatesCurrentFileAndPersistsReset() {
++        val result = receipt("clean")
++        assertFalse(result.getBoolean("dirtyBeforeRemoval"))
++        assertFalse(result.getBoolean("dirtyAfterRemoval"))
++        assertTrue(result.getBoolean("fileAbsentBeforeBarrier"))
++        assertEquals("clean-state", result.getString("recreatedValue"))
++        assertTrue("Reset removed the user value from saved bytes", result.isNull("resetValue"))
++    }
++
++    @Test
++    fun actualCurrentFileFailureRejectsSuspendAndRetries() {
++        val result = receipt("failure")
++        for (name in listOf("failedSave", "failedSuspend")) {
++            assertFalse("$name reports I/O failure", result.getJSONObject(name).getBoolean("resolved"))
++            assertTrue(result.getJSONObject(name).getJSONObject("error").getString("message").isNotEmpty())
++        }
++        assertTrue(result.getBoolean("failureTargetIsDirectory"))
++        assertEquals("after-disk-error", result.getString("memoryValueAfterFailure"))
++        assertTrue(result.getJSONObject("retry").getBoolean("resolved"))
++        assertEquals("after-disk-error", result.getString("retryValue"))
++        assertFalse(result.getBoolean("dirtyAfterRetry"))
++    }
++}
+--- /dev/null
++++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncShutdownTest.kt
+@@ -0,0 +1,68 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.geckoview.test
++
++import android.util.Log
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.test.filters.MediumTest
++import androidx.test.platform.app.InstrumentationRegistry
++import org.json.JSONObject
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Assume.assumeTrue
++import org.junit.BeforeClass
++import org.junit.Test
++import org.junit.runner.RunWith
++
++/**
++ * Destructive native profile-service shutdown: run in a fresh instrumentation
++ * process with this exact class selector and redoubtAllowProfileShutdown=true.
++ * RuntimeCreator shares its runtime across classes, so a broad suite must skip
++ * this class. A skip is pending shutdown coverage, never a successful check.
++ * This tests the real preference observer's acknowledgment, not full app exit.
++ */
++@RunWith(AndroidJUnit4::class)
++@MediumTest
++class PrefSaveFileAsyncShutdownTest : BaseSessionTest() {
++    companion object {
++        @JvmStatic
++        @BeforeClass
++        fun requireIsolatedInvocation() {
++            val args = InstrumentationRegistry.getArguments()
++            assumeTrue(
++                "Pending: requires an isolated shutdown-only instrumentation process",
++                args.getString("redoubtAllowProfileShutdown") == "true" &&
++                    args.getString("class") == PrefSaveFileAsyncShutdownTest::class.java.name,
++            )
++        }
++    }
++
++    @Test
++    fun failedFinalSaveLeavesProfileOpenAndSuccessfulFinalSaveClosesIt() {
++        val value = sessionRule.evaluateExtensionJS(
++            "return JSON.stringify(await browser.test.runPrefSaveFileAsyncIOTest('shutdown', true));",
++        ) as String
++        Log.i("PrefSaveFileAsyncTest", value)
++        val result = JSONObject(value)
++        assertEquals("shutdown", result.getString("scenario"))
++        assertEquals(result.getString("profile") + "/prefs.js", result.getString("currentFile"))
++        for (name in listOf("failedSave", "failedSuspend", "failedShutdown")) {
++            assertFalse("$name reports real I/O failure", result.getJSONObject(name).getBoolean("resolved"))
++        }
++        assertTrue(result.getBoolean("failureTargetIsDirectory"))
++        assertEquals("after-disk-error", result.getString("memoryValueAfterFailure"))
++        assertTrue("Failed shutdown did not close profile", result.getJSONObject("retry").getBoolean("resolved"))
++        assertEquals("after-disk-error", result.getString("retryValue"))
++        assertFalse(result.getBoolean("dirtyAfterRetry"))
++        assertEquals("shutdown-final", result.getString("finalValue"))
++        val afterShutdown = result.getJSONObject("afterShutdown")
++        assertFalse(afterShutdown.getBoolean("resolved"))
++        assertEquals(
++            result.getLong("expectedShutdownError"),
++            afterShutdown.getJSONObject("error").getLong("result"),
++        )
++    }
++}
+--- a/modules/libpref/nsIPrefService.idl
++++ b/modules/libpref/nsIPrefService.idl
+@@ -79,6 +79,16 @@
+   void savePrefFile(in nsIFile aFile);
+
+   /**
++   * Write an ordered snapshot to the current profile preferences file. The
++   * promise resolves only after that snapshot's write succeeds and rejects on
++   * its actual write/dispatch error. Forces a write even if prefs are not dirty.
++   * Later queued snapshots may supersede this one. No profile or profile
++   * shutdown rejects the request; this method never chooses an alternate file.
++   */
++  [implicit_jscontext]
++  Promise savePrefFileAsync();
++
++  /**
+    * Called to write current preferences state to a file off of the main thread.
+    * This differs from savePrefFile in that null is not accepted for the aFile
+    * parameter, and aFile cannot be pointing at the current preferences file.
+--- /dev/null
++++ b/modules/libpref/test/unit/test_savePrefFileAsync.js
+@@ -0,0 +1,108 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
++
++"use strict";
++
++// XPCShellMain does not call InitializeUserPrefs, including on Android.
++// do_get_profile() registers directories, not the native current prefs file.
++// Actual current-profile I/O belongs to GeckoView PrefSaveFileAsyncTest.
++const PREF = "test.librewolf.savePrefFileAsync.value";
++let fixture;
++
++function childFile(name) {
++  const file = fixture.clone();
++  file.append(name);
++  return file;
++}
++
++async function savedValue(file) {
++  let value;
++  const record = (_kind, name, saved) => {
++    if (name === PREF) {
++      value = saved;
++    }
++  };
++  Services.prefs.parsePrefsFromBuffer(await IOUtils.read(file.path), {
++    onStringPref: record,
++    onIntPref: record,
++    onBoolPref: record,
++    onError(message) {
++      Assert.ok(false, `Malformed saved preference file: ${message}`);
++    },
++  });
++  return value;
++}
++
++async function rejectsWithoutCurrentProfile() {
++  // Capture either an XPIDL synchronous error or a rejected DOM Promise.
++  await Assert.rejects(
++    Promise.resolve().then(() => Services.prefs.savePrefFileAsync()),
++    /NS_ERROR_NOT_INITIALIZED/
++  );
++}
++
++add_setup(async function initialize() {
++  Assert.equal(typeof Services.prefs.savePrefFileAsync, "function");
++  Assert.ok(Services.prefs.getBoolPref("preferences.allow.omt-write"));
++  Assert.ok(!Services.prefs.prefHasUserValue(PREF));
++  await rejectsWithoutCurrentProfile();
++  fixture = do_get_profile().clone();
++  fixture.append("lw-m7-35-backups");
++  fixture.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
++  registerCleanupFunction(() => {
++    Services.prefs.clearUserPref(PREF);
++    Services.prefs.QueryInterface(Ci.nsIObserver).observe(
++      null,
++      "suspend_process_notification",
++      null
++    );
++    if (fixture.exists()) {
++      fixture.remove(true);
++    }
++  });
++});
++
++add_task(async function directory_registration_is_not_native_initialization() {
++  await rejectsWithoutCurrentProfile();
++});
++
++add_task(async function backup_snapshots_fail_independently_and_suspend_drains() {
++  const backupA = childFile("a.js");
++  const backupB = childFile("b.js");
++  const failed = childFile("directory");
++  failed.create(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
++
++  // No yield between requests: each destination needs its own captured data.
++  Services.prefs.setStringPref(PREF, "backup-a");
++  const first = Services.prefs.backupPrefFile(backupA);
++  Services.prefs.setStringPref(PREF, "failed-backup");
++  const rejection = Assert.rejects(
++    Services.prefs.backupPrefFile(failed),
++    /NS_ERROR_/
++  );
++  Services.prefs.setStringPref(PREF, "backup-b");
++  const second = Services.prefs.backupPrefFile(backupB);
++
++  // Direct invocation preserves the observer's nsresult. No current profile
++  // exists, but its serial backup queue must still be drained before returning.
++  Services.prefs.QueryInterface(Ci.nsIObserver).observe(
++    null,
++    "suspend_process_notification",
++    null
++  );
++  Assert.ok(backupA.isFile(), "First backup exists at blocking return");
++  Assert.ok(backupB.isFile(), "Second backup exists at blocking return");
++  await Promise.all([first, rejection, second]);
++  Assert.equal(await savedValue(backupA), "backup-a");
++  Assert.equal(await savedValue(backupB), "backup-b");
++  Assert.ok(failed.isDirectory(), "Failed write preserved its target");
++  await rejectsWithoutCurrentProfile();
++
++  // A subsequent successful request must not inherit the preceding error.
++  failed.remove(false);
++  Services.prefs.setStringPref(PREF, "retry");
++  await Services.prefs.backupPrefFile(failed);
++  Assert.equal(await savedValue(failed), "retry");
++  await rejectsWithoutCurrentProfile();
++});
+--- a/modules/libpref/test/unit/xpcshell.toml
++++ b/modules/libpref/test/unit/xpcshell.toml
+@@ -43,6 +43,10 @@
+ ["test_parser.js"]
+ support-files = ["data/testParser.js"]
+
++["test_savePrefFileAsync.js"]
++head = ""
++prefs = ["preferences.allow.omt-write=true"]
++
+ ["test_stickyprefs.js"]
+ support-files = [
+   "data/testPrefSticky.js", "data/testPrefStickyUser.js",
+--- a/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+@@ -1233,7 +1233,65 @@
+    * @return A promise resolved with either an AddonInstall object if an update
+    * is available or null if no update is found.
+    */
+-  checkForUpdate(aAddon) {
++  // This pair is the same combined control used by the LibreWolf desktop pane.
++  // Native user prefs remain authoritative; no Android preference mirror is used.
++  getAutomaticUpdateSettings() {
++    const updateEnabled = Services.prefs.getBoolPref("extensions.update.enabled", true);
++    const autoUpdateDefault = Services.prefs.getBoolPref("extensions.update.autoUpdateDefault", true);
++    return {
++      updateEnabled,
++      autoUpdateDefault,
++      enabled: updateEnabled && autoUpdateDefault,
++      saveConfirmed: !this._automaticUpdateSettingsUnconfirmed,
++      locked: Services.prefs.prefIsLocked("extensions.update.enabled") ||
++        Services.prefs.prefIsLocked("extensions.update.autoUpdateDefault"),
++    };
++  },
++
++  setAutomaticUpdateSettings(enabled) {
++    if (typeof enabled !== "boolean") {
++      return Promise.reject(new TypeError("Expected a boolean update setting"));
++    }
++    // Close automatic admission as soon as a choice is queued, including while
++    // an earlier choice is being saved. A failed write does not poison the queue.
++    this._pendingAutomaticUpdateSettings = (this._pendingAutomaticUpdateSettings || 0) + 1;
++    const change = async () => {
++      if (this.getAutomaticUpdateSettings().locked) {
++        throw new Error("Extension update settings are locked");
++      }
++      // Validate the current profile and persistence path before changing prefs.
++      // This also orders the choice behind any pending legacy preference write.
++      await Services.prefs.savePrefFileAsync();
++      if (this.getAutomaticUpdateSettings().locked) {
++        throw new Error("Extension update settings are locked");
++      }
++      const names = ["extensions.update.enabled", "extensions.update.autoUpdateDefault"];
++      // Prevalidation is synchronous, but preference observers may themselves
++      // write values. No value-equality test can prove ownership for rollback.
++      this._automaticUpdateSettingsUnconfirmed = true;
++      for (const name of names) {
++        Services.prefs.setBoolPref(name, enabled);
++      }
++      // On failure keep the current native state and report the write error.
++      // A failed write cannot prove what reached disk; the pref service keeps
++      // retries dirty and a retry takes a fresh snapshot of authoritative prefs.
++      await Services.prefs.savePrefFileAsync();
++      this._automaticUpdateSettingsUnconfirmed = false;
++      return this.getAutomaticUpdateSettings();
++    };
++    const result = (this._automaticUpdateSettingsQueue || Promise.resolve())
++      .then(change).finally(() => { this._pendingAutomaticUpdateSettings--; });
++    this._automaticUpdateSettingsQueue = result.catch(() => {});
++    return result;
++  },
++
++  automaticUpdatesAllowed(addon = null) {
++    return !this._pendingAutomaticUpdateSettings && !this._automaticUpdateSettingsUnconfirmed &&
++      lazy.AddonManager.updateEnabled &&
++      (!addon || lazy.AddonManager.shouldAutoUpdate(addon));
++  },
++
++  checkForUpdate(aAddon, automatic = false) {
+     return new Promise(resolve => {
+       const listener = {
+         onUpdateAvailable(_aAddon, install) {
+@@ -1247,17 +1305,19 @@
+       };
+       aAddon.findUpdates(
+         listener,
+-        lazy.AddonManager.UPDATE_WHEN_PERIODIC_UPDATE
++        automatic ? lazy.AddonManager.UPDATE_WHEN_PERIODIC_UPDATE :
++          lazy.AddonManager.UPDATE_WHEN_USER_REQUESTED
+       );
+     });
+   },
+
+-  async updateWebExtension(aId) {
+-    // Refresh the cached metadata when necessary. This allows us to always
+-    // export relatively recent metadata to the embedder.
++  async updateWebExtension(aId, automatic = false) {
++    // Restored/queued periodic workers must stop before repository metadata or
++    // an update manifest can be fetched. Explicit user requests remain separate.
++    if (automatic && !this.automaticUpdatesAllowed()) {
++      return null;
++    }
+     if (lazy.AddonRepository.isMetadataStale()) {
+-      // We use a promise to avoid more than one call to `backgroundUpdateCheck()`
+-      // when `updateWebExtension()` is called for multiple add-ons in parallel.
+       if (!this._promiseAddonRepositoryUpdate) {
+         this._promiseAddonRepositoryUpdate =
+           lazy.AddonRepository.backgroundUpdateCheck().finally(() => {
+@@ -1266,21 +1326,22 @@
+       }
+       await this._promiseAddonRepositoryUpdate;
+     }
+-
+-    // Early-return when extension updates are disabled.
+-    if (!lazy.AddonManager.updateEnabled) {
++    if (automatic && !this.automaticUpdatesAllowed()) {
+       return null;
+     }
+-
+     const extension = await this.extensionById(aId);
+-
+-    const install = await this.checkForUpdate(extension);
+-    if (!install) {
++    if (automatic && !this.automaticUpdatesAllowed()) {
++      return null;
++    }
++    const install = await this.checkForUpdate(extension, automatic);
++    if (!install || (automatic && !this.automaticUpdatesAllowed(extension))) {
+       return null;
+     }
+     const promise = new Promise(resolve => {
+       install.addListener(new ExtensionInstallListener(resolve));
+     });
++    // As on desktop, changing the setting does not cancel an install that has
++    // already started. Signed update and new-permission prompt handling remains.
+     install.install();
+     return promise;
+   },
+@@ -1589,10 +1650,20 @@
+         break;
+       }
+
++      case "GeckoView:WebExtension:GetAutomaticUpdateSettings":
++        aCallback.onSuccess(this.getAutomaticUpdateSettings());
++        break;
++      case "GeckoView:WebExtension:SetAutomaticUpdateSettings":
++        try {
++          aCallback.onSuccess(await this.setAutomaticUpdateSettings(aData.enabled));
++        } catch (error) {
++          aCallback.onError(`Could not save extension update settings: ${error}`);
++        }
++        break;
+       case "GeckoView:WebExtension:Update": {
+         try {
+           const { webExtensionId } = aData;
+-          const result = await this.updateWebExtension(webExtensionId);
++          const result = await this.updateWebExtension(webExtensionId, aData.automatic === true);
+           if (result === null || result.extension) {
+             aCallback.onSuccess(result);
+           } else {
+--- a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
++++ b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+@@ -203,6 +203,8 @@
+               "GeckoView:WebExtension:RemoveOptionalPermissions",
+               "GeckoView:WebExtension:Uninstall",
+               "GeckoView:WebExtension:Update",
++        "GeckoView:WebExtension:GetAutomaticUpdateSettings",
++        "GeckoView:WebExtension:SetAutomaticUpdateSettings",
+               "GeckoView:WebExtension:EnableProcessSpawning",
+               "GeckoView:WebExtension:DisableProcessSpawning",
+             ],
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
+@@ -1074,9 +1074,28 @@
+   @HandlerThread
+   @NonNull
+   public GeckoResult<WebExtension> update(final @NonNull WebExtension extension) {
++    return update(extension, false);
++  }
++
++  /**
++   * Check for and install an automatic update, subject to the global update setting and the
++   * extension's background-update policy. A disabled check returns null before fetching metadata.
++   * Changing the setting does not cancel an install which has already started.
++   *
++   * @param extension The extension to update.
++   * @return The updated extension, null if no automatic update is admitted/available, or an error.
++   */
++  @HandlerThread
++  @NonNull
++  public GeckoResult<WebExtension> updateAutomatically(final @NonNull WebExtension extension) {
++    return update(extension, true);
++  }
++
++  private GeckoResult<WebExtension> update(final WebExtension extension, final boolean automatic) {
+     ThreadUtils.assertOnHandlerThread();
+-    final GeckoBundle bundle = new GeckoBundle(1);
++    final GeckoBundle bundle = new GeckoBundle(2);
+     bundle.putString("webExtensionId", extension.id);
++    bundle.putBoolean("automatic", automatic);
+
+     return EventDispatcher.getInstance()
+         .queryBundle("GeckoView:WebExtension:Update", bundle)
+@@ -1084,6 +1103,67 @@
+             ext -> WebExtension.fromBundle(mDelegateControllerProvider, ext),
+             WebExtension.InstallException::fromQueryException)
+         .map(this::registerWebExtension);
++  }
++
++  /** The effective native values of the combined automatic extension update control. */
++  public static final class AutomaticUpdateSettings {
++    /** Whether update checks are enabled. */
++    public final boolean updateEnabled;
++
++    /** Whether extensions using the default background-update policy may update. */
++    public final boolean autoUpdateDefault;
++
++    /** True when both native preferences are enabled. */
++    public final boolean enabled;
++
++    /** True when either preference is locked by policy. */
++    public final boolean locked;
++
++    /**
++     * False while this controller has a changed setting without a successful save acknowledgment.
++     * Reads never clear this state. A successful retry saves before automatic admission reopens.
++     */
++    public final boolean saveConfirmed;
++
++    private AutomaticUpdateSettings(final GeckoBundle bundle) {
++      updateEnabled = bundle.getBoolean("updateEnabled");
++      autoUpdateDefault = bundle.getBoolean("autoUpdateDefault");
++      enabled = bundle.getBoolean("enabled");
++      locked = bundle.getBoolean("locked");
++      saveConfirmed = bundle.getBoolean("saveConfirmed");
++    }
++  }
++
++  /**
++   * Read the effective native update preferences and their policy lock state.
++   *
++   * @return The current automatic update settings.
++   */
++  @HandlerThread
++  @NonNull
++  public GeckoResult<AutomaticUpdateSettings> getAutomaticUpdateSettings() {
++    ThreadUtils.assertOnHandlerThread();
++    return EventDispatcher.getInstance()
++        .queryBundle("GeckoView:WebExtension:GetAutomaticUpdateSettings")
++        .map(AutomaticUpdateSettings::new);
++  }
++
++  /**
++   * Set both automatic update preferences and await an ordered current-profile preference write.
++   * Locked settings and write failures reject the result. Updates already started may finish.
++   *
++   * @param enabled Whether automatic extension updates should be enabled.
++   * @return The effective settings after persistence completes.
++   */
++  @HandlerThread
++  @NonNull
++  public GeckoResult<AutomaticUpdateSettings> setAutomaticUpdateSettings(final boolean enabled) {
++    ThreadUtils.assertOnHandlerThread();
++    final GeckoBundle bundle = new GeckoBundle(1);
++    bundle.putBoolean("enabled", enabled);
++    return EventDispatcher.getInstance()
++        .queryBundle("GeckoView:WebExtension:SetAutomaticUpdateSettings", bundle)
++        .map(AutomaticUpdateSettings::new);
+   }
+
+   /* package */ WebExtensionController(final GeckoRuntime runtime) {
+--- /dev/null
++++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/WebExtensionUpdateSettingsTest.kt
+@@ -0,0 +1,49 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++package org.mozilla.geckoview.test
++
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.test.filters.MediumTest
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++
++/** Separate instrumented test profile; production restart/network acceptance is additional. */
++@RunWith(AndroidJUnit4::class)
++@MediumTest
++class WebExtensionUpdateSettingsTest : BaseSessionTest() {
++    private val controller get() = sessionRule.runtime.webExtensionController
++
++    @Test
++    fun combinedSettingWritesBothPrefsAndMixedStateIsUnchecked() {
++        sessionRule.setPrefsUntilTestEnd(
++            mapOf("extensions.update.enabled" to true, "extensions.update.autoUpdateDefault" to false),
++        )
++        val mixed = sessionRule.waitForResult(controller.getAutomaticUpdateSettings())
++        assertTrue(mixed.updateEnabled)
++        assertFalse(mixed.autoUpdateDefault)
++        assertFalse(mixed.enabled)
++        assertFalse(mixed.locked)
++        val enabled = sessionRule.waitForResult(controller.setAutomaticUpdateSettings(true))
++        assertTrue(enabled.enabled && enabled.updateEnabled && enabled.autoUpdateDefault)
++        val disabled = sessionRule.waitForResult(controller.setAutomaticUpdateSettings(false))
++        assertFalse(disabled.enabled || disabled.updateEnabled || disabled.autoUpdateDefault)
++        val read = sessionRule.waitForResult(controller.getAutomaticUpdateSettings())
++        assertFalse(read.enabled || read.updateEnabled || read.autoUpdateDefault)
++    }
++
++    @Test
++    fun concurrentChoicesCompleteInNativeQueueOrder() {
++        sessionRule.setPrefsUntilTestEnd(
++            mapOf("extensions.update.enabled" to true, "extensions.update.autoUpdateDefault" to true),
++        )
++        val off = controller.setAutomaticUpdateSettings(false)
++        val on = controller.setAutomaticUpdateSettings(true)
++        assertFalse(sessionRule.waitForResult(off).enabled)
++        assertTrue(sessionRule.waitForResult(on).enabled)
++        val current = sessionRule.waitForResult(controller.getAutomaticUpdateSettings())
++        assertTrue(current.enabled && current.updateEnabled && current.autoUpdateDefault)
++    }
++}
+--- a/mobile/android/geckoview/api.txt
++++ b/mobile/android/geckoview/api.txt
+@@ -3186,6 +3186,7 @@
+     method @HandlerThread @NonNull public GeckoResult<WebExtension> enable(@NonNull WebExtension, int);
+     method @AnyThread public void enableExtensionProcessSpawning();
+     method @HandlerThread @NonNull public GeckoResult<WebExtension> ensureBuiltIn(@NonNull String, @Nullable String);
++    method @HandlerThread @NonNull public GeckoResult<WebExtensionController.AutomaticUpdateSettings> getAutomaticUpdateSettings();
+     method @Nullable @UiThread public WebExtensionController.PromptDelegate getPromptDelegate();
+     method @HandlerThread @NonNull public GeckoResult<WebExtension> install(@NonNull String, @Nullable String);
+     method @HandlerThread @NonNull public GeckoResult<WebExtension> install(@NonNull String);
+@@ -3194,12 +3195,14 @@
+     method @HandlerThread @NonNull public GeckoResult<WebExtension> removeOptionalPermissions(@NonNull String, @NonNull String[], @NonNull String[], @NonNull String[]);
+     method @UiThread public void setAddonManagerDelegate(@Nullable WebExtensionController.AddonManagerDelegate);
+     method @HandlerThread @NonNull public GeckoResult<WebExtension> setAllowedInPrivateBrowsing(@NonNull WebExtension, boolean);
++    method @HandlerThread @NonNull public GeckoResult<WebExtensionController.AutomaticUpdateSettings> setAutomaticUpdateSettings(boolean);
+     method @UiThread public void setDebuggerDelegate(@NonNull WebExtensionController.DebuggerDelegate);
+     method @UiThread public void setExtensionProcessDelegate(@Nullable WebExtensionController.ExtensionProcessDelegate);
+     method @UiThread public void setPromptDelegate(@Nullable WebExtensionController.PromptDelegate);
+     method @AnyThread public void setTabActive(@NonNull GeckoSession, boolean);
+     method @HandlerThread @NonNull public GeckoResult<Void> uninstall(@NonNull WebExtension);
+     method @HandlerThread @NonNull public GeckoResult<WebExtension> update(@NonNull WebExtension);
++    method @HandlerThread @NonNull public GeckoResult<WebExtension> updateAutomatically(@NonNull WebExtension);
+     field public static final String INSTALLATION_METHOD_FROM_FILE = "install-from-file";
+     field public static final String INSTALLATION_METHOD_MANAGER = "manager";
+     field public static final String INSTALLATION_METHOD_ONBOARDING = "onboarding";
+@@ -3218,6 +3221,14 @@
+     method @UiThread default public void onReady(@NonNull WebExtension);
+     method @UiThread default public void onUninstalled(@NonNull WebExtension);
+     method @UiThread default public void onUninstalling(@NonNull WebExtension);
++  }
++
++  public static final class WebExtensionController.AutomaticUpdateSettings {
++    field public final boolean autoUpdateDefault;
++    field public final boolean enabled;
++    field public final boolean locked;
++    field public final boolean saveConfirmed;
++    field public final boolean updateEnabled;
+   }
+
+   public static interface WebExtensionController.DebuggerDelegate {
+--- a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtensionRuntime.kt
++++ b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtensionRuntime.kt
+@@ -78,6 +78,20 @@
+     )
+
+     /**
++     * Check for a background update under the engine's automatic update policy.
++     * A disabled check returns null without contacting update services. Explicit
++     * user requests use [updateWebExtension]. Engines must opt in to this route.
++     */
++    fun updateWebExtensionAutomatically(
++        extension: WebExtension,
++        onSuccess: ((WebExtension?) -> Unit) = { },
++        onError: ((String, Throwable) -> Unit) = { _, _ -> },
++    ): Unit = onError(
++        extension.id,
++        UnsupportedOperationException("Automatic extension updates are not available in this engine"),
++    )
++
++    /**
+      * Uninstalls the provided extension from this engine.
+      *
+      * @param ext the [WebExtension] to uninstall.
+--- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
+@@ -448,7 +448,30 @@
+         onSuccess: (WebExtension?) -> Unit,
+         onError: (String, Throwable) -> Unit,
+     ) {
+-        runtime.webExtensionController.update((extension as GeckoWebExtension).nativeExtension).then(
++        updateWebExtension(extension, false, onSuccess, onError)
++    }
++
++    override fun updateWebExtensionAutomatically(
++        extension: WebExtension,
++        onSuccess: (WebExtension?) -> Unit,
++        onError: (String, Throwable) -> Unit,
++    ) {
++        updateWebExtension(extension, true, onSuccess, onError)
++    }
++
++    private fun updateWebExtension(
++        extension: WebExtension,
++        automatic: Boolean,
++        onSuccess: (WebExtension?) -> Unit,
++        onError: (String, Throwable) -> Unit,
++    ) {
++        val nativeExtension = (extension as GeckoWebExtension).nativeExtension
++        val result = if (automatic) {
++            runtime.webExtensionController.updateAutomatically(nativeExtension)
++        } else {
++            runtime.webExtensionController.update(nativeExtension)
++        }
++        result.then(
+             { geckoExtension ->
+                 val updatedExtension = if (geckoExtension != null) {
+                     GeckoWebExtension(
+--- a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt
++++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt
+@@ -2114,6 +2114,30 @@
+     }
+
+     @Test
++    fun `automatic extension updates use the native policy route`() {
++        val runtime = mock<GeckoRuntime>()
++        val controller = mock<WebExtensionController>()
++        val pending = GeckoResult<GeckoWebExtension>()
++        whenever(runtime.webExtensionController).thenReturn(controller)
++        whenever(controller.updateAutomatically(any())).thenReturn(pending)
++        val engine = GeckoEngine(context, runtime = runtime)
++        val extension = mozilla.components.browser.engine.gecko.webextension.GeckoWebExtension(
++            mockNativeWebExtension(), runtime,
++        )
++        var completed = false
++        engine.updateWebExtensionAutomatically(
++            extension,
++            onSuccess = { assertNull(it); completed = true },
++            onError = { _, error -> throw AssertionError(error) },
++        )
++        verify(controller).updateAutomatically(any())
++        verify(controller, org.mockito.Mockito.never()).update(any())
++        pending.complete(null)
++        shadowOf(getMainLooper()).idle()
++        assertTrue(completed)
++    }
++
++    @Test
+     fun `update web extension successfully`() {
+         val runtime = mock<GeckoRuntime>()
+         val extensionController: WebExtensionController = mock()
+--- a/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/AddonManager.kt
++++ b/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/AddonManager.kt
+@@ -448,6 +448,15 @@
+      * @param onFinish callback invoked with the [Status] of the update once complete.
+      */
+     fun updateAddon(id: String, onFinish: ((Status) -> Unit)) {
++        updateAddon(id, false, onFinish)
++    }
++
++    /** Update from a scheduled worker, subject to the engine's native automatic-update policy. */
++    fun updateAddonAutomatically(id: String, onFinish: ((Status) -> Unit)) {
++        updateAddon(id, true, onFinish)
++    }
++
++    private fun updateAddon(id: String, automatic: Boolean, onFinish: ((Status) -> Unit)) {
+         val extension = installedExtensions[id]
+
+         if (extension == null || extension.isUnsupported()) {
+@@ -469,7 +478,11 @@
+             onFinish(Status.Error(message, exception))
+         }
+
+-        runtime.updateWebExtension(extension, onSuccess, onError)
++        if (automatic) {
++            runtime.updateWebExtensionAutomatically(extension, onSuccess, onError)
++        } else {
++            runtime.updateWebExtension(extension, onSuccess, onError)
++        }
+     }
+
+     private fun addPendingAddonAction() = CompletableDeferred<Unit>().also {
+--- a/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/update/AddonUpdater.kt
++++ b/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/update/AddonUpdater.kt
+@@ -672,7 +672,7 @@
+             try {
+                 val manager = GlobalAddonDependencyProvider.requireAddonManager()
+
+-                manager.updateAddon(extensionId) { status ->
++                val onFinish: (AddonUpdater.Status) -> Unit = { status ->
+                     val result = when (status) {
+                         AddonUpdater.Status.NotInstalled -> {
+                             logger.error("Extension with id $extensionId removed from the update queue")
+@@ -697,6 +697,13 @@
+                     saveUpdateAttempt(extensionId, status)
+                     continuation.resume(result)
+                 }
++                // Existing persisted work already carries these tags. Unknown or
++                // restored periodic work defaults to the policy-gated route.
++                if (DefaultAddonUpdater.WORK_TAG_IMMEDIATE in params.tags) {
++                    manager.updateAddon(extensionId, onFinish)
++                } else {
++                    manager.updateAddonAutomatically(extensionId, onFinish)
++                }
+             } catch (exception: Exception) {
+                 logger.error(
+                     "Unable to update extension $extensionId - reason=${exception.message}",
+--- a/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
++++ b/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
+@@ -31,6 +31,7 @@
+ import org.junit.Test
+ import org.junit.runner.RunWith
+ import org.mockito.ArgumentMatchers.anyString
++import org.mockito.Mockito.never
+ import org.mockito.Mockito.doReturn
+ import org.mockito.Mockito.spy
+ import org.mockito.Mockito.verify
+@@ -59,9 +60,10 @@
+         WebExtensionSupport.initialize(engine, store)
+     }
+
+-    private fun createWorker(addonId: String): AddonUpdaterWorker {
++    private fun createWorker(addonId: String, tags: List<String> = emptyList()): AddonUpdaterWorker {
+         return TestListenableWorkerBuilder<AddonUpdaterWorker>(testContext)
+             .setInputData(AddonUpdaterWorker.createWorkerData(addonId))
++            .setTags(tags)
+             .setWorkerFactory(object : WorkerFactory() {
+                 override fun createWorker(
+                     appContext: Context,
+@@ -90,7 +92,7 @@
+         doReturn(updateAttemptStorage).`when`(worker).updateAttemptStorage
+         GlobalAddonDependencyProvider.initialize(addonManager, mock())
+
+-        whenever(addonManager.updateAddon(anyString(), onFinishCaptor.capture())).then {
++        whenever(addonManager.updateAddonAutomatically(anyString(), onFinishCaptor.capture())).then {
+             onFinishCaptor.value.invoke(AddonUpdater.Status.SuccessfullyUpdated)
+         }
+
+@@ -111,7 +113,7 @@
+
+         GlobalAddonDependencyProvider.initialize(addonManager, mock())
+
+-        whenever(addonManager.updateAddon(anyString(), onFinishCaptor.capture())).then {
++        whenever(addonManager.updateAddonAutomatically(anyString(), onFinishCaptor.capture())).then {
+             onFinishCaptor.value.invoke(AddonUpdater.Status.NoUpdateAvailable)
+         }
+
+@@ -129,7 +131,7 @@
+
+         GlobalAddonDependencyProvider.initialize(addonManager, mock())
+
+-        whenever(addonManager.updateAddon(anyString(), onFinishCaptor.capture())).then {
++        whenever(addonManager.updateAddonAutomatically(anyString(), onFinishCaptor.capture())).then {
+             onFinishCaptor.value.invoke(AddonUpdater.Status.NotInstalled)
+         }
+
+@@ -151,7 +153,7 @@
+
+         GlobalAddonDependencyProvider.initialize(addonManager, mock())
+
+-        whenever(addonManager.updateAddon(anyString(), onFinishCaptor.capture())).then {
++        whenever(addonManager.updateAddonAutomatically(anyString(), onFinishCaptor.capture())).then {
+             onFinishCaptor.value.invoke(AddonUpdater.Status.Error("error", exception))
+         }
+
+@@ -176,7 +178,7 @@
+         GlobalAddonDependencyProvider.initialize(addonManager, mock(), crashReporter)
+         GlobalAddonDependencyProvider.addonManager = null
+
+-        whenever(addonManager.updateAddon(anyString(), onFinishCaptor.capture())).then {
++        whenever(addonManager.updateAddonAutomatically(anyString(), onFinishCaptor.capture())).then {
+             onFinishCaptor.value.invoke(AddonUpdater.Status.Error("error", Exception()))
+         }
+
+@@ -185,4 +187,31 @@
+         assertEquals(ListenableWorker.Result.failure(), result)
+         assertTrue(crashWasReported)
+     }
++    @Test
++    fun `restored periodic work uses automatic path and explicit work uses manual path`() = runTest(testDispatcher) {
++        val manager = mock<AddonManager>()
++        val automatic = argumentCaptor<((AddonUpdater.Status) -> Unit)>()
++        val manual = argumentCaptor<((AddonUpdater.Status) -> Unit)>()
++        GlobalAddonDependencyProvider.initialize(manager, mock())
++        whenever(manager.updateAddonAutomatically(anyString(), automatic.capture())).then {
++            automatic.value(AddonUpdater.Status.NoUpdateAvailable)
++        }
++        whenever(manager.updateAddon(anyString(), manual.capture())).then {
++            manual.value(AddonUpdater.Status.NoUpdateAvailable)
++        }
++        val restored = createWorker("restored", listOf(DefaultAddonUpdater.WORK_TAG_PERIODIC))
++        doReturn(this).`when`(restored).attemptScope
++        restored.updateAttemptStorage = mock()
++        assertEquals(ListenableWorker.Result.success(), restored.startWork().await())
++        verify(manager).updateAddonAutomatically(org.mockito.ArgumentMatchers.eq("restored"), any())
++        verify(manager, never()).updateAddon(org.mockito.ArgumentMatchers.eq("restored"), any())
++
++        val explicit = createWorker("explicit", listOf(DefaultAddonUpdater.WORK_TAG_IMMEDIATE))
++        doReturn(this).`when`(explicit).attemptScope
++        explicit.updateAttemptStorage = mock()
++        assertEquals(ListenableWorker.Result.success(), explicit.startWork().await())
++        verify(manager).updateAddon(org.mockito.ArgumentMatchers.eq("explicit"), any())
++        verify(manager, never()).updateAddonAutomatically(org.mockito.ArgumentMatchers.eq("explicit"), any())
++    }
++
+ }
+--- a/mobile/android/android-components/components/feature/addons/src/test/java/AddonManagerTest.kt
++++ b/mobile/android/android-components/components/feature/addons/src/test/java/AddonManagerTest.kt
+@@ -437,6 +437,22 @@
+     }
+
+     @Test
++    fun `automatic update delegates to engine policy and propagates errors`() {
++        val engine: Engine = mock()
++        val manager = AddonManager(BrowserStore(), engine, mock(), mock(), mock())
++        val extension: WebExtension = mock()
++        WebExtensionSupport.installedExtensions["automatic-id"] = extension
++        val onError = argumentCaptor<((String, Throwable) -> Unit)>()
++        var status: Status? = null
++        manager.updateAddonAutomatically("automatic-id") { status = it }
++        verify(engine).updateWebExtensionAutomatically(any(), any(), onError.capture())
++        verify(engine, org.mockito.Mockito.never()).updateWebExtension(any(), any(), any())
++        val failure = IllegalStateException("write or update error")
++        onError.value("automatic-id", failure)
++        assertEquals(Status.Error("automatic-id", failure), status)
++    }
++
++    @Test
+     fun `updateAddon - when a extension is updated successfully`() {
+         val engine: Engine = mock()
+         val engineSession: EngineSession = mock()
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+@@ -82,6 +82,7 @@
+ import org.mozilla.fenix.perf.ProfilerViewModel
+ import org.mozilla.fenix.perf.ProfilerViewModelFactory
+ import org.mozilla.fenix.settings.account.AccountUiView
++import org.mozilla.fenix.settings.addons.ExtensionUpdatePreference
+ import org.mozilla.fenix.snackbar.FenixSnackbarDelegate
+ import org.mozilla.fenix.snackbar.SnackbarBinding
+ import org.mozilla.fenix.utils.Settings
+@@ -131,6 +132,7 @@
+     // If it's set to `true`, code in `onResume` can assume that `onCreate` executed a moment prior.
+     // This flag is set to `false` at the end of `onResume`.
+     private var creatingFragment = true
++    private var extensionUpdatePreference: ExtensionUpdatePreference? = null
+
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+@@ -217,6 +219,12 @@
+
+     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+         super.onViewCreated(view, savedInstanceState)
++        findPreference<SwitchPreferenceCompat>("automatic_extension_updates")?.let { preference ->
++            extensionUpdatePreference = ExtensionUpdatePreference(
++                preference,
++                ExtensionUpdatePreference.NativeGateway(components.core.geckoRuntime.webExtensionController),
++            )
++        }
+
+         viewLifecycleOwner.lifecycleScope.launch {
+             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+@@ -245,6 +253,7 @@
+     @SuppressLint("RestrictedApi")
+     override fun onResume() {
+         super.onResume()
++        extensionUpdatePreference?.refresh()
+
+         // Use nimbus to set the title, and a trivial addition
+         val nimbusValidation = FxNimbus.features.nimbusValidation.value()
+@@ -306,6 +315,8 @@
+     }
+
+     override fun onDestroyView() {
++        extensionUpdatePreference?.close()
++        extensionUpdatePreference = null
+         super.onDestroyView()
+         if (::accountUiView.isInitialized) accountUiView.cancel()
+     }
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreference.kt
+@@ -0,0 +1,119 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.settings.addons
++
++import androidx.preference.SwitchPreferenceCompat
++import org.mozilla.fenix.R
++import org.mozilla.geckoview.WebExtensionController
++
++/** Bind a non-persistent switch to the authoritative native preference pair. */
++internal class ExtensionUpdatePreference(
++    private val preference: SwitchPreferenceCompat,
++    private val gateway: Gateway,
++) {
++    internal data class State(val enabled: Boolean, val locked: Boolean, val saveConfirmed: Boolean = true)
++
++    internal interface Gateway {
++        fun read(onSuccess: (State) -> Unit, onError: () -> Unit)
++        fun write(enabled: Boolean, onSuccess: (State) -> Unit, onError: () -> Unit)
++    }
++
++    internal class NativeGateway(private val controller: WebExtensionController) : Gateway {
++        override fun read(onSuccess: (State) -> Unit, onError: () -> Unit) {
++            controller.getAutomaticUpdateSettings().accept(
++                { state ->
++                    if (state == null) onError() else onSuccess(State(state.enabled, state.locked, state.saveConfirmed))
++                },
++                { onError() },
++            )
++        }
++
++        override fun write(enabled: Boolean, onSuccess: (State) -> Unit, onError: () -> Unit) {
++            controller.setAutomaticUpdateSettings(enabled).accept(
++                { state ->
++                    if (state == null) onError() else onSuccess(State(state.enabled, state.locked, state.saveConfirmed))
++                },
++                { onError() },
++            )
++        }
++    }
++
++    private var revision = 0
++    private var closed = false
++    private var saving = false
++
++    init {
++        preference.isPersistent = false
++        preference.isEnabled = false
++        preference.setOnPreferenceChangeListener { _, value ->
++            if (value is Boolean && preference.isEnabled && !saving && !closed) {
++                save(value)
++            }
++            // Show a new value only after the native write acknowledges it.
++            false
++        }
++    }
++
++    fun refresh() {
++        if (!closed && !saving) readState(false)
++    }
++
++    private fun readState(failedSave: Boolean) {
++        val request = ++revision
++        preference.isEnabled = false
++        gateway.read(
++            { state ->
++                if (!closed && revision == request) render(state, failedSave)
++            },
++            {
++                if (!closed && revision == request) {
++                    preference.isEnabled = false
++                    preference.setSummary(R.string.extension_update_unavailable)
++                }
++            },
++        )
++    }
++
++    private fun save(enabled: Boolean) {
++        val request = ++revision
++        saving = true
++        preference.isEnabled = false
++        gateway.write(
++            enabled,
++            { state ->
++                if (!closed && revision == request) {
++                    saving = false
++                    render(state, false)
++                }
++            },
++            {
++                if (!closed && revision == request) {
++                    saving = false
++                    readState(true)
++                }
++            },
++        )
++    }
++
++    private fun render(state: State, failedSave: Boolean) {
++        preference.isChecked = state.enabled
++        preference.isEnabled = !state.locked
++        preference.setSummary(
++            when {
++                state.locked -> R.string.extension_update_locked
++                failedSave || !state.saveConfirmed -> R.string.extension_update_save_failed
++                else -> R.string.extension_update_summary
++            },
++        )
++    }
++
++    fun close() {
++        closed = true
++        revision++
++        preference.onPreferenceChangeListener = null
++        // Leaving Settings does not revoke an already accepted user choice.
++        // Native persistence completes independently of this view's lifetime.
++    }
++}
+--- a/mobile/android/fenix/app/src/main/res/xml/preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
+@@ -195,6 +195,14 @@
+             app:iconSpaceReserved="false"
+             android:title="@string/preferences_extensions" />
+
++        <androidx.preference.SwitchPreferenceCompat
++            android:key="automatic_extension_updates"
++            android:persistent="false"
++            android:enabled="false"
++            app:iconSpaceReserved="false"
++            android:title="@string/extension_update_title"
++            android:summary="@string/extension_update_summary" />
++
+         <androidx.preference.Preference
+             android:key="@string/pref_key_install_local_addon"
+             app:iconSpaceReserved="false"
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/res/values/extension_update_controls.xml
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- This Source Code Form is subject to the terms of the Mozilla Public
++   - License, v. 2.0. If a copy of the MPL was not distributed with this
++   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
++<resources>
++    <string name="extension_update_title">Update extensions automatically</string>
++    <string name="extension_update_summary">Check for and install extension updates automatically. Updates already in progress may finish.</string>
++    <string name="extension_update_locked">This setting is managed and cannot be changed.</string>
++    <string name="extension_update_unavailable">Could not read this setting. Reopen Settings to try again.</string>
++    <string name="extension_update_save_failed">Could not confirm this change was saved. The current setting is shown.</string>
++</resources>
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreferenceTest.kt
+@@ -0,0 +1,140 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++package org.mozilla.fenix.settings.addons
++
++import androidx.preference.PreferenceManager
++import androidx.preference.SwitchPreferenceCompat
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.fenix.R
++import org.robolectric.RobolectricTestRunner
++
++@RunWith(RobolectricTestRunner::class)
++class ExtensionUpdatePreferenceTest {
++    private class Gateway : ExtensionUpdatePreference.Gateway {
++        data class Call(
++            val enabled: Boolean?,
++            val success: (ExtensionUpdatePreference.State) -> Unit,
++            val error: () -> Unit,
++        )
++        val calls = mutableListOf<Call>()
++        override fun read(onSuccess: (ExtensionUpdatePreference.State) -> Unit, onError: () -> Unit) {
++            calls.add(Call(null, onSuccess, onError))
++        }
++        override fun write(
++            enabled: Boolean,
++            onSuccess: (ExtensionUpdatePreference.State) -> Unit,
++            onError: () -> Unit,
++        ) {
++            calls.add(Call(enabled, onSuccess, onError))
++        }
++    }
++
++    @Test
++    fun `XML control is visible and never mirrors Gecko prefs in SharedPreferences`() {
++        val manager = PreferenceManager(testContext)
++        val screen = manager.inflateFromResource(testContext, R.xml.preferences, null)
++        val preference = requireNotNull(screen.findPreference<SwitchPreferenceCompat>("automatic_extension_updates"))
++        assertEquals(testContext.getString(R.string.extension_update_title), preference.title)
++        assertTrue(preference.isVisible)
++        assertFalse(preference.isPersistent)
++        assertFalse(preference.isEnabled)
++    }
++
++    @Test
++    fun `native state and locks determine UI with no write on refresh`() {
++        val preference = SwitchPreferenceCompat(testContext)
++        val gateway = Gateway()
++        val binding = ExtensionUpdatePreference(preference, gateway)
++        binding.refresh()
++        assertFalse(preference.isEnabled)
++        assertEquals(null, gateway.calls.single().enabled)
++        gateway.calls.single().success(ExtensionUpdatePreference.State(true, true))
++        assertTrue(preference.isChecked)
++        assertFalse(preference.isEnabled)
++        assertFalse(preference.callChangeListener(false))
++        assertEquals(1, gateway.calls.size)
++    }
++
++    @Test
++    fun `change waits for native durable completion and rejects duplicate clicks`() {
++        val preference = SwitchPreferenceCompat(testContext)
++        val gateway = Gateway()
++        val binding = ExtensionUpdatePreference(preference, gateway)
++        binding.refresh()
++        gateway.calls.single().success(ExtensionUpdatePreference.State(true, false))
++        assertFalse(preference.callChangeListener(false))
++        assertTrue(preference.isChecked)
++        assertFalse(preference.isEnabled)
++        assertEquals(false, gateway.calls.last().enabled)
++        assertFalse(preference.callChangeListener(true))
++        binding.refresh()
++        assertEquals(2, gateway.calls.size)
++        gateway.calls.last().success(ExtensionUpdatePreference.State(false, false))
++        assertFalse(preference.isChecked)
++        assertTrue(preference.isEnabled)
++    }
++
++    @Test
++    fun `save failure rereads actual native state and allows retry`() {
++        val preference = SwitchPreferenceCompat(testContext)
++        val gateway = Gateway()
++        val binding = ExtensionUpdatePreference(preference, gateway)
++        binding.refresh()
++        gateway.calls.single().success(ExtensionUpdatePreference.State(true, false))
++        preference.callChangeListener(false)
++        gateway.calls.last().error()
++        assertEquals(null, gateway.calls.last().enabled)
++        gateway.calls.last().success(ExtensionUpdatePreference.State(true, false))
++        assertTrue(preference.isChecked)
++        assertTrue(preference.isEnabled)
++        assertEquals(testContext.getString(R.string.extension_update_save_failed), preference.summary)
++        preference.callChangeListener(false)
++        assertEquals(false, gateway.calls.last().enabled)
++    }
++
++    @Test
++    fun `late read and completion after view destruction cannot rewrite UI`() {
++        val preference = SwitchPreferenceCompat(testContext)
++        val gateway = Gateway()
++        val binding = ExtensionUpdatePreference(preference, gateway)
++        binding.refresh()
++        val oldRead = gateway.calls.last()
++        binding.refresh()
++        gateway.calls.last().success(ExtensionUpdatePreference.State(false, false))
++        oldRead.success(ExtensionUpdatePreference.State(true, false))
++        assertFalse(preference.isChecked)
++        preference.callChangeListener(true)
++        val write = gateway.calls.last()
++        binding.close()
++        write.success(ExtensionUpdatePreference.State(true, false))
++        assertFalse(preference.isChecked)
++    }
++
++    @Test
++    fun `reopening settings retains native unconfirmed save state`() {
++        val preference = SwitchPreferenceCompat(testContext)
++        val gateway = Gateway()
++        val binding = ExtensionUpdatePreference(preference, gateway)
++        binding.refresh()
++        gateway.calls.single().success(ExtensionUpdatePreference.State(true, false, false))
++        assertTrue(preference.isChecked)
++        assertEquals(testContext.getString(R.string.extension_update_save_failed), preference.summary)
++    }
++
++    @Test
++    fun `read failure leaves setting disabled instead of inventing a default`() {
++        val preference = SwitchPreferenceCompat(testContext)
++        val gateway = Gateway()
++        val binding = ExtensionUpdatePreference(preference, gateway)
++        binding.refresh()
++        gateway.calls.single().error()
++        assertFalse(preference.isEnabled)
++        assertEquals(testContext.getString(R.string.extension_update_unavailable), preference.summary)
++    }
++}
+--- /dev/null
++++ b/toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js
+@@ -0,0 +1,132 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++"use strict";
++
++AddonTestUtils.init(this);
++AddonTestUtils.createAppInfo("xpcshell@tests.mozilla.org", "XPCShell", "1", "42");
++const { GeckoViewWebExtension: controller } = ChromeUtils.importESModule(
++  "resource://gre/modules/GeckoViewWebExtension.sys.mjs"
++);
++const { AddonRepository } = ChromeUtils.importESModule(
++  "resource://gre/modules/addons/AddonRepository.sys.mjs"
++);
++const { sinon } = ChromeUtils.importESModule("resource://testing-common/Sinon.sys.mjs");
++const NAMES = ["extensions.update.enabled", "extensions.update.autoUpdateDefault"];
++let previous;
++
++add_setup(async function setup() {
++  previous = NAMES.map(name => ({name, hasUser: Services.prefs.prefHasUserValue(name),
++    value: Services.prefs.getBoolPref(name, true)}));
++  await AddonTestUtils.promiseStartupManager();
++  registerCleanupFunction(async () => {
++    for (const entry of previous) {
++      Services.prefs.unlockPref(entry.name);
++      if (entry.hasUser) Services.prefs.setBoolPref(entry.name, entry.value);
++      else Services.prefs.clearUserPref(entry.name);
++    }
++    await AddonTestUtils.promiseShutdownManager();
++  });
++});
++
++// XRE_XPCShellMain does not initialize Preferences.mCurrentFile. These tests
++// use real native prefs for update admission, and assert that the durable
++// setting API rejects before mutation without a current profile. Actual saved
++// pair/queue behavior runs through GeckoView in WebExtensionUpdateSettingsTest.
++function configureAutomaticUpdates(enabled) {
++  for (const name of NAMES) Services.prefs.setBoolPref(name, enabled);
++}
++
++add_task(async function mixed_values_locks_and_missing_profile_are_reported_honestly() {
++  Services.prefs.setBoolPref(NAMES[0], true);
++  Services.prefs.setBoolPref(NAMES[1], false);
++  Assert.ok(!controller.getAutomaticUpdateSettings().enabled, "Mixed values are unchecked");
++  await Assert.rejects(controller.setAutomaticUpdateSettings(false), /NS_ERROR_NOT_INITIALIZED/);
++  Assert.equal(Services.prefs.getBoolPref(NAMES[0]), true, "No first mutation without a current profile");
++  Assert.equal(Services.prefs.getBoolPref(NAMES[1]), false, "No second mutation without a current profile");
++  Assert.equal(controller._pendingAutomaticUpdateSettings, 0, "Failed preflight releases the queue");
++  Services.prefs.lockPref(NAMES[1]);
++  try {
++    Assert.ok(controller.getAutomaticUpdateSettings().locked);
++    await Assert.rejects(controller.setAutomaticUpdateSettings(false), /locked/);
++    Assert.equal(Services.prefs.getBoolPref(NAMES[0]), true, "No partial first write while locked");
++  } finally {
++    Services.prefs.unlockPref(NAMES[1]);
++  }
++});
++
++add_task(async function automatic_off_prevents_metadata_and_extension_lookup() {
++  configureAutomaticUpdates(false);
++  const sandbox = sinon.createSandbox();
++  try {
++    const metadata = sandbox.stub(AddonRepository, "isMetadataStale").returns(true);
++    const fetch = sandbox.stub(AddonRepository, "backgroundUpdateCheck").resolves();
++    const lookup = sandbox.stub(controller, "extensionById").throws(new Error("unreachable"));
++    Assert.equal(await controller.updateWebExtension("not-installed", true), null);
++    Assert.ok(metadata.notCalled && fetch.notCalled && lookup.notCalled);
++  } finally { sandbox.restore(); }
++});
++
++add_task(async function off_during_metadata_prevents_manifest() {
++  configureAutomaticUpdates(true);
++  const sandbox = sinon.createSandbox();
++  let finish;
++  try {
++    sandbox.stub(AddonRepository, "isMetadataStale").returns(true);
++    sandbox.stub(AddonRepository, "backgroundUpdateCheck").returns(new Promise(resolve => { finish = resolve; }));
++    const lookup = sandbox.stub(controller, "extensionById").throws(new Error("unreachable"));
++    const update = controller.updateWebExtension("test", true);
++    configureAutomaticUpdates(false);
++    finish();
++    Assert.equal(await update, null);
++    Assert.ok(lookup.notCalled);
++  } finally { sandbox.restore(); }
++});
++
++add_task(async function automatic_install_respects_per_addon_policy() {
++  configureAutomaticUpdates(true);
++  const sandbox = sinon.createSandbox();
++  try {
++    sandbox.stub(AddonRepository, "isMetadataStale").returns(false);
++    sandbox.stub(controller, "extensionById").resolves({
++      applyBackgroundUpdates: AddonManager.AUTOUPDATE_DISABLE,
++      permissions: AddonManager.PERM_CAN_UPGRADE,
++    });
++    const install = { install: sandbox.spy(), addListener: sandbox.spy() };
++    sandbox.stub(controller, "checkForUpdate").resolves(install);
++    Assert.equal(await controller.updateWebExtension("test", true), null);
++    Assert.ok(install.install.notCalled && install.addListener.notCalled);
++  } finally { sandbox.restore(); }
++});
++
++add_task(async function off_during_manifest_prevents_install() {
++  configureAutomaticUpdates(true);
++  const sandbox = sinon.createSandbox();
++  let finish;
++  try {
++    sandbox.stub(AddonRepository, "isMetadataStale").returns(false);
++    sandbox.stub(controller, "extensionById").resolves({});
++    const manifest = sandbox.stub(controller, "checkForUpdate").returns(new Promise(resolve => { finish = resolve; }));
++    const update = controller.updateWebExtension("test", true);
++    await Promise.resolve();
++    Assert.ok(manifest.calledOnce);
++    configureAutomaticUpdates(false);
++    const install = { install: sandbox.spy(), addListener: sandbox.spy() };
++    finish(install);
++    Assert.equal(await update, null);
++    Assert.ok(install.install.notCalled);
++  } finally { sandbox.restore(); }
++});
++
++add_task(async function explicit_check_remains_available_with_automatic_off() {
++  configureAutomaticUpdates(false);
++  const sandbox = sinon.createSandbox();
++  try {
++    sandbox.stub(AddonRepository, "isMetadataStale").returns(false);
++    sandbox.stub(controller, "extensionById").resolves({});
++    const check = sandbox.stub(controller, "checkForUpdate").resolves(null);
++    Assert.equal(await controller.updateWebExtension("test", false), null);
++    Assert.ok(check.calledOnce);
++    Assert.equal(check.firstCall.args[1], false);
++  } finally { sandbox.restore(); }
++});
+--- a/toolkit/components/extensions/test/xpcshell/xpcshell.toml
++++ b/toolkit/components/extensions/test/xpcshell/xpcshell.toml
+@@ -74,6 +74,9 @@
+ ]
+
+ ["test_ext_experiments_glean.js"]
++
++["test_ext_android_update_settings.js"]
++run-if = ["os == 'android'"]
+
+ ["test_ext_permissions_android_durability.js"]
+ run-if = ["os == 'android'"]

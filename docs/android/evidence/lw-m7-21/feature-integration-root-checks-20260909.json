@@ -1,0 +1,70 @@
+{
+  "actor": "/root",
+  "repository_head": "a23150078add78d1f403fb9d084d33f3298ac110",
+  "scope": "Local source composition and ordering only; historical37 composition excludes latest167-base fixes and was not staged. Target source167 run is separately bound.",
+  "patch_inputs": {
+    "patches/android/session-cleanup.patch": "d2756b4f5fe27adef63114a78ae7338ffbc13d0da60933ac03636b39721c5248",
+    "patches/android/extension-update-controls.patch": "901b811c298c6112dc07a8ef25a7baa46704284d764ba1b3c9fd10e08d027795",
+    "patches/android/global-privacy-controls.patch": "b0d132130cb4e02ac687a9c384e314be6f7c1124405a794ed8d3f31a91cb4109",
+    "patches/android/firefox-suggest-data.patch": "aca7d6db70fd53dfd4d7ec161fb47b2065711afd20238846c75ef68de54c4c60",
+    "patches/android/firefox-suggest-policy.patch": "86a130b45c5cf6475b8ce7114d03b404f97f63b46c067580ec354c16188bef0c",
+    "patches/android/sync-opt-in.patch": "9f1c58c66ab5b5a5cddadf89cda27f3fd80da2c4f1305433fe292dcdf03c438c",
+    "patches/android/cookie-banner-controls.patch": "2b822a8790b8524b67e8b1625463f9e6053f44fa7ead121e169a595bacb2b2ec"
+  },
+  "checks": [
+    {
+      "command": [
+        "python3",
+        "docs/android/evidence/lw-m7-37/composition-fifth-fixture/check.py"
+      ],
+      "exit": 0,
+      "stdout": "PASS: two exact source replays, retained outputs, three rejected live-input errors and two rejected malformed manifests; no target execution\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/evidence/lw-m7-35/check-ordering.py"
+      ],
+      "exit": 0,
+      "stdout": "PASS canvas-webgl-permissions.patch: order-free-identical; all 2 shared paths checked\nPASS cookie-banner-controls.patch: order-free-identical; all 4 shared paths checked\nPASS extension-permission-durability.patch: predecessor-required; all 2 shared paths checked\nPASS sync-opt-in.patch: predecessor-required; all 1 shared paths checked\nPASS ubo-readiness.patch: order-free-identical; all 4 shared paths checked\nPASS update-check.patch: order-free-identical; all 2 shared paths checked\nPASS six shared-file ordering measurements; no target compilation or runtime claim\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/evidence/lw-m7-36/check-source.py"
+      ],
+      "exit": 0,
+      "stdout": "SOURCE REPLAY PASS: 7 scoped predecessors; 21 patch files match before/after pins; 38 original audit inputs verified.\nAUTHORED KOTLIN TESTS: 21; NOT EXECUTED by this replay.\nAUTHORED XPCSHELL TESTS: 5; NOT EXECUTED by this replay.\nTARGET COMPILATION / API GENERATION / APK RUNTIME: NOT RUN.\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/evidence/lw-m7-29/check-source.py"
+      ],
+      "exit": 0,
+      "stdout": "PASS staged 13 pinned Suggest catalog/config/test-fixture files; no production attachment payloads or network\nSOURCE REPLAY PASS: 3 scoped predecessors; 17 patch files + 13 staged files match individual pins.\nAUTHORED KOTLIN TESTS: 13; NOT EXECUTED by this replay.\nAUTHORED RUST TESTS: 16; NOT EXECUTED by this replay.\nTARGET COMPILATION / APK RUNTIME: NOT RUN. See README.md for required acceptance evidence.\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/evidence/lw-m7-26/check-source.py"
+      ],
+      "exit": 0,
+      "stdout": "SOURCE REPLAY PASS: 9 scoped predecessors; 21 final files match their individual pins.\nAUTHORED KOTLIN TESTS: 27; NOT EXECUTED by this replay.\nTARGET COMPILATION / APK RUNTIME: NOT RUN. See README.md for required acceptance evidence.\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/evidence/lw-m7-20/check-source.py"
+      ],
+      "exit": 0,
+      "stdout": "SOURCE REPLAY PASS: 8 scoped predecessors; 24 final files match their individual pins.\nAUTHORED KOTLIN TESTS: 32; NOT EXECUTED by this replay.\nTARGET COMPILATION / APK RUNTIME: NOT RUN. See README.md for required acceptance evidence.\n",
+      "stderr": ""
+    }
+  ]
+}

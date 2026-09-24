@@ -1,0 +1,161 @@
+# LibreWolf rs-blocker-android.patch  (Android)
+# Owner: LW-M4-08 ("Apply the remote-settings blocker to the Android build")
+#
+# THE DEFECT
+# ----------
+# A first-run capture of an APK with all 13 Android patches applied still shows
+# 3 Remote Settings hosts, 14 events, with real TLS:
+#
+#   firefox.settings.services.mozilla.com
+#   firefox-settings-attachments.cdn.mozilla.net
+#   content-signature-2.cdn.mozilla.net
+#
+# Desktop's fix (patches/rs-blocker.patch, in common.txt) touches only the
+# JS/Gecko stack: services/settings/*.mjs + SearchEngineSelector.sys.mjs.
+# Fenix's Remote Settings traffic goes through the RUST RemoteSettingsService
+# in third_party/application-services/components/remote_settings/, which the
+# desktop patch never reaches. librewolf.services.settings.allowedCollections
+# (settings/common.cfg:698) is inert for the collections Fenix actually syncs.
+#
+# THE FIX
+# -------
+# Three hunks in the Rust crate, closing all network choke points:
+#
+#   1. service.rs  fetch_changes()  -> return empty Changes (no network)
+#   2. client.rs   sync()           -> no-op (no network)
+#   3. client.rs   make_request()   -> return error (block all remaining egress)
+#
+# The server stays Prod, so is_prod_server() remains true and the packaged
+# data path (get_records Case 1, get_attachment step 2, reset_storage re-seed)
+# keeps working. The seven packaged collections (regions, search-config-v2,
+# search-config-icons, search-telemetry-v2, summarizer-models-config,
+# translations-models, translations-wasm) and their attachments are served
+# from the binary. search-config-overrides-v2 is NOT packaged, but Fenix
+# passes applyEngineOverrides=false (SearchEngineSelectorRepository.kt:60-62),
+# so no client is ever created for it and nothing reads it.
+#
+# What this does NOT do:
+#   - Does NOT change the server URL (Custom would disable packaged dumps
+#     via the is_prod_server() gate at client.rs:715-721 - strictly worse).
+#   - Does NOT remove the RemoteSettingsService or its Kotlin wrappers -
+#     the offline read path (get_records(false)) still works.
+#   - Does NOT touch the JS/Gecko Remote Settings (already covered by
+#     rs-blocker.patch in common.txt).
+#
+# SCOPE / ORDERING
+# ----------------
+# Touches two files in third_party/application-services/components/remote_settings/:
+#   - src/service.rs
+#   - src/client.rs
+# No other patch in either list touches these files. No ordering constraint.
+
+--- a/third_party/application-services/components/remote_settings/src/service.rs
++++ b/third_party/application-services/components/remote_settings/src/service.rs
+@@ -195,42 +195,10 @@
+     }
+ 
+     fn fetch_changes(&mut self) -> Result<Changes> {
+-        let mut url = self.base_url.clone();
+-        url.path_segments_mut()
+-            .push("buckets")
+-            .push("monitor")
+-            .push("collections")
+-            .push("changes")
+-            .push("changeset");
+-        // For now, always use `0` for the expected value.  This means we'll get updates based on
+-        // the default TTL of 1 hour.
+-        //
+-        // Eventually, we should add support for push notifications and use the timestamp from the
+-        // notification.
+-        url.query_pairs_mut().append_pair("_expected", "0");
+-        let url = url.into_inner();
+-        trace!("make_request: {url}");
+-        self.remote_state.ensure_no_backoff()?;
+-
+-        let start_time = std::time::Instant::now();
+-        let req = Request::get(url);
+-        let resp = req.send()?;
+-
+-        self.remote_state.handle_backoff_hint(&resp)?;
+-
+-        const TELEMETRY_SOURCE_POLL: &str = "settings-changes-monitoring";
+-        if resp.is_success() {
+-            let body = resp.json()?;
+-            let duration: u64 = start_time.elapsed().as_millis().try_into().unwrap_or(0);
+-            self.telemetry
+-                .report_uptake_success(TELEMETRY_SOURCE_POLL, Some(duration));
+-            Ok(body)
+-        } else {
+-            let e = Error::response_error(&resp.url, format!("status code: {}", resp.status));
+-            self.telemetry
+-                .report_uptake_error(&e, TELEMETRY_SOURCE_POLL);
+-            Err(e)
+-        }
++        // LibreWolf: never fetch changes over the network.
++        // Return an empty changeset so sync() completes without any network I/O.
++        // Packaged data (get_records Case 1) and cached data (Case 2) remain available.
++        Ok(Changes { changes: Vec::new() })
+     }
+ }
+ 
+--- a/third_party/application-services/components/remote_settings/src/client.rs
++++ b/third_party/application-services/components/remote_settings/src/client.rs
+@@ -377,25 +377,9 @@
+     }
+ 
+     pub fn sync(&self) -> Result<()> {
+-        // First attempt
+-        self.perform_sync_operation()?;
+-        // Verify that inserted data has valid signature
+-        if self.verify_signature().is_err() {
+-            debug!(
+-                "{0}: signature verification failed. Reset and retry.",
+-                self.collection_name
+-            );
+-            // Retry with packaged dataset as base
+-            self.reset_storage()?;
+-            self.perform_sync_operation()?;
+-            // Verify signature again
+-            self.verify_signature().inspect_err(|_| {
+-                // And reset with packaged data if it fails again.
+-                self.reset_storage()
+-                    .expect("Failed to reset storage after verification failure");
+-            })?;
+-        }
+-        trace!("{0}: sync done.", self.collection_name);
++        // LibreWolf: never sync over the network.
++        // Packaged data (get_records Case 1) and cached data (Case 2) remain available.
++        trace!("{0}: sync skipped (LibreWolf: network disabled).", self.collection_name);
+         Ok(())
+     }
+ 
+@@ -639,22 +623,13 @@
+     }
+ 
+     fn make_request(&mut self, url: Url) -> Result<Response> {
+-        trace!("make_request: {url}");
+-        self.remote_state.ensure_no_backoff()?;
+-
+-        let req = Request::get(url);
+-        let resp = req.send()?;
+-
+-        self.remote_state.handle_backoff_hint(&resp)?;
+-
+-        if resp.is_success() {
+-            Ok(resp)
+-        } else {
+-            Err(Error::response_error(
+-                &resp.url,
+-                format!("status code: {}", resp.status),
+-            ))
+-        }
++        // LibreWolf: all network requests to the Remote Settings server are blocked.
++        // This is the single choke point for all egress in this crate
++        // (fetch_changeset, fetch_attachment, fetch_cert).
++        Err(Error::ResponseError {
++            url: url.to_string(),
++            message: "LibreWolf: Remote Settings network requests are disabled".to_string(),
++        })
+     }
+ }
+ 

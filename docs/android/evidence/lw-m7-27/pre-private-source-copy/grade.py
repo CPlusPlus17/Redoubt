@@ -1,0 +1,322 @@
+#!/usr/bin/env python3
+"""Fail-closed grading for individually selected native Android test logs."""
+import hashlib
+import json
+from pathlib import Path
+import re
+
+
+class InvalidResult(ValueError):
+    pass
+
+
+def require(condition, message):
+    if not condition:
+        raise InvalidResult(message)
+
+
+def sha(path):
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def bound_log(receipt, directory, *, allow_empty=False):
+    """A producer receipt must bind successful completion, freshness and exact bytes.
+
+    This detects stale/replaced local evidence; it is not a signature or an
+    authenticity claim about a deliberately fabricated receipt.
+    """
+    require(receipt.get('exit') == 0, 'process did not exit successfully')
+    require(re.fullmatch(r'[a-f0-9]{32}', receipt.get('run_id', '')), 'missing run id')
+    require(isinstance(receipt.get('started_ns'), int), 'missing start time')
+    require(isinstance(receipt.get('finished_ns'), int) and receipt['finished_ns'] > receipt['started_ns'], 'missing/invalid completion time')
+    require(re.fullmatch(r'[a-f0-9]{64}', receipt.get('source_binding_sha256', '')), 'missing source binding')
+    require(re.fullmatch(r'[a-f0-9]{64}', receipt.get('build_receipt_sha256', '')), 'missing build binding')
+    require(receipt.get('log_created_ns', 0) >= receipt['started_ns'], 'log predates this invocation')
+    name = receipt.get('log', '')
+    require(name and Path(name).name == name, 'log must be a direct child of its fresh run directory')
+    path = Path(directory) / name
+    require(path.is_file() and (allow_empty or path.stat().st_size > 0), 'missing/empty log')
+    require(sha(path) == receipt.get('log_sha256'), 'log bytes do not match receipt')
+    return path.read_text(encoding='utf-8', errors='strict')
+
+
+def grade_xpcshell(raw, spec):
+    require(raw.endswith('\n'), 'partial final mozlog record')
+    events = []
+    for line in raw.splitlines():
+        require(bool(line.strip()), 'empty mozlog record')
+        try:
+            value = json.loads(line)
+        except (ValueError, TypeError) as error:
+            raise InvalidResult('malformed mozlog record') from error
+        require(isinstance(value, dict) and isinstance(value.get('action'), str), 'invalid mozlog event')
+        events.append(value)
+    require(events, 'empty mozlog')
+    required = set(spec['tasks'])
+    allowed_skips = set(spec.get('allowed_skips', []))
+    require(required and not required & allowed_skips, 'invalid required/skip task set')
+    def is_file(name):
+        if not isinstance(name, str):
+            return False
+        name = name.replace('\\', '/')
+        if spec.get('test_id_prefix') and not name.startswith(spec['test_id_prefix']):
+            return False
+        return name == Path(spec['path']).name or name.endswith(spec['path'])
+
+    running = None
+    started = set()
+    finished = set()
+    skipped = set()
+    suites = ends = starts = file_ends = 0
+    for event in events:
+        action = event['action']
+        require(action != 'crash', 'crash diagnostic')
+        if action == 'assertion_count':
+            require(event.get('count') == 0, 'native assertion diagnostic')
+        if action == 'suite_start':
+            suites += 1
+            require(suites == 1 and not starts and not ends, 'duplicate/out-of-order suite start')
+        elif action == 'suite_end':
+            ends += 1
+            require(suites == 1 and ends == 1 and file_ends == 1 and running is None, 'premature/duplicate suite end')
+        elif action == 'test_start':
+            starts += 1
+            test = event.get('test', '').replace('\\', '/')
+            expected = spec['path']
+            require(is_file(test), 'unexpected selected test file')
+            require(suites == 1 and starts == 1 and not ends, 'duplicate/out-of-order test file')
+            running = test
+        elif action == 'test_end':
+            require(running is not None and event.get('test') == running and not ends, 'unmatched test end')
+            require(event.get('status') == 'PASS' and event.get('expected', 'PASS') == 'PASS', 'test file failed/skipped')
+            file_ends += 1
+            running = None
+        elif action == 'test_status':
+            require(running is not None and not ends, 'subtest outside selected file')
+            require(is_file(event.get('test')), 'subtest belongs to another file')
+            status = event.get('status')
+            if status == 'SKIP':
+                name = event.get('subtest')
+                require(name in allowed_skips and name not in required, 'required/unclassified skipped subtest')
+                skipped.add(name)
+            else:
+                require(status == 'PASS' and event.get('expected', 'PASS') == 'PASS', 'failed/unexpected subtest')
+        elif action == 'log':
+            require(event.get('level') not in {'ERROR', 'CRITICAL'}, 'harness error diagnostic')
+            message = event.get('message', '')
+            start = re.search(r'^(.*?) \| Starting (?:setup )?([A-Za-z_][A-Za-z_0-9]*)$', message)
+            finish = re.search(r'\| test ([A-Za-z_][A-Za-z_0-9]*) finished \(\d+\)$', message)
+            if start and start[2] in required:
+                require(is_file(start[1]), 'named task log belongs to another file')
+                name = start[2]
+                require(running is not None and name not in started and not ends, 'duplicate/out-of-scope task start')
+                started.add(name)
+            if finish and finish[1] in required:
+                name = finish[1]
+                require(running is not None and name in started and name not in finished and not ends, 'unmatched/duplicate task finish')
+                finished.add(name)
+    require(suites == ends == starts == file_ends == 1 and running is None, 'incomplete suite/file lifecycle')
+    require(started == finished == required and not required & skipped, 'missing/incomplete named tasks')
+    result = {'file': spec['path'], 'passed_tasks': sorted(finished), 'allowed_skips_observed': sorted(skipped)}
+    if 'execution_scope' in spec:
+        result['execution_scope'] = spec['execution_scope']
+    return result
+
+
+def grade_instrumentation(raw, expected):
+    require(raw.endswith('\n'), 'partial instrumentation output')
+    require(expected and len(expected) == len(set(expected)), 'invalid expected test list')
+    expected = set(expected)
+    passed = set()
+    active = None
+    fields = {}
+    completed = False
+    final_codes = 0
+    for line in raw.splitlines():
+        if line.startswith('INSTRUMENTATION_STATUS: '):
+            key, separator, value = line[len('INSTRUMENTATION_STATUS: '):].partition('=')
+            require(separator, 'malformed instrumentation status')
+            require(key not in fields, 'duplicate instrumentation status field')
+            fields[key] = value
+        elif line.startswith('INSTRUMENTATION_STATUS_CODE: '):
+            require(not completed, 'test event after final result')
+            try:
+                code = int(line.split(': ', 1)[1])
+            except ValueError as error:
+                raise InvalidResult('malformed status code') from error
+            name = fields.get('class', '') + '#' + fields.get('test', '')
+            require(name in expected, 'unrequested/missing named instrumented test')
+            require(fields.get('numtests') == str(len(expected)), 'instrumentation count differs from selected methods')
+            if code == 1:
+                require(active is None and name not in passed, 'duplicate/concurrent test start')
+                active = name
+            elif code == 0:
+                require(active == name and name not in passed, 'unmatched test completion')
+                passed.add(name)
+                active = None
+            else:
+                raise InvalidResult('failed/skipped/assumption/incomplete instrumented test')
+            fields = {}
+        elif line.startswith('INSTRUMENTATION_CODE: '):
+            final_codes += 1
+            require(line == 'INSTRUMENTATION_CODE: -1' and final_codes == 1, 'instrumentation did not finish successfully')
+            require(active is None and not fields and passed == expected, 'partial instrumentation suite')
+            completed = True
+        elif line.startswith(('INSTRUMENTATION_FAILED:', 'INSTRUMENTATION_ABORTED:', 'INSTRUMENTATION_RESULT: shortMsg=', 'INSTRUMENTATION_RESULT: longMsg=')):
+            raise InvalidResult('instrumentation aborted/crashed')
+    require(completed and final_codes == 1 and passed == expected, 'missing final instrumentation result')
+    require(re.search(r'^OK \(' + str(len(expected)) + r' tests?\)\s*$', raw, re.M), 'missing matching JUnit completion summary')
+    return {'passed_methods': sorted(passed)}
+
+
+TEST_PACKAGE = 'org.mozilla.geckoview.test'
+SHUTDOWN_CLASS = TEST_PACKAGE + '.PrefSaveFileAsyncShutdownTest'
+TEST_COMPONENT = TEST_PACKAGE + '/androidx.test.runner.AndroidJUnitRunner'
+PROCESS_LIST_ARGUMENTS = ['shell', 'ps', '-A', '-w', '-o', 'PID,NAME']
+
+
+def shutdown_selection(requirements):
+    spec = requirements.get('shutdown_instrumentation')
+    if spec is None:
+        return None  # Archived pre-Task35 inventories remain replayable.
+    require(spec.get('class') == SHUTDOWN_CLASS and spec.get('component') == TEST_COMPONENT,
+            'shutdown must target only the reviewed test class/package')
+    require(spec.get('instrumentation_arguments') == {
+        'class': SHUTDOWN_CLASS, 'redoubtAllowProfileShutdown': 'true'},
+        'shutdown requires exact class selector and explicit true opt-in')
+    methods = spec.get('expected_methods', [])
+    require(methods and len(methods) == len(set(methods)) and all(
+        method.startswith(SHUTDOWN_CLASS + '#') for method in methods), 'invalid shutdown methods')
+    require(not set(methods) & set(requirements['instrumentation']),
+            'shutdown cannot run in ordinary instrumentation')
+    return spec
+
+
+def instrumentation_arguments(requirements, *, shutdown=False):
+    if shutdown:
+        spec = shutdown_selection(requirements)
+        require(spec is not None, 'missing isolated shutdown selection')
+        return ['shell', 'am', 'instrument', '-w', '-r', '-e', 'class', spec['class'],
+                '-e', 'redoubtAllowProfileShutdown', 'true', TEST_COMPONENT]
+    return ['shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
+            ','.join(requirements['instrumentation']), TEST_COMPONENT]
+
+
+def process_snapshot(raw):
+    # Toybox NAME reads argv[0], whereas CMD is the truncated kernel thread name.
+    # -A includes all users; -w disables the ordinary terminal-width truncation.
+    require(raw.endswith('\n'), 'partial process snapshot')
+    lines = raw.splitlines()
+    require(lines and lines[0].split() == ['PID', 'NAME'], 'unexpected process-list header')
+    rows = {}
+    for line in lines[1:]:
+        fields = line.split(None, 1)
+        require(len(fields) == 2 and fields[0].isdigit() and int(fields[0]) > 0 and
+                fields[1].strip() and '\x00' not in fields[1], 'invalid process-list row')
+        pid, name = int(fields[0]), fields[1].strip()
+        require(pid not in rows, 'duplicate process-list PID')
+        rows[pid] = name
+    require(rows.get(1) in {'init', '/init', '/system/bin/init'},
+            'process snapshot does not establish visibility of all processes')
+    return {pid: name for pid, name in rows.items()
+            if name == TEST_PACKAGE or name.startswith(TEST_PACKAGE + ':')}
+
+
+def grade_shutdown_boundary(directory, invocation, requirements, ordinary, shutdown):
+    def load_bound(name, arguments, *, allow_empty=False):
+        receipt = json.loads((directory / name).read_text())
+        for key in ['run_id', 'source_binding_sha256', 'build_receipt_sha256']:
+            require(receipt.get(key) == invocation.get(key), 'process boundary belongs to another run/build/source')
+        require(receipt.get('command') == adb + arguments, 'unexpected process-boundary command')
+        return receipt, bound_log(receipt, directory, allow_empty=allow_empty)
+
+    serial = invocation.get('device_serial', '')
+    require(re.fullmatch('[A-Za-z0-9_.:-]+', serial), 'missing process-boundary device serial')
+    command = ordinary.get('command', [])
+    require(len(command) >= 3 and Path(command[0]).name == 'adb' and command[1:3] == ['-s', serial],
+            'ordinary instrumentation is not bound to the selected adb device')
+    adb = command[:3]
+    require(command == adb + instrumentation_arguments(requirements), 'ordinary instrumentation selection changed')
+    require(shutdown.get('command') == adb + instrumentation_arguments(requirements, shutdown=True),
+            'shutdown command omitted exact class/opt-in or changed component/device')
+    before, before_raw = load_bound('instrumentation-processes-before.log.receipt.json', PROCESS_LIST_ARGUMENTS)
+    stop, _ = load_bound('instrumentation-stop.log.receipt.json', ['shell', 'am', 'force-stop', TEST_PACKAGE], allow_empty=True)
+    after, after_raw = load_bound('instrumentation-processes-after.log.receipt.json', PROCESS_LIST_ARGUMENTS)
+    previous = process_snapshot(before_raw)
+    require(not process_snapshot(after_raw), 'old test process remains after force-stop')
+    for earlier, later in zip([ordinary, before, stop, after], [before, stop, after, shutdown]):
+        require(earlier['finished_ns'] <= later['started_ns'], 'shutdown process boundary is stale/out of order')
+    return {'status': 'PASS', 'old_test_processes': previous, 'test_package': TEST_PACKAGE,
+            'scope': 'ordinary invocation ended; only test package force-stopped; all test process names absent before fresh shutdown invocation'}
+
+
+def grade_run(directory):
+    directory = Path(directory)
+    load = lambda name: json.loads((directory / name).read_text())
+    invocation = load('invocation.json')
+    build = load('build-receipt.json')
+    binding = load('source-binding.json')
+    requirements = load('requirements.json')
+    require(build.get('status') == 'PASS', 'test build did not pass')
+    require(sha(directory / 'build-receipt.json') == invocation.get('build_receipt_sha256'), 'build receipt changed')
+    require(sha(directory / 'source-binding.json') == invocation.get('source_binding_sha256') == build.get('source_binding_sha256'), 'source binding changed')
+    require(sha(directory / 'requirements.json') == build.get('requirements_sha256') == binding.get('requirements_sha256'), 'test requirements changed')
+    require(load('source-after-tests.json') == binding, 'source changed during tests or completion missing')
+    results = []
+    shutdown_spec = shutdown_selection(requirements)
+    if shutdown_spec:
+        require(sha(directory / 'task35-inventory.json') == requirements.get('task35_inventory_sha256') ==
+                binding.get('task35_inventory_sha256'), 'Task35 inventory differs from built source binding')
+    if 'task36_inventory_sha256' in requirements:
+        require(sha(directory / 'task36-inventory.json') == requirements['task36_inventory_sha256'] ==
+                binding.get('task36_inventory_sha256'), 'Task36 inventory differs from built source binding')
+        inventory = load('task36-inventory.json')
+        require(sha(directory / 'task36-source-receipt.json') == inventory.get('source_receipt_sha256') ==
+                binding.get('task36_source_receipt_sha256'), 'Task36 source receipt differs from built source binding')
+    if 'task37_inventory_sha256' in requirements:
+        require(sha(directory / 'task37-inventory.json') == requirements['task37_inventory_sha256'] ==
+                binding.get('task37_inventory_sha256'), 'Task37 inventory differs from built source binding')
+        inventory = load('task37-inventory.json')
+        require(sha(directory / 'task37-source-receipt.json') == inventory.get('source_receipt_sha256') ==
+                binding.get('task37_source_receipt_sha256'), 'Task37 source receipt differs from built source binding')
+    names = [f'xpcshell-{i}.raw-receipt.json' for i in range(len(requirements['xpcshell']))] + ['instrumentation.log.receipt.json']
+    if shutdown_spec:
+        names.append('instrumentation-shutdown.log.receipt.json')
+    receipts = {}
+    for name in names:
+        receipt = load(name)
+        for key in ['run_id', 'source_binding_sha256', 'build_receipt_sha256']:
+            require(receipt.get(key) == invocation.get(key), 'receipt belongs to a different run/build/source')
+        raw = bound_log(receipt, directory)
+        receipts[name] = receipt
+        if name.startswith('xpcshell-'):
+            index = int(name.split('-')[1].split('.')[0])
+            results.append(grade_xpcshell(raw, requirements['xpcshell'][index]))
+        else:
+            selected = shutdown_spec['expected_methods'] if name == 'instrumentation-shutdown.log.receipt.json' else requirements['instrumentation']
+            results.append(grade_instrumentation(raw, selected))
+    if shutdown_spec:
+        results.append(grade_shutdown_boundary(directory, invocation, requirements,
+            receipts['instrumentation.log.receipt.json'], receipts['instrumentation-shutdown.log.receipt.json']))
+    pending = requirements.get('pending_xpcshell', [])
+    return dict(invocation, status='PENDING' if pending else 'PASS', results=results,
+                pending_xpcshell=pending,
+                scope='separate instrumented test build only; not release APK acceptance')
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Regrade a self-contained archived native-test evidence directory')
+    parser.add_argument('run_directory', type=Path)
+    args = parser.parse_args()
+    try:
+        verdict = grade_run(args.run_directory)
+        print(json.dumps(verdict, indent=2))
+        if verdict['status'] != 'PASS':
+            parser.exit(3, 'PENDING: Android-excluded native requirements have not executed.\n')
+    except (InvalidResult, ValueError, OSError) as error:
+        parser.exit(1, f'FAIL / NOT ACCEPTED: {error}\n')

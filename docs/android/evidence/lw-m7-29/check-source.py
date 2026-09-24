@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Replay the scoped source candidate; this is not a target build or test runner."""
+
+import gzip
+import hashlib
+import io
+import json
+from pathlib import Path
+import re
+import subprocess
+import tarfile
+import tempfile
+
+import yaml
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[3]
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def main():
+    manifest = json.loads((HERE / "source-files.json").read_text())
+    patch = ROOT / "patches/android/firefox-suggest-data.patch"
+    require(digest(patch.read_bytes()) == manifest["patch_sha256"], "candidate patch hash changed")
+    for path, expected in manifest["asset_inputs"].items():
+        require(digest((ROOT / path).read_bytes()) == expected, "asset input changed: " + path)
+    paths = [item["path"] for item in manifest["files"]]
+    touched = re.findall(r"^\+\+\+ b/(.+)$", patch.read_text(), re.M)
+    require(len(touched) == len(set(touched)) and set(touched) == set(manifest["code_paths"]), "source scope mismatch")
+    require(set(manifest["code_paths"]) | set(manifest["staged_paths"]) == set(paths), "delivery inventory differs")
+    require(not set(manifest["code_paths"]) & set(manifest["staged_paths"]), "patch/staging scopes overlap")
+    task = next(item for item in yaml.safe_load((ROOT / "docs/android/tasks.yaml").read_text())["tasks"]
+                if item["id"] == "LW-M7-29")
+    require(set(task["tree_paths"]) == set(paths), "declared task source scope differs")
+    archive = (HERE / "scoped-pristine.tar.gz").read_bytes()
+    require(digest(archive) == manifest["scoped_pristine_archive_sha256"], "pristine archive changed")
+    for predecessor in manifest["scoped_predecessors"]:
+        require(digest((ROOT / predecessor["path"]).read_bytes()) == predecessor["sha256"],
+                f"predecessor changed: {predecessor['path']}")
+    with tempfile.TemporaryDirectory(prefix="lw-m7-29-source-") as directory:
+        destination = Path(directory)
+        with tarfile.open(fileobj=io.BytesIO(gzip.decompress(archive)), mode="r:") as retained:
+            members = retained.getmembers()
+            require({item.name for item in members} == set(manifest["scoped_pristine_files"]),
+                    "archive/source inventory mismatch")
+            require(len(members) == len(manifest["scoped_pristine_files"]), "duplicate archive path")
+            for item in members:
+                require(item.isfile() and not item.name.startswith("/") and ".." not in Path(item.name).parts,
+                        "invalid retained member")
+                data = retained.extractfile(item).read()
+                require(digest(data) == manifest["scoped_pristine_files"][item.name], "pristine file hash changed")
+                target = destination / item.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+        for predecessor in manifest["scoped_predecessors"]:
+            subprocess.run(
+                ["git", "apply", *["--include=" + path for path in paths], str(ROOT / predecessor["path"])],
+                cwd=destination, check=True, capture_output=True,
+            )
+        for item in manifest["files"]:
+            target = destination / item["path"]
+            require((digest(target.read_bytes()) if target.exists() else None) == item["before_sha256"],
+                    f"pre-candidate source differs: {item['path']}")
+        subprocess.run(["git", "apply", "--check", "--whitespace=error-all", str(patch)], cwd=destination, check=True, capture_output=True)
+        subprocess.run(["git", "apply", str(patch)], cwd=destination, check=True, capture_output=True)
+        generated = subprocess.run(
+            ["python3", str(ROOT / "scripts/package-firefox-suggest.py"), "--source-tree", str(destination)],
+            check=True, text=True, capture_output=True,
+        )
+        print(generated.stdout.strip())
+        require({str(p.relative_to(destination)) for p in destination.rglob("*") if p.is_file()} == set(paths),
+                "unexpected replay or staging output")
+        for item in manifest["files"]:
+            data = (destination / item["path"]).read_bytes()
+            require(digest(data) == item["after_sha256"], f"final source differs: {item['path']}")
+            pattern = r"@Test\b" if item["path"].endswith(".kt") else r"#\[test\]" if item["path"].endswith(".rs") else None
+            if pattern:
+                require(len(re.findall(pattern, data.decode())) - item["baseline_test_annotations"] == item["authored_tests"],
+                        "authored test count changed: " + item["path"])
+    print(f"SOURCE REPLAY PASS: {len(manifest['scoped_predecessors'])} scoped predecessors; "
+          f"{len(manifest['code_paths'])} patch files + {len(manifest['staged_paths'])} staged files match individual pins.")
+    for suffix, language in [(".kt", "KOTLIN"), (".rs", "RUST")]:
+        count = sum(item["authored_tests"] for item in manifest["files"] if item["path"].endswith(suffix))
+        print(f"AUTHORED {language} TESTS: {count}; NOT EXECUTED by this replay.")
+    print("TARGET COMPILATION / APK RUNTIME: NOT RUN. See README.md for required acceptance evidence.")
+
+
+if __name__ == "__main__":
+    main()

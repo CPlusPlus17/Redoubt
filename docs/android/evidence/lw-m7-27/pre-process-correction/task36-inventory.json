@@ -1,0 +1,72 @@
+{
+  "status": "TARGET UNRUN; inventory derived from actual source pinned by Task36 receipt",
+  "source_receipt_sha256": "0b48fc28bd16e4fade27824a85b4d9ad9e24e5612dc7b7c60e92d03a215acfcc",
+  "patch_sha256": "b0d132130cb4e02ac687a9c384e314be6f7c1124405a794ed8d3f31a91cb4109",
+  "xpcshell_method_sets": [
+    {
+      "source": "mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js",
+      "sha256": "6d59277bf756384b25aafd5d2f93610f1dcf4b422af278db47a706667478bcb4",
+      "named_tests": [
+        "native_locked_user_state_is_honest",
+        "native_int_one_and_reset_preserve_real_branches",
+        "final_save_failure_keeps_native_memory_and_uncertainty",
+        "WebGL_global_choices_preserve_actual_site_permissions",
+        "setting_the_native_default_does_not_invent_a_user_branch"
+      ],
+      "execution_scope": "Real native preference/permission services with an explicitly injected save boundary; does not establish actual current-profile disk persistence."
+    }
+  ],
+  "regular_instrumentation_methods": [
+    "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#acknowledgedBooleanWriteAndResetReadNativeBranches",
+    "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#middleReferrerPolicySurvivesTheActualPublicApi",
+    "org.mozilla.geckoview.test.GlobalPrivacySettingsTest#publicApiRejectsAdditionalPrefsAndInvalidValuesBeforeDispatch"
+  ],
+  "instrumentation_scope": "Real normal GeckoRuntime API; native acknowledged state and validation. Independent actual disk I/O remains covered by Task35. No release restart/network claim.",
+  "extra_required_source_paths": [
+    "mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs",
+    "mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs",
+    "mobile/shared/components/geckoview/moz.build",
+    "mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js",
+    "mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml",
+    "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java",
+    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt",
+    "mobile/android/geckoview/api.txt",
+    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt",
+    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt",
+    "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt",
+    "mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml",
+    "mobile/android/fenix/app/src/main/res/xml/preferences.xml",
+    "mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml",
+    "mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt"
+  ],
+  "required_source_hashes": {
+    "mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs": "b3747c76510a09a7f28218e318643fe48d4fdb14f024ea295e45743d040b3481",
+    "mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs": "e8d994e989fa9ebb96ce2d28246c76482c95cfaa1329e81bcd455249e0e0c94a",
+    "mobile/shared/components/geckoview/moz.build": "9a9cf0db2d23dfa43eafd4f0309c7b26b9b21dbfad25aae3dd7630711649fc88",
+    "mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js": "6d59277bf756384b25aafd5d2f93610f1dcf4b422af278db47a706667478bcb4",
+    "mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml": "96a3e1ea4eb3e0a8317e8c616c530173473abaec79e8d5e127987da35c80c063",
+    "mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java": "6d31d5e56c152a846a92e796cd3da4adc2e4a9eccaba853340472c10e8a49c35",
+    "mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt": "0b3260ebd9acd47fcf71a86b45e5396426dc6d28fce6312c12f2e1b46e8c2df2",
+    "mobile/android/geckoview/api.txt": "1478bad72601ab1fbdb0586ef49467d925948c8c5a260d2be0064d1d695891af",
+    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt": "c8f420776f5a8708b59981f611a1275359ae89422b6c374f9028e2f49f077de5",
+    "mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt": "25369e9a5d94a2c58d16555675ca1d34e8767fa3a03a99d64e78c71c04d8ed36",
+    "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt": "953f6a84b96c1c7bdccbebf1da350d840489c3ea490c67b66a88797efe0ec780",
+    "mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt": "f4763b10575c8af66621f2a09e5d42640ad251bddd9a56f16b6fd5b3cffccbd6",
+    "mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt": "ba0252a32554a9b78aacf8ae8267251a1ef2ff5b587d9c2268af23b57bb9fa2b",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt": "9dbd50922935386e7cc0ffe4808edff35258ce0100c1e70650fd25125e5ec128",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt": "73342ecf72011e2ec8376a1398c934bf211d5c1c33a8c24737bd82384a31cb33",
+    "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt": "1d4ab3b12f997918604f3c76106da308e449cc225536716f4be27bba18243a1f",
+    "mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml": "ab1ccc9000bc89b478f5b15c75838c591f1eb5bb54266717be51f9dbe6b09936",
+    "mobile/android/fenix/app/src/main/res/xml/preferences.xml": "13da14c1044e938cbe99a990c1d6e595a5d42b333be82deec0d2391bca0b2c29",
+    "mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml": "ddbd3934fb1b16a7250b3ebe38b55742258dc901a91be18bbe0ac33555b9b411",
+    "mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml": "07e7ffc4592b411744bf8396519a6b8242a6716e69bf686041c794336a77bac7",
+    "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt": "429bec936494b5c5de47a7e1a72ac5636883ecc481111826673391c9f0efe3a7"
+  },
+  "source_receipt_file": "task36-source-receipt.json"
+}

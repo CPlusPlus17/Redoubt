@@ -1,0 +1,161 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+package org.mozilla.fenix.settings.search
+
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.mockk.every
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
+import mozilla.components.feature.fxsuggest.FxSuggestAdmission
+import mozilla.components.feature.fxsuggest.FxSuggestChoices
+import mozilla.components.service.fxa.AccountServices
+import mozilla.components.support.ktx.android.content.isMainProcess
+import mozilla.components.support.test.robolectric.testContext
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.mozilla.fenix.FenixApplication
+import org.mozilla.fenix.R
+import org.mozilla.fenix.utils.Settings
+
+@RunWith(AndroidJUnit4::class)
+class FirefoxSuggestPolicyTest {
+    private val preferences get() = testContext.getSharedPreferences(Settings.FENIX_PREFERENCES, Context.MODE_PRIVATE)
+    private val keys = listOf(
+        R.string.pref_key_enable_fxsuggest,
+        R.string.pref_key_show_nonsponsored_suggestions,
+        R.string.pref_key_show_sponsored_suggestions,
+        R.string.pref_key_search_optimization_cards,
+    )
+
+    @Before
+    fun setUp() {
+        mockkStatic("mozilla.components.support.ktx.android.content.ContextKt")
+        every { any<Context>().isMainProcess() } returns true
+        preferences.edit().clear().commit()
+    }
+
+    @After
+    fun tearDown() {
+        unmockkStatic("mozilla.components.support.ktx.android.content.ContextKt")
+        AccountServices.initialize(testContext, defaultEnabled = true)
+        preferences.edit().clear().commit()
+        FxSuggestAdmission.configure { FxSuggestChoices() }
+    }
+
+    @Test
+    fun `production attach defaults off without persisting choices or consulting channel experiments`() {
+        ProductionApplication().attachProductionContext(testContext)
+        val choices = FxSuggestAdmission.snapshot().choices
+        assertEquals(FxSuggestChoices(false, false, false, false), choices)
+        for (key in keys) assertFalse(preferences.contains(testContext.getString(key)))
+        val settings = Settings(testContext)
+        assertFalse(settings.enableFxSuggest)
+        assertFalse(settings.showNonSponsoredSuggestions)
+        assertFalse(settings.showSponsoredSuggestions)
+        assertFalse(settings.shouldShowSearchOptimizationCards)
+    }
+
+    @Test
+    fun `production attach preserves every explicit enabled and disabled choice`() {
+        for (enabled in listOf(true, false)) {
+            val editor = preferences.edit()
+            for (key in keys) editor.putBoolean(testContext.getString(key), enabled)
+            editor.commit()
+            val before = preferences.all
+            ProductionApplication().attachProductionContext(testContext)
+            assertEquals(FxSuggestChoices(enabled, enabled, enabled, enabled), FxSuggestAdmission.snapshot().choices)
+            assertEquals(before, preferences.all)
+        }
+    }
+
+    @Test
+    fun `production child attachment closes Suggest and accounts without accessing app preferences`() {
+        val editor = preferences.edit()
+        for (key in keys) editor.putBoolean(testContext.getString(key), true)
+        editor.commit()
+        val before = preferences.all
+        FxSuggestAdmission.configure { FxSuggestChoices() }
+        val admitted = FxSuggestAdmission.snapshot()
+        AccountServices.initialize(testContext, defaultEnabled = true)
+        val child = object : ContextWrapper(testContext) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
+                error("Isolated child must not access app preferences")
+
+            override fun getSystemService(name: String): Any? =
+                error("Child attachment must not query a system service")
+        }
+        every { child.isMainProcess() } returns false
+
+        ProductionApplication().attachProductionContext(child)
+
+        assertFalse(AccountServices.isEnabled)
+        assertEquals(FxSuggestChoices(false, false, false, false), FxSuggestAdmission.snapshot().choices)
+        assertFalse(FxSuggestAdmission.isCurrent(admitted))
+        assertEquals(before, preferences.all)
+    }
+
+    @Test
+    fun `disabled legacy master retains leaf choices without allowing local or online work`() {
+        preferences.edit()
+            .putBoolean(testContext.getString(R.string.pref_key_enable_fxsuggest), false)
+            .putBoolean(testContext.getString(R.string.pref_key_show_nonsponsored_suggestions), true)
+            .putBoolean(testContext.getString(R.string.pref_key_show_sponsored_suggestions), true)
+            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_cards), true)
+            .commit()
+        FirefoxSuggestPolicy.initialize(testContext)
+        val choices = FxSuggestAdmission.snapshot().choices
+        assertTrue(choices.web && choices.sponsored && choices.online)
+        assertFalse(choices.localEnabled || choices.onlineEnabled)
+    }
+
+    @Test
+    fun `Suggest initialization preserves ordinary query and local result settings`() {
+        val ordinaryKeys = listOf(R.string.pref_key_show_search_suggestions, R.string.pref_key_search_browsing_history, R.string.pref_key_search_bookmarks)
+        val editor = preferences.edit()
+        for (key in ordinaryKeys) editor.putBoolean(testContext.getString(key), true)
+        editor.commit()
+        val before = preferences.all
+        FirefoxSuggestPolicy.initialize(testContext)
+        assertEquals(before, preferences.all)
+        val settings = Settings(testContext)
+        assertTrue(settings.shouldShowSearchSuggestions)
+        assertTrue(settings.shouldShowHistorySuggestions)
+        assertTrue(settings.shouldShowBookmarkSuggestions)
+    }
+
+    @Test
+    fun `explicit online availability and card exclusions survive initialization`() {
+        preferences.edit()
+            .putBoolean(testContext.getString(R.string.pref_key_enable_fxsuggest), true)
+            .putBoolean(testContext.getString(R.string.pref_key_show_nonsponsored_suggestions), true)
+            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_cards), true)
+            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_feature), false)
+            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_stocks), false)
+            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_sports), false)
+            .putBoolean(testContext.getString(R.string.pref_key_search_optimization_flights), false)
+            .commit()
+        val before = preferences.all
+        FirefoxSuggestPolicy.initialize(testContext)
+        assertTrue(FxSuggestAdmission.snapshot().choices.localEnabled)
+        assertFalse(FxSuggestAdmission.snapshot().choices.onlineEnabled)
+        val settings = Settings(testContext)
+        assertFalse(settings.shouldShowSearchOptimizationStockCard)
+        assertFalse(settings.shouldShowSearchOptimizationSportCard)
+        assertFalse(settings.shouldShowSearchOptimizationFlightCard)
+        assertEquals(before, preferences.all)
+    }
+
+    private class ProductionApplication : FenixApplication() {
+        fun attachProductionContext(context: Context) = super.attachBaseContext(context)
+    }
+}

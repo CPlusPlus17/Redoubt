@@ -1,0 +1,161 @@
+// third_party/application-services/components/suggest/src/rs.rs:45-132
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Collection {
+    Amp,
+    Other,
+}
+
+impl Collection {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Amp => "quicksuggest-amp",
+            Self::Other => "quicksuggest-other",
+        }
+    }
+}
+
+/// A trait for a client that downloads suggestions from Remote Settings.
+///
+/// This trait lets tests use a mock client.
+pub(crate) trait Client {
+    /// Get all records from the server
+    ///
+    /// We use this plus client-side filtering rather than any server-side filtering, as
+    /// recommended by the remote settings docs
+    /// (https://remote-settings.readthedocs.io/en/stable/client-specifications.html). This is
+    /// relatively inexpensive since we use a cache and don't fetch attachments until after the
+    /// client-side filtering.
+    ///
+    /// Records that can't be parsed as [SuggestRecord] are ignored.
+    fn get_records(&self, collection: Collection) -> Result<Vec<Record>>;
+
+    fn download_attachment(&self, record: &Record) -> Result<Vec<u8>>;
+}
+
+/// Implements the [Client] trait using a real remote settings client
+pub struct SuggestRemoteSettingsClient {
+    // Create a separate client for each collection name
+    amp_client: Arc<RemoteSettingsClient>,
+    other_client: Arc<RemoteSettingsClient>,
+}
+
+impl SuggestRemoteSettingsClient {
+    pub fn new(rs_service: &RemoteSettingsService) -> Self {
+        Self {
+            amp_client: rs_service.make_client(Collection::Amp.name().to_owned()),
+            other_client: rs_service.make_client(Collection::Other.name().to_owned()),
+        }
+    }
+
+    fn client_for_collection(&self, collection: Collection) -> &RemoteSettingsClient {
+        match collection {
+            Collection::Amp => &self.amp_client,
+            Collection::Other => &self.other_client,
+        }
+    }
+}
+
+impl Client for SuggestRemoteSettingsClient {
+    fn get_records(&self, collection: Collection) -> Result<Vec<Record>> {
+        let client = self.client_for_collection(collection);
+        client.sync()?;
+        let response = client.get_records(false);
+        match response {
+            Some(r) => Ok(r
+                .into_iter()
+                .filter_map(|r| Record::new(r, collection).ok())
+                .collect()),
+            None => Err(Error::RemoteSettings(RemoteSettingsError::Other {
+                reason: "Unable to get records".to_owned(),
+            })),
+        }
+    }
+
+    fn download_attachment(&self, record: &Record) -> Result<Vec<u8>> {
+        let converted_record: RemoteSettingsRecord = record.clone().into();
+        match &record.attachment {
+            Some(_) => Ok(self
+                .client_for_collection(record.collection)
+                .get_attachment(&converted_record)?),
+            None => Err(Error::MissingAttachment(record.id.to_string())),
+        }
+    }
+}
+
+/// Remote settings record for suggest.
+///
+/// This is a `remote_settings::RemoteSettingsRecord` parsed for suggest.
+#[derive(Clone, Debug)]
+
+// third_party/application-services/components/suggest/src/rs.rs:172-200
+/// Suggestions themselves are typically stored in each record's attachment.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type")]
+pub(crate) enum SuggestRecord {
+    #[serde(rename = "icon")]
+    Icon,
+    #[serde(rename = "amp")]
+    Amp,
+    #[serde(rename = "wikipedia")]
+    Wikipedia,
+    #[serde(rename = "amo-suggestions")]
+    Amo,
+    #[serde(rename = "yelp-suggestions")]
+    Yelp,
+    #[serde(rename = "mdn-suggestions")]
+    Mdn,
+    #[serde(rename = "weather")]
+    Weather,
+    #[serde(rename = "configuration")]
+    GlobalConfig(DownloadedGlobalConfig),
+    #[serde(rename = "dynamic-suggestions")]
+    Dynamic(DownloadedDynamicRecord),
+    #[serde(rename = "geonames-2")] // version 2
+    Geonames,
+    #[serde(rename = "geonames-alternates")]
+    GeonamesAlternates,
+}
+
+impl SuggestRecord {
+
+// third_party/application-services/components/suggest/src/rs.rs:345-382
+        write!(f, "{}", self.0)
+    }
+}
+
+/// An AMP suggestion to ingest from an AMP attachment.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub(crate) struct DownloadedAmpSuggestion {
+    pub keywords: Vec<String>,
+    pub title: String,
+    pub url: String,
+    pub score: Option<f64>,
+    #[serde(default)]
+    pub full_keywords: Vec<(String, usize)>,
+    pub advertiser: String,
+    #[serde(rename = "id")]
+    pub block_id: i32,
+    pub iab_category: String,
+    pub serp_categories: Option<Vec<i32>>,
+    pub click_url: String,
+    pub impression_url: String,
+    #[serde(rename = "icon")]
+    pub icon_id: String,
+}
+
+/// A Wikipedia suggestion to ingest from a Wikipedia attachment.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub(crate) struct DownloadedWikipediaSuggestion {
+    pub keywords: Vec<String>,
+    pub title: String,
+    pub url: String,
+    pub score: Option<f64>,
+    #[serde(default)]
+    pub full_keywords: Vec<(String, usize)>,
+    #[serde(rename = "icon")]
+    pub icon_id: String,
+}
+
+/// Iterate over all AMP/Wikipedia-style keywords.
+

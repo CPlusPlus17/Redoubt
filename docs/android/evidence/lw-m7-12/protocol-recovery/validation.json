@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "scope": "Host-only source/protocol controls; installed-APK runtime unrun after correction.",
+  "checks": [
+    {
+      "command": "python3 docs/android/evidence/lw-m7-12/protocol-recovery/test_protocol.py",
+      "exit": 0,
+      "tests": 13
+    },
+    {
+      "command": "python3 scripts/tests/test-android-smoke.py",
+      "exit": 0,
+      "tests": 44
+    },
+    {
+      "command": "python3 docs/android/evidence/lw-m7-18/test-android-graphics-smoke.py",
+      "exit": 0,
+      "tests": 38
+    },
+    {
+      "command": "bash -n scripts/android-smoke.sh",
+      "exit": 0
+    },
+    {
+      "command": "python3 -m py_compile scripts/android-graphics-smoke.py docs/android/evidence/lw-m7-12/protocol-recovery/test_protocol.py",
+      "exit": 0
+    },
+    {
+      "command": "python3 docs/android/board.py --check",
+      "exit": 0,
+      "tasks": 122,
+      "waves": 32,
+      "warnings": 0
+    },
+    {
+      "command": "git diff --check",
+      "exit": 0
+    }
+  ],
+  "retained_before_negative_control": {
+    "tests": 3,
+    "exit": 1,
+    "errors": 3,
+    "log": {
+      "sha256": "7fe39983911c236cffa614a016ec3f51b4adfd4794f7d862c72f1fed380e6f5e",
+      "bytes": 2899
+    }
+  },
+  "capsule_inputs": {
+    "sha256": "61e3f4a0018ea34195eb5140e89c502ebe2c6af207dd259f4c8b5d4eb652800d",
+    "bytes": 786
+  },
+  "test_source": {
+    "sha256": "1a51ced1f6322fd552d28303f90bf5eecd65eea6d587f16056845f4c91b516ed",
+    "bytes": 8524
+  },
+  "before_archive": {
+    "sha256": "ad7b9b3714203b0122f4b7a8c15b1c11f09d9637e7fd95c282315800158d74f1",
+    "bytes": 124375
+  }
+}

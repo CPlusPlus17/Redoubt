@@ -1,0 +1,237 @@
+# GeckoView pref decisions (LW-M3-04)
+#
+# Consumed by `python3 docs/android/board.py --check-policies`. EVERY pref that
+# GeckoView declares and we ship UNLOCKED must appear in exactly one section below.
+# Absence is a hard error.
+#
+# WHY THIS FILE GREW TEETH ON 2026-08-27
+# --------------------------------------
+# It used to be a four-line advisory list, and --check-policies was satisfied by the
+# STRING "[ANDROID: LOCK]" appearing in a comment near the pref. A comment. So of the
+# 26 GeckoView-declared prefs we ship on Android, 23 were effectively defaultPref and
+# the gate was green over all of them. A marker recorded that somebody had thought
+# about the question; it never recorded the answer.
+#
+# All 23 were then classified against the code. The alarming headline did not survive
+# contact: 14 are genuinely safe unlocked. But the ones that were not safe were not
+# peripheral either -- see NETWORK.TRR below.
+#
+# THE THREE SECTIONS
+#   MUST-NOT-LOCK        a visible setting owns it; locking makes that control a
+#                        silent no-op. Every entry names the UI.
+#   SAFE-UNLOCKED        nothing writes it at stage 5b, so the unlocked defaultPref
+#                        already survives. Every entry says why.
+#   LOCKED-CONTROL-DEAD  deliberately locked, knowingly leaving a control inert.
+#
+# Stage 5b = Fenix Pref.commit() -> GeckoView:SetDefaultPrefs, ~65 of which fire on
+# every cold start from GeckoEngine.kt with no user interaction. See AGENTS.md, L2.
+
+
+# ===========================================================================
+# MUST-NOT-LOCK -- a visible setting owns this pref
+# ===========================================================================
+#
+# Locking any of these leaves a control rendered and interactive while
+# Pref::SetDefaultValue silently drops every write (Preferences.cpp:876-902).
+#
+# READ THIS BEFORE ASSUMING "not locked" MEANS "our value is in force". For the
+# five marked `overwritten-at-startup`, stage 5b replaces OUR value with Fenix's on
+# every cold start, and locking is NOT the remedy. The remedy is to change the
+# Fenix-side default. Our .cfg line is cosmetic on Android until someone does.
+
+cookiebanners.service.mode.privateBrowsing
+#     [written-on-settings-screen] owner: /home/mgysin/Documents/librewolf/librewolf-153.0esr-1/mobile/android/fenix/app/src/main/res/xml/preferences.xml:143-147 — CustomCBHSwitchPreference with key `pref_key_cookie_banner
+#     A visible Settings switch owns this pref on the build LibreWolf currently ships.
+#     Locking it would make that switch a silent no-op: SettingsFragment.kt:832 would still
+#     flip the Fenix SharedPreference and reload, but Pref::SetDefaultValue returns early
+#     under IsLocked() (Preferences.cpp:876-902) so cookie-banner handling in private
+#     browsing would never actually change. Leaving it unlocked is also saf
+
+network.trr.mode
+#     [overwritten-at-startup] owner: /home/mgysin/Documents/librewolf/librewolf-153.0esr-1/mobile/android/fenix/app/src/main/res/xml/preferences.xml:137-141 (`pref_key_doh_settings`, title `preference_doh_title`), sho
+#     A shipping, non-secret settings screen (Settings > Privacy and security > DNS over
+#     HTTPS) owns this pref end to end; a lockPref would leave the four protection levels
+#     rendered and selectable while Pref::SetDefaultValue silently drops every write, so the
+#     screen becomes a no-op. Note the cost of not locking: stage 5b genuinely does
+#     overwrite the autoconfig value on every cold start (Fenix DEFAULT/0
+
+network.trr.uri
+#     [overwritten-at-startup] owner: Same DNS-over-HTTPS screen as network.trr.mode: preferences.xml:137-141 -> SettingsFragment.kt:792-794 / :444-446 -> DohSettingsFragment (nav_graph.xml:1433-1434). The provider pic
+#     The visible DoH screen lets the user pick Cloudflare / NextDNS / a custom resolver,
+#     and both paths write this exact pref (DohSettingsProvider.kt:96-97, :108-110). Locking
+#     it would leave the provider list and the custom-URL text field fully interactive while
+#     the value never reaches Gecko — the worst kind of silent breakage, because the user
+#     would believe their chosen resolver is in use. As with trr
+
+privacy.globalprivacycontrol.enabled
+#     [overwritten-at-startup] owner: /home/mgysin/Documents/librewolf/librewolf-153.0esr-1/mobile/android/fenix/app/src/main/res/xml/tracking_protection_preferences.xml:127-130 (SwitchPreferenceCompat, key pref_key_pr
+#     A permanently visible Fenix switch owns this pref, and the switch's ONLY effect on
+#     Gecko is Pref::SetDefaultValue via GeckoView:SetDefaultPrefs. Locking it makes the
+#     toggle a silent no-op (Preferences.cpp:876-902 returns early when IsLocked()) while
+#     the switch still renders and still flips its SharedPreference — the exact user-visible
+#     breakage the task warns about. Practical note on the current un
+
+privacy.trackingprotection.allow_list.baseline.enabled
+#     [written-on-settings-screen] owner: Two visible CheckBoxPreferences: /home/mgysin/Documents/librewolf/librewolf-153.0esr-1/mobile/android/fenix/app/src/main/res/xml/tracking_protection_preferences.xml:34-39 (pref_key
+#     A visible, reachable user checkbox owns this pref in both the Strict and Custom ETP
+#     sections, and its change listener commits the value against a live runtime. lockPref
+#     would make both checkboxes (and the 'disable baseline exceptions' confirmation dialog
+#     at TrackingProtectionFragment.kt:485-500) silent no-ops. Low cost to leave unlocked:
+#     LibreWolf's value at settings/common.cfg:118 is `true`, whic
+
+privacy.trackingprotection.allow_list.convenience.enabled
+#     [overwritten-at-startup] owner: Two visible CheckBoxPreferences: /home/mgysin/Documents/librewolf/librewolf-153.0esr-1/mobile/android/fenix/app/src/main/res/xml/tracking_protection_preferences.xml:40-46 (pref_key
+#     A visible user checkbox owns it (Strict and Custom ETP sections), so lockPref would
+#     turn both boxes into silent no-ops — that is the disqualifying condition. IMPORTANT
+#     for the caller: this is the one pref of the four where the unlocked defaultPref is
+#     genuinely lost. settings/common.cfg:119 sets it to false, and stage 5b rewrites it to
+#     true on EVERY cold start in the default (Standard ETP) configur
+
+security.enterprise_roots.enabled
+#     [written-on-settings-screen] owner: /home/mgysin/Documents/librewolf/librewolf-153.0esr-1/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml:218-223 (`pref_key_allow_third_party_root_certs`, ti
+#     Two independent reasons point the same way. (1) An ungated toggle owns it: the 'Allow
+#     third-party root certificates' switch is visible on release builds once the debug menu
+#     is unlocked (SecretSettingsFragment.kt:141-142, no Config.channel gate) and writes the
+#     pref directly at :146; locking it would leave a switch that flips in the UI and
+#     persists in SharedPreferences while Gecko ignores it — a use
+
+signon.autofillForms
+#     [written-on-settings-screen] owner: Visible SwitchPreferenceCompat: /home/mgysin/Documents/librewolf/librewolf-153.0esr-1/mobile/android/fenix/app/src/main/res/xml/logins_preferences.xml:11-15 (android:key=@string/pr
+#     The 'Autofill in LibreWolf' switch on Settings > Passwords is a normal, always-visible
+#     user control whose change listener writes this exact pref against a live runtime.
+#     lockPref would make that switch a permanent no-op in both directions. Note the caller
+#     should be aware the unlocked defaultPref(false) is already producing a UI/behaviour
+#     mismatch on a fresh profile (switch shows ON, Gecko default i
+
+
+# ===========================================================================
+# SAFE-UNLOCKED -- verified that nothing overwrites it at stage 5b
+# ===========================================================================
+#
+# These do not need a lock. Each was traced to the absence of a stage-5b writer, or
+# to a commit that provably no-ops. If a rebase adds a writer, this section is wrong
+# and nothing will tell you -- re-verify on any GeckoView uplift.
+
+browser.safebrowsing.malware.enabled
+#     Stage 5b calls the setter but writes nothing: RuntimeSettings.java:106 short-circuits
+#     because Fenix commits exactly GeckoView's compiled default (true). Nothing else in
+#     fenix/ or android-components/ touches this pref, so the unlocked defaultPref survives
+#     -- and the lw-m3-09 device capture shows it reading false at runtime with defaultPref
+#     alone. CAVEAT worth passing on: the sur
+
+browser.safebrowsing.phishing.enabled
+#     Same as malware: the stage-5b setter runs but the equality guard at
+#     RuntimeSettings.java:106 blocks the dispatch because Fenix commits GeckoView's own
+#     default `true`. No user toggle exists, no other writer exists, and the device capture
+#     shows the defaultPref value holding. Same caveat: the guarantee is a value
+#     coincidence, not a structural one; lockPref would be a zero-UI-cost
+
+browser.safebrowsing.provider.google.gethashURL
+#     Nothing commits this pref at stage 5b -- it has no commit() call site at all, and
+#     Fenix/android-components never construct or replace SafeBrowsingProvider objects. The
+#     unlocked defaultPref at settings/common.cfg:384 survives, confirmed both statically
+#     and by the lw-m3-09 runtime dump. Use defaultPref (not bare pref()): the name IS in
+#     the stage-5a GeckoView:ResetUserPrefs list,
+
+browser.safebrowsing.provider.google.updateURL
+#     No stage-5b writer exists for this pref, so the unlocked defaultPref at
+#     settings/common.cfg:385 already survives (verified on device in the lw-m3-09 capture).
+#     Keep it as defaultPref rather than pref(): the name is in the stage-5a ResetUserPrefs
+#     list (RuntimeSettings.java:353-364 with hasDefault()==true), so a user-branch write
+#     would be cleared every cold start.
+
+browser.safebrowsing.provider.google4.dataSharingURL
+#     No stage-5b writer exists, so the unlocked defaultPref survives -- already in place at
+#     settings/android.cfg:432. One live hazard, unrelated to locking:
+#     settings/common.cfg:395 still writes this name with a BARE `pref("...", "")`, i.e. the
+#     user branch, and this name IS in the stage-5a GeckoView:ResetUserPrefs list
+#     (commitResetPrefs at RuntimeSettings.java:353-364 skips only `!ha
+
+browser.safebrowsing.provider.google4.gethashURL
+#     No stage-5b write path exists, so the unlocked defaultPref at settings/common.cfg:382
+#     survives; confirmed reading "" in the lw-m3-09 device capture on a build where
+#     librewolf.cfg loaded. Keep defaultPref rather than pref() because the name is in the
+#     stage-5a ResetUserPrefs list (plain Pref<>, hasDefault() true).
+
+browser.safebrowsing.provider.google4.updateURL
+#     Nothing writes it at stage 5b, so the unlocked defaultPref at settings/common.cfg:383
+#     already survives. Keep it as defaultPref: the name is in the stage-5a ResetUserPrefs
+#     list (RuntimeSettings.java:353-364, hasDefault() unconditionally true for plain
+#     Pref<>), so a bare pref() would be wiped at every cold start.
+
+cookiebanners.service.mode
+#     Both the construction-time seed (GeckoProvider.kt:93) and the cold-start stage-5b
+#     assignment (GeckoEngine.kt:2036) read the identical source,
+#     Settings.getCookieBannerHandling(), so the GeckoEngine guard at GeckoEngine.kt:1554 is
+#     always false and no GeckoView:SetDefaultPrefs is ever dispatched for this name. The
+#     unlocked defaultPref(1) at settings/librewolf.cfg:173 survives. Thi
+
+devtools.console.stdout.chrome
+#     Nothing writes this pref at stage 5b — the single writer is Builder.debugLogging using
+#     set(), which cannot dispatch, and its value lands in the stage-2 InitInfo pref map
+#     that autoconfig (stage 4) overrides anyway. The unlocked defaultPref at
+#     settings/android.cfg:398 already wins, and ResetUserPrefs only clears the user branch
+#     it does not use. lockPref would be over-locking and
+
+network.cookie.cookieBehavior.optInPartitioning
+#     Stage 5b assigns it on every cold start but the commit is a no-op: the value is always
+#     `false` (Nimbus gate is off by default) and GeckoView's cached mValue is also `false`,
+#     so Pref.commit early-returns before dispatching SetDefaultPrefs. The unlocked
+#     defaultPref(true) survives. This holds even if the Nimbus gate flips, because a
+#     differing value could only ever be `true`, which
+
+network.cookie.cookieBehavior.optInPartitioning.pbmode
+#     The cold-start assignment is a value-equality no-op, so stage 5b never dispatches this
+#     name; the unlocked defaultPref(true) survives. Even under the Nimbus gate being
+#     enabled the only value Fenix could push is `true`, matching our value. No user-visible
+#     toggle owns it. Contradicts the current [ANDROID: LOCK] annotation at
+#     /home/mgysin/Documents/librewolf/settings/common.cfg:123
+
+privacy.globalprivacycontrol.functionality.enabled
+#     Nothing writes it at stage 5b, so the unlocked defaultPref survives; stage 5a only
+#     clears the USER branch. As with pbmode, our value (settings/librewolf.cfg:306, true)
+#     equals GeckoView's declared default, so the pref is safe on both counts. The existing
+#     '[ANDROID: LOCK]' comment on settings/librewolf.cfg:304-306 is right about the enabled
+#     pref being GeckoView-managed but wrong
+
+privacy.globalprivacycontrol.pbmode.enabled
+#     Nothing reaches stage 5b for this name, so the unlocked defaultPref on the DEFAULT
+#     branch survives. Stage 5a (GeckoView:ResetUserPrefs, RuntimeSettings.java:353-368)
+#     does include this name — it hasDefault() — but that clears only the USER branch and
+#     leaves our default intact. Doubly safe: our value (settings/librewolf.cfg:305, true)
+#     is identical to GeckoView's declared default,
+
+privacy.query_stripping.allow_list
+#     Nothing writes this name at stage 5b, so the unlocked
+#     defaultPref("privacy.query_stripping.allow_list", "urldefense.com") at
+#     settings/librewolf.cfg:158 survives on the DEFAULT branch. Stage 5a
+#     (GeckoView:ResetUserPrefs, RuntimeSettings.java:353-368) does list it, since it
+#     hasDefault(), but that clears only the USER branch. The GeckoView builder's "" is
+#     delivered through GeckoTh
+
+
+# ===========================================================================
+# LOCKED-CONTROL-DEAD -- deliberately locked, control knowingly left inert
+# ===========================================================================
+#
+# LW-M3-09 asked for this section by name: settings/android.cfg:338 says the dead
+# selector "belongs in LW-M3-04's 'locked, known to leave a visible control dead'".
+# Entries here are measured decisions, not bugs. They are NOT must-not-lock: an
+# earlier draft filed contentblocking.category there, which contradicts what we ship
+# and would have re-opened landmine L2b for the one pref bare-prefs.md measured as
+# the headline failure -- it read "standard" despite a bare pref() of "strict".
+
+browser.contentblocking.category
+#     lockPref, settings/android.cfg:341. Settings > Privacy > Tracking Protection
+#     still MOVES but no longer changes behaviour. Parity with desktop, which hides
+#     the equivalent UI and rewrites the pref every startup -- settings/android.cfg:335-338
+#     and docs/android/parity/bare-prefs.md.
+
+network.lna.block_trackers
+#     lockPref, settings/android.cfg. Added 2026-08-27. Stage 5b overwrites it on
+#     every cold start: Core.kt:224 -> GeckoEngine.kt:2061 -> setLnaBlockTrackers ->
+#     GeckoRuntimeSettings.java:2134, and the equality guard cannot fire because
+#     PrefWithoutDefault starts with mValue == null (RuntimeSettings.java:186-187),
+#     so even Fenix's `false` commits over our `true`. The only UI is a hidden debug
+#     switch, so nothing user-visible dies. This is the one pref of the 23 where
+#     locking was both necessary and free.

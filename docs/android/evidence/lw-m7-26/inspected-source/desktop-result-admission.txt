@@ -1,0 +1,78 @@
+// browser/components/urlbar/UrlbarProviderQuickSuggest.sys.mjs:90-138
+   * Starts querying.
+   *
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
+   */
+  async startQuery(queryContext, addCallback) {
+    let instance = this.queryInstance;
+    let searchString = this._trimmedSearchString;
+
+    // Fetch suggestions from all enabled backends.
+    let values = await Promise.all(
+      lazy.QuickSuggest.enabledBackends.map(backend =>
+        backend.query(searchString, { queryContext })
+      )
+    );
+    if (instance != this.queryInstance) {
+      return;
+    }
+
+    let suggestions = await this.#filterAndSortSuggestions(values.flat());
+    if (instance != this.queryInstance) {
+      return;
+    }
+
+    // Convert each suggestion into a result and add it. Don't add more than
+    // `maxResults` visible results so we don't spam the muxer.
+    let remainingCount = queryContext.maxResults ?? 10;
+    for (let suggestion of suggestions) {
+      if (!remainingCount) {
+        break;
+      }
+
+      let result = await this.#makeResult(queryContext, suggestion);
+      if (instance != this.queryInstance) {
+        return;
+      }
+      if (result) {
+        let canAdd = await this.#canAddResult(result);
+        if (instance != this.queryInstance) {
+          return;
+        }
+        if (canAdd) {
+          addCallback(this, result);
+          if (!result.isHiddenExposure) {
+            remainingCount--;
+          }
+        }
+      }
+
+// browser/components/urlbar/UrlbarProviderQuickSuggest.sys.mjs:580-604
+  async #canAddResult(result) {
+    // Discard the result if it's not managed by a feature and its sponsored
+    // state isn't allowed.
+    //
+    // This isn't necessary when the result is managed because in that case: If
+    // its feature is disabled, we didn't create a result in the first place; if
+    // its feature is enabled, we delegate responsibility to it for either
+    // creating or not creating its results.
+    //
+    // Also note that it's possible for suggestion types to be considered
+    // neither sponsored nor nonsponsored. In other words, the decision to add
+    // them or not does not depend on the prefs in this conditional. Such types
+    // should always be managed. Exposure suggestions are an example.
+    let feature = lazy.QuickSuggest.getFeatureByResult(result);
+    if (
+      !feature &&
+      (!lazy.UrlbarPrefs.get("suggest.quicksuggest.all") ||
+        (result.payload.isSponsored &&
+          !lazy.UrlbarPrefs.get("suggest.quicksuggest.sponsored")))
+    ) {
+      return false;
+    }
+
+    // Discard the result if it was dismissed.
+    if (await lazy.QuickSuggest.isResultDismissed(result)) {
+

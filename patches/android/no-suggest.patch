@@ -1,0 +1,259 @@
+# LibreWolf no-suggest.patch  (Android)
+# Owner: LW-M4-11 ("Disable search suggestions and the top-sites contile feed")
+#
+# Upstream files touched
+# -----------------------
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/HomeSettingsFragment.kt
+#   mobile/android/fenix/app/src/main/res/xml/home_preferences.xml
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+#
+# All line numbers below are from the ESR tree (firefox-153.0esr, ./version.android),
+# AFTER the patches listed before this one in assets/patches/android.txt.
+#
+#
+# What desktop does, and what Android did instead
+# ------------------------------------------------
+# Desktop LibreWolf ships browser.search.suggest.enabled=false (settings/common.cfg)
+# and has no sponsored new-tab tiles. Fenix does not read that pref: the toolbar
+# is a Kotlin/Compose view and the suggestion fetch is Fenix's own
+# SearchSuggestionProvider (android-components feature-awesomebar), gated by
+# Settings.shouldShowSearchSuggestions, whose default was `true`
+# (Settings.kt:1628-1631). So on a stock build every keystroke in the toolbar
+# went to the engine's suggestion endpoint before Enter, and a second provider
+# (TrendingSearchProvider, Settings.trendingSearchSuggestionsEnabled, default
+# `true` at :1650-1653) fetched the engine's trending list with an EMPTY query
+# the moment the toolbar was focused.
+#
+# Sponsored tiles ("Contile") are a separate feed. In 153 there is no
+# contile.services.mozilla.com any more -- the feed is the MARS / Mozilla ads
+# client and the host is ads.mozilla.org (measured by LW-M4-10, see
+# no-onboarding.patch, "The two wrong answers"). It is scheduled from three
+# places, all in HomeActivity.kt: a TopSitesRefresher lifecycle observer
+# (:595-603, refresh on every resume), ContileTopSitesUpdater.startPeriodicWork()
+# (:638-640, WorkManager periodic job) and its stopPeriodicWork() in onDestroy
+# (:916). All three were gated on Settings.showContileFeature, a preference
+# defaulting to `true` (:2182-2185) with a "Sponsored shortcuts" checkbox in
+# Settings > Homepage.
+#
+#
+# What this patch does
+# ---------------------
+# 1. Search suggestions OFF by default -- a default, not a lock. The two
+#    preferences keep their keys and their rows in Settings > Search
+#    (SearchEngineFragment.kt:82,92), so the user can turn them on. Acceptance
+#    line 3 ("the suggestion setting is still user-toggleable") is why this is
+#    `default = false` and not a constant.
+#
+# 2. Sponsored tiles REMOVED, not switched off. The brief is explicit that a
+#    switched-off remote feed is still a code path an upstream default can
+#    revive, so:
+#      * Settings.showContileFeature becomes a constant `false` getter. There is
+#        no preference behind it any more, so no settings write, no Nimbus
+#        experiment and no upstream default flip can turn it on. The remaining
+#        readers (TopSitesConfigCreator.kt:48, FenixApplication.kt:460,
+#        DefaultTopSitesView.kt:22, TermsOfUseDataProvider.kt:74,
+#        RecordedNimbusContext.kt:247) all see `false` and need no edit.
+#      * The three scheduling call sites in HomeActivity.kt are deleted, so the
+#        MARS/MAC providers in Core.kt (marsTopSitesProvider :658,
+#        macTopSitesProvider :680, contileTopSitesUpdater :694) are never
+#        constructed -- they are `lazyMonitored` and now have no reader.
+#      * The "Sponsored shortcuts" checkbox is removed from home_preferences.xml
+#        and HomeSettingsFragment.kt, because a visible toggle that does nothing
+#        is the over-locking failure LW-M3-04's must-not-lock list exists to
+#        prevent.
+#    Core.kt itself is deliberately NOT edited: it is shared with
+#    fission-isolation.patch and no-nimbus.patch, the providers are inert
+#    without a caller, and touching it would only add a shared-file ordering
+#    constraint for no runtime difference.
+#
+# 3. SettingsTest.showSearchSuggestions asserted the upstream default and is
+#    flipped to assertFalse. No other unit test pins these defaults: the
+#    SearchFragmentStore / FenixSearchMiddleware tests mock Settings, and
+#    TopSitesRefresherTest tests the class, which still exists. Nothing in
+#    fenix/app/src/test assigns showContileFeature (checked: `grep -rn
+#    'showContileFeature\s*='` is empty), so the var->val change compiles.
+#
+#
+# What this patch does NOT cover, with owners
+# --------------------------------------------
+#   * Firefox Suggest (merino AMP/Wikipedia suggestions): FxSuggestSuggestionProvider
+#     is gated on Settings.enableFxSuggest, whose default is the FML value
+#     `fx-suggest.enabled = false` (nimbus.fml.yaml:372-384); with no-nimbus.patch
+#     the FML default is the only source. Not touched here; LW-M4-03 owns Nimbus.
+#   * Pocket / sponsored stories and the merino image CDN: no-onboarding.patch
+#     (LW-M4-10).
+#   * Search telemetry (search-telemetry-v2 dump, Glean): no-glean.patch (LW-M4-01).
+#   * The default engine and partner codes: search-config.patch (LW-M4-06).
+#
+#
+# Ordering
+# ---------
+# Shares Settings.kt with no-adjust, no-gms, no-onboarding (and the parked
+# ubo-preinstall), HomeActivity.kt with no-adjust and no-nimbus, and
+# SettingsTest.kt with no-onboarding. Every hunk here is in a region none of
+# those patches touch. Order-freedom is MEASURED, not eyeballed: each shared
+# file was replayed from the pristine ESR copy through the android.txt sequence
+# in list order and once more per partner with this patch moved in front of
+# that partner (2026-09-02, both orders, patch exit 0, no .rej, byte-identical
+# results -- HomeActivity.kt sha256 cf447dd9..., Settings.kt db719ae5...,
+# SettingsTest.kt 0369a329...; the only effect of the order is a line offset).
+# Recorded in scripts/check-patch-order.py's REVIEWED_ORDER_FREE. This patch
+# is listed after all of them in assets/patches/android.txt.
+#
+#
+# Verification
+# -------------
+#   ./scripts/android-smoke.sh --check-no-suggest --serial <dev> --apk <apk>
+# types into the toolbar and proves nothing leaves before Enter, from the
+# emulator's own packet capture -- a pref read would pass on a build that still
+# calls the suggestion endpoint, which is the failure this gate exists to catch.
+# See docs/android/evidence/lw-m4-11/ for the measured runs.
+diff -ur a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+@@ -592,16 +592,9 @@
+             aboutHomeBinding,
+             crashReporterBinding,
+             defaultTopSitesBinding,
+-            TopSitesRefresher(
+-                settings = components.settings,
+-                topSitesProvider = if (components.settings.enableMozillaAdsClient) {
+-                    components.core.macTopSitesProvider
+-                } else {
+-                    components.core.marsTopSitesProvider
+-                },
+-                startupPathProvider = startupPathProvider,
+-                visualCompletenessQueue = components.performance.visualCompletenessQueue,
+-            ),
++            // LibreWolf (LW-M4-11): no TopSitesRefresher. It refreshed the sponsored
++            // tile feed (MARS / Mozilla ads client -> ads.mozilla.org) on every
++            // resume; the feed is removed, not disabled.
+             downloadSnackbar,
+             privateBrowsingLockFeature,
+             externalAppLinkStatusBinding,
+@@ -635,9 +628,8 @@
+             true,
+         )
+ 
+-        if (components.settings.showContileFeature) {
+-            components.core.contileTopSitesUpdater.startPeriodicWork()
+-        }
++        // LibreWolf (LW-M4-11): the periodic sponsored-tile refresh
++        // (ContileTopSitesUpdater -> ads.mozilla.org) is removed with the feed.
+ 
+         if (!components.settings.hiddenEnginesRestored) {
+             components.settings.hiddenEnginesRestored = true
+@@ -913,7 +905,6 @@
+             ),
+         )
+ 
+-        components.core.contileTopSitesUpdater.stopPeriodicWork()
+         components.core.pocketStoriesService.stopPeriodicContentRecommendationsRefresh()
+         components.core.pocketStoriesService.stopPeriodicSponsoredContentsRefresh()
+         privateNotificationObserver?.stop()
+diff -ur a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/HomeSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/HomeSettingsFragment.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/HomeSettingsFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/HomeSettingsFragment.kt
+@@ -79,10 +79,8 @@
+             onPreferenceChangeListener = createMetricPreferenceChangeListener("most_visited_sites")
+         }
+ 
+-        requirePreference<CheckBoxPreference>(R.string.pref_key_enable_contile).apply {
+-            isChecked = fenixSettings.showContileFeature
+-            onPreferenceChangeListener = createMetricPreferenceChangeListener("contile")
+-        }
++        // LibreWolf (LW-M4-11): the "Sponsored shortcuts" row is gone -- the
++        // feed behind it is removed (Settings.showContileFeature is constant false).
+ 
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_privacy_report).apply {
+             if (fenixSettings.longfoxEnabled) title = resources.getString(R.string.help_catch_trackers)
+diff -ur a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+@@ -1625,9 +1625,15 @@
+ 
+     fun incrementShowLoginsSecureWarningSyncCount() = loginsSecureWarningSyncCount.increment()
+ 
++    // LibreWolf (LW-M4-11): search suggestions are OFF by default, matching
++    // desktop's browser.search.suggest.enabled=false. Every keystroke in the
++    // toolbar would otherwise be sent to the engine's suggestion endpoint
++    // before the user presses Enter. The setting stays in Settings > Search,
++    // so a user who wants suggestions can turn them on -- this is a default,
++    // not a lock.
+     val shouldShowSearchSuggestions by booleanPreference(
+         appContext.getPreferenceKey(R.string.pref_key_show_search_suggestions),
+-        default = true,
++        default = false,
+     )
+ 
+     val shouldAutocompleteInAwesomebar by booleanPreference(
+@@ -1648,9 +1654,13 @@
+     /**
+      * Indicates if the user have enabled trending search in search suggestions.
+      */
++    // LibreWolf (LW-M4-11): trending searches are a second per-keystroke fetch
++    // (TrendingSearchProvider hits the engine's trending URL with an empty
++    // query as soon as the toolbar is focused). Same posture as above: off by
++    // default, user-toggleable under the search-suggestions switch.
+     internal var trendingSearchSuggestionsEnabled by booleanPreference(
+         appContext.getPreferenceKey(R.string.pref_key_show_trending_search_suggestions),
+-        default = true,
++        default = false,
+     )
+ 
+     /**
+@@ -2178,11 +2188,18 @@
+ 
+     /**
+      * Indicates if the Contile functionality should be visible.
++     *
++     * LibreWolf (LW-M4-11): sponsored top sites are REMOVED, not switched off.
++     * This is a constant rather than a preference so that no settings write,
++     * no Nimbus experiment and no upstream default flip can bring the
++     * ads.mozilla.org / MARS tile feed back. The scheduling call sites in
++     * HomeActivity (TopSitesRefresher, ContileTopSitesUpdater) are gone as
++     * well; this constant is what the remaining readers see. The
++     * "Sponsored shortcuts" row is removed from Settings > Homepage, because a
++     * visible toggle that does nothing is worse than none.
+      */
+-    var showContileFeature by booleanPreference(
+-        key = appContext.getPreferenceKey(R.string.pref_key_enable_contile),
+-        default = true,
+-    )
++    val showContileFeature: Boolean
++        get() = false
+ 
+     /**
+      * Blocklist used to filter items from the home screen that have previously been removed.
+diff -ur a/mobile/android/fenix/app/src/main/res/xml/home_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/home_preferences.xml
+--- a/mobile/android/fenix/app/src/main/res/xml/home_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/home_preferences.xml
+@@ -9,11 +9,8 @@
+         android:key="@string/pref_key_show_top_sites"
+         android:title="@string/top_sites_toggle_top_recent_sites_4" />
+ 
+-    <androidx.preference.CheckBoxPreference
+-        android:dependency="@string/pref_key_show_top_sites"
+-        android:layout="@layout/checkbox_left_sub_preference"
+-        android:key="@string/pref_key_enable_contile"
+-        android:title="@string/customize_toggle_contile" />
++    <!-- LibreWolf (LW-M4-11): the "Sponsored shortcuts" (contile) checkbox is
++         removed together with the sponsored tile feed it controlled. -->
+ 
+     <androidx.preference.SwitchPreferenceCompat
+         android:key="@string/pref_key_privacy_report"
+diff -ur a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+@@ -440,7 +440,8 @@
+     fun showSearchSuggestions() {
+         // When just created
+         // Then
+-        assertTrue(settings.shouldShowSearchSuggestions)
++        // LibreWolf (LW-M4-11): the default is OFF.
++        assertFalse(settings.shouldShowSearchSuggestions)
+     }
+ 
+     @Test

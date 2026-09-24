@@ -1,0 +1,69 @@
+// mobile/android/fenix/app/nimbus.fml.yaml:25-34
+  - path: ../../android-components/components/feature/fxsuggest/fxsuggest.fml.yaml
+    channel: release
+    features:
+      awesomebar-suggestion-provider:
+        - value:
+            available-suggestion-types: {
+              "amp": true,
+              "ampMobile": false,
+              "wikipedia": true,
+            }
+
+// mobile/android/fenix/app/nimbus.fml.yaml:372-398
+  fx-suggest:
+    description: A feature that provides Firefox Suggest search suggestions.
+    variables:
+      enabled:
+        description: >
+          Whether the feature is enabled. When Firefox Suggest is enabled,
+          Firefox will download and store new search suggestions in the
+          background, and show additional Search settings to control which
+          suggestions appear in the awesomebar. When Firefox Suggest is
+          disabled, Firefox will not download new suggestions, and hide the
+          additional Search settings.
+        type: Boolean
+        default: false
+      boost-amp-wiki:
+        description: >
+          The feature boost wiki and AMP suggestions to the top of its group.
+        type: Boolean
+        default: false
+    defaults:
+      - channel: developer
+        value:
+          enabled: true
+          boost-amp-wiki: true
+      - channel: nightly
+        value:
+          enabled: true
+
+
+// mobile/android/fenix/app/nimbus.fml.yaml:1234-1259
+  search-optimization-option:
+    description: Feature to enable the Search Optimization cards for users on Firefox on Android.
+    variables:
+      enabled:
+        description: If true, Search Optimization is enabled.
+        type: Boolean
+        default: false
+      show-stocks-card:
+        description: If true, Search Optimization Stock cards are enabled.
+        type: Boolean
+        default: false
+      show-flights-card:
+        description: If true, Search Optimization Flights cards are enabled.
+        type: Boolean
+        default: false
+      show-sports-card:
+        description: If true, Search Optimization Sports cards are enabled.
+        type: Boolean
+        default: false
+    defaults:
+      - channel: developer
+        value:
+          enabled: true
+          show-stocks-card: true
+          show-flights-card: true
+          show-sports-card: true
+

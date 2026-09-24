@@ -1,0 +1,246 @@
+# LibreWolf build-fixes.patch  (Android)
+# Owner: LW-M2-02 ("Build the common patch set on Android")
+#
+# This file collects the changes that are needed to make an Android build of the
+# LibreWolf tree compile *and that are not attributable to any single LibreWolf
+# patch*. Each entry below states the failure it fixes, verbatim, and the
+# evidence that the failure is real rather than assumed.
+#
+# The rule this file exists to serve (docs/android/AGENTS.md, "What not to do"):
+# a build error is never fixed by dropping a patch from assets/patches/common.txt.
+# Nothing has been dropped, amended or reordered to produce a green build; the
+# full 24-entry common list and all three pre-existing android.txt entries are
+# applied unchanged, and this file is the ONLY change LW-M2-02 made to any patch
+# or patch list.
+#
+# It contains exactly one hunk. That is the finding, not a placeholder: with the
+# straddler splits from M1 in place, the LibreWolf common patch set compiles on
+# aarch64-linux-android with no C++, Rust, moz.build or moz.configure change of
+# any kind. The single failure is in Gradle, and it is caused by an out-of-patch
+# tree mutation (landmine L4), not by any patch.
+#
+# Applied last in assets/patches/android.txt. It has no ordering constraint with
+# anything else: no other patch in common.txt, android.txt or desktop.txt touches
+# any file below. Checked with
+#     grep -rn '^\(+++ b\|--- a\)/.*build\.gradle' patches/
+# which matches this file and nothing else.
+#
+# THE BUILD THIS FILE MAKES GREEN
+#
+#   tree      librewolf-153.0esr-1, produced by
+#             `python3 scripts/librewolf-patches.py 153.0esr 1 --targets=android`
+#             on a freshly extracted, GPG-verified firefox-153.0esr.source.tar.xz
+#             (the base ./version.android pins). 24 common + 4 android patches,
+#             patcher exit 0, no .rej, 13 hunks with fuzz across 11 patches.
+#   mozconfig assets/mozconfig.android, byte for byte, no edit
+#   image     librewolf-android-build (LW-M0-06 + LW-M0-15)
+#   result    ./mach build -j14  ->  MACH_EXIT=0, 15 min 49 s
+#             dist/bin/libxul.so: ELF 64-bit LSB, ARM aarch64, for Android 26,
+#                                 built by NDK r29
+#             geckoview-debug.aar: 91 MB
+#
+#   Cross-checked on the release-track base too (librewolf-153.0.4-1, same
+#   patch set, same mozconfig): ./mach build exit 0 with this hunk, exit 2
+#   without it.
+#
+#   Everything assets/mozconfig.android asks for survived: MOZ_HARDENING_CFLAGS,
+#   MOZ_HARDENING_LDFLAGS, MOZ_STL_HARDENING_FLAGS (_EXTENSIVE), MOZ_MEMORY,
+#   MOZ_REPLACE_MALLOC{,_STATIC} and MOZ_RUST_SIMD in the ESR objdir's
+#   config.status are identical to LW-M2-01's stock baseline. No hardening
+#   option had to be dropped, softened or worked around.
+#
+#
+# ===========================================================================
+# 1. build.gradle - computeVersionCode() cannot parse the LibreWolf version
+# ===========================================================================
+#
+# THE FAILURE, verbatim, from ./mach build on librewolf-153.0.4-1 (the full
+# common+android patch set, assets/mozconfig.android unmodified, inside the
+# pinned librewolf-android-build image):
+#
+#     3:14.19 W FAILURE: Build failed with an exception.
+#     3:14.19 W * Where:
+#     3:14.19 W Build file '/work/repo/librewolf-153.0.4-1/build.gradle' line: 199
+#     3:14.19 W * What went wrong:
+#     3:14.19 W A problem occurred evaluating root project 'librewolf-153.0.4-1'.
+#     3:14.19 W > For input string: "4-1"
+#     ...
+#     3:14.61 E gmake[3]: *** [backend.mk:2401: widget/android/.deps/generated_geckoview_files.stub] Error 1
+#     3:14.61 E gmake[2]: *** [config/recurse.mk:34: export] Error 2
+#     3:14.61 E gmake[1]: *** [config/rules.mk:357: default] Error 2
+#     3:14.61 E gmake: *** [client.mk:58: build] Error 2
+#     MACH_EXIT=2
+#
+# This is a HARD STOP and an early one. It happens in the `export` tier, inside
+# `mach android export` (mobile/android/gradle.py:48), while Gradle is still
+# evaluating the root project - three minutes in, before a single line of Gecko
+# has been compiled. Nothing downstream of it had been proven green when it was
+# hit; the green build came afterwards, with this hunk applied.
+#
+# Every Android build of a LibreWolf tree fails here, on BOTH release and ESR
+# tracks, for the same reason and in the same place. The ESR half is not a
+# deduction - it was reproduced on the tree ./version.android actually pins, by
+# reverting this hunk on an otherwise green librewolf-153.0esr-1 and re-running
+# the Gradle half:
+#
+#     $ patch -p1 -R -i ../patches/android/build-fixes.patch
+#     $ ./mach android archive-geckoview
+#     FAILURE: Build failed with an exception.
+#     * Where:
+#     Build file '/work/repo/librewolf-153.0esr-1/build.gradle' line: 195
+#     * What went wrong:
+#     A problem occurred evaluating root project 'librewolf-153.0esr-1'.
+#     > For input string: "0esr-1"
+#     BUILD FAILED in 1s
+#     MACH_EXIT=1
+#
+# The two tracks report different line numbers because they die on different
+# calls, not because the file differs - build.gradle is line-for-line identical
+# in both tarballs here:
+#     :195  code += Integer.parseInt(parts[1]) * 100   <- ESR,     parts[1]="0esr-1"
+#     :199  code += Integer.parseInt(parts[2])         <- release, parts[2]="4-1"
+# Re-applying the hunk restores the file byte for byte and `./mach build` is
+# green again.
+#
+# WHY IT HAPPENS
+#
+#   * scripts/librewolf-patches.py rewrites browser/config/version.txt and
+#     browser/config/version_display.txt to "<version>-<release>" for every
+#     target, unconditionally, where <version> is the contents of ./version
+#     (desktop) or ./version.android (Android). That write is not expressed as a
+#     patch - it is one of the out-of-patch mutations listed under landmine L4 in
+#     docs/android/AGENTS.md - so no patch checker sees it.
+#
+#   * build/moz.configure/init.configure:1063-1153 (`milestone`) resolves
+#     MOZ_APP_VERSION from `<build_project>/config/version.txt` *if that file
+#     exists*, otherwise from browser/config/version.txt. mobile/android/config/
+#     contains only js_wrapper.sh, mozconfigs/ and tooltool-manifests/ - no
+#     version.txt - so the loop at :1077-1081 breaks on its first iteration and
+#     Android falls back to the browser/ value, i.e. the rewritten one.
+#     Confirmed in both object directories:
+#         release track  'MOZ_APP_VERSION': '153.0.4-1'   'MOZ_APP_VERSION_DISPLAY': '153.0.4-1'
+#         ESR track      'MOZ_APP_VERSION': '153.0esr-1'  'MOZ_APP_VERSION_DISPLAY': '153.0esr-1'
+#     Desktop is unaffected because nothing on desktop parses that string into
+#     integers.
+#
+#   * build.gradle:171-172 `getAppVersionWithoutMilestone()` strips only an
+#     `[ab][0-9]` nightly/beta milestone, and build.gradle:183-203
+#     `computeVersionCode()` then does
+#         String[] parts = appVersion.split('\\.')
+#         assert parts.size() == 2 || parts.size() == 3
+#         int code = Integer.parseInt(parts[0]) * 100000
+#         code += Integer.parseInt(parts[1]) * 100
+#         if (parts.size() == 3) code += Integer.parseInt(parts[2])
+#     "153.0.4-1" splits to ["153", "0", "4-1"] and Integer.parseInt("4-1")
+#     throws NumberFormatException. "153.0esr-1" splits to ["153", "0esr-1"],
+#     passes the assert, and throws on Integer.parseInt("0esr-1") instead.
+#
+#     Run against java.lang.String directly (both helpers are plain
+#     String.replaceFirst, so the semantics are Java's, not Groovy's):
+#         MOZ_APP_VERSION=153.0.4-1   upstream -> "153.0.4-1"  NumberFormatException: For input string: "4-1"
+#         MOZ_APP_VERSION=153.0.4-1   patched  -> "153.0.4"    versionCode=15300004
+#         MOZ_APP_VERSION=153.0esr-1  upstream -> "153.0esr-1" NumberFormatException: For input string: "0esr-1"
+#         MOZ_APP_VERSION=153.0esr-1  patched  -> "153.0"      versionCode=15300000
+#         MOZ_APP_VERSION=153.0a1     upstream -> "153.0"      versionCode=15300000   (unchanged by this hunk)
+#         MOZ_APP_VERSION=153.0.4     upstream -> "153.0.4"    versionCode=15300004   (unchanged by this hunk)
+#
+# WHY THE `esr$` STRIP IS HERE, AND WHAT IT REALLY POINTS AT
+#
+#   Upstream does not hit the ESR half of this. A stock firefox-153.0esr tarball
+#   carries
+#         browser/config/version.txt          153.0
+#         browser/config/version_display.txt  153.0esr
+#   so upstream's MOZ_APP_VERSION on the ESR branch is "153.0" and
+#   computeVersionCode() is happy. The string "esr" only ever lives in
+#   version_display.txt, which build.gradle never reads.
+#
+#   LibreWolf writes ./version.android ("153.0esr" - the *tarball/track* name,
+#   not Firefox's own version number) into BOTH files. That is what puts "esr"
+#   into MOZ_APP_VERSION, and it has a second consequence beyond this build
+#   failure: init.configure:1151 computes
+#         is_esr = app_version_display.endswith("esr") or None
+#   and "153.0esr-1" does not end with "esr", so **MOZ_ESR is not set on the
+#   LibreWolf Android/ESR tree** - verified, it is absent from config.status.
+#   That flips two `#ifndef MOZ_ESR` blocks on: ".jnlp" is included in
+#   xpcom/io/nsLocalFileCommon.cpp's sExecutableExts (113 entries, not 112) and
+#   in the ApplicationReputation list. Both are the *stricter* branch, so this is
+#   not a security regression - but it is an unintended difference between what
+#   the tree says it is and what it is, and it belongs in the M5 parity matrix.
+#
+#   The clean fix for both is in scripts/librewolf-patches.py / ./version.android
+#   - stop conflating the release-track name with Firefox's version number - and
+#   LW-M2-02 does not own either file. Flagged rather than done. This hunk stays
+#   correct either way: with a fixed version.txt the `esr$` strip is a no-op.
+#
+# THE FIX: teach getAppVersionWithoutMilestone() about the two suffixes
+# LibreWolf's version string can carry, so that only the dotted numeric version
+# is ever parsed. `getVersionNumber()` (build.gradle:223-233) and the equivalent
+# helper in mobile/android/android-components/components/browser/engine-gecko/
+# build.gradle:113-128 also call a getAppVersionWithoutMilestone(), but neither
+# parses integers - they only take parts[0] and parts[1] - so neither was
+# failing, and the android-components copy is deliberately left alone.
+#
+# WHAT THIS DELIBERATELY DOES NOT DO, and the two alternatives that were rejected
+#
+#   a) Stop appending "-<release>" to version.txt on Android. That would make
+#      MOZ_APP_VERSION on Android a bare Firefox version, so about:buildconfig
+#      and GeckoView's BuildConfig.MOZ_APP_VERSION (mobile/android/geckoview/
+#      build.gradle) would no longer name the LibreWolf release at all, and
+#      Android would report a different version from desktop for the same
+#      source. It also means adding a *second* target-dependent out-of-patch
+#      mutation to scripts/librewolf-patches.py, which is the failure class
+#      landmine L4 warns about, in a file this task does not own.
+#
+#   b) Create mobile/android/config/version{,_display}.txt so init.configure
+#      picks those up instead. Same loss of the LibreWolf version on Android,
+#      plus a second copy of the version number to keep in sync, plus a third
+#      out-of-patch mutation.
+#
+#   Doing it here keeps the LibreWolf version string intact everywhere it is
+#   user-visible, and keeps the change inside the patch set where
+#   `make check-patchfail` can see it drift.
+#
+# KNOWN LIMITATION - hand this to LW-M2-04 / LW-M6 (store distribution)
+#
+#   versionCode is now computed from the Firefox version alone: 153.0.4-1 and a
+#   hypothetical 153.0.4-2 both yield 15300004, and on the ESR track 153.0esr-1
+#   yields 15300000. A LibreWolf-only release bump therefore does NOT advance
+#   versionCode, and both Google Play and F-Droid require it to increase for
+#   every published artifact. Upstream's scheme (major*100000 + minor*100 +
+#   build, "must be synchronized with _compute_gecko_version(...) in
+#   taskcluster/gecko_taskgraph/transforms/task.py") leaves no free digits, so
+#   folding the release number in is a versioning-scheme decision, not a build
+#   fix, and it is deliberately not made here. It does not affect the GeckoView
+#   AAR that `mach build` produces today.
+#
+# REBASE CHECK: if upstream rewrites getAppVersionWithoutMilestone(), this hunk
+# rejects. Do not paper over it - re-read computeVersionCode() and check what it
+# does with a version string carrying a "-N" suffix before regenerating.
+#
+--- a/build.gradle
++++ b/build.gradle
+@@ -168,8 +168,23 @@
+ // Non-official versions are like "61.0a1" or "61.0b1", where "a1" and "b1"
+ // are the milestone.
+ // This simply strips that off, leaving "61.0" in this example.
++//
++// LibreWolf: MOZ_APP_VERSION is not a bare Firefox version here.
++// scripts/librewolf-patches.py rewrites browser/config/version{,_display}.txt
++// to "<firefox version>-<librewolf release>", and the Android track pins an
++// ESR version, so the value reaching this function is "153.0.4-1" on the
++// release track and "153.0esr-1" on the ESR track. Upstream only strips an
++// [ab][0-9] milestone, so computeVersionCode() below fed Integer.parseInt()
++// "4-1" (release track) or "0esr-1" (ESR track) and threw
++// NumberFormatException while Gradle was still evaluating the root project --
++// i.e. before a single line of Gecko was compiled. Strip the LibreWolf
++// release suffix and the "esr" tag as well, so what is parsed is always the
++// dotted numeric version.
+ def getAppVersionWithoutMilestone() {
+-    return project.ext.mozconfig.substs.MOZ_APP_VERSION.replaceFirst(/[ab][0-9]/, "")
++    return project.ext.mozconfig.substs.MOZ_APP_VERSION
++            .replaceFirst(/-.*$/, "")
++            .replaceFirst(/esr$/, "")
++            .replaceFirst(/[ab][0-9]/, "")
+ }
+
+ // This converts MOZ_APP_VERSION into an integer

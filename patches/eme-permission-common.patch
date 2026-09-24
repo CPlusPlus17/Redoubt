@@ -1,0 +1,146 @@
+EME permission -- COMMON half (LW-M1-03).
+
+Split out of patches/eme-permission.patch, which was a straddler: one file in
+core Gecko (the enforcement point) plus two browser/-only files (the desktop
+doorhanger). The browser/ half now lives in patches/eme-permission-desktop.patch;
+common + desktop together are byte-for-byte the original patch.
+
+What is here:
+  dom/media/eme/MediaKeySystemAccessManager.cpp   core DOM/media, built on every
+                                                  target (dom/media/moz.build:28,32
+                                                  puts "eme" in DIRS, no guard)
+
+What it does, in the order the code runs:
+  1. RequestMediaKeySystemAccess(): drops upstream's Clear Key exemption from the
+     media.eme.enabled gate, so media.eme.enabled=false now blocks Clear Key too.
+  2. RequestMediaKeySystemAccess(): rejects Clear Key outright unless
+     librewolf.eme.gmp-clearkey.enabled is true. Read with
+     Preferences::GetBool(..., false) -- the fallback when the pref is absent is
+     DENY.
+  3. OnDoesAppAllowProtectedMedia(): rejection-message wording only, no behaviour
+     change.
+
+ANDROID BEHAVIOUR -- THE DECISION, AND THE TREE EVIDENCE FOR IT
+===============================================================
+Question raised by LW-M1-01: with the prompt UI in the other half, does the
+Android path still reach a decision, or does EME fail closed with no UI, the way
+landmine L1 kills WebGL?
+
+Answer: it reaches a real decision, and Android already has real UI for it. This
+is NOT L1's shape, and NO Android companion patch is needed. All of the below was
+checked against the pristine firefox-153.0.4 tree.
+
+  * The "media-key-system-access" request is the app-approval request created in
+    MediaKeySystemAccessManager::CheckDoesAppAllowProtectedMedia() (:247), gated
+    on media.eme.require-app-approval
+    (MediaKeySystemAccessPermissionRequest.cpp:41). That pref defaults to false
+    (StaticPrefList.yaml:12193-12196); LibreWolf turns it on for desktop in
+    settings/librewolf.cfg:397, and upstream already turns it on for Android in
+    mobile/android/app/geckoview-prefs.js:287. Both front ends really do run the
+    prompt path.
+  * On Android the prompt is answered, not dropped. The
+    @mozilla.org/content-permission/prompt;1 contract is bound to
+    GeckoViewPermission (mobile/shared/components/geckoview/components.conf:28-33),
+    whose promptPermission() is type-agnostic: it forwards ANY perm.type to the
+    embedder through the GeckoViewPermission actor
+    (GeckoViewPermission.sys.mjs:119-219, the actor call at :169). There is no
+    per-type switch to fall off. That is exactly the difference from
+    webgl-permission, whose prompt observers exist only under browser/.
+  * The type survives the JNI boundary: GeckoSession.java:7354-7355 maps
+    "media-key-system-access" to PERMISSION_MEDIA_KEY_SYSTEM_ACCESS (:7195), and
+    :7386-7387 maps it back.
+  * Fenix implements it end to end, with a visible prompt and a settings entry:
+    PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS
+    (fenix/app/.../settings/PhoneFeature.kt:38), fed into the site-permission
+    rules at fenix/app/.../utils/Settings.kt:1812 and answered by
+    SitePermissionsRules.kt:92-94. The default action is ASK_TO_ALLOW
+    (Settings.kt:1749-1753), i.e. the user is prompted, and Fenix exposes both a
+    global and a per-site Allowed/Blocked control for it.
+  * Consequence: on Android, Widevine (media.eme.enabled defaults TRUE there --
+    StaticPrefList.yaml:12163-12176 puts only non-Android Linux in the false
+    branch) reaches GetKeySystemStatus, then the Fenix doorhanger, then the user.
+
+What IS a silent deny, deliberately, and on BOTH platforms: Clear Key. Hunk 2
+rejects it with "CDM is not installed" before any prompt is reached, because the
+enforcement sits in RequestMediaKeySystemAccess() while
+CheckDoesAppAllowProtectedMedia() only runs later, after GetSupportedConfig()
+(MediaKeySystemAccessManager.cpp:532-542). That is the existing desktop LibreWolf
+behaviour, unchanged here; it is not an Android-specific regression.
+
+Why that needs no Android default flip (the contrast with landmine L1): the pref
+is read as Preferences::GetBool("librewolf.eme.gmp-clearkey.enabled", false). The
+built-in fallback is already the strict value, and LibreWolf's own default
+(settings/librewolf.cfg:395) is the same false. So an Android build that has not
+yet grown librewolf.cfg behaves identically to desktop. webgl-permission needed
+patches/android/webgl-prompt-default.patch precisely because its shared default
+was the permissive-looking true, which on Android meant "prompt", which meant
+"never answered".
+
+One upstream asymmetry, present before and after this patch, recorded so nobody
+rediscovers it as a regression: the "mediakeys-request" notification sent by
+MediaKeySystemAccess::NotifyObservers() is observed only by
+browser/actors/EncryptedMediaChild.sys.mjs (registered at
+browser/components/DesktopActorRegistry.sys.mjs:488). Nothing under mobile/
+observes it, so the Api_disabled / Cdm_not_installed "chrome should explain this"
+notifications are no-ops on Android. Hunk 1 makes Clear Key reach that
+notification where upstream did not; on Android that is a notification into the
+void -- harmless, and the user-visible deny reason is the DOMException the promise
+is rejected with.
+
+Deferred to M2+ (do not build it here, per the task brief): an Android surface for
+the LibreWolf-specific Clear Key denial, the equivalent of the desktop
+EMEPermissionPrompt's learn-more link to librewolf.eme.warning.infoURL.
+
+diff --git a/dom/media/eme/MediaKeySystemAccessManager.cpp b/dom/media/eme/MediaKeySystemAccessManager.cpp
+index acdc1030c06fa..12f3363549245 100644
+--- a/dom/media/eme/MediaKeySystemAccessManager.cpp
++++ b/dom/media/eme/MediaKeySystemAccessManager.cpp
+@@ -364,9 +364,11 @@ void MediaKeySystemAccessManager::OnDoesAppAllowProtectedMedia(
+                   aIsAllowed ? "true" : "false",
+                   NS_ConvertUTF16toUTF8(aRequest->mKeySystem).get());
+   if (!aIsAllowed) {
+-    aRequest->RejectPromiseWithNotSupportedError(
+-        nsLiteralCString("The application embedding this user agent has "
+-                         "blocked MediaKeySystemAccess"));
++    if (IsClearkeyKeySystem(aRequest->mKeySystem)) {
++      aRequest->RejectPromiseWithNotSupportedError("CDM is not installed"_ns);
++    } else {
++      aRequest->RejectPromiseWithNotSupportedError("EME has been preffed off"_ns);
++    }
+     return;
+   }
+ 
+@@ -421,8 +423,8 @@ void MediaKeySystemAccessManager::RequestMediaKeySystemAccess(
+     return;
+   }
+ 
+-  if (!StaticPrefs::media_eme_enabled() &&
+-      !IsClearkeyKeySystem(aRequest->mKeySystem)) {
++  if (!StaticPrefs::media_eme_enabled()) {
++//      !IsClearkeyKeySystem(aRequest->mKeySystem)) {
+     // EME disabled by user, send notification to chrome so UI can inform user.
+     // Clearkey is allowed even when EME is disabled because we want the pref
+     // "media.eme.enabled" only taking effect on proprietary DRMs.
+@@ -431,12 +433,21 @@ void MediaKeySystemAccessManager::RequestMediaKeySystemAccess(
+       MediaKeySystemAccess::NotifyObservers(mWindow, aRequest->mKeySystem,
+                                             MediaKeySystemStatus::Api_disabled);
+     }
+-    aRequest->RejectPromiseWithNotSupportedError("EME has been preffed off"_ns);
++    if (IsClearkeyKeySystem(aRequest->mKeySystem)) {
++      aRequest->RejectPromiseWithNotSupportedError("CDM is not installed"_ns);
++    } else {
++      aRequest->RejectPromiseWithNotSupportedError("EME has been preffed off"_ns);
++    }
+     aRequest->mDiagnostics.StoreMediaKeySystemAccess(
+         mWindow->GetExtantDoc(), aRequest->mKeySystem, false, __func__);
+     return;
+   }
+ 
++  if (IsClearkeyKeySystem(aRequest->mKeySystem) && !Preferences::GetBool("librewolf.eme.gmp-clearkey.enabled", false)) {
++      aRequest->RejectPromiseWithNotSupportedError("CDM is not installed"_ns);
++      return;
++  }
++
+   nsAutoCString message;
+   MediaKeySystemStatus status =
+       MediaKeySystemAccess::GetKeySystemStatus(*aRequest, message);

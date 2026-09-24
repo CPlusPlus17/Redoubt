@@ -1,0 +1,132 @@
+// third_party/application-services/components/suggest/src/store.rs:260-289
+    /// Return whether any suggestions have been dismissed.
+    #[handle_error(Error)]
+    pub fn any_dismissed_suggestions(&self) -> SuggestApiResult<bool> {
+        self.inner.any_dismissed_suggestions()
+    }
+
+    /// Interrupts any ongoing queries.
+    ///
+    /// This should be called when the user types new input into the address
+    /// bar, to ensure that they see fresh suggestions as they type. This
+    /// method does not interrupt any ongoing ingests.
+    #[uniffi::method(default(kind = None))]
+    pub fn interrupt(&self, kind: Option<InterruptKind>) {
+        self.inner.interrupt(kind)
+    }
+
+    /// Ingests new suggestions from Remote Settings.
+    #[handle_error(Error)]
+    pub fn ingest(
+        &self,
+        constraints: SuggestIngestionConstraints,
+    ) -> SuggestApiResult<SuggestIngestionMetrics> {
+        self.inner.ingest(constraints)
+    }
+
+    /// Removes all content from the database.
+    #[handle_error(Error)]
+    pub fn clear(&self) -> SuggestApiResult<()> {
+        self.inner.clear()
+    }
+
+// third_party/application-services/components/suggest/src/store.rs:524-540
+    fn interrupt(&self, kind: Option<InterruptKind>) {
+        if let Some(dbs) = self.dbs.get() {
+            // Only interrupt if the databases are already open.
+            match kind.unwrap_or(InterruptKind::Read) {
+                InterruptKind::Read => {
+                    dbs.reader.interrupt_handle.interrupt();
+                }
+                InterruptKind::Write => {
+                    dbs.writer.interrupt_handle.interrupt();
+                }
+                InterruptKind::ReadWrite => {
+                    dbs.reader.interrupt_handle.interrupt();
+                    dbs.writer.interrupt_handle.interrupt();
+                }
+            }
+        }
+    }
+
+// third_party/application-services/components/suggest/src/store.rs:590-668
+{
+    pub fn ingest(
+        &self,
+        constraints: SuggestIngestionConstraints,
+    ) -> Result<SuggestIngestionMetrics> {
+        breadcrumb!("Ingestion starting");
+        let writer = &self.dbs()?.writer;
+        let mut metrics = SuggestIngestionMetrics::default();
+        if constraints.empty_only && !writer.read(|dao| dao.suggestions_table_empty())? {
+            return Ok(metrics);
+        }
+
+        // Figure out which record types we're ingesting and group them by
+        // collection. A record type may be used by multiple providers, but we
+        // want to ingest each one at most once. We always ingest some types
+        // like global config.
+        let mut record_types_by_collection = HashMap::from([(
+            Collection::Other,
+            HashSet::from([SuggestRecordType::GlobalConfig]),
+        )]);
+        for provider in constraints
+            .providers
+            .as_ref()
+            .unwrap_or(&DEFAULT_INGEST_PROVIDERS.to_vec())
+            .iter()
+        {
+            for (collection, provider_rts) in provider.record_types_by_collection() {
+                record_types_by_collection
+                    .entry(collection)
+                    .or_default()
+                    .extend(provider_rts.into_iter());
+            }
+        }
+
+        // Create a single write scope for all DB operations
+        let mut write_scope = writer.write_scope()?;
+
+        // Read the previously ingested records.  We use this to calculate what's changed
+        let ingested_records = write_scope.read(|dao| dao.get_ingested_records())?;
+
+        // Record whether any changes are ingested.
+        let mut has_changes = false;
+
+        // For each collection, fetch all records
+        for (collection, record_types) in record_types_by_collection {
+            breadcrumb!("Ingesting collection {}", collection.name());
+            let records = self.settings_client.get_records(collection)?;
+
+            // For each record type in that collection, calculate the changes and pass them to
+            // [Self::ingest_records]
+            for record_type in record_types {
+                breadcrumb!("Ingesting record_type: {record_type}");
+                let changes = RecordChanges::new(
+                    records.iter().filter(|r| r.record_type() == record_type),
+                    ingested_records.iter().filter(|i| {
+                        i.record_type == record_type.as_str() && i.collection == collection.name()
+                    }),
+                );
+                has_changes |= changes.has_changes();
+                metrics.measure_ingest(record_type.to_string(), |context| {
+                    write_scope.write(|dao| {
+                        self.process_changes(dao, collection, changes, &constraints, context)
+                    })
+                })?;
+                write_scope.err_if_interrupted()?;
+            }
+        }
+
+        // Truncate the WAL if the DB is updated without interruption.
+        // This avoids the overhead iccurred by handling a large SQLite WAL.
+        // See https://bugzilla.mozilla.org/show_bug.cgi?id=2005613
+        if has_changes {
+            write_scope.err_if_interrupted()?;
+            breadcrumb!("Truncating WAL on changes");
+            write_scope
+                .conn
+                .pragma_update(None, "wal_checkpoint", "TRUNCATE")?;
+        }
+
+

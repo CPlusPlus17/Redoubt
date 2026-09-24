@@ -1,0 +1,23 @@
+$ python3 docs/android/board.py --check
+ok: 104 tasks, 23 waves, 0 warning(s)
+exit=0
+
+$ python3 scripts/check-patch-order.py
+patch order ok: 15/15 declared constraint(s) enforced across 2 target sequence(s); 97 shared-file pair(s) derived and classified.
+exit=0
+
+$ python3 scripts/lint-patch-scope.py
+lint-patch-scope: OK - 93 patch file(s), no scope violations
+exit=0
+
+$ python3 docs/android/board.py --check-scope
+error: PATCH-SCOPE.md says 31 android, lists have 33
+error: PATCH-SCOPE.md says 91 total, lists have 93
+
+2 error(s)
+exit=1
+
+$ git diff --check -- docs/android/tasks.yaml assets/patches/android.txt
+exit=0
+
+PATCH-SCOPE global counts are root-owned and intentionally not edited here. This isolated base says31/91, while current lists including this patch contain33/93. No new shared Gecko-file ordering pair was introduced by this patch.

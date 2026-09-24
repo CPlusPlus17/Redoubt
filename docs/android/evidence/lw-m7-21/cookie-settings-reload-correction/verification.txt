@@ -1,0 +1,41 @@
+$ python3 docs/android/evidence/lw-m7-21/cookie-settings-reload-correction/verify-source.py
+SOURCE PASS: original/corrected complete37-file cookie scopes replay with zero fuzz/offset.
+SOURCE PASS: one test-file patch section changes; all five test bodies/assertions are byte-identical.
+EVIDENCE PASS: actual current165 source pin and five default-bridge setup failures retained.
+TARGET TESTS/COMPILATION/RUNTIME: NOT RUN for this correction; full rerun required.
+exit=0
+
+$ python3 scripts/tests/test-cookie-banner-controls.py
+PASS archive inputs verified and patch applies with zero fuzz/offset
+PASS all reconstructed source hashes
+PASS parsed XML, stable controls/scope labels, legacy safe route and absence of implicit data clearing
+PASS set acknowledges correct normal scope
+PASS remove acknowledges correct normal scope
+PASS unset domain inherits only its corresponding global mode false
+PASS set acknowledges correct temporary private scope
+PASS remove acknowledges correct private scope
+PASS unset domain inherits only its corresponding global mode true
+PASS SetCookieBannerModeForDomain native failure terminates with an error
+PASS SetCookieBannerModeForDomain invalid URI terminates before native mutation
+PASS RemoveCookieBannerModeForDomain native failure terminates with an error
+PASS RemoveCookieBannerModeForDomain invalid URI terminates before native mutation
+PASS GetCookieBannerModeForDomain native failure terminates with an error
+PASS GetCookieBannerModeForDomain invalid URI terminates before native mutation
+PASS globally disabled query preserves domain exceptions without querying native storage
+PASS token acquisition reports inactive native session errors
+PASS SetCookieBannerModeForDomain forwards immutable private token to native scoped API
+PASS SetCookieBannerModeForDomain rejects a private token masquerading as a normal choice
+PASS RemoveCookieBannerModeForDomain forwards immutable private token to native scoped API
+PASS RemoveCookieBannerModeForDomain rejects a private token masquerading as a normal choice
+PASS stale scoped read rejects before native preference access
+PASS 19 actual-JS event tests; native lifetime and banner behavior remain target gates
+PASS actual C++ counter/token helpers/observers and pre/post-init mutation guards (43 assertions); platform/IO/container boundaries mocked
+NOT RUN standalone Kotlin JUnit gate: provide --kotlin-cache; target build/full Fenix/runtime also remain required
+exit=0
+
+$ python3 docs/android/board.py --check
+ok: 122 tasks, 31 waves, 0 warning(s)
+exit=0
+
+$ git diff --check
+exit=0

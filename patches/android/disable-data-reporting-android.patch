@@ -1,0 +1,68 @@
+# LibreWolf disable-data-reporting-android.patch
+# Owner: LW-M1-02 (split of disable-data-reporting-at-compile-time.patch)
+#
+# Upstream file: mobile/android/moz.configure
+#
+# What this does: MOZ_SERVICES_HEALTHREPORT -> False for the Android front end.
+#
+# Why: this is the Android counterpart of the browser/moz.configure hunk in
+# patches/disable-data-reporting-desktop.patch, and without it the Android build
+# keeps compile-time data reporting ON while every other half of the telemetry
+# kill switch is applied. MOZ_DATA_REPORTING is computed at
+# toolkit/moz.configure:3493-3507 as
+#
+#     telemetry or healthreport or crashreporter or normandy
+#
+# Two of those four come from the front end's own moz.configure, and the two
+# front ends disagree:
+#
+#     browser/moz.configure:6,10        HEALTHREPORT True,  NORMANDY True
+#     mobile/android/moz.configure:131  NORMANDY     False  <- already off
+#     mobile/android/moz.configure:132  HEALTHREPORT True   <- flipped here
+#
+# So Android needs one line flipped where desktop needs two: MOZ_NORMANDY is
+# already False upstream on Android and is deliberately left alone, because
+# re-implying a value it already has adds a rebase hazard for no effect.
+# (Both options are declared once, as project_flags, at toolkit/moz.configure:
+# 1069-1079; the front-end moz.configure files are the only things that imply
+# them.)
+#
+# With --disable-crashreporter and the empty MOZ_TELEMETRY_REPORTING that
+# assets/mozconfig.android already sets, this makes MOZ_DATA_REPORTING False on
+# Android. The visible effect in the tree is that the
+# `#ifdef MOZ_DATA_REPORTING` block at modules/libpref/init/all.js:3724-3733 --
+# datareporting.policy.dataSubmissionEnabled = true and the rest of the
+# datareporting.policy.* defaults -- is no longer compiled into the prefs.
+# The `#ifdef MOZ_SERVICES_HEALTHREPORT` block just below it (:3735-3744) is
+# already inert on Android: its body is wrapped in `#if !defined(ANDROID)`.
+#
+# Outside the diff: nothing. Note in particular that
+# `mk_add_options MOZ_SERVICES_HEALTHREPORT=0` in assets/mozconfig.android does
+# NOT do this job -- python/mozbuild/mozbuild/mozconfig.py routes mk_add_options
+# into make_extra and never into configure's environment -- and turning it into
+# an `export` is not an alternative either: configure would then die on the
+# conflict between the environment value and the imply_option below.
+#
+# Nothing in the tree gates a build directory or a Gradle flag on
+# MOZ_SERVICES_HEALTHREPORT (checked: the only readers in firefox-153.0.4 are
+# toolkit/moz.configure, the two front-end moz.configure files,
+# modules/libpref/init/all.js and python/mozbuild/mozbuild/mozinfo.py's
+# `healthreport` test-manifest key), so this flips a define and nothing else.
+#
+# Rebase check: if mobile/android/moz.configure ever stops implying
+# MOZ_SERVICES_HEALTHREPORT at all, this hunk rejects -- which is the intended
+# outcome. Re-verify against toolkit/moz.configure's data_reporting() before
+# dropping it.
+diff --git a/mobile/android/moz.configure b/mobile/android/moz.configure
+index 077c7ca..e6fa430 100644
+--- a/mobile/android/moz.configure
++++ b/mobile/android/moz.configure
+@@ -129,7 +129,7 @@ set_config("MOZ_ANDROID_DEBUGGABLE", android_debuggable)
+ 
+ 
+ imply_option("MOZ_NORMANDY", False)
+-imply_option("MOZ_SERVICES_HEALTHREPORT", True)
++imply_option("MOZ_SERVICES_HEALTHREPORT", False)
+ imply_option("MOZ_GECKOVIEW_HISTORY", True)
+ 
+ imply_option("MOZ_APP_UA_NAME", "Firefox")

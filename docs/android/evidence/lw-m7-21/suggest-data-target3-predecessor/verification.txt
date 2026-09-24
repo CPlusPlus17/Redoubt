@@ -1,0 +1,21 @@
+$ python3 docs/android/evidence/lw-m7-29/check-source.py
+PASS staged 13 pinned Suggest catalog/config/test-fixture files; no production attachment payloads or network
+SOURCE REPLAY PASS: 3 scoped predecessors; 17 patch files + 13 staged files match individual pins.
+AUTHORED KOTLIN TESTS: 13; NOT EXECUTED by this replay.
+AUTHORED RUST TESTS: 16; NOT EXECUTED by this replay.
+TARGET COMPILATION / APK RUNTIME: NOT RUN. See README.md for required acceptance evidence.
+exit=0
+
+$ python3 docs/android/evidence/lw-m7-29/check-ordering.py
+patches/android/rs-blocker-android.patch: inverse identical=True; candidate reached=True
+patches/android/search-config.patch: inverse identical=True; candidate reached=True
+patches/android/firefox-suggest-policy.patch: inverse identical=False; candidate reached=True
+ORDER RECEIPT PASS; global classification remains root integration ownership.
+exit=0
+
+$ python3 docs/android/board.py --check
+ok: 122 tasks, 31 waves, 0 warning(s)
+exit=0
+
+$ git diff --check
+exit=0

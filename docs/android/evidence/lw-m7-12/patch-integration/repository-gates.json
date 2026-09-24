@@ -1,0 +1,60 @@
+{
+  "recorded_utc": "2026-09-08T21:10:43.904757+00:00",
+  "base_commit": "a059f34631f0ee8e5a375cbee35ca71f9e9eba5a",
+  "input_sha256": {
+    "assets/patches/common.txt": "773379a631688780915bd7b5b9d107254661afbf84d247d1b8f2b46f752a8eca",
+    "assets/patches/android.txt": "c994640f5fc9251141949c98dd24d4874c23e53ab7d49bf4eafb7702c035a88f",
+    "assets/patches/desktop.txt": "f8b0df4eccbc4dd2dafcf1ec591b7a55652a50947e8375a2a5323d36fcdab075",
+    "scripts/check-patch-order.py": "164c991ee456ecb7ce35c967953f56ab09390ccededd84df499e249fb2423497",
+    "scripts/check-patchfail.sh": "96535a85665c578a97a670a05aff639913f8b55aeebb224b3edae028b9c9f94d",
+    "scripts/lint-patch-scope.py": "edba249b7b93230cd06d811e349bc38ba985973be8f23dc819e4613950a5902e",
+    "docs/android/board.py": "032a6ea544d0ead8262437d1c7fa089dde57b2a8eba299ae5061bd341422bd16",
+    "docs/android/PATCH-SCOPE.md": "c68614c073891fffb8e6b9fd76dfd753093daa6163e59c209b3ae1196b9a737a",
+    "docs/android/tasks.yaml": "53737abdedc9986832334e165d2fe05ef40c179171ec55f2084107144d00fcce"
+  },
+  "results": [
+    {
+      "command": [
+        "python3",
+        "scripts/check-patch-order.py"
+      ],
+      "exit_status": 0,
+      "output": "patch order ok: 12/12 declared constraint(s) enforced across 2 target sequence(s); 91 shared-file pair(s) derived and classified.\n"
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/board.py",
+        "--check-scope"
+      ],
+      "exit_status": 0,
+      "output": "ok: 89 listed patch files \u2014 24 common, 36 desktop, 29 android, 0 straddlers parked; PATCH-SCOPE.md agrees\n"
+    },
+    {
+      "command": [
+        "python3",
+        "docs/android/board.py",
+        "--check"
+      ],
+      "exit_status": 0,
+      "output": "ok: 98 tasks, 22 waves, 0 warning(s)\n"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/lint-patch-scope.py"
+      ],
+      "exit_status": 0,
+      "output": "lint-patch-scope: OK - 89 patch file(s), no scope violations\n"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_status": 0,
+      "output": ""
+    }
+  ]
+}

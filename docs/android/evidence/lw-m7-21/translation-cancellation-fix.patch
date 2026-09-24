@@ -1,0 +1,20 @@
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java
+@@ -43,10 +43,13 @@
+     bundle.putString("requestId", requestId);
+     final GeckoResult<Void> result = dispatcher.queryVoid(event, bundle);
+     result.setCancellationDelegate(
+-        () -> {
+-          final GeckoBundle cancellation = new GeckoBundle(1);
+-          cancellation.putString("cancelId", requestId);
+-          return dispatcher.queryBoolean(event, cancellation);
++        new GeckoResult.CancellationDelegate() {
++          @Override
++          public @NonNull GeckoResult<Boolean> cancel() {
++            final GeckoBundle cancellation = new GeckoBundle(1);
++            cancellation.putString("cancelId", requestId);
++            return dispatcher.queryBoolean(event, cancellation);
++          }
+         });
+     return result;
+   }

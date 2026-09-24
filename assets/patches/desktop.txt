@@ -1,0 +1,114 @@
+# Patches applied only when 'desktop' is in --targets.
+#
+# Applied after common.txt. Paths are relative to the repo root. Blank lines
+# and '#' comments are ignored; everything else is a patch path, applied top to
+# bottom. Order within this file is alphabetical by path, which is the order
+# these entries had in the pre-split assets/patches.txt.
+#
+# STATUS: REVIEWED by LW-M1-01. Two kinds of entry live here.
+#
+# 1. DESKTOP-ONLY. Most entries touch only browser/, which browser/app.mozbuild:11
+#    pulls in and mobile/android/app.mozbuild never does. Five further entries
+#    were moved here from common.txt by LW-M1-01 because they were shown to be
+#    compiled out or not traversed on Android - demonstrated from the tree, not
+#    assumed from the filename (see docs/android/PATCH-SCOPE.md for the citation
+#    behind each one). They are marked '# MOVED-FROM-COMMON' below.
+#
+#    Several of these describe behaviour Android still needs. They are desktop
+#    *implementations*, not desktop *requirements*; the Android counterparts are
+#    tracked as their own tasks, listed in PATCH-SCOPE.md.
+#
+# 2. DESKTOP HALVES of the former straddlers. NO STRADDLER IS PARKED HERE ANY
+#    MORE - this section used to say "Seven entries edit both shared Gecko code
+#    and browser/", and both halves of that sentence are now wrong: the count
+#    was eight-minus-msix, not seven, and none of them is still a monolith.
+#
+#    LW-M1-01 nominated eight straddlers. Seven really did edit both shared
+#    Gecko code and desktop-only code and were cut in half by LW-M1-02..04 and
+#    LW-M1-06..09; the eighth, msix, was proved by LW-M1-05 never to have been
+#    one. LW-M1-12 then deleted the seven monolithic files, regenerated the
+#    assets/patches.txt shim and reconciled docs/android/PATCH-SCOPE.md. What
+#    sits here now is seven <name>-desktop.patch entries, each in the position
+#    its monolith had, with the matching <name>-common.patch in common.txt:
+#
+#      disable-data-reporting-desktop  LW-M1-02   + android/disable-data-reporting-android
+#      eme-permission-desktop          LW-M1-03   no Android patch needed (checked)
+#      moz-official-desktop            LW-M1-04   no Android patch needed (checked)
+#      remove-pingsender-desktop       LW-M1-06   no Android patch needed (checked)
+#      ui-patches/neterror-desktop     LW-M1-07   landmine L3 + android/neterror-jar
+#      webgl-permission-desktop        LW-M1-08   landmine L1 + android/webgl-prompt-default
+#      xmas-desktop                    LW-M1-09   keep LAST, see its entry below
+#
+#      msix                            LW-M1-05   NOT A STRADDLER - desktop-only, unsplit; see its entry below
+#
+#    (xmas used to be in no list at all - scripts/librewolf-patches.py applied
+#    it from its own call site, after the whole list. LW-M1-09 removed that call
+#    site and folded both halves in: xmas-common.patch in common.txt,
+#    xmas-desktop.patch near the end of this file, which is where the old call
+#    site put it in the sequence. pref-pane/pref-pane-small.patch was the last
+#    one left in that position; LW-M1-13 folded it in too, as the final entry
+#    below. NO PATCH IS APPLIED FROM ITS OWN CALL SITE ANY MORE - every patch
+#    this repository applies is now an entry in one of these three lists, so
+#    scripts/lint-patch-scope.py, scripts/check-patchfail.sh and --targets all
+#    see the complete set.)
+#
+#    Android therefore gets the common half of all seven. That closes the parity
+#    gap this section used to record - but not landmine L2: xmas-common puts lw/
+#    into the Android build without getting librewolf.cfg into the APK, so there
+#    is still no autoconfig/lockPref channel there. See the straddler table in
+#    docs/android/PATCH-SCOPE.md for the per-patch evidence.
+
+patches/add-mojeek.patch                                # MOVED-FROM-COMMON: hunk sits inside services/settings/dumps/main/moz.build:46 `if MOZ_BUILD_APP == "browser"`; Android equivalent is LW-M4-06
+patches/dbus_name.patch                                 # MOVED-FROM-COMMON: toolkit/components/remote/moz.build:25-35 needs gtk AND MOZ_ENABLE_DBUS
+patches/disable-data-reporting-desktop.patch            # LW-M1-02: desktop half of the split straddler; browser/moz.configure + tabbrowser.js. Common half in common.txt, Android configure counterpart in android.txt
+patches/eme-permission-desktop.patch                    # LW-M1-03 desktop half of the old eme-permission straddler: the media-key-system-access doorhanger only (browser/modules/EMEPermissionPrompt.sys.mjs, new, plus its wiring in browser/components/permissions/ContentPermissionPrompt.sys.mjs). Common half is patches/eme-permission-common.patch. No Android counterpart is needed - GeckoViewPermission + Fenix already prompt for this permission type; see the common half's header
+patches/fullpage-translations-customization.patch
+patches/hide-passwordmgr.patch
+patches/languages.patch
+patches/link-preview.patch
+patches/lw-permissions.patch
+patches/macos-relaunch-without-updater.patch            # MOVED-FROM-COMMON: .mm, toolkit/xre/moz.build:71-84 gates it on MOZ_WIDGET_TOOLKIT == cocoa
+patches/moz-official-desktop.patch                      # LW-M1-04 desktop half: the three browser/base files (browser-init.js, browser-main.js, jar.mn) that keep the upstream DevelopmentHelpers quick-restart behind librewolf.devHelpers. Common half (the two GMP host-verification hunks) is in common.txt. NO Android counterpart is needed - mobile/android has no equivalent of the browser-init hunk; the evidence is in this patch's header and in android.txt. Position unchanged from the pre-split moz-official.patch entry, which keeps it after hide-passwordmgr.patch, the only other patch that touches browser/base/content/browser-init.js (different region, ~line 300 vs ~504)
+patches/msix.patch                                      # LW-M1-05: NOT a straddler after all - NO common half, no split, no patches/android/ counterpart. It edits python/mozbuild/{mach_commands.py,repackaging/msix.py}, which an Android tree has on disk, but repackaging/msix.py's only non-test importer is two FUNCTION-LOCAL imports in mach_commands.py:3336,3458 (inside the repackage msix / sign-msix command bodies), and stripping every function body leaves msix.py's import-time AST IDENTICAL and mach_commands.py's differing by exactly one constant - the --vendor default on @SubCommand("repackage","msix"), which only `vendor = vendor or second` in msix.py ever reads. mach loads command modules per-command (mach_initialize.py:483-495); `mach build` maps to build_commands.py and never loads mach_commands.py at all, and no LibreWolf target runs `mach repackage`. Full evidence in the header of patches/msix.patch
+patches/newtab-fix.patch
+patches/remove-language-packs.patch
+patches/remove-pingsender-desktop.patch                 # LW-M1-06 desktop half: the three installer manifests (macbuild MacOS-files.in, package-manifest.in, nsis/shared.nsh); common half is in common.txt
+patches/temp-macos-fix.patch
+patches/ui-patches/add-translate-page-context-menu.patch
+patches/ui-patches/allow_cookies_for_site.patch
+patches/ui-patches/firefox-view.patch
+patches/ui-patches/hide-default-browser.patch
+patches/ui-patches/hide-finish-setup-bookmark.patch
+patches/ui-patches/home-preferences.patch
+patches/ui-patches/lw-logo-devtools.patch               # MOVED-FROM-COMMON: all 4 files under devtools/client/, which devtools/moz.build:5-8 gates on MOZ_DEVTOOLS == "all" (implied only by browser/moz.configure:17)
+patches/ui-patches/neterror-desktop.patch               # LW-M1-07 split of ui-patches/neterror: the toolkit/themes/shared/desktop-jar.inc.mn hunk only (landmine L3 - desktop-only file inside a shared directory); common half is patches/ui-patches/neterror-common.patch
+patches/ui-patches/pref-naming.patch
+patches/ui-patches/privacy-preferences.patch
+patches/ui-patches/remove-cfrprefs.patch
+patches/ui-patches/remove-organization-policy-banner.patch
+patches/ui-patches/settings-redesign.patch
+patches/ui-patches/trustpanel.patch
+patches/ui-patches/website-appearance-ui-rfp.patch
+patches/webgl-permission-desktop.patch                  # LW-M1-08 desktop half of the old webgl-permission straddler: the doorhanger, WebGLPermissionPromptHelper, the ObserverForwarder wiring and the four icons, all under browser/
+patches/windows-theming-bug.patch
+patches/xdg-dir.patch                                   # MOVED-FROM-COMMON: every hunk is inside nsXREDirProvider.cpp's `#if defined(MOZ_WIDGET_GTK)` block (lines 1309-1539); must still apply AFTER mozilla_dirs, which common.txt guarantees
+patches/xmas-desktop.patch                              # LW-M1-09 desktop half of the old xmas straddler: browser/installer/package-manifest.in only. KEEP THIS AFTER remove-pingsender-desktop AND temp-macos-fix - all three edit that manifest, and the pre-split code applied xmas.patch from its own call site in scripts/librewolf-patches.py, after every list entry. It was the last entry in this file until LW-M1-13 appended pref-pane-small below; that one touches no installer manifest, so this constraint is unaffected. Common half is patches/xmas-common.patch
+
+# Out of alphabetical order ON PURPOSE, and the only entry in this file that is.
+# LW-M1-13 moved pref-pane-small here from its own call site in
+# scripts/librewolf-patches.py, which applied it AFTER every list entry, on every
+# target - so an Android build got five browser/ files it cannot compile, unseen
+# by lint-patch-scope.py and check-patchfail.sh because both read these lists
+# (landmine L4). Keeping it last preserves the desktop apply sequence exactly.
+# It must NOT be sorted into its alphabetical slot after newtab-fix: it shares
+# browser/components/preferences/{main.js,preferences.js,preferences.xhtml} and
+# browser/themes/shared/jar.inc.mn with settings-redesign, privacy-preferences,
+# remove-cfrprefs, remove-organization-policy-banner, hide-default-browser,
+# fullpage-translations-customization and webgl-permission-desktop, all of which
+# sort before it, and scripts/check-patch-order.py classifies those seven pairs
+# as order-free only on the grounds that this patch has always applied last.
+# The four new files the pane needs (category-librewolf.svg, librewolf.css,
+# librewolf.inc.xhtml, librewolf.js) are still copied by librewolf-patches.py,
+# now behind an `if "desktop" in targets` check - a list entry cannot express a
+# file copy, so that half stays out-of-patch and is documented there.
+patches/pref-pane/pref-pane-small.patch                 # LW-M1-13: KEEP THIS LAST, see the note above

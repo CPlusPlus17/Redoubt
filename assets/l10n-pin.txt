@@ -1,0 +1,47 @@
+# Pinned snapshot of https://github.com/mozilla-l10n/firefox-l10n
+#
+# scripts/librewolf-patches.py fetches the Firefox localisation strings from
+# this exact commit and refuses to continue unless the downloaded archive
+# matches the sha256 recorded below. Before this file existed the script pulled
+# refs/heads/main unverified, which meant whoever controlled that branch at
+# build time controlled the strings shipped to users.
+#
+# Format: "key = value", one per line, '#' starts a comment. Both keys are
+# required and are validated by the script:
+#   commit   full 40-hex commit sha in mozilla-l10n/firefox-l10n to ship
+#   sha256   sha256 of https://codeload.github.com/mozilla-l10n/firefox-l10n/zip/<commit>
+#
+# ---------------------------------------------------------------------------
+# HOW TO BUMP THIS PIN -- you must update *both* lines, in this order:
+#
+#   1. Pick the commit to ship (normally the current head of main):
+#
+#        git ls-remote https://github.com/mozilla-l10n/firefox-l10n refs/heads/main
+#
+#   2. Download that exact archive and hash it:
+#
+#        sha=<the 40-hex sha from step 1>
+#        curl -sfL -o /tmp/l10n.zip \
+#          "https://codeload.github.com/mozilla-l10n/firefox-l10n/zip/$sha"
+#        sha256sum /tmp/l10n.zip
+#
+#   3. Write both values into the two lines at the bottom of this file, then
+#      rebuild. Note the URL takes the commit sha directly -- do NOT put a
+#      refs/heads/ ref back in, that is the bug this file exists to fix.
+#
+# Sanity check before trusting step 2: download the archive twice and confirm
+# the two sums agree. GitHub generates these zips on demand. The entry
+# timestamps are taken from the commit date, so generation is reproducible in
+# practice, but GitHub does not contractually guarantee byte-stability of
+# auto-generated archives and has changed their generation before. If a build
+# starts failing the sha256 check while the commit line is unchanged, do not
+# just re-record the hash: extract both the old and the new archive, or clone
+# the repo at that commit, and diff the trees first. A hash refreshed without
+# looking is not a pin.
+#
+# Verified on 2026-08-15: two downloads of the commit below, minutes apart,
+# produced byte-identical archives (127528694 bytes).
+# ---------------------------------------------------------------------------
+
+commit = 959f3e913c31d0fec77893a39916eca018a41b66
+sha256 = a101ab9b2c4e5dc9737a6bd4a1d1ba832acd71b171b4ff233dfd01e465efcc2c

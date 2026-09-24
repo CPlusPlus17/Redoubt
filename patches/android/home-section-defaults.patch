@@ -1,0 +1,125 @@
+diff --git a/mobile/android/fenix/app/nimbus.fml.yaml b/mobile/android/fenix/app/nimbus.fml.yaml
+--- a/mobile/android/fenix/app/nimbus.fml.yaml
++++ b/mobile/android/fenix/app/nimbus.fml.yaml
+@@ -41,12 +41,14 @@
+         description: "This property provides a lookup table of whether or not the given section should be enabled.
+         If the section is enabled, it should be toggleable in the settings screen, and on by default."
+         type: Map<HomeScreenSection, Boolean>
++        # LibreWolf defaults: keep ordinary home activity opt-in. Stored
++        # customization choices and bookmark/history data are preserved.
+         default:
+           {
+-            "top-sites": true,
+-            "jump-back-in": true,
+-            "bookmarks": true,
+-            "recent-explorations": true,
++            "top-sites": false,
++            "jump-back-in": false,
++            "bookmarks": false,
++            "recent-explorations": false,
+             "pocket": true,
+             "pocket-sponsored-stories": true,
+             "synced-tabs": true,
+@@ -57,10 +59,10 @@
+       - channel: nightly
+         value: {
+           "sections-enabled": {
+-            "top-sites": true,
+-            "jump-back-in": true,
+-            "bookmarks": true,
+-            "recent-explorations": true,
++            "top-sites": false,
++            "jump-back-in": false,
++            "bookmarks": false,
++            "recent-explorations": false,
+             "pocket": true,
+             "synced-tabs": true,
+             "collections": true,
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/HomeSectionDefaultsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/HomeSectionDefaultsTest.kt
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/HomeSectionDefaultsTest.kt
+@@ -0,0 +1,84 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.utils
++
++import androidx.core.content.edit
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.fenix.R
++import org.robolectric.RobolectricTestRunner
++
++@RunWith(RobolectricTestRunner::class)
++class HomeSectionDefaultsTest {
++    private lateinit var settings: Settings
++
++    @Before
++    fun setUp() {
++        settings = Settings(testContext)
++        settings.preferences.edit(commit = true) {
++            listOf(
++                R.string.pref_key_show_top_sites,
++                R.string.pref_key_recent_tabs,
++                R.string.pref_key_customization_bookmarks,
++                R.string.pref_key_history_metadata_feature,
++            ).forEach { remove(testContext.getString(it)) }
++        }
++    }
++
++    @Test
++    fun absentChoicesUsePackagedDefaultsAcrossSettingsRecreation() {
++        repeat(2) {
++            val current = Settings(testContext)
++            assertFalse(current.showTopSitesFeature)
++            assertFalse(current.showRecentTabsFeature)
++            assertFalse(current.showBookmarksHomeFeature)
++            assertFalse(current.historyMetadataUIFeature)
++        }
++    }
++
++    @Test
++    fun storedOppositeChoicesRemainEffectiveWithoutMigration() {
++        // Use real stored keys to represent an existing profile; no Nimbus mock.
++        settings.preferences.edit(commit = true) {
++            putBoolean(testContext.getString(R.string.pref_key_show_top_sites), true)
++            putBoolean(testContext.getString(R.string.pref_key_recent_tabs), false)
++            putBoolean(testContext.getString(R.string.pref_key_customization_bookmarks), true)
++            putBoolean(testContext.getString(R.string.pref_key_history_metadata_feature), true)
++        }
++        repeat(2) {
++            val current = Settings(testContext)
++            assertTrue(current.showTopSitesFeature)
++            assertFalse(current.showRecentTabsFeature)
++            assertTrue(current.showBookmarksHomeFeature)
++            assertTrue(current.historyMetadataUIFeature)
++        }
++    }
++
++    @Test
++    fun explicitHomeChoicesCanBeEnabledAndDisabledAgain() {
++        settings.showTopSitesFeature = true
++        settings.showRecentTabsFeature = true
++        settings.showBookmarksHomeFeature = true
++        settings.historyMetadataUIFeature = true
++        val enabled = Settings(testContext)
++        assertTrue(enabled.showTopSitesFeature)
++        assertTrue(enabled.showRecentTabsFeature)
++        assertTrue(enabled.showBookmarksHomeFeature)
++        assertTrue(enabled.historyMetadataUIFeature)
++        enabled.showTopSitesFeature = false
++        enabled.showRecentTabsFeature = false
++        enabled.showBookmarksHomeFeature = false
++        enabled.historyMetadataUIFeature = false
++        val disabled = Settings(testContext)
++        assertFalse(disabled.showTopSitesFeature)
++        assertFalse(disabled.showRecentTabsFeature)
++        assertFalse(disabled.showBookmarksHomeFeature)
++        assertFalse(disabled.historyMetadataUIFeature)
++    }
++}

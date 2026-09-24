@@ -1,0 +1,61 @@
+{
+  "scope": "Root read-only frozen-source inspection; target install/update behavior NOT RUN",
+  "source_root": "/home/mgysin/Documents/librewolf/librewolf-153.0esr-1-beta-20260908",
+  "files": [
+    {
+      "path": "toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs",
+      "sha256": "09ac9c9b2756b628e1e388b06df121b416dc4cf2d90ae975b0b2d46e17c01e5c",
+      "size": 159608
+    },
+    {
+      "path": "toolkit/mozapps/extensions/AddonManager.sys.mjs",
+      "sha256": "b0693d36b3b954fa456b5d8c3161623277955d1ea8ef0f1a9fec88870b42b3d6",
+      "size": 188249
+    },
+    {
+      "path": "mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs",
+      "sha256": "1380237a5997b6dc88345d80ed86de60a502aae2ade893a5bda153a107559037",
+      "size": 43358
+    }
+  ],
+  "archive_sha256": "1b502eb9d363a1c0ac4b72c10bb7d5245d2de9bc85ee3c8ca802d7a345e0cc81",
+  "findings": [
+    {
+      "path": "toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs",
+      "lines": [
+        1616,
+        1625
+      ],
+      "finding": "Android manifest loading rejects every addon type other than extension with ERROR_UNSUPPORTED_ADDON_TYPE. This includes locale/language packs; no new rejection patch is justified. It also excludes dictionary/theme/sitepermission types that desktop permits, so this is not full type-support equivalence."
+    },
+    {
+      "path": "mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs",
+      "lines": [
+        991,
+        1010
+      ],
+      "finding": "Ordinary GeckoView installWebExtension uses AddonManager.getInstallForURL and installAddonFromAOM. Signed XPIs and ordinary prompts remain part of the path. Actual rejection UI and all other entry routes still require device tests."
+    },
+    {
+      "path": "mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs",
+      "lines": [
+        1127,
+        1160
+      ],
+      "finding": "GeckoView refreshes stale repository metadata before checking updateEnabled and does not consult shouldAutoUpdate before installing a returned update. User automatic-update controls need a separate implementation."
+    },
+    {
+      "path": "toolkit/mozapps/extensions/AddonManager.sys.mjs",
+      "lines": [
+        1371,
+        1428
+      ],
+      "finding": "Desktop backgroundUpdateCheck checks updateEnabled before the repository request and shouldAutoUpdate before installation. This is the inspected comparison for task35; already admitted work and explicit updates need separate analysis."
+    }
+  ],
+  "pending": [
+    "actual signed locale-XPI rejection and normal-extension control",
+    "unsupported desktop addon types and existing locale-addon startup removal",
+    "native update-control implementation and traffic/permission/restart tests"
+  ]
+}

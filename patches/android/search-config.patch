@@ -1,0 +1,214 @@
+# LibreWolf search-config.patch  (Android)
+# Owner: LW-M4-06 ("Ship the LibreWolf search configuration on Android")
+#
+# Upstream files touched
+# -----------------------
+#   third_party/application-services/components/remote_settings/src/client.rs
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+#   mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
+#
+# Line numbers are from the ESR tree (firefox-153.0esr, ./version.android), AFTER
+# the patches listed before this one in assets/patches/android.txt.
+#
+#
+# Where Android's search configuration really comes from
+# -------------------------------------------------------
+# Desktop LibreWolf replaces services/settings/dumps/main/search-config-v2.json
+# (scripts/librewolf-patches.py) and Gecko's SearchService reads it. Fenix never
+# reads that file. Its engine list is built by android-components'
+# SearchMiddleware (feature/search/.../middleware/SearchMiddleware.kt:61-94):
+# with Settings.useRemoteSearchConfiguration true it uses
+# SearchEngineSelectorRepository, which calls the app-services `search`
+# component (Rust, third_party/application-services/components/search) through
+# the app-services RemoteSettingsService; that client serves the
+# `search-config-v2` and `search-config-icons` collections from the dumps
+# compiled INTO libmegazord.so by remote_settings/src/client.rs:95-103
+# (packaged_collections!, include_str! of dumps/main/<collection>.json) -- and,
+# since rs-blocker-android.patch (LW-M4-08) made sync() a no-op and
+# make_request() an error, from nowhere else. So the packaged dump IS the
+# configuration, for the life of the build.
+#
+# That is the same file format as desktop's dump (one Remote Settings
+# collection, {"data": [...], "timestamp": N}), so scripts/librewolf-patches.py
+# now copies assets/search-config-v2.json over
+# third_party/application-services/components/remote_settings/dumps/main/
+# search-config-v2.json for android targets too, rewrites the .timestamp
+# sidecar client.rs reads at :95-103, and does the same for the icons
+# collection -- see android_search_config() in that script, which asserts every
+# path it writes (landmine L4) and drops icon records android-components cannot
+# decode (SearchEngineReader.kt:390-399 decodes svg, x-icon, png and jpeg; the
+# DuckDuckGo *pdf* record would otherwise be the FIRST match for "ddg" in
+# findMatchingIcon (SearchEngineSelectorRepository.kt:152-170) and the default
+# engine would ship with the generic icon).
+#
+#
+# What this patch does
+# ---------------------
+# 1. client.rs -- packages the Mojeek icon. Attachments are only served from the
+#    binary if their record id is in the packaged_attachments! list
+#    (client.rs:115-, one include_bytes! per entry, looked up by record id at
+#    :516 load_packaged_attachment(&record.id)). Mojeek is the one engine
+#    LibreWolf adds that upstream has no icon for, so its id
+#    2c4b8834-030c-4097-a887-c7506689095c is added; the file and its
+#    <id>.meta.json ({location, hash, size} -- app-services' sidecar shape, NOT
+#    desktop's full-record .meta.json) are written by the patcher from
+#    assets/2c4b8834-030c-4097-a887-c7506689095c, with the hash and size
+#    computed from the file. (The hash inside assets/*.meta.json and inside the
+#    shared icons record is a9c0b3d3..., which is NOT the sha256 of the file
+#    LibreWolf ships (793d49ae...); the patcher fixes the Android copies of both
+#    so validation cannot fail on a stale digest.)
+#    Startpage's record id acae3d3c-b09e-47f0-a9e5-57980d21fc4a is added too:
+#    upstream ships the file and its sidecar in dumps/main/attachments/ but
+#    never lists the id, so the record is served and its attachment is not --
+#    the engine appears with the generic icon. The remaining three LibreWolf
+#    icon records (ddg svg, wikipedia png and ico) are packaged upstream. The
+#    patcher asserts that every kept record id is in this list (client.rs or
+#    this patch) and that each sidecar's hash/size agree with the record,
+#    because a file that is present but unlisted is exactly the failure that
+#    cannot be seen from a build that compiles.
+#
+# 2. Settings.kt -- useRemoteSearchConfiguration becomes a constant `true`. It
+#    was a preference defaulting to the FML flag remote-search-configuration
+#    (nimbus.fml.yaml:899-906, default true). With no-nimbus.patch the FML
+#    default is the only source, but an upstream flip of that default on a
+#    rebase would silently route Fenix to the OTHER path --
+#    BundledSearchEnginesStorage over assets/search/list.json and
+#    assets/searchplugins/*.xml, Google default, partner codes -- with every
+#    gate still green on the sources. A constant cannot flip. Same rationale as
+#    fission-isolation.patch and isolated-process.patch.
+#
+# 3. SecretSettingsFragment.kt / secret_settings_preferences.xml -- the hidden
+#    debug switch for that preference is removed. It wrote the SharedPreference
+#    directly (SharedPreferenceUpdater) and its toggle also (un)registered the
+#    Remote Settings sync worker; with a constant behind it the row could only
+#    ever be a dead toggle.
+#
+# The engine set itself is not in this diff: it is data (assets/
+# search-config-v2.json, 92 records: DuckDuckGo No-AI as the global default,
+# Startpage, Mojeek, Wikipedia in 88 locales) and it stays a plain copy, exactly
+# like desktop, so that a rebase never rejects on a 150-record JSON hunk.
+#
+#
+# What this patch does NOT cover, with owners
+# --------------------------------------------
+#   * The legacy bundled list (assets/search/list.json + searchplugins/*.xml)
+#     still ships in the APK. It is unreachable (item 2), and a static scan of
+#     it does not describe what the user sees -- which is why
+#     scripts/android-smoke.sh --check-search reads the engine list from the
+#     RUNNING app (Settings > Search > Default search engine) and runs a real
+#     query, not the XML.
+#   * Search suggestions and trending searches: no-suggest.patch (LW-M4-11).
+#     LibreWolf's engine records carry suggestion URLs; they are only used when
+#     the user turns suggestions on.
+#   * search-telemetry-v2 (the third search dump) feeds Glean: no-glean.patch.
+#
+#
+# Ordering
+# ---------
+# Shares Settings.kt with no-adjust, no-onboarding, no-gms and no-suggest, and
+# client.rs with rs-blocker-android. Measured per file the way no-suggest's
+# were (replay from the pristine ESR copy, list order and once per partner with
+# this patch moved in front of it): see scripts/check-patch-order.py's
+# REVIEWED_ORDER_FREE rows for this patch. Listed last in
+# assets/patches/android.txt.
+#
+#
+# Verification
+# -------------
+#   ./scripts/android-smoke.sh --check-search --serial <dev> --apk <apk>
+# opens Settings > Search > Default search engine on the running build and
+# reads the engine names off the screen (Mojeek present, DuckDuckGo No-AI
+# selected), then types a query into the toolbar and inspects the URL it lands
+# on for partner/attribution parameters. Evidence: docs/android/evidence/lw-m4-06/.
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+@@ -317,20 +317,9 @@
+             summary = settings.getRemoteSettingsServerString()
+         }
+ 
+-        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_use_remote_search_configuration).apply {
+-            isVisible = true
+-            isChecked = settings.useRemoteSearchConfiguration
+-            onPreferenceChangeListener = object : SharedPreferenceUpdater() {
+-                override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+-                    if (newValue as? Boolean == true) {
+-                        context.components.remoteSettingsSyncScheduler.registerForSync()
+-                    } else {
+-                        context.components.remoteSettingsSyncScheduler.unregisterForSync()
+-                    }
+-                    return super.onPreferenceChange(preference, newValue)
+-                }
+-            }
+-        }
++        // LibreWolf (LW-M4-06): the "remote search configuration" debug switch is
++        // gone -- Settings.useRemoteSearchConfiguration is a constant `true`, so
++        // the row could only ever have been a dead toggle.
+ 
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_microsurvey_feature_enabled).apply {
+             isVisible = true
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+@@ -2276,11 +2276,22 @@
+ 
+     /**
+      * Indicates whether or not to use remote server search configuration.
++     *
++     * LibreWolf (LW-M4-06): pinned to `true`. The LibreWolf engine set (DuckDuckGo
++     * No-AI default, Startpage, Mojeek, Wikipedia) is delivered through the
++     * search-config-v2 Remote Settings dump packaged into the app-services
++     * binary (scripts/librewolf-patches.py replaces
++     * third_party/application-services/components/remote_settings/dumps/main/
++     * search-config-v2.json), and rs-blocker-android.patch keeps that dump from
++     * ever being updated over the network. The other path -- the legacy bundled
++     * assets/search/list.json with Google as default -- must stay unreachable,
++     * which a FML default (remote-search-configuration.enabled, nimbus.fml.yaml)
++     * cannot guarantee across a rebase. A constant can. The hidden debug switch
++     * that flipped this is removed from SecretSettingsFragment for the same
++     * reason: a toggle that does nothing is worse than none.
+      */
+-    var useRemoteSearchConfiguration by booleanPreference(
+-        key = appContext.getPreferenceKey(R.string.pref_key_use_remote_search_configuration),
+-        default = { FxNimbus.features.remoteSearchConfiguration.value().enabled },
+-    )
++    val useRemoteSearchConfiguration: Boolean
++        get() = true
+ 
+     /**
+      * Indicates if the menu CFR should be displayed to the user.
+--- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
+@@ -45,10 +45,8 @@
+       android:key="@string/pref_key_enable_fxsuggest"
+       android:title="@string/preferences_debug_settings_fxsuggest"
+       app:iconSpaceReserved="false" />
+-    <SwitchPreferenceCompat
+-      android:key="@string/pref_key_use_remote_search_configuration"
+-      android:title="@string/preferences_debug_settings_remote_search_configuration"
+-      app:iconSpaceReserved="false" />
++    <!-- LibreWolf (LW-M4-06): the remote-search-configuration debug switch is
++         removed; the setting is a constant `true` in Settings.kt. -->
+     <Preference
+       android:key="@string/pref_key_search_optimization"
+       android:title="@string/preferences_debug_settings_search_optimization"
+--- a/third_party/application-services/components/remote_settings/src/client.rs
++++ b/third_party/application-services/components/remote_settings/src/client.rs
+@@ -127,6 +127,18 @@
+             "177aba42-9bed-4078-e36b-580e8794cd7f",
+             "25de0352-aabb-d31f-15f7-bf9299fb004c",
+             "2bbe48f4-d3b8-c9e0-86e3-a54c37ec3335",
++            // LibreWolf (LW-M4-06): the Mojeek icon. The record and its attachment
++            // are copied into dumps/main by scripts/librewolf-patches.py from
++            // assets/2c4b8834-030c-4097-a887-c7506689095c{,.meta.json}; this line
++            // is what makes include_bytes!() package it, so an engine LibreWolf adds
++            // gets its icon without a network fetch (rs-blocker-android.patch makes
++            // that fetch fail, by design).
++            "2c4b8834-030c-4097-a887-c7506689095c",
++            // LibreWolf (LW-M4-06): the Startpage icon. Upstream ships the file and
++            // its .meta.json in dumps/main/attachments/search-config-icons/ but never
++            // lists the id, so it is not packaged and Startpage has no icon on
++            // Android; the patcher asserts every kept icon record is listed here.
++            "acae3d3c-b09e-47f0-a9e5-57980d21fc4a",
+             "2e835b0e-9709-d1bb-9725-87f59f3445ca",
+             "2ecca3f8-c1ef-43cc-b053-886d1ae46c36",
+             "32d26d19-aeb0-5c01-32e8-f8970be9246f",

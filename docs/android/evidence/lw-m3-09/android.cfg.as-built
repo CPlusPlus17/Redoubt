@@ -1,0 +1,347 @@
+/** LIBREWOLF SETTINGS -- ANDROID
+ *
+ * ---------------------------------------------------------------------------
+ * THIS IS A FRAGMENT, NOT A STANDALONE .cfg
+ * ---------------------------------------------------------------------------
+ *
+ * It is never concatenated into librewolf.cfg. LW-M3-02's compiler
+ * (scripts/cfg2prefs.py) reads common.cfg + android.cfg and emits the two
+ * Android pref-delivery artifacts. Like desktop.cfg it has no sacrificial first
+ * line, so it must never be handed to autoconfig on its own.
+ *
+ * ---------------------------------------------------------------------------
+ * DELIBERATELY EMPTY OF PREFS, and that is the honest result of LW-M3-01
+ * ---------------------------------------------------------------------------
+ *
+ * The three-way split of librewolf.cfg produced 182 common prefs and 85 desktop
+ * prefs and no Android-only pref. That is expected: librewolf.cfg is a
+ * desktop-derived file, so the split can only ever *subtract* from it. Anything
+ * Android-only has to be added by a task that has a reason to add it, and two
+ * already exist:
+ *
+ *   LW-M3-06  maps settings/distribution/policies.json onto Android and appends
+ *             the prefs that cover a policy here. It co-owns this file.
+ *   LW-M5-01  locks fission.webContentIsolationStrategy. Whether that lands
+ *             here or in the Kotlin layer is that task's call.
+ *
+ * Two things that look like they belong here and do not:
+ *
+ *   librewolf.webgl.prompt -- landmine L1. Already handled, and correctly, by
+ *   patches/android/webgl-prompt-default.patch (assets/patches/android.txt),
+ *   which flips the compiled-in default. Do not restate it as a pref here; two
+ *   sources for one value is how they drift.
+ *
+ *   The ~50-pref must-lock list -- that is LW-M3-04, generated mechanically
+ *   from GeckoRuntimeSettings.java and ContentBlocking.java. common.cfg carries
+ *   `[ANDROID: LOCK]` markers on the 22 prefs we ship that those two files
+ *   declare today; they are a cross-reference for LW-M3-04, not the list.
+ *
+ * ---------------------------------------------------------------------------
+ * TWO DELIVERY FACTS LW-M3-02 AND LW-M3-03 MUST NOT ASSUME AWAY
+ * ---------------------------------------------------------------------------
+ *
+ * 1. MOZ_DEFAULT_PREFS cannot lock. GeckoLoader.java:83-103 builds a string of
+ *    `pref("name",value);` lines; Preferences.cpp:3963 hands it to
+ *    parsePrefData(..., PrefValueKind::Default); and the grammar that parser
+ *    accepts is `pref` / `user_pref` / `sticky_pref` only
+ *    (modules/libpref/parser/src/lib.rs:14, 297-321). There is no `locked_pref`
+ *    token. Every one of the 38 lockPref calls in common.cfg needs a real
+ *    Preferences::Lock on Android, wired by LW-M3-03.
+ *
+ * 2. MOZ_DEFAULT_PREFS writes the DEFAULT branch, but autoconfig's bare
+ *    `pref()` writes the USER branch (prefcalls.js:12-34, getPrefBranch() ==
+ *    Services.prefs.getBranch(null)) and does so at every startup. The 24 bare
+ *    pref() calls in common.cfg are exactly the ones whose comments say the
+ *    value "won't stick" as a default. Compiling them into MOZ_DEFAULT_PREFS is
+ *    a silent downgrade: a stale user value in the profile then wins.
+ *
+ * ---------------------------------------------------------------------------
+ * GAP REGISTER
+ * ---------------------------------------------------------------------------
+ *
+ * Prefs that went to desktop.cfg because the *implementation* is desktop-only,
+ * while the *behaviour* is still something LibreWolf for Android should have.
+ * Each needs a non-pref answer. These feed the M5 parity matrix; do not treat
+ * an entry here as closed just because the pref moved.
+ *
+ *   G1  Sanitize on shutdown
+ *       desktop.cfg: privacy.sanitize.* + privacy.clearOnShutdown_v2.*
+ *       Sanitizer.sys.mjs is browser/modules/. Fenix has "Delete browsing data
+ *       on quit" in Kotlin, keyed off its own SharedPreferences. Owner: M4/M5.
+ *
+ *   G2  Account and sync
+ *       desktop.cfg: identity.fxaccounts.enabled
+ *       services/fxaccounts is not built on Android and MOZ_SERVICES_SYNC is
+ *       browser-only. Fenix's stack is Kotlin over application-services. Owner: M4.
+ *
+ *   G3  First-run and messaging surfaces
+ *       desktop.cfg: startup.homepage_welcome_url*, browser.uitour.*,
+ *       startup.homepage_override_nimbus_disable_wnp, the four
+ *       activity-stream.asrouter.providers.* locks
+ *       Fenix onboarding + Nimbus Messaging are Kotlin. Owner: M4.
+ *
+ *   G4  Home-screen telemetry and sponsored content
+ *       desktop.cfg: browser.newtabpage.activity-stream.*, browser.topsites.*
+ *       Fenix home screen, Contile sponsored tiles, Pocket -- all Kotlin. Owner: M4.
+ *
+ *   G5  Web-compat reporter
+ *       desktop.cfg: extensions.webcompat-reporter.*
+ *       Android ships android-components feature/webcompat-reporter, a
+ *       different extension installed from Kotlin. Owner: M4.
+ *
+ *   G6  Search-suggestion and urlbar surfaces
+ *       desktop.cfg: browser.urlbar.*
+ *       browser.search.suggest.enabled (common.cfg) covers the network side.
+ *       The Fenix awesomebar's own suggestion providers, and its speculative
+ *       connections (Engine.speculativeConnect, which no pref gates), do not.
+ *       Owner: M4.
+ *
+ * NOT A GAP, and it must stay off this list:
+ *
+ *   privacy.resistFingerprinting.letterboxing. Desktop LibreWolf ships it
+ *   FALSE (see desktop.cfg and docs/android/ROADMAP.md). Android not having
+ *   letterboxing costs our users nothing. Earlier drafts of the plan listed it
+ *   as a parity item; that was wrong.
+ */
+
+/* ---------------------------------------------------------------------------
+ * ANDROID-ONLY PREFS
+ * LW-M3-06 appends below this line. Keep the file parseable when it is empty.
+ * --------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------
+ * FROM settings/distribution/policies.json  (LW-M3-06)
+ * ---------------------------------------------------------------------------
+ *
+ * The enterprise policy engine does not exist on Android, and it is gated
+ * twice: toolkit/components/enterprisepolicies/moz.build:16 puts both the
+ * EXTRA_JS_MODULES and XPCOM_MANIFESTS += ["components.conf"] inside
+ * `if CONFIG["MOZ_WIDGET_TOOLKIT"] != "android"`, and every policy body lives
+ * in browser/components/enterprisepolicies/Policies.sys.mjs, which Android
+ * never builds. components.conf is what declares js_name 'policies', so
+ * `Services.policies` is UNDEFINED on Android -- not merely inactive. Toolkit
+ * code that runs on both already guards for exactly that (ResetProfile.sys.mjs:56,
+ * UpdateUtils.sys.mjs:498, ServiceRequest.sys.mjs:88).
+ *
+ * All 22 policy keys are mapped in docs/android/POLICIES.md. Only TWO of them
+ * reduce to a pref that is (a) absent from common.cfg and desktop.cfg, (b) read
+ * by code that ships on Android, and (c) not already at the policy's value by
+ * default. Those two are below.
+ *
+ * The other 20 are deliberately NOT here. Twelve need Kotlin-layer work and are
+ * registered as gaps P1..P7 in POLICIES.md; the remaining eight are moot on
+ * Android (no updater, no default-browser agent, no browser/ chrome, or the
+ * Android default already equals the policy value). Restating a
+ * desktop-only pref here would parse fine, change nothing, and show up green in
+ * scripts/android-pref-audit.sh -- which is exactly the hole this task exists
+ * to avoid.
+ *
+ * BRANCH AND LOCK. Both prefs below are `defaultPref`, i.e. DEFAULT branch,
+ * UNLOCKED. That is not a compromise forced by the delivery channel -- it is
+ * what the desktop policy does. PoliciesUtils.setDefaultPref
+ * (Policies.sys.mjs:3449-3495) writes Services.prefs.getDefaultBranch("") and
+ * locks only when its third argument is truthy; both of these policies pass
+ * `param.Locked`, and neither policies.json entry has a Locked key. A lockPref
+ * here would be STRICTER than desktop, not equal to it.
+ *
+ * Consequently neither pref depends on LW-M3-08. MOZ_DEFAULT_PREFS writes the
+ * default branch, so it carries both correctly today; native autoconfig would
+ * carry them identically. Neither appears in GeckoRuntimeSettings.java,
+ * ContentBlocking.java, or the Nimbus gecko-pref map in
+ * mobile/android/fenix/app/nimbus.fml.yaml, so no runtime writer overwrites
+ * them and no lock is needed to make them stick.
+ *
+ * Note for LW-M3-04: that Nimbus map is a THIRD pref writer, beyond the two in
+ * landmine L2 -- NimbusGeckoPrefHandler.kt:54,283 applies remotely-fetched
+ * values via setGeckoPrefsState(). It is registered as P8 in POLICIES.md.
+ */
+
+/** EncryptedMediaExtensions: {"Enabled": false}
+ *
+ * The only policy row where Android's own default actively disagrees with
+ * LibreWolf. StaticPrefList.yaml:12163-12176 guards the value with
+ * `#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)` -- Android takes the
+ * #else and gets TRUE. Desktop LibreWolf ships EME off via this policy alone;
+ * media.eme.enabled is in neither common.cfg nor desktop.cfg. Without the line
+ * below, LibreWolf for Android would ship DRM enabled while the desktop build
+ * ships it disabled.
+ *
+ * Android's media.eme.require-app-approval (geckoview-prefs.js:287, honoured at
+ * MediaKeySystemAccessManager.cpp:259) adds a per-site embedder prompt on top,
+ * but a prompt is not the blanket disable the policy expresses.
+ */
+defaultPref("media.eme.enabled", false);
+
+/** LocalNetworkAccess: {"Enabled": true, "BlockTrackers": true, "EnablePrompting": true}
+ *
+ * Two of the three sub-keys already match the Android default:
+ *   network.lna.enabled   policy true  == StaticPrefList.yaml:15373-15376 true
+ *   network.lna.blocking  policy true  == StaticPrefList.yaml:15379-15382 true  (EnablePrompting)
+ *   network.lna.block_trackers  policy true  != StaticPrefList.yaml:15386-15389 FALSE
+ *
+ * so only block_trackers needs stating. common.cfg:280-282 already ships three
+ * neighbouring network.lna.* prefs but not this one -- desktop gets it from the
+ * policy.
+ *
+ * The prompting half is functional on Android: GeckoSession.java:7213 defines
+ * PERMISSION_LOCAL_NETWORK_ACCESS ("local-network" at :7365,:7394) and
+ * android-components persists it (SitePermissions.kt:31,97).
+ *
+ * [ANDROID: LOCK] GeckoRuntimeSettings.java:789
+ * CORRECTION (skeptical verification of LW-M3-06): an earlier version of this
+ * comment and of docs/android/POLICIES.md asserted this pref is "not present in
+ * GeckoRuntimeSettings.java ... so no writer overwrites it and no lock is
+ * needed". That is FALSE. It is declared at GeckoRuntimeSettings.java:789 as
+ * `new PrefWithoutDefault<>("network.lna.block_trackers")`, which makes it
+ * exactly the landmine-L2 case: GeckoView owns it at runtime, so an unlocked
+ * defaultPref here is transient. It needs a real lock, and per LW-M3-01 the
+ * MOZ_DEFAULT_PREFS channel cannot express one -- so the value below is
+ * ADVISORY until LW-M3-08 settles whether autoconfig (and therefore lockPref)
+ * works on Android. LW-M3-04 must pick this pref up from the generated list.
+ */
+defaultPref("network.lna.block_trackers", true);
+
+/* ---------------------------------------------------------------------------
+ * FROM settings/common.cfg's BARE pref() CALLS  (LW-M3-09, landmine L2b)
+ * ---------------------------------------------------------------------------
+ *
+ * A bare `pref()` in a .cfg writes the USER branch
+ * (extensions/pref/autoconfig/src/prefcalls.js:12-18 routes it through
+ * Services.prefs.getBranch(null)), and on Android
+ * `GeckoView:ResetUserPrefs` runs AFTER autoconfig and clears the user branch:
+ * GeckoViewStartup.sys.mjs:394-398 loops `Services.prefs.clearUserPref(name)`
+ * over a name list built by RuntimeSettings.java:353-367 from `forAllPrefs`.
+ *
+ * So the question for each of common.cfg's 24 bare pref() calls is exactly one
+ * question: IS THE NAME IN THAT LIST? The list is the prefs declared by the
+ * three RuntimeSettings subclasses -- GeckoRuntimeSettings (GeckoRuntimeSettings.java:34),
+ * ContentBlocking.Settings (ContentBlocking.java:104) and SafeBrowsingProvider
+ * (ContentBlocking.java:1571) -- minus those that neither hasDefault() nor
+ * isSet(). 101 names are declared with literal strings; SafeBrowsingProvider
+ * builds 12 more per provider from `ROOT + mName + "..."` (:1815-1826) for
+ * google, google4 and google5, which is 36 names no literal-string grep sees.
+ *
+ * FOUR of the 24 are in that list. The other TWENTY are not, so their user
+ * value survives on Android exactly as it does on desktop and they are
+ * deliberately NOT restated here -- promoting them would be a REGRESSION, not a
+ * fix: a bare pref() re-asserts the value at every startup and overrides a
+ * stale profile value, and a defaultPref would let that stale value win. The
+ * per-pref table and the measurements are in docs/android/parity/bare-prefs.md.
+ *
+ * common.cfg is UNCHANGED by this task, byte for byte. Desktop keeps the bare
+ * pref() semantics it needs -- for the category pref, common.cfg:113 says so in
+ * as many words ("the desired category must be set with pref() otherwise it
+ * won't stick") -- and settings/librewolf.cfg therefore does not move either.
+ *
+ * Measured on the built APK, not inferred: 21 of the 24 already read
+ * LibreWolf's value; 3 did not. See bare-prefs.md for the run.
+ *
+ * WHY defaultPref FOR SOME AND lockPref FOR OTHERS. ResetUserPrefs only clears
+ * the user branch, so defaultPref is enough to beat it. lockPref is needed only
+ * where a SECOND writer exists: `Pref.commit()` (RuntimeSettings.java:113-122)
+ * dispatches GeckoView:SetDefaultPrefs at RUNTIME, which rewrites the default
+ * branch and beats an unlocked defaultPref (landmine L2). A lock is not free --
+ * it makes the Fenix control that writes the pref inert -- so it is used only
+ * where a runtime writer was actually found, and each one is named below for
+ * LW-M3-04's must-not-lock review.
+ */
+
+/** browser.contentblocking.category -- common.cfg:117, bare pref("strict")
+ *
+ * THE MEASURED CASUALTY. about:config on Android read "standard": GeckoView
+ * commits its own Java default (ContentBlocking.java:579, "standard") to the
+ * DEFAULT branch, our "strict" went to the user branch, and ResetUserPrefs
+ * removed it. Android was shipping Fenix's tracking-protection category while
+ * the config said strict, and no build error showed it.
+ *
+ * This is NOT a cosmetic desktop-UI aggregate on Android. It is read by code
+ * that ships here: netwerk/url-classifier/UrlClassifierExceptionListEntry.cpp:99-112
+ * skips a Remote Settings tracking-protection EXCEPTION entry unless its
+ * `filterContentBlockingCategories` list contains this string -- so "standard"
+ * activates the standard-category exceptions, i.e. allow-lists trackers that
+ * "strict" would keep blocked. Also read at
+ * toolkit/components/url-classifier/RealTimeRequestSimulator.cpp:26.
+ *
+ * lockPref, not defaultPref: there is a runtime writer.
+ * ContentBlocking.java:1062-1073 setEnhancedTrackingProtectionCategory calls
+ * mEtpCategory.commit(...), reached from GeckoEngine.kt:1511 in the
+ * trackingProtectionPolicy setter, which Fenix drives from
+ * TrackingProtectionFragment.kt. commit() early-returns only while the Java
+ * value is unchanged, so an unlocked defaultPref survives exactly until the
+ * user touches the ETP screen.
+ *
+ * COST, and it is a real one: Fenix's Settings > Enhanced Tracking Protection
+ * category selector becomes inert -- it will still move, and the behaviour will
+ * not. That is what desktop does too (LibreWolf hides the equivalent UI and
+ * rewrites the pref at every startup), so this is parity, not a new decision --
+ * but it belongs in LW-M3-04's "locked, known to leave a visible control dead"
+ * list, not in the must-not-lock allowlist.
+ */
+lockPref("browser.contentblocking.category", "strict");
+
+/** devtools.debugger.remote-enabled -- common.cfg:561, bare pref(false)
+ *
+ * Reads false on Android today, and only by coincidence: GeckoView's own Java
+ * default is false too (GeckoRuntimeSettings.java:748). Our user-branch value
+ * is wiped just the same, so the correct value is being supplied by Fenix, not
+ * by us -- it would flip silently if that default ever changed.
+ *
+ * lockPref, not defaultPref: SettingsFragment.kt:603 assigns
+ * engine.settings.remoteDebuggingEnabled at RUNTIME from the "Remote debugging
+ * via USB" switch, which is mRemoteDebugging.commit(...). LW-M3-08 measured
+ * this exact pair on a running build: lockPref'd, it stayed false after the
+ * switch was turned ON, while an unlocked control pref flipped in the same
+ * session and process. That is the observation landmine L2 is built on.
+ *
+ * COST: the "Remote debugging via USB" switch becomes inert. Desktop LibreWolf
+ * ships remote debugging off, so this is parity. For LW-M3-04's dead-control
+ * list.
+ */
+lockPref("devtools.debugger.remote-enabled", false);
+
+/** devtools.console.stdout.chrome -- common.cfg:166, bare pref(false)
+ *
+ * Reads TRUE on Android. GeckoRuntimeSettings.java:767 declares it with a Java
+ * default of true, GeckoProvider.kt:121 feeds it from Fenix's hidden
+ * enableGeckoLogs setting, and ResetUserPrefs removed our false. So chrome
+ * console output goes to logcat on Android while LibreWolf disables it
+ * everywhere else -- see the common.cfg:161-164 rationale (these are off in
+ * official Mozilla builds).
+ *
+ * defaultPref is enough, and lockPref would be over-locking. There is NO
+ * runtime writer: mConsoleOutput is only reached through the Builder
+ * (GeckoRuntimeSettings.java:224-225, `set()` not `commit()`), so its value
+ * arrives before the profile via getPrefsMap/MOZ_DEFAULT_PREFS and autoconfig
+ * runs after it. setConsoleOutputEnabled (:1588) has no caller in Fenix, and
+ * flipping the secret-menu toggle (SettingsFragment.kt:726-737) only writes a
+ * SharedPreference and calls exitProcess(0), so the value is re-derived through
+ * the Builder on the next launch. Leaving it unlocked also keeps the rest of
+ * that debug toggle (geckoview.logging) working.
+ * [ANDROID: LOCK] GeckoRuntimeSettings.java:767
+ */
+defaultPref("devtools.console.stdout.chrome", false);
+
+/** browser.safebrowsing.provider.google4.dataSharingURL -- common.cfg:384, bare pref("")
+ *
+ * Reads
+ * https://safebrowsing.googleapis.com/v4/threatHits?$ct=application/x-protobuf&key=%GOOGLE_SAFEBROWSING_API_KEY%&$httpMethod=POST
+ * on Android. `browser.safebrowsing.provider.google4.dataSharing.enabled` is
+ * false so nothing is sent today, but blanking the URL is the defence in depth
+ * the common.cfg comment asks for, and it is not in place.
+ *
+ * This name is NOT one of the 101 literal declarations. SafeBrowsingProvider
+ * builds it as ROOT + mName + ".dataSharingURL" (ContentBlocking.java:1572,
+ * :1824) and GOOGLE_SAFE_BROWSING_PROVIDER supplies a value (:70-72), which
+ * makes isSet() true and puts it in the reset list. Every name-literal grep --
+ * including board.py's _gv_declared_prefs, and therefore its
+ * BARE_PREF_BACKLOG ratchet -- misses all 36 of these.
+ *
+ * defaultPref is enough, and this is measured rather than argued: the four
+ * sibling provider URLs common.cfg already ships as defaultPref
+ * (google/google4 gethashURL + updateURL, common.cfg:371-374) are declared by
+ * the same mechanism, are equally isSet by the default providers, and all four
+ * read "" on the same build. Fenix never rebuilds the provider configuration at
+ * runtime, so no commit() reaches these.
+ * [ANDROID: LOCK] ContentBlocking.java:1824 (dynamic name)
+ */
+defaultPref("browser.safebrowsing.provider.google4.dataSharingURL", "");

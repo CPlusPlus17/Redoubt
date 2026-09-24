@@ -1,0 +1,131 @@
+# Android patch-set check (LW-M0-09).
+#
+# This job answers exactly one question: does the Android patch list still apply
+# to the Firefox tree the Android track is pinned to?
+#
+# It deliberately does NOT build Gecko. LW-M2-08 owns this file next and adds the
+# real build job once sccache/artifact caching exists; a build step here would not
+# fit the runner budget and the job would get disabled instead of fixed.
+#
+# It references no secrets. Signing never happens in CI - see LW-M6-01 and
+# "What not to do" in docs/android/AGENTS.md.
+
+name: Test Android Patch Set
+
+on:
+  push:
+    branches:
+      - main
+      - beta
+      # The port lands on these until it reaches main. Without them this workflow
+      # would not run once during M0-M5, which is precisely when it is needed.
+      - android-port
+      - android/**
+  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+jobs:
+  test-android:
+    runs-on: epsilon
+    # bsys6:dind, not the Android toolchain image, for two reasons:
+    #
+    #   1. assets/Dockerfile.android (LW-M0-06) is a *local* image - the Makefile
+    #      builds it as `librewolf-android-build` and it is published to no
+    #      registry, so `container: image:` has nothing to pull. Publishing it is
+    #      not part of this task.
+    #   2. it is ~6 GB of JDK + SDK + NDK + Rust for compiling GeckoView, and this
+    #      job compiles nothing.
+    #
+    # bsys6:dind is what source-release.yaml runs `make all` on, and `make all`
+    # goes through the same $(lw_source_dir) recipe this job runs, so the image is
+    # already proven to carry every tool `make dir` needs: curl, gpg, tar/xz,
+    # patch, python3 and unzip. LW-M2-08 owns both this file and
+    # assets/Dockerfile.android and switches the image when it adds the build job.
+    container:
+      image: codeberg.org/librewolf/bsys6:dind
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          # settings/ is a submodule and scripts/librewolf-patches.py copies
+          # librewolf.cfg, policies.json and local-settings.js out of it, so
+          # `make dir` fails outright without this.
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Check the Android board
+        run: |
+          python3 docs/android/board.py --check
+
+      - name: Lint patch scope (advisory until LW-M1-01)
+        run: |
+          # LW-M0-08's linter is specified to exit non-zero on this tree until
+          # LW-M1-01 produces the authoritative common/desktop/android split -
+          # that is one of its acceptance criteria, not a defect. Making it
+          # blocking today would leave this workflow red from the day it lands,
+          # which is how a job gets disabled instead of fixed. Delete the `|| {}`
+          # wrapper in the LW-M1-01 PR, when it is expected to pass.
+          python3 scripts/lint-patch-scope.py || {
+            status=$?
+            echo "::warning::scripts/lint-patch-scope.py exited ${status} - advisory until LW-M1-01 lands"
+          }
+
+      - name: Check patch order
+        run: |
+          # LW-M1-10's acceptance says its test is "wired into
+          # .forgejo/workflows/android-test.yaml", but it owns only
+          # scripts/check-patch-order.py and cannot edit this file. Wired here in
+          # advance; it arms itself when that script lands.
+          if [ -f scripts/check-patch-order.py ]; then
+            python3 scripts/check-patch-order.py
+          else
+            echo "scripts/check-patch-order.py is not present yet (LW-M1-10); skipping."
+          fi
+
+      - name: Fetching Firefox ESR Source
+        run: |
+          # No detect-firefox-version.sh here: that script knows the release, beta
+          # and rc channels, and the Android track is pinned to an ESR version in
+          # ./version.android (docs/android/TRACK.md). TARGETS=android is what
+          # selects that pair, so the tarball fetched is the ESR one.
+          #
+          # This is ~766 MiB from archive.mozilla.org plus a GPG verify on every
+          # run, and it is deliberately uncached: caching is LW-M2-08's, keyed on
+          # the mozconfig and toolchain, and a half-measure here would be thrown
+          # away by it. For scale, source-test.yaml already pulls this tarball
+          # three times per pull request and then builds Firefox three times.
+          make fetch TARGETS=android
+
+      - name: Checking patches for rejects
+        run: |
+          # check-patchfail.sh is target-blind until LW-M1-11: it reads ./version
+          # (the desktop track), requires firefox-<desktop version>.source.tar.xz
+          # which this job never downloads, and walks the common+desktop shim.
+          # Unguarded it would fail every run for a reason that has nothing to do
+          # with the Android patch set. It arms itself when LW-M1-11 lands.
+          #
+          # It runs before `make dir` on purpose: it reports every rejected hunk,
+          # where the patcher stops at the first failing patch. On a rebase pull
+          # request that difference is the whole value of the step.
+          if grep -q -- '--targets' scripts/check-patchfail.sh; then
+            ./scripts/check-patchfail.sh --targets=android
+          else
+            echo "scripts/check-patchfail.sh has no --targets yet (LW-M1-11); skipping."
+            echo "The patch-application test below is the blocking one."
+          fi
+
+      - name: Applying the Android patch set
+        run: |
+          # The test. Extracts the ESR tarball and runs
+          # scripts/librewolf-patches.py --targets=android over it, which applies
+          # assets/patches/common.txt then assets/patches/android.txt and exits 1
+          # on the first patch that does not apply - so this step is green exactly
+          # when the Android patch list applies and red when it does not.
+          #
+          # TARGETS=desktop,android is not tested here: the Makefile refuses it at
+          # recipe time whenever ./version and ./version.android differ, and it
+          # only reaches that guard after downloading a second tarball.
+          make dir TARGETS=android

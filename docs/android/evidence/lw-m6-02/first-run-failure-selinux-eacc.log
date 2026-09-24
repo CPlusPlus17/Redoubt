@@ -1,0 +1,26 @@
+PASS apk START 2026-08-22T15:14:07Z
+GLEAN_PARSER_VENV=/root/.mozbuild/srcdirs/src-1507bbc88e3b/_virtualenvs/build
+glean parser venv missing, running ./mach configure to recreate it
+Creating local state directory: /root/.mozbuild/srcdirs/src-1507bbc88e3b
+Traceback (most recent call last):
+  File "/work/src/./mach", line 191, in <module>
+    main(sys.argv[1:])
+  File "/work/src/./mach", line 147, in main
+    mach = check_and_get_mach(os.path.dirname(os.path.realpath(__file__)), args)
+  File "/work/src/./mach", line 39, in check_and_get_mach
+    return load_mach(dir_path, mach_path, args)
+  File "/work/src/./mach", line 25, in load_mach
+    return mach_initialize.initialize(dir_path, args)
+  File "/work/src/build/mach_initialize.py", line 163, in initialize
+    _activate_python_environment(
+  File "/work/src/build/mach_initialize.py", line 78, in _activate_python_environment
+    mach_environment = MachSiteManager.from_environment(
+  File "/work/src/python/mach/mach/site.py", line 372, in from_environment
+    _mach_virtualenv_root(get_state_dir())
+  File "/work/src/build/mach_initialize.py", line 165, in <lambda>
+    lambda: os.path.normpath(get_state_dir(True, topsrcdir=topsrcdir)),
+  File "/work/src/python/mach/mach/util.py", line 71, in get_state_dir
+    state_dir.mkdir(mode=0o770, parents=True)
+  File "/usr/lib/python3.10/pathlib.py", line 1175, in mkdir
+    self._accessor.mkdir(self, mode)
+PermissionError: [Errno 13] Permission denied: '/root/.mozbuild/srcdirs/src-1507bbc88e3b'

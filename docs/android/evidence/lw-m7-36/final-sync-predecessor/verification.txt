@@ -1,0 +1,24 @@
+$ python3 docs/android/evidence/lw-m7-36/check-source.py
+SOURCE REPLAY PASS: 7 scoped predecessors; 21 patch files match before/after pins; 38 original audit inputs verified.
+AUTHORED KOTLIN TESTS: 21; NOT EXECUTED by this replay.
+AUTHORED XPCSHELL TESTS: 5; NOT EXECUTED by this replay.
+TARGET COMPILATION / API GENERATION / APK RUNTIME: NOT RUN.
+exit=0
+
+$ python3 docs/android/evidence/lw-m7-36/check-ordering.py
+patches/android/no-glean.patch: inverse identical=True; candidate reached=True; shared position swap identical=True
+patches/android/update-check.patch: inverse identical=True; candidate reached=True; shared position swap identical=True
+patches/android/ubo-readiness.patch: inverse identical=True; candidate reached=True; shared position swap identical=True
+patches/android/canvas-webgl-permissions.patch: inverse identical=False; candidate reached=False; shared position swap identical=True
+patches/android/sync-opt-in.patch: inverse identical=False; candidate reached=False; shared position swap identical=True
+patches/android/cookie-banner-controls.patch: inverse identical=True; candidate reached=True; shared position swap identical=True
+patches/android/extension-update-controls.patch: inverse identical=True; candidate reached=True; shared position swap identical=True
+ORDER RECEIPT PASS; global classification remains root integration ownership.
+exit=0
+
+$ python3 docs/android/board.py --check
+ok: 122 tasks, 31 waves, 0 warning(s)
+exit=0
+
+$ git diff --check
+exit=0
