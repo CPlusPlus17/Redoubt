@@ -120,7 +120,7 @@ them should raise or reshape the first-run wait once measured on a slow network.
 | Per-site "keep cookies for this site" exception, respected by cleanup (`allow_cookies_for_site.patch`) | No control; cleanup has no retention exceptions | F04, coverage map *cookie-exemption* |
 | Gecko content-process sandbox | Absent: not compiled on Android upstream. Partly offset by site isolation, `isolatedProcess` and RLBox | PARITY §3.1 |
 | Enterprise policies (`policies.json`) enforced by Gecko | No policy engine on Android; each key mapped by hand, residual gaps P1–P8 | [`POLICIES.md`](POLICIES.md) |
-| Feedback and "report broken site" routed away from Mozilla; support menu points at LibreWolf's tracker | Fenix's reporter and support routes not yet audited or redirected | F17, P1 |
+| Feedback and "report broken site" routed away from Mozilla; support menu points at LibreWolf's tracker | **"Report broken site" removed on this branch** (LW-M7-38): its report was a Glean ping with no upload path, so submissions were silently discarded. Other support routes still unaudited | F17, P1 |
 | Global EME (DRM) switch with a LibreWolf explanation | DRM off by default, but only a per-site permission; no global control | coverage map *eme* |
 | Optional "hide password manager" (`librewolf.hidePasswdmgr`) | Save/autofill default off; no hide option | F06, *password* |
 | Optional JPEG XL decoding | No verified decoder or control | *jxl* |

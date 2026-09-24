@@ -5206,3 +5206,32 @@ tasks:
     agent_safe: true
     isolation: worktree
     risk: A dispatch or window-close request is not a storage/content completion barrier; failure or late writes can leave cleanup incomplete or erase retained data.
+
+  - id: LW-M7-38
+    title: Remove feedback commands that cannot deliver
+    milestone: M7
+    depends_on:
+    - LW-M4-01
+    - LW-M7-37
+    owns:
+    - patches/android/no-webcompat-reporter.patch
+    shared_edit:
+    - assets/patches/android.txt
+    tree_paths:
+    - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
+    reads:
+    - settings/distribution/policies.json
+    - docs/android/POLICIES.md
+    what: LibreWolf's DisableFeedbackCommands policy removes product feedback commands (POLICIES P1, FEATURE-PARITY F17). Fenix's "Report broken site" submits a Glean ping that no-glean.patch leaves with no upload path, so a report is silently discarded. Remove the menu entry point; keep compatibility interventions (WebCompatFeature). Remaining support and feedback routes are audited separately.
+    acceptance:
+    - The browser menu offers no "Report broken site" entry on any page
+    - Compatibility interventions keep working
+    - Fenix compiles and the Fenix unit gate passes; ThreeDotMenuMainRobot is updated if instrumented tests run
+    verify: python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope
+    effort_h: 1-2
+    skills:
+    - android
+    - kotlin
+    agent_safe: true
+    isolation: worktree
+    risk: A visible reporter whose submissions go nowhere tells users their report was sent.

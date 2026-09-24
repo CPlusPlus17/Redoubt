@@ -1,0 +1,26 @@
+# Redoubt: remove "Report broken site" from the browser menu (FEATURE-PARITY F17, POLICIES P1).
+#
+# LibreWolf's DisableFeedbackCommands policy removes product feedback commands.
+# Fenix's broken-site reporter submits a Glean ping (WebCompatReporterSubmission-
+# Middleware, Pings.brokenSiteReport); with Glean upload removed by no-glean.patch
+# the report is silently discarded, so the menu item promised something it could
+# not do. The reporter code and its navigation stay; only the entry point goes.
+# Compatibility interventions (WebCompatFeature) are a separate, unchanged feature.
+#
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
+@@ -71,10 +71,9 @@ internal fun MoreSettingsSubmenu(
+             isPrivate = isPrivate,
+             onMoveToNonPrivateTabMenuClick = onMoveToNonPrivateTabMenuClick,
+         )
+-        WebCompatReporterMenuItem(
+-            isWebCompatEnabled = isWebCompatEnabled,
+-            onWebCompatReporterClick = onWebCompatReporterClick,
+-        )
++        // Redoubt: no "Report broken site". Its report is a Glean ping, and Glean
++        // upload is removed (no-glean.patch), so a submitted report went nowhere.
++        // LibreWolf's DisableFeedbackCommands policy removes the same command.
+         ShortcutsSection(
+             showShortcuts = showShortcuts,
+             isPinned = isPinned,
