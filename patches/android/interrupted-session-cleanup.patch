@@ -8,11 +8,13 @@
 # categories before any engine session exists, awaiting each Gecko deletion.
 # Engine sessions are held by a second instance of the uBO startup middleware
 # (ubo-preinstall.patch) until cleanup has finished; a failure or the 30 s bound
-# is logged and browsing continues, and the next start retries. Tabs are removed
-# only after restore completes, so restore cannot bring them back.
+# is logged and browsing continues, and the next start retries. With tabs
+# selected, the saved session is discarded and restore waits for that, so the
+# previous session's tabs never come back and a tab an incoming link opens stays.
 # Requires ubo-preinstall.patch. Per-site cookie retention is not implemented.
 #
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+index 1adf0cf..5e69c4c 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 @@ -237,6 +237,8 @@ class Components(private val context: Context) {
@@ -25,6 +27,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
          AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
      }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+index 568004a..fbaba8b 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
 @@ -368,6 +368,8 @@ class Core(
@@ -37,9 +40,19 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
                  LogMiddleware(tag = "BrowserStore", shouldIncludeDetailedData = { Config.channel.isDebug }),
                  LastAccessMiddleware(),
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+index 9c11dc5..5a2ca23 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -827,6 +827,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -418,6 +418,8 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+         val store = components.core.store
+         val sessionStorage = components.core.sessionStorage
+
++        // Delete-on-quit with tabs selected discards the saved session first (LibreWolfStartupCleanup).
++        components.startupCleanup.awaitSavedTabsDecision()
+         components.useCases.tabsUseCases.restore(sessionStorage, components.settings.getTabTimeout())
+
+         // Now that we have restored our previous state (if there's one) let's setup auto saving the state while
+@@ -827,6 +829,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              logger.error("Failed to initialize web extension support", e)
          }
          components.uboPreinstaller.start()
@@ -49,9 +62,10 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixAppli
      @VisibleForTesting
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfStartupCleanup.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfStartupCleanup.kt
 new file mode 100644
+index 0000000..183c9c8
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfStartupCleanup.kt
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,198 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -60,6 +74,7 @@ new file mode 100644
 +
 +import android.content.Context
 +import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CompletableDeferred
 +import kotlinx.coroutines.CoroutineScope
 +import kotlinx.coroutines.Dispatchers
 +import kotlinx.coroutines.SupervisorJob
@@ -72,6 +87,7 @@ new file mode 100644
 +import kotlinx.coroutines.suspendCancellableCoroutine
 +import kotlinx.coroutines.withContext
 +import kotlinx.coroutines.withTimeout
++import kotlinx.coroutines.withTimeoutOrNull
 +import mozilla.components.browser.state.action.EngineAction
 +import mozilla.components.browser.state.action.RecentlyClosedAction
 +import mozilla.components.concept.engine.Engine
@@ -94,6 +110,11 @@ new file mode 100644
 + * uBlock Origin, so no restored tab, incoming link or custom tab can load, and so
 + * repopulate site data, before deletion has finished. A failed or timed-out
 + * category is logged and browsing continues: the next cold start tries again.
++ *
++ * Tabs are handled before restore rather than removed after it: the saved session
++ * is discarded and FenixApplication's restore waits for [awaitSavedTabsDecision].
++ * Removing tabs afterwards would also remove a tab an incoming link just opened,
++ * and removing by id goes through undo into Recently closed, i.e. keeps them.
 + */
 +class LibreWolfStartupCleanup internal constructor(
 +    private val dependencies: Dependencies,
@@ -109,7 +130,10 @@ new file mode 100644
 +        /** Categories selected for deletion on quit; empty when the feature is off. */
 +        suspend fun selectedTypes(): List<DeleteBrowsingDataOnQuitType>
 +
-+        /** Delete one category, returning only once it has actually completed. */
++        /**
++         * Delete one category, returning only once it has actually completed. TABS
++         * discards the saved session before it is restored.
++         */
 +        suspend fun delete(type: DeleteBrowsingDataOnQuitType)
 +    }
 +
@@ -121,6 +145,7 @@ new file mode 100644
 +    // fields carry no meaning for this gate.
 +    override val state: StateFlow<LibreWolfUboPreinstaller.State> = mutableState.asStateFlow()
 +    private var started = false
++    private val savedTabsDecided = CompletableDeferred<Unit>()
 +
 +    /** Categories that did not complete in the last run, for tests and logs. */
 +    internal var incomplete: List<DeleteBrowsingDataOnQuitType> = emptyList()
@@ -133,7 +158,9 @@ new file mode 100644
 +            val remaining = mutableListOf<DeleteBrowsingDataOnQuitType>()
 +            try {
 +                withTimeout(timeoutMillis) {
-+                    remaining += dependencies.selectedTypes()
++                    // Tabs first: restore is waiting on this decision.
++                    remaining += dependencies.selectedTypes().sortedBy { it != DeleteBrowsingDataOnQuitType.TABS }
++                    if (DeleteBrowsingDataOnQuitType.TABS !in remaining) savedTabsDecided.complete(Unit)
 +                    for (type in remaining.toList()) {
 +                        try {
 +                            dependencies.delete(type)
@@ -142,6 +169,8 @@ new file mode 100644
 +                            throw exception
 +                        } catch (exception: Exception) {
 +                            logger.error("Startup deletion of $type failed; retried on next start", exception)
++                        } finally {
++                            if (type == DeleteBrowsingDataOnQuitType.TABS) savedTabsDecided.complete(Unit)
 +                        }
 +                    }
 +                }
@@ -153,9 +182,18 @@ new file mode 100644
 +                logger.error("Could not read the delete-on-quit selection", exception)
 +            } finally {
 +                incomplete = remaining.toList()
++                savedTabsDecided.complete(Unit)
 +                mutableState.value = RELEASED
 +            }
 +        }
++    }
++
++    /**
++     * Restore of the previous session's tabs must wait for this. Bounded, so a
++     * cleanup that never started cannot withhold the user's tabs.
++     */
++    suspend fun awaitSavedTabsDecision() {
++        withTimeoutOrNull(timeoutMillis) { savedTabsDecided.await() }
 +    }
 +
 +    override suspend fun awaitReady() {
@@ -175,12 +213,8 @@ new file mode 100644
 +        override suspend fun delete(type: DeleteBrowsingDataOnQuitType) {
 +            val components = context.components
 +            when (type) {
-+                DeleteBrowsingDataOnQuitType.TABS -> {
-+                    // Removing tabs before restore finished would let restore bring them back.
-+                    components.core.store.stateFlow.first { it.restoreComplete }
-+                    withContext(Dispatchers.Main) {
-+                        components.useCases.tabsUseCases.removeAllTabs.invoke(false)
-+                    }
++                DeleteBrowsingDataOnQuitType.TABS -> withContext(Dispatchers.IO) {
++                    components.core.sessionStorage.clear()
 +                }
 +                DeleteBrowsingDataOnQuitType.HISTORY -> {
 +                    components.core.historyStorage.deleteEverything()
@@ -232,9 +266,10 @@ new file mode 100644
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfStartupCleanupTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfStartupCleanupTest.kt
 new file mode 100644
+index 0000000..582377c
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfStartupCleanupTest.kt
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,230 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -255,6 +290,7 @@ new file mode 100644
 +import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.CACHE
 +import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.COOKIES
 +import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.HISTORY
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.TABS
 +
 +@OptIn(ExperimentalCoroutinesApi::class)
 +class LibreWolfStartupCleanupTest {
@@ -388,5 +424,79 @@ new file mode 100644
 +        cookies.complete(Unit)
 +        runCurrent()
 +        assertTrue(released)
++    }
++
++    @Test
++    fun `saved tabs are discarded first and restore waits for that`() = runTest {
++        val dependencies = FakeDependencies(selected = listOf(COOKIES, TABS))
++        val tabs = CompletableDeferred<Unit>().also { dependencies.gates[TABS] = it }
++        val cleanup = LibreWolfStartupCleanup(dependencies, backgroundScope)
++        var restored = false
++        backgroundScope.launch {
++            cleanup.awaitSavedTabsDecision()
++            restored = true
++        }
++
++        cleanup.start()
++        runCurrent()
++        assertFalse(restored)
++        assertEquals(emptyList<DeleteBrowsingDataOnQuitType>(), dependencies.deleted)
++
++        tabs.complete(Unit)
++        runCurrent()
++        assertTrue(restored)
++        assertEquals(listOf(TABS, COOKIES), dependencies.deleted)
++    }
++
++    @Test
++    fun `restore does not wait when tabs are not selected`() = runTest {
++        val dependencies = FakeDependencies(selected = listOf(COOKIES))
++        dependencies.gates[COOKIES] = CompletableDeferred()
++        val cleanup = LibreWolfStartupCleanup(dependencies, backgroundScope)
++        var restored = false
++        backgroundScope.launch {
++            cleanup.awaitSavedTabsDecision()
++            restored = true
++        }
++
++        cleanup.start()
++        runCurrent()
++
++        assertTrue(restored)
++        assertEquals(LibreWolfUboPreinstaller.State.Preparing, cleanup.state.value)
++    }
++
++    @Test
++    fun `a failed tab discard still lets restore run`() = runTest {
++        val dependencies = FakeDependencies(selected = listOf(TABS), failing = setOf(TABS))
++        val cleanup = LibreWolfStartupCleanup(dependencies, backgroundScope)
++        var restored = false
++        backgroundScope.launch {
++            cleanup.awaitSavedTabsDecision()
++            restored = true
++        }
++
++        cleanup.start()
++        runCurrent()
++
++        assertTrue(restored)
++        assertEquals(listOf(TABS), cleanup.incomplete)
++    }
++
++    @Test
++    fun `restore is not withheld forever if cleanup never starts`() = runTest {
++        val cleanup = LibreWolfStartupCleanup(FakeDependencies(), backgroundScope, timeoutMillis = 1_000)
++        var restored = false
++        backgroundScope.launch {
++            cleanup.awaitSavedTabsDecision()
++            restored = true
++        }
++
++        advanceTimeBy(999)
++        runCurrent()
++        assertFalse(restored)
++        advanceTimeBy(2)
++        runCurrent()
++        assertTrue(restored)
 +    }
 +}

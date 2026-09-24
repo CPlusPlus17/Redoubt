@@ -14,8 +14,11 @@ session exists:
 - Cookies/site data, cache and site permissions go through Gecko's `clearData`,
   **awaited on its callbacks**. Fenix's Quit path launches the same calls without
   waiting, so its completion runs before Gecko is done.
-- Tabs are removed only after `BrowserState.restoreComplete`, so restore cannot
-  bring them back.
+- Tabs: the saved session file is discarded (`SessionStorage.clear()`) and
+  `FenixApplication.restoreBrowserState` waits for that decision (bounded by the
+  same 30 s), so the previous session's tabs are never restored, a tab an incoming
+  link opens is kept, and nothing passes through undo into Recently closed.
+  (Found by review: removing all tabs after restore also removed the incoming tab.)
 - History and downloads use the same stores Fenix's controller uses.
 
 Engine sessions are held by a second `LibreWolfUboPreinstallMiddleware` instance
@@ -32,9 +35,10 @@ Android session's end can be observed.
 
 - `run-jvm-tests.sh`: `LibreWolfStartupCleanup.kt` and its test compile with
   `-Werror` (Kotlin 2.3.20) against [`stubs/`](stubs/), whose signatures are copied
-  from the `FIREFOX_153_3_0esr_RELEASE` sources, and all 7 tests pass
+  from the `FIREFOX_153_3_0esr_RELEASE` sources, and all 11 tests pass
   ([`jvm-tests.txt`](jvm-tests.txt)). A mutant that releases sessions before
-  deleting fails 3 of them.
+  deleting fails 3 of them; one that makes restore wait when tabs are not
+  selected fails 1.
 - The patch applies with `--fuzz=0` after the full 66-patch series on 153.3.0esr
   (`evidence/esr-153.3/replay-series.py`: 67 patches, 0 failed).
 - Ordering against its eight shared-file partners was measured by swapping
@@ -49,7 +53,8 @@ has not been compiled against real Fenix, and nothing ran on a device. Stubs pro
 the logic and its types as read, not the real classes. Required before a candidate:
 `:fenix:compileReleaseKotlin`, `board.py --check-fenix-tests`, and a device run that
 seeds a cookie, force-stops the app, relaunches and checks the cookie is gone before
-the first page loads.
+the first page loads; and, with tabs selected, that a link opened from another app
+survives while the previous tabs do not.
 
 Not implemented: desktop's per-site cookie retention (`allow_cookies_for_site`);
 LW-M7-37's durable journal. A kill during the startup deletion itself is retried on
