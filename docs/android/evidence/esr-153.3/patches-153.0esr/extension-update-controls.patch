@@ -1,6 +1,6 @@
 --- a/modules/libpref/Preferences.cpp
 +++ b/modules/libpref/Preferences.cpp
-@@ -3488,11 +3488,6 @@
+@@ -3483,11 +3483,6 @@
                                  []() { return sPendingWriteCount <= 0; });
    }
 
@@ -12,7 +12,7 @@
    // This is the number of writes via PWRunnables which have been dispatched
    // but not yet completed. This is intended to be used by Flush to ensure
    // that there are no outstanding writes left incomplete, and thus our prefs
-@@ -3503,132 +3498,83 @@
+@@ -3498,101 +3493,83 @@
    static StaticMutex sWritingToFile MOZ_UNANNOTATED;
  };
 
@@ -26,7 +26,6 @@
 +// or acknowledge a different request's result.
  class PWRunnable : public Runnable {
   public:
--  // Consumes sPendingWriteData, writing it to aFile (the profile prefs.js).
    explicit PWRunnable(
 -      nsIFile* aFile,
 -      UniquePtr<MozPromiseHolder<Preferences::WritePrefFilePromise>>
@@ -36,31 +35,12 @@
        : Runnable("PWRunnable"),
          mFile(aFile),
 -        mPromiseHolder(std::move(aPromiseHolder)) {}
--
--  // Writes aData to aFile, bypassing sPendingWriteData; used for backups.
--  PWRunnable(nsIFile* aFile, UniquePtr<PrefSaveData> aData,
--             UniquePtr<MozPromiseHolder<Preferences::WritePrefFilePromise>>
--                 aPromiseHolder)
--      : Runnable("PWRunnableBackup"),
--        mFile(aFile),
--        mData(std::move(aData)),
--        mPromiseHolder(std::move(aPromiseHolder)) {}
 +        mPrefs(std::move(aPrefs)),
 +        mPromiseHolder(std::move(aPromiseHolder)) {
 +    PreferencesWriter::sPendingWriteCount++;
 +  }
 
    NS_IMETHOD Run() override {
--    // Backups carry their own data and bypass the sPendingWriteData coalescing.
--    if (mData) {
--      nsresult rv = PreferencesWriter::Write(mFile, *mData);
--      DispatchWriteComplete(rv, /* aRetryOnFailure */ false);
--      PreferencesWriter::sPendingWriteCount--;
--      return rv;
-+    if (!mCounted) {
-+      return NS_ERROR_ABORT;
-     }
--
 -    // Preference writes are handled a bit strangely, in that a "newer"
 -    // write is generally regarded as always better. For this reason,
 -    // sPendingWriteData can be overwritten multiple times before anyone
@@ -97,6 +77,9 @@
 -    // would be used more carefully, but it's hard to untangle all that.
 -    nsresult rv = NS_OK;
 -    if (PreferencesWriter::sPendingWriteData) {
++    if (!mCounted) {
++      return NS_ERROR_ABORT;
++    }
 +    {
        StaticMutexAutoLock lock(PreferencesWriter::sWritingToFile);
 -      // If we get a nullptr on the exchange, it means that somebody
@@ -105,80 +88,76 @@
 -          PreferencesWriter::sPendingWriteData.exchange(nullptr));
 -      if (prefs) {
 -        rv = PreferencesWriter::Write(mFile, *prefs);
--        DispatchWriteComplete(rv, /* aRetryOnFailure */ true);
--      }
+-        // Make a copy of these so we can have them in runnable lambda.
+-        // nsIFile is only there so that we would never release the
+-        // ref counted pointer off main thread.
+-        nsresult rvCopy = rv;
+-        nsCOMPtr<nsIFile> fileCopy(mFile);
+-        SchedulerGroup::Dispatch(NS_NewRunnableFunction(
+-            "Preferences::WriterRunnable",
+-            [fileCopy, rvCopy, promiseHolder = std::move(mPromiseHolder)] {
+-              MOZ_RELEASE_ASSERT(NS_IsMainThread());
+-              if (NS_FAILED(rvCopy)) {
+-                Preferences::HandleDirty();
+-              }
+-              if (promiseHolder) {
+-                promiseHolder->ResolveIfExists(true, __func__);
+-              }
+-            }));
 +      mResult = PreferencesWriter::Write(mFile, *mPrefs);
-     }
--    // We've completed the write to the best of our abilities, whether
--    // we had prefs to write or another runnable got to them first. If
--    // PreferencesWriter::Write failed, this is still correct as the
--    // write is no longer outstanding, and the HandleDirty call that
--    // DispatchWriteComplete makes on failure will just start the cycle
--    // again.
--    PreferencesWriter::sPendingWriteCount--;
--    return rv;
--  }
--
-- private:
--  // Dispatches a main-thread runnable that settles mPromiseHolder for a write
--  // that finished with aRv; the captured nsIFile ref keeps mFile alive until it
--  // is released on the main thread. When aRetryOnFailure is true (the coalesced
--  // profile prefs.js write), a failed write is retried via HandleDirty() and
--  // the promise still resolves; otherwise a failed write rejects the promise.
--  void DispatchWriteComplete(nsresult aRv, bool aRetryOnFailure) {
--    nsCOMPtr<nsIFile> fileCopy(mFile);
++    }
 +    mPrefs = nullptr;
 +    // Keep the final file reference and dirty bookkeeping on the main thread.
 +    // Resolve the thread-safe MozPromise from the actual result, independently
 +    // of when that bookkeeping runnable executes.
 +    nsresult result = mResult;
-     SchedulerGroup::Dispatch(NS_NewRunnableFunction(
--        "Preferences::WriterRunnable",
--        [fileCopy, aRv, aRetryOnFailure,
--         promiseHolder = std::move(mPromiseHolder)] {
++    SchedulerGroup::Dispatch(NS_NewRunnableFunction(
 +        "Preferences::WriterRunnable", [file = std::move(mFile), result] {
-           MOZ_RELEASE_ASSERT(NS_IsMainThread());
--          if (NS_FAILED(aRv) && aRetryOnFailure) {
++          MOZ_RELEASE_ASSERT(NS_IsMainThread());
 +          if (NS_FAILED(result)) {
 +            // A retry captures current prefs; it never replays this old snapshot.
-             Preferences::HandleDirty();
-           }
--          if (promiseHolder) {
--            if (NS_SUCCEEDED(aRv) || aRetryOnFailure) {
--              promiseHolder->ResolveIfExists(true, __func__);
--            } else {
--              promiseHolder->RejectIfExists(aRv, __func__);
--            }
--          }
-         }));
++            Preferences::HandleDirty();
++          }
++        }));
 +    if (mPromiseHolder) {
 +      if (NS_FAILED(result)) {
 +        mPromiseHolder->RejectIfExists(result, __func__);
 +      } else {
 +        mPromiseHolder->ResolveIfExists(true, __func__);
-+      }
-+    }
+       }
+     }
+-    // We've completed the write to the best of our abilities, whether
+-    // we had prefs to write or another runnable got to them first. If
+-    // PreferencesWriter::Write failed, this is still correct as the
+-    // write is no longer outstanding, and the above HandleDirty call
+-    // will just start the cycle again.
+-    PreferencesWriter::sPendingWriteCount--;
+-    return rv;
 +    CompleteCount();
 +    return result;
-   }
-
--  ~PWRunnable() {
++  }
++
 +  nsresult Result() const { return mResult; }
 +
 +  // A failed Dispatch may retain/leak its runnable. Explicitly balance the
 +  // count and reject here; destruction is an additional exactly-once fallback.
 +  void Cancel(nsresult aReason) {
-     if (mPromiseHolder) {
--      mPromiseHolder->RejectIfExists(NS_ERROR_ABORT, __func__);
++    if (mPromiseHolder) {
 +      mPromiseHolder->RejectIfExists(aReason, __func__);
-     }
++    }
 +    mPrefs = nullptr;
 +    NS_ReleaseOnMainThread("PWRunnable::mFile", mFile.forget());
 +    CompleteCount();
    }
 
+  private:
+-  ~PWRunnable() {
+-    if (mPromiseHolder) {
+-      mPromiseHolder->RejectIfExists(NS_ERROR_ABORT, __func__);
+-    }
+-  }
+-
 - protected:
-+ private:
 +  void CompleteCount() {
 +    if (mCounted.exchange(false)) {
 +      PreferencesWriter::sPendingWriteCount--;
@@ -187,8 +166,6 @@
 +  ~PWRunnable() { Cancel(NS_ERROR_ABORT); }
 +
    nsCOMPtr<nsIFile> mFile;
--  // When set, Run() writes this instead of consuming sPendingWriteData.
--  UniquePtr<PrefSaveData> mData;
 +  UniquePtr<PrefSaveData> mPrefs;
    UniquePtr<MozPromiseHolder<Preferences::WritePrefFilePromise>> mPromiseHolder;
 +  Atomic<bool> mCounted{true};
@@ -196,7 +173,7 @@
  };
 
  // Although this is a member of Preferences, it measures sPreferences and
-@@ -4235,9 +4181,11 @@
+@@ -4199,9 +4176,11 @@
      // It's possible that a profile-before-change observer after ours
      // set a pref. A blocking save here re-saves if necessary and also waits
      // for any pending saves to complete.
@@ -211,22 +188,13 @@
 
    } else if (!nsCRT::strcmp(aTopic, "suspend_process_notification")) {
      // Our process is being suspended. The OS may wake our process later,
-@@ -4331,21 +4279,27 @@
+@@ -4295,21 +4274,27 @@
  }
 
  nsresult Preferences::SavePrefFileBlocking() {
 -  if (mDirty) {
 -    return SavePrefFileInternal(nullptr, SaveMethod::Blocking);
-+  // Always enqueue the latest state, even if a prior asynchronous request
-+  // already cleared mDirty. Queue completion alone cannot prove that request
-+  // succeeded, and its main-thread dirty callback may still be pending.
-+  if (!mCurrentFile) {
-+    // Backups are also available before current-profile initialization.
-+    if (AllowOffMainThreadSave()) {
-+      PreferencesWriter::Flush();
-+    }
-+    return NS_OK;
-   }
+-  }
 -
 -  // If we weren't dirty to start, SavePrefFileInternal will early exit so
 -  // there is no guarantee that we don't have oustanding async saves in the
@@ -236,11 +204,22 @@
 -
 -  if (AllowOffMainThreadSave()) {
 -    PreferencesWriter::Flush();
-+  if (mProfileShutdown) {
-+    return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
-   }
+-  }
 -
 -  return NS_OK;
++  // Always enqueue the latest state, even if a prior asynchronous request
++  // already cleared mDirty. Queue completion alone cannot prove that request
++  // succeeded, and its main-thread dirty callback may still be pending.
++  if (!mCurrentFile) {
++    // Backups are also available before current-profile initialization.
++    if (AllowOffMainThreadSave()) {
++      PreferencesWriter::Flush();
++    }
++    return NS_OK;
++  }
++  if (mProfileShutdown) {
++    return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
++  }
 +  mSavePending = false;
 +  nsresult rv = WritePrefFile(mCurrentFile, SaveMethod::Blocking);
 +  if (NS_SUCCEEDED(rv)) {
@@ -252,10 +231,13 @@
  }
 
  nsresult Preferences::SavePrefFileAsynchronous() {
-@@ -4359,6 +4313,40 @@
- }
-
- NS_IMETHODIMP
+@@ -4320,6 +4305,40 @@
+ Preferences::SavePrefFile(nsIFile* aFile) {
+   // This is the method accessible from service API. Make it off main thread.
+   return SavePrefFileInternal(aFile, SaveMethod::Asynchronous);
++}
++
++NS_IMETHODIMP
 +Preferences::SavePrefFileAsync(JSContext* aCx, Promise** aPromise) {
 +  ENSURE_PARENT_PROCESS("Preferences::SavePrefFileAsync", "all prefs");
 +  MOZ_ASSERT(NS_IsMainThread());
@@ -287,13 +269,10 @@
 +      [domPromise](nsresult result) { domPromise.get()->MaybeReject(result); });
 +  promise.forget(aPromise);
 +  return NS_OK;
-+}
-+
-+NS_IMETHODIMP
- Preferences::BackupPrefFile(nsIFile* aFile, nsIPrefOverrideMap* aJSOverrideMap,
-                             JSContext* aCx, Promise** aPromise) {
-   MOZ_ASSERT(NS_IsMainThread());
-@@ -4798,91 +4786,31 @@
+ }
+
+ NS_IMETHODIMP
+@@ -4762,73 +4781,31 @@
      UniquePtr<PrefSaveData> prefs =
          MakeUnique<PrefSaveData>(pref_savePrefs(aPrefOverrideMap));
 
@@ -312,24 +291,6 @@
          REJECT_IF_PROMISE_HOLDER_EXISTS(rv);
        }
      }
--
--    // Backups target a different file with a filtered pref set and must settle
--    // their promise, so they can't share the single-slot sPendingWriteData
--    // coalescing. Dispatch a standalone write instead.
--    if (aPromiseHolder) {
--      MOZ_ASSERT(aSaveMethod == SaveMethod::Asynchronous,
--                 "Backup writes are always asynchronous");
--      PreferencesWriter::sPendingWriteCount++;
--      rv = mAsyncTarget->Dispatch(
--          new PWRunnable(aFile, std::move(prefs), std::move(aPromiseHolder)),
--          nsIEventTarget::DISPATCH_EVENT_MAY_BLOCK);
--      if (NS_FAILED(rv)) {
--        PreferencesWriter::sPendingWriteCount--;
--        // The PWRunnable rejected the holder in its destructor.
--        return rv;
--      }
--      return NS_OK;
--    }
 -
 -    if (mCurrentFile) {
 -      rv = mCurrentFile->Equals(aFile, &writingToCurrent);

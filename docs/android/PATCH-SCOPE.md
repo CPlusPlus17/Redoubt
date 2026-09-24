@@ -15,7 +15,7 @@ read in full, every file it touches was traced to the `moz.build` / `jar.mn` /
 preprocessor guard that decides whether that file is built on Android, and the
 decision below follows from that guard rather than from the path.
 
-Current classification: **24 common / 43 android / 36 desktop-only / 0 straddlers = 103
+Current classification: **23 common / 43 android / 37 desktop-only / 0 straddlers = 103
 patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
@@ -55,8 +55,8 @@ claimed an application order the build never uses.
 
 | list | entries | contents |
 |---|---|---|
-| `common.txt` | 24 | 17 pure-common **+ the 7 common halves of the split straddlers** |
-| `desktop.txt` | 36 | 27 pure desktop + `msix` (not a straddler) **+ the 7 desktop halves** + `pref-pane/pref-pane-small` (moved in from its own call site by LW-M1-13) |
+| `common.txt` | 23 | 16 pure-common **+ the 7 common halves of the split straddlers** (`fix-canvas-extraction-permission` moved to desktop 2026-09-24) |
+| `desktop.txt` | 37 | 27 pure desktop + `fix-canvas-extraction-permission` (upstream on 153.3.0esr) + `msix` (not a straddler) **+ the 7 desktop halves** + `pref-pane/pref-pane-small` (moved in from its own call site by LW-M1-13) |
 | `android.txt` | 43 | the three Android-side patches the M1 splits pulled in, plus `build-fixes` (LW-M2-02), `appservices-logins-addmany` (LW-M2-04), `no-nimbus` (LW-M4-03), `no-nimbus-toolkit` (LW-M4-13), `isolated-process` (LW-M5-02), `autoconfig-resource-fallback` (LW-M3-08/LW-M3-02), `no-onboarding` (LW-M4-10), `no-gms` (LW-M4-05), `branding` (LW-M4-07), `gradle-no-config-cache` (LW-M3-13), `rs-blocker-android` (LW-M4-08), `no-suggest` (LW-M4-11), `search-config` (LW-M4-06), `update-check` (LW-M6-06), `deterministic-version-code` (LW-M6-08), `ubo-readiness` and `ubo-preinstall` (LW-M3-07), `privacy-defaults` (LW-M7-07/LW-M7-12), `cookie-banner-rules` (LW-M7-13), `canvas-webgl-permissions` (LW-M7-14), `translation-assets` (LW-M7-16), `home-section-defaults` (LW-M7-24), `addon-state-durability` (LW-M7-19), `sync-opt-in` (LW-M7-20), `cookie-banner-controls` (LW-M7-23), `firefox-suggest-policy` (LW-M7-26), `no-default-shortcuts` (LW-M7-30), `extension-permission-durability` (LW-M7-31), `firefox-suggest-data` (LW-M7-29), `extension-update-controls` (LW-M7-35), `global-privacy-controls` (LW-M7-36), `session-cleanup` (LW-M7-37) and the M4 dependency removals landing alongside it — one row each in the table below. |
 
 The arithmetic, and it is now boring on purpose: **every patch file on disk is in
@@ -184,7 +184,7 @@ list, which is why those blocks are there.
 
 ## Common — apply to both desktop and Android
 
-24 entries: the 17 originally-common patches below, plus the 7 common halves of
+23 entries: 16 of the 17 originally-common patches below, plus the 7 common halves of
 the split straddlers (table after this one). Every row was traced to the guard
 that proves the file is built on Android.
 
@@ -197,7 +197,6 @@ that proves the file is built on Android.
 | `devtools-bypass` | `devtools/server/actors/*`, `devtools/shared/flags.js` | `devtools/moz.build:11-16` adds `platform/`, `server/`, `shared/`, `startup/` to `DIRS` with no guard. Ships on Android. |
 | `extensions-setUninstallURL` | `toolkit/components/extensions/parent/ext-runtime.js` | `jar.mn:43`, unguarded. WebExtensions ship on Android. |
 | `firefox-in-ua` | `toolkit/moz.configure` | Shared configure file. `mobile/android/moz.configure:135` already does `imply_option("MOZ_APP_UA_NAME", "Firefox")`, and an implied value outranks a `project_flag` default without conflicting (`_value_for_option` only raises on command-line/environment origins), so on Android this is a safe no-op with the same outcome. Kept common: it edits a file `moz-configure` also edits, and must apply **before** it. |
-| `fix-canvas-extraction-permission` | `dom/html/HTMLCanvasElement.cpp` | Core DOM, built everywhere. |
 | `fpp-canvas-fix` | `dom/canvas/*`, `toolkit/components/resistfingerprinting/nsRFPService.cpp` | Core canvas + RFP. Must apply **before** `webgl-permission`; that holds across files because `common.txt` is applied first. |
 | `limit-access` | `caps/nsScriptSecurityManager.cpp` | Core security check on `chrome://branding/` access. Genuinely common. |
 | `moz-configure` | `toolkit/moz.configure` | **Not inert on Android.** `MOZ_APP_PROFILE` is defined only by this `project_flag` (`toolkit/moz.configure:35`) — nothing under `mobile/` implies it — so the added `default="librewolf"` reaches the Android build and lands in `application.ini` via `build/moz.build:88-89`, i.e. `gAppData->profile`. |
@@ -239,6 +238,15 @@ Android, the tracking task is named.
 | `ui-patches/lw-logo-devtools` | common (?) | desktop | All four files are under `devtools/client/`. `devtools/moz.build:5-8` adds `client/` only when `MOZ_DEVTOOLS == "all"`, and `browser/moz.configure:17` is the only `imply_option` that sets it; Android keeps the `toolkit/moz.configure:40-46` default `"server"`. Caught by the linter. This is the L3 carve-out *inside* an otherwise-common tree. |
 | `xdg-dir` | common (?) | desktop | **All three hunks** (`AppendFromAppData`, `LegacyHomeExists`, `GetLegacyOrXDGHomePath`) sit between `nsXREDirProvider.cpp:1309` `#if defined(MOZ_WIDGET_GTK)` and `:1539` `#endif`. Android's toolkit is `android`, so the whole region is compiled out. XDG config-home semantics have no Android meaning; Fenix owns the profile location. The `mozilla_dirs` → `xdg-dir` ordering constraint still holds, because `common.txt` is applied before `desktop.txt`. |
 
+**`fix-canvas-extraction-permission`, moved 2026-09-24 for the Android rebase to
+153.3.0esr.** Not inert on Android: `HTMLCanvasElement.cpp` is core DOM, built everywhere.
+It moved because Firefox 153.3.0esr contains the identical change to
+`HTMLCanvasElement::CaptureStream` (`ImageExtractionResult(this,
+nsContentUtils::GetCurrentJSContext(), &aSubjectPrincipal)`), so the patch no longer
+applies there and the behaviour is upstream code. Desktop tracks 153.0.4, which lacks
+it, and keeps the patch. Move it back or drop it when desktop reaches a release with
+the fix.
+
 Note the two `nsXREDirProvider.cpp` patches split on *evidence*, not on
 appearance: `xdg-dir` looks Linux-flavoured and is provably compiled out;
 `mozilla_dirs` looks equally Linux-flavoured and is provably compiled **in**.
@@ -246,9 +254,9 @@ That asymmetry is the whole point of this task.
 
 ## Desktop only — never applied to Android
 
-36 entries: the 35 in `desktop.txt` plus `pref-pane/pref-pane-small`, which the
+37 entries: the 36 in `desktop.txt` plus `pref-pane/pref-pane-small`, which the
 patcher applies at its own call site — the only patch still applied that way.
-Of those 36: **23** are the plain `browser/`-only rows listed below (one of them
+Of those 37: `fix-canvas-extraction-permission` (below), **23** are the plain `browser/`-only rows listed below (one of them
 being `pref-pane-small` itself), **5** were moved out of common by LW-M1-01,
 **7** are the desktop halves of the split straddlers, and **`msix`** is
 desktop-only for the reason LW-M1-05 established. All were read; the

@@ -19,12 +19,27 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def receipt_patch(current, pinned_sha256):
+    """The patch this receipt was captured with. After the 153.3.0esr rebase
+    (docs/android/evidence/esr-153.3/rebase.json) the current file differs; its
+    stored pre-rebase copy replays this 153.0esr receipt, and only if the
+    rebase receipt binds both hashes."""
+    if sha(current.read_bytes()) == pinned_sha256:
+        return current
+    rebase = json.loads((ROOT / 'docs/android/evidence/esr-153.3/rebase.json').read_text())
+    entry = rebase['patches'][str(current.relative_to(ROOT))]
+    assert sha(current.read_bytes()) == entry['after_sha256'], 'patch changed since the ESR rebase receipt'
+    before = ROOT / entry['before_copy']
+    assert sha(before.read_bytes()) == entry['before_sha256'] == pinned_sha256
+    return before
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, help='verify supplied patched source instead of reconstructing')
     args = parser.parse_args()
     manifest = json.loads((EVIDENCE / 'source-files.json').read_text())
-    assert sha(PATCH.read_bytes()) == manifest['patch_sha256'], 'patch changed since source receipt'
+    patch = receipt_patch(PATCH, manifest['patch_sha256'])
     assert sha((EVIDENCE / 'guest-source.tar.gz').read_bytes()) == manifest['guest_capture_sha256']
     assert sha((EVIDENCE / 'source-baseline.tar.gz').read_bytes()) == manifest['baseline_archive_sha256']
     assert sha((EVIDENCE / 'test-fixture-baseline.tar.gz').read_bytes()) == manifest['additional_before_archive_sha256']
@@ -79,7 +94,7 @@ def main():
                     dest = source / member.name
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.write_bytes(data)
-            result = subprocess.run(['patch', '--batch', '--forward', '--fuzz=0', '-p1', '-i', str(PATCH)], cwd=source, capture_output=True, text=True, check=True)
+            result = subprocess.run(['patch', '--batch', '--forward', '--fuzz=0', '-p1', '-i', str(patch)], cwd=source, capture_output=True, text=True, check=True)
             assert 'offset' not in result.stdout and 'fuzz' not in result.stdout, result.stdout
             print('PASS exact captured guest+Task31 baseline; patch applies without offsets or fuzz', flush=True)
         for item in manifest['files']:

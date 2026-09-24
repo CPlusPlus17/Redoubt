@@ -13,6 +13,11 @@ release.** The Android track starts at **esr153** (`version.android` = `153.0esr
 `release.android` = `1`) and follows the ESR series — dot releases as they ship,
 one major rebase a year when Mozilla cuts the next ESR.
 
+**2026-09-24:** `version.android` = `153.3.0esr`. Beta 2 shipped on `153.0esr`,
+three security releases behind; the rebase record, the four patch conflicts and
+what was and was not verified are in
+[`evidence/esr-153.3/`](evidence/esr-153.3/README.md).
+
 This upholds the recommendation on record in
 [`ROADMAP.md`](ROADMAP.md#release-track), but three of the four numbers in that
 table are wrong and one of them is wrong in a way that matters. They are corrected

@@ -23,6 +23,21 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def receipt_patch(current, pinned_sha256):
+    """The patch this receipt was captured with. After the 153.3.0esr rebase
+    (docs/android/evidence/esr-153.3/rebase.json) the current file differs; its
+    stored pre-rebase copy replays this 153.0esr receipt, and only if the
+    rebase receipt binds both hashes."""
+    if sha(current.read_bytes()) == pinned_sha256:
+        return current
+    rebase = json.loads((ROOT / 'docs/android/evidence/esr-153.3/rebase.json').read_text())
+    entry = rebase['patches'][str(current.relative_to(ROOT))]
+    assert sha(current.read_bytes()) == entry['after_sha256'], 'patch changed since the ESR rebase receipt'
+    before = ROOT / entry['before_copy']
+    assert sha(before.read_bytes()) == entry['before_sha256'] == pinned_sha256
+    return before
+
+
 def unpack(path, destination, selected=None, prefix=''):
     with tarfile.open(path) as archive:
         for entry in archive:
@@ -47,8 +62,7 @@ def main():
     manifest = json.loads((HERE / 'native-source-files.json').read_text())
     composition = json.loads((HERE / 'native-composition.json').read_text())
     assert sha((HERE / 'native-composition.json').read_bytes()) == manifest['source_composition_sha256']
-    patch = ROOT / 'patches/android/session-cleanup.patch'
-    assert sha(patch.read_bytes()) == manifest['patch_sha256']
+    patch = receipt_patch(ROOT / 'patches/android/session-cleanup.patch', manifest['patch_sha256'])
     assert sha((HERE / 'native-source-baseline.tar.gz').read_bytes()) == manifest['baseline_archive_sha256']
     assert sha((HERE / 'current-capture/guest-source.tar.gz').read_bytes()) == composition['capture_archive_sha256']
     spec = importlib.util.spec_from_file_location('ordering_sections',
@@ -66,8 +80,7 @@ def main():
         for predecessor in composition['predecessors']:
             if not predecessor['shared_paths']:
                 continue  # Historical review of a predecessor with no overlap.
-            path = ROOT / predecessor['patch']
-            assert sha(path.read_bytes()) == predecessor['sha256'], predecessor['patch']
+            path = receipt_patch(ROOT / predecessor['patch'], predecessor['sha256'])
             selected = sections.sections(path)
             scoped = scratch / 'predecessor.patch'
             scoped.write_text(''.join(selected[name] for name in predecessor['shared_paths']))

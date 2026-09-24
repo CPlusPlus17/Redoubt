@@ -43,7 +43,12 @@ Beta 2 patch); `--check-ubo-preinstall` now relaunches with uBO enabled
 (`ubo-enabled-restart`). **Still required: a build and that smoke check on a
 device.** Until then the fix is source-verified only.
 
-### 1.2 Three ESR security releases behind
+### 1.2 Three ESR security releases behind — rebased on this branch
+
+`version.android` is now `153.3.0esr`; all 66 common+Android patches apply to it
+(four needed work, see [`evidence/esr-153.3/`](evidence/esr-153.3/README.md)).
+Still required: `make check-patchfail TARGETS=android` on the real tarball and a
+build.
 
 Beta 2 is built on `153.0esr`. Mozilla has since shipped `153.1.0esr`,
 `153.2.0esr` and `153.3.0esr` (tags on `mozilla-firefox/firefox`, checked

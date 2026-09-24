@@ -63,8 +63,10 @@ function fixture({ active = true, permission = true, version = '1.74.0' } = {}) 
   vm.runInContext(registrar, sandbox);
   const controller = vm.runInContext('({' + waitMethod + '})', sandbox);
   controller.extensionById = async id => id === extension.id ? addon : null;
+  // 153.0esr's registerEvent took a remoteTab before the Redoubt flag; 153.3esr dropped it.
+  const liveArgs = live => registrar.includes('remoteTab = null') ? [null, live] : [live];
   const register = (event = 'onHeadersReceived', blocking = true, live = true) =>
-    sandbox.registerEvent(extension, event, {}, {}, blocking ? ['blocking'] : [], null, live);
+    sandbox.registerEvent(extension, event, {}, {}, blocking ? ['blocking'] : [], ...liveArgs(live));
   let nextRequest = 0;
   const wait = (expected = '1.74.0', requestId) => controller.awaitBlockingResponseListener(
     extension.id, expected,
