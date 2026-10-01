@@ -1035,6 +1035,164 @@ to.
 
 ---
 
+## Appendix D — record: 153.0esr → 153.4.0esr (2026-10-02)
+
+Executed per §1-§7 on branch `android/esr-153.4`. **Stage A only: no
+`make dir`, no Gecko build** — §8, the §6e runtime audit and the L1 header
+check belong to stage B and were not run. Settings submodule at `0cae8fb`.
+
+### §1 — advisories
+
+ESR advisories now carried (CVE counts by impact, parsed from each MFSA page):
+
+| MFSA | release | CVEs | high / moderate / low |
+|---|---|---|---|
+| 2026-77 | Firefox ESR 153.1 | 52 | 18 / 24 / 10 |
+| 2026-85 | Firefox ESR 153.2 | 24 | 12 / 5 / 7 |
+| 2026-93 | Firefox ESR 153.3 | 63 | 25 / 21 / 17 |
+| 2026-100 | Firefox ESR 153.4 | 62 | 34 / 20 / 8 |
+
+None of the four mentions Android. **Step 1.3 — Firefox-for-Android fixes with
+no ESR counterpart** (in MFSA 2026-73 or the Firefox 154-157 advisories
+2026-74/82/90/97, absent from all four ESR advisories). All are open against
+our tree; none was backported in this rebase:
+
+| CVE | advisory | impact | title | bug |
+|---|---|---|---|---|
+| CVE-2026-18809 | 2026-73 (Android 153.0.3) | high | Information disclosure in Firefox for Android and Focus | 2055683 |
+| CVE-2026-74951 | 2026-74 (154) | moderate | Clickjacking issue in Firefox for Android | 1978587 |
+| CVE-2026-74975 | 2026-74 (154) | low | Spoofing issue in the Downloads component | 1842361 |
+| CVE-2026-74980 | 2026-74 (154) | low | Clickjacking issue in the Downloads component | 2049034 |
+| CVE-2026-84117 | 2026-82 (155) | high | Privilege escalation in Firefox for Android | 2053320 |
+| CVE-2026-84127 | 2026-82 (155) | moderate | Information disclosure in the WebExtensions component | 1699444 |
+| CVE-2026-84135 | 2026-82 (155) | low | Other issue in Firefox **Focus** for Android (not shipped by us) | 2046661 |
+| CVE-2026-92033 | 2026-90 (156) | high | Privilege escalation in Firefox for Android | 2047339 |
+| CVE-2026-100823 | 2026-97 (157) | low | Spoofing issue in the Downloads component | 2054384 |
+
+Consistent with that: between the two tarballs only two files under `mobile/`
+differ at all (`GeckoAppShell.java`, HDR brightness getters;
+`fenix/app/nimbus.fml.yaml`, a Nimbus `gecko-pref` for
+`network.lna.block_insecure_contexts`, inert under `no-nimbus`).
+
+### §2 — bump
+
+`version.android` `153.0esr` → `153.4.0esr` (`153.4esr` is a 404 on
+archive.mozilla.org; `153.4.0esr` is 200), `release.android` stays `1`.
+`make help TARGETS=android` prints `(153.4.0esr-1)` and `in effect for this
+invocation  : 153.4.0esr-1`. Tarball signature: `Good signature from "Mozilla
+Software Releases"`, primary key `14F2 6682 D091 6CDD 81E3 7B6D 61B7 B526 D98F
+0353`.
+
+### §4/§5 — patches (`check-patchfail.sh --targets=android`, real ESR tarball, no `--use-desktop-tarball`)
+
+| run | exit | hunks with fuzz | patches rejecting at `--fuzz=0` |
+|---|---|---|---|
+| before, 153.0esr | 0 | 14 (12 patches) | 14 |
+| after bump, unfixed, 153.4.0esr | **1** — 3 rejects | 15 | 18 |
+| after fixes, 153.4.0esr | **0** | 15 (13 patches) | 15 |
+
+The three rejects and what was done:
+
+- `android/ubo-readiness` — all 3 `ext-webRequest.js` hunks. Upstream removed
+  `remoteTab`/`registerTraceableChannel` from `registerEvent` and the
+  registrar. Ported by hand: `isLiveListener` is now the 6th parameter,
+  `convert(_fire)` still calls `markLive()`, the registrar takes
+  `{ fire, context }` and passes `!!context`. Checked with
+  `scripts/tests/test-ubo-readiness.js` against the patched tree: 18/18 once
+  its `registerEvent(..., info, null, live)` call drops the `null` (the
+  unmodified test stops silently after 2 of 18 with exit 0 — see follow-ups).
+- `android/extension-update-controls` — `Preferences.cpp` hunks 2 and 6.
+  Upstream bug 2053962 added a backup-only `PWRunnable(aFile, aData, holder)`,
+  `DispatchWriteComplete()` and a standalone-dispatch branch in
+  `WritePrefFile`, fixing the same dropped-promise/wrong-file coalescing bug our
+  patch fixes for every write. Our `PWRunnable` (each request owns its
+  snapshot, settles its own promise) replaces upstream's; the diff of change
+  lines against the old patch is exactly upstream's new backup code removed.
+- `android/fix-canvas-extraction-permission-esr` — upstream carries the fix in
+  153.4.0esr. **Deleted** and dropped from `android.txt` (PATCH-SCOPE.md).
+
+Fuzz deliberately **not** regenerated: the 7 fuzzy `common.txt` patches (shared
+with desktop 157), the four `-esr` byte copies (pre-existing on 153.0esr; they
+are dropped at ESR >= 157), `gradle-no-config-cache` (pre-existing), and the
+one new fuzzy hunk, `session-cleanup` `CookiePersistentStorage.cpp` include
+block (fuzz 2, benign context: upstream added `#include
+"mozilla/AppShutdown.h"`). Regenerating either Android patch changes its
+sha256, and `scripts/tests/test-session-cleanup.py` /
+`test-extension-update-controls.py` and evidence receipts pin those bytes.
+
+`android/firefox-suggest-data`'s `app/build.gradle` section had a bare `@@`
+hunk header that GNU patch skips silently (exit 0, no `.rej`), so
+`implementation ComponentsDependencies.mozilla_appservices_suggest` never
+landed on any base. It now carries `@@ -545,6 +545,13 @@ dependencies {`,
+generated against the tree patched by every earlier entry; it lands at fuzz 0
+on both 153.0esr and 153.4.0esr, and the final `app/build.gradle` is sha256
+`33826457…` in shipping order and with suggest-data before each of the 7 other
+build.gradle editors. `scripts/lint-patch-scope.py` now rejects any hunk header
+without line numbers in every listed patch.
+
+### §6 — pref drift (scripts copied out of §6 into scratch, not `scripts/`)
+
+Trees: `common.txt + android.txt` applied to fresh 153.0esr and 153.4.0esr
+extracts (patches only — not a `make dir` tree, so no `cp`/l10n mutations).
+
+- **6a ran.** `pref-orphans.sh` with `common.cfg android.cfg`: 12 of 202 on
+  153.4.0esr, and the **same 12** on 153.0esr — nothing newly orphaned
+  (`app.update.lastUpdateTime.glean-addons-daily`,
+  `browser.ml.onnxNativeAvailabilityReported`,
+  `browser.netError.searchCTA.enabled`,
+  `extensions.formautofill.passports.enabled`, `librewolf.cfg.version`,
+  `network.gio.supported-protocols`, `permissions.default.media-key-system-access`,
+  `privacy.containers.switchDuringNavigation.enabled`, `security.tls.enable_mldsa`,
+  `security.tls.enable_mlkem1024`, `signon.storage.rust.enabled`,
+  `toolkit.telemetry.site_categories`). The desktop.cfg run belongs to the 157
+  tree and is not part of this rebase.
+- **6b ran.** 6 291 → 6 299 rows; 11 names drifted; **none is ours** (202
+  names). Worth an owner look, not ours to change here:
+  `network.lna.block_insecure_contexts` `true` → `false` (upstream: disabled
+  until Chrome ships it); we set four other `network.lna.*` prefs.
+- **6c ran.** 185 distinct `mirror: once` names on both trees, unchanged;
+  intersection with ours: **empty**.
+- **6d ran.** `LW_TREE=<plain 153.4.0 extract> board.py --check-policies`:
+  `# reading pref declarations from firefox-153.4.0` /
+  `ok: 137 prefs declared by GeckoView; 26 of them shipped by us, every unlocked
+  one classified in must-not-lock.txt` — identical to the 153.0 tree. No
+  `Pref<>` line changed under `mobile/`.
+- **6e not run.** `scripts/android-pref-audit.sh` and
+  `docs/android/expected-prefs.txt` now exist (§6e above predates them), but
+  the audit needs a running 153.4.0esr APK — stage B. L1:
+  `librewolf.webgl.prompt` in the patched yaml is the deliberate LW-M7-14
+  `true`, byte-identical to 153.0esr; the generated-header check needs a build.
+
+No revert of a pref we set was found, so nothing was changed in `settings/`.
+
+### §7 — gates (`esr_tree` = plain 153.4.0 extract)
+
+```
+ok: 122 tasks, 32 waves, 0 warning(s)
+ok: 119 listed patch files — 15 common, 53 desktop, 51 android, 0 straddlers parked; PATCH-SCOPE.md agrees
+ok: 181 common / 200 desktop / 20 android calls; librewolf.cfg regenerates exactly
+# reading pref declarations from firefox-153.4.0
+ok: 137 prefs declared by GeckoView; 26 of them shipped by us, every unlocked one classified in must-not-lock.txt
+ok: hardening parity holds (0 documented difference(s))
+lint-patch-scope: OK - 119 patch file(s), no scope violations, no hunk header without line numbers
+patch order ok: 29/29 declared constraint(s) enforced across 2 target sequence(s); 154 shared-file pair(s) derived and classified.
+success: All patches where applied successfully.
+```
+
+### Left open by this rebase
+
+- The nine Android-only CVEs above: triage/backport or publish as known gaps.
+- `scripts/tests/test-ubo-readiness.js` calls `registerEvent` with the 153.0
+  positional `remoteTab` slot; drop the `null` argument. Its harness also
+  exits 0 when a test never settles — it should count to 18.
+- `test-extension-update-controls.py` and `test-session-cleanup.py` assert the
+  153.0esr sha256 of `extension-update-controls.patch`; the LW-M7-35/37
+  evidence receipts need re-capturing on 153.4.0esr.
+- Stage B: `make dir TARGETS=android`, `./mach build`, the L1 header grep,
+  `android-pref-audit.sh` on the built APK.
+
+---
+
 ## Follow-ups this file could not make itself
 
 LW-M7-01 owned `docs/android/REBASE.md` and `assets/patches.txt`; the correction
