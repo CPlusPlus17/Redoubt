@@ -115,11 +115,3 @@ librewolf-is-default-browser-2 =
 
 librewolf-is-not-default-browser-2 =
     .message = { -brand-short-name } isn't set as your default browser.
-
-# Updates
-update-application-disabled-choose-2 =
-    .label = Disable the updater
-    .accesskey = D
-
-update-application-updates-disabled =
-    .message = The built-in updater has been disabled. Updates must be managed manually or through an external update mechanism.

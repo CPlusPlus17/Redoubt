@@ -559,21 +559,42 @@ def leave_srcdir():
 #
 
 #
-# Android keeps the pre-157 behaviour: a plain copy of the template. The
-# MOZ_PKG_VERSION rewrite is upstream 157 desktop packaging; Android is built
-# from assets/mozconfig.android (Makefile --mozconfig), and an android run is
-# held to the pre-merge output (docs/android/REBASE.md, the -esr rule). So the
-# rewrite is gated exactly like the version.txt semantics further down: any run
-# with "android" in --targets does HEAD's `cp`, a desktop-only run writes the
-# version. (A desktop+android run is never built; it takes the android branch
-# for the same reason the version.txt one does.)
+# Android keeps the pre-157 bytes. The MOZ_PKG_VERSION rewrite is upstream 157
+# desktop packaging; Android is built from assets/mozconfig.android (Makefile
+# --mozconfig), and an android run is held to the pre-merge output
+# (docs/android/REBASE.md, the -esr rule). So the rewrite is gated exactly like
+# the version.txt semantics further down: any run with "android" in --targets
+# writes the template WITHOUT its `export MOZ_PKG_VERSION=` line - the one line
+# the 157 merge added to assets/mozconfig.new - which is byte for byte the file
+# the pre-merge `cp` produced; a desktop-only run writes the version. (A
+# desktop+android run is never built; it takes the android branch for the same
+# reason the version.txt one does.) Drop the strip when Android moves to an
+# ESR >= 157.
 #
 
-def install_mozconfig(targets, dest, cp_dest):
+def install_mozconfig(targets, dest):
     if "android" in targets:
-        exec('cp -v ../assets/mozconfig.new {}'.format(cp_dest))
+        write_android_mozconfig(dest)
     else:
         write_desktop_mozconfig(dest)
+
+
+def write_android_mozconfig(dest):
+    template = ASSETS_DIR / "mozconfig.new"
+    print("write {} <- {} (without its 'export MOZ_PKG_VERSION=' line)".format(dest, template))
+    sys.stdout.flush()
+    if options.no_execute:
+        return
+    with open(template, "r") as f:
+        lines = f.read().splitlines(keepends=True)
+    kept = [l for l in lines if not re.match(r"export MOZ_PKG_VERSION=", l)]
+    if len(lines) - len(kept) != 1:
+        print("fatal error: expected exactly one 'export MOZ_PKG_VERSION=' line in {}, found {}".format(
+            template, len(lines) - len(kept)))
+        sys.stdout.flush()
+        script_exit(1)
+    with open(dest, "w") as f:
+        f.write("".join(kept))
 
 
 def write_desktop_mozconfig(dest):
@@ -668,7 +689,7 @@ def librewolf_patches():
 
     # create the right mozconfig file, with our display versioning in
     # MOZ_PKG_VERSION on desktop (upstream 157). See install_mozconfig() above.
-    install_mozconfig(targets, 'mozconfig', 'mozconfig')
+    install_mozconfig(targets, 'mozconfig')
 
     # copy branding files..
     #
@@ -722,12 +743,13 @@ def librewolf_patches():
         android_translation_assets()
         android_suggest_data()
 
-    # copy our public signing keys (upstream 157): LibreWolf's MAR signing
-    # certificates replace Mozilla's in the desktop updater. Android has no
-    # MAR updater, so this is desktop only.
-    if "desktop" in targets:
-        exec('cp -v ../assets/marsigner.der toolkit/mozapps/update/updater/release_primary.der')
-        exec('cp -v ../assets/marsigner2.der toolkit/mozapps/update/updater/release_secondary.der')
+    # Upstream 157 copies LibreWolf's MAR signing certificates
+    # (assets/marsigner{,2}.der) over toolkit/mozapps/update/updater/
+    # release_{primary,secondary}.der here. Redoubt does not: it does not trust
+    # LibreWolf's MAR keys or update host (owner decision; updater.patch is out
+    # of desktop.txt for the same reason), and the updater is not built anyway
+    # (assets/mozconfig.new: --disable-updater). If Redoubt ever ships desktop
+    # updates it will use its own key and its own host, not these.
 
     # apply common.txt, then one list per --targets. The lists are read from
     # PATCH_LIST_DIR (absolute), the patches themselves are applied from '../'
@@ -837,7 +859,7 @@ def librewolf_patches():
 
     # provide a script that fetches and bootstraps Nightly and some mozconfigs
     exec('cp -v ../scripts/mozfetch.sh lw/')
-    install_mozconfig(targets, 'lw/mozconfig.new', 'lw/')
+    install_mozconfig(targets, 'lw/mozconfig.new')
 
     # override the firefox version. Not via exec(), so it needs its own
     # --no-execute guard: without one, `-n` wrote these files for real,
@@ -915,8 +937,23 @@ def librewolf_patches():
     # Why is "Firefox" hardcoded there???
     exec("find . -path '*/appstrings.properties' -exec sed -i s/Firefox/LibreWolf/ {} \\;")
 
+    # The overlay is per target, like librewolf.cfg above. l10n/ is the
+    # current (Firefox 157) overlay; the 157 merge added desktop-only strings to
+    # it (pip-hide-ui, mullvad-dns-migration, canvas-permission, the
+    # settings-redesign rows) and upstream corrected existing translations in
+    # files Android also receives (toolkit brandings.ftl among them), so no
+    # per-file gate can reproduce the old result. An android-only run therefore
+    # applies l10n-esr/, a byte copy of l10n/ as it was before the merge
+    # (c72764c4), and gets exactly the overlay it got then. Same rule and same
+    # lifetime as the -esr patches and pack_vs-esr.py: drop l10n-esr/ when
+    # Android moves to an ESR >= 157. A desktop+android run takes l10n/ - the
+    # desktop patches reference the new strings, and the combined tree is never
+    # built (same choice as the librewolf.cfg composition).
     print("-> Applying LibreWolf locales")
-    l10n_dir = Path("..", "l10n")
+    if "android" in targets and "desktop" not in targets:
+        l10n_dir = Path("..", "l10n-esr")
+    else:
+        l10n_dir = Path("..", "l10n")
     # Same reason as the version.txt write above: this loop copies files
     # directly rather than through exec(), so it needs its own guard. Under -n
     # we never entered the tree, so '../l10n' points at whatever happens to sit

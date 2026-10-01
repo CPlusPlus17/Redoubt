@@ -15,7 +15,7 @@ read in full, every file it touches was traced to the `moz.build` / `jar.mn` /
 preprocessor guard that decides whether that file is built on Android, and the
 decision below follows from that guard rather than from the path.
 
-Current classification: **15 common / 52 android / 55 desktop-only / 0 straddlers = 122
+Current classification: **15 common / 52 android / 53 desktop-only / 0 straddlers = 120
 patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
@@ -55,30 +55,43 @@ asymmetry, not from a re-review:
 - **Upstream dropped five desktop entries**: `hide-passwordmgr`,
   `macos-relaunch-without-updater`, `ui-patches/firefox-view`,
   `ui-patches/hide-default-browser`, `ui-patches/hide-finish-setup-bookmark`.
-- **Upstream added seventeen**, all placed in `desktop.txt` (table in "Desktop
-  only" below). Nine touch only `browser/`. **Eight also edit files an
+- **Upstream added seventeen**; fifteen are in `desktop.txt` (table in "Desktop
+  only" below). The other two, `updater` (repoints the update host to
+  `update.librewolf.net`) and `ui-patches/allow-disabling-updater`, are not
+  listed and their files are deleted, together with LibreWolf's MAR signing
+  certificates (`assets/marsigner{,2}.der`): owner decision, Redoubt desktop
+  does not trust LibreWolf's update infrastructure, and the updater is not
+  built (`--disable-updater`), so no runtime behaviour changes.
+  Of the fifteen, nine touch only `browser/`. **Six also edit files an
   Android tree builds** — as does the 157 rewrite of the existing desktop entry
-  `newtab-fix` — and none of those nine has been reviewed for Android: they are
+  `newtab-fix` — and none of those seven has been reviewed for Android: they are
   desktop-only because the Android track is frozen at its shipped state, not
   because a guard proves them inert. See "Straddlers" below for why the
   straddler count still reads 0.
 
 - **Not a patch, same rule:** `scripts/librewolf-patches.py` keeps the
-  pre-merge behaviour on any run with `android` in `--targets` — a plain copy
-  of `assets/mozconfig.new` (no `MOZ_PKG_VERSION` rewrite), the old
+  pre-merge behaviour on any run with `android` in `--targets` — the pre-merge
+  bytes of `assets/mozconfig.new` (the template minus the one
+  `export MOZ_PKG_VERSION=` line the merge added; no version rewrite), the old
   `build/vs/pack_vs.py` copy (from `patches/android/pack_vs-esr.py`, a byte
   copy of the `patches/pack_vs.py` upstream deleted), and `version.txt` =
-  `<version>-<release>`. Its android `-n` output differs from the pre-merge
-  one only in the patch list (the `-esr` names and positions above), the
-  `pack_vs` source path, and the shared l10n pin (`assets/l10n-pin.txt`, see
-  that file). Not visible under `-n` but also shared: the repository's `l10n/`
-  overlay, which the merge updated and which a real android run still applies
-  as before (into `lw/l10n/` and, for `l10n/en-US/toolkit/`,
-  `toolkit/locales/en-US/` - the 157 merge added one such file,
-  `pictureinpicture.inc.ftl`, desktop `pip-hide-ui`'s button label).
+  `<version>-<release>`. An android-only run also applies `l10n-esr/` instead
+  of `l10n/`: the merge added desktop-only strings to the overlay and changed
+  existing translations in files Android receives (into `lw/l10n/` and, for
+  `en-US/toolkit/`, `toolkit/locales/en-US/`), so `l10n-esr/` is a byte copy
+  of the pre-merge `l10n/` (c72764c4). Desktop applies none of LibreWolf's
+  updater pieces either way (no MAR certificates are copied; owner decision,
+  above). Its android `-n` output stops at the gen-android-brand preflight
+  (exit 1, on the pre-merge tree too), and up to there differs from the
+  pre-merge one only in the patch list (the `-esr` names and positions above)
+  and the mozconfig line (`write ... without its 'export MOZ_PKG_VERSION='
+  line` instead of `cp -v`). The l10n pin is shared (`assets/l10n-pin.txt`,
+  see that file). A real android run on 153.0esr is
+  `diff -r` identical to the pre-merge one outside `lw/l10n/` (the pin) and
+  `lw/librewolf.cfg` / `lw/policies.json` (the settings submodule).
 
-So: common 24 − 9 = 15; android 43 + 9 = 52; desktop-only 36 − 5 + 7 + 17 = 55;
-total 103 − 5 + 7 + 17 = 122 (the two renamed files are not new files).
+So: common 24 − 9 = 15; android 43 + 9 = 52; desktop-only 36 − 5 + 7 + 15 = 53;
+total 103 − 5 + 7 + 15 = 120 (the two renamed files are not new files).
 
 ## Pending — on disk, deliberately in no list
 
@@ -116,7 +129,7 @@ claimed an application order the build never uses.
 | list | entries | contents |
 |---|---|---|
 | `common.txt` | 15 | 11 pure-common **+ 4 of the 7 common halves of the split straddlers** (the other six pure-common entries and three common halves left in the Firefox 157 merge, see above) |
-| `desktop.txt` | 55 | 27 pure desktop + `msix` (not a straddler) **+ the 7 desktop halves** + `pref-pane/pref-pane-small` (moved in from its own call site by LW-M1-13), as of the pre-merge 36; then the Firefox 157 merge: − 5 dropped upstream, + 7 former `common.txt` entries at their 157 text, + 17 new upstream patches |
+| `desktop.txt` | 53 | 27 pure desktop + `msix` (not a straddler) **+ the 7 desktop halves** + `pref-pane/pref-pane-small` (moved in from its own call site by LW-M1-13), as of the pre-merge 36; then the Firefox 157 merge: − 5 dropped upstream, + 7 former `common.txt` entries at their 157 text, + 15 of the 17 new upstream patches (`updater` and `ui-patches/allow-disabling-updater` declined, see above) |
 | `android.txt` | 52 | the nine `-esr` byte copies of former `common.txt` entries (Firefox 157 merge), plus the three Android-side patches the M1 splits pulled in, plus `build-fixes` (LW-M2-02), `appservices-logins-addmany` (LW-M2-04), `no-nimbus` (LW-M4-03), `no-nimbus-toolkit` (LW-M4-13), `isolated-process` (LW-M5-02), `autoconfig-resource-fallback` (LW-M3-08/LW-M3-02), `no-onboarding` (LW-M4-10), `no-gms` (LW-M4-05), `branding` (LW-M4-07), `gradle-no-config-cache` (LW-M3-13), `rs-blocker-android` (LW-M4-08), `no-suggest` (LW-M4-11), `search-config` (LW-M4-06), `update-check` (LW-M6-06), `deterministic-version-code` (LW-M6-08), `ubo-readiness` and `ubo-preinstall` (LW-M3-07), `privacy-defaults` (LW-M7-07/LW-M7-12), `cookie-banner-rules` (LW-M7-13), `canvas-webgl-permissions` (LW-M7-14), `translation-assets` (LW-M7-16), `home-section-defaults` (LW-M7-24), `addon-state-durability` (LW-M7-19), `sync-opt-in` (LW-M7-20), `cookie-banner-controls` (LW-M7-23), `firefox-suggest-policy` (LW-M7-26), `no-default-shortcuts` (LW-M7-30), `extension-permission-durability` (LW-M7-31), `firefox-suggest-data` (LW-M7-29), `extension-update-controls` (LW-M7-35), `global-privacy-controls` (LW-M7-36), `session-cleanup` (LW-M7-37) and the M4 dependency removals landing alongside it — one row each in the table below. |
 
 The arithmetic, and it is now boring on purpose: **every patch file on disk is in
@@ -330,15 +343,15 @@ That asymmetry is the whole point of this task.
 
 ## Desktop only — never applied to Android
 
-55 entries, all in `desktop.txt` (`pref-pane/pref-pane-small` included; LW-M1-13
-moved it there from its own call site). Of those 55: **27** are the plain
+53 entries, all in `desktop.txt` (`pref-pane/pref-pane-small` included; LW-M1-13
+moved it there from its own call site). Of those 53: **27** are the plain
 `browser/`-only rows listed below (one of them being `pref-pane-small` itself;
 nine arrived with the Firefox 157 merge), **4** were moved out of common by
 LW-M1-01 (the fifth was dropped upstream for 157), **7** are the desktop halves
 of the split straddlers, **`msix`** is desktop-only for the reason LW-M1-05
 established, **7** are the 157 text of former `common.txt` entries whose
-pre-merge text Android applies as `-esr` copies, and **9** are 157 texts that
-also edit shared code (second table below): eight new upstream patches plus
+pre-merge text Android applies as `-esr` copies, and **7** are 157 texts that
+also edit shared code (second table below): six new upstream patches plus
 `newtab-fix`, whose 157 rewrite left `browser/` for
 `toolkit/components/nimbus/`. The plain rows share one justification, so it is
 stated once rather than 27 times.
@@ -396,8 +409,6 @@ review, and possibly an Android counterpart, when Android moves to an ESR >= 157
 | `pip-hide-ui` | `toolkit/components/pictureinpicture/content/player.{js,xhtml}`, `toolkit/themes/shared/pictureinpicture/player.css` | |
 | `newtab-fix` | `toolkit/components/nimbus/ExperimentAPI.sys.mjs` (157 rewrite; it used to touch only `browser/modules/AboutNewTab.sys.mjs`) | `ExperimentAPI.ready()` resolves at once when Nimbus is disabled. `toolkit/components/nimbus` is built on Android (`android/no-nimbus-toolkit` edits it). |
 | `remote-debugging-package-name` | `devtools/client/shared/remote-debugging/adb/adb-runtime.js` | `devtools/client/` is not built on Android (`MOZ_DEVTOOLS` = `server`, see `ui-patches/lw-logo-devtools` above). |
-| `updater` | `build/application.ini.in`, `build/moz.build` | |
-| `ui-patches/allow-disabling-updater` | `toolkit/mozapps/update/UpdateServiceStub.sys.mjs` (+ `browser/components/preferences/config/about-firefox.mjs`) | |
 
 Two of the `browser/`-only rows have a note worth keeping:
 
@@ -420,9 +431,10 @@ own task, not by forcing the desktop patch onto Fenix.
 tagged `STRADDLER` in `desktop.txt`, i.e. parked awaiting a split. By this
 section's own definition — edits both shared Gecko code and desktop-only code —
 `canvas-permission` (`browser/modules/SitePermissions.sys.mjs` +
-`toolkit/components/resistfingerprinting/RFPHelper.sys.mjs`), and on a looser
-reading `ui-patches/allow-disabling-updater`, are straddlers that arrived with
-the 157 merge. They are neither split nor tagged: they sit whole in `desktop.txt`
+`toolkit/components/resistfingerprinting/RFPHelper.sys.mjs`) is a straddler
+that arrived with the 157 merge (so was `ui-patches/allow-disabling-updater` on
+a looser reading, until the owner decision above took it out of the list). It
+is neither split nor tagged: it sits whole in `desktop.txt`
 because Android stays on its shipped 153.0esr patch set. The other new entries
 that touch shared code (table in "Desktop only") edit no `browser/` file and are
 simply unreviewed for Android. Splitting any of them is Android work for the

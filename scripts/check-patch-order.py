@@ -664,8 +664,10 @@ REVIEWED_ORDER_FREE = (
     # growing into browser/components/preferences/config/). Every one was
     # MEASURED, not grandfathered - see _M157_SWAP for the method. In both
     # swapped orders every patch of the desktop sequence applied (patch exit
-    # 0) and all 150 tree files the desktop sequence touches came out
+    # 0) and all 150 tree files the desktop sequence then touched came out
     # byte-identical to the shipping order, so none of them is a constraint.
+    # (150 was measured with updater.patch and allow-disabling-updater still
+    # listed; their removal took 3 files out of the sequence, none shared.)
     ("patches/canvas-permission.patch", "patches/lw-permissions.patch",
      ("browser/modules/SitePermissions.sys.mjs",),
      "the hint says 'overlap or abut', the replay says order-free: both apply "
@@ -684,10 +686,6 @@ REVIEWED_ORDER_FREE = (
      ("browser/base/content/browser-main.js", "browser/base/jar.mn"),
      "DevelopmentHelpers gating vs the DNS migration script include, disjoint "
      "regions of both files; " + _M157_SWAP),
-    ("patches/ui-patches/allow-disabling-updater.patch",
-     "patches/ui-patches/settings-redesign.patch",
-     ("browser/components/preferences/config/about-firefox.mjs",),
-     "disjoint regions of the about-firefox settings config; " + _M157_SWAP),
     ("patches/lw-permissions.patch", "patches/ui-patches/settings-redesign.patch",
      ("browser/components/preferences/config/privacy.mjs",),
      "disjoint regions of the privacy settings config; " + _M157_SWAP),

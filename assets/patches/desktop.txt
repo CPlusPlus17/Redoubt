@@ -59,6 +59,8 @@
 #    into the Android build without getting librewolf.cfg into the APK, so there
 #    is still no autoconfig/lockPref channel there. See the straddler table in
 #    docs/android/PATCH-SCOPE.md for the per-patch evidence.
+#
+# Owner decision (157 merge): Redoubt does not trust LibreWolf's update infrastructure, so upstream's updater.patch (update host update.librewolf.net) and ui-patches/allow-disabling-updater.patch are not listed and their files are deleted; the updater is not built (assets/mozconfig.new --disable-updater).
 
 # Firefox 157 desktop merge: three former common.txt entries, KEPT FIRST in
 # this file so they apply in the same relative position as before (common.txt
@@ -97,10 +99,8 @@ patches/remove-language-packs.patch
 patches/remove-openai.patch                             # Firefox 157 desktop merge: the 157 text, regenerated from the firefox-157.0 tree (header explains). MANDATORY on every target - librewolf-patches.py deletes the OpenAI paths for every target - so Android keeps the pre-merge text as patches/android/remove-openai-esr.patch (android.txt). No other listed patch touches its five files. Re-merge into common.txt when Android moves to an ESR >= 157
 patches/remove-pingsender-desktop.patch                 # LW-M1-06 desktop half: the three installer manifests (macbuild MacOS-files.in, package-manifest.in, nsis/shared.nsh); common half is in common.txt
 patches/temp-macos-fix.patch
-patches/updater.patch
 patches/ui-patches/add-translate-page-context-menu.patch
 patches/ui-patches/allow_cookies_for_site.patch
-patches/ui-patches/allow-disabling-updater.patch
 patches/ui-patches/eme-enable.patch
 patches/ui-patches/home-preferences.patch
 patches/ui-patches/lw-logo-devtools.patch               # MOVED-FROM-COMMON: all 4 files under devtools/client/, which devtools/moz.build:5-8 gates on MOZ_DEVTOOLS == "all" (implied only by browser/moz.configure:17)
