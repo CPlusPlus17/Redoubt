@@ -2,99 +2,6 @@ diff --git a/browser/components/preferences/config/about-firefox.mjs b/browser/c
 index e90e8ec..fbab201 100644
 --- a/browser/components/preferences/config/about-firefox.mjs
 +++ b/browser/components/preferences/config/about-firefox.mjs
-@@ -472,92 +472,6 @@ Preferences.addSetting({
- });
- 
- SettingGroupManager.registerGroups({
--  updates: {
--    l10nId: "update-application-heading",
--    iconSrc: "chrome://browser/skin/update-badge.svg",
--    subcategory: "update-state",
--    headingLevel: 2,
--    items: [
--      {
--        id: "updatesManagedByOS",
--        l10nId: "update-application-updates-managed-by-os",
--        control: "moz-message-bar",
--        controlAttrs: {
--          role: "status",
--        },
--      },
--      {
--        id: "updateApp",
--        control: "moz-box-group",
--        items: [
--          {
--            id: "updateState",
--            control: "update-state",
--          },
--          {
--            id: "updateAppInfo",
--            control: "update-information",
--          },
--          {
--            id: "showUpdateHistory",
--            l10nId: "update-history-2",
--            control: "moz-box-button",
--            controlAttrs: {
--              "search-l10n-ids": "history-title,history-intro",
--            },
--          },
--        ],
--      },
--      {
--        id: "installationFieldset",
--        control: "moz-fieldset",
--        l10nId: "update-application-installation",
--        items: [
--          {
--            id: "updateSettingCrossUserWarning",
--            control: "moz-message-bar",
--            l10nId: "update-application-warning-cross-user-setting-2",
--            controlAttrs: {
--              role: "status",
--            },
--          },
--          {
--            id: "updateRadioGroup",
--            control: "moz-radio-group",
--            options: [
--              {
--                id: "autoDesktop",
--                value: true,
--                l10nId: "update-application-auto-2",
--                items: [
--                  {
--                    id: "backgroundUpdate",
--                    l10nId: "update-application-background-enabled",
--                  },
--                ],
--              },
--              {
--                id: "manualDesktop",
--                value: false,
--                l10nId: "update-application-check-choose-2",
--              },
--            ],
--          },
--        ],
--      },
--      {
--        id: "showUpdatePromptsHeader",
--        control: "moz-fieldset",
--        l10nId: "update-application-suppress-prompts-heading",
--        items: [
--          {
--            id: "showUpdatePrompts",
--            l10nId: "update-application-suppress-prompts-2",
--          },
--        ],
--      },
--    ],
--  },
-   support: {
-     inProgress: true,
-     l10nId: "support-application-heading",
 @@ -574,14 +488,6 @@ SettingGroupManager.registerGroups({
              control: "moz-box-link",
              supportPage: "preferences",
@@ -111,10 +18,10 @@ index e90e8ec..fbab201 100644
        },
      ],
 diff --git a/browser/components/preferences/config/account-sync.mjs b/browser/components/preferences/config/account-sync.mjs
-index f1e681fa46..8633e4c822 100644
+index ad333a5..76ba937 100644
 --- a/browser/components/preferences/config/account-sync.mjs
 +++ b/browser/components/preferences/config/account-sync.mjs
-@@ -811,12 +811,27 @@ Preferences.addSetting({
+@@ -831,12 +831,27 @@ Preferences.addSetting({
  
  let accountsEnabled = Services.prefs.getBoolPref("identity.fxaccounts.enabled");
  
@@ -147,7 +54,7 @@ index f1e681fa46..8633e4c822 100644
    accountDisabled: {
      inProgress: true,
      hidden: accountsEnabled,
-@@ -831,6 +846,10 @@ SettingGroupManager.registerGroups({
+@@ -851,6 +866,10 @@ SettingGroupManager.registerGroups({
            headinglevel: 2,
          },
        },
@@ -158,7 +65,7 @@ index f1e681fa46..8633e4c822 100644
      ],
    },
    account: {
-@@ -929,6 +948,10 @@ SettingGroupManager.registerGroups({
+@@ -949,6 +968,10 @@ SettingGroupManager.registerGroups({
            },
          ],
        },
@@ -170,50 +77,48 @@ index f1e681fa46..8633e4c822 100644
    },
    sync: {
 diff --git a/browser/components/preferences/config/appearance.mjs b/browser/components/preferences/config/appearance.mjs
-index 14fea2901b..fdc3424676 100644
+index 7675fab..5cd14dd 100644
 --- a/browser/components/preferences/config/appearance.mjs
 +++ b/browser/components/preferences/config/appearance.mjs
-@@ -115,6 +115,17 @@ Preferences.addSetting({
+@@ -259,6 +259,23 @@ Preferences.addSetting({
    },
  });
  
 +if (Services.prefs.getBoolPref("browser.settings-redesign.enabled", false)) {
 +  Preferences.addAll([
 +    { id: "toolkit.legacyUserProfileCustomizations.stylesheets", type: "bool" },
++    { id: "browser.nova.enabled", type: "bool" },
 +  ]);
-+  
++
 +  Preferences.addSetting({
 +    id: "librewolfUserChrome",
 +    pref: "toolkit.legacyUserProfileCustomizations.stylesheets",
++  });
++
++  Preferences.addSetting({
++    id: "librewolfNova",
++    pref: "browser.nova.enabled",
 +  });
 +}
 +
  SettingGroupManager.registerGroups({
    appearance: {
      l10nId: "appearance-group2",
-@@ -186,6 +197,10 @@ SettingGroupManager.registerGroups({
+@@ -367,6 +384,14 @@ SettingGroupManager.registerGroups({
            href: "about:addons",
          },
        },
++      {
++        id: "librewolfNova",
++        l10nId: "librewolf-nova-checkbox2",
++      },
 +      {
 +        id: "librewolfUserChrome",
 +        l10nId: "librewolf-styling-checkbox2",
 +      },
      ],
    },
-   relatedSettings: {
-diff --git a/browser/components/preferences/config/home-startup.mjs b/browser/components/preferences/config/home-startup.mjs
-index 95ff39830e..23f27d2577 100644
---- a/browser/components/preferences/config/home-startup.mjs
-+++ b/browser/components/preferences/config/home-startup.mjs
-@@ -29,7 +29,6 @@ Preferences.addAll([
- 
- if (Services.prefs.getBoolPref("browser.settings-redesign.enabled")) {
-   SettingGroupManager.registerGroups({
--    defaultBrowserHome: window.createDefaultBrowserConfig(),
-     startupHome: window.createStartupConfig(),
-   });
- }
+   browserIconEntry: {
 diff --git a/browser/components/preferences/config/languages.mjs b/browser/components/preferences/config/languages.mjs
 index 7123cb0f46..47367e1642 100644
 --- a/browser/components/preferences/config/languages.mjs
@@ -241,15 +146,6 @@ index 7123cb0f46..47367e1642 100644
  Preferences.addSetting({
    id: "checkSpelling",
    pref: "layout.spellcheckDefault",
-@@ -850,7 +859,7 @@ SettingGroupManager.registerGroups({
-     inProgress: true,
-     l10nId: "browser-language-heading",
-     headingLevel: 2,
--    iconSrc: "chrome://browser/skin/sidebar/firefox.svg",
-+    iconSrc: "chrome://browser/skin/sidebar/librewolf.svg",
-     items: [
-       {
-         id: "browserLanguagePreferred",
 @@ -944,6 +953,10 @@ SettingGroupManager.registerGroups({
          id: "offerTranslations",
          l10nId: "settings-translations-offer-to-translate-label",
@@ -262,7 +158,7 @@ index 7123cb0f46..47367e1642 100644
          id: "translationsManageButton",
          loadPane: "translations",
 diff --git a/browser/components/preferences/config/privacy.mjs b/browser/components/preferences/config/privacy.mjs
-index d06a45ed88..001483f751 100644
+index f32ccc4..0feeeb3 100644
 --- a/browser/components/preferences/config/privacy.mjs
 +++ b/browser/components/preferences/config/privacy.mjs
 @@ -533,6 +533,82 @@ if (SECURITY_PRIVACY_STATUS_CARD_ENABLED) {
@@ -297,7 +193,7 @@ index d06a45ed88..001483f751 100644
 +      // Google safe browsing check downloads
 +      //{ id: "browser.safebrowsing.downloads.enabled", type: "bool" }, //Also already added
 +  ]);
-+  
++
 +  Preferences.addSetting({
 +    id: "librewolfExtensionUpdateEnabled",
 +    pref: "extensions.update.enabled",
@@ -465,7 +361,7 @@ index d06a45ed88..001483f751 100644
      ],
    },
    networkProxy: {
-@@ -982,13 +1022,10 @@ SettingGroupManager.registerGroups({
+@@ -1034,13 +1074,10 @@ SettingGroupManager.registerGroups({
      ],
    },
    historyAdvanced: {
@@ -481,7 +377,7 @@ index d06a45ed88..001483f751 100644
        {
          id: "rememberHistory",
          l10nId: "history-remember-browser-option",
-@@ -1159,18 +1196,14 @@ SettingGroupManager.registerGroups({
+@@ -1240,19 +1277,15 @@ SettingGroupManager.registerGroups({
    etpAdvanced: {
      inProgress: true,
      headingLevel: 2,
@@ -493,6 +389,7 @@ index d06a45ed88..001483f751 100644
        {
          id: "contentBlockingCategoryRadioGroup",
          control: "moz-radio-group",
+         l10nId: "preferences-etp-level-radio-group",
          options: [
 -          {
 -            id: "etpLevelStandard",
@@ -502,7 +399,7 @@ index d06a45ed88..001483f751 100644
            {
              id: "etpLevelStrict",
              subcategory: "etp-strict-control",
-@@ -1192,20 +1225,6 @@ SettingGroupManager.registerGroups({
+@@ -1274,20 +1307,6 @@ SettingGroupManager.registerGroups({
                },
              ],
            },
@@ -523,7 +420,7 @@ index d06a45ed88..001483f751 100644
          ],
        },
        {
-@@ -1221,12 +1240,6 @@ SettingGroupManager.registerGroups({
+@@ -1303,12 +1322,6 @@ SettingGroupManager.registerGroups({
            },
          ],
        },
@@ -537,17 +434,22 @@ index d06a45ed88..001483f751 100644
          id: "etpLevelWarning",
          control: "moz-promo",
 diff --git a/browser/components/preferences/config/tabs-browsing.mjs b/browser/components/preferences/config/tabs-browsing.mjs
-index ec183922fd..0b5db0e6ae 100644
+index 50ba8c2da3..06a5c0073a 100644
 --- a/browser/components/preferences/config/tabs-browsing.mjs
 +++ b/browser/components/preferences/config/tabs-browsing.mjs
-@@ -125,7 +125,34 @@ if (srdEnabled) {
+@@ -124,7 +124,52 @@ if (srdEnabled) {
         document; when set to false, no search action happens */
      { id: "accessibility.browsewithcaret", type: "bool" },
      { id: "accessibility.typeaheadfind", type: "bool" },
 +    // Clipboard autocopy/paste
 +    { id: "clipboard.autocopy", type: "bool" },
 +    { id: "middlemouse.paste", type: "bool" },
-+    { id: "image.jxl.enabled", type: "bool"},
++    { id: "image.jxl.enabled", type: "bool" },
++
++    // DRM/h264
++    { id: "media.gmp-manager.updateEnabled", type: "bool" },
++    { id: "media.gmp-gmpopenh264.enabled", type: "bool" },
++    { id: "media.gmp-widevinecdm.enabled", type: "bool" },
    ]);
 +
 +  Preferences.addSetting({
@@ -560,7 +462,7 @@ index ec183922fd..0b5db0e6ae 100644
 +  });
 +  Preferences.addSetting({
 +    id: "librewolfMiddleClick",
-+    deps: ["librewolfAutocopy","librewolfPaste"],
++    deps: ["librewolfAutocopy", "librewolfPaste"],
 +    get: (_, deps) => deps.librewolfAutocopy.value && deps.librewolfPaste.value,
 +    set: (value, deps) => {
 +      deps.librewolfAutocopy.value = value;
@@ -572,10 +474,58 @@ index ec183922fd..0b5db0e6ae 100644
 +    id: "librewolfJXL",
 +    pref: "image.jxl.enabled",
 +  });
++
++  Preferences.addSetting({
++    id: "librewolfGMPManager",
++    pref: "media.gmp-manager.updateEnabled",
++  });
++  Preferences.addSetting({
++    id: "librewolfGMPh264Enabled",
++    pref: "media.gmp-gmpopenh264.enabled",
++  });
++  Preferences.addSetting({
++    id: "librewolfGMPWidevineEnabled",
++    pref: "media.gmp-widevinecdm.enabled",
++  });
  }
  
  // Tabs settings
-@@ -711,6 +738,16 @@ SettingGroupManager.registerGroups({
+@@ -492,6 +537,7 @@ Preferences.addSetting({
+ Preferences.addSetting({
+   id: "playDRMContent",
+   pref: "media.eme.enabled",
++  deps: ["librewolfGMPManager", "librewolfGMPWidevineEnabled", "librewolfh264"],
+   visible: () => {
+     if (!Services.prefs.getBoolPref("browser.eme.ui.enabled", false)) {
+       return false;
+@@ -505,6 +551,26 @@ Preferences.addSetting({
+     }
+     return true;
+   },
++  get: (val, deps) =>
++    val &&
++    deps.librewolfGMPManager.value &&
++    deps.librewolfGMPWidevineEnabled.value,
++  set: (val, deps) => {
++    deps.librewolfGMPManager.value = val || deps.librewolfh264.value;
++    deps.librewolfGMPWidevineEnabled.value = val;
++    return val;
++  },
++});
++
++Preferences.addSetting({
++  id: "librewolfh264",
++  deps: ["librewolfGMPManager", "librewolfGMPh264Enabled", "playDRMContent"],
++  get: (_, deps) =>
++    deps.librewolfGMPManager.value && deps.librewolfGMPh264Enabled.value,
++  set: (val, deps) => {
++    deps.librewolfGMPManager.value = val || deps.playDRMContent.value;
++    deps.librewolfGMPh264Enabled.value = val;
++  },
+ });
+ 
+ // Performance settings
+@@ -728,6 +794,16 @@ SettingGroupManager.registerGroups({
        },
      ],
    },
@@ -592,10 +542,15 @@ index ec183922fd..0b5db0e6ae 100644
    media: {
      l10nId: "settings-media-group",
      headingLevel: 2,
-@@ -733,6 +770,10 @@ SettingGroupManager.registerGroups({
+@@ -750,6 +826,15 @@ SettingGroupManager.registerGroups({
          l10nId: "play-drm-content",
          supportPage: "drm-content",
        },
++      {
++        id: "librewolfh264",
++        l10nId: "librewolf-h264",
++        supportPage: "open-h264-plugin-firefox",
++      },
 +      {
 +        id: "librewolfJXL",
 +        l10nId: "librewolf-JXL",
@@ -604,90 +559,45 @@ index ec183922fd..0b5db0e6ae 100644
    },
    performance: {
 diff --git a/browser/components/preferences/main.js b/browser/components/preferences/main.js
-index fcbd421..ebc5a65 100644
+index 5a56d34..bc180bb 100644
 --- a/browser/components/preferences/main.js
 +++ b/browser/components/preferences/main.js
-@@ -596,56 +596,6 @@ Preferences.addSetting({
-   pref: "browser.ai.control.smartWindow",
- });
- 
--function createDefaultBrowserConfig({
--  includeIsDefaultPane = true,
--  inProgress = false,
--  hiddenFromSearch = false,
--} = {}) {
--  const isDefaultPane = {
--    id: "isDefaultPane",
+@@ -470,17 +470,13 @@ function createDefaultBrowserConfig({
+ } = {}) {
+   const isDefaultPane = {
+     id: "isDefaultPane",
 -    l10nId: "is-default-browser-2",
--    control: "moz-promo",
++    l10nId: "librewolf-is-default-browser-2",
+     control: "moz-promo",
 -    controlAttrs: {
 -      imagesrc: "chrome://global/skin/illustrations/kit-happy.svg",
 -      imagedisplay: "cover",
 -    },
--  };
--
--  const isNotDefaultPane = {
--    id: "isNotDefaultPane",
+   };
+ 
+   const isNotDefaultPane = {
+     id: "isNotDefaultPane",
 -    l10nId: "is-not-default-browser-2",
--    control: "moz-promo",
--    options: [
--      {
--        control: "moz-button",
--        l10nId: "set-as-my-default-browser-2",
--        id: "setDefaultButton",
--        slot: "actions",
--
--        controlAttrs: {
--          type: "primary",
--        },
--      },
--    ],
++    l10nId: "librewolf-is-not-default-browser-2",
+     control: "moz-promo",
+     options: [
+       {
+@@ -494,10 +490,6 @@ function createDefaultBrowserConfig({
+         },
+       },
+     ],
 -    controlAttrs: {
 -      imagesrc: "chrome://global/skin/illustrations/kit-concerned.svg",
 -      imagedisplay: "cover",
 -    },
--  };
--
--  const items = includeIsDefaultPane
--    ? [isDefaultPane, isNotDefaultPane]
--    : [isNotDefaultPane];
--
--  return {
--    l10nId: "home-default-browser-title",
--    headingLevel: 2,
--    items,
--    ...(inProgress && { inProgress }),
--    ...(hiddenFromSearch && { hiddenFromSearch }),
--  };
--}
--
- function createStartupConfig(hidden = false) {
-   return {
-     l10nId: "startup-group",
-@@ -812,7 +762,6 @@ var gMainPane = {
-     initSettingGroup("browsing");
-     initSettingGroup("keyboardAndScrolling");
-     initSettingGroup("motionAndLink");
--    initSettingGroup("updates");
-     initSettingGroup("translations");
-     initSettingGroup("spellCheck");
-     initSettingGroup("performance");
+   };
+ 
+   const items = includeIsDefaultPane
 diff --git a/browser/components/preferences/preferences.js b/browser/components/preferences/preferences.js
-index c76a064..ea0e9e2 100644
+index 94612d8..4c82403 100644
 --- a/browser/components/preferences/preferences.js
 +++ b/browser/components/preferences/preferences.js
-@@ -224,8 +224,8 @@ var scrollOffsets;
- const CONFIG_PANES = Object.freeze({
-   about: {
-     l10nId: "about-firefox-header",
--    iconSrc: "chrome://browser/skin/sidebar/firefox.svg",
--    groupIds: ["updates", "support"],
-+    iconSrc: "chrome://browser/skin/sidebar/librewolf.svg",
-+    groupIds: ["support"],
-     module: "chrome://browser/content/preferences/config/about-firefox.mjs",
-     visible: () => srdSectionPrefs.all,
-   },
-@@ -272,7 +272,6 @@ const CONFIG_PANES = Object.freeze({
+@@ -297,7 +297,6 @@ const CONFIG_PANES = Object.freeze({
        "httpsOnly",
        "networkProxy",
        "privacyPanel",
@@ -695,16 +605,7 @@ index c76a064..ea0e9e2 100644
        "certificates",
      ],
      replaces: "privacy",
-@@ -315,7 +314,7 @@ const CONFIG_PANES = Object.freeze({
-   home: {
-     l10nId: "home-section",
-     iconSrc: "chrome://browser/skin/home.svg",
--    groupIds: ["defaultBrowserHome", "startupHome", "homepage", "home"],
-+    groupIds: ["startupHome", "homepage", "home"],
-     module: "chrome://browser/content/preferences/config/home-startup.mjs",
-     replaces: "home",
-   },
-@@ -386,13 +385,12 @@ const CONFIG_PANES = Object.freeze({
+@@ -419,13 +418,12 @@ const CONFIG_PANES = Object.freeze({
      l10nId: "pane-privacy-section",
      iconSrc: "chrome://browser/skin/preferences/category-privacy-security.svg",
      groupIds: [
@@ -721,7 +622,7 @@ index c76a064..ea0e9e2 100644
        "dnsOverHttps",
        "connectionLink",
      ],
-@@ -415,7 +413,6 @@ const CONFIG_PANES = Object.freeze({
+@@ -448,7 +446,6 @@ const CONFIG_PANES = Object.freeze({
      l10nId: "account-sync-section",
      iconSrc: "chrome://browser/skin/fxa/avatar-empty.svg",
      groupIds: [
@@ -729,15 +630,15 @@ index c76a064..ea0e9e2 100644
        "accountDisabled",
        "account",
        "sync",
-@@ -440,6 +437,7 @@ const CONFIG_PANES = Object.freeze({
+@@ -474,6 +471,7 @@ const CONFIG_PANES = Object.freeze({
        "browserLayout",
        "tabs",
        "pageNavigation",
 +      "mouse",
+       "keyboardShortcuts",
        "media",
        "performance",
-       "recommendations",
-@@ -523,6 +521,9 @@ function init_all() {
+@@ -558,6 +556,9 @@ function init_all() {
      register_module("paneGeneral", gMainPane);
      document.getElementById("category-general").hidden = false;
      document.getElementById("nav-separator").hidden = true;
@@ -747,32 +648,23 @@ index c76a064..ea0e9e2 100644
    }
    register_module("paneHome", gHomePane);
    register_module("paneSearch", gSearchPane);
-@@ -599,6 +600,12 @@ function init_all() {
-   document.getElementById("focusSearch1").addEventListener("command", () => {
+@@ -649,6 +650,12 @@ function init_all() {
      gSearchResultsPane.searchInput.focus();
    });
-+  
+ 
 +  document.getElementById("toggleButton").addEventListener("click", async () => {
 +    let currentValue = Services.prefs.getBoolPref("browser.settings-redesign.enabled");
 +    Services.prefs.setBoolPref("browser.settings-redesign.enabled", !currentValue);
 +    document.location.reload();
 +  });
- 
++
    gotoPref().then(() => {
      document.getElementById("addonsButton").addEventListener("click", e => {
+       e.preventDefault();
 diff --git a/browser/components/preferences/preferences.xhtml b/browser/components/preferences/preferences.xhtml
 index b5531acdfb..8da3b051fd 100644
 --- a/browser/components/preferences/preferences.xhtml
 +++ b/browser/components/preferences/preferences.xhtml
-@@ -189,7 +189,7 @@
-       </html:moz-page-nav-button>
-       <html:moz-page-nav-button id="category-about-firefox"
-         view="paneAbout"
--        iconsrc="chrome://browser/skin/sidebar/firefox.svg"
-+        iconsrc="chrome://browser/skin/sidebar/librewolf.svg"
-         data-l10n-id="pane-about-firefox-title">
-       </html:moz-page-nav-button>
-       <html:moz-page-nav-button id="category-more-from-mozilla"
 @@ -219,6 +219,11 @@
          iconsrc="chrome://global/skin/icons/help.svg"
          data-l10n-id="help-button-label2">
@@ -798,39 +690,45 @@ index 052afa00e0..8645ebf73b 100644
 -
  <!-- Enhanced Tracking Protection Status Section -->
  <html:setting-group groupid="etpStatus" id="etpStatusCard" data-category="panePrivacy" data-subcategory="etpStatus" hidden="true" data-srd-migrated=""></html:setting-group>
- 
+
 diff --git a/browser/components/preferences/privacy.js b/browser/components/preferences/privacy.js
-index cf0a335afa..d2e33a0270 100644
+index a780854..9cdd6d3 100644
 --- a/browser/components/preferences/privacy.js
 +++ b/browser/components/preferences/privacy.js
-@@ -615,8 +615,7 @@ var gPrivacyPane = {
+@@ -615,8 +615,6 @@ var gPrivacyPane = {
    init() {
      initSettingGroup("nonTechnicalPrivacy");
      initSettingGroup("nonTechnicalPrivacy2");
 -    initSettingGroup("securityPrivacyStatus");
 -    initSettingGroup("securityPrivacyWarnings");
-+//    initSettingGroup("fingerPrinting");
      initSettingGroup("httpsOnly");
-     initSettingGroup("cookiesAndSiteData");
-     initSettingGroup("cookiesAndSiteData2");
-diff --git a/browser/components/sidebar/sidebar-pins-promo.mjs b/browser/components/sidebar/sidebar-pins-promo.mjs
-index 65877756c9..b61405aa7c 100644
---- a/browser/components/sidebar/sidebar-pins-promo.mjs
-+++ b/browser/components/sidebar/sidebar-pins-promo.mjs
-@@ -56,7 +56,7 @@ export default class SidebarPinsPromo extends MozLitElement {
-     this.launcherObserver = new MutationObserver(() => this.requestUpdate());
-   }
-   #icons = [
--    { name: "firefox", src: "chrome://browser/skin/sidebar/firefox.svg" },
-+    { name: "firefox", src: "chrome://browser/skin/sidebar/librewolf.svg" },
-     { name: "slack", src: "chrome://browser/skin/sidebar/slack.svg" },
-     { name: "foxy", src: "chrome://browser/skin/sidebar/foxy.svg" },
-     { name: "gmail", src: "chrome://browser/skin/sidebar/gmail.svg" },
+     initSettingGroup("browsingProtection");
+     initSettingGroup("cookiesAndSiteData"); 
 diff --git a/browser/extensions/newtab/lib/AboutPreferences.sys.mjs b/browser/extensions/newtab/lib/AboutPreferences.sys.mjs
-index 577431fbc9..10c35d4549 100644
+index 4562efc..bd99654 100644
 --- a/browser/extensions/newtab/lib/AboutPreferences.sys.mjs
 +++ b/browser/extensions/newtab/lib/AboutPreferences.sys.mjs
-@@ -1608,39 +1608,6 @@ export class AboutPreferences {
+@@ -393,6 +393,7 @@ export class AboutPreferences {
+         type: "bool",
+         inverted: true,
+       },
++      { id: "librewolf.externalWallpapers.enabled", type: "bool" },
+       {
+         id: "browser.newtabpage.activity-stream.system.showWeather",
+         type: "bool",
+@@ -1301,6 +1302,11 @@ export class AboutPreferences {
+       });
+     }
+ 
++    Preferences.addSetting({
++      id: "librewolfExternalWallpapers",
++      pref: "librewolf.externalWallpapers.enabled",
++    });
++
+     // Search
+     Preferences.addSetting({
+       id: "webSearch",
+@@ -1739,39 +1745,6 @@ export class AboutPreferences {
              },
            ],
          },
@@ -870,25 +768,31 @@ index 577431fbc9..10c35d4549 100644
          {
            id: "recentActivity",
            subcategory: "highlights",
+@@ -1819,6 +1792,11 @@ export class AboutPreferences {
+             },
+           ],
+         },
++       {
++         id: "librewolfExternalWallpapers",
++         l10nId: "librewolf-external-wallpapers",
++         control: "moz-toggle",
++       },
+         {
+           id: "chooseWallpaper",
+           l10nId: "home-prefs-choose-wallpaper-link2",
 diff --git a/browser/themes/shared/jar.inc.mn b/browser/themes/shared/jar.inc.mn
-index 036604314b..b0176bd96b 100644
+index da21558..993966b 100644
 --- a/browser/themes/shared/jar.inc.mn
 +++ b/browser/themes/shared/jar.inc.mn
-@@ -288,10 +288,10 @@
+@@ -287,7 +287,7 @@
    skin/classic/browser/search-indicator-badge-add.svg          (../shared/search/search-indicator-badge-add.svg)
    skin/classic/browser/searchbar.css                           (../shared/search/searchbar.css)
  
 -  skin/classic/browser/sidebar/firefox.svg                     (../shared/sidebar/firefox.svg)
--  skin/classic/browser/sidebar/foxy.svg                        (../shared/sidebar/foxy.svg)
--  skin/classic/browser/sidebar/gmail.svg                       (../shared/sidebar/gmail.svg)
--  skin/classic/browser/sidebar/slack.svg                       (../shared/sidebar/slack.svg)
-+  skin/classic/browser/sidebar/librewolf.svg                     (../shared/sidebar/librewolf.svg)
-+  skin/classic/browser/sidebar/foxy.svg                          (../shared/sidebar/foxy.svg)
-+  skin/classic/browser/sidebar/gmail.svg                         (../shared/sidebar/gmail.svg)
-+  skin/classic/browser/sidebar/slack.svg                         (../shared/sidebar/slack.svg)
- 
-   skin/classic/browser/tabbrowser/content-area.css             (../shared/tabbrowser/content-area.css)
-   skin/classic/browser/tabbrowser/crashed.svg                  (../shared/tabbrowser/crashed.svg)
++  skin/classic/browser/sidebar/firefox.svg                     (../shared/sidebar/librewolf.svg)
+   skin/classic/browser/sidebar/foxy.svg                        (../shared/sidebar/foxy.svg)
+   skin/classic/browser/sidebar/gmail.svg                       (../shared/sidebar/gmail.svg)
+   skin/classic/browser/sidebar/slack.svg                       (../shared/sidebar/slack.svg)
 diff --git a/browser/themes/shared/sidebar/librewolf.svg b/browser/themes/shared/sidebar/librewolf.svg
 new file mode 100644
 index 0000000..7c552cc
@@ -986,45 +890,6 @@ index 0000000..7c552cc
 +       transform="matrix(0.23203125,0.40188991,-0.99392962,0.57384553,246.21921,73.888081)" />
 +  </g>
 +</svg>
-diff --git a/browser/extensions/newtab/css/activity-stream.css b/browser/extensions/newtab/css/activity-stream.css
-index 5f86582..20fad77 100644
---- a/browser/extensions/newtab/css/activity-stream.css
-+++ b/browser/extensions/newtab/css/activity-stream.css
-@@ -1072,13 +1072,13 @@ main.newtab-main section {
- }
- .logo-and-wordmark .wordmark {
-   background: url("chrome://branding/content/firefox-wordmark.svg") no-repeat center center;
--  background-size: 105px;
-+  background-size: 200px;
-   -moz-context-properties: fill;
-   display: inline-block;
-   fill: var(--newtab-wordmark-color);
-   height: 64px;
-   margin-inline-start: var(--space-large);
--  width: 105px;
-+  width: 200px;
- }
- .lightWallpaper .logo-and-wordmark .wordmark {
-   color-scheme: light;
-diff --git a/browser/themes/shared/privatebrowsing/aboutPrivateBrowsing.css b/browser/themes/shared/privatebrowsing/aboutPrivateBrowsing.css
-index ea50223..d782989 100644
---- a/browser/themes/shared/privatebrowsing/aboutPrivateBrowsing.css
-+++ b/browser/themes/shared/privatebrowsing/aboutPrivateBrowsing.css
-@@ -74,12 +74,12 @@ p {
- .wordmark {
-   display: inline-block;
-   background: url("chrome://branding/content/firefox-wordmark.svg") no-repeat center center;
--  background-size: 172px;
-+  background-size: 250px;
-   margin-inline-start: 15px;
-   -moz-context-properties: fill;
-   fill: currentColor;
-   height: 96px;
--  width: 172px;
-+  width: 250px;
- }
- 
- .search-inner-wrapper {
 diff --git a/browser/components/backup/BackupService.sys.mjs b/browser/components/backup/BackupService.sys.mjs
 index bd2f95db2d..23ed1d8e90 100644
 --- a/browser/components/backup/BackupService.sys.mjs

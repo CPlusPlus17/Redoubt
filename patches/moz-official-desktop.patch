@@ -6,16 +6,34 @@
 # for byte, the hunks of the original patch, in the original order within each
 # half.
 #
-# What is here:
-#   browser/base/content/browser-init.js  !AppConstants.MOZILLA_OFFICIAL
-#                                         -> Services.prefs.getBoolPref(
-#                                              "librewolf.devHelpers", false)
-#   browser/base/content/browser-main.js  the same test, guarding the
-#                                         loadSubScript of
-#                                         browser-development-helpers.js
+# What is here (re-derived for Firefox 157 from upstream LibreWolf's
+# regenerated patches/moz-official.patch, the browser/ hunks taken verbatim):
+#   browser/base/content/browser-development-helpers.js
+#                                         DevelopmentHelpers.init() only binds
+#                                         quickRestart and adds the shortcut when
+#                                         Services.prefs.getBoolPref(
+#                                           "librewolf.devHelpers", false)
+#   browser/base/content/browser-main.js  drops the !AppConstants.MOZILLA_OFFICIAL
+#                                         guard: browser-development-helpers.js
+#                                         is always loaded (the pref gate is
+#                                         now inside init(), above)
+#   browser/components/BrowserComponents.manifest
+#                                         drops #ifndef MOZILLA_OFFICIAL /
+#                                         #endif around the
+#                                         browser-window-delayed-startup category
+#                                         entry that calls DevelopmentHelpers.init
 #   browser/base/jar.mn                   drops the #ifndef MOZILLA_OFFICIAL /
 #                                         #endif around the packaging line for
 #                                         browser-development-helpers.js
+#
+# History: up to Firefox 153 the init call was a hard-coded
+# `if (!AppConstants.MOZILLA_OFFICIAL) DevelopmentHelpers.init()` in
+# browser/base/content/browser-init.js, and this patch rewrote that test (and the
+# matching one in browser-main.js) to the pref. Firefox moved the call into a
+# BrowserComponents.manifest delayed-startup category, so the pref check moved
+# into init() itself. The behaviour is unchanged: helper off unless the pref is
+# true. References below to "the browser-init hunk" mean this init hook in either
+# shape.
 #
 # Together these keep the upstream "local development" helper -- the
 # accel+alt+R quick-restart command, key and File-menu item defined in
@@ -23,7 +41,7 @@
 # official LibreWolf build, behind librewolf.devHelpers, which
 # settings/librewolf.cfg:756 defaults to false.
 #
-# Why it is desktop-only: all three files are under browser/.
+# Why it is desktop-only: all four files are under browser/.
 # browser/app.mozbuild:11 (`DIRS += ["/browser"]`) is what pulls /browser into a
 # build and mobile/android/app.mozbuild never does, so these files are not in an
 # Android build at all and the hunks could not apply to one.
@@ -39,7 +57,7 @@
 # The evidence:
 #
 #   1. DevelopmentHelpers exists nowhere else. `grep -rl "DevelopmentHelpers\|
-#      development-helpers"` over the whole tree returns exactly six files: the
+#      development-helpers"` over the whole 153 tree returned exactly six files: the
 #      three patched here, browser/base/content/browser-development-helpers.js
 #      itself, and two devtools files that only name it in a comment while
 #      reimplementing it --
@@ -93,32 +111,52 @@
 #   wants a quick-restart affordance it is new work in patches/android/, not a
 #   port of this hunk.
 #
-diff --git a/browser/base/content/browser-init.js b/browser/base/content/browser-init.js
-index 288a79e..f0106ba 100644
---- a/browser/base/content/browser-init.js
-+++ b/browser/base/content/browser-init.js
-@@ -504,7 +504,7 @@ var gBrowserInit = {
-       gDataNotificationInfoBar.init();
-     }
+diff --git a/browser/base/content/browser-development-helpers.js b/browser/base/content/browser-development-helpers.js
+index 5155b28..8dea266 100644
+--- a/browser/base/content/browser-development-helpers.js
++++ b/browser/base/content/browser-development-helpers.js
+@@ -9,8 +9,10 @@
  
--    if (!AppConstants.MOZILLA_OFFICIAL) {
+ var DevelopmentHelpers = {
+   init() {
+-    this.quickRestart = this.quickRestart.bind(this);
+-    this.addRestartShortcut();
 +    if (Services.prefs.getBoolPref("librewolf.devHelpers", false)) {
-       DevelopmentHelpers.init();
-     }
-
++      this.quickRestart = this.quickRestart.bind(this);
++      this.addRestartShortcut();
++    }
+   },
+ 
+   quickRestart() {
 diff --git a/browser/base/content/browser-main.js b/browser/base/content/browser-main.js
-index d24bcbb..1c161f3 100644
+index 1ff101a..6b02e5a 100644
 --- a/browser/base/content/browser-main.js
 +++ b/browser/base/content/browser-main.js
-@@ -12,7 +12,7 @@
+@@ -11,9 +11,7 @@
    if (AppConstants.MOZ_DATA_REPORTING) {
      Services.scriptloader.loadSubScript("chrome://browser/content/browser-data-submission-info-bar.js", this);
    }
 -  if (!AppConstants.MOZILLA_OFFICIAL) {
-+  if (Services.prefs.getBoolPref("librewolf.devHelpers", false)) {
-     Services.scriptloader.loadSubScript("chrome://browser/content/browser-development-helpers.js", this);
-   }
+-    Services.scriptloader.loadSubScript("chrome://browser/content/browser-development-helpers.js", this);
+-  }
++  Services.scriptloader.loadSubScript("chrome://browser/content/browser-development-helpers.js", this);
    Services.scriptloader.loadSubScript("chrome://browser/content/browser-pageActions.js", this);
+   Services.scriptloader.loadSubScript("chrome://browser/content/sidebar/browser-sidebar.js", this);
+   Services.scriptloader.loadSubScript("chrome://browser/content/browser-customtitlebar.js", this);
+diff --git a/browser/components/BrowserComponents.manifest b/browser/components/BrowserComponents.manifest
+index 17f4eaf..988d852 100644
+--- a/browser/components/BrowserComponents.manifest
++++ b/browser/components/BrowserComponents.manifest
+@@ -86,9 +86,7 @@ category browser-window-delayed-startup chrome://browser/content/browser-fullScr
+ #ifdef MOZ_DATA_REPORTING
+ category browser-window-delayed-startup chrome://browser/content/browser-data-submission-info-bar.js gDataNotificationInfoBar.init
+ #endif
+-#ifndef MOZILLA_OFFICIAL
+ category browser-window-delayed-startup chrome://browser/content/browser-development-helpers.js DevelopmentHelpers.init
+-#endif
+ category browser-window-delayed-startup chrome://browser/content/browser-addons.js gExtensionsNotifications.init
+ category browser-window-delayed-startup chrome://browser/content/browser-captivePortal.js CaptivePortalWatcher.delayedStartup
+ 
 diff --git a/browser/base/jar.mn b/browser/base/jar.mn
 index 22550de..470b23f 100644
 --- a/browser/base/jar.mn

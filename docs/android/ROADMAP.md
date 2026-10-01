@@ -22,8 +22,9 @@ patches on top. Its actual identity — the thing that makes it LibreWolf rather
 a rebuild of Firefox — lives in two places, and **both are compiled out on
 Android**:
 
-1. **Autoconfig.** `settings/librewolf.cfg` (763 lines: 178 `defaultPref`, 60
-   `lockPref`, 26 bare `pref`, 12 `librewolf.*` prefs) is delivered through
+1. **Autoconfig.** `settings/librewolf.cfg` (272 `defaultPref`, 80 `lockPref`,
+   25 bare `pref`, 13 `librewolf.*` prefs since the Firefox 157 merge; 178, 60,
+   26 and 12 in the 763-line file the split started from) is delivered through
    `general.config.filename`. `nsReadConfig` resolves the `.cfg` relative to
    `NS_GRE_DIR`, and `nsXREDirProvider.cpp` leaves that empty on Android.
 2. **Enterprise policies.** `settings/distribution/policies.json` carries

@@ -32,6 +32,8 @@
 #    its monolith had, with the matching <name>-common.patch in common.txt:
 #
 #      disable-data-reporting-desktop  LW-M1-02   + android/disable-data-reporting-android
+#                                                 (since the 157 merge its common half is in
+#                                                 this file too; Android uses -common-esr)
 #      eme-permission-desktop          LW-M1-03   no Android patch needed (checked)
 #      moz-official-desktop            LW-M1-04   no Android patch needed (checked)
 #      remove-pingsender-desktop       LW-M1-06   no Android patch needed (checked)
@@ -58,38 +60,64 @@
 #    is still no autoconfig/lockPref channel there. See the straddler table in
 #    docs/android/PATCH-SCOPE.md for the per-patch evidence.
 
+# Firefox 157 desktop merge: three former common.txt entries, KEPT FIRST in
+# this file so they apply in the same relative position as before (common.txt
+# is applied before desktop.txt). Upstream changed their text for 156/157; the
+# 157 text is here and Android keeps the pre-merge text as patches/android/
+# <name>-esr.patch (android.txt). See the comment block in common.txt.
+# Re-merge into common.txt when Android moves to an ESR >= 157.
+patches/rs-blocker.patch                                # Firefox 157 desktop merge: upstream's 157 text (startup-bundle filter 5b4201be, debug-log blocked collections 3536d182; new remote-settings.sys.mjs + ConfigSearchEngine.sys.mjs hunks). services/settings + toolkit/components/search ship on Android too, but Android keeps the pre-merge text as patches/android/rs-blocker-esr.patch so its tree stays byte-identical; LW-M4-08's rs-blocker-android is the Android-side Rust counterpart
+patches/vendor-name.patch                               # Firefox 157 desktop merge: upstream's 157 text (81e96593: getBrowserInfo() reports MOZ_APP_VERSION_DISPLAY). ext-runtime.js + nsAppRunner.cpp are core, but Android keeps the pre-merge text as patches/android/vendor-name-esr.patch. Shares ext-runtime.js with extensions-setUninstallURL (common.txt), applied before it as always (grandfathered shipping order, scripts/check-patch-order.py)
+patches/disable-data-reporting-common.patch             # LW-M1-02 'common' half of disable-data-reporting-at-compile-time at upstream's 156/157 text (mach telemetry, Telemetry.cpp, gkrust features, Stopwatch/UserInteraction error suppression fb4c7a32). Desktop-only since the 157 merge: Android keeps the pre-merge common half as patches/android/disable-data-reporting-common-esr.patch together with patches/android/disable-data-reporting-android.patch (both pre-merge bytes). Desktop needs nothing from the Android half: its 153esr-only mach.txt/glean init hunks have 157 equivalents in disable-data-reporting-desktop.patch below. Shares no tree file with the desktop half
+
 patches/add-mojeek.patch                                # MOVED-FROM-COMMON: hunk sits inside services/settings/dumps/main/moz.build:46 `if MOZ_BUILD_APP == "browser"`; Android equivalent is LW-M4-06
+patches/always-fetch-latest-toolchain-artifact.patch    # Firefox 157 desktop merge: upstream's 157 text (9f21b38c). Build tooling (python/mozbuild/mozbuild/artifact_commands.py), needed on every target, but its import hunk rejects on firefox-153.0esr, so Android keeps the pre-merge text as patches/android/always-fetch-latest-toolchain-artifact-esr.patch (android.txt). No other listed patch touches the file. Re-merge into common.txt when Android moves to an ESR >= 157
+patches/canvas-permission.patch
+patches/clear-alt-svc.patch
 patches/dbus_name.patch                                 # MOVED-FROM-COMMON: toolkit/components/remote/moz.build:25-35 needs gtk AND MOZ_ENABLE_DBUS
+patches/delete-cookie-permission.patch
 patches/disable-data-reporting-desktop.patch            # LW-M1-02: desktop half of the split straddler; browser/moz.configure + tabbrowser.js. Common half in common.txt, Android configure counterpart in android.txt
+patches/display-version.patch
+patches/eme-migrator.patch
 patches/eme-permission-desktop.patch                    # LW-M1-03 desktop half of the old eme-permission straddler: the media-key-system-access doorhanger only (browser/modules/EMEPermissionPrompt.sys.mjs, new, plus its wiring in browser/components/permissions/ContentPermissionPrompt.sys.mjs). Common half is patches/eme-permission-common.patch. No Android counterpart is needed - GeckoViewPermission + Fenix already prompt for this permission type; see the common half's header
 patches/fullpage-translations-customization.patch
-patches/hide-passwordmgr.patch
+patches/hide-disabled-urlbar-suggests.patch
+patches/include-policy-deletion.patch
 patches/languages.patch
 patches/link-preview.patch
 patches/lw-permissions.patch
-patches/macos-relaunch-without-updater.patch            # MOVED-FROM-COMMON: .mm, toolkit/xre/moz.build:71-84 gates it on MOZ_WIDGET_TOOLKIT == cocoa
-patches/moz-official-desktop.patch                      # LW-M1-04 desktop half: the three browser/base files (browser-init.js, browser-main.js, jar.mn) that keep the upstream DevelopmentHelpers quick-restart behind librewolf.devHelpers. Common half (the two GMP host-verification hunks) is in common.txt. NO Android counterpart is needed - mobile/android has no equivalent of the browser-init hunk; the evidence is in this patch's header and in android.txt. Position unchanged from the pre-split moz-official.patch entry, which keeps it after hide-passwordmgr.patch, the only other patch that touches browser/base/content/browser-init.js (different region, ~line 300 vs ~504)
+patches/moz-official-desktop.patch                      # LW-M1-04 desktop half: the three browser/base files (browser-init.js, browser-main.js, jar.mn) that keep the upstream DevelopmentHelpers quick-restart behind librewolf.devHelpers. Common half (the two GMP host-verification hunks) is in common.txt. NO Android counterpart is needed - mobile/android has no equivalent of the browser-init hunk; the evidence is in this patch's header and in android.txt. Position unchanged from the pre-split moz-official.patch entry. Since the Firefox 157 merge (upstream dropped hide-passwordmgr.patch, which used to be the other browser-init.js editor) no other listed patch touches browser-init.js; it shares browser/base/content/browser-main.js and browser/base/jar.mn with mullvad-dns-migration.patch (below), and that pair was measured order-free on firefox-157.0 (both orders byte-identical; scripts/check-patch-order.py REVIEWED_ORDER_FREE)
 patches/msix.patch                                      # LW-M1-05: NOT a straddler after all - NO common half, no split, no patches/android/ counterpart. It edits python/mozbuild/{mach_commands.py,repackaging/msix.py}, which an Android tree has on disk, but repackaging/msix.py's only non-test importer is two FUNCTION-LOCAL imports in mach_commands.py:3336,3458 (inside the repackage msix / sign-msix command bodies), and stripping every function body leaves msix.py's import-time AST IDENTICAL and mach_commands.py's differing by exactly one constant - the --vendor default on @SubCommand("repackage","msix"), which only `vendor = vendor or second` in msix.py ever reads. mach loads command modules per-command (mach_initialize.py:483-495); `mach build` maps to build_commands.py and never loads mach_commands.py at all, and no LibreWolf target runs `mach repackage`. Full evidence in the header of patches/msix.patch
+patches/mullvad-dns-migration.patch
 patches/newtab-fix.patch
+patches/pip-hide-ui.patch
+patches/refresh.patch
+patches/remote-debugging-package-name.patch
 patches/remove-language-packs.patch
+patches/remove-openai.patch                             # Firefox 157 desktop merge: the 157 text, regenerated from the firefox-157.0 tree (header explains). MANDATORY on every target - librewolf-patches.py deletes the OpenAI paths for every target - so Android keeps the pre-merge text as patches/android/remove-openai-esr.patch (android.txt). No other listed patch touches its five files. Re-merge into common.txt when Android moves to an ESR >= 157
 patches/remove-pingsender-desktop.patch                 # LW-M1-06 desktop half: the three installer manifests (macbuild MacOS-files.in, package-manifest.in, nsis/shared.nsh); common half is in common.txt
 patches/temp-macos-fix.patch
+patches/updater.patch
 patches/ui-patches/add-translate-page-context-menu.patch
 patches/ui-patches/allow_cookies_for_site.patch
-patches/ui-patches/firefox-view.patch
-patches/ui-patches/hide-default-browser.patch
-patches/ui-patches/hide-finish-setup-bookmark.patch
+patches/ui-patches/allow-disabling-updater.patch
+patches/ui-patches/eme-enable.patch
 patches/ui-patches/home-preferences.patch
 patches/ui-patches/lw-logo-devtools.patch               # MOVED-FROM-COMMON: all 4 files under devtools/client/, which devtools/moz.build:5-8 gates on MOZ_DEVTOOLS == "all" (implied only by browser/moz.configure:17)
+patches/ui-patches/neterror-common.patch                # LW-M1-07 'common' half of ui-patches/neterror at upstream's 156/157 text (3ac002b0 rewrote the net-error-card.mjs hunk; it rejects on firefox-153.0esr). Desktop-only since the 157 merge; Android keeps the pre-merge text as patches/android/neterror-common-esr.patch (android.txt). Shares no tree file with neterror-desktop (desktop-jar.inc.mn), so their order is free
 patches/ui-patches/neterror-desktop.patch               # LW-M1-07 split of ui-patches/neterror: the toolkit/themes/shared/desktop-jar.inc.mn hunk only (landmine L3 - desktop-only file inside a shared directory); common half is patches/ui-patches/neterror-common.patch
+patches/ui-patches/newtab-wordmark-css.patch
 patches/ui-patches/pref-naming.patch
 patches/ui-patches/privacy-preferences.patch
+patches/ui-patches/remove-branding.patch
 patches/ui-patches/remove-cfrprefs.patch
 patches/ui-patches/remove-organization-policy-banner.patch
 patches/ui-patches/settings-redesign.patch
 patches/ui-patches/trustpanel.patch
+patches/ui-patches/wallpapers.patch
 patches/ui-patches/website-appearance-ui-rfp.patch
-patches/webgl-permission-desktop.patch                  # LW-M1-08 desktop half of the old webgl-permission straddler: the doorhanger, WebGLPermissionPromptHelper, the ObserverForwarder wiring and the four icons, all under browser/
+patches/webgl-permission-common.patch                   # LW-M1-08 'common' half of webgl-permission (dom/canvas + dom/ipc + libpref, all core Gecko) at upstream's Firefox 156/157 text. Desktop-only since the 157 merge because Android stays on 153 ESR and keeps the pre-157 text as patches/android/webgl-permission-common-esr.patch (android.txt); re-merge the two into common.txt when Android moves to an ESR >= 157. Must apply AFTER fpp-canvas-fix (common.txt, shared ClientWebGLContext.cpp) - satisfied because common.txt is applied first
+patches/webgl-permission-desktop.patch                  # LW-M1-08 desktop half of the old webgl-permission straddler: the doorhanger, WebGLPermissionPromptHelper, the ObserverForwarder wiring and the jar.inc.mn/notification-icons.css entries for the two icons, all under browser/. Since upstream be2521d6 the icon SVGs are not in the patch: they are assets/icons/webgl{,-blocked}.svg, copied into browser/themes/shared/icons/ by scripts/librewolf-patches.py
 patches/windows-theming-bug.patch
 patches/xdg-dir.patch                                   # MOVED-FROM-COMMON: every hunk is inside nsXREDirProvider.cpp's `#if defined(MOZ_WIDGET_GTK)` block (lines 1309-1539); must still apply AFTER mozilla_dirs, which common.txt guarantees
 patches/xmas-desktop.patch                              # LW-M1-09 desktop half of the old xmas straddler: browser/installer/package-manifest.in only. KEEP THIS AFTER remove-pingsender-desktop AND temp-macos-fix - all three edit that manifest, and the pre-split code applied xmas.patch from its own call site in scripts/librewolf-patches.py, after every list entry. It was the last entry in this file until LW-M1-13 appended pref-pane-small below; that one touches no installer manifest, so this constraint is unaffected. Common half is patches/xmas-common.patch
@@ -103,10 +131,11 @@ patches/xmas-desktop.patch                              # LW-M1-09 desktop half 
 # It must NOT be sorted into its alphabetical slot after newtab-fix: it shares
 # browser/components/preferences/{main.js,preferences.js,preferences.xhtml} and
 # browser/themes/shared/jar.inc.mn with settings-redesign, privacy-preferences,
-# remove-cfrprefs, remove-organization-policy-banner, hide-default-browser,
+# remove-cfrprefs, remove-organization-policy-banner,
 # fullpage-translations-customization and webgl-permission-desktop, all of which
-# sort before it, and scripts/check-patch-order.py classifies those seven pairs
-# as order-free only on the grounds that this patch has always applied last.
+# sort before it, and scripts/check-patch-order.py classifies those pairs as
+# order-free only on the grounds that this patch has always applied last.
+# (hide-default-browser was a seventh until upstream dropped it for Firefox 157.)
 # The four new files the pane needs (category-librewolf.svg, librewolf.css,
 # librewolf.inc.xhtml, librewolf.js) are still copied by librewolf-patches.py,
 # now behind an `if "desktop" in targets` check - a list entry cannot express a

@@ -1543,6 +1543,9 @@ tasks:
     what: |
       settings/librewolf.cfg is 763 lines: 178 defaultPref, 60 lockPref, 26 bare
       pref, 2 clearPref, 1 setEnv, and 12 librewolf.* prefs. Split it three ways.
+      (Since the Firefox 157 merge common.cfg + desktop.cfg carry 272 defaultPref,
+      80 lockPref, 25 bare pref, 2 clearPref, 2 setEnv and 13 librewolf.* prefs;
+      board.py CFG_EXPECTED records the current totals.)
       Known desktop-only sections: lines 73-79 (sanitize-on-shutdown —
       Sanitizer.sys.mjs is desktop-only) and lines 253-254
       (privacy.window.maxInnerWidth/Height). NOTE the stated reason for the latter
@@ -1561,7 +1564,7 @@ tasks:
     acceptance:
       - "common.cfg + desktop.cfg reproduces today's librewolf.cfg semantically (same effective prefs on desktop)"
       - "every pref in desktop.cfg has a stated reason it cannot apply on Android"
-      - "counts recorded and matching: 178 defaultPref, 60 lockPref, 12 librewolf.* prefs"
+      - "counts recorded and matching: 272 defaultPref, 80 lockPref, 13 librewolf.* prefs (178, 60 and 12 before the Firefox 157 merge)"
     verify: "python3 docs/android/board.py --check-cfg-split && python3 docs/android/board.py --check"
     effort_h: "8-14"
     skills: [js, python]

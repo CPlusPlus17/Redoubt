@@ -546,6 +546,88 @@ def leave_srcdir():
 #
 
 
+#
+# The desktop mozconfig, with MOZ_PKG_VERSION filled in.
+#
+# Upstream 157 does this by rewriting ../assets/mozconfig.new in place before
+# copying it. That mutates a tracked file in this repository, under -n as well
+# (open() is not exec()), and is not idempotent: a second run turns
+# "MOZ_PKG_VERSION=V-R" into "MOZ_PKG_VERSION=V-RV-R". Here the template is
+# read from ASSETS_DIR and only the copies inside the source tree get the
+# version; the repository file is never written. The whole line is replaced,
+# and a template without one is a fatal error rather than a silent no-op.
+#
+
+#
+# Android keeps the pre-157 behaviour: a plain copy of the template. The
+# MOZ_PKG_VERSION rewrite is upstream 157 desktop packaging; Android is built
+# from assets/mozconfig.android (Makefile --mozconfig), and an android run is
+# held to the pre-merge output (docs/android/REBASE.md, the -esr rule). So the
+# rewrite is gated exactly like the version.txt semantics further down: any run
+# with "android" in --targets does HEAD's `cp`, a desktop-only run writes the
+# version. (A desktop+android run is never built; it takes the android branch
+# for the same reason the version.txt one does.)
+#
+
+def install_mozconfig(targets, dest, cp_dest):
+    if "android" in targets:
+        exec('cp -v ../assets/mozconfig.new {}'.format(cp_dest))
+    else:
+        write_desktop_mozconfig(dest)
+
+
+def write_desktop_mozconfig(dest):
+    template = ASSETS_DIR / "mozconfig.new"
+    print("write {} <- {} (MOZ_PKG_VERSION={}-{})".format(dest, template, version, release))
+    sys.stdout.flush()
+    if options.no_execute:
+        return
+    with open(template, "r") as f:
+        text, count = re.subn(r"^export MOZ_PKG_VERSION=.*$",
+                              "export MOZ_PKG_VERSION={}-{}".format(version, release),
+                              f.read(), flags=re.MULTILINE)
+    if count != 1:
+        print("fatal error: expected exactly one 'export MOZ_PKG_VERSION=' line in {}, found {}".format(
+            template, count))
+        sys.stdout.flush()
+        script_exit(1)
+    with open(dest, "w") as f:
+        f.write(text)
+
+
+#
+# glean-core .cargo-checksum.json fix-up (desktop only; see the call site).
+#
+
+GLEAN_CORE_CHECKSUMS = "third_party/rust/glean-core/.cargo-checksum.json"
+GLEAN_CORE_HASH_FIXUPS = [
+    # (file in the crate, pristine 157.0 sha256, sha256 after the -desktop hunks)
+    ("src/core/mod.rs",
+     "5bc8c9bbe8c0eabe408d9a7cd7a8e6e09eee0ead817607643882b38a36d07c91",
+     "bddacbe056ce7458663a39dc99d5bb3434099aa69cae793cf0c57d4e54f5a6a4"),
+    ("src/lib.rs",
+     "c20989b1aa336b0849e96ec1b2beea1eab825ffd192c2c3a636e20f830b811d0",
+     "0b43fbc5f86c6c247c5189af58be425a829c3b09018c6b26589661eec9a5ad24"),
+]
+
+def fix_glean_core_checksums():
+    for _name, old, new in GLEAN_CORE_HASH_FIXUPS:
+        exec("sed -i 's/{}/{}/g' {}".format(old, new, GLEAN_CORE_CHECKSUMS))
+    if options.no_execute:
+        return
+    with open(GLEAN_CORE_CHECKSUMS, "r") as f:
+        text = f.read()
+    missing = [name for name, old, new in GLEAN_CORE_HASH_FIXUPS
+               if new not in text or old in text]
+    if missing:
+        print("fatal error: {} was not rewritten for {}: the pristine hash was not found "
+              "(vendored glean-core changed?). Recompute the hashes against "
+              "patches/disable-data-reporting-desktop.patch.".format(
+                  GLEAN_CORE_CHECKSUMS, ", ".join(missing)))
+        sys.stdout.flush()
+        script_exit(1)
+
+
 def librewolf_patches():
 
     # Resolved before entering the tree, so an unknown target or an unreadable
@@ -557,6 +639,25 @@ def librewolf_patches():
 
     enter_srcdir()
 
+    # Upstream f072d15c ("Fix checksums"): the glean-core hunks of upstream's
+    # disable-data-reporting-at-compile-time.patch change two files that
+    # glean-core's .cargo-checksum.json vouches for, so cargo would refuse the
+    # vendored crate. In Redoubt those hunks (third_party/rust/glean-core/
+    # src/lib.rs and src/core/mod.rs) live in
+    # patches/disable-data-reporting-desktop.patch, which only desktop.txt
+    # lists - so this is gated on desktop exactly as that list entry is. On an
+    # android run the files are unpatched and the recorded hashes are already
+    # right; rewriting them there would break the crate. (Checked: the
+    # 153.0esr tarball does not carry either original hash at all.)
+    #
+    # The replacement hashes are the sha256 of the two files after the -desktop
+    # hunks are applied to a pristine 157.0 tree (verified for 157.0). If the
+    # hunks or the vendored glean-core change, these change with them. sed
+    # exits 0 whether or not it matched, so the result is checked afterwards
+    # and a miss is fatal (landmine L4: an out-of-patch mutation fails closed).
+    if "desktop" in targets:
+        fix_glean_core_checksums()
+
     # remove OpenAI integration. patches/remove-openai.patch removes every
     # reference to these two paths; the patch and these deletions are one
     # change, so keep them in sync. See delete_from_tree() above.
@@ -565,8 +666,9 @@ def librewolf_patches():
     delete_from_tree('toolkit/components/ml/vendor/openai',
                      'the vendored OpenAI SDK')
 
-    # create the right mozconfig file..
-    exec('cp -v ../assets/mozconfig.new mozconfig')
+    # create the right mozconfig file, with our display versioning in
+    # MOZ_PKG_VERSION on desktop (upstream 157). See install_mozconfig() above.
+    install_mozconfig(targets, 'mozconfig', 'mozconfig')
 
     # copy branding files..
     #
@@ -596,6 +698,13 @@ def librewolf_patches():
         # patches/android/branding.patch; this supplies the raster halves.
         exec("cp -rv ../themes/android/. mobile/android/fenix/app/src/")
 
+    # copy our patch icons (upstream 157: webgl.svg / webgl-blocked.svg, used by
+    # the desktop WebGL permission UI in patches/webgl-permission-desktop.patch).
+    # browser/ is desktop chrome; gated like the branding and pref-pane copies
+    # so an android run does not drop files into a tree it never builds (L4).
+    if "desktop" in targets:
+        exec('cp -v ../assets/icons/* browser/themes/shared/icons/')
+
     # copy the right search-config.json-v2 file and search-config-icons file
     exec('cp -v ../assets/search-config-v2.json services/settings/dumps/main/search-config-v2.json')
     exec('cp -v ../assets/search-config-icons.json services/settings/dumps/main/search-config-icons.json')
@@ -612,6 +721,13 @@ def librewolf_patches():
         android_ubo_extension()
         android_translation_assets()
         android_suggest_data()
+
+    # copy our public signing keys (upstream 157): LibreWolf's MAR signing
+    # certificates replace Mozilla's in the desktop updater. Android has no
+    # MAR updater, so this is desktop only.
+    if "desktop" in targets:
+        exec('cp -v ../assets/marsigner.der toolkit/mozapps/update/updater/release_primary.der')
+        exec('cp -v ../assets/marsigner2.der toolkit/mozapps/update/updater/release_secondary.der')
 
     # apply common.txt, then one list per --targets. The lists are read from
     # PATCH_LIST_DIR (absolute), the patches themselves are applied from '../'
@@ -634,8 +750,14 @@ def librewolf_patches():
     # assets/patches.txt shim they used to be pointed at is gone (LW-M7-01).
     # Both halves are in the lists above; patches/xmas.patch itself is gone.
 
-    # vs_pack.py issue... should be temporary
-    exec('cp -v ../patches/pack_vs.py build/vs/')
+    # vs_pack.py issue... should be temporary. Upstream removed this copy and
+    # patches/pack_vs.py for 157, so desktop no longer gets it. An android run
+    # keeps the pre-merge behaviour (the 153.0esr tree is held byte-identical to
+    # what Android was built from), so the pre-merge file lives on, verbatim, as
+    # patches/android/pack_vs-esr.py. Drop it with the other -esr files when
+    # Android moves to an ESR >= 157.
+    if "android" in targets:
+        exec('cp -v ../patches/android/pack_vs-esr.py build/vs/pack_vs.py')
 
     #
     # Apply most recent `settings` repository files.
@@ -715,35 +837,79 @@ def librewolf_patches():
 
     # provide a script that fetches and bootstraps Nightly and some mozconfigs
     exec('cp -v ../scripts/mozfetch.sh lw/')
-    exec('cp -v ../assets/mozconfig.new lw/')
+    install_mozconfig(targets, 'lw/mozconfig.new', 'lw/')
 
     # override the firefox version. Not via exec(), so it needs its own
-    # --no-execute guard: without one, `-n` wrote these two files for real,
+    # --no-execute guard: without one, `-n` wrote these files for real,
     # relative to whatever directory it was run from.
-    for file in ["browser/config/version.txt", "browser/config/version_display.txt"]:
-        print("write {} <- {}-{}".format(file, version, release))
+    #
+    # Two semantics, chosen by target:
+    #
+    #   desktop only    upstream 157 (dcac34a6, "Use the same internal version
+    #                   as Firefox"): version.txt gets the bare <version>, so
+    #                   MOZ_APP_VERSION is Firefox's own; version_display.txt
+    #                   keeps "<version>-<release>".
+    #
+    #   android in      what Redoubt shipped before the 157 merge: BOTH files
+    #   targets         get "<version>-<release>". Android has no
+    #                   mobile/android/config/version.txt, so init.configure
+    #                   falls back to browser/config/version.txt and the shipped
+    #                   Gecko reports MOZ_APP_VERSION 153.0esr-1
+    #                   (docs/android/SMOKE.md, "What was measured"). The
+    #                   build.gradle versionCode fix in
+    #                   patches/android/build-fixes.patch, the absence of MOZ_ESR
+    #                   it documents, and about:buildconfig / GeckoView's
+    #                   BuildConfig.MOZ_APP_VERSION all rest on that string;
+    #                   build-fixes.patch rejected exactly this change for
+    #                   Android (its alternative "a"). The android track stays
+    #                   on 153.0esr and must not move with desktop.
+    #
+    #   desktop+android (never built - desktop and android are separate
+    #                   tarballs, each patched for one target) takes the android
+    #                   branch: of the two, only android's version string has a
+    #                   measured, shipped contract, and the HEAD behaviour is
+    #                   also what desktop shipped up to 157, so it is the
+    #                   conservative choice for both halves. Note this differs
+    #                   from the librewolf.cfg composition above, which picks
+    #                   the desktop side for a combined run; that one has no
+    #                   android-observable version consequence.
+    display_version = "{}-{}".format(version, release)
+    if "android" in targets:
+        app_version = display_version
+    else:
+        app_version = version
+    for file, content in [("browser/config/version.txt", app_version),
+                          ("browser/config/version_display.txt", display_version)]:
+        print("write {} <- {}".format(file, content))
         sys.stdout.flush()
         if not options.no_execute:
             with open(file, "w") as f:
-                f.write("{}-{}".format(version,release))
+                f.write(content)
 
-    l10n_commit, l10n_sha256 = read_l10n_pin()
-    print(f"-> Downloading locales from https://github.com/mozilla-l10n/firefox-l10n at {l10n_commit}")
-    with (nullcontext("<l10n-temporary-directory>") if options.no_execute else TemporaryDirectory()) as tmpdir:
-        zip_path = f"{tmpdir}/l10n.zip"
-        # -f so an HTTP error is an error instead of a saved error page.
-        exec(f"curl -sfL -o {zip_path} 'https://codeload.github.com/mozilla-l10n/firefox-l10n/zip/{l10n_commit}'")
-        # Verify before unzipping: an unverified archive never gets unpacked.
-        verify_sha256(zip_path, l10n_sha256, f"firefox-l10n zip @ {l10n_commit}")
-        exec(f"unzip -qo {zip_path} -d {tmpdir}/l10n")
-        # codeload names the top-level directory after the ref it was asked for,
-        # so fetching by sha gives firefox-l10n-<full sha>, not firefox-l10n-main.
-        extracted = f"{tmpdir}/l10n/firefox-l10n-{l10n_commit}"
-        if not options.no_execute and not os.path.isdir(extracted):
-            print(f"fatal error: '{extracted}' is missing from the l10n archive; codeload changed its layout")
-            sys.stdout.flush()
-            script_exit(1)
-        exec(f"mv {extracted} lw/l10n")
+    # Upstream 157 added SKIP_FETCHING_LOCALES for builders that put lw/l10n in
+    # place themselves; honoured here too. Upstream also moved its fetch to an
+    # unpinned `git clone` of https://librewolf.dev/mirror/firefox-l10n - we
+    # keep the commit+sha256 pin (assets/l10n-pin.txt) instead.
+    if os.environ.get("SKIP_FETCHING_LOCALES") is not None:
+        print("-> Using pre-fetched locales")
+    else:
+        l10n_commit, l10n_sha256 = read_l10n_pin()
+        print(f"-> Downloading locales from https://github.com/mozilla-l10n/firefox-l10n at {l10n_commit}")
+        with (nullcontext("<l10n-temporary-directory>") if options.no_execute else TemporaryDirectory()) as tmpdir:
+            zip_path = f"{tmpdir}/l10n.zip"
+            # -f so an HTTP error is an error instead of a saved error page.
+            exec(f"curl -sfL -o {zip_path} 'https://codeload.github.com/mozilla-l10n/firefox-l10n/zip/{l10n_commit}'")
+            # Verify before unzipping: an unverified archive never gets unpacked.
+            verify_sha256(zip_path, l10n_sha256, f"firefox-l10n zip @ {l10n_commit}")
+            exec(f"unzip -qo {zip_path} -d {tmpdir}/l10n")
+            # codeload names the top-level directory after the ref it was asked for,
+            # so fetching by sha gives firefox-l10n-<full sha>, not firefox-l10n-main.
+            extracted = f"{tmpdir}/l10n/firefox-l10n-{l10n_commit}"
+            if not options.no_execute and not os.path.isdir(extracted):
+                print(f"fatal error: '{extracted}' is missing from the l10n archive; codeload changed its layout")
+                sys.stdout.flush()
+                script_exit(1)
+            exec(f"mv {extracted} lw/l10n")
 
     print("-> Patching appstrings.properties")
     # Why is "Firefox" hardcoded there???
