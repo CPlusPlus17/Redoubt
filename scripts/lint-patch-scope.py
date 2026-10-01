@@ -7,6 +7,19 @@ Reads assets/patches/{common,desktop,android}.txt, parses the ``--- a/x`` /
   * common.txt   touches no desktop-only file and no Android-only file
   * desktop.txt  touches no Android-only file (in particular no ``mobile/``)
   * android.txt  touches no desktop-only file (in particular no ``browser/``)
+  * no listed patch, in any list, has a hunk header without line numbers
+
+THE HUNK-HEADER CHECK
+---------------------
+A line that is exactly ``@@`` (or ``@@`` plus anything that is not
+``-N[,M] +N[,M] @@``) is not a hunk header GNU patch can use.  patch 2.8 does
+not reject it: the hunk is skipped *silently* - exit 0, no "patching file"
+line, no .rej - so check-patchfail.sh, which trusts patch's exit status, calls
+the patch clean while part of it never lands.  That is how the
+``implementation ComponentsDependencies.mozilla_appservices_suggest`` line of
+patches/android/firefox-suggest-data.patch went missing from every build (a
+bare ``@@`` over its build.gradle section).  The check is purely textual and
+covers every patch in every list, whatever its scope.
 
 WHY THE RULES ARE FILE-LEVEL AND NOT PREFIX-LEVEL
 -------------------------------------------------
@@ -31,13 +44,15 @@ cite yours the same way, or it cannot be reviewed.
 Usage:
     python3 scripts/lint-patch-scope.py [--root DIR] [-v]
 
-Exit codes:  0 = clean, 1 = scope violations found, 2 = could not run.
+Exit codes:  0 = clean, 1 = scope or hunk-header violations found,
+             2 = could not run.
 """
 
 from __future__ import annotations
 
 import argparse
 import fnmatch
+import re
 import sys
 import textwrap
 from pathlib import Path
@@ -307,6 +322,27 @@ def patch_paths(patch: Path) -> list[str]:
     return list(seen)
 
 
+# A usable unified-diff hunk header: "@@ -N[,M] +N[,M] @@" plus an optional
+# section heading.  Anything else that starts with "@@" is a header GNU patch
+# skips without saying so - see THE HUNK-HEADER CHECK above.
+HUNK_HEADER = re.compile(r"@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(?: .*)?")
+
+
+def bad_hunk_headers(patch: Path) -> list[tuple[int, str]]:
+    """Return (line number, line) for every '@@' line that is not a usable
+    hunk header.  Diff body lines start with ' ', '+', '-' or '\\', so a
+    line that starts with '@@' is always meant as a hunk header."""
+    try:
+        text = patch.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise ParseError(f"cannot read patch {patch}: {exc}") from exc
+    return [
+        (lineno, raw)
+        for lineno, raw in enumerate(text.splitlines(), 1)
+        if raw.startswith("@@") and not HUNK_HEADER.fullmatch(raw)
+    ]
+
+
 # --------------------------------------------------------------------------
 # Matching
 # --------------------------------------------------------------------------
@@ -345,8 +381,18 @@ class Violation(NamedTuple):
     rule: Rule
 
 
-def lint(root: Path, verbose: bool = False) -> tuple[list[Violation], int]:
+class HeaderViolation(NamedTuple):
+    list_name: str
+    patch: str
+    lineno: int
+    line: str
+
+
+def lint(
+    root: Path, verbose: bool = False
+) -> tuple[list[Violation], list[HeaderViolation], int]:
     violations: list[Violation] = []
+    header_violations: list[HeaderViolation] = []
     checked = 0
     for list_name, rulesets in LIST_RULES.items():
         list_file = root / "assets" / "patches" / f"{list_name}.txt"
@@ -360,6 +406,10 @@ def lint(root: Path, verbose: bool = False) -> tuple[list[Violation], int]:
                     f"which does not exist at {patch}"
                 )
             paths = patch_paths(patch)
+            for lineno, line in bad_hunk_headers(patch):
+                header_violations.append(
+                    HeaderViolation(list_name, entry, lineno, line)
+                )
             checked += 1
             if verbose:
                 print(f"  {list_name:<7} {entry} ({len(paths)} files)")
@@ -372,7 +422,7 @@ def lint(root: Path, verbose: bool = False) -> tuple[list[Violation], int]:
                         violations.append(
                             Violation(list_name, entry, path, ruleset.label, hit)
                         )
-    return violations, checked
+    return violations, header_violations, checked
 
 
 def wrap(text: str, indent: str, width: int = 78) -> Iterable[str]:
@@ -411,6 +461,22 @@ def report(violations: list[Violation], checked: int) -> None:
     )
 
 
+def report_headers(header_violations: list[HeaderViolation]) -> None:
+    print(
+        f"lint-patch-scope: {len(header_violations)} hunk header(s) without "
+        "line numbers\n"
+    )
+    for v in header_violations:
+        print(f"  {v.patch}:{v.lineno}: {v.line!r}  (assets/patches/{v.list_name}.txt)")
+    print(
+        "\nGNU patch skips such a hunk silently (exit 0, no .rej), so the "
+        "change never\nlands and check-patchfail.sh still reports success. "
+        "Give it a real\n'@@ -N,M +N,M @@' header against the tree as patched "
+        "by every patch listed\nbefore it, e.g. regenerate the section with "
+        "git diff.\n"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -427,16 +493,24 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        violations, checked = lint(args.root.resolve(), args.verbose)
+        violations, header_violations, checked = lint(
+            args.root.resolve(), args.verbose
+        )
     except ParseError as exc:
         print(f"lint-patch-scope: error: {exc}", file=sys.stderr)
         return 2
 
+    if header_violations:
+        report_headers(header_violations)
     if violations:
         report(violations, checked)
+    if violations or header_violations:
         return 1
 
-    print(f"lint-patch-scope: OK - {checked} patch file(s), no scope violations")
+    print(
+        f"lint-patch-scope: OK - {checked} patch file(s), no scope violations, "
+        "no hunk header without line numbers"
+    )
     return 0
 
 
