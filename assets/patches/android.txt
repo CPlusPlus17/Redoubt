@@ -217,17 +217,19 @@ patches/android/global-privacy-controls.patch # LW-M7-36: authoritative native g
 patches/android/session-cleanup.patch # LW-M7-37: checked native frame and cookie cleanup primitives; full session coordinator pending.
 
 # Firefox 157 desktop merge: two former common.txt entries that upstream
-# LibreWolf deleted (the desktop 157 tree no longer needs them) but the Android
-# ESR tree still does. Both files are byte-identical copies of the upstream
-# patch as of merge base 71177a33; verified against firefox-153.0esr.source:
-#   - HTMLCanvasElement.cpp:918 still passes nullptr to ImageExtractionResult
-#     in CaptureStream (157 has the fix upstream, so the patch would not apply
-#     on desktop any more);
-#   - mozversioncontrol/repo/source.py:114 still has the unnormalised join.
-# Neither shares a tree file with any other listed patch, so position is free.
-# Drop both when Android moves to an ESR based on >= 157.
+# LibreWolf deleted (the desktop 157 tree no longer needs them). Both moved here
+# as byte-identical copies of the upstream patch as of merge base 71177a33:
+#   - mozversioncontrol/repo/source.py:114 still has the unnormalised join in
+#     firefox-153.4.0esr, so bootstrap-esr stays. It shares no tree file with
+#     any other listed patch, so position is free. Drop it when Android moves
+#     to an ESR based on >= 157.
+#   - fix-canvas-extraction-permission-esr is GONE as of the 153.4.0esr rebase:
+#     153.4.0esr carries the same fix upstream (HTMLCanvasElement.cpp:918
+#     CaptureStream now passes nsContentUtils::GetCurrentJSContext() to
+#     ImageExtractionResult, clang-formatted over two lines), so the patch
+#     rejected and had nothing left to do. Dropped because Gecko fixed it, not
+#     to silence an error - see docs/android/PATCH-SCOPE.md.
 patches/android/bootstrap-esr.patch # was common.txt patches/bootstrap.patch; upstream removed it in cd7ec6e7. Build tooling (python/mozversioncontrol path normalisation), Windows-host relevant.
-patches/android/fix-canvas-extraction-permission-esr.patch # was common.txt patches/fix-canvas-extraction-permission.patch; upstream dropped it in d374f724 as upstreamed in Gecko. dom/html/HTMLCanvasElement.cpp CaptureStream.
 
 # Firefox 157 desktop merge, continued: two former common.txt entries that
 # upstream KEPT but whose 157 text no longer applies to firefox-153.0esr (proven
