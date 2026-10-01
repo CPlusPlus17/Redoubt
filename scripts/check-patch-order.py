@@ -390,6 +390,30 @@ _M157_SWAP = ("measured on firefox-157.0: shipping order, B-moved-before-A and "
               "A-moved-after-B all apply every patch (exit 0) and leave every "
               "file the desktop sequence touches byte-identical")
 
+# Method behind the seven firefox-suggest-data/app/build.gradle rows at the end
+# of the table. Replayed against the pristine firefox-153.0esr.source.tar.xz
+# with the full common.txt + android.txt sequence (67 patches, GNU patch 2.8,
+# `patch -p1 -i` as librewolf-patches.py runs it), fresh extract per order.
+#
+# What it found first: firefox-suggest-data's build.gradle section (f8189c4c)
+# has a bare '@@' hunk header with no line numbers. GNU patch skips it SILENTLY
+# inside the whole patch - exit 0, no "patching file .../build.gradle" line -
+# and on its own reports "Only garbage was found" (git apply: "patch with only
+# garbage"). So the mozilla_appservices_suggest dependency never reaches the
+# tree, and the shipped build.gradle is sha256 2ef204e5..., the LW-M6-06 value
+# from before the hunk existed. That is a bug in the patch, not an ordering
+# question; it is recorded here because it is why these pairs cannot conflict
+# today, and because fixing the header changes what the rows rest on.
+_M7_SUGGEST_GRADLE = (
+    "measured on firefox-153.0esr, full Android sequence, fresh extract per "
+    "order: suggest-data's build.gradle hunk has a bare '@@' header and GNU "
+    "patch skips it (exit 0, file untouched), so it adds no bytes in any order; "
+    "A-moved-after-B applies every patch (exit 0) and leaves all 452 files the "
+    "sequence touches byte-identical to shipping where no third-party "
+    "constraint is crossed. With the header repaired (+7 lines after "
+    "mozilla_appservices_merino), a build.gradle-only replay of the 8 patches "
+    "that edit it gives sha256 33826457... with B before each A and last")
+
 REVIEWED_ORDER_FREE = (
     ('patches/android/no-glean.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml',), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
     ('patches/android/update-check.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt', 'mobile/android/fenix/app/src/main/res/xml/preferences.xml'), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
@@ -947,6 +971,58 @@ REVIEWED_ORDER_FREE = (
      ("mobile/android/fenix/app/build.gradle",),
      "update-check appends two buildConfigFields to defaultConfig (:88); branding edits applicationId / identity lines; "
      "byte-identical both ways (sha256 2ef204e5...) (LW-M6-06)"),
+
+    # firefox-suggest-data x the seven other app/build.gradle editors. MEASURED,
+    # see _M7_SUGGEST_GRADLE for the method and for the inert hunk. B-moved-
+    # before-A is not a usable full-tree order for any of them: it lifts
+    # suggest-data above its declared predecessor firefox-suggest-policy
+    # (CONSTRAINTS), and suggest-data then rejects in SearchEngineFragment.kt,
+    # firefox_suggest_policy_strings.xml and search_settings_preferences.xml -
+    # none of them build.gradle. That direction is covered by the
+    # build.gradle-only replay instead. Three of the A's are ordered before
+    # suggest-data transitively by existing rows anyway (no-adjust and no-gms
+    # -> firefox-suggest-policy -> firefox-suggest-data; no-glean -> no-gms),
+    # so for them "order-free" is about build.gradle only.
+    ("patches/android/branding.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "branding edits applicationId / identity lines (:57-:169), suggest-data "
+     "the dependencies block; full-tree A-after-B clean; " + _M7_SUGGEST_GRADLE),
+    ("patches/android/fenix-abi-split.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "fenix-abi-split edits the splits block (:239), suggest-data the "
+     "dependencies block; full-tree A-after-B clean; " + _M7_SUGGEST_GRADLE),
+    ("patches/android/no-crashreporter.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "no-crashreporter edits crash-reporter config/dependency lines; full-tree "
+     "A-after-B clean; " + _M7_SUGGEST_GRADLE),
+    ("patches/android/update-check.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "update-check appends buildConfigFields to defaultConfig (:88), "
+     "suggest-data the dependencies block; full-tree A-after-B clean; "
+     + _M7_SUGGEST_GRADLE),
+    ("patches/android/no-adjust.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "no-adjust removes the Adjust lines, one of them the trailing context of "
+     "the repaired hunk (applies at fuzz 1 either way, same bytes). Full-tree "
+     "A-after-B crosses no-adjust -> no-glean/no-gms/no-crashreporter, which "
+     "reject; build.gradle-only replay is order-free; " + _M7_SUGGEST_GRADLE),
+    ("patches/android/no-glean.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "no-glean edits the Glean dependency (:512). Full-tree A-after-B crosses "
+     "no-glean -> no-gms, which rejects in AndroidManifest.xml; build.gradle-only "
+     "replay is order-free; " + _M7_SUGGEST_GRADLE),
+    ("patches/android/no-gms.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "no-gms edits the GMS config/dependency lines. Full-tree A-after-B crosses "
+     "no-gms -> no-crashreporter, which rejects in focus-android/app/build.gradle; "
+     "build.gradle-only replay is order-free; " + _M7_SUGGEST_GRADLE),
 )
 
 
