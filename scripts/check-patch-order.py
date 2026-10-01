@@ -402,17 +402,29 @@ _M157_SWAP = ("measured on firefox-157.0: shipping order, B-moved-before-A and "
 # garbage"). So the mozilla_appservices_suggest dependency never reaches the
 # tree, and the shipped build.gradle is sha256 2ef204e5..., the LW-M6-06 value
 # from before the hunk existed. That is a bug in the patch, not an ordering
-# question; it is recorded here because it is why these pairs cannot conflict
-# today, and because fixing the header changes what the rows rest on.
+# question.
+#
+# REPAIRED at the 153.4.0esr rebase: the section now carries
+# '@@ -545,6 +545,13 @@ dependencies {', generated with git diff against the
+# tree as patched by every earlier entry, so the dependency lands (fuzz 0 in
+# shipping order; build.gradle sha256 33826457..., exactly the value predicted
+# below). Re-measured on firefox-153.4.0esr, whose app/build.gradle is
+# byte-identical to 153.0esr's (sha256 6f776ebe...): a build.gradle-only replay
+# of the 8 editors with suggest-data placed before each of the 7 others, and
+# last, gives 33826457... in all 8 orders. The rows therefore still hold, now
+# on bytes that actually land. scripts/lint-patch-scope.py rejects a bare '@@'
+# in any listed patch since the same rebase.
 _M7_SUGGEST_GRADLE = (
     "measured on firefox-153.0esr, full Android sequence, fresh extract per "
-    "order: suggest-data's build.gradle hunk has a bare '@@' header and GNU "
-    "patch skips it (exit 0, file untouched), so it adds no bytes in any order; "
+    "order: suggest-data's build.gradle hunk then had a bare '@@' header and GNU "
+    "patch skipped it (exit 0, file untouched), so it added no bytes in any order; "
     "A-moved-after-B applies every patch (exit 0) and leaves all 452 files the "
     "sequence touches byte-identical to shipping where no third-party "
     "constraint is crossed. With the header repaired (+7 lines after "
     "mozilla_appservices_merino), a build.gradle-only replay of the 8 patches "
-    "that edit it gives sha256 33826457... with B before each A and last")
+    "that edit it gives sha256 33826457... with B before each A and last "
+    "(header repaired at 153.4.0esr; re-measured there, all 8 orders "
+    "33826457...)")
 
 REVIEWED_ORDER_FREE = (
     ('patches/android/no-glean.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml',), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
