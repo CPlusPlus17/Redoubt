@@ -1,0 +1,394 @@
+# Redoubt doh-mullvad-migration.patch  (Android)
+#
+# Upstream files touched
+# -----------------------
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt  (1 call, top of Core.engine)
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt     (1 call in onResume)
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
+#     (both: privacy-defaults.patch's provider catalog, minus Mullvad)
+# New files
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DohProviderMigration.kt
+#   mobile/android/fenix/app/src/main/res/values/lw_doh_migration.xml
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DohProviderMigrationTest.kt
+#
+# Line numbers are from the ESR tree (firefox-153.4.0esr, ./version.android),
+# AFTER the patches listed before this one in assets/patches/android.txt.
+#
+#
+# What it is
+# -----------
+# Mullvad is discontinuing its DNS over HTTPS service. The 153 ESR beta offered
+# "Mullvad (No Filtering)" (https://dns.mullvad.net/dns-query) in the Fenix DoH
+# picker -- privacy-defaults.patch's hand-kept copy of doh-rollout.provider-list
+# -- and Fenix persists the choice in fenix_preferences
+# (pref_key_doh_provider_uri, beside the mode in pref_key_doh_settings_mode).
+# When the service stops, such a profile loses DoH in Increased Protection and
+# loses name resolution altogether in Max Protection (TRR_MODE_ONLY).
+#
+# Three changes:
+#   1. Core.engine, before DefaultSettings reads settings.dohProviderUrl, calls
+#      DohProviderMigration.migrate. Once per profile, a stored provider whose
+#      host is dns.mullvad.net, any *.dns.mullvad.net (base., adblock., ...) or
+#      the older doh.mullvad.net is replaced by Settings.LIBREWOLF_DOH_PROVIDER_URI
+#      (https://dns10.quad9.net/dns-query, the Fenix default and common.cfg's
+#      network.trr.uri). The mode is not touched. Hooking the lazy engine
+#      initialiser rather than an Application callback means no caller can
+#      construct the engine before the migration has run. The done flag is
+#      written to the same SharedPreferences as the provider, so a later Mullvad
+#      URI the user enters by hand as a custom provider is respected.
+#   2. When the mode was Increased or Max (DoH actually in use), a notice flag is
+#      set and HomeActivity.onResume shows a one-time AlertDialog naming the new
+#      provider -- the same in-app dialog mechanism update-check.patch uses. The
+#      flag is cleared when the dialog is dismissed. Off/Default: silent, logged.
+#   3. Mullvad leaves the built-in picker catalog, matching settings/common.cfg's
+#      doh-rollout.provider-list (Redoubt-settings 0cae8fb dropped the Android
+#      override that still listed it). DefaultDohSettingsProviderTest follows.
+#
+#
+# Ordering
+# ---------
+# After privacy-defaults.patch: the DohSettingsProvider.kt and
+# DefaultDohSettingsProviderTest.kt hunks edit text that patch creates
+# (declared in scripts/check-patch-order.py). Core.kt (fission-isolation,
+# ubo-preinstall) and HomeActivity.kt (no-nimbus, no-adjust, no-suggest,
+# update-check, ubo-preinstall, sync-opt-in) hunks have upstream-only context,
+# far from every other patch's hunks; recorded order-free.
+#
+#
+# Verification
+# -------------
+#   ./mach gradle fenix:testDebugUnitTest --tests '*DohProviderMigrationTest' \
+#       --tests '*DefaultDohSettingsProviderTest'
+#   Not compiled when written (no Gecko AAR on the authoring host); stage B of
+#   the 153.4.0esr rebase builds it.
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+@@ -768,6 +768,10 @@
+             message = "onResume()",
+         )
+ 
++        // Redoubt: one-time notice when DohProviderMigration replaced a Mullvad
++        // DoH provider that was in use.
++        org.mozilla.fenix.lw.DohProviderMigration.maybeShowNotice(this)
++
+         binding.root.doOnLayout {
+             if (browsingModeManager.mode.isPrivate) {
+                 it.announcePrivateModeForAccessibility()
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+@@ -169,6 +169,10 @@
+      * configuration (see build variants).
+      */
+     val engine: Engine by lazyMonitored {
++        // Redoubt: replace a discontinued Mullvad DoH provider before the engine
++        // reads dohProviderUrl below. Runs once per profile.
++        org.mozilla.fenix.lw.DohProviderMigration.migrate(context.components.settings)
++
+         val defaultSettings = DefaultSettings(
+             requestInterceptor = requestInterceptor,
+             remoteDebuggingEnabled = context.components.settings.isRemoteDebuggingEnabled,
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DohProviderMigration.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DohProviderMigration.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DohProviderMigration.kt
+@@ -0,0 +1,120 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++// Redoubt: one-time move off Mullvad's discontinued DNS over HTTPS service.
++//
++// The 153 ESR beta listed "Mullvad (No Filtering)" in the DoH provider picker.
++// Mullvad is shutting that service down; a profile still pointing at it loses
++// DoH in Increased Protection and all name resolution in Max Protection. Before
++// the engine reads the stored provider (Core.engine), a Mullvad URI is replaced
++// with Settings.LIBREWOLF_DOH_PROVIDER_URI, the Android default, and the mode is
++// kept. The check runs once per profile, so a Mullvad URI the user enters
++// afterwards as a custom provider is left alone. When DoH was actually in use,
++// HomeActivity shows a one-time dialog naming the new provider.
++//
++// The state lives in fenix_preferences next to the provider it describes: the
++// provider write and the done flag go through the same SharedPreferences, so
++// they reach disk together or not at all.
++
++package org.mozilla.fenix.lw
++
++import android.app.Activity
++import android.app.AlertDialog
++import androidx.annotation.VisibleForTesting
++import androidx.core.content.edit
++import mozilla.components.concept.engine.Engine
++import mozilla.components.support.base.log.logger.Logger
++import org.mozilla.fenix.R
++import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.utils.Settings
++import java.net.URI
++import java.net.URISyntaxException
++
++/**
++ * Replaces a stored Mullvad DoH provider once, and shows the notice for it.
++ */
++object DohProviderMigration {
++    @VisibleForTesting
++    internal const val KEY_DONE = "lw_doh_mullvad_migration_done"
++
++    @VisibleForTesting
++    internal const val KEY_NOTICE_PENDING = "lw_doh_mullvad_migration_notice_pending"
++
++    // dns.mullvad.net and its filtering variants (base., adblock., extended.,
++    // family., all.dns.mullvad.net), plus doh.mullvad.net, the service's
++    // earlier name.
++    private const val MULLVAD_DOH_DOMAIN = "dns.mullvad.net"
++    private const val MULLVAD_LEGACY_DOH_HOST = "doh.mullvad.net"
++
++    private val logger = Logger("DohProviderMigration")
++
++    private var noticeShowing = false
++
++    /** True when [url] points at a Mullvad DoH endpoint. */
++    @VisibleForTesting
++    internal fun isMullvadProvider(url: String): Boolean {
++        val host = try {
++            URI(url.trim()).host
++        } catch (e: URISyntaxException) {
++            null
++        } ?: return false
++        val name = host.lowercase().trimEnd('.')
++        return name == MULLVAD_DOH_DOMAIN ||
++            name.endsWith(".$MULLVAD_DOH_DOMAIN") ||
++            name == MULLVAD_LEGACY_DOH_HOST
++    }
++
++    /**
++     * Runs once per profile, before the engine is created. Returns true when the
++     * stored provider was replaced.
++     */
++    fun migrate(settings: Settings): Boolean {
++        val prefs = settings.preferences
++        if (prefs.getBoolean(KEY_DONE, false)) {
++            return false
++        }
++        val previous = settings.dohProviderUrl
++        val replace = isMullvadProvider(previous)
++        val mode = settings.getDohSettingsMode()
++        if (replace) {
++            settings.dohProviderUrl = Settings.LIBREWOLF_DOH_PROVIDER_URI
++            logger.info("Replaced discontinued Mullvad DoH provider; mode $mode kept")
++        }
++        val inUse = mode == Engine.DohSettingsMode.INCREASED || mode == Engine.DohSettingsMode.MAX
++        prefs.edit {
++            putBoolean(KEY_DONE, true)
++            if (replace && inUse) {
++                putBoolean(KEY_NOTICE_PENDING, true)
++            }
++        }
++        return replace
++    }
++
++    @VisibleForTesting
++    internal fun isNoticePending(settings: Settings): Boolean =
++        settings.preferences.getBoolean(KEY_NOTICE_PENDING, false)
++
++    /**
++     * Called from HomeActivity.onResume. Shows the notice until the user
++     * dismisses it; an activity torn down underneath it shows it again on the
++     * next start.
++     */
++    fun maybeShowNotice(activity: Activity) {
++        val settings = activity.components.settings
++        if (noticeShowing || activity.isFinishing || !isNoticePending(settings)) {
++            return
++        }
++        val host = URI(Settings.LIBREWOLF_DOH_PROVIDER_URI).host ?: Settings.LIBREWOLF_DOH_PROVIDER_URI
++        noticeShowing = true
++        AlertDialog.Builder(activity)
++            .setTitle(R.string.lw_doh_mullvad_migrated_title)
++            .setMessage(activity.getString(R.string.lw_doh_mullvad_migrated_message, host))
++            .setPositiveButton(android.R.string.ok, null)
++            .setOnDismissListener {
++                noticeShowing = false
++                settings.preferences.edit { putBoolean(KEY_NOTICE_PENDING, false) }
++            }
++            .show()
++    }
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
+@@ -42,7 +42,6 @@
+             "LibreDNS (Adblocking)" to "https://doh.libredns.gr/noads",
+             "Wikimedia DNS (No Filtering)" to "https://wikimedia-dns.org/dns-query",
+             "DNS4All (No Filtering)" to Settings.LIBREWOLF_DOH_DEFAULT_PROVIDER_URI,
+-            "Mullvad (No Filtering)" to "https://dns.mullvad.net/dns-query",
+         ).map { (name, url) ->
+             Provider.BuiltIn(url = url, name = name, default = url == defaultUrl)
+         }
+diff --git a/mobile/android/fenix/app/src/main/res/values/lw_doh_migration.xml b/mobile/android/fenix/app/src/main/res/values/lw_doh_migration.xml
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/res/values/lw_doh_migration.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Redoubt: the one-time notice after a Mullvad DNS over HTTPS provider is
++     replaced (org.mozilla.fenix.lw.DohProviderMigration). Kept out of
++     strings.xml on purpose: that file is synced from android-l10n on every
++     rebase and would drop these. -->
++<resources>
++    <string name="lw_doh_mullvad_migrated_title">DNS over HTTPS provider changed</string>
++    <string name="lw_doh_mullvad_migrated_message">Mullvad has discontinued its DNS over HTTPS service. Redoubt now uses %1$s instead, with your protection level unchanged. You can choose another provider in Settings under DNS over HTTPS.</string>
++</resources>
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DohProviderMigrationTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DohProviderMigrationTest.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DohProviderMigrationTest.kt
+@@ -0,0 +1,112 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix.lw
++
++import androidx.core.content.edit
++import mozilla.components.concept.engine.Engine
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.fenix.utils.Settings
++import org.robolectric.RobolectricTestRunner
++
++@RunWith(RobolectricTestRunner::class)
++class DohProviderMigrationTest {
++    private lateinit var settings: Settings
++
++    @Before
++    fun setUp() {
++        settings = Settings(testContext)
++    }
++
++    @Test
++    fun `Mullvad DoH endpoints are recognised`() {
++        for (url in listOf(
++            "https://dns.mullvad.net/dns-query",
++            "https://base.dns.mullvad.net/dns-query",
++            "https://adblock.dns.mullvad.net/dns-query",
++            "https://all.dns.mullvad.net/dns-query",
++            "https://DNS.Mullvad.NET/dns-query",
++            "https://dns.mullvad.net./dns-query",
++            " https://family.dns.mullvad.net/dns-query ",
++            "https://doh.mullvad.net/dns-query",
++        )) {
++            assertTrue(url, DohProviderMigration.isMullvadProvider(url))
++        }
++    }
++
++    @Test
++    fun `other providers are not recognised`() {
++        for (url in listOf(
++            "",
++            "not a uri",
++            "https://dns10.quad9.net/dns-query",
++            "https://mullvad.net/dns-query",
++            "https://notdns.mullvad.net/dns-query",
++            "https://dns.mullvad.net.example.com/dns-query",
++            "https://example.com/dns.mullvad.net",
++        )) {
++            assertFalse(url, DohProviderMigration.isMullvadProvider(url))
++        }
++    }
++
++    @Test
++    fun `a Mullvad provider in use is replaced, the mode is kept and the notice is queued`() {
++        for (mode in listOf(Engine.DohSettingsMode.INCREASED, Engine.DohSettingsMode.MAX)) {
++            settings.preferences.edit(commit = true) { clear() }
++            settings.setDohSettingsMode(mode)
++            settings.dohProviderUrl = "https://base.dns.mullvad.net/dns-query"
++
++            assertTrue(DohProviderMigration.migrate(settings))
++
++            assertEquals(Settings.LIBREWOLF_DOH_PROVIDER_URI, settings.dohProviderUrl)
++            assertEquals(mode, settings.getDohSettingsMode())
++            assertTrue(DohProviderMigration.isNoticePending(settings))
++        }
++    }
++
++    @Test
++    fun `a stored but inactive Mullvad provider is replaced without a notice`() {
++        for (mode in listOf(Engine.DohSettingsMode.OFF, Engine.DohSettingsMode.DEFAULT)) {
++            settings.preferences.edit(commit = true) { clear() }
++            settings.setDohSettingsMode(mode)
++            settings.dohProviderUrl = "https://dns.mullvad.net/dns-query"
++
++            assertTrue(DohProviderMigration.migrate(settings))
++
++            assertEquals(Settings.LIBREWOLF_DOH_PROVIDER_URI, settings.dohProviderUrl)
++            assertEquals(mode, settings.getDohSettingsMode())
++            assertFalse(DohProviderMigration.isNoticePending(settings))
++        }
++    }
++
++    @Test
++    fun `other providers are left alone`() {
++        settings.setDohSettingsMode(Engine.DohSettingsMode.MAX)
++        settings.dohProviderUrl = "https://custom.example/dns-query"
++
++        assertFalse(DohProviderMigration.migrate(settings))
++
++        assertEquals("https://custom.example/dns-query", settings.dohProviderUrl)
++        assertEquals(Engine.DohSettingsMode.MAX, settings.getDohSettingsMode())
++        assertFalse(DohProviderMigration.isNoticePending(settings))
++    }
++
++    @Test
++    fun `the migration runs once, so a later explicit choice is respected`() {
++        settings.setDohSettingsMode(Engine.DohSettingsMode.INCREASED)
++        assertFalse(DohProviderMigration.migrate(settings))
++
++        settings.dohProviderUrl = "https://dns.mullvad.net/dns-query"
++        assertFalse(DohProviderMigration.migrate(settings))
++
++        assertEquals("https://dns.mullvad.net/dns-query", settings.dohProviderUrl)
++        assertFalse(DohProviderMigration.isNoticePending(settings))
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
+@@ -58,7 +58,6 @@
+                 "https://doh.libredns.gr/noads",
+                 "https://wikimedia-dns.org/dns-query",
+                 "https://doh.dns4all.eu/dns-query",
+-                "https://dns.mullvad.net/dns-query",
+             ),
+             providers.filterIsInstance<Provider.BuiltIn>().map { it.url },
+         )
+@@ -68,7 +67,11 @@
+ 
+     @Test
+     fun `explicit legacy providers remain selected as custom providers after upgrade`() {
+-        for (url in listOf("https://mozilla.cloudflare-dns.com/dns-query", "https://firefox.dns.nextdns.io/")) {
++        for (url in listOf(
++            "https://mozilla.cloudflare-dns.com/dns-query",
++            "https://firefox.dns.nextdns.io/",
++            "https://dns.mullvad.net/dns-query",
++        )) {
+             every { appSettings.dohProviderUrl } returns url
+             assertEquals(Provider.Custom(url = url), settingsProvider.getSelectedProvider())
+             assertEquals(
+@@ -81,8 +84,8 @@
+     @Test
+     fun `provider choices are read again after a setting change`() {
+         assertEquals(Settings.LIBREWOLF_DOH_PROVIDER_URI, settingsProvider.getSelectedProvider()?.url)
+-        every { appSettings.dohProviderUrl } returns "https://dns.mullvad.net/dns-query"
+-        assertEquals("https://dns.mullvad.net/dns-query", settingsProvider.getSelectedProvider()?.url)
++        every { appSettings.dohProviderUrl } returns "https://dns.quad9.net/dns-query"
++        assertEquals("https://dns.quad9.net/dns-query", settingsProvider.getSelectedProvider()?.url)
+         every { appSettings.dohProviderUrl } returns "https://custom.example/dns-query"
+         assertEquals(Provider.Custom("https://custom.example/dns-query"), settingsProvider.getSelectedProvider())
+     }
