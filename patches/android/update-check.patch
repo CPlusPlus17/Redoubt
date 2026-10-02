@@ -109,9 +109,31 @@
 #     is contacted, the update host, and nothing else new. Store-style builds
 #     (no key) pass because the row does not exist and nothing is sent.
 #   Evidence: docs/android/evidence/lw-m6-06/.
+#
+# 157 rebase (2026-10-02, Firefox release 157.0; the ESR line-number note above
+# is historical)
+# --------------------------------------------------------------------------
+#   * SettingsFragment.kt: setupCookieBannerPreference() is gone upstream (the
+#     cookie banner service was removed in 156), so the row-visibility block now
+#     sits after the secret-debug-menu `with(settings)` block, in front of
+#     setupInstallAddonFromFilePreference(). Same statement, same effect.
+#   * UpdateCheck.kt: the running version is read through upstream's
+#     packageManagerCompatHelper.getPackageInfoCompat() instead of
+#     PackageManager.getPackageInfo(String, Int), which is @Deprecated from
+#     API 33 and therefore a -Werror hazard.
+#   * UpdateCheck.isNewer: on the release track the Firefox version and the
+#     Redoubt release must be compared separately ("157.0.1-1" > "157.0-2"; a
+#     flat digit list said the opposite). Firefox components first, then the
+#     part after the last '-'. ESR-era strings still order correctly, and a
+#     153.x esr install is offered 157.
+#   * UpdateCheckerTest: fixtures moved to 157.0-N; release-track and
+#     ESR-to-release ordering cases added (still 8 tests).
+#   * build.gradle, HomeActivity.kt, preferences.xml: context only (offsets).
+diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
+index c2c48d376a..0dfabf1537 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -86,6 +86,17 @@
+@@ -73,6 +73,17 @@ android {
  
          buildConfigField "String[]", "SUPPORTED_LOCALE_ARRAY", getSupportedLocales()
          buildConfigField "boolean", "IS_BENCHMARK_BUILD", "false"
@@ -129,9 +151,11 @@
      }
  
      def releaseTemplate = {
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+index c3b9448d37..e2ae64706d 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -778,6 +778,12 @@
+@@ -855,6 +855,12 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
  
          onBackPressedCallback.isEnabled = true
  
@@ -144,9 +168,12 @@
          // This was done in order to refresh search engines when app is running in background
          // and the user changes the system language
          // More details here: https://github.com/mozilla-mobile/fenix/pull/27793#discussion_r1029892536
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt
+new file mode 100644
+index 0000000000..3a351c962f
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt
-@@ -0,0 +1,293 @@
+@@ -0,0 +1,313 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -184,6 +211,7 @@
 +import mozilla.components.concept.fetch.Request
 +import mozilla.components.concept.fetch.isSuccess
 +import mozilla.components.support.base.log.logger.Logger
++import mozilla.components.support.utils.ext.packageManagerCompatHelper
 +import org.json.JSONException
 +import org.json.JSONObject
 +import org.mozilla.fenix.BrowserDirection
@@ -346,20 +374,37 @@
 +        }
 +
 +        /**
-+         * Numeric, component-wise: "153.0esr-2" > "153.0esr-1", "154.0" > "153.9.1".
-+         * Strings with no digits never count as newer.
++         * Numeric, component-wise, Firefox version first and the Redoubt release
++         * (the part after the last '-') second: "157.0-2" > "157.0-1",
++         * "157.0.1-1" > "157.0-2", "158.0-1" > "157.0.2-3", "157.0-1" > "153.4.0esr-1".
++         * Splitting matters on the release track: "157.0-2" and "157.0.1-1" have
++         * a different number of Firefox components, and a flat digit list would
++         * compare the "-2" against the ".1". Strings with no digits never count as newer.
 +         */
 +        fun isNewer(latest: String, current: String): Boolean {
-+            val a = numbers(latest)
-+            val b = numbers(current)
-+            if (a.isEmpty()) return false
-+            val n = maxOf(a.size, b.size)
-+            for (i in 0 until n) {
++            val (latestFirefox, latestRelease) = split(latest)
++            val (currentFirefox, currentRelease) = split(current)
++            if (latestFirefox.isEmpty() && latestRelease.isEmpty()) return false
++            val order = compare(latestFirefox, currentFirefox)
++            return if (order != 0) order > 0 else compare(latestRelease, currentRelease) > 0
++        }
++
++        private fun split(version: String): Pair<List<Long>, List<Long>> {
++            val dash = version.lastIndexOf('-')
++            return if (dash < 0) {
++                numbers(version) to emptyList()
++            } else {
++                numbers(version.substring(0, dash)) to numbers(version.substring(dash + 1))
++            }
++        }
++
++        private fun compare(a: List<Long>, b: List<Long>): Int {
++            for (i in 0 until maxOf(a.size, b.size)) {
 +                val x = a.getOrElse(i) { 0 }
 +                val y = b.getOrElse(i) { 0 }
-+                if (x != y) return x > y
++                if (x != y) return x.compareTo(y)
 +            }
-+            return false
++            return 0
 +        }
 +
 +        private fun numbers(version: String): List<Long> =
@@ -401,7 +446,9 @@
 +        prefs.edit().putLong(KEY_LAST_RUN_MS, now).apply()
 +        scope.launch(Dispatchers.IO) {
 +            val current = try {
-+                activity.packageManager.getPackageInfo(activity.packageName, 0).versionName ?: ""
++                // PackageManager.getPackageInfo(String, Int) is @Deprecated from API 33 and
++                // the Fenix Kotlin build is -Werror; this is upstream's compat wrapper.
++                activity.packageManagerCompatHelper.getPackageInfoCompat(activity.packageName, 0).versionName ?: ""
 +            } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
 +                ""
 +            }
@@ -440,11 +487,13 @@
 +            .show()
 +    }
 +}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+index 9a1ff6febc..1e797e36f1 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
-@@ -629,6 +629,12 @@
-             preferenceStartProfiler?.isVisible = showSecretDebugMenuThisSession &&
-                 (components.core.engine.profiler?.isProfilerActive() != null)
+@@ -645,6 +645,12 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+             preferenceStartProfiler?.isVisible =
+                 showSecretDebugMenuThisSession && (components.core.engine.profiler?.isProfilerActive() != null)
          }
 +        // LibreWolf (LW-M6-06): the update-check row exists only on builds that
 +        // carry a verification key; a store build (F-Droid, Accrescent) has none
@@ -452,9 +501,12 @@
 +        findPreference<Preference>(
 +            getPreferenceKey(R.string.pref_key_lw_update_check),
 +        )?.isVisible = org.mozilla.fenix.lw.UpdateCheck.isCompiledIn
-         setupCookieBannerPreference(settings)
          setupInstallAddonFromFilePreference(settings)
          setLinkSharingPreference()
+         setupAmoCollectionOverridePreference(
+diff --git a/mobile/android/fenix/app/src/main/res/values/lw_update_check.xml b/mobile/android/fenix/app/src/main/res/values/lw_update_check.xml
+new file mode 100644
+index 0000000000..b0de6fdd1b
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/res/values/lw_update_check.xml
 @@ -0,0 +1,14 @@
@@ -472,9 +524,11 @@
 +    <string name="lw_update_check_open_download">Open download page</string>
 +    <string name="lw_update_check_later">Later</string>
 +</resources>
+diff --git a/mobile/android/fenix/app/src/main/res/xml/preferences.xml b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
+index 78e2c51e3c..9c556bd2e4 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
-@@ -257,6 +257,16 @@
+@@ -255,6 +255,16 @@
              app:iconSpaceReserved="false"
              android:title="@string/preferences_about" />
  
@@ -491,9 +545,12 @@
          <androidx.preference.Preference
              android:key="@string/pref_key_debug_settings"
              app:iconSpaceReserved="false"
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt
+new file mode 100644
+index 0000000000..1563c0c056
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,147 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -550,30 +607,30 @@
 +    }
 +
 +    private val document = """
-+        {"latest_version": "153.0esr-2",
-+         "download_url": "https://redoubtbrowser.org/downloads/redoubt-153.0esr-2.apk",
-+         "release_notes_url": "https://redoubtbrowser.org/releases/153.0esr-2/",
++        {"latest_version": "157.0-2",
++         "download_url": "https://redoubtbrowser.org/downloads/redoubt-157.0-2.apk",
++         "release_notes_url": "https://redoubtbrowser.org/releases/157.0-2/",
 +         "sha256": "0123456789abcdef",
-+         "published_at": "2026-09-02T00:00:00Z"}
++         "published_at": "2026-10-02T00:00:00Z"}
 +    """.trimIndent().toByteArray()
 +
 +    @Test
 +    fun `a correctly signed document naming a newer version is offered`() {
 +        val kp = keyPair()
 +        val client = FakeClient(mapOf(endpoint to document, "$endpoint.sig" to sign(document, kp.private).toByteArray()))
-+        val result = UpdateChecker(client, endpoint, pub(kp), "153.0esr-1").check()
++        val result = UpdateChecker(client, endpoint, pub(kp), "157.0-1").check()
 +        assertTrue(result is UpdateCheckResult.UpdateAvailable)
 +        result as UpdateCheckResult.UpdateAvailable
-+        assertEquals("153.0esr-2", result.latestVersion)
-+        assertEquals("https://redoubtbrowser.org/downloads/redoubt-153.0esr-2.apk", result.downloadUrl)
-+        assertEquals("https://redoubtbrowser.org/releases/153.0esr-2/", result.releaseNotesUrl)
++        assertEquals("157.0-2", result.latestVersion)
++        assertEquals("https://redoubtbrowser.org/downloads/redoubt-157.0-2.apk", result.downloadUrl)
++        assertEquals("https://redoubtbrowser.org/releases/157.0-2/", result.releaseNotesUrl)
 +    }
 +
 +    @Test
 +    fun `the running version is up to date`() {
 +        val kp = keyPair()
 +        val client = FakeClient(mapOf(endpoint to document, "$endpoint.sig" to sign(document, kp.private).toByteArray()))
-+        assertEquals(UpdateCheckResult.UpToDate, UpdateChecker(client, endpoint, pub(kp), "153.0esr-2").check())
++        assertEquals(UpdateCheckResult.UpToDate, UpdateChecker(client, endpoint, pub(kp), "157.0-2").check())
 +    }
 +
 +    @Test
@@ -581,7 +638,7 @@
 +        val kp = keyPair()
 +        val other = keyPair()
 +        val client = FakeClient(mapOf(endpoint to document, "$endpoint.sig" to sign(document, other.private).toByteArray()))
-+        assertTrue(UpdateChecker(client, endpoint, pub(kp), "153.0esr-1").check() is UpdateCheckResult.NoResult)
++        assertTrue(UpdateChecker(client, endpoint, pub(kp), "157.0-1").check() is UpdateCheckResult.NoResult)
 +    }
 +
 +    @Test
@@ -589,7 +646,7 @@
 +        val kp = keyPair()
 +        val tampered = String(document).replace("redoubtbrowser.org/downloads", "evil.example/downloads").toByteArray()
 +        val client = FakeClient(mapOf(endpoint to tampered, "$endpoint.sig" to sign(document, kp.private).toByteArray()))
-+        assertTrue(UpdateChecker(client, endpoint, pub(kp), "153.0esr-1").check() is UpdateCheckResult.NoResult)
++        assertTrue(UpdateChecker(client, endpoint, pub(kp), "157.0-1").check() is UpdateCheckResult.NoResult)
 +    }
 +
 +    @Test
@@ -604,14 +661,14 @@
 +        val kp = keyPair()
 +        val insecure = String(document).replace("https://redoubtbrowser.org/downloads", "http://redoubtbrowser.org/downloads").toByteArray()
 +        val client = FakeClient(mapOf(endpoint to insecure, "$endpoint.sig" to sign(insecure, kp.private).toByteArray()))
-+        assertTrue(UpdateChecker(client, endpoint, pub(kp), "153.0esr-1").check() is UpdateCheckResult.NoResult)
++        assertTrue(UpdateChecker(client, endpoint, pub(kp), "157.0-1").check() is UpdateCheckResult.NoResult)
 +    }
 +
 +    @Test
 +    fun `the request carries the static user agent and nothing else`() {
 +        val kp = keyPair()
 +        val client = FakeClient(mapOf(endpoint to document, "$endpoint.sig" to sign(document, kp.private).toByteArray()))
-+        UpdateChecker(client, endpoint, pub(kp), "153.0esr-1").check()
++        UpdateChecker(client, endpoint, pub(kp), "157.0-1").check()
 +        assertEquals(listOf(endpoint, "$endpoint.sig"), client.requests.map { it.url })
 +        for (request in client.requests) {
 +            assertEquals(Request.Method.GET, request.method)
@@ -626,11 +683,18 @@
 +
 +    @Test
 +    fun `version comparison is numeric and component-wise`() {
-+        assertTrue(UpdateChecker.isNewer("153.0esr-2", "153.0esr-1"))
++        assertTrue(UpdateChecker.isNewer("157.0-2", "157.0-1"))
 +        assertTrue(UpdateChecker.isNewer("154.0", "153.9.1"))
 +        assertTrue(UpdateChecker.isNewer("153.1.0esr-1", "153.0esr-3"))
-+        assertFalse(UpdateChecker.isNewer("153.0esr-1", "153.0esr-1"))
-+        assertFalse(UpdateChecker.isNewer("153.0esr-1", "153.0esr-2"))
-+        assertFalse(UpdateChecker.isNewer("latest", "153.0esr-1"))
++        assertFalse(UpdateChecker.isNewer("157.0-1", "157.0-1"))
++        assertFalse(UpdateChecker.isNewer("157.0-1", "157.0-2"))
++        assertFalse(UpdateChecker.isNewer("latest", "157.0-1"))
++        // Release track: the Firefox version decides before the Redoubt release.
++        assertTrue(UpdateChecker.isNewer("157.0.1-1", "157.0-2"))
++        assertFalse(UpdateChecker.isNewer("157.0-2", "157.0.1-1"))
++        assertTrue(UpdateChecker.isNewer("158.0-1", "157.0.2-3"))
++        // Leaving ESR: a 153 ESR install is offered the release build.
++        assertTrue(UpdateChecker.isNewer("157.0-1", "153.4.0esr-1"))
++        assertFalse(UpdateChecker.isNewer("153.4.0esr-2", "157.0-1"))
 +    }
 +}

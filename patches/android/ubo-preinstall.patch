@@ -17,10 +17,25 @@
 # A speculative session (as IntentReceiverActivity makes for VIEW intents) opens
 # that window without loading anything before the wait begins.
 #
+#
+# 157 rebase (2026-10-02, Firefox release 157.0): no behaviour change.
+#   * HomeActivity.kt: 157 already imports androidx.lifecycle.Lifecycle and
+#     sorts imports in plain ASCII order, so only repeatOnLifecycle,
+#     AlertDialog, flow.collect and LibreWolfUboPreinstaller are added, each at
+#     its sorted position. observeUboStartup() still runs right after
+#     super.onCreate(); 157 inserted EdgeToEdgeFragmentLifecycleCallbacks
+#     .register() there, and the call follows it, before checkAndExitPiP().
+#   * strings.xml: the four strings are appended at the new end of the file.
+#   * WebExtensionSupport(.Test), FenixApplication, Components, Core: offsets
+#     only. The AC/GeckoView APIs this uses (Middleware typealias,
+#     CreateEngineSessionAction, listInstalledWebExtensions,
+#     speculativeCreateSession, AddonManager.installAddon, Metadata) were
+#     compared 153.4 -> 157 and are unchanged apart from formatting.
 diff --git a/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt b/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
+index 3d53e69b49..149635c2a1 100644
 --- a/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
 +++ b/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
-@@ -183,6 +183,13 @@
+@@ -167,6 +167,13 @@ object WebExtensionSupport {
          onSelectTabOverride: ((WebExtension?, String) -> Unit)? = null,
          onUpdatePermissionRequest: onUpdatePermissionRequest? = { _, _, _, _, _ -> },
          onExtensionsLoaded: ((List<WebExtension>) -> Unit)? = null,
@@ -34,7 +49,7 @@ diff --git a/mobile/android/android-components/components/support/webextensions/
      ) {
          this.onUpdatePermissionRequest = onUpdatePermissionRequest
          this.onExtensionsLoaded = onExtensionsLoaded
-@@ -337,6 +344,18 @@
+@@ -334,6 +341,18 @@ object WebExtensionSupport {
                      dataCollectionPermissions: List<String>,
                      onConfirm: (PermissionPromptResponse) -> Unit,
                  ) {
@@ -54,12 +69,14 @@ diff --git a/mobile/android/android-components/components/support/webextensions/
                          WebExtensionAction.UpdatePromptRequestWebExtensionAction(
                              WebExtensionPromptRequest.AfterInstallation.Permissions.Required(
 diff --git a/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt b/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
+index dc24f54a0f..11bf8519b1 100644
 --- a/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
 +++ b/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
-@@ -524,6 +524,73 @@
+@@ -537,6 +537,73 @@ class WebExtensionSupportTest {
+         verify(engineSession).loadUrl("url")
      }
-
-     @Test
+ 
++    @Test
 +    fun `handled bundled install permission request does not dispatch a second prompt`() {
 +        val store = BrowserStore(middleware = listOf(captureMiddleware))
 +        val engine: Engine = mock()
@@ -126,14 +143,14 @@ diff --git a/mobile/android/android-components/components/support/webextensions/
 +        }
 +    }
 +
-+    @Test
+     @Test
      fun `reacts to install permission request`() {
          val store = BrowserStore(middleware = listOf(captureMiddleware))
-         val engine: Engine = mock()
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+index 1481a79a7c..08d5cb2307 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -786,10 +786,12 @@
+@@ -852,10 +852,12 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
                      subscribeForNewAddonsIfNeeded(components.supportedAddonsChecker, extensions)
                  },
                  onUpdatePermissionRequest = components.addonUpdater::onUpdatePermissionRequest,
@@ -144,30 +161,29 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixAppli
          }
 +        components.uboPreinstaller.start()
      }
-
+ 
      @VisibleForTesting
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+index e2ae64706d..00dac37e3d 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -30,6 +30,7 @@
+@@ -31,6 +31,7 @@ import androidx.annotation.CallSuper
  import androidx.annotation.IdRes
  import androidx.annotation.VisibleForTesting
  import androidx.appcompat.app.ActionBar
 +import androidx.appcompat.app.AlertDialog
  import androidx.appcompat.widget.Toolbar
- import androidx.compose.runtime.mutableStateOf
  import androidx.core.app.NotificationManagerCompat
-@@ -37,7 +38,9 @@
- import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
- import androidx.core.text.layoutDirection
+ import androidx.core.net.toUri
+@@ -40,6 +41,7 @@ import androidx.core.text.layoutDirection
  import androidx.core.view.doOnLayout
-+import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.Lifecycle
  import androidx.lifecycle.lifecycleScope
 +import androidx.lifecycle.repeatOnLifecycle
  import androidx.navigation.NavController
  import androidx.navigation.NavDirections
  import androidx.navigation.fragment.NavHostFragment
-@@ -48,6 +51,7 @@
+@@ -51,6 +53,7 @@ import kotlinx.coroutines.Dispatchers.IO
  import kotlinx.coroutines.Dispatchers.Main
  import kotlinx.coroutines.Job
  import kotlinx.coroutines.delay
@@ -175,29 +191,27 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivi
  import kotlinx.coroutines.flow.distinctUntilChanged
  import kotlinx.coroutines.launch
  import kotlinx.coroutines.withContext
-@@ -102,6 +106,7 @@
- import org.mozilla.fenix.browser.browsingmode.BrowsingMode
- import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
+@@ -115,6 +118,7 @@ import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
  import org.mozilla.fenix.browser.browsingmode.DefaultBrowsingModeManager
+ import org.mozilla.fenix.components.DefaultHomepageAsANewTabPreferenceRepository
+ import org.mozilla.fenix.components.DefaultShortcutManagerCompatWrapper
 +import org.mozilla.fenix.components.LibreWolfUboPreinstaller
+ import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
  import org.mozilla.fenix.components.appstate.AppAction
  import org.mozilla.fenix.components.appstate.AppAction.ShareAction
- import org.mozilla.fenix.components.appstate.OrientationMode
-@@ -443,6 +448,8 @@
-             super.onCreate(savedInstanceState)
-         }
-
+@@ -478,6 +482,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+         // the `setContent` starts attaching fragments.
+         EdgeToEdgeFragmentLifecycleCallbacks.register(supportFragmentManager, window)
+ 
 +        observeUboStartup()
 +
          // Checks if Activity is currently in PiP mode if launched from external intents, then exits it
          checkAndExitPiP()
-
-@@ -1267,6 +1274,35 @@
-             return it.getBooleanExtra(START_IN_RECENTS_SCREEN, false)
-         }
+ 
+@@ -1300,6 +1306,35 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          return false
-+    }
-+
+     }
+ 
 +    private fun observeUboStartup() {
 +        lifecycleScope.launch {
 +            repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -225,26 +239,30 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivi
 +                }
 +            }
 +        }
-     }
-
-     private fun createSplashScreenOperation(): SplashScreenOperation {
++    }
++
+     private fun handleForwardLongPress(): Boolean {
+         supportFragmentManager.primaryNavigationFragment?.childFragmentManager?.fragments?.forEach {
+             if (it is OnLongPressedListener && it.onForwardLongPressed()) {
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+index 005bc7787f..7a07c7d249 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-@@ -235,6 +235,8 @@
+@@ -232,6 +232,8 @@ class Components(
          )
      }
-
+ 
 +    val uboPreinstaller by lazyMonitored { LibreWolfUboPreinstaller(context) }
 +
      val addonManager by lazyMonitored {
          AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
      }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+index 05e72f77cf..9bef31da6a 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
-@@ -367,6 +367,7 @@
-
+@@ -345,6 +345,7 @@ class Core(
+ 
          val middlewareList =
              listOf(
 +                LibreWolfUboPreinstallMiddleware(context.components.uboPreinstaller),
@@ -253,6 +271,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
                  LastAccessMiddleware(),
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt
 new file mode 100644
+index 0000000000..a2e34771f3
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt
 @@ -0,0 +1,77 @@
@@ -335,6 +354,7 @@ new file mode 100644
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
 new file mode 100644
+index 0000000000..7d165065a6
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
 @@ -0,0 +1,403 @@
@@ -742,12 +762,13 @@ new file mode 100644
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/android/fenix/app/src/main/res/values/strings.xml
+index e279f53a62..291c0c3a6c 100644
 --- a/mobile/android/fenix/app/src/main/res/values/strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
-@@ -4273,4 +4273,9 @@
-     <string name="firefox_labs_feature_disable_dialog_message">To turn off this feature, restart %s.</string>
-     <!-- Text displayed on the Firefox Labs screen when there are no Labs experimental features present. -->
-     <string name="firefox_labs_no_labs_available_description">No experimental features to try right now</string>
+@@ -4182,4 +4182,9 @@
+     <string name="pdf_tools_signature_clear_button">Clear</string>
+     <!-- The text for the button that adds the signature the user has typed to the PDF. -->
+     <string name="pdf_tools_signature_add_button">Add</string>
 +    <!-- First-run signed uBlock Origin provisioning. Browsing stays paused on failure. -->
 +    <string name="librewolf_ubo_setup_failed_title">uBlock Origin setup failed</string>
 +    <string name="librewolf_ubo_setup_failed_message">Browsing is paused because uBlock Origin could not be prepared. Retry setup or close Redoubt.</string>
@@ -756,6 +777,7 @@ diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/a
  </resources>
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt
 new file mode 100644
+index 0000000000..10bbe23169
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt
 @@ -0,0 +1,138 @@
@@ -899,6 +921,7 @@ new file mode 100644
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
 new file mode 100644
+index 0000000000..d422ccbb6d
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
 @@ -0,0 +1,659 @@
