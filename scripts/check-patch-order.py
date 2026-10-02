@@ -133,21 +133,31 @@ OUT_OF_LIST_TAIL = ()
 # run still fails; that is what keeps a NEW shared file from appearing silently.
 # --------------------------------------------------------------------------
 
+# Method behind the rows that cite _M157_ANDROID (2026-10-02, Android moved to
+# Firefox 157). Replayed per shared file against the pristine, signed
+# firefox-157.0.source.tar.xz: that file's hunks of every common.txt + android.txt
+# entry in list order (android entries at --fuzz=0, common at patch's default,
+# as librewolf-patches.py applies them), then with B moved directly before A,
+# then with A moved directly after B. 'order-free' = one swap applies every hunk
+# and leaves the file byte-identical; 'in both swaps' = both do. Helper:
+# work/integrate/bin/measure_all.py on the release-157 integration host.
+_M157_ANDROID = 'measured on firefox-157.0, per shared file, list order vs B-before-A vs A-after-B'
+
 CONSTRAINTS = (
     ('patches/android/extension-update-controls.patch', 'patches/android/session-cleanup.patch', ('mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js', 'mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json'), 'Task37 test-support context requires Task35 first. Both complete shared paths replay to exact final hashes; inverse order rejects both hunks. See LW-M7-37 ordering-receipt.json.'),
     ('patches/android/extension-update-controls.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt', 'mobile/android/fenix/app/src/main/res/xml/preferences.xml', 'mobile/android/geckoview/api.txt', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs'), 'Semantic dependency: Task36 calls Task35 savePrefFileAsync. All five shared paths are textually order-free in measured swaps; preserve prerequisite-first integration. See LW-M7-36 ordering-review.json.'),
     ('patches/android/extension-permission-durability.patch', 'patches/android/extension-update-controls.patch', ('mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs', 'toolkit/components/extensions/test/xpcshell/xpcshell.toml'), 'Full shared-path replay requires predecessor first:31 test registration or20 account teardown is candidate context. See LW-M7-35 ordering-receipt.json.'),
     ('patches/android/sync-opt-in.patch', 'patches/android/extension-update-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt',), 'Full shared-path replay requires predecessor first:31 test registration or20 account teardown is candidate context. See LW-M7-35 ordering-receipt.json.'),
     ('patches/android/firefox-suggest-policy.patch', 'patches/android/firefox-suggest-data.patch', ('mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt', 'mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml', 'mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml'), 'The explicit data installer extends Task26 admission and settings controls; inverse replay fails on all four shared paths (LW-M7-29 ordering-review.json).'),
-    ('patches/android/ubo-preinstall.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/res/values/strings.xml',), 'Retain uBO before graphics before cookie controls; the alternate attempt fails first in graphics, not in the cookie candidate (LW-M7-21 cookie-controls-order.json).'),
-    ('patches/android/canvas-webgl-permissions.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt', 'mobile/android/fenix/app/src/main/res/values/strings.xml', 'mobile/android/geckoview/api.txt', 'mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs', 'mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs'), 'The expanded native cookie candidate requires the preceding graphics UI/context; its alternate order fails at cookie application. All eight shared files were replayed (LW-M7-21 cookie-controls-order.json).'),
     # LW-M7-26: measured Suggest composition.
-    ('patches/android/no-adjust.patch', 'patches/android/firefox-suggest-policy.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt', 'mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt'), 'Keep the existing predecessor chain before this candidate; inverse attempt failed before the candidate and is not an isolated pair conflict (LW-M7-26 ordering-review.json). The added metrics test is replayed from exact reversed no-adjust input through all9 predecessors (LW-M7-21 startup-metrics-fixture-correction).'),
-    ('patches/android/no-gms.patch', 'patches/android/firefox-suggest-policy.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt'), 'Candidate requires this predecessor in the tested full composition (LW-M7-26 ordering-review.json).'),
+    ('patches/android/no-adjust.patch', 'patches/android/firefox-suggest-policy.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt'), _M157_ANDROID + ': no-adjust no longer touches Settings.kt (its 157 rebase dropped that hunk). FenixApplication.kt stays order-sensitive in the sequence (moving firefox-suggest-policy before no-adjust rejects it and no-gms); FenixApplicationTest.kt is order-free. Kept as declared.' + ' On 153: ' + 'Keep the existing predecessor chain before this candidate; inverse attempt failed before the candidate and is not an isolated pair conflict (LW-M7-26 ordering-review.json). The added metrics test is replayed from exact reversed no-adjust input through all9 predecessors (LW-M7-21 startup-metrics-fixture-correction).'),
+    ('patches/android/no-gms.patch', 'patches/android/firefox-suggest-policy.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt'), _M157_ANDROID + ': FenixApplication.kt order-sensitive (firefox-suggest-policy moved before no-gms rejects); SecretSettingsFragment.kt (new shared file: no-gms now hides the Play Integrity switch) and Settings.kt order-free in both swaps.' + ' On 153: ' + 'Candidate requires this predecessor in the tested full composition (LW-M7-26 ordering-review.json).'),
     ('patches/android/sync-opt-in.patch', 'patches/android/firefox-suggest-policy.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt'), 'Candidate requires this predecessor in the tested full composition (LW-M7-26 ordering-review.json).'),
     # LW-M7-21: scoped cookie-controls/Sync composition replay.
     # LW-M7-20: retained scoped alternate-order replay, including explicit composition constraint.
-    ('patches/android/no-nimbus.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',), 'The scoped candidate is authored after this predecessor; moving it earlier fails the measured complete scoped replay (LW-M7-20 ordering-review.json).'),
+    # no-nimbus -> sync-opt-in (LW-M7-20, HomeActivity.kt) re-derived on 157 and dropped:
+    # no-nimbus's 157 rebase moved its tooling hook out of HomeActivity.kt into
+    # QANimbusToolingReceiver.kt, so the pair shares no file and has no textual orde + ' On 153: ' + 'The scoped candidate is authored after this predecessor; moving it earlier fails the measured complete scoped replay (LW-M7-20 ordering-review.json).'),
     ('patches/android/no-adjust.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt'), 'Keep the existing no-adjust -> no-gms predecessor chain ahead of the selected Sync integration order. The inverse attempt failed in no-gms before Sync; this is a chosen composition constraint, not an isolated intrinsic pair conflict (LW-M7-20 ordering-review.json).'),
     ('patches/android/ubo-preinstall.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt'), 'The scoped candidate is authored after this predecessor; moving it earlier fails the measured complete scoped replay (LW-M7-20 ordering-review.json).'),
     (
@@ -237,68 +247,9 @@ CONSTRAINTS = (
         "common.txt precedes every target list, which is why this row is a "
         "declaration rather than a reordering",
     ),
-    (
-        "patches/android/no-adjust.patch",
-        "patches/android/no-glean.patch",
-        (
-            "mobile/android/fenix/app/build.gradle",
-            "mobile/android/fenix/app/src/main/AndroidManifest.xml",
-            "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt",
-            "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt",
-            "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt",
-        ),
-        "LW-M4-01. MEASURED, not derived from the overlap hint. no-adjust removes "
-        "the AdjustMetricsService and InstallReferrerMetricsService imports and "
-        "list entries that sit immediately around the Glean ones, and in "
-        "OnboardingFragment.kt it removes the rtamoAttributionHandler line that "
-        "was no-glean's trailing context. Generated against the pristine tree, "
-        "no-glean's three Analytics.kt hunks and one OnboardingFragment.kt hunk "
-        "are REJECTED after no-adjust, and fuzz does not rescue them because the "
-        "missing lines are context on both sides. no-glean's hunks are therefore "
-        "in post-no-adjust coordinates, which is the list order. The pair also "
-        "shares app/build.gradle, AndroidManifest.xml and FenixApplication.kt, "
-        "where the regions are disjoint and the order only shifts offsets",
-    ),
-    (
-        "patches/android/no-adjust.patch",
-        "patches/android/no-gms.patch",
-        (
-            "gradle/libs.versions.toml",
-            "mobile/android/fenix/app/build.gradle",
-            "mobile/android/fenix/app/src/main/AndroidManifest.xml",
-            "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt",
-            "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt",
-            "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",
-            "mobile/android/fenix/config/detekt-baseline.xml",
-            "mobile/android/fenix/docs/index.rst",
-        ),
-        "LW-M4-05. MEASURED per shared file, not derived from the overlap hint: "
-        "each file was replayed on its own through the whole apply sequence in "
-        "list order and with this pair swapped. SEVEN of the eight files are "
-        "order-free (byte-identical either way). gradle/libs.versions.toml is "
-        "not: no-gms's two hunks are @@ -55,16 @@ and @@ -221,20 @@, i.e. in "
-        "post-no-adjust coordinates, and their context no longer contains the "
-        "'installreferrer = \"2.2\"' and 'adjust = \"5.7.0\"' lines no-adjust "
-        "deletes, so with no-gms first both hunks REJECT (patch exits 1, one "
-        ".rej). That single file makes the direction mandatory",
-    ),
-    (
-        "patches/android/no-glean.patch",
-        "patches/android/no-gms.patch",
-        (
-            "mobile/android/fenix/app/build.gradle",
-            "mobile/android/fenix/app/src/main/AndroidManifest.xml",
-            "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt",
-        ),
-        "LW-M4-05. MEASURED the same way. app/build.gradle and "
-        "FenixApplication.kt are order-free (byte-identical either way); "
-        "AndroidManifest.xml is not. no-gms removes the three firebase_* "
-        "<meta-data> flags, and the TRAILING CONTEXT of that hunk is the "
-        "'<!-- LibreWolf: GleanDebugActivity is declared exported and "
-        "singleInstance ... -->' comment block that NO-GLEAN ADDS. Running "
-        "no-gms first rejects that hunk (patch exits 1, one .rej), so the "
-        "direction is mandatory",
-    ),
+    ('patches/android/no-adjust.patch', 'patches/android/no-glean.patch', ('mobile/android/fenix/app/build.gradle', 'mobile/android/fenix/app/src/main/AndroidManifest.xml', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt'), _M157_ANDROID + ': Analytics.kt and OnboardingFragment.kt reject no-glean in both swaps, so no-adjust first. build.gradle, AndroidManifest.xml, FenixApplication.kt and HomeActivity.kt (new shared file: no-glean drops the 157 Glean debug-tag calls) are order-free in both swaps.' + ' On 153: ' + "LW-M4-01. MEASURED, not derived from the overlap hint. no-adjust removes the AdjustMetricsService and InstallReferrerMetricsService imports and list entries that sit immediately around the Glean ones, and in OnboardingFragment.kt it removes the rtamoAttributionHandler line that was no-glean's trailing context. Generated against the pristine tree, no-glean's three Analytics.kt hunks and one OnboardingFragment.kt hunk are REJECTED after no-adjust, and fuzz does not rescue them because the missing lines are context on both sides. no-glean's hunks are therefore in post-no-adjust coordinates, which is the list order. The pair also shares app/build.gradle, AndroidManifest.xml and FenixApplication.kt, where the regions are disjoint and the order only shifts offsets"),
+    ('patches/android/no-adjust.patch', 'patches/android/no-gms.patch', ('gradle/libs.versions.toml', 'mobile/android/fenix/app/build.gradle', 'mobile/android/fenix/app/src/main/AndroidManifest.xml', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt', 'mobile/android/fenix/config/detekt-baseline.xml', 'mobile/android/fenix/docs/index.md'), _M157_ANDROID + ': libs.versions.toml, FenixApplication.kt and detekt-baseline.xml reject no-gms in both swaps, so no-adjust first. AndroidManifest.xml is order-free with no-adjust moved after no-gms; build.gradle, Components.kt and docs/index.md (157 renamed index.rst) are order-free in both. Settings.kt is no longer shared: no-adjust dropped its hunk on 157.' + ' On 153: ' + 'LW-M4-05. MEASURED per shared file, not derived from the overlap hint: each file was replayed on its own through the whole apply sequence in list order and with this pair swapped. SEVEN of the eight files are order-free (byte-identical either way). gradle/libs.versions.toml is not: no-gms\'s two hunks are @@ -55,16 @@ and @@ -221,20 @@, i.e. in post-no-adjust coordinates, and their context no longer contains the \'installreferrer = "2.2"\' and \'adjust = "5.7.0"\' lines no-adjust deletes, so with no-gms first both hunks REJECT (patch exits 1, one .rej). That single file makes the direction mandatory'),
+    ('patches/android/no-glean.patch', 'patches/android/no-gms.patch', ('mobile/android/fenix/app/build.gradle', 'mobile/android/fenix/app/src/main/AndroidManifest.xml', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt'), _M157_ANDROID + ': AndroidManifest.xml rejects no-gms in both swaps, so no-glean first. build.gradle, FenixApplication.kt and SecretSettingsFragment.kt (new shared file) are order-free in both swaps.' + ' On 153: ' + "LW-M4-05. MEASURED the same way. app/build.gradle and FenixApplication.kt are order-free (byte-identical either way); AndroidManifest.xml is not. no-gms removes the three firebase_* <meta-data> flags, and the TRAILING CONTEXT of that hunk is the '<!-- LibreWolf: GleanDebugActivity is declared exported and singleInstance ... -->' comment block that NO-GLEAN ADDS. Running no-gms first rejects that hunk (patch exits 1, one .rej), so the direction is mandatory"),
     (
         "patches/android/no-adjust.patch",
         "patches/android/no-crashreporter.patch",
@@ -370,6 +321,11 @@ CONSTRAINTS = (
         "hunks and the catalog hunk reject (patch exits 1). List order applies "
         "at fuzz 0, offset 0",
     ),
+    # 157 integration: measured pair-sensitive on firefox-157.0, moved here from REVIEWED_ORDER_FREE.
+    ('patches/android/no-glean.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt'), _M157_ANDROID + ": HomeActivity.kt rejects sync-opt-in in both swaps: sync-opt-in was regenerated on top of no-glean's removal of the Glean debug-tag lines. FenixApplication.kt order-free." + ' On 153 this pair was recorded order-free: ' + 'Both orders apply with all other scoped predecessors retained and yield identical bytes in all 23 files (LW-M7-20 ordering-review.json).'),
+    ('patches/android/no-glean.patch', 'patches/android/no-crashreporter.patch', ('mobile/android/fenix/app/build.gradle', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt'), _M157_ANDROID + ': Analytics.kt rejects no-crashreporter in both swaps. build.gradle is order-free with no-glean moved after no-crashreporter.' + ' On 153 this pair was recorded order-free: ' + 'measured order-free (LW-M4-04): both orders exit 0 with no .rej and give byte-identical files; the swapped order needs fuzz 1 on Analytics.kt'),
+    ('patches/android/no-suggest.patch', 'patches/android/privacy-defaults.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt', 'mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt'), _M157_ANDROID + ": Settings.kt rejects privacy-defaults in both swaps (its hunk was re-anchored next to no-suggest's showContileFeature getter). SettingsTest.kt order-free." + ' On 153 this pair was recorded order-free: ' + 'suggestion/trending/Contile defaults and suggestion assertion vs privacy settings and assertions; neighboring hunks still commute; measured both orders byte-identical at fuzz=0; docs/android/evidence/lw-m7-12/patch-integration/privacy-pair-replay.json'),
+    ('patches/android/no-adjust.patch', 'patches/android/firefox-suggest-data.patch', ('mobile/android/fenix/app/build.gradle',), _M157_ANDROID + ': build.gradle rejects firefox-suggest-data in both swaps: its dependency hunk was regenerated on the 157 tree after no-adjust.' + ' On 153 this pair was recorded order-free: ' + "no-adjust removes the Adjust lines, one of them the trailing context of the repaired hunk (applies at fuzz 1 either way, same bytes). Full-tree A-after-B crosses no-adjust -> no-glean/no-gms/no-crashreporter, which reject; build.gradle-only replay is order-free; measured on firefox-153.0esr, full Android sequence, fresh extract per order: suggest-data's build.gradle hunk then had a bare '@@' header and GNU patch skipped it (exit 0, file untouched), so it added no bytes in any order; A-moved-after-B applies every patch (exit 0) and leaves all 452 files the sequence touches byte-identical to shipping where no third-party constraint is crossed. With the header repaired (+7 lines after mozilla_appservices_merino), a build.gradle-only replay of the 8 patches that edit it gives sha256 33826457... with B before each A and last (header repaired at 153.4.0esr; re-measured there, all 8 orders 33826457...)"),
 )
 
 
@@ -444,9 +400,7 @@ REVIEWED_ORDER_FREE = (
     ('patches/android/ubo-readiness.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/geckoview/api.txt', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs'), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
     ('patches/android/canvas-webgl-permissions.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/geckoview/api.txt', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs'), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
     ('patches/android/sync-opt-in.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt',), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
-    ('patches/android/cookie-banner-controls.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt', 'mobile/android/fenix/app/src/main/res/xml/preferences.xml', 'mobile/android/geckoview/api.txt', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs'), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
     ('patches/android/canvas-webgl-permissions.patch', 'patches/android/extension-update-controls.patch', ('mobile/android/geckoview/api.txt', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs'), 'Both measured orders yield identical final bytes across every shared path; graphics replay also preserves its cookie23 dependency. See LW-M7-35 ordering-receipt.json.'),
-    ('patches/android/cookie-banner-controls.patch', 'patches/android/extension-update-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt', 'mobile/android/fenix/app/src/main/res/xml/preferences.xml', 'mobile/android/geckoview/api.txt', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs'), 'Both measured orders yield identical final bytes across every shared path; graphics replay also preserves its cookie23 dependency. See LW-M7-35 ordering-receipt.json.'),
     ('patches/android/ubo-readiness.patch', 'patches/android/extension-update-controls.patch', ('mobile/android/geckoview/api.txt', 'mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs', 'mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs'), 'Both measured orders yield identical final bytes across every shared path; graphics replay also preserves its cookie23 dependency. See LW-M7-35 ordering-receipt.json.'),
     ('patches/android/update-check.patch', 'patches/android/extension-update-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt', 'mobile/android/fenix/app/src/main/res/xml/preferences.xml'), 'Both measured orders yield identical final bytes across every shared path; graphics replay also preserves its cookie23 dependency. See LW-M7-35 ordering-receipt.json.'),
     ('patches/android/rs-blocker-android.patch', 'patches/android/firefox-suggest-data.patch', ('third_party/application-services/components/remote_settings/src/client.rs',), 'Both scoped orders produce the same 17 code files; explicit local import retains the generic remote network blocker (LW-M7-29 ordering-review.json).'),
@@ -459,16 +413,6 @@ REVIEWED_ORDER_FREE = (
         "methods. Both orders applied to the recovered pre-readiness source and "
         "produced identical bytes. See lw-m7-21/extension-permission-order.json.",
     ),
-    ('patches/android/no-adjust.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
-    ('patches/android/no-onboarding.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
-    ('patches/android/no-gms.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt', 'mobile/android/fenix/app/src/main/res/values/preference_keys.xml'), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
-    ('patches/android/no-crashreporter.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/res/values/strings.xml',), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
-    ('patches/android/no-suggest.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
-    ('patches/android/search-config.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
-    ('patches/android/update-check.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt', 'mobile/android/fenix/app/src/main/res/xml/preferences.xml'), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
-    ('patches/android/ubo-readiness.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/geckoview/api.txt', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs'), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
-    ('patches/android/privacy-defaults.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
-    ('patches/android/sync-opt-in.patch', 'patches/android/cookie-banner-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt',), 'Both scoped orders, including the archived-baseline uBO-readiness overlay, yield identical bytes in all 37 inputs (LW-M7-21 cookie-controls-order.json).'),
     # LW-M7-26: measured Suggest composition.
     ('patches/android/no-onboarding.patch', 'patches/android/firefox-suggest-policy.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), 'Both tested orders apply and yield identical bytes in all 20 scoped files (LW-M7-26 ordering-review.json).'),
     ('patches/android/no-glean.patch', 'patches/android/firefox-suggest-policy.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt'), 'Both tested orders apply and yield identical bytes in all 20 scoped files (LW-M7-26 ordering-review.json).'),
@@ -476,10 +420,8 @@ REVIEWED_ORDER_FREE = (
     ('patches/android/search-config.patch', 'patches/android/firefox-suggest-policy.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt'), 'Both tested orders apply and yield identical bytes in all 20 scoped files (LW-M7-26 ordering-review.json).'),
     ('patches/android/ubo-preinstall.patch', 'patches/android/firefox-suggest-policy.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'Both tested orders apply and yield identical bytes in all 20 scoped files (LW-M7-26 ordering-review.json).'),
     ('patches/android/privacy-defaults.patch', 'patches/android/firefox-suggest-policy.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), 'Both tested orders apply and yield identical bytes in all 20 scoped files (LW-M7-26 ordering-review.json).'),
-    ('patches/android/cookie-banner-controls.patch', 'patches/android/firefox-suggest-policy.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), 'Both orders apply against the archived Settings input with identical final bytes (LW-M7-21 suggest-cookie-order.json).'),
     # LW-M7-21: scoped cookie-controls/Sync composition replay.
     # LW-M7-20: retained scoped alternate-order replay, including explicit composition constraint.
-    ('patches/android/no-glean.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'Both orders apply with all other scoped predecessors retained and yield identical bytes in all 23 files (LW-M7-20 ordering-review.json).'),
     ('patches/android/no-gms.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt'), 'Both orders apply with all other scoped predecessors retained and yield identical bytes in all 23 files (LW-M7-20 ordering-review.json).'),
     ('patches/android/no-suggest.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',), 'Both orders apply with all other scoped predecessors retained and yield identical bytes in all 23 files (LW-M7-20 ordering-review.json).'),
     ('patches/android/update-check.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt'), 'Both orders apply with all other scoped predecessors retained and yield identical bytes in all 23 files (LW-M7-20 ordering-review.json).'),
@@ -544,11 +486,8 @@ REVIEWED_ORDER_FREE = (
     # fuzz as failure - but this is the one row here that leans on fuzz, so a
     # future rebase that tightens fuzz has to look at it again. The list order
     # (no-glean before no-crashreporter) applies both hunks at fuzz 0.
-    ("patches/android/no-glean.patch", "patches/android/no-crashreporter.patch",
-     ("mobile/android/fenix/app/build.gradle",
-      "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt"),
-     "measured order-free (LW-M4-04): both orders exit 0 with no .rej and give "
-     "byte-identical files; the swapped order needs fuzz 1 on Analytics.kt"),
+    # [157: this row moved to CONSTRAINTS. At --fuzz=0 the swapped order
+    # rejects Analytics.kt, so no-glean -> no-crashreporter is now declared.]
 
     # LW-M1-09's finding, and the reason this script does not treat a shared
     # file as a constraint: three patches edit browser/installer/
@@ -569,9 +508,8 @@ REVIEWED_ORDER_FREE = (
     # ~2203-2222. ~60 lines apart, neither quotes a line the other touches, so
     # the only effect of the order is an offset on no-adjust's single hunk when
     # no-onboarding (a net -9 lines) goes first.
-    ("patches/android/no-adjust.patch", "patches/android/no-onboarding.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
-     "disjoint regions of Settings.kt (~2280 vs ~2203); order only shifts an offset (LW-M4-10)"),
+    # [157: row dropped. no-adjust's 157 rebase removed its Settings.kt hunk, so
+    # the pair shares no file.]
 
     # LW-M4-05, both measured by replaying the shared file through the whole
     # apply sequence in list order and with the pair swapped: patch exits 0 with
@@ -662,16 +600,9 @@ REVIEWED_ORDER_FREE = (
      ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt', 'mobile/android/fenix/app/src/main/res/values/strings.xml'),
      "measured order-free 2026-09-08, byte-identical at fuzz=0; "
      "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
-    ('patches/android/no-glean.patch', "patches/android/ubo-preinstall.patch",
-     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',),
-     "measured order-free 2026-09-08, byte-identical at fuzz=0; "
-     "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
+    ('patches/android/no-glean.patch', 'patches/android/ubo-preinstall.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt'), _M157_ANDROID + ': both shared files byte-identical with ubo-preinstall moved before no-glean and with no-glean moved after ubo-preinstall.' + ' On 153: ' + 'measured order-free 2026-09-08, byte-identical at fuzz=0; docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)'),
     ('patches/android/no-gms.patch', "patches/android/ubo-preinstall.patch",
      ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt'),
-     "measured order-free 2026-09-08, byte-identical at fuzz=0; "
-     "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
-    ('patches/android/no-nimbus.patch', "patches/android/ubo-preinstall.patch",
-     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',),
      "measured order-free 2026-09-08, byte-identical at fuzz=0; "
      "docs/android/evidence/lw-m3-07/completion-20260908/order-replay.json (LW-M3-07)"),
     ('patches/android/no-suggest.patch', "patches/android/ubo-preinstall.patch",
@@ -686,10 +617,6 @@ REVIEWED_ORDER_FREE = (
     # LW-M7-12: each shared file replayed from the pristine Android archive,
     # with all other enabled edits held constant. Both orders apply at fuzz=0
     # and produce identical SHA256 values; the overlap hint does not decide.
-    ("patches/android/no-adjust.patch", "patches/android/privacy-defaults.patch",
-     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',),
-     "marketing-onboarding default vs HTTPS, tracking, cleanup, autofill and DoH defaults; measured both orders byte-identical at fuzz=0; "
-     "docs/android/evidence/lw-m7-12/patch-integration/privacy-pair-replay.json"),
     ("patches/android/no-gms.patch", "patches/android/privacy-defaults.patch",
      ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',),
      "push-server preference removal vs privacy defaults in different Settings properties; measured both orders byte-identical at fuzz=0; "
@@ -697,10 +624,6 @@ REVIEWED_ORDER_FREE = (
     ("patches/android/no-onboarding.patch", "patches/android/privacy-defaults.patch",
      ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt', 'mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt'),
      "onboarding function/flag and assertions vs privacy defaults and their assertions; measured both orders byte-identical at fuzz=0; "
-     "docs/android/evidence/lw-m7-12/patch-integration/privacy-pair-replay.json"),
-    ("patches/android/no-suggest.patch", "patches/android/privacy-defaults.patch",
-     ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt', 'mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt'),
-     "suggestion/trending/Contile defaults and suggestion assertion vs privacy settings and assertions; neighboring hunks still commute; measured both orders byte-identical at fuzz=0; "
      "docs/android/evidence/lw-m7-12/patch-integration/privacy-pair-replay.json"),
     ("patches/android/search-config.patch", "patches/android/privacy-defaults.patch",
      ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',),
@@ -844,12 +767,6 @@ REVIEWED_ORDER_FREE = (
     # files they touch, in both orders; both orders exited 0, left zero .rej
     # files, and `diff -r` found the two result trees byte-identical. Neither
     # patch quotes a line the other adds.
-    ("patches/android/no-nimbus.patch",
-     "patches/android/no-adjust.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
-     "measured order-free (LW-M4-02): both orders applied with zero rejects "
-     "and produced byte-identical trees; disjoint but only 19-36 lines apart, "
-     "so this is a measurement and not an eyeball"),
 
     # LW-M4-11 (no-suggest) and LW-M4-06 (search-config), 2026-09-02. Every row
     # below is a MEASUREMENT, not an eyeball: each shared file was extracted
@@ -859,17 +776,7 @@ REVIEWED_ORDER_FREE = (
     # both ways, wrote no .rej, and the two results were byte-identical; the
     # only effect of the order is a line offset (quoted where non-zero). The
     # script that did it is reproduced in docs/android/evidence/lw-m4-11/.
-    ("patches/android/no-nimbus.patch", "patches/android/no-suggest.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
-     "no-nimbus edits messaging/onboarding call sites; no-suggest deletes the "
-     "TopSitesRefresher observer (:595-603), the contile startPeriodicWork block "
-     "(:638-640) and stopPeriodicWork (:916). Byte-identical both ways "
-     "(sha256 cf447dd9...), no-suggest lands at offset -10 when first (LW-M4-11)"),
-    ("patches/android/no-adjust.patch", "patches/android/no-suggest.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt", "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt"),
-     "disjoint regions of both files; byte-identical both ways (HomeActivity.kt "
-     "sha256 cf447dd9..., Settings.kt db719ae5...), offsets of 1 and 5 lines "
-     "when swapped (LW-M4-11)"),
+    ('patches/android/no-adjust.patch', 'patches/android/no-suggest.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',), _M157_ANDROID + ': HomeActivity.kt byte-identical in both swaps; Settings.kt no longer shared (no-adjust dropped its hunk on 157).' + ' On 153: ' + 'disjoint regions of both files; byte-identical both ways (HomeActivity.kt sha256 cf447dd9..., Settings.kt db719ae5...), offsets of 1 and 5 lines when swapped (LW-M4-11)'),
     ("patches/android/no-onboarding.patch", "patches/android/no-suggest.patch",
      ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",
       "mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt"),
@@ -882,19 +789,11 @@ REVIEWED_ORDER_FREE = (
      ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
      "no-gms edits ~:1961; no-suggest :1628-1653 and :2182. Byte-identical both "
      "ways (sha256 db719ae5...), offset 5 when swapped (LW-M4-11)"),
-    ("patches/android/no-adjust.patch", "patches/android/search-config.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
-     "search-config's single Settings.kt hunk is useRemoteSearchConfiguration "
-     "(:2280-2283); no-adjust's is at ~:2297. Byte-identical both ways (sha256 "
-     "9d8ee639...), offset 14 when swapped (LW-M4-06)"),
     ("patches/android/no-onboarding.patch", "patches/android/search-config.patch",
      ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
      "disjoint (:2280-2283 vs ~:2220-2241); byte-identical both ways (sha256 "
      "9d8ee639...), offset 14 when swapped (LW-M4-06)"),
-    ("patches/android/no-gms.patch", "patches/android/search-config.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
-     "disjoint (:2280-2283 vs ~:1961); byte-identical both ways (sha256 "
-     "9d8ee639...), offset 5 when swapped (LW-M4-06)"),
+    ('patches/android/no-gms.patch', 'patches/android/search-config.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt'), _M157_ANDROID + ': both shared files byte-identical in both swaps; SecretSettingsFragment.kt is new on 157.' + ' On 153: ' + 'disjoint (:2280-2283 vs ~:1961); byte-identical both ways (sha256 9d8ee639...), offset 5 when swapped (LW-M4-06)'),
     ("patches/android/no-suggest.patch", "patches/android/search-config.patch",
      ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt",),
      "disjoint (:2280-2283 vs :1628-1653 and :2182); byte-identical both ways "
@@ -920,10 +819,6 @@ REVIEWED_ORDER_FREE = (
     # maybeRun() call in HomeActivity.onResume (~:760) and two buildConfigFields
     # at the end of defaultConfig (build.gradle :88), regions none of the partners
     # touch.
-    ("patches/android/no-nimbus.patch", "patches/android/update-check.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
-     "update-check adds one call in onResume (~:760), no-nimbus edits elsewhere; "
-     "byte-identical both ways (sha256 dd8a1886...) (LW-M6-06)"),
     ("patches/android/no-adjust.patch", "patches/android/update-check.patch",
      ("mobile/android/fenix/app/build.gradle", "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt"),
      "update-check appends two buildConfigFields to defaultConfig (build.gradle :88) "
@@ -934,10 +829,7 @@ REVIEWED_ORDER_FREE = (
      ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
      "update-check adds one call in onResume (~:760), no-suggest edits elsewhere; "
      "byte-identical both ways (sha256 dd8a1886...) (LW-M6-06)"),
-    ("patches/android/no-glean.patch", "patches/android/update-check.patch",
-     ("mobile/android/fenix/app/build.gradle",),
-     "update-check appends two buildConfigFields to defaultConfig (:88); no-glean edits the Glean dependency/config lines; "
-     "byte-identical both ways (sha256 2ef204e5...) (LW-M6-06)"),
+    ('patches/android/no-glean.patch', 'patches/android/update-check.patch', ('mobile/android/fenix/app/build.gradle', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt'), _M157_ANDROID + ': both shared files byte-identical in both swaps; HomeActivity.kt is new on 157.' + ' On 153: ' + 'update-check appends two buildConfigFields to defaultConfig (:88); no-glean edits the Glean dependency/config lines; byte-identical both ways (sha256 2ef204e5...) (LW-M6-06)'),
     ("patches/android/no-gms.patch", "patches/android/update-check.patch",
      ("mobile/android/fenix/app/build.gradle",),
      "update-check appends two buildConfigFields to defaultConfig (:88); no-gms edits the GMS dependency/config lines; "
@@ -987,13 +879,6 @@ REVIEWED_ORDER_FREE = (
      "update-check appends buildConfigFields to defaultConfig (:88), "
      "suggest-data the dependencies block; full-tree A-after-B clean; "
      + _M7_SUGGEST_GRADLE),
-    ("patches/android/no-adjust.patch",
-     "patches/android/firefox-suggest-data.patch",
-     ("mobile/android/fenix/app/build.gradle",),
-     "no-adjust removes the Adjust lines, one of them the trailing context of "
-     "the repaired hunk (applies at fuzz 1 either way, same bytes). Full-tree "
-     "A-after-B crosses no-adjust -> no-glean/no-gms/no-crashreporter, which "
-     "reject; build.gradle-only replay is order-free; " + _M7_SUGGEST_GRADLE),
     ("patches/android/no-glean.patch",
      "patches/android/firefox-suggest-data.patch",
      ("mobile/android/fenix/app/build.gradle",),
@@ -1019,10 +904,6 @@ REVIEWED_ORDER_FREE = (
      "patches/android/doh-mullvad-migration.patch",
      ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt", "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt"),
      _DOH_MULLVAD_ORDER_FREE),
-    ("patches/android/no-nimbus.patch",
-     "patches/android/doh-mullvad-migration.patch",
-     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
-     _DOH_MULLVAD_ORDER_FREE),
     ("patches/android/no-adjust.patch",
      "patches/android/doh-mullvad-migration.patch",
      ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
@@ -1039,6 +920,9 @@ REVIEWED_ORDER_FREE = (
      "patches/android/doh-mullvad-migration.patch",
      ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
      _DOH_MULLVAD_ORDER_FREE),
+    # 157 integration: new shared-file pairs, measured (see _M157_ANDROID).
+    ('patches/android/no-glean.patch', 'patches/android/doh-mullvad-migration.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',), _M157_ANDROID + ': new on 157 (no-glean now edits HomeActivity.kt). Byte-identical with doh-mullvad-migration moved before no-glean; moving no-glean after it instead trips the separate no-glean -> sync-opt-in constraint, not this pair.'),
+    ('patches/android/no-glean.patch', 'patches/android/no-suggest.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt',), _M157_ANDROID + ': new on 157 (no-glean now edits HomeActivity.kt). Byte-identical in both swaps; the hunks are in disjoint regions.'),
 )
 
 

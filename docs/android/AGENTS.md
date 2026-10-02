@@ -297,8 +297,9 @@ The table lists **eleven** of the pairs that share a file and only apply in one
 order. This said "four", then "five", then "nine", then "eleven", then "twelve"
 (while Android was on 153 ESR);
 `scripts/check-patch-order.py`'s `CONSTRAINTS` is the authority the CI gate
-actually runs and holds more than this table (29 rows since Android moved to
-Firefox 157). Do not reorder the lists by hand.
+actually runs and holds more than this table (30 rows since the Firefox 157
+integration re-measured every Android pair on 157 and promoted four of them).
+Do not reorder the lists by hand.
 
 | `autoconfig-setEnv` | `profile-directory` | `prefcalls.js` |
 | `firefox-in-ua` | `moz-configure` | `toolkit/moz.configure` |
