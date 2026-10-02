@@ -3996,11 +3996,15 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk, negative
                            "cannot see what it guards" % suggest_host))
     ok = not problems
     res.add(check_name, ok,
-            ("typed %r: no outbound transport payload outside explicitly identified "
-             "security-settings/OS background flows for %ds; Enter produced %d payload "
+            ("typed %r: for %ds no new connection, no DNS query and nothing but HTTP/2 "
+             "keep-alive records on connections opened before typing (%d keep-alive, %d "
+             "background flow(s)); Enter produced %d payload "
              "bytes to %s and the actual URL contains the submitted query; no sponsored "
              "host; 'Show search suggestions' OFF by default and ON/OFF round trip verified"
-             % (token, capture_seconds, search_bytes, search_host)) if ok else
+             % (token, capture_seconds,
+                sum(r["verdict"] == "keepalive" for r in attribution["flows"]),
+                sum(r["verdict"] == "background" for r in attribution["flows"]),
+                search_bytes, search_host)) if ok else
             "; ".join(problems) + ("" if negative_control else " -- owned by LW-M4-11"),
             {"token": token, "url_after_enter": url, "search_document": document,
              "typing_events": typing_app[:100],
