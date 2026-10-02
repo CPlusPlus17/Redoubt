@@ -1,8 +1,13 @@
+# LW-M7-29: explicit pinned language/region downloads and atomic local Suggest
+# cache import. 157 rebase: no intent change. The 153 file applied to 157 only
+# with fuzz 1-2 (FxSuggestStorage.kt, SearchEngineFragment.kt), so it was
+# regenerated from the 157 tree as patched by every entry before it.
+
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
-index 91dd137..6fe90ac 100644
+index 8e710f699c..383aa629a6 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
-@@ -17,6 +17,7 @@ import mozilla.appservices.suggest.SuggestStore
+@@ -18,6 +18,7 @@ import mozilla.appservices.suggest.SuggestStore
  import mozilla.appservices.suggest.SuggestStoreBuilder
  import mozilla.appservices.suggest.Suggestion
  import mozilla.appservices.suggest.SuggestionQuery
@@ -10,7 +15,7 @@ index 91dd137..6fe90ac 100644
  import mozilla.components.concept.base.crash.CrashReporting
  import mozilla.components.feature.fxsuggest.facts.emitSuggestionQueryCountFact
  import mozilla.components.support.base.log.logger.Logger
-@@ -35,6 +36,7 @@ class FxSuggestStorage(
+@@ -34,6 +35,7 @@ class FxSuggestStorage(
      context: Context,
      remoteSettingsService: RemoteSettingsService,
      private val crashReporter: CrashReporting? = null,
@@ -18,7 +23,7 @@ index 91dd137..6fe90ac 100644
  ) {
      // Lazily initializes the store on first use. `cacheDir` and using the `File` constructor
      // does I/O, so `store.value` should only be accessed from the read or write scope.
-@@ -90,7 +92,7 @@ class FxSuggestStorage(
+@@ -89,7 +91,7 @@ class FxSuggestStorage(
       * @param constraints Optional limits on suggestions to ingest.
       * @return `true` if ingestion succeeded; `false` if ingestion failed and should be retried.
       */
@@ -27,18 +32,18 @@ index 91dd137..6fe90ac 100644
          withContext(writeScope.coroutineContext) {
              val admission = FxSuggestAdmission.snapshot()
              if (!admission.choices.localEnabled) return@withContext true
-@@ -111,7 +113,7 @@ class FxSuggestStorage(
+@@ -110,7 +112,7 @@ class FxSuggestStorage(
       */
      suspend fun runStartupIngestion() {
          logger.info("runStartupIngestion")
 -        ingest(SuggestIngestionConstraints(emptyOnly = true))
 +        ingest(SuggestIngestionConstraints(providers = defaultIngestionProviders, emptyOnly = true))
      }
-
-     /**
+ 
+     /** Interrupts any ongoing queries for suggestions. */
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
 new file mode 100644
-index 0000000..f94002c
+index 0000000000..f94002c82b
 --- /dev/null
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
 @@ -0,0 +1,73 @@
@@ -116,9 +121,10 @@ index 0000000..f94002c
 +    }
 +}
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
+index 67f98ca842..7339a10b0a 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -545,6 +545,13 @@ dependencies {
+@@ -538,6 +538,13 @@ dependencies {
  
      implementation ComponentsDependencies.mozilla_appservices_syncmanager
      implementation ComponentsDependencies.mozilla_appservices_merino
@@ -133,12 +139,12 @@ diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/bu
      implementation libs.accompanist.drawablepainter
      implementation libs.androidx.activity
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
-index 8c68bab..c7baedc 100644
+index 8c68bab6d0..c7baedcc65 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
 @@ -5,6 +5,7 @@
  package org.mozilla.fenix.components
-
+ 
  import android.content.Context
 +import mozilla.appservices.suggest.SuggestionProvider
  import mozilla.components.concept.base.crash.CrashReporting
@@ -151,28 +157,28 @@ index 8c68bab..c7baedc 100644
 +            defaultIngestionProviders = listOf(SuggestionProvider.AMP, SuggestionProvider.WIKIPEDIA),
          )
      }
-
+ 
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
-index b908196..a764ffd 100644
+index f27235623c..403dcddf19 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
-@@ -37,6 +37,7 @@ import org.mozilla.gecko.search.SearchWidgetProvider
-  * Settings screen allowing users to configure the browser search functionality.
-  */
+@@ -36,6 +36,7 @@ import org.mozilla.gecko.search.SearchWidgetProvider
+ 
+ /** Settings screen allowing users to configure the browser search functionality. */
  class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment {
 +    private var suggestDataPreferences: SuggestDataPreferences? = null
-
+ 
      override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
          setPreferencesFromResource(
-@@ -60,6 +61,7 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -59,6 +60,7 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
              isVisible = canShowAddSearchWidgetPrompt(AppWidgetManager.getInstance(requireContext()))
          }
-
+ 
 +        suggestDataPreferences = SuggestDataPreferences(this)
          view?.hideKeyboard()
      }
-
-@@ -205,6 +207,12 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+ 
+@@ -209,6 +211,12 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
          listOf(suggestMaster, showSponsoredSuggestionsPreference, showNonSponsoredSuggestionsPreference, showSuggestionCardsPreference)
              .forEach { it.isPersistent = false }
          updateSuggestControls()
@@ -183,11 +189,11 @@ index b908196..a764ffd 100644
 +        suggestDataPreferences?.onStop()
 +        super.onStop()
      }
-
+ 
      /**
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt
 new file mode 100644
-index 0000000..ded8a5e
+index 0000000000..ded8a5ebff
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt
 @@ -0,0 +1,80 @@
@@ -273,7 +279,7 @@ index 0000000..ded8a5e
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt
 new file mode 100644
-index 0000000..0e57841
+index 0000000000..0e578412fe
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt
 @@ -0,0 +1,113 @@
@@ -392,7 +398,7 @@ index 0000000..0e57841
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt
 new file mode 100644
-index 0000000..d42ebe6
+index 0000000000..d42ebe61c5
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt
 @@ -0,0 +1,231 @@
@@ -629,7 +635,7 @@ index 0000000..d42ebe6
 +}
 diff --git a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml
 new file mode 100644
-index 0000000..2f98202
+index 0000000000..2f98202063
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml
 @@ -0,0 +1,19 @@
@@ -653,7 +659,7 @@ index 0000000..2f98202
 +    <string name="suggest_data_status_failed">Could not check installed data. Select to download data.</string>
 +</resources>
 diff --git a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
-index e5c6bb8..5de2b37 100644
+index e5c6bb829d..5de2b37ad9 100644
 --- a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
 @@ -6,8 +6,8 @@
@@ -668,10 +674,10 @@ index e5c6bb8..5de2b37 100644
      <string name="firefox_suggest_online_summary">Send text as you type to Mozilla’s suggestion service for online cards, such as flights, sports and stocks. Turning this off stops new requests; a request already sent may finish.</string>
      <string name="firefox_suggest_stocks_title">Stock cards</string>
 diff --git a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
-index 7aa8322..0bd3871 100644
+index 497fe2a000..e32e437bb7 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
-@@ -86,6 +86,16 @@
+@@ -92,6 +92,16 @@
              android:selectable="false"
              android:title="@string/firefox_suggest_local_data_title"
              android:summary="@string/firefox_suggest_local_data_summary" />
@@ -690,7 +696,7 @@ index 7aa8322..0bd3871 100644
              android:key="@string/pref_key_show_nonsponsored_suggestions"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt
 new file mode 100644
-index 0000000..08d0dc9
+index 0000000000..08d0dc92f0
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt
 @@ -0,0 +1,49 @@
@@ -745,7 +751,7 @@ index 0000000..08d0dc9
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt
 new file mode 100644
-index 0000000..178a61b
+index 0000000000..178a61b936
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt
 @@ -0,0 +1,170 @@
@@ -920,7 +926,7 @@ index 0000000..178a61b
 +
 +}
 diff --git a/third_party/application-services/components/remote_settings/src/client.rs b/third_party/application-services/components/remote_settings/src/client.rs
-index 7d7ec68..88245a5 100644
+index ebc942a6fe..7d1773ffc8 100644
 --- a/third_party/application-services/components/remote_settings/src/client.rs
 +++ b/third_party/application-services/components/remote_settings/src/client.rs
 @@ -13,6 +13,7 @@ use crate::{packaged_attachments, packaged_collections, RemoteSettingsServer};
@@ -937,14 +943,14 @@ index 7d7ec68..88245a5 100644
      pending_config: Mutex<Option<RemoteSettingsClientConfig>>,
 +    issued_config_generation: AtomicU64,
  }
-
+ 
  struct RemoteSettingsClientInner<C> {
 +    applied_config_generation: u64,
      storage: Storage,
      api_client: C,
      jexl_filter: JexlFilter,
  }
-
+ 
  struct RemoteSettingsClientConfig {
 +    generation: u64,
      server_url: BaseUrl,
@@ -972,7 +978,7 @@ index 7d7ec68..88245a5 100644
 +            issued_config_generation: AtomicU64::new(0),
          }
      }
-
+ 
 @@ -233,18 +241,138 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
          let pending_config = self.get_pending_config();
          let mut inner = self.inner.lock();
@@ -985,7 +991,7 @@ index 7d7ec68..88245a5 100644
          }
          Ok(inner)
      }
-
+ 
 +    fn apply_taken_config(
 +        &self,
 +        inner: &mut RemoteSettingsClientInner<C>,
@@ -1014,7 +1020,7 @@ index 7d7ec68..88245a5 100644
      fn get_pending_config(&self) -> Option<RemoteSettingsClientConfig> {
          self.pending_config.lock().take()
      }
-
+ 
 +    pub(crate) fn install_pinned_suggest_data(
 +        &self,
 +        dataset_id: &str,
@@ -1116,7 +1122,7 @@ index 7d7ec68..88245a5 100644
      pub fn collection_name(&self) -> &str {
          &self.collection_name
      }
-@@ -571,6 +699,7 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
+@@ -579,6 +707,7 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
      ) {
          let mut pending_config = self.pending_config.lock();
          *pending_config = Some(RemoteSettingsClientConfig {
@@ -1124,7 +1130,7 @@ index 7d7ec68..88245a5 100644
              server_url,
              bucket_name,
              context,
-@@ -1678,3 +1807,130 @@ mod test_reset_storage {
+@@ -1827,3 +1956,130 @@ mod test_reset_storage {
          );
      }
  }
@@ -1256,7 +1262,7 @@ index 7d7ec68..88245a5 100644
 +    }
 +}
 diff --git a/third_party/application-services/components/remote_settings/src/lib.rs b/third_party/application-services/components/remote_settings/src/lib.rs
-index 9c5f80b..4db50a8 100644
+index 9c5f80b194..4db50a8b70 100644
 --- a/third_party/application-services/components/remote_settings/src/lib.rs
 +++ b/third_party/application-services/components/remote_settings/src/lib.rs
 @@ -10,11 +10,13 @@ pub mod client;
@@ -1271,12 +1277,12 @@ index 9c5f80b..4db50a8 100644
  pub mod storage;
 +pub use pinned_suggest::{PinnedSuggestAttachment, SuggestDataInstallToken};
  pub mod telemetry;
-
+ 
  pub(crate) mod jexl_filter;
 @@ -197,6 +199,24 @@ impl RemoteSettingsClient {
          self.internal.reset_storage()
      }
-
+ 
 +    /// Install one complete release-pinned Suggest dataset without network access.
 +    #[handle_error(Error)]
 +    pub fn install_pinned_suggest_data(
@@ -1300,7 +1306,7 @@ index 9c5f80b..4db50a8 100644
          self.internal.shutdown()
 diff --git a/third_party/application-services/components/remote_settings/src/pinned_suggest.rs b/third_party/application-services/components/remote_settings/src/pinned_suggest.rs
 new file mode 100644
-index 0000000..2b304a1
+index 0000000000..2b304a1d9c
 --- /dev/null
 +++ b/third_party/application-services/components/remote_settings/src/pinned_suggest.rs
 @@ -0,0 +1,467 @@
@@ -1772,13 +1778,13 @@ index 0000000..2b304a1
 +    }
 +}
 diff --git a/third_party/application-services/components/remote_settings/src/storage.rs b/third_party/application-services/components/remote_settings/src/storage.rs
-index 8677980..a5f27e8 100644
+index 0c5b56f70c..fb6eb68361 100644
 --- a/third_party/application-services/components/remote_settings/src/storage.rs
 +++ b/third_party/application-services/components/remote_settings/src/storage.rs
-@@ -316,6 +316,49 @@ impl Storage {
+@@ -322,6 +322,49 @@ impl Storage {
          Ok(())
      }
-
+ 
 +    /// Replace only this Suggest collection in one transaction. Validation was
 +    /// completed before opening the transaction; any write/cancellation failure
 +    /// rolls back the old records and attachments together.
@@ -1825,7 +1831,7 @@ index 8677980..a5f27e8 100644
      /// Empty out all cached values and start from scratch.  This is called when
      /// RemoteSettingsService::update_config() is called, since that could change the remote
      /// settings server which would invalidate all cached data.
-@@ -1142,3 +1185,183 @@ mod tests {
+@@ -1152,3 +1195,183 @@ mod tests {
          Ok(())
      }
  }
@@ -2011,7 +2017,7 @@ index 8677980..a5f27e8 100644
 +}
 diff --git a/third_party/application-services/components/suggest/tests/pinned_suggest.rs b/third_party/application-services/components/suggest/tests/pinned_suggest.rs
 new file mode 100644
-index 0000000..4f7aa24
+index 0000000000..4f7aa24ef5
 --- /dev/null
 +++ b/third_party/application-services/components/suggest/tests/pinned_suggest.rs
 @@ -0,0 +1,153 @@

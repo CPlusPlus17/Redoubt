@@ -13,7 +13,8 @@
 # token/endpoint/missing-key race tests are replaced by one device-id race test;
 # AccountServicesWorkerTest reads sync state through SharedPrefsSyncStateStorage;
 # HomeActivityAccountSettingsTest stubs components for 157's Glean debug-tag hook.
-
+# Integration: regenerated on top of the 157 no-glean, whose deletion of the
+# Glean debug-tag lines sat in this patch's HomeActivity hunk context (fuzz 2).
 diff --git a/mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushScheduler.kt b/mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushScheduler.kt
 index dc78d9c377..e14a17e953 100644
 --- a/mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushScheduler.kt
@@ -1006,10 +1007,10 @@ index 0000000000..6605058931
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index 35903275d6..9270268471 100644
+index ecb28d6afb..9f027bbfef 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -63,10 +63,13 @@ import mozilla.components.feature.search.ext.buildSearchUrl
+@@ -62,10 +62,13 @@ import mozilla.components.feature.search.ext.buildSearchUrl
  import mozilla.components.feature.search.ext.waitForSelectedOrDefaultSearchEngine
  import mozilla.components.feature.summarize.settings.SummarizationSettings
  import mozilla.components.feature.syncedtabs.commands.GlobalSyncedTabsCommandsProvider
@@ -1023,7 +1024,7 @@ index 35903275d6..9270268471 100644
  import mozilla.components.service.sync.autofill.GlobalAutofillDependencyProvider
  import mozilla.components.service.sync.logins.GlobalLoginsDependencyProvider
  import mozilla.components.service.sync.logins.LoginsApiException
-@@ -195,18 +198,33 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -191,18 +194,33 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
      override fun onCreate() {
          super.onCreate()
          initializeFenixProcess()
@@ -1058,7 +1059,7 @@ index 35903275d6..9270268471 100644
      /**
       * Process-level initialization for Fenix and its services. Sets up required native subsystems such as Nimbus, Glean
       * and Gecko. Note that Robolectric tests override this with an empty implementation that skips this initialization.
-@@ -566,6 +584,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -539,6 +557,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              }
              // Account manager initialization needs to happen on the main thread.
              applicationScope.launch {
@@ -1067,10 +1068,10 @@ index 35903275d6..9270268471 100644
                      components.backgroundServices.accountManager
                  }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-index 4364da6898..15dc2ca5c5 100644
+index 00dac37e3d..6e27999130 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -76,6 +76,7 @@ import mozilla.components.feature.media.ext.findActiveMediaTab
+@@ -79,6 +79,7 @@ import mozilla.components.feature.media.ext.findActiveMediaTab
  import mozilla.components.feature.privatemode.notification.PrivateNotificationFeature
  import mozilla.components.feature.search.BrowserStoreSearchAdapter
  import mozilla.components.lib.crash.store.CrashAction
@@ -1078,7 +1079,7 @@ index 4364da6898..15dc2ca5c5 100644
  import mozilla.components.service.fxa.sync.SyncReason
  import mozilla.components.support.base.feature.ActivityResultHandler
  import mozilla.components.support.base.feature.UserInteractionHandler
-@@ -187,7 +188,9 @@ import org.mozilla.fenix.perf.StartupTimeline
+@@ -189,7 +190,9 @@ import org.mozilla.fenix.perf.StartupTimeline
  import org.mozilla.fenix.perf.StartupTypeTelemetry
  import org.mozilla.fenix.privacyreport.PrivacyReportNotificationScheduler
  import org.mozilla.fenix.session.PrivateNotificationService
@@ -1088,7 +1089,7 @@ index 4364da6898..15dc2ca5c5 100644
  import org.mozilla.fenix.shortcut.NewTabShortcutIntentProcessor.Companion.ACTION_OPEN_PRIVATE_TAB
  import org.mozilla.fenix.splashscreen.ApplyExperimentsOperation
  import org.mozilla.fenix.splashscreen.DefaultExperimentsOperationStorage
-@@ -462,6 +465,12 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -464,6 +467,12 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
      final override fun onCreate(savedInstanceState: Bundle?) {
          // DO NOT MOVE ANYTHING ABOVE THIS getProfilerTime CALL.
          val startTimeProfiler = components.core.engine.profiler?.getProfilerTime()
@@ -1101,7 +1102,7 @@ index 4364da6898..15dc2ca5c5 100644
  
          components.strictMode.attachListenerToDisablePenaltyDeath(supportFragmentManager)
          MarkersFragmentLifecycleCallbacks.register(supportFragmentManager, components.core.engine)
-@@ -472,7 +481,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -474,7 +483,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              browsingModeManager = createBrowsingModeManager(intent)
              setupTheme()
  
@@ -1110,7 +1111,7 @@ index 4364da6898..15dc2ca5c5 100644
          }
  
          // Must run after the edge-to-edge capable theme is applied by
-@@ -489,7 +498,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -493,7 +502,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              message = "onCreate()",
              data =
                  mapOf(
@@ -1119,7 +1120,7 @@ index 4364da6898..15dc2ca5c5 100644
                      "intent" to (intent?.action ?: "null"),
                  ),
          )
-@@ -531,7 +540,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -532,7 +541,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
                          )
                      }
  
@@ -1128,7 +1129,7 @@ index 4364da6898..15dc2ca5c5 100644
                          navHost.navController.navigate(NavGraphDirections.actionGlobalOnboarding())
                      }
                  },
-@@ -588,11 +597,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -589,11 +598,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
  
              // Unless the activity is recreated, navigate to home first (without rendering it)
              // to add it to the back stack.
@@ -1142,7 +1143,7 @@ index 4364da6898..15dc2ca5c5 100644
                  if (!shouldStartOnHome()) {
                      navigateToBrowserOnColdStart()
                  }
-@@ -700,15 +709,22 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -697,15 +706,22 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              components.useCases.searchUseCases.restoreHiddenSearchEngines.invoke()
          }
  
@@ -1170,7 +1171,7 @@ index 4364da6898..15dc2ca5c5 100644
          components.core.engine.profiler?.addMarker(
              MarkersActivityLifecycleCallbacks.MARKER_NAME,
              startTimeProfiler,
-@@ -736,7 +752,12 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -733,7 +749,12 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              uninstallSurveyManager.showUninstallSurvey(intent, navHost.navController)
          }
  
@@ -1184,7 +1185,7 @@ index 4364da6898..15dc2ca5c5 100644
  
          StartupTimeline.onActivityCreateEndHome(this) // DO NOT MOVE ANYTHING BELOW HERE.
      }
-@@ -1047,6 +1068,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1049,6 +1070,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          if (this is ExternalAppBrowserActivity) {
              return
          }
@@ -1194,9 +1195,9 @@ index 4364da6898..15dc2ca5c5 100644
 +            return
 +        }
  
-         // Warm-launch path for the Glean debug intent; onCreate handles cold start (Nightly/Debug only).
-         DefaultGleanDebugToolsStorage.persistDebugViewTagIfRequested(intent, components.settings)
-@@ -1097,6 +1123,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+         if (intent.action == SEND_TO_DEVICES_ACTION) {
+             handleSendToDevicesActionIntent(intent)
+@@ -1096,6 +1122,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              intent.getStringExtra(SendToDevicesDialogFragment.EXTRA_PRIVACY) ==
                  SendToDevicesDialogFragment.PRIVACY_PRIVATE
  
@@ -1209,7 +1210,7 @@ index 4364da6898..15dc2ca5c5 100644
              // Send to Device needs an account, so sign in first and resume once authenticated.
              pendingSendToDevicesTab = PendingSendToDevicesTab(urls, titles, isPrivate)
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
-index 93c75093cb..ea314214c5 100644
+index 17a0fc820e..be67afac11 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
 @@ -137,6 +137,7 @@ import mozilla.components.lib.state.ext.consumeFrom
@@ -1220,7 +1221,7 @@ index 93c75093cb..ea314214c5 100644
  import mozilla.components.service.sync.autofill.DefaultCreditCardValidationDelegate
  import mozilla.components.service.sync.logins.DefaultLoginValidationDelegate
  import mozilla.components.service.sync.logins.LoginsApiException
-@@ -1106,7 +1107,9 @@ abstract class BaseBrowserFragment :
+@@ -1108,7 +1109,9 @@ abstract class BaseBrowserFragment :
                                  get() = emailMaskBar
  
                              override fun shouldShowEmailMaskCfr() =
@@ -1231,7 +1232,7 @@ index 93c75093cb..ea314214c5 100644
                                      context.components.settings.cfrPopupsEnabled
  
                              override fun onEmailMaskCfrDismissed() {
-@@ -1115,6 +1118,9 @@ abstract class BaseBrowserFragment :
+@@ -1117,6 +1120,9 @@ abstract class BaseBrowserFragment :
  
                              override suspend fun onEmailMaskClick(generatedFor: String) =
                                  withContext(Dispatchers.IO) {
@@ -1241,7 +1242,7 @@ index 93c75093cb..ea314214c5 100644
                                      EmailMask.promptClicked.record()
  
                                      val relay = requireComponents.relayFeatureIntegration
-@@ -1401,19 +1407,21 @@ abstract class BaseBrowserFragment :
+@@ -1441,19 +1447,21 @@ abstract class BaseBrowserFragment :
              )
          }
  
@@ -1305,10 +1306,10 @@ index 609d022d5e..1284b31826 100644
 +        if (AccountServices.isEnabled) relayFeature.getOrCreateNewMask(generatedFor, description) else null
  }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
-index a70cd4d847..d4f7c6807b 100644
+index e23d748558..7e9c183c61 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
-@@ -37,6 +37,7 @@ import mozilla.components.feature.syncedtabs.storage.SyncedTabsStorage
+@@ -35,6 +35,7 @@ import mozilla.components.feature.syncedtabs.storage.SyncedTabsStorage
  import mozilla.components.lib.crash.CrashReporter
  import mozilla.components.lib.state.Middleware
  import mozilla.components.lib.state.Store
@@ -1316,7 +1317,7 @@ index a70cd4d847..d4f7c6807b 100644
  import mozilla.components.service.fxa.ServerConfig
  import mozilla.components.service.fxa.manager.FxaAccountManager
  import mozilla.components.service.fxa.manager.SCOPE_SYNC
-@@ -216,6 +217,7 @@ class BackgroundServices(
+@@ -212,6 +213,7 @@ class BackgroundServices(
                  crashReporter,
              )
              .also { accountManager ->
@@ -1514,7 +1515,7 @@ index 0000000000..a61ec0df75
 +    return true
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
-index 9a1ff6febc..e1e45ff26a 100644
+index 1e797e36f1..0b84df5003 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
 @@ -47,6 +47,7 @@ import mozilla.components.concept.sync.Profile
