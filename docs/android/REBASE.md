@@ -1192,6 +1192,23 @@ success: All patches where applied successfully.
   evidence receipts need re-capturing on 153.4.0esr.
 - Stage B: `make dir TARGETS=android`, `./mach build`, the L1 header grep,
   `android-pref-audit.sh` on the built APK.
+- Unit tests on the 153.4.0esr build tree: `fenix:testDebugUnitTest` ran 615
+  classes / 5,562 tests, 22 failing = 19 environmental + 3 known-real + 0
+  unexpected (`board.py --check-fenix-tests` exit 0). It warns that
+  `SearchSuggestionsProvidersBuilderTest` now passes (70/70) and
+  `AutofillSettingsMiddlewareTest` fails 2, not 3. Trimming the allowlist is
+  still to decide. Running the Android Components modules our patches touch
+  found three test files that had never compiled or passed, and they are now
+  fixed. `PinnedSuggestIngestionTest` (firefox-suggest-data) used mockk, which
+  android-components excludes, so it now uses Mockito. `AddonUpdaterWorkerTest`
+  (extension-update-controls) used Mockito's `eq`, which returns null for a
+  Kotlin non-null `String`, so it now uses the support-test `eq`.
+  `GeckoGlobalPrivacyControllerTest` (global-privacy-controls) had a redundant
+  `!!` that is a warning under `-Werror`. Still failing, outside the targeted
+  set: two `FxSuggestSuggestionProviderTest` cases expect a query with an
+  empty provider list, which firefox-suggest-policy deliberately skips, and
+  `AddonsManagerAdapterTest.bind blocklisted add-on` expects "Mozilla’s
+  policies" where the branded string says Redoubt.
 
 ---
 

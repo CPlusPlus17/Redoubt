@@ -1434,7 +1434,15 @@
                      "Unable to update extension $extensionId - reason=${exception.message}",
 --- a/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
 +++ b/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
-@@ -31,6 +31,7 @@
+@@ -22,6 +22,7 @@
+ import mozilla.components.feature.addons.AddonManager
+ import mozilla.components.support.test.any
+ import mozilla.components.support.test.argumentCaptor
++import mozilla.components.support.test.eq
+ import mozilla.components.support.test.mock
+ import mozilla.components.support.test.robolectric.testContext
+ import mozilla.components.support.test.whenever
+@@ -31,6 +32,7 @@
  import org.junit.Test
  import org.junit.runner.RunWith
  import org.mockito.ArgumentMatchers.anyString
@@ -1442,7 +1450,7 @@
  import org.mockito.Mockito.doReturn
  import org.mockito.Mockito.spy
  import org.mockito.Mockito.verify
-@@ -59,9 +60,10 @@
+@@ -59,9 +61,10 @@
          WebExtensionSupport.initialize(engine, store)
      }
 
@@ -1454,7 +1462,7 @@
              .setWorkerFactory(object : WorkerFactory() {
                  override fun createWorker(
                      appContext: Context,
-@@ -90,7 +92,7 @@
+@@ -90,7 +93,7 @@
          doReturn(updateAttemptStorage).`when`(worker).updateAttemptStorage
          GlobalAddonDependencyProvider.initialize(addonManager, mock())
 
@@ -1463,7 +1471,7 @@
              onFinishCaptor.value.invoke(AddonUpdater.Status.SuccessfullyUpdated)
          }
 
-@@ -111,7 +113,7 @@
+@@ -111,7 +114,7 @@
 
          GlobalAddonDependencyProvider.initialize(addonManager, mock())
 
@@ -1472,7 +1480,7 @@
              onFinishCaptor.value.invoke(AddonUpdater.Status.NoUpdateAvailable)
          }
 
-@@ -129,7 +131,7 @@
+@@ -129,7 +132,7 @@
 
          GlobalAddonDependencyProvider.initialize(addonManager, mock())
 
@@ -1481,7 +1489,7 @@
              onFinishCaptor.value.invoke(AddonUpdater.Status.NotInstalled)
          }
 
-@@ -151,7 +153,7 @@
+@@ -151,7 +154,7 @@
 
          GlobalAddonDependencyProvider.initialize(addonManager, mock())
 
@@ -1490,7 +1498,7 @@
              onFinishCaptor.value.invoke(AddonUpdater.Status.Error("error", exception))
          }
 
-@@ -176,7 +178,7 @@
+@@ -176,7 +179,7 @@
          GlobalAddonDependencyProvider.initialize(addonManager, mock(), crashReporter)
          GlobalAddonDependencyProvider.addonManager = null
 
@@ -1499,7 +1507,7 @@
              onFinishCaptor.value.invoke(AddonUpdater.Status.Error("error", Exception()))
          }
 
-@@ -185,4 +187,31 @@
+@@ -185,4 +188,31 @@
          assertEquals(ListenableWorker.Result.failure(), result)
          assertTrue(crashWasReported)
      }
@@ -1519,15 +1527,15 @@
 +        doReturn(this).`when`(restored).attemptScope
 +        restored.updateAttemptStorage = mock()
 +        assertEquals(ListenableWorker.Result.success(), restored.startWork().await())
-+        verify(manager).updateAddonAutomatically(org.mockito.ArgumentMatchers.eq("restored"), any())
-+        verify(manager, never()).updateAddon(org.mockito.ArgumentMatchers.eq("restored"), any())
++        verify(manager).updateAddonAutomatically(eq("restored"), any())
++        verify(manager, never()).updateAddon(eq("restored"), any())
 +
 +        val explicit = createWorker("explicit", listOf(DefaultAddonUpdater.WORK_TAG_IMMEDIATE))
 +        doReturn(this).`when`(explicit).attemptScope
 +        explicit.updateAttemptStorage = mock()
 +        assertEquals(ListenableWorker.Result.success(), explicit.startWork().await())
-+        verify(manager).updateAddon(org.mockito.ArgumentMatchers.eq("explicit"), any())
-+        verify(manager, never()).updateAddonAutomatically(org.mockito.ArgumentMatchers.eq("explicit"), any())
++        verify(manager).updateAddon(eq("explicit"), any())
++        verify(manager, never()).updateAddonAutomatically(eq("explicit"), any())
 +    }
 +
  }

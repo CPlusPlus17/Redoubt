@@ -38,50 +38,67 @@ index 91dd137..6fe90ac 100644
      /**
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
 new file mode 100644
-index 0000000..bd2a003
+index 0000000..f94002c
 --- /dev/null
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,73 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 +package mozilla.components.feature.fxsuggest
 +
 +import androidx.test.ext.junit.runners.AndroidJUnit4
-+import io.mockk.every
-+import io.mockk.mockk
-+import io.mockk.spyk
-+import io.mockk.verify
 +import kotlinx.coroutines.runBlocking
++import mozilla.appservices.suggest.SuggestIngestionConstraints
 +import mozilla.appservices.suggest.SuggestStore
 +import mozilla.appservices.suggest.SuggestionProvider
++import mozilla.components.support.test.argumentCaptor
++import mozilla.components.support.test.mock
 +import mozilla.components.support.test.robolectric.testContext
 +import org.junit.After
++import org.junit.Assert.assertEquals
 +import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
 +import org.junit.Test
 +import org.junit.runner.RunWith
++import org.mockito.Mockito.doReturn
++import org.mockito.Mockito.spy
++import org.mockito.Mockito.times
++import org.mockito.Mockito.verify
 +
++// Android Components excludes mockk from every subproject (android-components/build.gradle),
++// so this test uses Mockito like the rest of the module.
 +@RunWith(AndroidJUnit4::class)
 +class PinnedSuggestIngestionTest {
 +    private val providers = listOf(SuggestionProvider.AMP, SuggestionProvider.WIKIPEDIA)
-+    @After fun restore() { FxSuggestAdmission.configure { FxSuggestChoices() } }
++
++    @After fun restore() {
++        FxSuggestAdmission.configure { FxSuggestChoices() }
++    }
++
++    private fun storageWith(native: SuggestStore, defaultProviders: List<SuggestionProvider>?): FxSuggestStorage {
++        val storage = spy(FxSuggestStorage(testContext, mock(), defaultIngestionProviders = defaultProviders))
++        doReturn(lazy { native }).`when`(storage).store
++        return storage
++    }
 +
 +    @Test
 +    fun `configured provider set reaches startup and periodic native ingestion`() = runBlocking {
 +        FxSuggestAdmission.configure { FxSuggestChoices() }
-+        val native = mockk<SuggestStore>(relaxed = true)
-+        val storage = spyk(FxSuggestStorage(testContext, mockk(), defaultIngestionProviders = providers))
-+        every { storage.store } returns lazy { native }
++        val native = mock<SuggestStore>()
++        val storage = storageWith(native, providers)
 +        storage.runStartupIngestion()
 +        storage.ingest()
-+        verify { native.ingest(match { it.providers == providers && it.emptyOnly }) }
-+        verify { native.ingest(match { it.providers == providers && !it.emptyOnly }) }
++        val constraints = argumentCaptor<SuggestIngestionConstraints>()
++        verify(native, times(2)).ingest(constraints.capture())
++        assertEquals(listOf(providers, providers), constraints.allValues.map { it.providers })
++        assertEquals(listOf(true, false), constraints.allValues.map { it.emptyOnly })
 +    }
 +
 +    @Test
 +    fun `an off restored storage reference does not initialize the native store`() = runBlocking {
 +        FxSuggestAdmission.configure { FxSuggestChoices(false, false, false, false) }
-+        val storage = FxSuggestStorage(testContext, mockk(), defaultIngestionProviders = providers)
++        val storage = FxSuggestStorage(testContext, mock(), defaultIngestionProviders = providers)
 +        storage.runStartupIngestion()
 +        storage.ingest()
 +        assertFalse(storage.store.isInitialized())
@@ -90,11 +107,12 @@ index 0000000..bd2a003
 +    @Test
 +    fun `other embedders retain their unspecified provider default`() = runBlocking {
 +        FxSuggestAdmission.configure { FxSuggestChoices() }
-+        val native = mockk<SuggestStore>(relaxed = true)
-+        val storage = spyk(FxSuggestStorage(testContext, mockk()))
-+        every { storage.store } returns lazy { native }
++        val native = mock<SuggestStore>()
++        val storage = storageWith(native, null)
 +        storage.ingest()
-+        verify { native.ingest(match { it.providers == null }) }
++        val constraints = argumentCaptor<SuggestIngestionConstraints>()
++        verify(native).ingest(constraints.capture())
++        assertNull(constraints.value.providers)
 +    }
 +}
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
