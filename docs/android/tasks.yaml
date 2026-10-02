@@ -5215,6 +5215,52 @@ tasks:
     isolation: worktree
     risk: A dispatch or window-close request is not a storage/content completion barrier; failure or late writes can leave cleanup incomplete or erase retained data.
 
+  - id: LW-M7-40
+    title: Turn off Shake to Summarize, IP Protection, Merino icons and Lens
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-37]
+    owns:
+      - patches/android/disable-157-cloud-features.patch
+      - docs/android/evidence/lw-m7-40/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+      - mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/LibreWolfCloudFeaturesTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ipprotection/store/IPProtectionPromptRepositoryTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/summarization/onboarding/FenixSummarizationFeatureConfigurationTest.kt
+    reads:
+      - docs/android/TRACK.md
+      - scripts/check-patch-order.py
+    what: |
+      Owner decision 2026-10-02, taken with the move to Firefox 157: four new
+      Fenix features that send browsing data to Mozilla or Google services are
+      off for good. Settings.shakeToSummarizeFeatureFlagEnabled (MLPA page
+      summaries), googleLensIntegrationEnabled (lens.google.com/upload) and
+      enableAddShortcutsImprovement (Merino image-CDN icons) read a constant
+      false; isIPProtectionAvailable is false, FenixApplication no longer
+      initialises IPProtectionFeature, IPProtection's eligibility is a constant
+      Ineligible and the settings_ip_protection deep link is unmapped.
+      PopularSite drops the Merino icon URL. Their Secret Settings switches go.
+    acceptance:
+      - "the four flags read false whatever is written to them, in every build type"
+      - "PageSummaryFeature is never registered and no shake listener, summarize menu item, CFR or highlight appears"
+      - "IPProtectionFeature.initialize is never called and the IP Protection settings row, menu entry and onboarding sheet stay hidden"
+      - "no code path constructs a request to mlpa-prod-prod-mozilla.freetls.fastly.net, prod-images.merino.prod.webservices.mozgcp.net or lens.google.com"
+      - "the patch applies at fuzz 0 in list order, compiles under -Werror, and --check-fenix-tests adds no new failure"
+    verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 docs/android/board.py --check-fenix-tests"
+    effort_h: "3-6"
+    skills: [kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: A default instead of a constant comes back on with the next Nimbus default, stale preference or Secret Settings tap.
+
   - id: LW-M7-41
     title: Enable uBlock Origin's cookie-notice lists by default on Android
     milestone: M7
@@ -5226,6 +5272,7 @@ tasks:
       - scripts/android-cookie-banner-smoke.py
       - scripts/tests/test-ubo-cookie-lists.py
       - settings/android.cfg
+      - docs/android/evidence/lw-m7-41/
     reads:
       - assets/uBOAssets.json
       - assets/ubo-extension.json

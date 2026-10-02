@@ -15,7 +15,7 @@ read in full, every file it touches was traced to the `moz.build` / `jar.mn` /
 preprocessor guard that decides whether that file is built on Android, and the
 decision below follows from that guard rather than from the path.
 
-Current classification: **22 common / 41 android / 46 desktop-only / 0 straddlers = 109
+Current classification: **22 common / 42 android / 46 desktop-only / 0 straddlers = 110
 patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
@@ -83,6 +83,17 @@ their list entries. Their 153 text stays in git history (`796d5421`).
   cookie-notice lists, is open for the owner. It is not a rebase question.
 
 So: android 44 − 3 = 41; total 112 − 3 = 109.
+
+## Android patch added after the 157 integration (2026-10-02)
+
+- **`disable-157-cloud-features`** (LW-M7-40). Owner decision 2026-10-02:
+  four Firefox 157 features that send browsing data to Mozilla or Google
+  services are constant-off on Android. Shake to Summarize (Mozilla's MLPA
+  service), IP Protection (Mozilla's hosted proxy), the Merino popular-site
+  icons of the "Add shortcut" sheet, and the Google Lens image upload. Fenix
+  Kotlin only. It is the last `android.txt` entry.
+
+So: android 41 + 1 = 42; total 109 + 1 = 110.
 
 ## The Firefox 157 desktop merge — what moved, and why Android did not (history, superseded 2026-10-02)
 
@@ -316,6 +327,7 @@ own line in this table.
 | `patches/android/global-privacy-controls.patch` | LW-M7-36 | Five native get/set/reset privacy controls with real save acknowledgments, lock/user/default state and a nonpersistent Fenix screen. Root replay18 host JS checks and seven shared-path order receipts pass; native/API/Kotlin compilation and26 authored target tests remain pending. |
 | `patches/android/session-cleanup.patch` | LW-M7-37 | Per-frame native destruction completion and a parent cookie cleanup lease with exact scope enumeration and checked database deletion. Root replay of15 source files, pinned IDL parsers and the complete35→37 shared pair pass. Native/Kotlin compilation and14 target cases remain pending; the full cleanup coordinator, remaining writers and recovery journal are not implemented. |
 | `patches/android/doh-mullvad-migration.patch` | Mullvad DoH shutdown (153.4.0esr) | Mullvad is discontinuing its DNS over HTTPS service, and the 153 ESR beta offered it in the Fenix DoH picker. Once per profile, before `Core.engine` reads `dohProviderUrl`, `org.mozilla.fenix.lw.DohProviderMigration` replaces a stored `dns.mullvad.net` / `*.dns.mullvad.net` / `doh.mullvad.net` provider with `Settings.LIBREWOLF_DOH_PROVIDER_URI` (`https://dns10.quad9.net/dns-query`, also `common.cfg`'s `network.trr.uri`) and leaves the mode alone; the provider and the done/notice flags are one `SharedPreferences` edit. When the mode was Increased or Max, `HomeActivity.onResume` shows a one-time dialog (the update-check mechanism) until the user acknowledges it; an activity recreated under it shows it again. A Mullvad URI entered by hand afterwards is respected. Known limitation: a Mullvad `network.trr.uri` set by hand in about:config (user branch) is not migrated. Mullvad also leaves `privacy-defaults`' built-in catalog, matching `common.cfg`'s `doh-rollout.provider-list`. Must apply after `privacy-defaults` (declared); the Core.kt/HomeActivity.kt hunks were measured order-free. Fenix Kotlin only; 9 Robolectric tests authored. Applies at fuzz 0; the two `lw/` files compile under `-Werror` against stubs of the Fenix types, but the patch is unbuilt and its tests unrun until the stage B build. |
+| `patches/android/disable-157-cloud-features.patch` | LW-M7-40 | Owner decision 2026-10-02. `Settings.shakeToSummarizeFeatureFlagEnabled`, `googleLensIntegrationEnabled` and `enableAddShortcutsImprovement` read a constant `false` (their setters are no-ops, so upstream callers and tests compile), `isIPProtectionAvailable` is `false`, `FenixApplication` no longer initialises IP Protection, `IPProtection.eligibilityStorage` is a constant Ineligible, the `settings_ip_protection` deep link is unmapped, and `ManifestEntry.toPopularSite()` drops the Merino CDN icon URL. Removes the four Secret Settings switches. Every summarize surface (menu item, CFR, toolbar highlight, settings, shake listener, `PageSummaryFeature` registration) reads the one flag; MLPA and `lens.google.com/upload` are reachable only behind the flags. `:components:lib-llm-mlpa` stays linked (five Fenix files import it). Two upstream tests of removed behaviour are deleted, one deep-link test inverted, `LibreWolfCloudFeaturesTest` added. Last in `android.txt`; shares `Settings.kt`/`SecretSettingsFragment.kt` with `no-gms`, `no-glean`, `firefox-suggest-policy` and others. |
 | `patches/android/no-default-shortcuts.patch` | LW-M7-30 | Empty bundled default shortcut seed matches the desktop default.sites input while preserving stored and manually added user data. JSON/hash/replay checks pass; packaged resource and fresh/upgrade/manual-add behavior remain pending. Separate bookmark seeding is still unverified. |
 | `patches/android/autoconfig-resource-fallback.patch` | LW-M3-08, landed by LW-M3-02 | **The autoconfig/`lockPref` channel — landmine L2's mitigation.** Three hunks, one mechanism: `nsReadConfig::openAndEvaluateJSFile` takes the `resource:` branch on Android (`#if defined(MOZ_WIDGET_ANDROID)`, *not* keyed off a failed `NS_GRE_DIR` lookup — that lookup succeeds and answers the APK's `lib/<abi>` dir, so the obvious patch is dead code and was measured to be); `lw/moz.build` also installs the `.cfg` as `defaults/autoconfig/librewolf.cfg`, the only shape `OmniJarSubFormatter.is_resource` lets into `omni.ja`; and `mobile/android/installer/package-manifest.in` names that file and `defaults/pref/local-settings.js` by hand, because it is an explicit list with no root wildcard. Ordering: **after `xmas-common`**, declared in `scripts/check-patch-order.py`. |
 | `patches/android/build-fixes.patch` | LW-M2-02 | The Android build fixes that belong to no single LibreWolf patch — currently one hunk, `computeVersionCode()`'s `Integer.parseInt()` against the `153.0esr-1`-shaped `MOZ_APP_VERSION` the patcher writes. **Kept last in the list on purpose:** it is the collection point for build breakage, and nothing else in any list touches `build.gradle`. Nothing was dropped from `common.txt` to make the build green. |

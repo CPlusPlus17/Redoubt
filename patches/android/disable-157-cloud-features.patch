@@ -1,0 +1,972 @@
+# Redoubt disable-157-cloud-features.patch: four Firefox 157 features that send
+# browsing data to Mozilla or Google services, off for good on Android.
+#
+# Owner decision 2026-10-02 (docs/android/TRACK.md, "Decision reversed"),
+# taken when Android moved to Firefox release 157. Each switch is a constant,
+# not a default, so neither Nimbus (stubbed by no-nimbus.patch), a stale
+# SharedPreferences value from an earlier build nor Secret Settings can turn
+# it back on.
+#
+# 1. Shake to Summarize -- fenix utils/Settings.kt
+#    shakeToSummarizeFeatureFlagEnabled is false. Summaries are produced by
+#    Mozilla's MLPA service (lib-llm-mlpa, MlpaConfig.prodProd =
+#    mlpa-prod-prod-mozilla.freetls.fastly.net) from the page text. Every
+#    surface reads this flag: Components.aiFeatureRegistry registers
+#    PageSummaryFeature only when it is true; FenixSummarizationFeatureConfiguration
+#    .isFeatureAvailable gates canShowFeature, which gates the menu item, its
+#    highlight, the toolbar CFR, the toolbar highlight and
+#    BrowserFragment.setupShakeDetection (no accelerometer listener is
+#    registered); SettingsFragment and CustomizationFragment hide the
+#    summarize settings. The only code that reaches MLPA is
+#    SummarizationFragment (components.llm.mlpaProvider), which is opened only
+#    from those surfaces. :components:lib-llm-mlpa stays in the dependency
+#    graph: Llm.kt, ClientUUID.kt, FenixMlpaService.kt and the debug drawer's
+#    IntegrityTools all import it, so dropping it is a source removal across
+#    five files, not a build.gradle line -- left for a follow-up.
+#
+# 2. IP Protection ("Built-in VPN", Mozilla's hosted proxy) -- Settings.kt,
+#    FenixApplication.kt, components/ipprotection/IPProtection.kt,
+#    home/intent/HomeDeepLinkIntentProcessor.kt
+#    isIPProtectionAvailable is false, so IPProtectionPromptRepository never
+#    shows the onboarding sheet. FenixApplication no longer calls
+#    maybeSetupIPProtection(), so IPProtectionFeature.initialize() and the
+#    storage synchronizer never run. IPProtection.eligibilityStorage is a
+#    constant Ineligible instead of FenixIPProtectionEligibilityStorage (Nimbus,
+#    home region, Secret Settings override); with no Eligible state the
+#    settings row (SettingsFragment.setupIPProtectionPreferences:
+#    isVisible = state.isEligible), the menu and trust-panel entries stay
+#    hidden. The settings_ip_protection deep link is unmapped.
+#
+# 3. Merino shortcut icons -- Settings.kt, home/topsites/store/PopularSite.kt
+#    enableAddShortcutsImprovement (Nimbus add-shortcuts-improvement) is false,
+#    so neither the "Add shortcut" tile nor its popular-sites sheet appears.
+#    Independently, ManifestEntry.toPopularSite() drops the manifest's icon URL
+#    (prod-images.merino.prod.webservices.mozgcp.net), so a popular site can
+#    never make that request even if a future surface shows the list.
+#    BrowserIcons' MerinoManifestIconPreparer was already removed (LW-M4-10).
+#
+# 4. Google Lens -- Settings.kt
+#    googleLensIntegrationEnabled is false in every build type. LensFeature,
+#    LensSearchActivity (via SearchWidgetProvider), the toolbar Lens button,
+#    the image context menu entry (FenixApplication's googleLensEnabled) and
+#    SearchEngineFragment's preference all check it; LensImageUploader, the
+#    only code that posts to lens.google.com/upload, is constructed only behind
+#    those checks.
+#
+# The three flags that were preference-backed keep a setter, as a no-op, so
+# that upstream callers (androidTest helpers, unit tests) still compile. Their
+# Secret Settings switches are removed (fragment and xml), together with the
+# IP Protection override switch, which only fed the two decisions above.
+#
+# Tests: FenixSummarizationFeatureConfigurationTest and
+# IPProtectionPromptRepositoryTest tested the behaviour this patch removes
+# and are deleted; HomeDeepLinkIntentProcessorTest's settings_ip_protection
+# case now asserts that nothing is navigated to; LibreWolfCloudFeaturesTest
+# pins all four constants, every summarize discovery surface, the IP
+# Protection prompt and the Merino icon strip.
+#
+# Applies last in android.txt, on top of no-gms.patch, no-glean.patch and
+# firefox-suggest-policy.patch, which also edit SecretSettingsFragment.kt and
+# Settings.kt (check-patch-order.py records the pairs).
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+index fec92ff774..6837e893f3 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+@@ -427,8 +427,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+             )
+         }
+ 
+-        maybeSetupIPProtection()
+-
+         GlobalFxSuggestDependencyProvider.initialize { components.fxSuggest.storage }
+         if (!FxSuggestAdmission.snapshot().choices.localEnabled) {
+             FxSuggestIngestionScheduler(this).stopPeriodicIngestion()
+@@ -678,11 +676,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+         (LeakCanarySetup as LeakCanarySetupInterface).updateState(isEnabled = isEnabled, components = components)
+     }
+ 
+-    private fun maybeSetupIPProtection() {
+-        components.ipProtection.feature.initialize()
+-        components.ipProtection.storageSynchronizer.initialize()
+-    }
+-
+     private fun setupCrashReporting(): CrashReporter {
+         return components.analytics.crashReporter.install(this, ::handleCaughtException)
+     }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
+index 99825f89bd..4f98e38c80 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
+@@ -5,14 +5,17 @@
+ package org.mozilla.fenix.components.ipprotection
+ 
+ import android.content.Context
+-import androidx.lifecycle.ProcessLifecycleOwner
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.flowOf
+ import mozilla.components.browser.state.store.BrowserStore
+ import mozilla.components.concept.engine.Engine
++import mozilla.components.feature.ipprotection.IPProtectionEligibilityStorage
+ import mozilla.components.feature.ipprotection.IPProtectionFeature
+ import mozilla.components.feature.ipprotection.IPProtectionStorageSynchronizer
+ import mozilla.components.feature.ipprotection.store.DefaultIPProtectionLocationRepository
+ import mozilla.components.feature.ipprotection.store.IPProtectionLocationMiddleware
+ import mozilla.components.feature.ipprotection.store.IPProtectionStore
++import mozilla.components.feature.ipprotection.store.state.EligibilityStatus
+ import mozilla.components.service.fxa.manager.FxaAccountManager
+ import mozilla.components.service.fxa.store.SyncStore
+ import mozilla.components.support.base.log.logger.Logger
+@@ -66,13 +69,15 @@ class IPProtection(
+         )
+     }
+ 
+-    val eligibilityStorage by lazy {
+-        FenixIPProtectionEligibilityStorage(
+-            browserStore = browserStore,
+-            sharedPref = settings.preferences,
+-            prefKey = context.getString(R.string.pref_key_enable_ip_protection),
+-            lifecycleOwner = ProcessLifecycleOwner.get(),
+-        )
++    // LibreWolf (disable-157-cloud-features.patch): IP Protection is Mozilla's hosted proxy. Eligibility is a
++    // constant Ineligible instead of FenixIPProtectionEligibilityStorage's Nimbus, region and Secret Settings
++    // decision, and FenixApplication no longer initialises the feature or this storage's synchronizer.
++    val eligibilityStorage: IPProtectionEligibilityStorage by lazy {
++        object : IPProtectionEligibilityStorage {
++            override val eligibilityStatus: Flow<EligibilityStatus> = flowOf(EligibilityStatus.Ineligible)
++
++            override fun init() = Unit
++        }
+     }
+ 
+     val feature by lazy {
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt
+index 1b3937eed4..1ddf274696 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt
+@@ -88,7 +88,8 @@ class HomeDeepLinkIntentProcessor(
+                 "settings_ai_controls" -> GlobalDirections.SettingsAIControls
+                 "privacy_report",
+                 "protections_dashboard" -> GlobalDirections.ProtectionsDashboard
+-                "settings_ip_protection" -> GlobalDirections.SettingsIpProtection
++                // LibreWolf (disable-157-cloud-features.patch): no "settings_ip_protection" link to the
++                // IP Protection screen. The feature is never available.
+ 
+                 else -> return
+             }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt
+index 1987e81c8a..ede1d7313d 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt
+@@ -19,10 +19,16 @@ data class PopularSite(
+     val iconUrl: String?,
+ )
+ 
+-/** Converts a [ManifestEntry] to a [PopularSite]. */
++/**
++ * Converts a [ManifestEntry] to a [PopularSite].
++ *
++ * LibreWolf (disable-157-cloud-features.patch): the manifest's icon URLs point at Mozilla's Merino image CDN
++ * (prod-images.merino.prod.webservices.mozgcp.net), so a popular site never carries one and is drawn with a local
++ * letter tile.
++ */
+ fun ManifestEntry.toPopularSite(): PopularSite =
+     PopularSite(
+         title = title,
+         url = url,
+-        iconUrl = icon.ifEmpty { null },
++        iconUrl = null,
+     )
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+index 8e1bf091e7..624b658052 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+@@ -202,11 +202,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+             onPreferenceChangeListener = SharedPreferenceUpdater()
+         }
+ 
+-        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_add_shortcuts_improvement).apply {
+-            isChecked = settings.enableAddShortcutsImprovement
+-            onPreferenceChangeListener = SharedPreferenceUpdater()
+-        }
+-
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_more_shortcuts).apply {
+             isChecked = settings.showMoreShortcuts
+             onPreferenceChangeListener = SharedPreferenceUpdater()
+@@ -301,12 +296,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+             onPreferenceChangeListener = SharedPreferenceUpdater()
+         }
+ 
+-        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_shake_to_summarize).apply {
+-            isVisible = Config.channel.isNightlyOrDebug
+-            isChecked = settings.shakeToSummarizeFeatureFlagEnabled
+-            onPreferenceChangeListener = SharedPreferenceUpdater()
+-        }
+-
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_listen_to_page).apply {
+             isVisible = Config.channel.isNightlyOrDebug
+             isChecked = settings.listenToPageFeatureFlagEnabled
+@@ -343,12 +332,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+             onPreferenceChangeListener = SharedPreferenceUpdater()
+         }
+ 
+-        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_ip_protection).apply {
+-            isVisible = Config.channel.isNightlyOrDebug
+-            isChecked = settings.isIPProtectionEnabled
+-            onPreferenceChangeListener = SharedPreferenceUpdater()
+-        }
+-
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_ip_protection_locations).apply {
+             isVisible = Config.channel.isNightlyOrDebug || Config.channel.isBeta
+             isChecked = settings.isIPProtectionLocationsEnabled
+@@ -488,12 +471,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+             onPreferenceChangeListener = SharedPreferenceUpdater()
+         }
+ 
+-        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_google_lens_integration).apply {
+-            isVisible = Config.channel.isNightlyOrDebug || Config.channel.isBeta
+-            isChecked = settings.googleLensIntegrationEnabled
+-            onPreferenceChangeListener = SharedPreferenceUpdater()
+-        }
+-
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_voice_search_in_display_toolbar).apply {
+             isVisible = Config.channel.isNightlyOrDebug
+             isChecked = context.components.settings.showVoiceSearchInDisplayToolbar
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+index 9c33a4e1a9..dd0513558d 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+@@ -2604,12 +2604,18 @@ class Settings(
+             default = { FxNimbus.features.adsClientForStories.value().enabled },
+         )
+ 
+-    /** Indicates if Add Shortcuts improvement is enabled. */
+-    var enableAddShortcutsImprovement by
+-        booleanPreference(
+-            key = appContext.getPreferenceKey(R.string.pref_key_enable_add_shortcuts_improvement),
+-            default = { FxNimbus.features.addShortcutsImprovement.value().enabled },
+-        )
++    /**
++     * Indicates if Add Shortcuts improvement is enabled.
++     *
++     * LibreWolf (disable-157-cloud-features.patch): always false. Its "Add shortcut" sheet suggests popular sites
++     * from Mozilla's bundled Merino manifest and loads their icons from prod-images.merino.prod.webservices.mozgcp.net.
++     * The setter is a no-op, kept so that upstream callers and tests still compile.
++     */
++    var enableAddShortcutsImprovement: Boolean
++        get() = false
++
++        @Suppress("UNUSED_PARAMETER")
++        set(value) = Unit
+ 
+     /** Indicates if more shortcuts should be shown. */
+     var showMoreShortcuts by
+@@ -2781,12 +2787,19 @@ class Settings(
+             default = { FxNimbus.features.microsurveys.value().enabled },
+         )
+ 
+-    /** Nimbus controlled feature flag that Indicates if the Shake to Summarize feature should be enabled */
+-    var shakeToSummarizeFeatureFlagEnabled by
+-        booleanPreference(
+-            key = appContext.getPreferenceKey(R.string.pref_key_enable_shake_to_summarize),
+-            default = { FxNimbus.features.shakeToSummarize.value().enabled },
+-        )
++    /**
++     * Indicates if the Shake to Summarize feature should be enabled.
++     *
++     * LibreWolf (disable-157-cloud-features.patch): always false. Summaries are generated by Mozilla's MLPA service
++     * (mlpa-prod-prod-mozilla.freetls.fastly.net) from the page text, so the feature, its menu item, toolbar CFR and
++     * highlight, its settings and the shake listener are all off, and PageSummaryFeature is never registered.
++     * The setter is a no-op, kept so that upstream callers and tests still compile.
++     */
++    var shakeToSummarizeFeatureFlagEnabled: Boolean
++        get() = false
++
++        @Suppress("UNUSED_PARAMETER")
++        set(value) = Unit
+ 
+     /** Nimbus controlled feature flag that indicates if the Listen to Page feature should be enabled */
+     var listenToPageFeatureFlagEnabled by
+@@ -2870,10 +2883,11 @@ class Settings(
+     /**
+      * Indicates if the IPProtection feature is available for the user.
+      *
+-     * The flag is backed by a Nimbus `ip-protection` feature, with an option to override it through secret settings.
++     * LibreWolf (disable-157-cloud-features.patch): always false. IP Protection ("Built-in VPN") routes traffic
++     * through Mozilla's hosted proxy; Redoubt neither offers nor initialises it.
+      */
+     val isIPProtectionAvailable: Boolean
+-        get() = FxNimbus.features.ipProtection.value().enabled || isIPProtectionEnabled
++        get() = false
+ 
+     /**
+      * Persists IPProtection locations state set through Secret Settings.
+@@ -3296,11 +3310,18 @@ class Settings(
+             default = { FxNimbus.features.nativeShareSheet.value().enabled },
+         )
+ 
+-    var googleLensIntegrationEnabled by
+-        booleanPreference(
+-            key = appContext.getPreferenceKey(R.string.pref_key_google_lens_integration),
+-            default = { FxNimbus.features.googleLensIntegration.value().enabled },
+-        )
++    /**
++     * Indicates if the Google Lens integration is enabled.
++     *
++     * LibreWolf (disable-157-cloud-features.patch): always false, in every build type. The integration uploads
++     * camera and page images to lens.google.com/upload. The setter is a no-op, kept so that upstream callers and
++     * tests still compile.
++     */
++    var googleLensIntegrationEnabled: Boolean
++        get() = false
++
++        @Suppress("UNUSED_PARAMETER")
++        set(value) = Unit
+ 
+     /**
+      * User preference (local only) controlling whether the Google Lens integration is active when
+diff --git a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
+index 9713c72d34..d71fa877e1 100644
+--- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
++++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
+@@ -30,11 +30,6 @@
+       android:title="@string/preferences_debug_settings_custom_tab_extensions"
+       android:summary="@string/preferences_debug_settings_development_phase_summary"
+       app:icon="@drawable/mozac_ic_warning_24" />
+-    <SwitchPreferenceCompat
+-      android:defaultValue="false"
+-      android:key="@string/pref_key_google_lens_integration"
+-      android:title="@string/preferences_debug_settings_google_lens_integration"
+-      app:iconSpaceReserved="false" />
+     <SwitchPreferenceCompat
+       android:defaultValue="false"
+       android:key="@string/pref_key_show_voice_search_in_display_toolbar"
+@@ -92,10 +87,6 @@
+       android:key="@string/pref_key_private_mode_and_stories_entry_point"
+       android:title="@string/preferences_debug_settings_private_mode_and_stories_entry_point"
+       app:iconSpaceReserved="false" />
+-    <SwitchPreferenceCompat
+-      android:key="@string/pref_key_enable_add_shortcuts_improvement"
+-      android:title="@string/preferences_debug_settings_add_shortcuts_improvement"
+-      app:iconSpaceReserved="false" />
+     <SwitchPreferenceCompat
+       android:key="@string/pref_key_enable_homepage_weather_widget"
+       android:title="@string/preferences_debug_settings_homepage_weather_widget"
+@@ -220,11 +211,6 @@
+       android:key="@string/pref_key_native_share_sheet"
+       android:title="@string/preferences_debug_settings_native_android_share_sheet"
+       app:iconSpaceReserved="false" />
+-    <SwitchPreferenceCompat
+-      android:defaultValue="false"
+-      android:key="@string/pref_key_enable_shake_to_summarize"
+-      android:title="@string/preferences_key_enable_shake_to_summarize"
+-      app:iconSpaceReserved="false" />
+     <SwitchPreferenceCompat
+       android:defaultValue="false"
+       android:key="@string/pref_key_enable_listen_to_page"
+@@ -261,10 +247,6 @@
+       android:key="@string/pref_key_enable_longfox"
+       android:title="@string/preferences_debug_settings_enable_longfox"
+       app:iconSpaceReserved="false" />
+-    <SwitchPreferenceCompat
+-      android:key="@string/pref_key_enable_ip_protection"
+-      android:title="@string/preferences_debug_settings_ip_protection"
+-      app:iconSpaceReserved="false" />
+     <SwitchPreferenceCompat
+       android:key="@string/pref_key_enable_ip_protection_locations"
+       android:title="@string/preferences_debug_settings_ip_protection_locations"
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/LibreWolfCloudFeaturesTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/LibreWolfCloudFeaturesTest.kt
+new file mode 100644
+index 0000000000..972a1b3002
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/LibreWolfCloudFeaturesTest.kt
+@@ -0,0 +1,102 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.fenix
++
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import mozilla.components.lib.shake.ShakeSensitivity
++import mozilla.components.service.merino.manifest.ManifestEntry
++import mozilla.components.support.test.robolectric.testContext
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.mozilla.fenix.home.topsites.store.toPopularSite
++import org.mozilla.fenix.ipprotection.store.DefaultIPProtectionPromptRepository
++import org.mozilla.fenix.summarization.SummarizationSettingsBinding
++import org.mozilla.fenix.summarization.onboarding.FenixSummarizationFeatureConfiguration
++import org.mozilla.fenix.summarization.onboarding.SummarizeDiscoveryEvent
++import org.mozilla.fenix.utils.Settings
++import org.robolectric.RobolectricTestRunner
++
++/**
++ * LibreWolf (disable-157-cloud-features.patch): Shake to Summarize, Google Lens, Merino shortcut icons and
++ * IP Protection are off whatever a caller, a stale preference or the feature's own settings say.
++ */
++@RunWith(RobolectricTestRunner::class)
++class LibreWolfCloudFeaturesTest {
++    private lateinit var settings: Settings
++
++    private class EnabledSummarizationSettingsBinding : SummarizationSettingsBinding {
++        override val isFeatureEnabled: StateFlow<Boolean> = MutableStateFlow(true)
++        override val isGestureEnabled: StateFlow<Boolean> = MutableStateFlow(true)
++        override val shakeSensitivity: StateFlow<ShakeSensitivity> = MutableStateFlow(ShakeSensitivity.Medium)
++    }
++
++    @Before
++    fun setUp() {
++        settings = Settings(testContext)
++    }
++
++    @Test
++    fun `the cloud feature flags read false and ignore writes`() {
++        settings.shakeToSummarizeFeatureFlagEnabled = true
++        settings.googleLensIntegrationEnabled = true
++        settings.enableAddShortcutsImprovement = true
++        settings.isIPProtectionEnabled = true
++
++        assertFalse(settings.shakeToSummarizeFeatureFlagEnabled)
++        assertFalse(settings.googleLensIntegrationEnabled)
++        assertFalse(settings.enableAddShortcutsImprovement)
++        assertFalse(settings.isIPProtectionAvailable)
++    }
++
++    @Test
++    fun `no summarize surface shows even when the feature is switched on in its own settings`() {
++        settings.shakeToSummarizeFeatureFlagEnabled = true
++        val configuration =
++            FenixSummarizationFeatureConfiguration(
++                settings = settings,
++                summarizationSettingsBinding = EnabledSummarizationSettingsBinding(),
++            )
++
++        assertFalse(configuration.isFeatureAvailable)
++        assertFalse(configuration.canShowFeature)
++        assertFalse(configuration.showMenuItem)
++        assertFalse(configuration.shouldHighlightMenuItem)
++        assertFalse(configuration.shouldHighlightOverflowMenuItem)
++        assertFalse(configuration.shouldToolbarShowCfr)
++        assertFalse(configuration.shouldHighlightToolbarMenuButton)
++
++        configuration.cacheDiscoveryEvent(SummarizeDiscoveryEvent.CfrExposure)
++        assertFalse(settings.shakeToSummarizeToolbarCfrShown)
++    }
++
++    @Test
++    fun `the IP Protection onboarding prompt never shows`() {
++        settings.isIPProtectionEnabled = true
++        settings.onboardingCompletedTimestamp = 0L
++        val repository = DefaultIPProtectionPromptRepository(settings)
++
++        assertFalse(repository.canShowIPProtectionPrompt(System.currentTimeMillis()))
++    }
++
++    @Test
++    fun `a popular site never carries a Merino image CDN icon`() {
++        val entry =
++            ManifestEntry(
++                rank = 1,
++                domain = "example",
++                categories = emptyList(),
++                serpCategories = emptyList(),
++                url = "https://example.com",
++                title = "example",
++                icon = "https://prod-images.merino.prod.webservices.mozgcp.net/favicons/example.png",
++            )
++
++        assertNull(entry.toPopularSite().iconUrl)
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt
+index 1ff7284d37..5ff3419c7c 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt
+@@ -424,18 +424,13 @@ class HomeDeepLinkIntentProcessorTest {
+     }
+ 
+     @Test
+-    fun `process settings_ip_protection deep link`() {
++    fun `process settings_ip_protection deep link does not open IP Protection`() {
++        // LibreWolf (disable-157-cloud-features.patch): IP Protection is never available, so the
++        // deep link is not mapped and nothing is navigated to.
+         assertTrue(processorHome.process(testIntent("settings_ip_protection"), navController, out, settings))
+ 
+         verify { activity wasNot Called }
+-        verify {
+-            navController.navigate(
+-                NavGraphDirections.actionGlobalIpProtectionFragment(
+-                    entrypoint = FenixFxAEntryPoint.DeepLink,
+-                    startAuthFlow = false,
+-                )
+-            )
+-        }
++        verify { navController wasNot Called }
+         verify { out wasNot Called }
+     }
+ 
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ipprotection/store/IPProtectionPromptRepositoryTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ipprotection/store/IPProtectionPromptRepositoryTest.kt
+deleted file mode 100644
+index 7f5b3a1888..0000000000
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ipprotection/store/IPProtectionPromptRepositoryTest.kt
++++ /dev/null
+@@ -1,114 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.ipprotection.store
+-
+-import junit.framework.TestCase.assertFalse
+-import junit.framework.TestCase.assertTrue
+-import mozilla.components.support.test.robolectric.testContext
+-import org.json.JSONObject
+-import org.junit.Before
+-import org.junit.Test
+-import org.junit.runner.RunWith
+-import org.mozilla.experiments.nimbus.HardcodedNimbusFeatures
+-import org.mozilla.fenix.nimbus.FxNimbus
+-import org.mozilla.fenix.utils.Settings
+-import org.mozilla.fenix.utils.Settings.Companion.ONE_WEEK_MS
+-import org.robolectric.RobolectricTestRunner
+-
+-private const val CURRENT_TIME_MILLIS = 1_759_926_358_000L
+-
+-private const val EXACTLY_ONE_WEEK_AGO = CURRENT_TIME_MILLIS - ONE_WEEK_MS
+-private const val LESS_THAN_ONE_WEEK_AGO = EXACTLY_ONE_WEEK_AGO + 1
+-private const val MORE_THAN_ONE_WEEK_AGO = EXACTLY_ONE_WEEK_AGO - 1
+-
+-@RunWith(RobolectricTestRunner::class)
+-class IPProtectionPromptRepositoryTest {
+-    private lateinit var settings: Settings
+-
+-    private lateinit var repository: DefaultIPProtectionPromptRepository
+-
+-    @Before
+-    fun setup() {
+-        settings = Settings(testContext)
+-        settings.onboardingCompletedTimestamp = MORE_THAN_ONE_WEEK_AGO
+-        repository = DefaultIPProtectionPromptRepository(settings)
+-    }
+-
+-    @Test
+-    fun `WHEN all conditions satisfied THEN show the prompt`() {
+-        settings.isIPProtectionEnabled = true
+-        repository.isShowingPrompt = false
+-
+-        assertTrue(settings.isIPProtectionAvailable)
+-        assertTrue(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
+-    }
+-
+-    @Test
+-    fun `WHEN the prompt is already showing THEN do not show the prompt`() {
+-        settings.isIPProtectionEnabled = true
+-        repository.isShowingPrompt = true
+-
+-        assertTrue(settings.isIPProtectionAvailable)
+-        assertFalse(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
+-    }
+-
+-    @Test
+-    fun `WHEN the IP Protection feature is not available THEN do not show the prompt`() {
+-        val hardcodedNimbus =
+-            HardcodedNimbusFeatures(
+-                testContext,
+-                "ip-protection" to
+-                    JSONObject(
+-                        """
+-                        {
+-                            "enabled": false
+-                        }
+-                        """
+-                            .trimIndent()
+-                    ),
+-            )
+-        hardcodedNimbus.connectWith(FxNimbus)
+-        settings.isIPProtectionEnabled = false
+-        repository.isShowingPrompt = false
+-
+-        assertFalse(settings.isIPProtectionAvailable)
+-
+-        assertFalse(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
+-    }
+-
+-    @Test
+-    fun `WHEN onboarding was completed less than a week ago THEN do not show the prompt`() {
+-        settings.onboardingCompletedTimestamp = LESS_THAN_ONE_WEEK_AGO
+-
+-        repository = DefaultIPProtectionPromptRepository(settings)
+-        settings.isIPProtectionEnabled = true
+-        repository.isShowingPrompt = false
+-
+-        assertTrue(settings.isIPProtectionAvailable)
+-        assertFalse(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
+-    }
+-
+-    @Test
+-    fun `WHEN onboarding was completed exactly a week ago THEN do not show the prompt`() {
+-        settings.onboardingCompletedTimestamp = EXACTLY_ONE_WEEK_AGO
+-        repository = DefaultIPProtectionPromptRepository(settings)
+-        settings.isIPProtectionEnabled = true
+-        repository.isShowingPrompt = false
+-
+-        assertTrue(settings.isIPProtectionAvailable)
+-        assertFalse(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
+-    }
+-
+-    @Test
+-    fun `WHEN onboarding was completed over a week ago THEN show the prompt`() {
+-        settings.onboardingCompletedTimestamp = MORE_THAN_ONE_WEEK_AGO
+-        repository = DefaultIPProtectionPromptRepository(settings)
+-        settings.isIPProtectionEnabled = true
+-        repository.isShowingPrompt = false
+-
+-        assertTrue(settings.isIPProtectionAvailable)
+-        assertTrue(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/summarization/onboarding/FenixSummarizationFeatureConfigurationTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/summarization/onboarding/FenixSummarizationFeatureConfigurationTest.kt
+deleted file mode 100644
+index 0fea6a986a..0000000000
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/summarization/onboarding/FenixSummarizationFeatureConfigurationTest.kt
++++ /dev/null
+@@ -1,335 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.summarization.onboarding
+-
+-import androidx.test.ext.junit.runners.AndroidJUnit4
+-import kotlinx.coroutines.flow.MutableStateFlow
+-import kotlinx.coroutines.flow.StateFlow
+-import mozilla.components.lib.shake.ShakeSensitivity
+-import mozilla.components.support.test.robolectric.testContext
+-import org.junit.Assert.assertEquals
+-import org.junit.Assert.assertFalse
+-import org.junit.Assert.assertTrue
+-import org.junit.Before
+-import org.junit.Test
+-import org.junit.runner.RunWith
+-import org.mozilla.fenix.summarization.SummarizationSettingsBinding
+-import org.mozilla.fenix.utils.Settings
+-
+-@RunWith(AndroidJUnit4::class)
+-class FenixSummarizationFeatureConfigurationTest {
+-    private lateinit var testSettings: Settings
+-    private lateinit var discoverySettings: FenixSummarizationFeatureConfiguration
+-    private lateinit var settingsBinding: FakeSummarizationSettingsBinding
+-
+-    private class FakeSummarizationSettingsBinding : SummarizationSettingsBinding {
+-        val isFeatureEnabledFlow = MutableStateFlow(false)
+-        val isGestureEnabledFlow = MutableStateFlow(false)
+-        val shakeSensitivityFlow = MutableStateFlow(ShakeSensitivity.Medium)
+-
+-        override val isFeatureEnabled: StateFlow<Boolean> = isFeatureEnabledFlow
+-        override val isGestureEnabled: StateFlow<Boolean> = isGestureEnabledFlow
+-        override val shakeSensitivity: StateFlow<ShakeSensitivity> = shakeSensitivityFlow
+-    }
+-
+-    @Before
+-    fun setUp() {
+-        testSettings =
+-            Settings(
+-                appContext = testContext,
+-                packageName = "package-name",
+-                isBenchmarkBuild = false,
+-            )
+-        settingsBinding = FakeSummarizationSettingsBinding()
+-        discoverySettings =
+-            FenixSummarizationFeatureConfiguration(
+-                settings = testSettings,
+-                summarizationSettingsBinding = settingsBinding,
+-            )
+-    }
+-
+-    @Test
+-    fun `menu item is visible if the feature flag is enabled and the feature itself is turned on`() {
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        assertTrue(
+-            "Menu item should be visible if the feature flag is enabled and the feature itself is turned on",
+-            discoverySettings.showMenuItem,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu item is not visible if the feature flag is enabled and the feature itself is not enabled`() {
+-        // GIVEN the feature flag is enabled
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-
+-        // AND the feature is not enabled
+-        settingsBinding.isFeatureEnabledFlow.value = false
+-
+-        assertFalse(
+-            "Menu item should not be visible if the feature flag is enabled and the feature itself is not enabled",
+-            discoverySettings.showMenuItem,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu item is not visible if the feature flag is not enabled`() {
+-        // GIVEN the feature flag is not enabled
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = false
+-
+-        // AND the feature is somehow left enabled
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        assertFalse(
+-            "Menu item should not be visible if the feature flag is not enabled",
+-            discoverySettings.showMenuItem,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu item is highlighted after menu item is exposed once`() {
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        // menu item is exposed once
+-        discoverySettings.cacheDiscoveryEvent(SummarizeDiscoveryEvent.MenuItemExposure)
+-
+-        assertTrue(
+-            "Menu item should be highlighted after menu item is exposed once",
+-            discoverySettings.shouldHighlightMenuItem,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu item is not highlighted after menu item is exposed the second time`() {
+-        // Given both the feature flag and feature are enabled
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        // WHEN menu item is exposed twice
+-        discoverySettings.cacheDiscoveryEvent(SummarizeDiscoveryEvent.MenuItemExposure)
+-        discoverySettings.cacheDiscoveryEvent(SummarizeDiscoveryEvent.MenuItemExposure)
+-
+-        assertFalse(
+-            "Menu item should be highlighted after menu item is exposed the second time",
+-            discoverySettings.shouldHighlightMenuItem,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu item is not highlighted if the feature is not enabled`() {
+-        // GIVEN the feature flag is enabled
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-
+-        // AND the feature is not enabled
+-        settingsBinding.isFeatureEnabledFlow.value = false
+-
+-        assertFalse(
+-            "Menu item should not be highlighted if the feature is not enabled",
+-            discoverySettings.shouldHighlightMenuItem,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu item is not highlighted if the feature flag is not enabled`() {
+-        // GIVEN the feature flag is NOT enabled
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = false
+-
+-        // GIVEN the feature is somehow enabled
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        assertFalse(
+-            "Menu item should not be highlighted if the feature flag is not enabled",
+-            discoverySettings.shouldHighlightMenuItem,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu overflow is not highlighted if the feature flag is not enabled`() {
+-        // GIVEN the feature flag is NOT enabled
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = false
+-
+-        // GIVEN the feature is somehow enabled
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        assertFalse(
+-            "Menu overflow should not be highlighted if the feature flag is not enabled",
+-            discoverySettings.shouldHighlightOverflowMenuItem,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu overflow is not highlighted if the feature is not enabled`() {
+-        // GIVEN the feature flag is enabled
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-
+-        // GIVEN the feature is NOT enabled
+-        settingsBinding.isFeatureEnabledFlow.value = false
+-
+-        assertFalse(
+-            "Menu overflow should not be highlighted if the feature is not enabled",
+-            discoverySettings.shouldHighlightOverflowMenuItem,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu overflow is highlighted if the overflow menu item is not interacted with at all`() {
+-        // GIVEN the feature flag fully available
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        assertTrue(
+-            "Menu overflow should be highlighted after the overflow menu item is not interacted with",
+-            discoverySettings.shouldHighlightOverflowMenuItem,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu overflow is not highlighted after the overflow menu item is interacted with once`() {
+-        // GIVEN the feature flag fully available
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        // WHEN the overflow menu item is interacted with
+-        discoverySettings.cacheDiscoveryEvent(SummarizeDiscoveryEvent.MenuOverflowInteraction)
+-
+-        assertFalse(
+-            "Menu overflow should not be highlighted after the overflow menu item has been interacted with",
+-            discoverySettings.shouldHighlightOverflowMenuItem,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu overflow interaction does not get recorded if it is already more than one time`() {
+-        // GIVEN the feature flag fully available
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        // WHEN the overflow menu item is interacted with multiple times
+-        repeat(10) {
+-            discoverySettings.cacheDiscoveryEvent(SummarizeDiscoveryEvent.MenuOverflowInteraction)
+-        }
+-
+-        // THEN the settings should be updated to the max count
+-        assertEquals(
+-            "Menu overflow interaction should not get recorded if it is already recorded",
+-            1,
+-            testSettings.shakeToSummarizeMoreMenuItemInteractionCount.value,
+-        )
+-    }
+-
+-    @Test
+-    fun `menu item exposure does not get recorded if it is already more than two times`() {
+-        // GIVEN the feature flag fully available
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        // WHEN the overflow menu item is interacted with multiple times
+-        repeat(10) {
+-            discoverySettings.cacheDiscoveryEvent(SummarizeDiscoveryEvent.MenuItemExposure)
+-        }
+-
+-        // THEN the settings should be updated to the max count
+-        assertEquals(
+-            "Menu item exposure should not get recorded if it is already recorded twice",
+-            2,
+-            testSettings.shakeToSummarizeMenuItemExposureCount.value,
+-        )
+-    }
+-
+-    @Test
+-    fun `toolbar overflow menu interaction does not get recorded if it is already more than once`() {
+-        // GIVEN the feature flag fully available
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        // WHEN the toolbar overflow is interacted with multiple times
+-        repeat(10) {
+-            discoverySettings.cacheDiscoveryEvent(SummarizeDiscoveryEvent.ToolbarOverflowInteraction)
+-        }
+-
+-        // THEN the settings should be updated to the max count
+-        assertEquals(
+-            "Menu item exposure should not get recorded if it is already recorded onnce",
+-            1,
+-            testSettings.shakeToSummarizeToolbarInteractionCount.value,
+-        )
+-    }
+-
+-    @Test
+-    fun `cfr is marked as shown if it was not previously seen before`() {
+-        // GIVEN the feature flag is enabled
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        // when the cfr is shown
+-        discoverySettings.cacheDiscoveryEvent(SummarizeDiscoveryEvent.CfrExposure)
+-
+-        // THEN the settings should be updated
+-        assertTrue(
+-            "CFR item should not get recorded if it is already",
+-            testSettings.shakeToSummarizeToolbarCfrShown,
+-        )
+-    }
+-
+-    @Test
+-    fun `toolbar cfr is not shown if the feature flag is not enabled`() {
+-        // GIVEN the feature flag is NOT enabled
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = false
+-
+-        // GIVEN the feature is enabled
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        assertFalse(
+-            "Toolbar CFR should not be shown if the feature flag is not enabled",
+-            discoverySettings.shouldToolbarShowCfr,
+-        )
+-    }
+-
+-    @Test
+-    fun `toolbar cfr is not shown if the user settings for the feature itself is not enabled`() {
+-        // GIVEN the feature flag is enabled
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-
+-        // AND the feature is NOT enabled
+-        settingsBinding.isFeatureEnabledFlow.value = false
+-
+-        assertFalse(
+-            "Toolbar CFR should not be shown if the feature itself is not enabled",
+-            discoverySettings.shouldToolbarShowCfr,
+-        )
+-    }
+-
+-    @Test
+-    fun `toolbar cfr is shown if we have not shown it before`() {
+-        // GIVEN the feature flag fully available
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        // AND we have not shown the flag before
+-        testSettings.shakeToSummarizeToolbarCfrShown = false
+-
+-        assertTrue(
+-            "Toolbar CFR should be shown if it has not been shown before",
+-            discoverySettings.shouldToolbarShowCfr,
+-        )
+-    }
+-
+-    @Test
+-    fun `toolbar cfr is not shown if we have shown it before even if the feature is fully available`() {
+-        // GIVEN the feature flag fully available
+-        testSettings.shakeToSummarizeFeatureFlagEnabled = true
+-        settingsBinding.isFeatureEnabledFlow.value = true
+-
+-        // AND we have shown the flag before
+-        testSettings.shakeToSummarizeToolbarCfrShown = true
+-
+-        assertFalse(
+-            "Toolbar CFR should not be shown if it has already been shown before",
+-            discoverySettings.shouldToolbarShowCfr,
+-        )
+-    }
+-}
