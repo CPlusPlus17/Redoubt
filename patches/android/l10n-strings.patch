@@ -1672,6 +1672,23 @@
 +
 +if __name__ == "__main__":
 +    sys.exit(main())
+--- a/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/ui/AddonsManagerAdapterTest.kt
++++ b/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/ui/AddonsManagerAdapterTest.kt
+@@ -618,8 +618,12 @@ class AddonsManagerAdapterTest {
+ 
+         verify(messageBarWarningView).isVisible = false
+         verify(messageBarErrorView).isVisible = true
+-        verify(messageTextView).text =
+-            "This extension is blocked for violating Mozilla’s policies and has been disabled."
++        // LW-M4-12: mobile/android/lw-brand rewrites the Mozilla mark out of this
++        // resource in every locale, so the message is read from the resource the
++        // adapter uses, and it must no longer name Mozilla.
++        val blocklistedMessage = testContext.getString(R.string.mozac_feature_addons_status_blocklisted_1)
++        assertFalse(blocklistedMessage.contains("Mozilla"))
++        verify(messageTextView).text = blocklistedMessage
+ 
+         // Since we link to a non-SUMO page, we should update the text for this link.
+         assertEquals(learnMoreTextView.text, "See details")
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/appstate/setup/checklist/SetupChecklistStateTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/appstate/setup/checklist/SetupChecklistStateTest.kt
 @@ -8,10 +8,18 @@

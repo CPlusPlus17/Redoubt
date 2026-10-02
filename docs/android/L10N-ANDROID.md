@@ -349,6 +349,14 @@ were rewritten. The patch fixes them by reading the brand from the same
 resource the code under test uses (`R.string.firefox`, `R.string.app_name`),
 which is brand-agnostic: they pass with the rewrite on *and* off.
 
+The android-components modules carry their own string resources, and the
+rewrite reaches them too, so one android-components test had the same shape:
+`feature-addons` `AddonsManagerAdapterTest` "bind blocklisted add-on" expected
+"…violating Mozilla’s policies…". It went unnoticed until 153.4.0esr, the first
+rebase whose test run built that module's test source set. The patch now reads
+the message from `R.string.mozac_feature_addons_status_blocklisted_1` and
+asserts that it no longer names Mozilla.
+
 Measured as a controlled A/B in one tree with one variable — the
 `gradle.projectsLoaded` hook in `shared-settings.gradle`, added and removed,
 everything else including the test fixes held constant:
