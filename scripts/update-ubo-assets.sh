@@ -40,14 +40,19 @@ add_filter_list "LegitimateURLShortener" '{
 echo "-> Writing to assets/uBOAssets.json"
 echo $assets | jq . >./assets/uBOAssets.json
 
-git diff assets/uBOAssets.json
+# Redoubt: Android's catalog is derived from this one (cookie-notice lists on
+# by default, its own update URL). Regenerate it in the same change.
+echo "-> Regenerating assets/uBOAssets.android.json"
+python3 ./scripts/gen-ubo-assets-android.py
+
+git diff assets/uBOAssets.json assets/uBOAssets.android.json
 
 if [[ "$(
   read -e -p '-? Commit changes? [y/N] '
   echo $REPLY
 )" == [Yy]* ]]; then
   echo "-> Committing changes"
-  git add assets/uBOAssets.json
+  git add assets/uBOAssets.json assets/uBOAssets.android.json
   git commit -m "Update uBOAssets.json with latest changes"
 fi
 

@@ -28,6 +28,10 @@
 #   agent_safe   yes = a fresh agent with no prior context can do it from this file
 #   isolation    none | worktree  (worktree when the task mutates the source tree)
 #   risk         one line: what goes wrong if this is done carelessly
+#   retired      optional. Date and reason the task can no longer be done as
+#                written (the code it targets is gone upstream). A retired task
+#                is never offered by --ready and counts as done for the tasks
+#                that depend on it. The id stays; the history stays readable.
 #
 # NOTE ON THE settings SUBMODULE
 #   settings/ is a git submodule (github.com/CPlusPlus17/Redoubt/settings). Tasks that own
@@ -3954,6 +3958,13 @@ tasks:
   - id: LW-M7-13
     title: Restore cookie-banner rejection from a verified offline rules snapshot
     milestone: M7
+    retired: |
+      2026-10-02: Firefox 156 removed the cookie banner service. Firefox 157 has
+      no toolkit/components/cookiebanners, no cookie-banner-rules-list dump and no
+      cookiebanners.* prefs, so there are no rules to package. cookie-banner-rules.patch
+      and its tests were deleted at the 157 integration (PATCH-SCOPE.md, "Android
+      patches retired at the 157 integration"). Owner decision the same day:
+      uBlock Origin's cookie-notice lists replace the service (LW-M7-41).
     depends_on: [LW-M7-12]
     owns:
       - patches/android/cookie-banner-rules.patch
@@ -4456,6 +4467,13 @@ tasks:
   - id: LW-M7-23
     title: Add normal and private cookie-banner controls and domain exceptions
     milestone: M7
+    retired: |
+      2026-10-02: Firefox 156 removed the cookie banner service and GeckoView's
+      Cookie Banner Handling API ("there is no replacement", bug 2058143), so
+      there are no engine modes or domain exceptions left to expose.
+      cookie-banner-controls.patch and its tests were deleted at the 157
+      integration. Owner decision the same day: uBlock Origin's cookie-notice
+      lists replace the service, opt-out in uBO's own settings (LW-M7-41).
     depends_on: [LW-M7-12, LW-M7-13, LW-M7-14, LW-M7-20]
     owns:
       - patches/android/cookie-banner-controls.patch
@@ -4529,9 +4547,15 @@ tasks:
   - id: LW-M7-22
     title: Verify packaged cookie-banner rules through actual page behavior
     milestone: M7
+    retired: |
+      2026-10-02: the packaged rules (LW-M7-13) and controls (LW-M7-23) it was to
+      verify cannot exist on Firefox 157, which removed the cookie banner service.
+      scripts/android-cookie-banner-smoke.py now belongs to LW-M7-41 and checks
+      the uBO cookie-notice lists instead; its 153 runner, which
+      docs/android/evidence/lw-m7-22/test-cookie-banner-smoke.py tests, is in git
+      history (the version before LW-M7-41).
     depends_on: [LW-M7-12, LW-M7-13, LW-M7-18, LW-M7-23]
     owns:
-      - scripts/android-cookie-banner-smoke.py
       - docs/android/evidence/lw-m7-22/
     reads:
       - scripts/android-graphics-smoke.py
@@ -5190,3 +5214,41 @@ tasks:
     agent_safe: true
     isolation: worktree
     risk: A dispatch or window-close request is not a storage/content completion barrier; failure or late writes can leave cleanup incomplete or erase retained data.
+
+  - id: LW-M7-41
+    title: Enable uBlock Origin's cookie-notice lists by default on Android
+    milestone: M7
+    depends_on: [LW-M7-12, LW-M7-13, LW-M7-22, LW-M7-23]
+    submodule: settings
+    owns:
+      - assets/uBOAssets.android.json
+      - scripts/gen-ubo-assets-android.py
+      - scripts/android-cookie-banner-smoke.py
+      - scripts/tests/test-ubo-cookie-lists.py
+      - settings/android.cfg
+    reads:
+      - assets/uBOAssets.json
+      - assets/ubo-extension.json
+      - scripts/update-ubo-assets.sh
+      - patches/custom-ubo-assets-bootstrap-location.patch
+    what: |
+      Firefox 156 removed the cookie banner service; owner decision 2026-10-02
+      replaces it on Android with uBlock Origin's "EasyList/uBO - Cookie Notices"
+      lists (fanboy-cookiemonster, ublock-cookies-easylist), on by default and
+      opt-out in uBO's own settings. uBO selects lists without "off" on first run,
+      so scripts/gen-ubo-assets-android.py derives assets/uBOAssets.android.json
+      from LibreWolf's catalog with those two lists on and its own update URL,
+      and settings/android.cfg points librewolf.uBO.assetsBootstrapLocation at
+      it. scripts/android-cookie-banner-smoke.py checks the built APK or tree.
+    acceptance:
+      - "the Android catalog differs from assets/uBOAssets.json only in the two lists' off flag and its update URL"
+      - "both list keys exist in the cookie-notice group of the pinned uBO XPI's own assets.json"
+      - "the packaged librewolf.cfg leaves librewolf.uBO.assetsBootstrapLocation at the Android catalog URL"
+      - "the lists stay ordinary uBO lists: no managed setting re-applies them, so a user who turns one off keeps it off"
+      - "a fresh install shows both lists ticked in uBO's Filter lists pane"
+    verify: "python3 scripts/tests/test-ubo-cookie-lists.py && python3 scripts/gen-ubo-assets-android.py --check && python3 docs/android/board.py --check-cfg-split"
+    effort_h: "3-6"
+    skills: [python, js, android]
+    agent_safe: yes
+    isolation: none
+    risk: Turning lists on through uBO's managed settings would re-apply them at every start and make the choice impossible to undo.

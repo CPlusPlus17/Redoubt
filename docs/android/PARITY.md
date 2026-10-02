@@ -55,6 +55,7 @@ assertion.
 | 14 | Telemetry / experiments / sponsored content | patched off | **Equivalent (broader removal)** | `no-adjust`, `no-glean`, `no-nimbus`, `no-nimbus-toolkit`, `no-gms`, `no-onboarding` (all `android.txt`); 2,623 GMS dex classes → 0. Measured by: dex class count on a running build. [PATCH-SCOPE, POLICIES] |
 | 15 | Enterprise policy keys (22) | via `policies.json` | **Partial** | `policies.json` engine absent on Android (`Services.policies` undefined); all 22 keys mapped to other mechanisms; gaps **P1–P8** (Nimbus P2, Glean P3, default-browser prompt P4, extension-type restriction P5, sponsored/contile P6, HttpsOnlyMode P7). Measured by: policy-key mapping + running build. [POLICIES] |
 | 16 | Signing-key / codebase identity | LibreWolf/Mozilla code-signing trust root | **Absent (irreducible)** | Fork (Redoubt), not the LibreWolf project. Android identity is a distinct trust root — the `org.redoubtbrowser` applicationId plus the signing key (LW-M6-01) — and the current build still ships as `org.mozilla` + `.fenix.debug`. It cannot carry the desktop build's code-signing identity. [IDENTITY, ROADMAP] |
+| 17 | Cookie-banner handling | No service: Firefox 156 removed the cookie banner service; LibreWolf's uBO catalog keeps the cookie-notice lists off | **Different mechanism, on by default** (since 2026-10-02) | Firefox 156 removed `toolkit/components/cookiebanners`, the `cookiebanners.*` prefs and GeckoView's Cookie Banner Handling API ("no replacement", bug 2058143), so the 153 betas' packaged rules and controls (LW-M7-13/23) are retired on both targets. Owner decision: Android turns on uBlock Origin's "EasyList/uBO – Cookie Notices" lists (`fanboy-cookiemonster`, `ublock-cookies-easylist`) by default through its own uBO catalog (`settings/android.cfg` `librewolf.uBO.assetsBootstrapLocation` → `assets/uBOAssets.android.json`, LW-M7-41); the user turns them off in uBO's "Filter lists" pane. Not equivalent to the old service: a filter list hides the banner or blocks its script and never clicks "reject", so a site records no refusal. Fresh installs only (uBO reads the catalog location on its first run). Measured by: config parse + bundled-XPI key check (`scripts/android-cookie-banner-smoke.py --tree`, PASS on the 157 tree); hosted catalog PENDING until Redoubt's `main` carries it; on-device selection PENDING. |
 
 **Auxiliary-process containment (GPU / RDD / socket / utility / media):** not
 counted as an independent row. On desktop several of these run under per-process
@@ -103,6 +104,11 @@ Per rule G (two failures → stop and park), these are **parked, not faked**:
   "more identifiable than desktop" risk still needs a device.
 - **Honoured** behaviour for policy gaps P1–P8 (row 15): needs a device to
   confirm each Kotlin-side behaviour.
+- **Cookie-notice lists selected on a device** (row 17): needs a fresh
+  install, then uBO's dashboard ("Filter lists" → "Annoyances"). The build
+  side is checked by `scripts/android-cookie-banner-smoke.py`; its `--fetch`
+  check stays PENDING until `assets/uBOAssets.android.json` is on Redoubt's
+  `main` branch, and until then uBO uses the catalog inside its XPI.
 
 Both check scripts are **gates with a passing negative control**, so a
 regression in the *configured* layer is caught automatically. What they cannot
