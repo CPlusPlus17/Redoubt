@@ -1050,7 +1050,8 @@ to.
 
 Executed per §1-§7 on branch `android/esr-153.4`. **Stage A only: no
 `make dir`, no Gecko build** — §8, the §6e runtime audit and the L1 header
-check belong to stage B and were not run. Settings submodule at `0cae8fb`.
+check belong to stage B and were not run here. Stage B and the follow-ups
+are recorded inline below, marked as such. Settings submodule at `0cae8fb`.
 
 ### §1 — advisories
 
@@ -1101,6 +1102,7 @@ Software Releases"`, primary key `14F2 6682 D091 6CDD 81E3 7B6D 61B7 B526 D98F
 | before, 153.0esr | 0 | 14 (12 patches) | 14 |
 | after bump, unfixed, 153.4.0esr | **1** — 3 rejects | 15 | 18 |
 | after fixes, 153.4.0esr | **0** | 15 (13 patches) | 15 |
+| after the `session-cleanup` context refresh (2026-10-02 follow-up) | **0** | 14 (12 patches) | 14 |
 
 The three rejects and what was done:
 
@@ -1130,6 +1132,12 @@ block (fuzz 2, benign context: upstream added `#include
 "mozilla/AppShutdown.h"`). Regenerating either Android patch changes its
 sha256, and `scripts/tests/test-session-cleanup.py` /
 `test-extension-update-controls.py` and evidence receipts pin those bytes.
+**Superseded by the follow-up:** once those receipts were re-captured for
+153.4.0esr, the `session-cleanup` include-block hunk was refreshed. Only
+context and hunk headers changed, no `+`/`-` line. It now applies at
+`--fuzz=0` with no offsets, and its 15 output files are byte-identical to the
+fuzzy result that stage B built. See
+`evidence/lw-m7-01/esr-153.4.0/receipts/README.md`.
 
 `android/firefox-suggest-data`'s `app/build.gradle` section had a bare `@@`
 hunk header that GNU patch skips silently (exit 0, no `.rej`), so
@@ -1204,28 +1212,74 @@ success: All patches where applied successfully.
   exits 0 when a test never settles — it should count to 18.~~ Done: the
   `null` and the stale `convert()` remoteTab argument are gone, and the harness
   exits 1 unless all 18 tests finished (18/18 on the patched 153.4.0esr tree).
-- `test-extension-update-controls.py` and `test-session-cleanup.py` assert the
+- ~~`test-extension-update-controls.py` and `test-session-cleanup.py` assert the
   153.0esr sha256 of `extension-update-controls.patch`; the LW-M7-35/37
-  evidence receipts need re-capturing on 153.4.0esr.
-- Stage B: `make dir TARGETS=android`, `./mach build`, the L1 header grep,
-  `android-pref-audit.sh` on the built APK.
+  evidence receipts need re-capturing on 153.4.0esr.~~ Done for all three
+  pinned tests, including `test-global-privacy-controls.py` (LW-M7-36). The
+  receipts were re-captured from the signed tarball plus the Android stack,
+  with an exact `--fuzz=0` replay. The whole-stack result matches the
+  stage-B tree on every path (27/27, 21/21, 15/15). Each test picks
+  `evidence/lw-m7-01/esr-<version.android>/receipts/` when it exists. Still
+  153.0esr-only: the task-local `lw-m7-35/36/37 check-ordering.py` and
+  `lw-m7-36/check-source.py`, outside `scripts/tests`.
+- ~~Stage B: `make dir TARGETS=android`, `./mach build`, the L1 header grep,
+  `android-pref-audit.sh` on the built APK.~~ Done. The header is `true`, as
+  §6e expects with LW-M7-14 listed. The audit result is in
+  `evidence/lw-m7-01/esr-153.4.0/README.md`.
 - Unit tests on the 153.4.0esr build tree: `fenix:testDebugUnitTest` ran 615
   classes / 5,562 tests, 22 failing = 19 environmental + 3 known-real + 0
   unexpected (`board.py --check-fenix-tests` exit 0). It warns that
   `SearchSuggestionsProvidersBuilderTest` now passes (70/70) and
-  `AutofillSettingsMiddlewareTest` fails 2, not 3. Trimming the allowlist is
-  still to decide. Running the Android Components modules our patches touch
+  `AutofillSettingsMiddlewareTest` fails 2, not 3. Both entries are now
+  trimmed: the first is dropped and the second's ceiling is 2. Re-graded
+  against the archived XML, the result is exit 0 with no warnings
+  (19 + 3 + 0). Running the Android Components modules our patches touch
   found three test files that had never compiled or passed, and they are now
   fixed. `PinnedSuggestIngestionTest` (firefox-suggest-data) used mockk, which
   android-components excludes, so it now uses Mockito. `AddonUpdaterWorkerTest`
   (extension-update-controls) used Mockito's `eq`, which returns null for a
   Kotlin non-null `String`, so it now uses the support-test `eq`.
   `GeckoGlobalPrivacyControllerTest` (global-privacy-controls) had a redundant
-  `!!` that is a warning under `-Werror`. Still failing, outside the targeted
-  set: two `FxSuggestSuggestionProviderTest` cases expect a query with an
-  empty provider list, which firefox-suggest-policy deliberately skips, and
-  `AddonsManagerAdapterTest.bind blocklisted add-on` expects "Mozilla’s
-  policies" where the branded string says Redoubt.
+  `!!` that is a warning under `-Werror`. Two more classes asserted upstream
+  behaviour, and the owning patches now assert ours. In
+  `FxSuggestSuggestionProviderTest` (firefox-suggest-policy), two cases
+  expected a query with an empty provider list; they now verify that the
+  store is never queried. In `AddonsManagerAdapterTest` "bind blocklisted
+  add-on" (l10n-strings), the test now reads the lw-brand-rewritten
+  resource and asserts that it does not name Mozilla.
+  `:components:feature-fxsuggest` passes 73/73 and
+  `:components:feature-addons` passes 218/218.
+
+### Follow-up pass (2026-10-02, after stage B)
+
+The changes listed in the items above, plus two stale `scripts/tests`:
+
+- `scripts/librewolf-patches.py`: the LW-M4-07 brand-image existence check
+  ran under `--no-execute`, which never enters the tree, so
+  `test-ubo-extension.py`'s dry-run case exited 1. It is now skipped there,
+  like every other existence check.
+- `test-android-signing.py`: the default bundle is
+  `librewolf-android-apk-<version.android>-<release.android>/apk`, not a
+  hardcoded 153.0esr path.
+
+Re-run on the 153.4.0esr tree after those commits:
+
+```
+scripts/tests: 15 .py + 8 .js, all exit 0. Two take inputs:
+  test-android-signing.py --apk <stage-B x86_64 APK> --apksigner <handoff apksigner.jar>
+    29/29.
+  test-android-version-code.py --classes/--gradle-home, in the build container
+    5/5. With no arguments it is a usage error (exit 2), as before.
+board.py --check                 ok: 122 tasks, 32 waves, 0 warning(s)
+board.py --check-scope           ok: 120 listed patch files — 15 common, 53 desktop, 52 android
+board.py --check-cfg-split       ok: 181 common / 200 desktop / 20 android calls
+board.py --diff-mozconfig --strict   ok: hardening parity holds (0 documented difference(s))
+board.py --check-fenix-tests --results <archived 153.4 XML>   ok, 19 + 3 + 0, no warnings
+lint-patch-scope                 OK - 120 patch file(s)
+check-patch-order                30/30 constraints, 162 shared-file pairs
+check-patchfail --targets=android          exit 0; 14 fuzzy hunks in 12 patches
+check-patchfail --targets=android --fuzz=0 14 patches reject (15 before the refresh); session-cleanup is clean
+```
 
 ---
 
