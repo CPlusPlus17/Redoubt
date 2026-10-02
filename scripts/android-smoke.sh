@@ -3224,13 +3224,7 @@ def check_search(m, res, adb, apk, app=None, scheme=None):
     from Gecko at all.  Fenix owns it, so the query has to be typed into the
     Fenix toolbar like a user would."""
     token = "lwsmokeq%d" % int(time.time() % 100000)
-    adb.shell("uiautomator dump /sdcard/lw-smoke-ui.xml", timeout=60)
-    xml = adb.shell("cat /sdcard/lw-smoke-ui.xml", timeout=60)
-    pt = None
-    for ident in URLBAR_IDS:
-        pt = _node_bounds(xml, ident)
-        if pt:
-            break
+    xml, pt, notice_acknowledged = toolbar_ready(adb, app.pkg if app is not None else None)
     if not pt:
         raise HarnessError("could not find the Fenix address bar in the UI tree (tried %s). "
                            "Without it there is no way to run a real query, and a static scan "
@@ -3297,7 +3291,8 @@ def check_search(m, res, adb, apk, app=None, scheme=None):
             {"url": url, "partner_codes": ["%s=%s" % c for c in codes],
              "expected_engines": expected, "expected_default": expected_default,
              "shown_engine_screen": shown[:60], "shown_default": shown_default,
-             "legacy_bundle_plugins": len(plugins)})
+             "legacy_bundle_plugins": len(plugins),
+             "ubo_notice_acknowledged": notice_acknowledged})
     return ok
 
 
@@ -3357,6 +3352,140 @@ def _deeplink(adb, pkg, scheme, path):
               timeout=90)
     time.sleep(3)
 
+# The first-run "uBlock Origin was added" sheet covers the toolbar on a fresh
+# profile.  Recognition is the graphics harness's ubo_added_notice(): the exact
+# native installed notice and its OK, never a generic OK or a permission dialog.
+# Tapping that OK is a user action that only dismisses the completed notice.
+_GRAPHICS_MODULE = None
+
+def _graphics_module():
+    global _GRAPHICS_MODULE
+    if _GRAPHICS_MODULE is None:
+        import importlib.util
+        path = os.path.join(os.environ.get("LW_SMOKE_REPO", "."), "scripts", "android-graphics-smoke.py")
+        if not os.path.isfile(path):
+            raise HarnessError("the uBO installed-notice recognizer lives in %s, which is missing" % path)
+        spec = importlib.util.spec_from_file_location("lw_smoke_graphics_ui", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _GRAPHICS_MODULE = module
+    return _GRAPHICS_MODULE
+
+def acknowledge_ubo_added_notice(adb, pkg, xml, timeout=25):
+    """(xml, acknowledged).  Tap the notice's OK once, then wait read-only for
+    the sheet to go; xml is the fresh hierarchy without it."""
+    g = _graphics_module()
+    try:
+        button = g.ubo_added_notice(xml, pkg)
+    except g.Failure as e:
+        raise HarnessError(str(e))
+    if button is None:
+        return xml, False
+    log("acknowledging the first-run 'uBlock Origin was added' sheet (one tap on its OK)")
+    adb.shell("input tap %d %d" % tuple(button["centre"]), timeout=60)
+    deadline = time.time() + timeout
+    while True:
+        time.sleep(0.5)
+        xml = _ui_dump(adb)
+        try:
+            present = g.ubo_added_notice_present(xml, pkg)
+        except g.Failure as e:
+            raise HarnessError(str(e))
+        if not present:
+            return xml, True
+        if time.time() >= deadline:
+            raise HarnessError("the uBlock Origin installed notice did not close after its OK")
+
+def toolbar_ready(adb, pkg, timeout=45, settle=2.0):
+    """(xml, address-bar centre or None, notice acknowledged).
+
+    The bar counts as ready when two dumps `settle` seconds apart both show it
+    at the same place with no uBO installed notice: the sheet arrives a moment
+    after uBO's startup, so one clean dump does not prove it will not cover the
+    bar.  pkg None skips notice handling (no app object)."""
+    acknowledged, previous, xml = False, None, ""
+    deadline = time.time() + timeout
+    while True:
+        xml = _ui_dump(adb)
+        if pkg:
+            xml, acked = acknowledge_ubo_added_notice(adb, pkg, xml)
+            if acked:
+                acknowledged, previous = True, None
+                continue
+        pt = next((p for ident in URLBAR_IDS for p in [_node_bounds(xml, ident)] if p), None)
+        if pt and pt == previous:
+            return xml, pt, acknowledged
+        previous = pt
+        if time.time() >= deadline:
+            return xml, None, acknowledged
+        time.sleep(settle)
+
+# uBO's asset updater, read from the bundled xpi rather than assumed: start.js
+# schedules it autoUpdateDelayAfterLaunch seconds after every launch and
+# assets.js then fetches one stale list every autoUpdateAssetFetchPeriod seconds
+# until none is left ("Updater: cycle end").  check_no_suggest restarts the app,
+# so on a young profile the cycle lands in the typing window unless it waits.
+def ubo_update_schedule(apk):
+    with zipfile.ZipFile(apk) as archive:
+        xpi = archive.read("assets/extensions/ublock_origin.xpi")
+    with zipfile.ZipFile(io.BytesIO(xpi)) as extension:
+        background = extension.read("js/background.js").decode("utf-8", "replace")
+    out = {}
+    for key in ("autoUpdateDelayAfterLaunch", "autoUpdateAssetFetchPeriod"):
+        m = re.search(r"\b%s:\s*(\d+)\s*," % key, background)
+        if not m:
+            raise HarnessError("bundled uBO js/background.js has no numeric %s default; "
+                               "the post-launch quiet wait cannot be derived" % key)
+        out[key] = int(m.group(1))
+    return out
+
+# Margin for uBO's own startup before its launch timer starts (rc2: ready 5.7 s
+# after START on a fresh profile), and the quiet span that proves the cycle
+# ended: several fetch periods with nothing outbound.
+UBO_STARTUP_ALLOWANCE_S = 30
+SETTLE_TIMEOUT_S = 300
+
+def wait_post_launch_quiet(payloads, size, start_offset, launched, schedule,
+                           timeout=SETTLE_TIMEOUT_S, poll=2.0, clock=time.monotonic,
+                           sleep=time.sleep):
+    """Wait until uBO's post-launch updater cycle is over, judged by the capture.
+
+    Ready when (a) uBO's launch timer must have fired -- autoUpdateDelayAfterLaunch
+    plus a startup allowance since `launched` -- and (b) no non-background
+    outbound payload appeared for `quiet` seconds, longer than several of the
+    updater's fetch periods, so a pause between two list fetches is not taken
+    for the end.  Nothing is exempted: traffic here is only recorded, and the
+    typing window that follows is judged exactly as before.  `payloads(offset)`
+    returns pcap_payloads rows from offset; `size()` the capture size;
+    start_offset is the capture size at launch, so nothing since then is missed
+    (traffic is timed when a poll first sees it, which can only lengthen the wait)."""
+    earliest = schedule["autoUpdateDelayAfterLaunch"] + UBO_STARTUP_ALLOWANCE_S
+    quiet = max(20, 3 * schedule["autoUpdateAssetFetchPeriod"])
+    offset, last_activity, seen = start_offset, launched, {}
+    while True:
+        now = clock()
+        if now - launched >= earliest and now - last_activity >= quiet:
+            settled = True
+            break
+        if now - launched >= timeout:
+            settled = False
+            break
+        sleep(poll)
+        end = size()
+        # A packet completed after `end` but read now is counted again next
+        # poll; that only refreshes last_activity, it never hides traffic.
+        rows = [r for r in payloads(offset) if not r["background"]]
+        offset = end
+        if rows:
+            last_activity = clock()
+            for r in rows:
+                key = r["host"] or r["dst"]
+                seen[key] = seen.get(key, 0) + r["bytes"]
+    return {"settled": settled, "waited_s": round(clock() - launched, 1),
+            "earliest_s": earliest, "quiet_s": quiet, "timeout_s": timeout,
+            "quiet_since_s": round(clock() - last_activity, 1),
+            "ubo_schedule": schedule, "hosts_bytes": seen}
+
 def deeplink_scheme(args, sdk, apk):
     """The APK's own scheme when aapt2 is around to read it; otherwise the one
     LW-M4-07's branding.patch registers, said out loud."""
@@ -3393,8 +3522,12 @@ def expected_engines():
 # the old contile host is kept so a rebase that brings it back is still caught.
 SPONSORED_TILE_HOSTS = ("ads.mozilla.org", "contile.services.mozilla.com")
 
-def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
-    """Check typing payloads as well as handshakes, with a real search control."""
+def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk):
+    """Check typing payloads as well as handshakes, with a real search control.
+
+    The typing window opens only after uBO's post-launch filter-list update has
+    run and the capture has gone quiet (wait_post_launch_quiet): those fetches
+    are not suggestions, and nothing is exempted to make room for them."""
     from urllib.parse import urlsplit, parse_qs
     require_pcap(pcap)
     with open(os.path.join(os.environ.get("LW_SMOKE_REPO", "."),
@@ -3406,15 +3539,29 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
                   if r.get("identifier") == default_id)
     search_host = urlsplit(search["base"]).hostname
     search_param = search.get("searchTermParamName", "q")
+    schedule = ubo_update_schedule(apk)
     app.push_debug_config()
     app.force_stop()
     time.sleep(1)
     guest = app.guest_ips()
     off_all = pcap_size(pcap)
+    launched = time.monotonic()
     app.start_home()
-    time.sleep(8)
-    xml = _ui_dump(adb)
-    pt = next((p for ident in URLBAR_IDS for p in [_node_bounds(xml, ident)] if p), None)
+    _xml, _pt, notice_acknowledged = toolbar_ready(adb, app.pkg)
+
+    def settle_payloads(offset):
+        guest.update(app.guest_ips())
+        return pcap_payloads(pcap, offset, guest)
+    log("check-no-suggest: waiting for uBO's post-launch list update (%ds after launch, "
+        "fetch period %ds) and a quiet capture before typing"
+        % (schedule["autoUpdateDelayAfterLaunch"], schedule["autoUpdateAssetFetchPeriod"]))
+    settle = wait_post_launch_quiet(settle_payloads, lambda: pcap_size(pcap), off_all,
+                                    launched, schedule)
+    log("check-no-suggest: %s after %.0fs; pre-typing outbound bytes by host: %s"
+        % ("quiet" if settle["settled"] else "NOT quiet", settle["waited_s"],
+           settle["hosts_bytes"] or "none"))
+    xml, pt, acked = toolbar_ready(adb, app.pkg)
+    notice_acknowledged = notice_acknowledged or acked
     if not pt:
         raise HarnessError("could not find the Fenix address bar; typing check cannot run")
     adb.shell("input tap %d %d" % pt, timeout=60)
@@ -3510,9 +3657,12 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
     problems = []
     if suspect_payloads:
         problems.append("typing emitted %d outbound payload bytes on %d packet(s), "
-                        "including reused TLS connections; quiet typing is unproven: %s"
+                        "including reused TLS connections; quiet typing is unproven: %s%s"
                         % (sum(r["bytes"] for r in suspect_payloads), len(suspect_payloads),
-                           sorted({r["host"] or r["dst"] for r in suspect_payloads})[:6]))
+                           sorted({r["host"] or r["dst"] for r in suspect_payloads})[:6],
+                           "" if settle["settled"] else
+                           " (the capture never went quiet in the %ds before typing)"
+                           % settle["timeout_s"]))
     if not searched:
         problems.append("search control unproven: %d payload bytes to %s, current URL=%r"
                         % (search_bytes, search_host, url))
@@ -3541,7 +3691,8 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
              "typing_capture_offset": off_typing, "enter_capture_offset": off_enter,
              "app_capture_offset": off_all, "guest_ips": sorted(guest),
              "post_enter_pcap_bytes": dpcap, "post_enter_search_payload_bytes": search_bytes,
-             "capture_seconds": capture_seconds})
+             "capture_seconds": capture_seconds, "pre_typing_settle": settle,
+             "ubo_notice_acknowledged": notice_acknowledged})
     return ok
 
 # LW-M6-06.  The update host, overridable for a build made with
@@ -3893,7 +4044,7 @@ def main(argv):
         # ---- --check-no-suggest: nothing leaves the toolbar before Enter ----
         if args.check_no_suggest:
             check_no_suggest(app, adb, pcap, args.capture_seconds, res,
-                             deeplink_scheme(args, sdk, apk))
+                             deeplink_scheme(args, sdk, apk), apk)
             return finish(res, args, work)
 
         # ---- --check-update-privacy: opt-in, and silent when off (LW-M6-06) ----

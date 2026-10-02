@@ -211,6 +211,36 @@ def ubo_added_notice(xml, package):
     return matches[0] if matches else None
 
 
+def ubo_added_notice_present(xml, package):
+    """True while any part of the notice's title is still in the hierarchy.
+
+    Read-only check used after the single OK tap: the sheet may be mid-animation
+    and no longer match ubo_added_notice()'s exact shape, yet still be on screen.
+    """
+    return any(node.get("package") == package and
+               node.get("resource-id") == package + ":id/title" and
+               node.get("text") == UBO_ADDED_TITLE
+               for node in parse_ui(xml).iter("node"))
+
+
+def menu_item(xml, label, package):
+    """The unique visible menu entry labelled `label`, by text or content-desc.
+
+    Fenix's Compose toolbar menu (PopupToMenuItemsMapper.kt) clears the item's
+    semantics and sets only contentDescription, so uiautomator shows it as
+    content-desc="New private tab" with text="". A View-based menu exposes the
+    label as text instead. One node carrying both counts once; two different
+    nodes are ambiguous, never resolved by picking one.
+    """
+    found = {}
+    for selector in ({"text": label}, {"description": label}):
+        node = select_node(xml, package=package, required=False, **selector)
+        if node:
+            found[(node.get("bounds"), node.get("resource-id", ""), node.get("class", ""))] = node
+    require(len(found) <= 1, f"Ambiguous menu item {label!r}: matched by text and by content-desc on different nodes")
+    return next(iter(found.values()), None)
+
+
 def transport_config_facts(body):
     """Accept only the established transport-only config; report no secret values."""
     lines = [line.strip() for line in body.splitlines()
@@ -585,11 +615,7 @@ class UI:
         deadline = time.monotonic() + self.timeout
         while True:
             xml = self.dump("after-ubo-installed-notice", screenshot=True)
-            title_present = any(node.get("package") == self.package and
-                                node.get("resource-id") == self.package + ":id/title" and
-                                node.get("text") == UBO_ADDED_TITLE
-                                for node in parse_ui(xml).iter("node"))
-            if not title_present:
+            if not ubo_added_notice_present(xml, self.package):
                 return xml
             if time.monotonic() >= deadline:
                 raise Failure("uBlock Origin installed notice did not close after its OK action")
@@ -676,7 +702,16 @@ class UI:
             require(len(matches) == 1, "Cannot identify the real Fenix tab counter uniquely")
             counter = self.node(xml, description=matches[0].get("content-desc"))
         self.tap(counter, "open-tab-counter-menu", long=True)
-        self.click(text=item, label="tab-menu-" + item)
+        deadline = time.monotonic() + self.timeout
+        while True:
+            xml = self.dump("tab-menu-" + item)
+            node = menu_item(xml, item, self.package)
+            if node:
+                self.tap(node, "tab-menu-" + item)
+                return
+            if time.monotonic() >= deadline:
+                raise Failure(f"Tab counter menu item {item!r} did not appear by text or content-desc")
+            time.sleep(0.25)
 
     def type_url(self, url):
         xml = self.dump("private-url-entry")

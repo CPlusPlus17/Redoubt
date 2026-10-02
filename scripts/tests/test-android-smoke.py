@@ -4,10 +4,13 @@ from pathlib import Path
 import json
 import socket
 import struct
+import io
+import os
 import tempfile
 import types
 import unittest
 from unittest.mock import patch
+import zipfile
 import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -534,6 +537,165 @@ class LauncherStartGateTests(unittest.TestCase):
     def test_launcher_check_refuses_kept_state(self):
         with self.assertRaises(harness.HarnessError):
             harness.main(['--check-launcher-start', '--keep-state'])
+
+
+PKG = 'org.redoubtbrowser'
+os.environ.setdefault('LW_SMOKE_REPO', str(ROOT))
+
+
+def ubo_notice_xml():
+    child = lambda name, cls, text, clickable: (
+        '<node resource-id="%s:id/%s" class="%s" text="%s" package="%s" clickable="%s" '
+        'checkable="false" enabled="true" bounds="[900,1790][944,1840]"/>' % (PKG, name, cls, text, PKG, clickable))
+    g = harness._graphics_module()
+    return ('<hierarchy><node class="android.widget.RelativeLayout" package="%s" enabled="true" '
+            'bounds="[0,1400][1080,1900]">' % PKG
+            + child('icon', 'android.widget.ImageView', '', 'false')
+            + child('title', 'android.widget.TextView', g.UBO_ADDED_TITLE, 'false')
+            + child('description', 'android.widget.TextView', g.UBO_ADDED_DESCRIPTION, 'false')
+            + child('confirm_button', 'android.widget.Button', 'OK', 'true')
+            + '</node></hierarchy>')
+
+
+TOOLBAR = ('<hierarchy><node resource-id="ADDRESSBAR_URL_BOX" class="android.view.View" '
+           'package="%s" bounds="[100,100][900,200]"/></hierarchy>' % PKG)
+
+
+class FakeUiAdb:
+    """uiautomator dumps served in order; the last one repeats."""
+    def __init__(self, dumps):
+        self.dumps, self.taps = list(dumps), []
+
+    def shell(self, cmd, timeout=None):
+        if cmd.startswith('input tap'):
+            self.taps.append(cmd)
+        if cmd.startswith('cat '):
+            return self.dumps.pop(0) if len(self.dumps) > 1 else self.dumps[0]
+        return ''
+
+
+class FirstRunNoticeTests(unittest.TestCase):
+    def setUp(self):
+        sleeper = patch.object(harness.time, 'sleep', lambda _s: None)
+        sleeper.start()
+        self.addCleanup(sleeper.stop)
+
+    def test_notice_is_acknowledged_once_before_the_toolbar_is_used(self):
+        adb = FakeUiAdb([ubo_notice_xml(), TOOLBAR, TOOLBAR])
+        _xml, pt, acknowledged = harness.toolbar_ready(adb, PKG)
+        self.assertEqual(pt, (500, 150))
+        self.assertTrue(acknowledged)
+        self.assertEqual(adb.taps, ['input tap 922 1815'])
+
+    def test_clean_toolbar_needs_two_matching_dumps_and_no_tap(self):
+        adb = FakeUiAdb([TOOLBAR, TOOLBAR])
+        _xml, pt, acknowledged = harness.toolbar_ready(adb, PKG)
+        self.assertEqual((pt, acknowledged, adb.taps), ((500, 150), False, []))
+
+    def test_notice_arriving_after_a_clean_dump_is_still_acknowledged(self):
+        adb = FakeUiAdb([TOOLBAR, ubo_notice_xml(), TOOLBAR, TOOLBAR])
+        _xml, pt, acknowledged = harness.toolbar_ready(adb, PKG)
+        self.assertTrue(acknowledged)
+        self.assertEqual(len(adb.taps), 1)
+
+    def test_notice_that_does_not_close_is_a_harness_error(self):
+        adb = FakeUiAdb([ubo_notice_xml()])
+        clock = iter(range(0, 10000, 5))
+        with patch.object(harness.time, 'time', lambda: next(clock)):
+            with self.assertRaises(harness.HarnessError):
+                harness.toolbar_ready(adb, PKG)
+        self.assertEqual(len(adb.taps), 1)
+
+    def test_generic_ok_is_never_tapped(self):
+        ok = ('<hierarchy><node resource-id="%s:id/confirm_button" class="android.widget.Button" '
+              'text="OK" package="%s" bounds="[0,0][10,10]"/></hierarchy>' % (PKG, PKG))
+        adb = FakeUiAdb([ok])
+        clock = iter(range(0, 10000, 5))
+        with patch.object(harness.time, 'time', lambda: next(clock)):
+            _xml, pt, acknowledged = harness.toolbar_ready(adb, PKG)
+        self.assertEqual((pt, acknowledged, adb.taps), (None, False, []))
+
+    def test_check_search_and_no_suggest_use_the_shared_toolbar_wait(self):
+        for check in (harness.check_search, harness.check_no_suggest):
+            self.assertIn('toolbar_ready', check.__code__.co_names)
+        self.assertIn('wait_post_launch_quiet', harness.check_no_suggest.__code__.co_names)
+
+
+def ubo_apk(background):
+    xpi = io.BytesIO()
+    with zipfile.ZipFile(xpi, 'w') as z:
+        z.writestr('js/background.js', background)
+    apk = io.BytesIO()
+    with zipfile.ZipFile(apk, 'w') as z:
+        z.writestr('assets/extensions/ublock_origin.xpi', xpi.getvalue())
+    apk.seek(0)
+    return apk
+
+
+class UboUpdateScheduleTests(unittest.TestCase):
+    def test_schedule_is_read_from_the_bundled_xpi(self):
+        apk = ubo_apk("const hiddenSettingsDefault = {\n    autoUpdateAssetFetchPeriod: 5,\n"
+                      "    autoUpdateDelayAfterLaunch: 37,\n    autoUpdatePeriod: 1,\n};")
+        self.assertEqual(harness.ubo_update_schedule(apk),
+                         {'autoUpdateDelayAfterLaunch': 37, 'autoUpdateAssetFetchPeriod': 5})
+
+    def test_missing_default_is_a_harness_error_not_a_guess(self):
+        with self.assertRaises(harness.HarnessError):
+            harness.ubo_update_schedule(ubo_apk("autoUpdateDelayAfterLaunch: 37,"))
+
+
+class PostLaunchQuietTests(unittest.TestCase):
+    SCHEDULE = {'autoUpdateDelayAfterLaunch': 37, 'autoUpdateAssetFetchPeriod': 5}
+
+    def run_wait(self, traffic, timeout=300):
+        """traffic: {second: [row, ...]} -- rows appear at that clock second."""
+        state = {'now': 0.0, 'size': 0}
+
+        def sleep(seconds):
+            state['now'] += seconds
+            state['size'] += 1
+
+        def payloads(offset):
+            return [row for second, rows in traffic.items()
+                    if offset <= second < state['now'] for row in rows]
+
+        result = harness.wait_post_launch_quiet(
+            payloads, lambda: state['now'], 0, 0.0, self.SCHEDULE, timeout=timeout,
+            poll=1.0, clock=lambda: state['now'], sleep=sleep)
+        return result
+
+    @staticmethod
+    def row(host, background=False, nbytes=100):
+        return {'host': host, 'dst': '192.0.2.1', 'bytes': nbytes, 'background': background}
+
+    def test_no_traffic_still_waits_for_ubo_launch_timer(self):
+        result = self.run_wait({})
+        self.assertTrue(result['settled'])
+        self.assertGreaterEqual(result['waited_s'], 37 + harness.UBO_STARTUP_ALLOWANCE_S)
+
+    def test_gap_between_list_fetches_is_not_taken_for_the_end(self):
+        fetches = {second: [self.row('ublockorigin.github.io')] for second in range(43, 120, 7)}
+        result = self.run_wait(fetches)
+        self.assertTrue(result['settled'])
+        self.assertGreaterEqual(result['waited_s'], max(fetches) + result['quiet_s'])
+        self.assertEqual(result['hosts_bytes'], {'ublockorigin.github.io': 100 * len(fetches)})
+
+    def test_background_security_flows_do_not_hold_the_wait(self):
+        chatter = {second: [self.row('firefox.settings.services.mozilla.com', True)]
+                   for second in range(0, 200, 3)}
+        result = self.run_wait(chatter)
+        self.assertTrue(result['settled'])
+        self.assertEqual(result['hosts_bytes'], {})
+
+    def test_never_quiet_reports_unsettled_and_exempts_nothing(self):
+        endless = {second: [self.row(None)] for second in range(0, 400, 4)}
+        result = self.run_wait(endless, timeout=120)
+        self.assertFalse(result['settled'])
+        self.assertIn('192.0.2.1', result['hosts_bytes'])
+
+    def test_quiet_window_exceeds_several_fetch_periods(self):
+        result = self.run_wait({})
+        self.assertGreaterEqual(result['quiet_s'], 3 * self.SCHEDULE['autoUpdateAssetFetchPeriod'])
 
 
 if __name__ == '__main__':
