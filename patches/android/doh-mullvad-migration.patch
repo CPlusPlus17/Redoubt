@@ -34,16 +34,29 @@
 #      (https://dns10.quad9.net/dns-query, the Fenix default and common.cfg's
 #      network.trr.uri). The mode is not touched. Hooking the lazy engine
 #      initialiser rather than an Application callback means no caller can
-#      construct the engine before the migration has run. The done flag is
-#      written to the same SharedPreferences as the provider, so a later Mullvad
-#      URI the user enters by hand as a custom provider is respected.
+#      construct the engine before the migration has run. The new provider
+#      (written directly under pref_key_doh_provider_uri, the key
+#      Settings.dohProviderUrl reads), the done flag and the notice flag go into
+#      fenix_preferences in ONE SharedPreferences edit, so they are committed
+#      together or not at all; a later Mullvad URI the user enters by hand as a
+#      custom provider is respected.
 #   2. When the mode was Increased or Max (DoH actually in use), a notice flag is
 #      set and HomeActivity.onResume shows a one-time AlertDialog naming the new
 #      provider -- the same in-app dialog mechanism update-check.patch uses. The
-#      flag is cleared when the dialog is dismissed. Off/Default: silent, logged.
+#      flag is cleared only by the user (OK, back, tap outside). The "already
+#      showing" check is tied to the activity that owns the dialog, not a
+#      process-global flag, so an activity recreated under the dialog (rotation,
+#      theme, locale) shows it again and a dialog torn down with its activity
+#      leaves the flag set for the next onResume. Off/Default: silent, logged.
 #   3. Mullvad leaves the built-in picker catalog, matching settings/common.cfg's
 #      doh-rollout.provider-list (Redoubt-settings 0cae8fb dropped the Android
 #      override that still listed it). DefaultDohSettingsProviderTest follows.
+#
+# Known limitation (not handled): only the Fenix setting is migrated. GeckoView
+# pushes the provider to network.trr.uri on the DEFAULT pref branch
+# (GeckoView:SetDefaultPrefs, GeckoViewStartup.sys.mjs), so a Mullvad URI the
+# user typed into about:config -- a user-branch value in prefs.js -- keeps
+# overriding it and is not touched by this migration.
 #
 #
 # Ordering
@@ -60,8 +73,10 @@
 # -------------
 #   ./mach gradle fenix:testDebugUnitTest --tests '*DohProviderMigrationTest' \
 #       --tests '*DefaultDohSettingsProviderTest'
-#   Not compiled when written (no Gecko AAR on the authoring host); stage B of
-#   the 153.4.0esr rebase builds it.
+#   Not built in the Fenix tree when written (no Gecko AAR on the authoring
+#   host); stage B of the 153.4.0esr rebase builds it and runs the tests. The
+#   two lw/ files were compiled with kotlinc 2.3.20 -Werror against the real
+#   android.jar, androidx.core and Robolectric, with stubs for the Fenix types.
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
@@ -85,7 +100,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
      val engine: Engine by lazyMonitored {
 +        // Redoubt: replace a discontinued Mullvad DoH provider before the engine
 +        // reads dohProviderUrl below. Runs once per profile.
-+        org.mozilla.fenix.lw.DohProviderMigration.migrate(context.components.settings)
++        org.mozilla.fenix.lw.DohProviderMigration.migrate(context, context.components.settings)
 +
          val defaultSettings = DefaultSettings(
              requestInterceptor = requestInterceptor,
@@ -94,7 +109,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DohProv
 new file mode 100644
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DohProviderMigration.kt
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,152 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -110,21 +125,33 @@ new file mode 100644
 +// afterwards as a custom provider is left alone. When DoH was actually in use,
 +// HomeActivity shows a one-time dialog naming the new provider.
 +//
-+// The state lives in fenix_preferences next to the provider it describes: the
-+// provider write and the done flag go through the same SharedPreferences, so
-+// they reach disk together or not at all.
++// The state lives in fenix_preferences next to the provider it describes. The
++// new provider, the done flag and the notice flag are written in ONE
++// SharedPreferences edit, under the same key Settings.dohProviderUrl reads
++// (R.string.pref_key_doh_provider_uri), so they are committed together or not
++// at all: a crash cannot leave the provider replaced without the done flag, or
++// the done flag set with Mullvad still stored.
++//
++// Known limitation: only the Fenix setting is migrated. GeckoView writes the
++// provider to network.trr.uri on the DEFAULT pref branch (GeckoView:SetDefaultPrefs),
++// so a Mullvad URI the user typed into about:config -- a user-branch value in
++// prefs.js -- still wins over it and is not touched here.
 +
 +package org.mozilla.fenix.lw
 +
 +import android.app.Activity
 +import android.app.AlertDialog
++import android.app.Dialog
++import android.content.Context
 +import androidx.annotation.VisibleForTesting
 +import androidx.core.content.edit
 +import mozilla.components.concept.engine.Engine
 +import mozilla.components.support.base.log.logger.Logger
 +import org.mozilla.fenix.R
 +import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.ext.getPreferenceKey
 +import org.mozilla.fenix.utils.Settings
++import java.lang.ref.WeakReference
 +import java.net.URI
 +import java.net.URISyntaxException
 +
@@ -146,7 +173,11 @@ new file mode 100644
 +
 +    private val logger = Logger("DohProviderMigration")
 +
-+    private var noticeShowing = false
++    // The notice dialog currently on screen, if any. Weak, and checked against
++    // the activity it belongs to: when HomeActivity is recreated (rotation,
++    // theme or locale change) the old dialog dies with the old activity without
++    // its listeners running, and the new activity shows the notice again.
++    private var noticeDialog: WeakReference<Dialog>? = null
 +
 +    /** True when [url] points at a Mullvad DoH endpoint. */
 +    @VisibleForTesting
@@ -166,24 +197,28 @@ new file mode 100644
 +     * Runs once per profile, before the engine is created. Returns true when the
 +     * stored provider was replaced.
 +     */
-+    fun migrate(settings: Settings): Boolean {
++    fun migrate(context: Context, settings: Settings): Boolean {
 +        val prefs = settings.preferences
 +        if (prefs.getBoolean(KEY_DONE, false)) {
 +            return false
 +        }
-+        val previous = settings.dohProviderUrl
-+        val replace = isMullvadProvider(previous)
++        val replace = isMullvadProvider(settings.dohProviderUrl)
 +        val mode = settings.getDohSettingsMode()
-+        if (replace) {
-+            settings.dohProviderUrl = Settings.LIBREWOLF_DOH_PROVIDER_URI
-+            logger.info("Replaced discontinued Mullvad DoH provider; mode $mode kept")
-+        }
 +        val inUse = mode == Engine.DohSettingsMode.INCREASED || mode == Engine.DohSettingsMode.MAX
 +        prefs.edit {
++            if (replace) {
++                putString(
++                    context.getPreferenceKey(R.string.pref_key_doh_provider_uri),
++                    Settings.LIBREWOLF_DOH_PROVIDER_URI,
++                )
++            }
 +            putBoolean(KEY_DONE, true)
 +            if (replace && inUse) {
 +                putBoolean(KEY_NOTICE_PENDING, true)
 +            }
++        }
++        if (replace) {
++            logger.info("Replaced discontinued Mullvad DoH provider; mode $mode kept")
 +        }
 +        return replace
 +    }
@@ -192,27 +227,39 @@ new file mode 100644
 +    internal fun isNoticePending(settings: Settings): Boolean =
 +        settings.preferences.getBoolean(KEY_NOTICE_PENDING, false)
 +
++    private fun acknowledgeNotice(settings: Settings) {
++        settings.preferences.edit { putBoolean(KEY_NOTICE_PENDING, false) }
++    }
++
 +    /**
 +     * Called from HomeActivity.onResume. Shows the notice until the user
-+     * dismisses it; an activity torn down underneath it shows it again on the
-+     * next start.
++     * acknowledges it (OK, back or a tap outside). A dialog torn down with its
++     * activity does not count: the pending flag stays set and the next
++     * onResume, in this process or the next, shows it again. Returns the
++     * dialog when this call showed one.
 +     */
-+    fun maybeShowNotice(activity: Activity) {
-+        val settings = activity.components.settings
-+        if (noticeShowing || activity.isFinishing || !isNoticePending(settings)) {
-+            return
++    fun maybeShowNotice(
++        activity: Activity,
++        settings: Settings = activity.components.settings,
++    ): Dialog? {
++        if (activity.isFinishing || activity.isDestroyed || !isNoticePending(settings)) {
++            return null
++        }
++        val current = noticeDialog?.get()
++        if (current != null && current.isShowing && current.ownerActivity === activity) {
++            return null
 +        }
 +        val host = URI(Settings.LIBREWOLF_DOH_PROVIDER_URI).host ?: Settings.LIBREWOLF_DOH_PROVIDER_URI
-+        noticeShowing = true
-+        AlertDialog.Builder(activity)
++        val dialog = AlertDialog.Builder(activity)
 +            .setTitle(R.string.lw_doh_mullvad_migrated_title)
 +            .setMessage(activity.getString(R.string.lw_doh_mullvad_migrated_message, host))
-+            .setPositiveButton(android.R.string.ok, null)
-+            .setOnDismissListener {
-+                noticeShowing = false
-+                settings.preferences.edit { putBoolean(KEY_NOTICE_PENDING, false) }
-+            }
-+            .show()
++            .setPositiveButton(android.R.string.ok) { _, _ -> acknowledgeNotice(settings) }
++            .setOnCancelListener { acknowledgeNotice(settings) }
++            .create()
++        dialog.setOwnerActivity(activity)
++        dialog.show()
++        noticeDialog = WeakReference(dialog)
++        return dialog
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
@@ -244,24 +291,34 @@ diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DohProv
 new file mode 100644
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DohProviderMigrationTest.kt
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,182 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 +
 +package org.mozilla.fenix.lw
 +
++import android.app.Activity
++import android.app.AlertDialog
++import android.content.SharedPreferences
++import android.os.Looper
 +import androidx.core.content.edit
 +import mozilla.components.concept.engine.Engine
 +import mozilla.components.support.test.robolectric.testContext
 +import org.junit.Assert.assertEquals
 +import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNotNull
++import org.junit.Assert.assertNull
 +import org.junit.Assert.assertTrue
 +import org.junit.Before
 +import org.junit.Test
 +import org.junit.runner.RunWith
++import org.mozilla.fenix.R
++import org.mozilla.fenix.ext.getPreferenceKey
 +import org.mozilla.fenix.utils.Settings
++import org.robolectric.Robolectric
 +import org.robolectric.RobolectricTestRunner
++import org.robolectric.Shadows.shadowOf
 +
 +@RunWith(RobolectricTestRunner::class)
 +class DohProviderMigrationTest {
@@ -310,11 +367,12 @@ new file mode 100644
 +            settings.setDohSettingsMode(mode)
 +            settings.dohProviderUrl = "https://base.dns.mullvad.net/dns-query"
 +
-+            assertTrue(DohProviderMigration.migrate(settings))
++            assertTrue(DohProviderMigration.migrate(testContext, settings))
 +
 +            assertEquals(Settings.LIBREWOLF_DOH_PROVIDER_URI, settings.dohProviderUrl)
 +            assertEquals(mode, settings.getDohSettingsMode())
 +            assertTrue(DohProviderMigration.isNoticePending(settings))
++            assertTrue(settings.preferences.getBoolean(DohProviderMigration.KEY_DONE, false))
 +        }
 +    }
 +
@@ -325,7 +383,7 @@ new file mode 100644
 +            settings.setDohSettingsMode(mode)
 +            settings.dohProviderUrl = "https://dns.mullvad.net/dns-query"
 +
-+            assertTrue(DohProviderMigration.migrate(settings))
++            assertTrue(DohProviderMigration.migrate(testContext, settings))
 +
 +            assertEquals(Settings.LIBREWOLF_DOH_PROVIDER_URI, settings.dohProviderUrl)
 +            assertEquals(mode, settings.getDohSettingsMode())
@@ -338,7 +396,7 @@ new file mode 100644
 +        settings.setDohSettingsMode(Engine.DohSettingsMode.MAX)
 +        settings.dohProviderUrl = "https://custom.example/dns-query"
 +
-+        assertFalse(DohProviderMigration.migrate(settings))
++        assertFalse(DohProviderMigration.migrate(testContext, settings))
 +
 +        assertEquals("https://custom.example/dns-query", settings.dohProviderUrl)
 +        assertEquals(Engine.DohSettingsMode.MAX, settings.getDohSettingsMode())
@@ -348,12 +406,71 @@ new file mode 100644
 +    @Test
 +    fun `the migration runs once, so a later explicit choice is respected`() {
 +        settings.setDohSettingsMode(Engine.DohSettingsMode.INCREASED)
-+        assertFalse(DohProviderMigration.migrate(settings))
++        assertFalse(DohProviderMigration.migrate(testContext, settings))
 +
 +        settings.dohProviderUrl = "https://dns.mullvad.net/dns-query"
-+        assertFalse(DohProviderMigration.migrate(settings))
++        assertFalse(DohProviderMigration.migrate(testContext, settings))
 +
 +        assertEquals("https://dns.mullvad.net/dns-query", settings.dohProviderUrl)
++        assertFalse(DohProviderMigration.isNoticePending(settings))
++    }
++
++    @Test
++    fun `the provider is written under the key Settings reads, in the edit that sets the flags`() {
++        val key = testContext.getPreferenceKey(R.string.pref_key_doh_provider_uri)
++        settings.setDohSettingsMode(Engine.DohSettingsMode.MAX)
++        settings.dohProviderUrl = "https://dns.mullvad.net/dns-query"
++        val seen = mutableListOf<Pair<String?, Boolean>>()
++        val listener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, changed ->
++            seen += changed to prefs.getBoolean(DohProviderMigration.KEY_DONE, false)
++        }
++        settings.preferences.registerOnSharedPreferenceChangeListener(listener)
++
++        assertTrue(DohProviderMigration.migrate(testContext, settings))
++        settings.preferences.unregisterOnSharedPreferenceChangeListener(listener)
++
++        assertEquals(Settings.LIBREWOLF_DOH_PROVIDER_URI, settings.preferences.getString(key, null))
++        // One commit: when the provider change is announced, the done flag is
++        // already visible.
++        assertTrue(seen.toString(), seen.contains(key to true))
++    }
++
++    @Test
++    fun `the notice is shown once per activity and only cleared by the user`() {
++        settings.preferences.edit(commit = true) { putBoolean(DohProviderMigration.KEY_NOTICE_PENDING, true) }
++        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
++
++        val dialog = DohProviderMigration.maybeShowNotice(activity, settings)
++        assertNotNull(dialog)
++        assertTrue(dialog!!.isShowing)
++        // onResume again (e.g. back from Settings) while the dialog is up.
++        assertNull(DohProviderMigration.maybeShowNotice(activity, settings))
++        assertTrue(DohProviderMigration.isNoticePending(settings))
++
++        (dialog as AlertDialog).getButton(AlertDialog.BUTTON_POSITIVE).performClick()
++        shadowOf(Looper.getMainLooper()).idle()
++
++        assertFalse(DohProviderMigration.isNoticePending(settings))
++        assertNull(DohProviderMigration.maybeShowNotice(activity, settings))
++    }
++
++    @Test
++    fun `a recreated activity shows the notice again`() {
++        settings.preferences.edit(commit = true) { putBoolean(DohProviderMigration.KEY_NOTICE_PENDING, true) }
++        val first = Robolectric.buildActivity(Activity::class.java).setup()
++
++        assertNotNull(DohProviderMigration.maybeShowNotice(first.get(), settings))
++        // Rotation or a theme change: the activity goes away under the dialog
++        // and none of the dialog's listeners run.
++        first.pause().stop().destroy()
++        val second = Robolectric.buildActivity(Activity::class.java).setup().get()
++
++        assertTrue(DohProviderMigration.isNoticePending(settings))
++        val dialog = DohProviderMigration.maybeShowNotice(second, settings)
++        assertNotNull(dialog)
++
++        dialog!!.cancel()
++        shadowOf(Looper.getMainLooper()).idle()
 +        assertFalse(DohProviderMigration.isNoticePending(settings))
 +    }
 +}

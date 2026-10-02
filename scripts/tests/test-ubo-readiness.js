@@ -59,7 +59,7 @@ function fixture({ active = true, permission = true, version = '1.74.0' } = {}) 
   const controller = vm.runInContext('({' + waitMethod + '})', sandbox);
   controller.extensionById = async id => id === extension.id ? addon : null;
   const register = (event = 'onHeadersReceived', blocking = true, live = true) =>
-    sandbox.registerEvent(extension, event, {}, {}, blocking ? ['blocking'] : [], null, live);
+    sandbox.registerEvent(extension, event, {}, {}, blocking ? ['blocking'] : [], live);
   let nextRequest = 0;
   const wait = (expected = '1.74.0', requestId) => controller.awaitBlockingResponseListener(
     extension.id, expected,
@@ -76,7 +76,18 @@ function fixture({ active = true, permission = true, version = '1.74.0' } = {}) 
   return { extension, addon, policies, timers, register, wait, cancel, clean, warnings, controller };
 }
 const tick = async () => { await Promise.resolve(); await Promise.resolve(); };
+// A test whose promise never settles leaves nothing on the event loop, so Node
+// would exit 0 after the last test that did finish. Count them instead.
+const EXPECTED = 18;
 let passed = 0;
+let finished = false;
+process.on('exit', () => {
+  if (!finished || passed !== EXPECTED) {
+    process.stderr.write(`FAIL ${passed} of ${EXPECTED} readiness tests passed` +
+      (finished ? '\n' : '; a test never settled\n'));
+    process.exitCode = 1;
+  }
+});
 async function test(name, run) { await run(); passed++; process.stdout.write('PASS ' + name + '\n'); }
 (async () => {
   const requestA = '10000000-0000-4000-8000-000000000001';
@@ -147,7 +158,7 @@ async function test(name, run) { await run(); passed++; process.stdout.write('PA
     await tick(); f.extension.emit('ready'); f.extension.emit('background-page-event');
     const registration = f.register('onHeadersReceived', true, false);
     await tick(); assert.equal(settled, false);
-    registration.convert({}, { xulBrowser: { frameLoader: { remoteTab: {} } } });
+    registration.convert({});
     await result; assert.equal(settled, true); f.clean();
   });
   await test('other and nonblocking listeners cannot satisfy barrier', async () => {
@@ -198,5 +209,6 @@ async function test(name, run) { await run(); passed++; process.stdout.write('PA
     const f = fixture(); const result = f.wait(); const checked = assert.rejects(result, /changed/);
     await tick(); f.addon.version = '1.75.0'; f.register(); await checked; f.clean();
   });
+  finished = true;
   process.stdout.write(`${passed} readiness lifecycle tests passed\n`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

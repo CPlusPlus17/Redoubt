@@ -1182,9 +1182,11 @@ success: All patches where applied successfully.
 ### Left open by this rebase
 
 - The nine Android-only CVEs above: triage/backport or publish as known gaps.
-- `scripts/tests/test-ubo-readiness.js` calls `registerEvent` with the 153.0
+- ~~`scripts/tests/test-ubo-readiness.js` calls `registerEvent` with the 153.0
   positional `remoteTab` slot; drop the `null` argument. Its harness also
-  exits 0 when a test never settles — it should count to 18.
+  exits 0 when a test never settles — it should count to 18.~~ Done: the
+  `null` and the stale `convert()` remoteTab argument are gone, and the harness
+  exits 1 unless all 18 tests finished (18/18 on the patched 153.4.0esr tree).
 - `test-extension-update-controls.py` and `test-session-cleanup.py` assert the
   153.0esr sha256 of `extension-update-controls.patch`; the LW-M7-35/37
   evidence receipts need re-capturing on 153.4.0esr.
