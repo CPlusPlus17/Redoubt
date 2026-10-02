@@ -131,6 +131,12 @@ pending. They ran on an x86_64 Android 11 emulator against a test-enabled
   but the extension was never started again until a restart. It is now
   `!!aAddon.pendingUninstall`. `test_android_addon_state.js` caught it
   ("Durable registry activity - false == true").
+- **addon-state-durability (product bug).** The Android refresh of an
+  existing add-on's disabled state in `startInstall` ran after the
+  `onInstallStarted` listeners, so it overwrote a listener's
+  `install.addon.disable()`. Upstream's `test_install.js` caught it. The
+  refresh now runs before the listeners. See `../unit-tests/README.md` for
+  the add-on manager manifest comparison.
 - **addon-state-durability, extension-permission-durability (tests).** The
   failure-injection tests stubbed `IOUtils.writeJSON` on the test global.
   System modules use the shared module global's own `IOUtils`, so the stub

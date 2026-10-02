@@ -88,16 +88,19 @@ test tasks had completed were up to date and kept their results; the rest ran.
 | `toolkit/components/translations/tests/unit/test_android_translation_assets.js` | translation-assets | 12/12 |
 
 To get there, four patches changed; `../receipts/README.md` lists each change.
-One was a product bug: in addon-state-durability, re-enabling a disabled
-extension on Android saved the choice but did not start the extension until
-the next restart. The other changes were test bugs:
+Two were product bugs, both in addon-state-durability:
+
+- Re-enabling a disabled extension on Android saved the choice but did not
+  start the extension until the next restart.
+- The add-on manager manifest run below found that an install listener's
+  disable choice was overwritten. The other changes were test bugs:
 
 - Three tests stubbed the test global's `IOUtils` instead of the module
   global's.
 - One test was missing an `AddonManager` import.
 - The cookie test used an error-name pattern, and set no cookie prefs.
 
-The release APKs do **not** contain the `XPIDatabase.sys.mjs` fix.
+The release APKs contain **neither** fix (`XPIDatabase.sys.mjs`, `XPIInstall.sys.mjs`).
 `test-addon-state-durability.py --apk` against the 157.0-1 x86_64 APK fails on
 `XPIDatabase.sys.mjs` for that reason. The fix ships only after a rebuild.
 
@@ -116,6 +119,49 @@ come from build configuration, not from patch code:
 - `test_ChildCrashHandler.js` times out. The build has no crash reporter
   (`--disable-crashreporter`, no-crashreporter.patch).
 
-`toolkit/mozapps/extensions/test/xpcshell` and
-`toolkit/components/extensions/test/xpcshell` were not run as whole
-directories. Only our tests in them ran.
+## xpcshell: the add-on manager manifest, with and without addon-state-durability
+
+addon-state-durability rewrites how `XPIDatabase`, `XPIInstall` and
+`XPIProvider` persist on Android, so the whole
+`toolkit/mozapps/extensions/test/xpcshell/xpcshell.toml` ran three times on
+the same objdir and emulator (`xpcshell-addons-manifest.txt`):
+
+1. **Baseline:** the patch's `toolkit/mozapps/extensions/internal/*` sections
+   reverse-applied, then rebuilt.
+2. **Patched** (with the `pendingUninstall` fix).
+3. **Patched, final.**
+
+| | pass | fail | skip |
+|---|---|---|---|
+| baseline | 109 | 12 | 31 |
+| patched | 106 | 15 | 31 |
+| final | 107 | 14 | 31 |
+
+- **10 failures are the same in all three runs.** The tests behind them
+  read Glean, telemetry or timeline values that this build does not record.
+  They are not from our patch.
+- **Our two tests** fail only in the baseline, as they should.
+- **`test_install.js` was a bug, now fixed.** Its `test_userDisabled` showed
+  that the patch's Android refresh of the existing add-on's disabled state
+  ran *after* `onInstallStarted`. It overwrote a listener's
+  `install.addon.disable()`. The refresh now runs before the listeners
+  (`startInstall` in `XPIInstall.sys.mjs`).
+- **Four upstream tests still fail only with the patch.** Each failure
+  follows a deliberate Android design choice of LW-M7-19, not a slip. They
+  are listed for the owner, and no test was skipped or edited for them:
+  - `test_corrupt.js`: a failed `extensions.json` write (the test makes it a
+    directory) rejects the operation on Android instead of being swallowed
+    ("no swallowed failure", `AndroidAddonState`).
+  - `test_reload.js`: after a temporary add-on reloads, uninstalling through
+    the pre-reload wrapper throws "Add-on is no longer the installed
+    instance". GeckoView looks extensions up by ID for every operation and
+    does not hit this.
+  - `test_undouninstall.js`: on Android `onOperationCancelled` fires after
+    the durable write, so it arrives after `cancelUninstall()` returns, and
+    the test expects it synchronously.
+  - `test_startup_scan.js`: a sideloaded update is applied before the stale
+    version starts (`update` → `startup`), instead of `startup 1.0` →
+    `shutdown` → `update` → `startup`.
+
+`toolkit/components/extensions/test/xpcshell` was not run as a whole
+directory. Only our two tests in it ran.

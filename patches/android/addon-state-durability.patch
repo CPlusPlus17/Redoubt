@@ -293,7 +293,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
 diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs
 --- a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs
 +++ b/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs
-@@ -1869,6 +1869,18 @@
+@@ -1869,7 +1869,35 @@
     * Installs the add-on into the install location.
     */
    async startInstall() {
@@ -310,14 +310,6 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 +
 +  async _startInstall() {
      this.state = AddonManager.STATE_INSTALLING;
-     if (!this._callInstallListeners("onInstallStarted")) {
-       this.state = AddonManager.STATE_DOWNLOADED;
-@@ -1879,6 +1891,21 @@
-         /* aCancelledByUser */ false
-       );
-       return;
-+    }
-+
 +    if (AppConstants.platform == "android" && this.existingAddon) {
 +      const current = XPIExports.XPIDatabase.addonDB.get(this.existingAddon._key);
 +      if (!current) {
@@ -329,12 +321,15 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 +      }
 +      this.existingAddon = current;
 +      // Manifest loading happened before this queue. Carry forward the latest
-+      // user/embedder choice rather than its earlier download-time snapshot.
++      // user/embedder choice rather than its earlier download-time snapshot,
++      // before onInstallStarted: a listener's choice for this install wins.
 +      this.addon.propagateDisabledState(current);
-     }
- 
-     // Reinstall existing user-disabled addon (of the same installed version).
-@@ -1890,12 +1917,27 @@
++    }
++
+     if (!this._callInstallListeners("onInstallStarted")) {
+       this.state = AddonManager.STATE_DOWNLOADED;
+       this.removeTemporaryFile();
+@@ -1890,12 +1918,27 @@
        this.existingAddon.userDisabled &&
        !this.existingAddon.pendingUninstall
      ) {
@@ -342,6 +337,8 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 -        this.existingAddon,
 -        {
 -          userDisabled: false,
+-        }
+-      );
 +      try {
 +        const database = XPIExports.XPIDatabase;
 +        const updateState = AppConstants.platform == "android"
@@ -350,8 +347,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 +        await updateState(this.existingAddon, { userDisabled: false });
 +        if (AppConstants.platform == "android") {
 +          await XPIExports.XPIInternal.XPIStates.flushAndroid();
-         }
--      );
++        }
 +      } catch (error) {
 +        if (AppConstants.platform != "android") {
 +          throw error;
@@ -367,7 +363,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
        this.state = AddonManager.STATE_INSTALLED;
        this._callInstallListeners("onInstallEnded", this.existingAddon.wrapper);
        this._cleanup();
-@@ -1991,6 +2033,9 @@
+@@ -1991,6 +2034,9 @@
            XPIExports.XPIDatabase.saveChanges();
          }
          XPIExports.XPIInternal.XPIStates.save();
@@ -377,7 +373,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
  
          AddonManagerPrivate.callAddonListeners(
            "onInstalled",
-@@ -4922,6 +4967,15 @@
+@@ -4922,6 +4968,15 @@
     * @returns {Promise<void>}
     */
    async _activateAddon(addon, extraParams = {}) {
@@ -393,7 +389,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
      if (addon.appDisabled) {
        let message = `Add-on ${addon.id} is not compatible with application version.`;
  
-@@ -4990,6 +5044,9 @@
+@@ -4990,6 +5045,9 @@
        await bootstrap.install(undefined, true, extraParams);
      }
  
@@ -403,7 +399,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
      AddonManagerPrivate.callInstallListeners(
        "onExternalInstall",
        null,
-@@ -5019,6 +5076,25 @@
+@@ -5019,6 +5077,25 @@
     *         location that does not allow it
     */
    async uninstallAddon(aAddon, aForcePending) {
@@ -429,12 +425,14 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
      if (!aAddon.inDatabase) {
        throw new Error(
          `Cannot uninstall addon ${aAddon.id} because it is not installed`
-@@ -5106,36 +5182,51 @@
+@@ -5106,36 +5183,51 @@
          }
          XPIExports.XPIDatabase.removeAddonMetadata(aAddon);
          aAddon.location.removeAddon(aAddon.id);
 -        AddonManagerPrivate.callAddonListeners("onUninstalled", wrapper);
--
++        const finish = () => {
++          AddonManagerPrivate.callAddonListeners("onUninstalled", wrapper);
+ 
 -        if (existing) {
 -          XPIExports.XPIDatabase.makeAddonVisible(existing);
 -          AddonManagerPrivate.callAddonListeners(
@@ -442,12 +440,6 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 -            existing.wrapper,
 -            false
 -          );
--
--          if (!existing.disabled) {
--            XPIExports.XPIDatabase.updateAddonActive(existing, true);
-+        const finish = () => {
-+          AddonManagerPrivate.callAddonListeners("onUninstalled", wrapper);
-+
 +          if (existing) {
 +            XPIExports.XPIDatabase.makeAddonVisible(existing);
 +            AddonManagerPrivate.callAddonListeners(
@@ -455,7 +447,9 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 +              existing.wrapper,
 +              false
 +            );
-+
+ 
+-          if (!existing.disabled) {
+-            XPIExports.XPIDatabase.updateAddonActive(existing, true);
 +            if (!existing.disabled) {
 +              XPIExports.XPIDatabase.updateAddonActive(existing, true);
 +            }
@@ -495,7 +489,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
        XPIExports.XPIDatabase.updateAddonActive(aAddon, false);
      }
  
-@@ -5153,6 +5244,21 @@
+@@ -5153,6 +5245,21 @@
     *        The DBAddonInternal to cancel uninstall for
     */
    cancelUninstallAddon(aAddon) {
@@ -517,7 +511,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
      if (!aAddon.inDatabase) {
        throw new Error("Can only cancel uninstall for installed addons.");
      }
-@@ -5180,13 +5286,18 @@
+@@ -5180,13 +5287,18 @@
        XPIExports.XPIDatabase.updateAddonActive(aAddon, true);
      }
  
@@ -527,7 +521,6 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 -    // Notify any other providers that this theme is now enabled again.
 -    if (aAddon.type === "theme" && aAddon.active) {
 -      AddonManagerPrivate.notifyAddonChanged(aAddon.id, aAddon.type, false);
--    }
 +    const notify = () => {
 +      let wrapper = aAddon.wrapper;
 +      AddonManagerPrivate.callAddonListeners("onOperationCancelled", wrapper);
@@ -538,7 +531,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 +    };
 +    if (AppConstants.platform == "android") {
 +      return XPIExports.XPIInternal.XPIStates.flushAndroid().then(notify);
-+    }
+     }
 +    notify();
    },
  
