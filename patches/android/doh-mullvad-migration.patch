@@ -12,8 +12,13 @@
 #   mobile/android/fenix/app/src/main/res/values/lw_doh_migration.xml
 #   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DohProviderMigrationTest.kt
 #
-# Line numbers are from the ESR tree (firefox-153.4.0esr, ./version.android),
-# AFTER the patches listed before this one in assets/patches/android.txt.
+# Line numbers are from the Firefox 157.0 tree (./version.android), AFTER the
+# patches listed before this one in assets/patches/android.txt.
+#
+# 157 rebase (was 153.4.0esr): Core.kt's DefaultSettings(...) call and
+# DohSettingsProvider.kt's catalog (privacy-defaults.patch, rebased) are in
+# upstream's reformatted (ktfmt) layout; the hunks are the same changes
+# re-applied there. HomeActivity.onResume and the new files are unchanged.
 #
 #
 # What it is
@@ -74,15 +79,17 @@
 #   ./mach gradle fenix:testDebugUnitTest --tests '*DohProviderMigrationTest' \
 #       --tests '*DefaultDohSettingsProviderTest'
 #   Not built in the Fenix tree when written (no Gecko AAR on the authoring
-#   host); stage B of the 153.4.0esr rebase builds it and runs the tests. The
-#   two lw/ files were compiled with kotlinc 2.3.20 -Werror against the real
+#   host); stage B of the 153.4.0esr rebase built it and ran the tests. Not
+#   rebuilt for the 157 rebase yet. The two lw/ files (unchanged by the 157
+#   rebase) were compiled with kotlinc 2.3.20 -Werror against the real
 #   android.jar, androidx.core and Robolectric, with stubs for the Fenix types.
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+index f60f7219e6..bf349b74d2 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -768,6 +768,10 @@
-             message = "onResume()",
-         )
+@@ -850,6 +850,10 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+         // https://github.com/mozilla-mobile/android-components/issues/7960
+         breadcrumb(message = "onResume()")
  
 +        // Redoubt: one-time notice when DohProviderMigration replaced a Mullvad
 +        // DoH provider that was in use.
@@ -92,21 +99,23 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivi
              if (browsingModeManager.mode.isPrivate) {
                  it.announcePrivateModeForAccessibility()
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+index 9bef31da6a..cd7a9879e5 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
-@@ -169,6 +169,10 @@
-      * configuration (see build variants).
-      */
+@@ -168,6 +168,10 @@ class Core(
+ ) {
+     /** The browser engine component initialized based on the build configuration (see build variants). */
      val engine: Engine by lazyMonitored {
 +        // Redoubt: replace a discontinued Mullvad DoH provider before the engine
 +        // reads dohProviderUrl below. Runs once per profile.
 +        org.mozilla.fenix.lw.DohProviderMigration.migrate(context, context.components.settings)
 +
-         val defaultSettings = DefaultSettings(
-             requestInterceptor = requestInterceptor,
-             remoteDebuggingEnabled = context.components.settings.isRemoteDebuggingEnabled,
+         val defaultSettings =
+             DefaultSettings(
+                 requestInterceptor = requestInterceptor,
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DohProviderMigration.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DohProviderMigration.kt
 new file mode 100644
+index 0000000000..37297ae55f
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DohProviderMigration.kt
 @@ -0,0 +1,152 @@
@@ -263,18 +272,20 @@ new file mode 100644
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
+index 9b73b44b12..a6f4104993 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
-@@ -42,7 +42,6 @@
-             "LibreDNS (Adblocking)" to "https://doh.libredns.gr/noads",
-             "Wikimedia DNS (No Filtering)" to "https://wikimedia-dns.org/dns-query",
-             "DNS4All (No Filtering)" to Settings.LIBREWOLF_DOH_DEFAULT_PROVIDER_URI,
--            "Mullvad (No Filtering)" to "https://dns.mullvad.net/dns-query",
-         ).map { (name, url) ->
-             Provider.BuiltIn(url = url, name = name, default = url == defaultUrl)
-         }
+@@ -50,7 +50,6 @@ internal class DefaultDohSettingsProvider(
+                 "LibreDNS (Adblocking)" to "https://doh.libredns.gr/noads",
+                 "Wikimedia DNS (No Filtering)" to "https://wikimedia-dns.org/dns-query",
+                 "DNS4All (No Filtering)" to Settings.LIBREWOLF_DOH_DEFAULT_PROVIDER_URI,
+-                "Mullvad (No Filtering)" to "https://dns.mullvad.net/dns-query",
+             ).map { (name, url) -> Provider.BuiltIn(url = url, name = name, default = url == defaultUrl) }
+         val providerUrl = settings.dohProviderUrl
+         val customUrl = providerUrl.takeUnless { url -> builtIn.any { it.url == url } }.orEmpty()
 diff --git a/mobile/android/fenix/app/src/main/res/values/lw_doh_migration.xml b/mobile/android/fenix/app/src/main/res/values/lw_doh_migration.xml
 new file mode 100644
+index 0000000000..3b59226f7c
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/res/values/lw_doh_migration.xml
 @@ -0,0 +1,9 @@
@@ -289,6 +300,7 @@ new file mode 100644
 +</resources>
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DohProviderMigrationTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DohProviderMigrationTest.kt
 new file mode 100644
+index 0000000000..99d48932fc
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DohProviderMigrationTest.kt
 @@ -0,0 +1,182 @@
@@ -475,9 +487,10 @@ new file mode 100644
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
+index e2b0b5d352..ec41e403ff 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
-@@ -58,7 +58,6 @@
+@@ -60,7 +60,6 @@ class DefaultDohSettingsProviderTest {
                  "https://doh.libredns.gr/noads",
                  "https://wikimedia-dns.org/dns-query",
                  "https://doh.dns4all.eu/dns-query",
@@ -485,7 +498,7 @@ diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/d
              ),
              providers.filterIsInstance<Provider.BuiltIn>().map { it.url },
          )
-@@ -68,7 +67,11 @@
+@@ -70,7 +69,11 @@ class DefaultDohSettingsProviderTest {
  
      @Test
      fun `explicit legacy providers remain selected as custom providers after upgrade`() {
@@ -498,7 +511,7 @@ diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/d
              every { appSettings.dohProviderUrl } returns url
              assertEquals(Provider.Custom(url = url), settingsProvider.getSelectedProvider())
              assertEquals(
-@@ -81,8 +84,8 @@
+@@ -83,8 +86,8 @@ class DefaultDohSettingsProviderTest {
      @Test
      fun `provider choices are read again after a setting change`() {
          assertEquals(Settings.LIBREWOLF_DOH_PROVIDER_URI, settingsProvider.getSelectedProvider()?.url)
