@@ -6,8 +6,9 @@
 release from here on, the same track as desktop.** Decided 2026-10-02 by the
 maintainer, Manuel Gysin:
 
-> "we do the jump to 157 now and then follow mainstream from firefox, move fast
-> and forward"
+> "we do the jump to 157 now and then follow mainstream from firefoxx, move fast and forward, its the timeage of ai."
+
+(Quoted verbatim, spelling included.)
 
 This supersedes the decision below (LW-M0-07, 2026-08-15). Everything from
 "Decision" down is the original analysis, kept unedited as the record of what
@@ -61,6 +62,40 @@ was weighed. It is no longer the policy.
   Android takes `common.cfg`, apart from its own decisions (Redoubt-settings,
   branch `android-release-157`).
 
+- **Cookie banners: the Firefox service is gone, uBlock Origin's lists
+  replace it.** Firefox 156 removed the cookie banner service: 157 has no
+  `toolkit/components/cookiebanners`, no `cookie-banner-rules-list` dump, no
+  `cookiebanners.*` prefs, and GeckoView's Cookie Banner Handling API is gone
+  ("there is no replacement", bug 2058143). The 153 betas carried the service
+  with packaged rules (LW-M7-13) and controls (LW-M7-23); both patches are
+  retired, and LW-M7-13, -22 and -23 with them. Owner decision 2026-10-02: uBlock
+  Origin's cookie-notice lists take over, on by default, opt-out in uBO's
+  own "Filter lists" pane like any other list. `settings/android.cfg` points
+  `librewolf.uBO.assetsBootstrapLocation` at `assets/uBOAssets.android.json`,
+  LibreWolf's uBO catalog with exactly two lists switched on
+  (`fanboy-cookiemonster` and `ublock-cookies-easylist`, uBO's "EasyList/uBO
+  – Cookie Notices" group) and its own update URL
+  (`scripts/gen-ubo-assets-android.py`, LW-M7-41). This is not the same
+  thing: the Firefox service clicked a site's own "reject" button, so the site
+  recorded a refusal. A filter list hides the banner or blocks its script, so
+  the site may record nothing at all, and a site that requires an answer may
+  break until the list is turned off for it. The lists reach fresh installs
+  only; a profile that ran a beta keeps its uBO catalog and selection. The
+  catalog URL is on Redoubt's `main` branch, so until that branch carries
+  the file uBO falls back to the catalog in its own XPI.
+- **Four 157 features that send browsing data to Mozilla or Google are off
+  for good** (owner decision 2026-10-02, `patches/android/disable-157-cloud-features.patch`,
+  LW-M7-40): Shake to Summarize (page text to Mozilla's MLPA service), IP
+  Protection (Mozilla's hosted proxy, never initialised), the "Add shortcut"
+  sheet's Merino image-CDN icons, and the Google Lens image upload. Each
+  switch is a constant, not a default.
+- **Local Network Access on top-level navigations stays on.** The settings
+  move to 157 had let Android follow upstream on
+  `network.lna.allow_top_level_navigation` (157 defaults it to true;
+  LibreWolf stopped setting it false because OAuth flows to local addresses
+  broke). Owner decision the same day: restored to false in
+  `settings/android.cfg`, as the betas shipped. Desktop follows upstream.
+
 ### What the earlier analysis said this costs
 
 The original analysis argued against this move. It now applies as a cost
@@ -73,9 +108,19 @@ estimate, not as a veto.
   The maintainer's answer is to accept the per-release cost and automate it
   ("move fast and forward").
 - **§5.1: the jump is paid in one go.** 153.4.0esr → 157.0 spans four majors
-  (154 to 157) with no intermediate green build to bisect against.
-  `check-patchfail --targets=android` on 157.0 fails 29 of the 44 Android
-  patches. They are being ported separately.
+  (154 to 157) with no intermediate green build to bisect against. When the
+  decision was taken, `check-patchfail --targets=android` on 157.0 failed 29
+  of the then 44 Android patches. That port is done: three patches were
+  retired because 157 has nothing left for them to patch (`r8-keep-rules`,
+  `cookie-banner-rules`, `cookie-banner-controls`; `PATCH-SCOPE.md`), the
+  other 41 were rebased and apply at fuzz 0 in list order, and
+  `disable-157-cloud-features` was added, so `android.txt` has 42 entries and
+  `check-patchfail --targets=android` and `--targets=desktop` both pass on
+  157.0. Applying is not building. A first scratch x86_64 APK was linked on
+  2026-10-02 only after local workarounds for several 157 build defects in
+  the patcher, the pregenerated UniFFI bindings and three patches
+  (`docs/android/evidence/lw-m7-40/README.md`); a clean 157 build is the
+  next gate.
 - **§4: Tor Browser stops being a co-maintainer.** Tor Browser Stable stays on
   ESR, and its Alpha is on rapid release. Nobody shares our exact base any more.
 - **§5.4: users see a version jump**, 153.4.0esr-1 → 157.0-1. This is cosmetic.
