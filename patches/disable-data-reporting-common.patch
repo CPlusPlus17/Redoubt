@@ -1,17 +1,46 @@
 Disable data reporting at compile time -- COMMON half (LW-M1-02).
 
-Split out of patches/disable-data-reporting-at-compile-time.patch, which was a
-straddler: it mixed toolkit/python hunks that are built on every target with two
-browser/-only hunks. The browser/ half now lives in
-patches/disable-data-reporting-desktop.patch; common + desktop together are
-byte-for-byte the original patch.
+Split out of upstream's patches/disable-data-reporting-at-compile-time.patch,
+which is a straddler: it mixes toolkit/python hunks that are built on every
+target with browser/-only hunks. This file holds the target-independent hunks;
+patches/disable-data-reporting-desktop.patch holds the browser/ hunks and the
+hunks whose context only exists in the desktop Firefox version. common + desktop
+together are byte-for-byte upstream's current patch.
 
-What is here (all built on Android, checked against firefox-153.0.4):
+LISTED IN desktop.txt, NOT common.txt, SINCE THE FIREFOX 157 DESKTOP MERGE.
+Desktop builds firefox-157.0; Android builds firefox-153.0esr (version.android)
+and its patched tree is held byte-identical to the pre-merge one. So Android
+does not apply this file: it applies the pre-merge common half verbatim,
+patches/android/disable-data-reporting-common-esr.patch, followed by
+patches/android/disable-data-reporting-android.patch (also pre-merge bytes),
+both in assets/patches/android.txt. Re-merge this file into common.txt (and drop
+the -esr copy) when Android moves to an ESR >= 157.
+
+What is here:
   python/mach/mach/telemetry.py                    mach telemetry, target-independent
-  python/sites/mach.txt                            drops the glean-sdk pypi requirement
-  toolkit/components/glean/src/init/mod.rs         Glean core MPS + internal pings off
   toolkit/components/telemetry/core/Telemetry.cpp  TelemetryImpl never records
   toolkit/library/rust/gkrust-features.mozbuild    glean_disable_upload for official builds
+  toolkit/components/telemetry/core/Stopwatch.cpp,
+  toolkit/components/telemetry/core/TelemetryUserInteraction.{cpp,h}
+                                                   upstream fb4c7a32: with telemetry off,
+                                                   UserInteraction.* calls stop logging
+                                                   "cannot be recorded" errors. This
+                                                   replaces the old tabbrowser.js hunk
+                                                   (dropped upstream in a1bd18fa).
+
+What is NOT here any more, and why (both became version-specific at 157):
+  python/sites/mach.txt     pins the glean-sdk version (68.0.1 on 157, 67.3.2 on
+                            153esr) -> the 157 hunk is in the desktop half; the
+                            153esr hunk is in disable-data-reporting-common-esr.
+  glean disable hunks       157: upstream patches third_party/rust/glean-core
+                            (lib.rs, core/mod.rs) -> desktop half; the matching
+                            .cargo-checksum.json hashes rewritten by
+                            scripts/librewolf-patches.py are the 157 hashes and do
+                            NOT match the 153esr files.
+                            153esr: toolkit/components/glean/src/init/mod.rs
+                            (use_core_mps / enable_internal_pings false), kept in
+                            disable-data-reporting-common-esr; on 157 that code
+                            became a builder and the hunk rejects.
 
 WHERE THE ANDROID OFF SWITCH LIVES -- READ THIS BEFORE ASSUMING THIS PATCH IS
 ENOUGH ON ANDROID.
@@ -29,12 +58,14 @@ end supplies its own:
   mobile/android/moz.configure:131 MOZ_NORMANDY False               (already off)
   mobile/android/moz.configure:132 MOZ_SERVICES_HEALTHREPORT True   (still ON)
 
-So on Android this patch alone leaves MOZ_SERVICES_HEALTHREPORT defined and
-MOZ_DATA_REPORTING with it. That is closed by
+So on Android the common half alone (today: its 153esr copy,
+patches/android/disable-data-reporting-common-esr.patch) leaves
+MOZ_SERVICES_HEALTHREPORT defined and MOZ_DATA_REPORTING with it. That is
+closed by
 
     patches/android/disable-data-reporting-android.patch   (assets/patches/android.txt)
 
-which must be applied alongside this one for every Android build. Do not try to
+which must be applied alongside the common half for every Android build. Do not try to
 close it from the mozconfig: assets/mozconfig.android's
 `mk_add_options MOZ_SERVICES_HEALTHREPORT=0` is make-level only
 (python/mozbuild/mozbuild/mozconfig.py routes mk_add_options into make_extra and
@@ -57,39 +88,6 @@ index 2b70b3f..b111dac 100644
  
  
  def arcrc_path(): 
-diff --git a/python/sites/mach.txt b/python/sites/mach.txt
-index 8f4aa95..eb1e871 100644
---- a/python/sites/mach.txt
-+++ b/python/sites/mach.txt
-@@ -58,7 +58,7 @@ pth:xpcom/geckoprocesstypes_generator
- pth:xpcom/idl-parser
- # glean-sdk may not be installable if a wheel isn't available
- # and it has to be built from source.
--pypi-optional:glean-sdk==67.3.2:telemetry will not be collected
-+# pypi-optional:glean-sdk==67.3.2:telemetry will not be collected
- pypi-optional:orjson>=3.10:json operations will be slower in various tools
- # Mach gracefully handles the case where `psutil` is unavailable.
- # We aren't (yet) able to pin packages in automation, so we have to
-diff --git a/toolkit/components/glean/src/init/mod.rs b/toolkit/components/glean/src/init/mod.rs
-index 8ebf827..80eaa4c 100644
---- a/toolkit/components/glean/src/init/mod.rs
-+++ b/toolkit/components/glean/src/init/mod.rs
-@@ -189,13 +189,13 @@ fn build_configuration(
-         delay_ping_lifetime_io: true,
-         server_endpoint: Some(server),
-         uploader: None,
--        use_core_mps: true,
-+        use_core_mps: false,
-         trim_data_to_registered_pings: true,
-         log_level: None,
-         rate_limit,
-         enable_event_timestamps: true,
-         experimentation_id: None,
--        enable_internal_pings: true,
-+        enable_internal_pings: false,
-         ping_schedule: pings::ping_schedule(),
-         ping_lifetime_threshold: 0,
-         ping_lifetime_max_time: Duration::ZERO,
 diff --git a/toolkit/components/telemetry/core/Telemetry.cpp b/toolkit/components/telemetry/core/Telemetry.cpp
 index 1e83d34..474bc5c 100644
 --- a/toolkit/components/telemetry/core/Telemetry.cpp
@@ -134,3 +132,67 @@ index a3f1cc3..715f58b 100644
      gkrust_features += ["glean_disable_upload"]
  
  if CONFIG["MOZ_ENABLE_DBUS"]:
+diff --git a/toolkit/components/telemetry/core/Stopwatch.cpp b/toolkit/components/telemetry/core/Stopwatch.cpp
+index 9fcd929d83..f5f02bb921 100644
+--- a/toolkit/components/telemetry/core/Stopwatch.cpp
++++ b/toolkit/components/telemetry/core/Stopwatch.cpp
+@@ -315,7 +315,7 @@ bool Timers::StartUserInteraction(JSContext* aCx,
+   // Ensure that this ID maps to a UserInteraction that can be recorded
+   // for this product.
+   if (!TelemetryUserInteraction::CanRecord(aUserInteraction)) {
+-    if (!mSuppressErrors) {
++    if (TelemetryUserInteraction::IsRecordingEnabled() && !mSuppressErrors) {
+       LogError(aCx, nsPrintfCString(
+                         "UserInteraction with name \"%s\" cannot be recorded.",
+                         NS_ConvertUTF16toUTF8(aUserInteraction).get()));
+@@ -383,7 +383,7 @@ bool Timers::UpdateUserInteraction(JSContext* aCx,
+   // Ensure that this ID maps to a UserInteraction that can be recorded
+   // for this product.
+   if (!TelemetryUserInteraction::CanRecord(aUserInteraction)) {
+-    if (!mSuppressErrors) {
++    if (TelemetryUserInteraction::IsRecordingEnabled() && !mSuppressErrors) {
+       LogError(aCx, nsPrintfCString(
+                         "UserInteraction with name \"%s\" cannot be recorded.",
+                         NS_ConvertUTF16toUTF8(aUserInteraction).get()));
+@@ -416,7 +416,7 @@ bool Timers::FinishUserInteraction(
+   // Ensure that this ID maps to a UserInteraction that can be recorded
+   // for this product.
+   if (!TelemetryUserInteraction::CanRecord(aUserInteraction)) {
+-    if (!mSuppressErrors) {
++    if (TelemetryUserInteraction::IsRecordingEnabled() && !mSuppressErrors) {
+       LogError(aCx, nsPrintfCString(
+                         "UserInteraction with id \"%s\" cannot be recorded.",
+                         NS_ConvertUTF16toUTF8(aUserInteraction).get()));
+@@ -467,7 +467,7 @@ bool Timers::CancelUserInteraction(JSContext* aCx,
+   // Ensure that this ID maps to a UserInteraction that can be recorded
+   // for this product.
+   if (!TelemetryUserInteraction::CanRecord(aUserInteraction)) {
+-    if (!mSuppressErrors) {
++    if (TelemetryUserInteraction::IsRecordingEnabled() && !mSuppressErrors) {
+       LogError(aCx, nsPrintfCString(
+                         "UserInteraction with id \"%s\" cannot be recorded.",
+                         NS_ConvertUTF16toUTF8(aUserInteraction).get()));
+diff --git a/toolkit/components/telemetry/core/TelemetryUserInteraction.cpp b/toolkit/components/telemetry/core/TelemetryUserInteraction.cpp
+index c71fe5b6c6..6ea3c93773 100644
+--- a/toolkit/components/telemetry/core/TelemetryUserInteraction.cpp
++++ b/toolkit/components/telemetry/core/TelemetryUserInteraction.cpp
+@@ -94,3 +94,7 @@ bool TelemetryUserInteraction::CanRecord(const nsAString& aName) {
+ 
+   return false;
+ }
++
++bool TelemetryUserInteraction::IsRecordingEnabled() {
++  return gTelemetryUserInteractionCanRecord;
++}
+diff --git a/toolkit/components/telemetry/core/TelemetryUserInteraction.h b/toolkit/components/telemetry/core/TelemetryUserInteraction.h
+index 0db315684f..39dcbc4cfa 100644
+--- a/toolkit/components/telemetry/core/TelemetryUserInteraction.h
++++ b/toolkit/components/telemetry/core/TelemetryUserInteraction.h
+@@ -13,6 +13,7 @@ void InitializeGlobalState(bool canRecord);
+ void DeInitializeGlobalState();
+ 
+ bool CanRecord(const nsAString& aName);
++bool IsRecordingEnabled();
+ 
+ }  // namespace TelemetryUserInteraction
+ 

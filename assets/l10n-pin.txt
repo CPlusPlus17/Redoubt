@@ -39,9 +39,26 @@
 # the repo at that commit, and diff the trees first. A hash refreshed without
 # looking is not a pin.
 #
-# Verified on 2026-08-15: two downloads of the commit below, minutes apart,
-# produced byte-identical archives (127528694 bytes).
+# Verified on 2026-10-01 (re-pin for the Firefox 157 desktop merge): two
+# downloads of the commit below, a minute apart, produced byte-identical
+# archives (119073493 bytes). The previous pin, 959f3e913c31 (sha256
+# a101ab9b...cc2c, verified 2026-08-15), still downloaded to its recorded hash
+# the same day, and its tree was diffed against this one before switching.
+#
+# ONE PIN, BOTH TRACKS. scripts/librewolf-patches.py reads this file for every
+# --targets, so the Android (153.0esr) tree unpacks the same commit into lw/l10n.
+# That is safe because Android ships nothing from it: assets/mozconfig.android
+# passes --with-l10n-base only so configure finds the directory, Redoubt builds
+# Gecko for Android en-US only (the shipped 153.0esr-1 APK's assets/omni.ja
+# carries locale/en-US and localization/en-US and no other locale), and Fenix's
+# own strings come from in-tree values-<locale>/ resources, pinned separately
+# in patches/android/l10n-strings.patch. firefox-l10n is cross-channel, so a
+# newer commit still covers 153esr: of the files the 959f3e91 -> 52c920bc diff
+# removes (37 per locale, checked on de), none exists under any
+# */locales/en-US/ of firefox-153.0esr.source.tar.xz or firefox-157.0 - they
+# belong to releases older than both (ESR 140 and before). If Android ever
+# builds multi-locale Gecko, give it its own pin instead of sharing this one.
 # ---------------------------------------------------------------------------
 
-commit = 959f3e913c31d0fec77893a39916eca018a41b66
-sha256 = a101ab9b2c4e5dc9737a6bd4a1d1ba832acd71b171b4ff233dfd01e465efcc2c
+commit = 52c920bc4e73f5c8a5415c3ea0c90ee6a1bad7d9
+sha256 = 865271e144fb84e817e16d92de9576e7e4aeee935e83e05c17e4b13f8ae47671

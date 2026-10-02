@@ -84,7 +84,7 @@ must-lock analysis; it is recorded here because it was found while checking the
 
 | # | policy key | Android mechanism | gap |
 |---|---|---|---|
-| 1 | `AIControls` | mixed: Android defaults already match for the two features that exist; the other four have no Android code at all | — |
+| 1 | `AIControls` | mixed: Android defaults already match for the two features that exist; the other five have no Android code to gate | — |
 | 2 | `AppUpdateURL` | none needed — no updater on Android | — |
 | 3 | `DisableAppUpdate` | none needed — no updater on Android | — |
 | 4 | `DisableDefaultBrowserAgent` | none needed — Windows-only component | — |
@@ -133,9 +133,11 @@ Taken sub-key by sub-key, because they do not share an answer:
 | `LinkPreviewKeyPoints` | `blocked` | `browser.ml.linkPreview.enabled` | pref only in `browser/app/profile/firefox.js:2262`; feature is `browser/components/genai/`. Absent on Android. |
 | `SidebarChatbot` | `blocked` | `browser.ml.chat.enabled`, `browser.ml.chat.page` | pref only in `browser/app/profile/firefox.js:2239`; feature is `browser/components/genai/`. Absent on Android. |
 | `SmartWindow` | `blocked` | (none — reporting pref only) | nothing to gate. |
+| `SpeechRecognition` | `blocked` | (none — reporting pref `browser.ai.control.speechRecognition` only) | Added by the Firefox 157 settings. Nothing to gate, and on 153.0esr the reporting pref does not even exist (`all.js:3636-3642` declares the six above and no `speechRecognition`; 157 adds it at `all.js:3654`). The Web Speech recognition API it reports on is off by default on 153.0esr, `media.webspeech.recognition.enable` = false (`StaticPrefList.yaml:13025-13028`), and no Redoubt `.cfg` turns it on. Matches. |
 
 The `browser.ai.control.*` reporting prefs are declared in
-`modules/libpref/init/all.js:3636-3642`, so they *do* exist on Android. But their
+`modules/libpref/init/all.js:3636-3642`, so they *do* exist on Android (all but
+`speechRecognition`, which 153.0esr predates). But their
 only non-`browser/` readers are:
 
 - `toolkit/components/translations/TranslationsFeature.sys.mjs:114-118`, which
@@ -151,7 +153,7 @@ Everything else that reads them (`browser/components/StartupTelemetry.sys.mjs:36
 is desktop UI.
 
 **Mechanism: no android.cfg pref.** The two features that exist on Android
-already default to the value the policy would set; the other four have no code
+already default to the value the policy would set; the other five have no code
 to gate. Setting `browser.ai.control.translations` to `"available"` in
 `android.cfg` would be cosmetic — nothing on Android reads it functionally — and
 `android.cfg`'s own header warns against a second source for a value. Not a gap.
@@ -540,10 +542,13 @@ Against the Android defaults in `modules/libpref/init/StaticPrefList.yaml`:
 | `network.lna.blocking` | `true` (`EnablePrompting`) | `true` (`:15379-15382`) | already matches |
 | `network.lna.block_trackers` | `true` (`BlockTrackers`) | **`false`** (`:15386-15389`) | **needs setting** |
 
-`common.cfg:280-282` already ships three neighbouring `network.lna.*` prefs
-(`websocket.enabled`, `allow_top_level_navigation`,
-`local-network-to-localhost.skip-checks`) but not `block_trackers` — desktop gets
-that one from the policy only.
+`common.cfg` already ships two neighbouring `network.lna.*` prefs
+(`websocket.enabled`, `local-network-to-localhost.skip-checks`) but not
+`block_trackers` — desktop gets that one from the policy only. A third,
+`allow_top_level_navigation` = false, was in `common.cfg` until the Firefox 157
+settings port: upstream commented it out there, and `android.cfg` now carries it
+for Android (153.0esr's StaticPref default is true, so dropping it would have
+changed what Android ships).
 
 The prompting half of the policy is functional on Android: GeckoView carries
 `PERMISSION_LOCAL_NETWORK_ACCESS` (`GeckoSession.java:7213`, string
@@ -633,8 +638,9 @@ Fenix's help entry points at hardcoded Mozilla URLs —
 (`FXACCOUNT_SUMO_URL`, `ANDROID_SUPPORT_SUMO_URL`) and
 `SupportUtils.getSumoURLForTopic` at `:93`.
 
-**Mechanism: Kotlin.** Repoint the help/support menu at
-`https://codeberg.org/librewolf/issues`, matching the desktop policy's value.
+**Mechanism: Kotlin.** Repoint the help/support menu at the desktop policy's
+URL. That is `https://librewolf.dev/librewolf/issues` since the Firefox 157
+settings (it was `https://codeberg.org/librewolf/issues` before).
 
 **P1** (with row 5) — same Fenix menu area, same fix site. Small, visible, and
 cheap; a good early M4 item. Owner: M4.

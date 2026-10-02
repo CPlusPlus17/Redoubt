@@ -685,6 +685,19 @@ ac_add_options --with-l10n-base="$topsrcdir/lw/l10n"
 #    -> KEPT verbatim, but see the note above: they are make-level only and
 #       never reach configure.  This is true on desktop too.
 #
+# 6. export MOZ_PKG_VERSION=
+#    -> DESKTOP-ONLY, not carried.  Added by the Firefox 157 desktop merge
+#       (upstream LibreWolf 157): an empty placeholder in the desktop template
+#       that scripts/librewolf-patches.py (write_desktop_mozconfig) fills with
+#       <version>-<release> on a desktop-only run, so the desktop package
+#       names carry LibreWolf's display version now that browser/config/
+#       version.txt holds the bare Firefox version.  It only names packaging
+#       artifacts (toolkit/mozapps/installer/package-name.mk).  Android is
+#       untouched by it: version.txt still holds <version>-<release> on an
+#       android run, the APK is named by Gradle, not package-name.mk, and an
+#       android run copies the template unchanged (install_mozconfig) exactly
+#       as before the merge.
+#
 # Android-only additions that have no desktop counterpart:
 #   --target=aarch64-linux-android, --enable-appservices-in-tree,
 #   --with-android-sdk / --with-android-ndk / --with-java-bin-path /

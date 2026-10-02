@@ -24,6 +24,8 @@ librewolf-autocopy-checkbox2 =
 librewolf-styling-checkbox2 =
     .label = Allow userChrome.css customization
     .description = Enable this if you want to customize the UI with a manually loaded theme.
+librewolf-nova-checkbox2 =
+    .label = Enable the Nova redesign
 librewolf-network-heading2 =
     .label = Networking
 librewolf-ipv6-checkbox2 =
@@ -85,6 +87,10 @@ librewolf-mouse-heading2 =
 librewolf-JXL =
     .label = Enable JXL (JPEG XL) support
 
+librewolf-h264 =
+    .label = Enable the OpenH264 plugin
+    .description = Required for screen sharing on some websites, such as Discord.
+
 ## Permissions
 
 # (This label matches Fenix's preference_phone_feature_media_key_system_access string:
@@ -95,6 +101,17 @@ permissions-eme2 =
 permissions-webgl2 =
     .label = WebGL
 
+permissions-canvas2 =
+    .label = Canvas extraction
+
 ## General
 librewolf-rfp-warning =
     .message = This feature is disabled because ResistFingerprinting is enabled. This means LibreWolf will force web content to display in a light theme.
+
+# Home and startup
+
+librewolf-is-default-browser-2 =
+    .message = { -brand-short-name } is set as your default browser.
+
+librewolf-is-not-default-browser-2 =
+    .message = { -brand-short-name } isn't set as your default browser.

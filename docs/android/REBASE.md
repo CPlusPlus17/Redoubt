@@ -233,7 +233,9 @@ run.
 
 - **`success: All patches where applied successfully.`** and exit 0 — done, go to
   step 5's zero-fuzz report.
-- **`Hunk #N succeeded at … with fuzz M`** — normal. 31 of these on desktop today.
+- **`Hunk #N succeeded at … with fuzz M`** — normal. 27 of these on desktop today
+  (`common.txt` + `desktop.txt` on `firefox-157.0`, across 22 patches, measured
+  at the Firefox 157 merge).
 - **`error: Some patches failed!`** with a list of `[patches/…]` — real rejects.
   Go to step 5.
 
@@ -335,7 +337,7 @@ Then re-run step 4 and confirm the fuzz count dropped.
 For a patch that genuinely no longer applies, get an editable tree:
 
 ```sh
-./scripts/git-patchtree.sh --edit --targets=android patches/ui-patches/neterror-common.patch
+./scripts/git-patchtree.sh --edit --targets=android patches/android/neterror-common-esr.patch
 ```
 
 This builds a throwaway git repository whose first commit is the pristine files and

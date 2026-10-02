@@ -46,7 +46,7 @@ One stale citation (`android-smoke.sh:1598-1606` → `:1983`) was fixed.
 
 | | |
 |---|---|
-| bare `pref()` calls in `common.cfg` | 24 |
+| bare `pref()` calls in `common.cfg` | 24 (**23** since the Firefox 157 settings port — see the note below) |
 | in the `ResetUserPrefs` name universe | **4** |
 | **measured** reading the wrong value on Android with the fix reverted | **3** |
 | right only because GeckoView's Java default coincides with ours | **1** |
@@ -56,6 +56,16 @@ One stale citation (`android-smoke.sh:1598-1606` → `:1983`) was fixed.
 | bare `pref()` calls reading LibreWolf's value, with the fix in | **24 / 24** |
 | does any of this reach a device from `make` today? | **yes, since commit 75026bc (2026-08-21)** — `scripts/librewolf-patches.py:398-401` composes `common.cfg + android.cfg` for android-only targets. This row said "no" until 2026-08-25; the delivery gap it points at (LW-M3-10) had already closed, and the third pass was write-up-only so it never revisited the question. |
 | the `verify:` line `tasks.yaml` declares for this task | **vacuous** — see "The declared `verify:` is vacuous" |
+
+**Firefox 157 settings port (desktop merge).** Upstream removed #24,
+`dom.private-attribution.submission.enabled`, from its cfg because Firefox 157
+removed Privacy-Preserving Attribution, so `common.cfg` now holds **23** bare
+`pref()` calls. 153.0esr still has the StaticPref, so `android.cfg` carries the
+same bare `pref("dom.private-attribution.submission.enabled", false)` for
+Android. The composed `common + android` file therefore still contains all 24,
+with the same values. Every disposition and count below describes that composed
+Android cfg and still holds. Only the `common.cfg` line numbers in the per-pref
+table are pre-merge (`settings` 2206f8d).
 
 ---
 

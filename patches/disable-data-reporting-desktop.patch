@@ -1,15 +1,17 @@
 Disable data reporting at compile time -- DESKTOP half (LW-M1-02).
 
-Split out of patches/disable-data-reporting-at-compile-time.patch. The two hunks
-below are the ones that only exist in a desktop build; everything else in the
-original patch is in patches/disable-data-reporting-common.patch. Applying
-common + desktop to a pristine tree reproduces the original patch byte for byte.
+Split out of upstream's patches/disable-data-reporting-at-compile-time.patch.
+The hunks below are the ones that only exist in a desktop build, or only in the
+desktop Firefox version (firefox-157.0; Android builds firefox-153.0esr, see
+version.android). Everything else in the upstream patch is in
+patches/disable-data-reporting-common.patch; common + desktop together are
+byte-for-byte upstream's current patch.
 
   browser/moz.configure
       MOZ_SERVICES_HEALTHREPORT and MOZ_NORMANDY -> False. These are the two
       front-end inputs to MOZ_DATA_REPORTING (toolkit/moz.configure:3493-3507);
       turning them off is what takes the datareporting.policy.* block in
-      modules/libpref/init/all.js:3724-3733 out of the build.
+      modules/libpref/init/all.js out of the build.
       This file only exists for the desktop front end -- browser/app.mozbuild:11
       pulls /browser in and mobile/android/app.mozbuild never does -- so it can
       do nothing for Android. mobile/android/moz.configure:131-132 supplies the
@@ -17,11 +19,28 @@ common + desktop to a pristine tree reproduces the original patch byte for byte.
       equivalent of this hunk is
       patches/android/disable-data-reporting-android.patch.
 
-  browser/components/tabbrowser/content/tabbrowser.js
-      Drops the UserInteraction.start/update("browser.tabs.opening") probes.
-      UserInteraction is a Glean/telemetry stopwatch; there is no Fenix
-      counterpart to remove -- tabbrowser.js is XUL tab UI that Android does not
-      build at all.
+  python/sites/mach.txt
+      Comments out the glean-sdk pypi requirement. The pinned version is part of
+      the context (68.0.1 on 157), so the hunk is version-specific; the 153esr
+      variant (67.3.2) is in patches/android/disable-data-reporting-common-esr.patch.
+
+  third_party/rust/glean-core/src/lib.rs, third_party/rust/glean-core/src/core/mod.rs
+      Glean upload/collection forced off inside glean-core (upstream 77f8fcd8,
+      which replaced the old toolkit/components/glean/src/init/mod.rs hunk --
+      on 157 build_configuration() uses a builder and that hunk rejects).
+      glean-core is a vendored crate: scripts/librewolf-patches.py rewrites the
+      two affected hashes in third_party/rust/glean-core/.cargo-checksum.json
+      (upstream f072d15c). Those hashes are the 157 file hashes, which is why
+      these hunks cannot be common: they apply to 153esr too, but there the
+      checksum rewrite does not match and the vendored crate fails its check.
+      The 153esr equivalent (init/mod.rs) is in
+      patches/android/disable-data-reporting-common-esr.patch.
+
+  (Gone: the browser/components/tabbrowser/content/tabbrowser.js hunk that
+  removed the UserInteraction "browser.tabs.opening" probes. Upstream dropped it
+  in a1bd18fa for 156 and instead silences UserInteraction errors in
+  toolkit/components/telemetry/core/Stopwatch.cpp, fb4c7a32 -- that part is
+  in the common half.)
 
 diff --git a/browser/moz.configure b/browser/moz.configure
 index 3ea3d88..c55951b 100644
@@ -41,27 +60,51 @@ index 3ea3d88..c55951b 100644
  imply_option("MOZ_PROFILE_MIGRATOR", True)
  
 
-diff --git a/browser/components/tabbrowser/content/tabbrowser.js b/browser/components/tabbrowser/content/tabbrowser.js
-index c42b1a1a8d..bea12fa0fa 100644
---- a/browser/components/tabbrowser/content/tabbrowser.js
-+++ b/browser/components/tabbrowser/content/tabbrowser.js
-@@ -3330,10 +3330,6 @@
-         );
-       }
+diff --git a/python/sites/mach.txt b/python/sites/mach.txt
+index d5cdce8..f4f38c1 100644
+--- a/python/sites/mach.txt
++++ b/python/sites/mach.txt
+@@ -58,7 +58,7 @@ pth:xpcom/geckoprocesstypes_generator
+ pth:xpcom/idl-parser
+ # glean-sdk may not be installable if a wheel isn't available
+ # and it has to be built from source.
+-pypi-optional:glean-sdk==68.0.1:telemetry will not be collected
++# pypi-optional:glean-sdk==68.0.1:telemetry will not be collected
+ pypi-optional:orjson>=3.10:json operations will be slower in various tools
+ # Mach gracefully handles the case where `psutil` is unavailable.
+ # We aren't (yet) able to pin packages in automation, so we have to
+diff --git a/third_party/rust/glean-core/src/lib.rs b/third_party/rust/glean-core/src/lib.rs
+index c401c3d..d6c744a 100644
+--- a/third_party/rust/glean-core/src/lib.rs
++++ b/third_party/rust/glean-core/src/lib.rs
+@@ -916,6 +916,7 @@ pub extern "C" fn glean_enable_logging() {
+ /// **DEPRECATION NOTICE**:
+ /// This API is deprecated. Use `set_collection_enabled` instead.
+ pub fn glean_set_upload_enabled(enabled: bool) {
++    let enabled = false;
+     if !was_initialize_called() {
+         return;
+     }
+@@ -951,6 +952,8 @@ pub fn glean_set_upload_enabled(enabled: bool) {
+ ///
+ /// This replaces `set_upload_enabled`.
+ pub fn glean_set_collection_enabled(enabled: bool) {
++    // Redundant currently
++    let enabled = false;
+     glean_set_upload_enabled(enabled)
+ }
  
--      if (!UserInteraction.running("browser.tabs.opening", window)) {
--        UserInteraction.start("browser.tabs.opening", "initting", window);
--      }
--
-       // If we're opening a foreground tab, set the owner by default.
-       ownerTab ??= inBackground ? null : this.selectedTab;
+diff --git a/third_party/rust/glean-core/src/core/mod.rs b/third_party/rust/glean-core/src/core/mod.rs
+index 0130646..1370f08 100644
+--- a/third_party/rust/glean-core/src/core/mod.rs
++++ b/third_party/rust/glean-core/src/core/mod.rs
+@@ -813,7 +813,8 @@ impl Glean {
+     ///
+     /// When upload is disabled, no data will be recorded.
+     pub fn is_upload_enabled(&self) -> bool {
+-        self.upload_enabled
++        _ = self.upload_enabled;
++       false
+     }
  
-@@ -4205,8 +4201,6 @@
-           0,
-           this.tabContainer
-         );
--      } else {
--        UserInteraction.update("browser.tabs.opening", "animated", window);
-       }
- 
-       return t;
+     /// Check if a ping is enabled.

@@ -157,7 +157,7 @@ CONSTRAINTS = (
         "LW-M7-14 removes the predecessor's Android false block together with the complete native/GV/Fenix bridge.",
     ),
     (
-        "patches/webgl-permission-common.patch",
+        "patches/android/webgl-permission-common-esr.patch",
         "patches/android/canvas-webgl-permissions.patch",
         ("dom/canvas/ClientWebGLContext.cpp", "modules/libpref/init/StaticPrefList.yaml"),
         "LW-M7-14 wraps the common GetWebGLPermission/IsWebGLAllowed helpers and its context-creation call; "
@@ -203,6 +203,15 @@ CONSTRAINTS = (
         "the monolith's position and both list comments record the direction",
     ),
     (
+        "patches/fpp-canvas-fix.patch",
+        "patches/android/webgl-permission-common-esr.patch",
+        "dom/canvas/ClientWebGLContext.cpp",
+        "Firefox 157 desktop merge: the pre-157 webgl-permission-common text "
+        "moved verbatim to android.txt for the 153 ESR tree, so the row above "
+        "now holds common.txt -> desktop.txt and this one common.txt -> "
+        "android.txt; both are satisfied because common.txt is applied first",
+    ),
+    (
         "patches/mozilla_dirs.patch",
         "patches/xdg-dir.patch",
         "toolkit/xre/nsXREDirProvider.cpp",
@@ -213,7 +222,7 @@ CONSTRAINTS = (
         "makes the direction mandatory",
     ),
     (
-        "patches/webgl-permission-common.patch",
+        "patches/android/webgl-permission-common-esr.patch",
         "patches/android/webgl-prompt-default.patch",
         "modules/libpref/init/StaticPrefList.yaml",
         "also in the AGENTS.md table - see the note above. The Android patch's "
@@ -372,6 +381,38 @@ CONSTRAINTS = (
 # records the exact set of shared files, so a rebase that makes two of these
 # patches meet in a new file is reported.
 # --------------------------------------------------------------------------
+
+# Method behind the Firefox 157 desktop-merge rows below. Replayed against the
+# pristine, signed firefox-157.0.source.tar.xz with the full common.txt +
+# desktop.txt sequence, three ways per pair (A listed before B): the shipping
+# order, B moved to immediately before A, and A moved to immediately after B.
+_M157_SWAP = ("measured on firefox-157.0: shipping order, B-moved-before-A and "
+              "A-moved-after-B all apply every patch (exit 0) and leave every "
+              "file the desktop sequence touches byte-identical")
+
+# Method behind the seven firefox-suggest-data/app/build.gradle rows at the end
+# of the table. Replayed against the pristine firefox-153.0esr.source.tar.xz
+# with the full common.txt + android.txt sequence (67 patches, GNU patch 2.8,
+# `patch -p1 -i` as librewolf-patches.py runs it), fresh extract per order.
+#
+# What it found first: firefox-suggest-data's build.gradle section (f8189c4c)
+# has a bare '@@' hunk header with no line numbers. GNU patch skips it SILENTLY
+# inside the whole patch - exit 0, no "patching file .../build.gradle" line -
+# and on its own reports "Only garbage was found" (git apply: "patch with only
+# garbage"). So the mozilla_appservices_suggest dependency never reaches the
+# tree, and the shipped build.gradle is sha256 2ef204e5..., the LW-M6-06 value
+# from before the hunk existed. That is a bug in the patch, not an ordering
+# question; it is recorded here because it is why these pairs cannot conflict
+# today, and because fixing the header changes what the rows rest on.
+_M7_SUGGEST_GRADLE = (
+    "measured on firefox-153.0esr, full Android sequence, fresh extract per "
+    "order: suggest-data's build.gradle hunk has a bare '@@' header and GNU "
+    "patch skips it (exit 0, file untouched), so it adds no bytes in any order; "
+    "A-moved-after-B applies every patch (exit 0) and leaves all 452 files the "
+    "sequence touches byte-identical to shipping where no third-party "
+    "constraint is crossed. With the header repaired (+7 lines after "
+    "mozilla_appservices_merino), a build.gradle-only replay of the 8 patches "
+    "that edit it gives sha256 33826457... with B before each A and last")
 
 REVIEWED_ORDER_FREE = (
     ('patches/android/no-glean.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml',), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
@@ -642,8 +683,42 @@ REVIEWED_ORDER_FREE = (
      "remote-search-configuration constant vs privacy defaults in different Settings properties; measured both orders byte-identical at fuzz=0; "
      "docs/android/evidence/lw-m7-12/patch-integration/privacy-pair-replay.json"),
 
+    # Firefox 157 desktop merge: pairs created by the patches upstream
+    # LibreWolf added for 156/157 (and by lw-permissions/settings-redesign
+    # growing into browser/components/preferences/config/). Every one was
+    # MEASURED, not grandfathered - see _M157_SWAP for the method. In both
+    # swapped orders every patch of the desktop sequence applied (patch exit
+    # 0) and all 150 tree files the desktop sequence then touched came out
+    # byte-identical to the shipping order, so none of them is a constraint.
+    # (150 was measured with updater.patch and allow-disabling-updater still
+    # listed; their removal took 3 files out of the sequence, none shared.)
+    ("patches/canvas-permission.patch", "patches/lw-permissions.patch",
+     ("browser/modules/SitePermissions.sys.mjs",),
+     "the hint says 'overlap or abut', the replay says order-free: both apply "
+     "at fuzz 0 either way round; " + _M157_SWAP),
+    ("patches/delete-cookie-permission.patch", "patches/eme-migrator.patch",
+     ("browser/components/ProfileDataUpgrader.sys.mjs",),
+     "separate migration blocks in ProfileDataUpgrader; " + _M157_SWAP),
+    ("patches/delete-cookie-permission.patch",
+     "patches/mullvad-dns-migration.patch",
+     ("browser/components/ProfileDataUpgrader.sys.mjs",),
+     "separate migration blocks in ProfileDataUpgrader; " + _M157_SWAP),
+    ("patches/eme-migrator.patch", "patches/mullvad-dns-migration.patch",
+     ("browser/components/ProfileDataUpgrader.sys.mjs",),
+     "separate migration blocks in ProfileDataUpgrader; " + _M157_SWAP),
+    ("patches/moz-official-desktop.patch", "patches/mullvad-dns-migration.patch",
+     ("browser/base/content/browser-main.js", "browser/base/jar.mn"),
+     "DevelopmentHelpers gating vs the DNS migration script include, disjoint "
+     "regions of both files; " + _M157_SWAP),
+    ("patches/lw-permissions.patch", "patches/ui-patches/settings-redesign.patch",
+     ("browser/components/preferences/config/privacy.mjs",),
+     "disjoint regions of the privacy settings config; " + _M157_SWAP),
+
     # Recorded in assets/patches/desktop.txt on the moz-official-desktop entry:
-    # "different region, ~line 300 vs ~504".
+    # "different region, ~line 300 vs ~504". INERT since the Firefox 157 merge:
+    # upstream dropped hide-passwordmgr.patch, and the checks skip a row whose
+    # patch is in no list. Kept for the record; drop it with the other rows
+    # naming the patches 157 deleted (hide-default-browser, firefox-view).
     ("patches/hide-passwordmgr.patch", "patches/moz-official-desktop.patch",
      ("browser/base/content/browser-init.js",),
      "different regions of browser-init.js (~300 vs ~500), noted in desktop.txt"),
@@ -653,7 +728,15 @@ REVIEWED_ORDER_FREE = (
     # dozen patches have edited the same handful of files for years.
     ("patches/extensions-setUninstallURL.patch", "patches/vendor-name.patch",
      ("toolkit/components/extensions/parent/ext-runtime.js",),
-     "grandfathered: shipping order, both in common.txt"),
+     "grandfathered: shipping order, both in common.txt until the Firefox 157 "
+     "merge moved vendor-name to the head of desktop.txt (still after it)"),
+    ("patches/extensions-setUninstallURL.patch",
+     "patches/android/vendor-name-esr.patch",
+     ("toolkit/components/extensions/parent/ext-runtime.js",),
+     "the row above for the Android ESR tree: vendor-name-esr is the pre-157 "
+     "vendor-name text, byte for byte, moved from common.txt to the head of "
+     "android.txt in the Firefox 157 merge - same shipping order, and the "
+     "patched firefox-153.0esr tree is diff -r identical to the pre-merge one"),
     ("patches/fullpage-translations-customization.patch",
      "patches/pref-pane/pref-pane-small.patch",
      ("browser/components/preferences/main.js",),
@@ -688,8 +771,10 @@ REVIEWED_ORDER_FREE = (
     ("patches/lw-permissions.patch",
      "patches/ui-patches/privacy-preferences.patch",
      ("browser/components/preferences/config/permissions-data.mjs",
+      "browser/components/preferences/config/privacy.mjs",
       "browser/themes/shared/preferences/privacy.css"),
-     "grandfathered: shipping order"),
+     "grandfathered: shipping order. Firefox 157 merge added config/privacy.mjs "
+     "to the shared set; " + _M157_SWAP),
     ("patches/ui-patches/allow_cookies_for_site.patch",
      "patches/ui-patches/settings-redesign.patch",
      ("browser/components/controlcenter/content/trustPanel.inc.xhtml",),
@@ -886,6 +971,58 @@ REVIEWED_ORDER_FREE = (
      ("mobile/android/fenix/app/build.gradle",),
      "update-check appends two buildConfigFields to defaultConfig (:88); branding edits applicationId / identity lines; "
      "byte-identical both ways (sha256 2ef204e5...) (LW-M6-06)"),
+
+    # firefox-suggest-data x the seven other app/build.gradle editors. MEASURED,
+    # see _M7_SUGGEST_GRADLE for the method and for the inert hunk. B-moved-
+    # before-A is not a usable full-tree order for any of them: it lifts
+    # suggest-data above its declared predecessor firefox-suggest-policy
+    # (CONSTRAINTS), and suggest-data then rejects in SearchEngineFragment.kt,
+    # firefox_suggest_policy_strings.xml and search_settings_preferences.xml -
+    # none of them build.gradle. That direction is covered by the
+    # build.gradle-only replay instead. Three of the A's are ordered before
+    # suggest-data transitively by existing rows anyway (no-adjust and no-gms
+    # -> firefox-suggest-policy -> firefox-suggest-data; no-glean -> no-gms),
+    # so for them "order-free" is about build.gradle only.
+    ("patches/android/branding.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "branding edits applicationId / identity lines (:57-:169), suggest-data "
+     "the dependencies block; full-tree A-after-B clean; " + _M7_SUGGEST_GRADLE),
+    ("patches/android/fenix-abi-split.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "fenix-abi-split edits the splits block (:239), suggest-data the "
+     "dependencies block; full-tree A-after-B clean; " + _M7_SUGGEST_GRADLE),
+    ("patches/android/no-crashreporter.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "no-crashreporter edits crash-reporter config/dependency lines; full-tree "
+     "A-after-B clean; " + _M7_SUGGEST_GRADLE),
+    ("patches/android/update-check.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "update-check appends buildConfigFields to defaultConfig (:88), "
+     "suggest-data the dependencies block; full-tree A-after-B clean; "
+     + _M7_SUGGEST_GRADLE),
+    ("patches/android/no-adjust.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "no-adjust removes the Adjust lines, one of them the trailing context of "
+     "the repaired hunk (applies at fuzz 1 either way, same bytes). Full-tree "
+     "A-after-B crosses no-adjust -> no-glean/no-gms/no-crashreporter, which "
+     "reject; build.gradle-only replay is order-free; " + _M7_SUGGEST_GRADLE),
+    ("patches/android/no-glean.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "no-glean edits the Glean dependency (:512). Full-tree A-after-B crosses "
+     "no-glean -> no-gms, which rejects in AndroidManifest.xml; build.gradle-only "
+     "replay is order-free; " + _M7_SUGGEST_GRADLE),
+    ("patches/android/no-gms.patch",
+     "patches/android/firefox-suggest-data.patch",
+     ("mobile/android/fenix/app/build.gradle",),
+     "no-gms edits the GMS config/dependency lines. Full-tree A-after-B crosses "
+     "no-gms -> no-crashreporter, which rejects in focus-android/app/build.gradle; "
+     "build.gradle-only replay is order-free; " + _M7_SUGGEST_GRADLE),
 )
 
 

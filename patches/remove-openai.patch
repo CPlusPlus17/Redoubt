@@ -27,12 +27,20 @@ nightly-channel build reaches it and would fail packaging on a file
 delete_from_tree() has already removed. Commenting it out costs nothing on
 release and extends the rename tripwire to the -dev path.
 
-The jar.mn hunk used to apply with fuzz 2: its trailing context ran on into
-`#ifdef NIGHTLY_BUILD`, and upstream has since inserted the
-content/global/ml/security/* entries in between. It is now two hunks whose
-context is what the 153.0.4 tree actually contains, so it applies at fuzz 0.
-That is a context correction, not a loosening - every `-` line still names an
-OpenAI path in full, which is the part that has to reject on a rename.
+Firefox 157 desktop merge - this file is now the DESKTOP (Firefox 157) text,
+listed in assets/patches/desktop.txt. Android stays on firefox-153.0esr and
+keeps the text it was built and verified against, byte-identical, as
+patches/android/remove-openai-esr.patch (android.txt). The two cannot share
+one file: on 157, toolkit/components/ml/jar.mn lost the wllama-module-dev.mjs
+line and the content/global/ml/security/* entries that the 153 text quotes as
+context, so the 153 jar.mn hunk 2 rejects and hunk 1 only lands at fuzz 2.
+This text was regenerated with diff -u from the real firefox-157.0 source
+files, not by loosening context: jar.mn is again a single hunk at fuzz 0, every
+`-` line still names an OpenAI path in full (OpenAIPipeline.mjs,
+vendor/openai/dist/openai.mjs, vendor/openai/dist/openai-dev.mjs in both
+jar.mn and license.html), and the set of files referencing those paths is the
+same five on 157 as on 153. Fold the two back into one common.txt entry when
+Android moves to an ESR >= 157.
 ---
  toolkit/components/aboutinference/content/aboutInference.js | 4 ++--
  toolkit/components/ml/content/EngineProcess.sys.mjs         | 2 +-
@@ -42,10 +50,10 @@ OpenAI path in full, which is the part that has to reject on a rename.
  5 files changed, 11 insertions(+), 11 deletions(-)
 
 diff --git a/toolkit/components/aboutinference/content/aboutInference.js b/toolkit/components/aboutinference/content/aboutInference.js
-index 01533ad4c9f2..041bdcaeaeaf 100644
+index d95aab9..45a1f10 100644
 --- a/toolkit/components/aboutinference/content/aboutInference.js
 +++ b/toolkit/components/aboutinference/content/aboutInference.js
-@@ -381,7 +381,7 @@ const INFERENCE_PAD_PRESETS = {
+@@ -379,7 +379,7 @@ const INFERENCE_PAD_PRESETS = {
      device: "cpu",
      backend: "onnx",
    },
@@ -54,7 +62,7 @@ index 01533ad4c9f2..041bdcaeaeaf 100644
      inputArgs: [
        {
          role: "system",
-@@ -400,7 +400,7 @@ const INFERENCE_PAD_PRESETS = {
+@@ -398,7 +398,7 @@ const INFERENCE_PAD_PRESETS = {
      apiKey: "ollama",
      baseURL: "http://localhost:11434/v1",
      backend: "openai",
@@ -64,12 +72,12 @@ index 01533ad4c9f2..041bdcaeaeaf 100644
  
  const PREDEFINED = Object.keys(INFERENCE_PAD_PRESETS);
 diff --git a/toolkit/components/ml/content/EngineProcess.sys.mjs b/toolkit/components/ml/content/EngineProcess.sys.mjs
-index 025d5aa..8007123 100644
+index be503c2..1e8fdf5 100644
 --- a/toolkit/components/ml/content/EngineProcess.sys.mjs
 +++ b/toolkit/components/ml/content/EngineProcess.sys.mjs
-@@ -27,7 +27,7 @@ export const BACKENDS = Object.freeze({
+@@ -34,7 +34,7 @@ export const BACKENDS = Object.freeze({
+   onnxNative: "onnx-native",
    llamaCpp: "llama.cpp",
-   bestLlama: "best-llama",
    bestOnnx: "best-onnx",
 -  openai: "openai",
 +//  openai: "openai",
@@ -77,10 +85,10 @@ index 025d5aa..8007123 100644
  });
  
 diff --git a/toolkit/components/ml/content/backends/Pipeline.mjs b/toolkit/components/ml/content/backends/Pipeline.mjs
-index a4b997e9bc4d..4565f3e097be 100644
+index 1b913af..30a04a0 100644
 --- a/toolkit/components/ml/content/backends/Pipeline.mjs
 +++ b/toolkit/components/ml/content/backends/Pipeline.mjs
-@@ -12,7 +12,7 @@ ChromeUtils.defineESModuleGetters(
+@@ -13,7 +13,7 @@ ChromeUtils.defineESModuleGetters(
      LlamaCppPipeline:
        "chrome://global/content/ml/backends/LlamaCppPipeline.mjs",
      PipelineOptions: "chrome://global/content/ml/EngineProcess.sys.mjs",
@@ -89,7 +97,7 @@ index a4b997e9bc4d..4565f3e097be 100644
      StaticEmbeddingsPipeline:
        "chrome://global/content/ml/backends/StaticEmbeddingsPipeline.mjs",
    },
-@@ -48,9 +48,9 @@ export async function getBackend(consumer, wasm, options) {
+@@ -46,9 +46,9 @@ export async function getBackend(consumer, wasm, options) {
      case "llama.cpp":
        factory = lazy.LlamaCppPipeline.initialize;
        break;
@@ -102,11 +110,11 @@ index a4b997e9bc4d..4565f3e097be 100644
        factory = lazy.StaticEmbeddingsPipeline.initialize;
        break;
 diff --git a/toolkit/components/ml/jar.mn b/toolkit/components/ml/jar.mn
-index 7dbb7c5afc7b..b2f07fd5bdcf 100644
+index 5237880..d502cef 100644
 --- a/toolkit/components/ml/jar.mn
 +++ b/toolkit/components/ml/jar.mn
-@@ -25,9 +25,9 @@ toolkit.jar:
-     content/global/ml/backends/LlamaPipeline.mjs          (content/backends/LlamaPipeline.mjs)
+@@ -23,12 +23,12 @@ toolkit.jar:
+     content/global/ml/transformers.js           	        (vendor/transformers.js)
      content/global/ml/ThomSample.mjs                      (content/ThomSample.mjs)
      content/global/ml/backends/LlamaCppPipeline.mjs       (content/backends/LlamaCppPipeline.mjs)
 -    content/global/ml/backends/OpenAIPipeline.mjs         (content/backends/OpenAIPipeline.mjs)
@@ -115,20 +123,17 @@ index 7dbb7c5afc7b..b2f07fd5bdcf 100644
 -    content/global/ml/openai.mjs                          (vendor/openai/dist/openai.mjs)
 +#    content/global/ml/openai.mjs                          (vendor/openai/dist/openai.mjs)
      content/global/ml/MLTelemetry.sys.mjs                 (MLTelemetry.sys.mjs)
-     content/global/ml/security/ConditionEvaluator.sys.mjs            (security/ConditionEvaluator.sys.mjs)
-     content/global/ml/security/DecisionTypes.sys.mjs                 (security/DecisionTypes.sys.mjs)
-@@ -40,5 +40,5 @@ toolkit.jar:
+ #ifdef NIGHTLY_BUILD
      content/global/ml/ort.webgpu-dev.mjs        	        (vendor/ort.webgpu-dev.mjs)
      content/global/ml/transformers-dev.js       	        (vendor/transformers-dev.js)
-     content/global/ml/wllama-module-dev.mjs               (vendor/wllama-module-dev.mjs)
 -    content/global/ml/openai-dev.mjs                      (vendor/openai/dist/openai-dev.mjs)
 +#    content/global/ml/openai-dev.mjs                      (vendor/openai/dist/openai-dev.mjs)
  #endif
 diff --git a/toolkit/content/license.html b/toolkit/content/license.html
-index a7403c9241da..5ec2326bfa00 100644
+index a96bae0..40a9741 100644
 --- a/toolkit/content/license.html
 +++ b/toolkit/content/license.html
-@@ -1528,11 +1528,11 @@
+@@ -1537,11 +1537,11 @@ product.
                  <li><code>third_party/perfetto/</code></li>
  #endif
                  <li><code>third_party/rust/calendrical_calculations</code></li>
@@ -142,5 +147,3 @@ index a7403c9241da..5ec2326bfa00 100644
  #endif
              </ul>
            </td>
--- 
-2.52.0

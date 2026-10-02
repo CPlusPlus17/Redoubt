@@ -461,9 +461,10 @@ def cmd_check_scope():
 CFG_KINDS = ("defaultPref", "lockPref", "clearPref", "setEnv", "pref")
 # Recorded totals for the whole split. Quoted in ROADMAP.md and tasks.yaml too —
 # change all three together or --check-cfg-split will say so.
-CFG_EXPECTED = {"defaultPref": 178, "lockPref": 60, "pref": 26,
-                "clearPref": 2, "setEnv": 1}
-CFG_EXPECTED_LW_PREFS = 12
+# Firefox 157 merge (settings c0f8fe66): was 178/60/26/2/1 and 12 at the split.
+CFG_EXPECTED = {"defaultPref": 272, "lockPref": 80, "pref": 25,
+                "clearPref": 2, "setEnv": 2}
+CFG_EXPECTED_LW_PREFS = 13
 
 
 def _cfg_calls(text):
