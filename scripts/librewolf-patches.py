@@ -450,6 +450,16 @@ def android_brand_images():
         sys.stdout.flush()
         script_exit(1)
 
+    # --no-execute never enters the tree (see REPO_DIR above), so the
+    # destinations below would be looked up in whatever directory -n was run
+    # from, and a dry run would fail -- or, with a tree in the cwd, copy for
+    # real. Same rule as the other existence checks: say what was skipped.
+    if options.no_execute:
+        print("# skipped under --no-execute: existence check and copy of {} brand "
+              "image(s) from {} into mobile/android/".format(len(replacements), source_root))
+        sys.stdout.flush()
+        return
+
     missing = []
     for source in replacements:
         destination = os.path.join("mobile/android", str(source.relative_to(source_root)))
