@@ -28,15 +28,12 @@
 # hiding behind an environmental name). Fewer is a warning: the entry is going
 # stale and should be trimmed — that is how AutofillSettingsMiddlewareTest left
 # this list.
+#
+# SearchSuggestionsProvidersBuilderTest (70, megazord) left the list the same
+# way on 2026-10-02: the full 153.4.0esr suite ran all 70 and passed them.
 
 # Failures caused by the build/test environment, not by code under test.
 allowlist:
-  - class: org.mozilla.fenix.search.awesomebar.SearchSuggestionsProvidersBuilderTest
-    tests: 70
-    reason: >
-      Every test constructs a SearchSuggestionProvider that reaches appservices
-      through UniFFI; libmegazord.so is an Android ELF and cannot be loaded by
-      the host JVM.
   - class: org.mozilla.fenix.reviewprompt.ReviewPromptMiddlewareTriggerCriteriaTest
     tests: 16
     reason: >
@@ -49,7 +46,7 @@ allowlist:
       Directly invokes a recorded NimbusApi event query, hitting the same
       missing native library.
   - class: org.mozilla.fenix.settings.autofill.ui.AutofillSettingsMiddlewareTest
-    tests: 3
+    tests: 2
     reason: >
       Back on this list, which the note above predicted: it left when the
       2026-08-25 run showed it passing, and the 2026-09-06 run -- the first full
@@ -60,6 +57,8 @@ allowlist:
       the host JVM cannot open. Note the class moved into the .ui package and the
       count dropped from the 5 recorded in the LW-M4-14 baseline to 3, so this is
       not a straight restore of the old entry.
+      Lowered 3 -> 2 on 2026-10-02: the full 153.4.0esr suite (615 classes /
+      5,562 tests) fails 2 of its 7 tests, with the same UniffiLib error.
 
 # Real failures that predate the change under test. NOT environmental: these are
 # tolerated only so a task can tell "already broken" from "I broke it". Every
