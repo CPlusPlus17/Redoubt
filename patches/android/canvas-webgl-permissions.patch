@@ -2234,7 +2234,7 @@ index 0000000..d748d6f
 +        allow(privatePerm, permanent = true)
 +        val records = sessionRule.waitForResult(storage.allPermissions).filter { it.permission == PermissionDelegate.PERMISSION_WEBGL }
 +        assertEquals(0, records.single { !it.privateMode }.expireType)
-+        assertEquals(2, records.single { it.privateMode }.expireType)
++        assertEquals(1, records.single { it.privateMode }.expireType)
 +        revoke(privatePerm)
 +        assertEquals(true, mainSession.evaluateJS("!!document.createElement('canvas').getContext('webgl')"))
 +        assertEquals(false, privateSession.evaluateJS("!!document.createElement('canvas').getContext('webgl')"))

@@ -885,7 +885,9 @@ class Runner:
             last = self.matching_record(origin, kind, private)
             if value is None and last is None:
                 return None
-            if last and last["value"] == value and last["expireType"] == (0 if permanent and not private else 2):
+            # nsIPermissionManager: EXPIRE_NEVER=0 for Remember in normal browsing,
+            # EXPIRE_SESSION=1 for one-time and private choices (dies with the process).
+            if last and last["value"] == value and last["expireType"] == (0 if permanent and not private else 1):
                 return last
             time.sleep(0.2)
         raise Failure("Actual UI choice did not produce the exact expected engine value/lifetime: " + str(last))
