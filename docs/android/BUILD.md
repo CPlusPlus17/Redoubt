@@ -548,8 +548,8 @@ not. Remove that one objdir and re-run.
 
 `AGENTS.md` requires `./mach gradle fenix:testDebugUnitTest` to pass for any
 Kotlin-layer change. This section explains how to run it, what a clean result
-looks like, and why the current baseline has 19 environmental failures and
-three separately documented known failures.
+looks like, and why the 157.0 baseline has 11 environmental failures and
+two separately documented known failures.
 
 ### How to run
 
@@ -573,7 +573,7 @@ A **clean** run passes the board's subtraction gate: **zero failures beyond the
 documented environmental and known-real lists**, with no listed count exceeding
 its ceiling and every listed class present in the results.
 
-The environmental set is **19 tests in 3 classes**, all failing because
+The environmental set is **11 tests in 3 classes** on 157.0 (19 on 153.4.0esr), all failing because
 `libmegazord.so` (the appservices UniFFI native library) cannot be loaded on
 the host JVM. It is built as an **Android** native library (cross-compiled ELF
 for ARM/x86 Android) and bundled in the APK under `lib/<abi>/libmegazord.so`,
@@ -584,9 +584,9 @@ Android `.so` is not loadable.
 
 | Test class | Tests | Root cause |
 |---|---|---|
-| `org.mozilla.fenix.reviewprompt.ReviewPromptMiddlewareTriggerCriteriaTest` | 16 | every test calls `NimbusApi` methods that route through `UniffiLib`, whose static initializer loads `libmegazord.so`. Surfaces as `UnsatisfiedLinkError` **or** `NoClassDefFoundError: Could not initialize class ...UniffiLib` — see the note on `forkEvery` below |
+| `org.mozilla.fenix.reviewprompt.ReviewPromptMiddlewareTriggerCriteriaTest` | 9 | every test calls `NimbusApi` methods that route through `UniffiLib`, whose static initializer loads `libmegazord.so`. Surfaces as `UnsatisfiedLinkError` **or** `NoClassDefFoundError: Could not initialize class ...UniffiLib` — see the note on `forkEvery` below |
 | `org.mozilla.fenix.experiments.RecordedNimbusContextTest` | 1 | `UnsatisfiedLinkError: Unable to load library 'megazord'` — directly invokes a recorded `NimbusApi` event query |
-| `org.mozilla.fenix.settings.autofill.ui.AutofillSettingsMiddlewareTest` | 2 | `NoClassDefFoundError: Could not initialize class mozilla.appservices.autofill.UniffiLib` — the autofill binding loads the same Android native library |
+| `org.mozilla.fenix.settings.autofill.ui.AutofillSettingsMiddlewareTest` | 1 | `NoClassDefFoundError: Could not initialize class mozilla.appservices.autofill.UniffiLib` — the autofill binding loads the same Android native library |
 
 **Total: 19 environmental failures** on the 153.4.0esr tree (2026-10-02):
 615 classes / 5,562 tests, 22 failing = 19 environmental + 3 known-real + 0
@@ -595,6 +595,15 @@ unexpected. Two entries were trimmed on that run, as the gate's warnings asked.
 so it left the list. `AutofillSettingsMiddlewareTest` fails 2 of its 7 tests,
 so its ceiling went from 3 to 2. Both trims are checked against the archived
 JUnit XML of that run; see REBASE.md Appendix D.
+
+**Firefox 157.0 (2026-10-02):** 649 classes / 6,066 tests, 13 failing = 11
+environmental + 2 known-real + 0 unexpected. Upstream 157 ships 9 tests in
+`ReviewPromptMiddlewareTriggerCriteriaTest` (16 in 153), and the run fails all
+9. `AutofillSettingsMiddlewareTest` fails 1 of its 7. `HomeSettingsFragmentTest`
+ran its 8 tests and passed them, so it left the known-real list. The
+environmental set is therefore **11 tests in 3 classes**. The gate's output and
+the targeted per-class results are in
+`evidence/lw-m7-01/release-157.0/unit-tests/`.
 
 Before that, the environmental set was 90 tests in 4 classes. The final 2026-09-08 153.0esr candidate run reported
 598 classes / 5,426 cases: 5,326 passed, 90 environmental failures, 3 known-real
@@ -612,13 +621,13 @@ classes and ceilings.
 #### Non-environmental failures (NOT expected — real signal)
 
 Failures in **any other class** are real regressions and must be investigated.
-Three known non-environmental failures, also present in the final 2026-09-08
-run, are:
+Two known non-environmental failures remain, both also present in the final
+2026-09-08 run. A third, `HomeSettingsFragmentTest` (1, `AssertionError`),
+passed on 157.0 and left the list.
 
 | Test class | Tests | Error |
 |---|---|---|
 | `org.mozilla.fenix.components.lens.LensCameraFragmentTest` | 1 | `MockKException: no answer found for Context.getPackageManager()` — mockk stubbing gap |
-| `org.mozilla.fenix.settings.HomeSettingsFragmentTest` | 1 | `AssertionError` — assertion failure |
 | `org.mozilla.fenix.distributions.DefaultDistributionProviderCheckerTest` | 1 | `AssertionError: expected:<myProvider> but was:<null>` — new since LW-M4-14 |
 
 These are tracked separately and are **not** part of the environmental allowlist.

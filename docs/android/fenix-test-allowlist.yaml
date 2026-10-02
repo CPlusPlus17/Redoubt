@@ -31,22 +31,29 @@
 #
 # SearchSuggestionsProvidersBuilderTest (70, megazord) left the list the same
 # way on 2026-10-02: the full 153.4.0esr suite ran all 70 and passed them.
+#
+# The first full suite on Firefox 157.0 (2026-10-02, 649 classes / 6,066 tests,
+# 13 failing = 11 environmental + 2 known-real + 0 unexpected) trimmed three
+# entries as the gate's warnings asked; each reason below says which.
 
 # Failures caused by the build/test environment, not by code under test.
 allowlist:
   - class: org.mozilla.fenix.reviewprompt.ReviewPromptMiddlewareTriggerCriteriaTest
-    tests: 16
+    tests: 9
     reason: >
       Every test calls NimbusApi methods routed through
       org.mozilla.experiments.nimbus.internal.UniffiLib, whose static
       initializer loads libmegazord.so.
+      Lowered 16 -> 9 on 2026-10-02: upstream 157.0 ships 9 tests in this
+      class (16 in 153), and the 157 suite fails all 9 with
+      "UnsatisfiedLinkError: Unable to load library 'megazord'".
   - class: org.mozilla.fenix.experiments.RecordedNimbusContextTest
     tests: 1
     reason: >
       Directly invokes a recorded NimbusApi event query, hitting the same
       missing native library.
   - class: org.mozilla.fenix.settings.autofill.ui.AutofillSettingsMiddlewareTest
-    tests: 2
+    tests: 1
     reason: >
       Back on this list, which the note above predicted: it left when the
       2026-08-25 run showed it passing, and the 2026-09-06 run -- the first full
@@ -59,21 +66,20 @@ allowlist:
       not a straight restore of the old entry.
       Lowered 3 -> 2 on 2026-10-02: the full 153.4.0esr suite (615 classes /
       5,562 tests) fails 2 of its 7 tests, with the same UniffiLib error.
+      Lowered 2 -> 1 the same day: the 157.0 suite fails 1 of its 7, with
+      "Could not initialize class mozilla.appservices.autofill.UniffiLib".
 
 # Real failures that predate the change under test. NOT environmental: these are
 # tolerated only so a task can tell "already broken" from "I broke it". Every
 # entry here is a bug someone still owes an investigation.
+# HomeSettingsFragmentTest (1, bare AssertionError, LW-M4-14 baseline) left on
+# 2026-10-02: the 157.0 suite ran its 8 tests and passed them.
 known_real:
   - class: org.mozilla.fenix.components.lens.LensCameraFragmentTest
     tests: 1
     reason: >
       MockK stubbing gap — "no answer found for Context.getPackageManager()".
       Unrelated to megazord. Present in the LW-M4-14 baseline.
-  - class: org.mozilla.fenix.settings.HomeSettingsFragmentTest
-    tests: 1
-    reason: >
-      Bare java.lang.AssertionError. Unrelated to megazord. Present in the
-      LW-M4-14 baseline.
   - class: org.mozilla.fenix.distributions.DefaultDistributionProviderCheckerTest
     tests: 1
     reason: >
