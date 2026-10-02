@@ -110,6 +110,8 @@ was weighed. It is no longer the policy.
   `scripts/tests/test-ubo-cookie-lists.py` fails between the two steps (the
   pinned commit no longer serves the current catalog, or the cfg and the
   generator disagree): that is the reminder.
+  Current pin: `612fac026e238ebac8745b6b9ed0922790473f21` (Redoubt-settings
+  `8a69936`).
 - **Four 157 features that send browsing data to Mozilla or Google are off
   for good** (owner decision 2026-10-02, `patches/android/disable-157-cloud-features.patch`,
   LW-M7-40): Shake to Summarize (page text to Mozilla's MLPA service), IP

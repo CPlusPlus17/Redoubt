@@ -86,7 +86,7 @@ def pinned_url(commit):
 
 # The Redoubt commit whose CATALOG_PATH settings/android.cfg bootstraps uBO
 # from. Re-pin (module docstring) whenever the catalog changes.
-CATALOG_COMMIT = "main"
+CATALOG_COMMIT = "612fac026e238ebac8745b6b9ed0922790473f21"
 ANDROID_CATALOG_URL = pinned_url(CATALOG_COMMIT)
 _EXTERNAL = re.compile(r"^(?:[a-z-]+)://")
 COOKIE_GROUP = "EasyList/uBO – Cookie Notices"

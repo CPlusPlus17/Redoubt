@@ -12,6 +12,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -114,6 +115,25 @@ class DeriveTests(unittest.TestCase):
     def test_checked_in_catalog_is_current(self):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(gen.main(["--check"]), 0)
+
+    def test_pin_is_a_commit_that_serves_the_current_catalog(self):
+        # Re-pin reminder: after the catalog changes, CATALOG_COMMIT (and
+        # settings/android.cfg) must name the commit that carries the change.
+        self.assertRegex(gen.CATALOG_COMMIT, r"^[0-9a-f]{40}$", "pin a full commit hash, never a branch")
+        self.assertEqual(gen.ANDROID_CATALOG_URL, gen.pinned_url(gen.CATALOG_COMMIT))
+        shown = subprocess.run(["git", "-C", str(ROOT), "show", f"{gen.CATALOG_COMMIT}:{gen.CATALOG_PATH}"],
+                               capture_output=True)
+        if shown.returncode != 0:
+            self.skipTest(f"commit {gen.CATALOG_COMMIT} is not in this clone")
+        self.assertEqual(shown.stdout.decode("utf-8"), gen.TARGET.read_text(encoding="utf-8"),
+                         f"{gen.CATALOG_COMMIT} no longer serves {gen.CATALOG_PATH}: re-pin")
+
+    def test_settings_bootstrap_from_the_pin(self):
+        cfg = ROOT / "settings/android.cfg"
+        if not cfg.exists():
+            self.skipTest("settings submodule not checked out")
+        found = smoke.effective_pref(cfg.read_text(encoding="utf-8"), smoke.PREF)
+        self.assertEqual(found, ("defaultPref", gen.ANDROID_CATALOG_URL))
 
     def test_bundled_xpi_check(self):
         with tempfile.TemporaryDirectory() as scratch:
