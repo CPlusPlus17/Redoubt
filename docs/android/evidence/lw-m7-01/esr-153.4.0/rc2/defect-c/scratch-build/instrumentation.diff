@@ -1,0 +1,77 @@
+--- rc2/librewolf-153.4.0esr-1/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt	2026-10-02 06:48:15.100750349 +0200
++++ scratch-defc/librewolf-153.4.0esr-1/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt	2026-10-02 10:28:16.462435474 +0200
+@@ -1234,6 +1234,7 @@
+             view = view,
+         )
+ 
++        android.util.Log.i("DEFC", "set feature frag=${System.identityHashCode(this)} act=${System.identityHashCode(activity)} store=${System.identityHashCode(store)} tab=${tab.id}")
+         originBoundPermissionsFeature.set(
+             feature = org.mozilla.fenix.browser.permissions.OriginBoundPermissionsFeature(
+                 store = store,
+@@ -1243,11 +1244,14 @@
+                     state.isPrivateScreenLocked && state.mode.isPrivate
+                 },
+                 onQuietRequest = { tabId, _ ->
++                    android.util.Log.i("DEFC", "quiet frag=${System.identityHashCode(this)} act=${System.identityHashCode(activity)} added=$isAdded attached=${view.isAttachedToWindow} tab=$tabId")
+                     com.google.android.material.snackbar.Snackbar.make(
+                         view,
+                         R.string.origin_permissions_quiet_notice,
+                         com.google.android.material.snackbar.Snackbar.LENGTH_LONG,
+                     ).setAction(R.string.origin_permissions_review) {
++                        android.util.Log.i("DEFC", "review frag=${System.identityHashCode(this)} added=$isAdded detached=$isDetached removing=$isRemoving act=${System.identityHashCode(activity)} tabFound=${store.state.findTabOrCustomTab(tabId) != null} storeHash=${System.identityHashCode(store)} compStore=${System.identityHashCode(requireContext().components.core.store)}")
++                        try { android.util.Log.i("DEFC", "review fm=${System.identityHashCode(parentFragmentManager)} saved=${parentFragmentManager.isStateSaved} destroyed=${parentFragmentManager.isDestroyed} tagged=${parentFragmentManager.findFragmentByTag(org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.TAG)}") } catch (e: IllegalStateException) { android.util.Log.i("DEFC", "review fm error", e) }
+                         store.state.findTabOrCustomTab(tabId)?.let { tab ->
+                             org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.show(
+                                 parentFragmentManager, tab,
+--- rc2/librewolf-153.4.0esr-1/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt	2026-10-02 06:48:15.086315961 +0200
++++ scratch-defc/librewolf-153.4.0esr-1/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt	2026-10-02 10:28:16.463366749 +0200
+@@ -61,6 +61,7 @@
+ 
+     override fun onStart() {
+         super.onStart()
++        android.util.Log.i("DEFC", "dialog onStart")
+         requestsJob = lifecycleScope.launch {
+             requireComponents.core.store.stateFlow
+                 .map { state ->
+@@ -73,6 +74,7 @@
+         lockJob = lifecycleScope.launch {
+             requireComponents.appStore.stateFlow.map { it.isPrivateScreenLocked }
+                 .distinctUntilChanged().collect { locked ->
++                    android.util.Log.i("DEFC", "lock private=$privateMode locked=$locked")
+                     if (privateMode && locked) dismissAllowingStateLoss()
+                 }
+         }
+@@ -87,6 +89,7 @@
+     }
+ 
+     override fun onDismiss(dialog: DialogInterface) {
++        android.util.Log.i("DEFC", "dialog onDismiss", Throwable("trace"))
+         decisionDialog?.dismiss()
+         super.onDismiss(dialog)
+     }
+@@ -297,6 +300,7 @@
+ 
+         /** Opens permissions for this browsing context; private records never enter normal UI. */
+         fun show(manager: FragmentManager, tab: SessionState? = null) {
++            android.util.Log.i("DEFC", "show fm=${System.identityHashCode(manager)} saved=${manager.isStateSaved} tagged=${manager.findFragmentByTag(TAG)} tab=${tab?.id} private=${tab?.content?.private}")
+             if (manager.isStateSaved || manager.findFragmentByTag(TAG) != null) return
+             OriginBoundPermissionsDialogFragment().apply {
+                 arguments = Bundle().apply {
+--- rc2/librewolf-153.4.0esr-1/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt	2026-10-02 06:48:15.086396985 +0200
++++ scratch-defc/librewolf-153.4.0esr-1/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt	2026-10-02 10:28:16.463608520 +0200
+@@ -35,6 +35,7 @@
+     private val observed = mutableSetOf<String>()
+ 
+     override fun start() {
++        android.util.Log.i("DEFC", "feature start ${System.identityHashCode(this)}")
+         scope = store.flowScoped(dispatcher = mainDispatcher) { flow ->
+             flow.map { it.findTabOrCustomTabOrSelectedTab(sessionId) }
+                 .distinctUntilChanged()
+@@ -71,6 +72,7 @@
+     }
+ 
+     override fun stop() {
++        android.util.Log.i("DEFC", "feature stop ${System.identityHashCode(this)}")
+         scope?.cancel()
+         scope = null
+         observed.clear()

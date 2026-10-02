@@ -1,0 +1,13 @@
+Scratch build for diagnosis only; NOT a candidate, never distributed.
+Tree: rsync copy of build/rc2/librewolf-153.4.0esr-1 (source + obj-x86_64; the two
+other objdirs excluded), then instrument.py applied (instrumentation.diff: Log.i("DEFC", ...)
+only, in BaseBrowserFragment.kt, OriginBoundPermissionsDialogFragment.kt,
+OriginBoundPermissionsFeature.kt).
+Build: scripts/android-apk.sh --srcdir <scratch tree> --aar-dir build/rc2/librewolf-android-aar-153.4.0esr-1
+  --outdir build/scratch-defc/apk --mozconfig assets/mozconfig.android --engine podman
+  --image librewolf-android-build --variant=release --fat-host-abi=x86_64 --skip-gecko
+  --gradle-home build/rc2/librewolf-android-aar-153.4.0esr-1/gradle-home --build-date=20261002044800
+  --disable-debug-signing   -> exit 0; :fenix:compileReleaseKotlin executed (not UP-TO-DATE)
+fenix-x86_64-release-unsigned.apk  sha256 5b9f2c2096b3b14df90e292903f5a66e348ba48893be12814e5d8788f2ac910f
+throwaway-signed (apksigner v2+v3, stage-C throwaway key, cert 31e9a40f...b760)
+                                   sha256 5eaa9dfe7eb68ca16ffbf5f92088091123cbb52895996199fc749899e5275337

@@ -97,6 +97,12 @@ Stage C's primed profile happened to pass on retry.
 
 ### Defect C, NOT ESTABLISHED: the quiet "Review" snackbar action sometimes opens nothing
 
+> **Later finding (same day), [`defect-c/`](defect-c/README.md):** this is a harness defect, not a product
+> defect. The tap landed on a soft keyboard that stayed on screen after the private URL was typed; it covers
+> the snackbar but is invisible to uiautomator. With the keyboard closed, Review opens the dialog in private
+> tabs on rc2 and on Beta 2. Harness fix `f7f519f6`: graphics acceptance on the rc2 APK passes 3 of 3 runs.
+> The section below is the original record.
+
 Defect A was worked around in a **diagnostic-only** copy of the harness
 (`diag/graphics-tab-menu-diagnostic.diff`, one line: click by `description=`). The copy was run
 from a scratch directory and **not committed**. Three such runs (`smoke/DIAG-baseline-tabmenu-desc*`)
