@@ -128,6 +128,31 @@ rule, the installed add-on's signature state, the DOM observations, and origin
 requests. The gate never adds test filters or installs a test uBO extension.
 Runtime evidence is still required before claiming that a candidate passes.
 
+### Launcher cold start: `--check-launcher-start`
+
+Every other device check starts the app with a URL (`App.start_url`), because
+Marionette's NewSession needs a Gecko window and the Fenix home screen is not
+one. That made one startup path invisible: a VIEW intent goes through
+`IntentReceiverActivity`, which opens a speculative GeckoSession, and that
+window's `extensions-late-startup` notification is what releases Gecko's delayed
+background-page startup. A launcher start opens no window — the uBO session
+middleware holds every tab until uBO is ready — so on Beta 2 and the first
+153.4 candidate uBO's background page never started and every launcher cold
+start after the first showed "uBlock Origin setup failed" exactly 30 s in, while
+every harness run (URL-started) was green.
+
+`--check-launcher-start` wipes the profile, then twice (fresh profile, then a
+restart) force-stops the app, clears logcat, starts the package manager's
+resolved launcher activity (`am start -a MAIN -c LAUNCHER -f 0x10200000 -n
+<pkg>/.App`, as a home-screen tap does), waits 45 s (past the preinstaller's 30 s
+timeout), and requires: no failure dialog in a `uiautomator` dump, no
+`uBlock Origin startup failed` log line, a positive `uBlock Origin startup ready:
+Ready(installed=true, enabled=true)` line, and a live process. Silence is not a
+pass. It uses no Marionette and no debug config. With AMO reachable the first
+phase also exercises an add-on update racing first-run readiness whenever AMO
+serves a newer uBO than the pin. The UI dump and logcat of each phase are kept
+in the work directory as `launcher-start-<phase>-*`.
+
 `--check-https-only` exercises the new default and is also part of the baseline
 page-load suite. HTTP to the local non-loopback fixture must show the browser's
 HTTPS-only interstitial. The test uses its actual Continue button, then requires
@@ -385,6 +410,7 @@ task is genuinely done.
 | `--check-no-suggest` | LW-M4-11 | implemented | types a query into the toolbar and idles with Enter NOT pressed: the capture window must be empty, then Enter must produce traffic (the positive control that proves the capture was alive), no sponsored-tile host (`ads.mozilla.org`) anywhere since launch, and the "Show search suggestions" switch must exist in Settings > Search and read OFF |
 | `--check-strings` | LW-M4-12 | implemented | two halves: the resource table (`aapt2` over the APK's `resources.arsc`, every locale) and a running-app traversal of the deep-linked settings screens (`--strings-locale`, `--strings-depth`, `--strings-max-taps`); a brand word in any string value that is not on the enumerated exception list fails it |
 | `--check-update-privacy` | LW-M6-06 | implemented | OFF window: launch, idle, open Settings — no event to an update host, and a dead capture (zero events) fails rather than passes. If the "Check for updates" row exists it must read OFF; the harness flips it, relaunches, and requires the update host to be contacted and nothing else new. A build without a row (compiled out, as a store build should be) passes the OFF half only |
+| `--check-launcher-start` | LW-M3-07 | implemented | launcher (not URL) cold starts on a fresh profile and a restart; fails on the uBO setup-failure dialog, a logged failure, or a missing readiness line. Beta 2 and the first 153.4 candidate: **FAIL** (dialog 30 s into the restart) |
 
 ### `--check-search` deserves a note
 

@@ -1,0 +1,37 @@
+# uBO 1.75.0 pin review, 2026-10-02T04:16:20Z
+## sha256/size of the three independent downloads (fetch-ubo-extension cache, build cache, fixtures.py --fetch)
+5b74415860456370644bd80f16125e865b0e6c356bb5dfcfb84069967eaa5287  cache/5b74415860456370644bd80f16125e865b0e6c356bb5dfcfb84069967eaa5287.xpi
+5b74415860456370644bd80f16125e865b0e6c356bb5dfcfb84069967eaa5287  ~/.cache/redoubt/extensions/5b74415860456370644bd80f16125e865b0e6c356bb5dfcfb84069967eaa5287.xpi
+5b74415860456370644bd80f16125e865b0e6c356bb5dfcfb84069967eaa5287  ~/redoubt-artifacts/esr-153.4/repo/docs/android/evidence/lw-m7-34/ublock_origin-1.75.0.xpi
+4650100 docs/android/evidence/lw-m7-34/ublock_origin-1.75.0.xpi
+## PKCS#7 (META-INF/mozilla.rsa over mozilla.sf) chain to Gecko's AMO production root (security/manager/ssl/addons-public*.pem of the 153.4 tree)
+subject=C=US, ST=CA, L=Mountain View, O=Addons, OU=Production, CN=uBlock0@raymondhill.net
+issuer=C=US, O=Mozilla Corporation, OU=Mozilla AMO Production Signing Service, CN=signingca1.addons.mozilla.org, emailAddress=foxsec@mozilla.com
+
+subject=C=US, O=Mozilla Corporation, OU=Mozilla AMO Production Signing Service, CN=signingca1.addons.mozilla.org, emailAddress=foxsec@mozilla.com
+issuer=C=US, O=Mozilla Corporation, OU=Mozilla AMO Production Signing Service, CN=root-ca-production-amo
+
+CMS Verification successful
+## JAR digests: mozilla.sf -> manifest.mf -> every archive member (jarcheck.py)
+JAR manifest OK: 658 files covered
+## Startup code the readiness signal depends on (ubo-readiness.patch header): 1.74.0 vs 1.75.0
+js/start.js 1.74.0=5011f3ac9a8a2691 1.75.0=5011f3ac9a8a2691
+js/traffic.js 1.74.0=a014cb1eb4d0332a 1.75.0=a014cb1eb4d0332a
+js/background.js 1.74.0=46470fa3ec5d3b1a 1.75.0=46470fa3ec5d3b1a
+js/vapi-background.js 1.74.0=cbfd9ee8534fbf15 1.75.0=cbfd9ee8534fbf15
+manifest.json 1.74.0=fc5c8e2efe86815c 1.75.0=92b5ab713f206c81
+## Manifest diff 1.74.0 -> 1.75.0
+129c129
+<   "version": "1.74.0",
+---
+>   "version": "1.75.0",
+## AMO metadata: permissions identical to 1.74.0?
+(from docs/android/evidence/lw-m7-34/amo-version-*.json)
+version 1.75.0 version_id 6490666 file 5034826 status public channel listed
+permissions identical: True
+optional_permissions identical: True
+host_permissions identical: True
+data_collection_permissions identical: True
+compatibility {'firefox': {'min': '115.0', 'max': '*'}, 'android': {'min': '115.0', 'max': '*'}}
+## Harness probe rule present in bundled EasyList
+344:/banner_ads/*$~xmlhttprequest,domain=~clickbd.com

@@ -491,5 +491,50 @@ class InterruptedEvidenceTests(unittest.TestCase):
             self.assertEqual(result['error'], 'connection closed')
 
 
+
+class LauncherStartGateTests(unittest.TestCase):
+    READY = ('10-02 06:00:01.000  100  100 I LibreWolfUboPreinstaller: '
+             + harness.UBO_READY_LOG)
+    FAILED = ('10-02 06:00:31.000  100  100 E LibreWolfUboPreinstaller: '
+              + harness.UBO_FAILED_LOG + '; browsing remains paused')
+    DIALOG = '<node text="uBlock Origin setup failed" bounds="[0,0][1,1]" />'
+
+    def test_ready_without_dialog_passes(self):
+        result = harness.grade_launcher_phase('<hierarchy/>', self.READY, True)
+        self.assertTrue(result['ok'], result)
+
+    def test_failure_dialog_fails_even_with_an_earlier_ready_line(self):
+        result = harness.grade_launcher_phase(self.DIALOG, self.READY, True)
+        self.assertFalse(result['ok'])
+        self.assertTrue(result['dialog'])
+
+    def test_logged_failure_fails_without_a_visible_dialog(self):
+        result = harness.grade_launcher_phase('<hierarchy/>', self.READY + '\n' + self.FAILED, True)
+        self.assertFalse(result['ok'])
+
+    def test_silence_is_not_readiness(self):
+        result = harness.grade_launcher_phase('<hierarchy/>', '', True)
+        self.assertFalse(result['ok'])
+        self.assertIn('no readiness line was logged', result['problems'])
+
+    def test_a_dead_app_fails(self):
+        self.assertFalse(harness.grade_launcher_phase('<hierarchy/>', self.READY, False)['ok'])
+
+    def test_unready_or_disabled_ready_state_is_not_the_positive_signal(self):
+        line = 'I LibreWolfUboPreinstaller: uBlock Origin startup ready: Ready(installed=false, enabled=false)'
+        self.assertFalse(harness.grade_launcher_phase('<hierarchy/>', line, True)['ok'])
+
+    def test_launcher_component_comes_from_the_package_manager(self):
+        adb = types.SimpleNamespace(shell=lambda cmd, timeout=None: 'priority=0\norg.example/.App\n')
+        self.assertEqual(harness.launcher_component(adb, 'org.example'), 'org.example/.App')
+        adb = types.SimpleNamespace(shell=lambda cmd, timeout=None: 'No activity found\n')
+        with self.assertRaises(harness.HarnessError):
+            harness.launcher_component(adb, 'org.example')
+
+    def test_launcher_check_refuses_kept_state(self):
+        with self.assertRaises(harness.HarnessError):
+            harness.main(['--check-launcher-start', '--keep-state'])
+
+
 if __name__ == '__main__':
     unittest.main()

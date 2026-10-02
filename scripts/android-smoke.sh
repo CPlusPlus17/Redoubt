@@ -204,6 +204,12 @@ UBO_FILTER_FILE = "assets/thirdparties/easylist/easylist.txt"
 UBO_FILTER_RULE = "/banner_ads/*$~xmlhttprequest,domain=~clickbd.com"
 UBO_BLOCKED_PATH = "/banner_ads/redoubt-probe.js"
 UBO_ALLOWED_PATH = "/redoubt-allowed.js"
+# --check-launcher-start: what LibreWolfUboPreinstaller shows and logs.
+UBO_FAILURE_TITLE = "uBlock Origin setup failed"
+UBO_FAILED_LOG = "uBlock Origin startup failed"
+UBO_READY_LOG = "uBlock Origin startup ready: Ready(installed=true, enabled=true)"
+# The preinstaller's readiness timeout is 30 s; the window must outlast it.
+LAUNCHER_START_WAIT = 45
 
 def ubo_probe_response(path):
     """Real parser-inserted subresources, served before Marionette connects.
@@ -2954,6 +2960,73 @@ def check_ubo_preinstall(m, res):
             {"addons": listed, "bootstrap_location": boot})
     return ok
 
+def launcher_component(adb, pkg):
+    """The activity a home-screen tap starts, as the package manager resolves it."""
+    out = adb.shell("cmd package resolve-activity --brief -a android.intent.action.MAIN "
+                    "-c android.intent.category.LAUNCHER %s" % pkg, timeout=60)
+    lines = [l.strip() for l in out.splitlines() if l.strip()]
+    if not lines or not lines[-1].startswith(pkg + "/"):
+        raise HarnessError("could not resolve the launcher activity of %s: %r" % (pkg, out))
+    return lines[-1]
+
+def grade_launcher_phase(xml, logcat, alive):
+    """One launcher cold start: no failure dialog or log, a positive ready line,
+    and the app still running. A missing ready line is a failure, not a pass:
+    "no dialog" alone cannot tell a ready browser from one that never started."""
+    lines = logcat.splitlines()
+    failed = [l for l in lines if UBO_FAILED_LOG in l]
+    ready = [l for l in lines if UBO_READY_LOG in l]
+    dialog = UBO_FAILURE_TITLE in html.unescape(xml or "")
+    problems = []
+    if dialog:
+        problems.append("the '%s' dialog is showing" % UBO_FAILURE_TITLE)
+    if failed:
+        problems.append("the preinstaller logged a startup failure")
+    if not ready:
+        problems.append("no readiness line was logged")
+    if not alive:
+        problems.append("the app is not running")
+    return {"ok": not problems, "problems": problems, "dialog": dialog,
+            "failed_lines": failed[:5], "ready_lines": ready[:5],
+            "gecko_window_lines": [l for l in lines if "chrome startup finished" in l][:5]}
+
+def check_launcher_start(app, adb, res, wait=LAUNCHER_START_WAIT):
+    """Cold-start from the LAUNCHER, never from a URL, on a fresh profile and again
+    on a restart. Every other device check opens a URL first (Marionette needs a
+    Gecko window), and a VIEW intent makes IntentReceiverActivity open a speculative
+    GeckoSession. That window is what releases Gecko's delayed extension startup,
+    so a URL-started harness could never see a launcher start that has none: Beta 2
+    showed the uBO failure dialog 30 s into every launcher cold start."""
+    component = launcher_component(adb, app.pkg)
+    phases = []
+    for name in ("first-run", "restart"):
+        app.force_stop()
+        time.sleep(2)
+        adb.run("logcat", "-c", timeout=60)
+        started = time.time()
+        adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "
+                  "-f 0x10200000 -n %s" % component, timeout=90)
+        time.sleep(max(0, wait - (time.time() - started)))
+        xml = _ui_dump(adb)
+        logcat = adb.out("logcat", "-d", "-v", "threadtime", timeout=120)
+        for suffix, body in (("ui.xml", xml), ("logcat.txt", logcat)):
+            with open(os.path.join(app.work, "launcher-start-%s-%s" % (name, suffix)), "w") as f:
+                f.write(body)
+        phase = grade_launcher_phase(xml, logcat, app.alive())
+        phase.update({"phase": name, "component": component,
+                      "waited_seconds": round(time.time() - started, 1)})
+        phases.append(phase)
+        log("check-launcher-start: %s %s%s" % (name, "ok" if phase["ok"] else "FAILED: ",
+                                               "; ".join(phase["problems"])))
+    ok = all(p["ok"] for p in phases)
+    res.add("check-launcher-start", ok,
+            ("launcher cold starts (fresh profile and restart, %s) reached uBO readiness "
+             "with no setup-failure dialog after %ds" % (component, wait)) if ok else
+            "; ".join("%s: %s" % (p["phase"], ", ".join(p["problems"]))
+                      for p in phases if not p["ok"]),
+            {"phases": phases})
+    return ok
+
 def ubo_bundle_evidence(apk):
     """Bind a behavior probe to the exact packaged, pinned filter input."""
     with zipfile.ZipFile(apk) as archive:
@@ -3638,10 +3711,10 @@ def main(argv):
                     help="prove the harness reports failure when a probe fails")
     for f in ("ubo", "ubo-preinstall", "ubo-lifecycle", "search", "no-gms", "no-adjust",
               "aboutconfig", "no-suggest", "strings", "update-privacy",
-              "no-remote-settings", "https-only"):
+              "no-remote-settings", "https-only", "launcher-start"):
         ap.add_argument("--check-" + f, action="store_true")
     args = ap.parse_args(argv)
-    if (args.check_ubo_preinstall or args.check_ubo_lifecycle) and args.keep_state:
+    if (args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_launcher_start) and args.keep_state:
         raise HarnessError("uBO first-install checks require an empty app profile; omit --keep-state")
 
     for flag, why in NOT_IMPLEMENTED.items():
@@ -3691,7 +3764,8 @@ def main(argv):
         args.emulator or args.serial or args.pref_dump or args.network_capture
         or args.first_run_capture or args.check_ubo or args.check_search
         or args.check_aboutconfig or args.check_no_suggest or args.check_update_privacy
-        or args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_https_only or args.self_test)
+        or args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_https_only
+        or args.check_launcher_start or args.self_test)
     if args.check_no_gms:
         check_no_gms(apk, res)
     if args.check_no_adjust:
@@ -3809,6 +3883,11 @@ def main(argv):
             res.rows[-1]["evidence"].update({"capture_offset": off,
                                           "capture_end": pcap_size(pcap),
                                           "guest_ips": sorted(guest)})
+            return finish(res, args, work)
+
+        # ---- --check-launcher-start: no URL, no Marionette, empty profile ----
+        if args.check_launcher_start:
+            check_launcher_start(app, adb, res)
             return finish(res, args, work)
 
         # ---- --check-no-suggest: nothing leaves the toolbar before Enter ----
