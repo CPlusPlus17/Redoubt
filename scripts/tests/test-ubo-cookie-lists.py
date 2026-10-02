@@ -76,7 +76,7 @@ class DeriveTests(unittest.TestCase):
     def test_exactly_three_differences(self):
         source = catalog()
         out = gen.derive(source)
-        self.assertEqual(out["assets.json"]["contentURL"], gen.ANDROID_CATALOG_URL)
+        self.assertEqual(out["assets.json"]["contentURL"], [])
         for key in gen.COOKIE_LISTS:
             self.assertNotIn("off", out[key])
         self.assertTrue(out["adguard-cookies"]["off"], "only the EasyList/uBO pair is enabled")
@@ -85,6 +85,21 @@ class DeriveTests(unittest.TestCase):
         out["assets.json"]["contentURL"] = source["assets.json"]["contentURL"]
         self.assertEqual(out, source)
         self.assertTrue(source["fanboy-cookiemonster"]["off"], "the input is not modified")
+
+    def test_catalog_never_updates_itself(self):
+        # uBO refreshes its catalog from the catalog's own assets.json entry;
+        # a file cannot name the commit that pins it, so it names nothing.
+        source = catalog()
+        source["assets.json"]["cdnURLs"] = ["https://cdn.invalid/a.json"]
+        out = gen.derive(source)
+        self.assertNotIn("cdnURLs", out["assets.json"])
+        self.assertEqual(gen.self_update_urls(out), [])
+        self.assertEqual(gen.self_update_urls(source),
+                         ["https://librewolf.invalid/a.json", "https://cdn.invalid/a.json"])
+        shipped = json.loads(gen.TARGET.read_text(encoding="utf-8"))
+        self.assertEqual(gen.self_update_urls(shipped), [])
+        for key in gen.COOKIE_LISTS:
+            self.assertTrue(shipped[key]["contentURL"], "the lists keep their upstream URLs")
 
     def test_missing_or_moved_list_is_an_error(self):
         source = catalog()

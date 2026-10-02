@@ -74,15 +74,42 @@ was weighed. It is no longer the policy.
   `librewolf.uBO.assetsBootstrapLocation` at `assets/uBOAssets.android.json`,
   LibreWolf's uBO catalog with exactly two lists switched on
   (`fanboy-cookiemonster` and `ublock-cookies-easylist`, uBO's "EasyList/uBO
-  – Cookie Notices" group) and its own update URL
+  – Cookie Notices" group) and no self-update URL
   (`scripts/gen-ubo-assets-android.py`, LW-M7-41). This is not the same
   thing: the Firefox service clicked a site's own "reject" button, so the site
   recorded a refusal. A filter list hides the banner or blocks its script, so
   the site may record nothing at all, and a site that requires an answer may
   break until the list is turned off for it. The lists reach fresh installs
-  only; a profile that ran a beta keeps its uBO catalog and selection. The
-  catalog URL is on Redoubt's `main` branch, so until that branch carries
-  the file uBO falls back to the catalog in its own XPI.
+  only; a profile that ran a beta keeps its uBO catalog and selection. Until
+  the catalog URL resolves, uBO falls back to the catalog in its own XPI
+  (stock defaults, cookie lists off).
+
+  **The catalog URL is pinned to a commit** (owner decision 2026-10-02: a
+  branch URL is a mutable trust anchor). uBO 1.75.0 reads the bootstrap
+  location only when it has no catalog yet; afterwards it refreshes the
+  catalog every 13 days from the catalog's own `assets.json` entry, so that
+  entry is the long-term anchor. It cannot name the pinned commit (a file
+  cannot carry the hash of the commit that contains it), a branch is what the
+  owner rejected, and upstream's or LibreWolf's catalog keep the cookie lists
+  "off", which on refresh makes uBO drop them from the user's selection
+  (`js/storage.js`, `assets.json-updated`). So the Android catalog's
+  `assets.json` entry has `"contentURL": []`: uBO never refreshes the catalog
+  and keeps the one it bootstrapped. The filter lists themselves keep updating
+  from their upstream URLs. Cost: a catalog change reaches fresh installs only.
+
+  Re-pinning, whenever `assets/uBOAssets.android.json` changes (a
+  `scripts/update-ubo-assets.sh` run, a generator change):
+  1. commit the regenerated catalog (commit A) -- nothing else needs to be in
+     it, and it must reach `CPlusPlus17/Redoubt` unchanged (no rebase, no
+     squash), because its hash is the URL;
+  2. set `CATALOG_COMMIT` in `scripts/gen-ubo-assets-android.py` to A's full
+     hash, and `librewolf.uBO.assetsBootstrapLocation` in Redoubt-settings'
+     `android.cfg` to
+     `https://raw.githubusercontent.com/CPlusPlus17/Redoubt/<A>/assets/uBOAssets.android.json`;
+     commit settings, then the gitlink and the generator together (commit B).
+  `scripts/tests/test-ubo-cookie-lists.py` fails between the two steps (the
+  pinned commit no longer serves the current catalog, or the cfg and the
+  generator disagree): that is the reminder.
 - **Four 157 features that send browsing data to Mozilla or Google are off
   for good** (owner decision 2026-10-02, `patches/android/disable-157-cloud-features.patch`,
   LW-M7-40): Shake to Summarize (page text to Mozilla's MLPA service), IP

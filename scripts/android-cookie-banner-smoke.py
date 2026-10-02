@@ -15,17 +15,19 @@ settings. This script checks that chain in what the build actually ships:
 
   catalog   assets/uBOAssets.android.json is exactly what
             scripts/gen-ubo-assets-android.py derives from LibreWolf's
-            assets/uBOAssets.json: the two cookie lists without "off", and its
-            own update URL;
+            assets/uBOAssets.json: the two cookie lists without "off", and an
+            "assets.json" self-entry with no remote URL, so uBO never replaces
+            the catalog it bootstrapped;
   pref      the librewolf.cfg the build packages (omni.ja
             defaults/autoconfig/librewolf.cfg in an APK, lw/librewolf.cfg in a
-            tree) leaves librewolf.uBO.assetsBootstrapLocation at that URL --
-            the last call naming the pref wins, as autoconfig evaluates it;
+            tree) leaves librewolf.uBO.assetsBootstrapLocation at the
+            commit-pinned URL gen-ubo-assets-android.py names -- the last call
+            naming the pref wins, as autoconfig evaluates it;
   bundled   the uBO XPI the build packages knows both list keys, in uBO's
             "EasyList/uBO - Cookie Notices" group;
   hosted    (--fetch only, needs the network) the URL serves the same catalog.
-            Until Redoubt's main branch carries the file this is PENDING: uBO
-            then falls back to the catalog inside its XPI, stock defaults.
+            Until the pinned commit is on CPlusPlus17/Redoubt this is PENDING:
+            uBO then falls back to the catalog inside its XPI, stock defaults.
 
 What this does NOT prove: that a given device's uBO has the lists selected. uBO
 reads the bootstrap location only on its first run, and a profile that ran a
@@ -108,9 +110,12 @@ def check_catalog(results):
         return
     catalog = json.loads(have)
     on = [k for k in gen.COOKIE_LISTS if "off" not in catalog[k]]
-    results.append((PASS if on == list(gen.COOKIE_LISTS) else FAIL, "catalog",
+    remote = gen.self_update_urls(catalog)
+    ok = on == list(gen.COOKIE_LISTS) and not remote
+    results.append((PASS if ok else FAIL, "catalog",
                     f"{gen.TARGET.name} selects {', '.join(on) or 'nothing'} by default; "
-                    f"updates from {catalog['assets.json']['contentURL']}"))
+                    + (f"uBO would replace it from {', '.join(remote)}" if remote
+                       else "no self-update URL, uBO keeps the bootstrapped catalog")))
 
 
 def check_pref(results, cfg_text):
@@ -138,7 +143,7 @@ def check_hosted(results, opener=urllib.request.urlopen):
             served = response.read().decode("utf-8")
     except urllib.error.HTTPError as error:
         results.append((PENDING, "hosted", f"{gen.ANDROID_CATALOG_URL} answers HTTP {error.code}; "
-                        "uBO falls back to the catalog in its XPI until the file is on Redoubt's main branch"))
+                        "uBO falls back to the catalog in its XPI until the pinned commit is on CPlusPlus17/Redoubt"))
         return
     except (urllib.error.URLError, OSError) as error:
         results.append((PENDING, "hosted", f"could not fetch {gen.ANDROID_CATALOG_URL}: {error}"))

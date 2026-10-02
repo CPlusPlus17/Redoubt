@@ -5284,11 +5284,17 @@ tasks:
       lists (fanboy-cookiemonster, ublock-cookies-easylist), on by default and
       opt-out in uBO's own settings. uBO selects lists without "off" on first run,
       so scripts/gen-ubo-assets-android.py derives assets/uBOAssets.android.json
-      from LibreWolf's catalog with those two lists on and its own update URL,
+      from LibreWolf's catalog with those two lists on and no self-update URL,
       and settings/android.cfg points librewolf.uBO.assetsBootstrapLocation at
-      it. scripts/android-cookie-banner-smoke.py checks the built APK or tree.
+      it through a commit-pinned raw URL (owner decision 2026-10-02: a branch
+      URL is a mutable trust anchor). uBO refreshes its catalog from the
+      catalog's own assets.json entry, and no such entry can be both immutable
+      and keep the lists on, so the entry has no remote URL and uBO keeps the
+      catalog it bootstrapped; re-pin procedure in docs/android/TRACK.md.
+      scripts/android-cookie-banner-smoke.py checks the built APK or tree.
     acceptance:
-      - "the Android catalog differs from assets/uBOAssets.json only in the two lists' off flag and its update URL"
+      - "the Android catalog differs from assets/uBOAssets.json only in the two lists' off flag and its self-entry, which names no remote URL"
+      - "librewolf.uBO.assetsBootstrapLocation names a Redoubt commit, not a branch, and that commit serves the current catalog"
       - "both list keys exist in the cookie-notice group of the pinned uBO XPI's own assets.json"
       - "the packaged librewolf.cfg leaves librewolf.uBO.assetsBootstrapLocation at the Android catalog URL"
       - "the lists stay ordinary uBO lists: no managed setting re-applies them, so a user who turns one off keeps it off"
