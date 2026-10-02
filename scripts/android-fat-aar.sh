@@ -26,7 +26,7 @@
 #               MOZ_ANDROID_FAT_AAR_<ABI> per input zip.  fat_aar.py unpacks
 #               every input AAR, *verifies that everything except jni/** and
 #               the per-ABI pref files is byte-identical across ABIs*, copies
-#               the native libraries of all ABIs into dist/fat-aar/output/jni,
+#               the native libraries of all ABIs into dist/fat-aar/output/geckoview/jni,
 #               and `mobile/android/geckoview/build.gradle:131-135` then points
 #               the AAR's jniLibs at that directory instead of this pass's own
 #               dist/geckoview/lib.
@@ -576,7 +576,7 @@ container_run() {
 # per-ABI substs while `make` -- which reads MOZ_ANDROID_FAT_AAR_ARCHITECTURES
 # straight out of the environment (config/baseconfig.mk:54) -- happily runs the
 # merge tier.  The two halves then disagree: fat_aar.py fills
-# dist/fat-aar/output/jni with all three ABIs, and Gradle, reading the stale
+# dist/fat-aar/output/geckoview/jni with all three ABIs, and Gradle, reading the stale
 # substs (mobile/android/geckoview/build.gradle:131-135), packages
 # dist/geckoview/lib instead and produces a *single-ABI* AAR that looks
 # perfectly healthy.  The jni check at the end of this script catches it, but

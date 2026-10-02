@@ -69,7 +69,7 @@
 # objdir that also carries --enable-android-subproject=fenix.
 #
 # fat_aar.py unpacks all three, checks them against each other, and writes
-# dist/fat-aar/output/jni; `mobile/android/geckoview/build.gradle:130-136` then
+# dist/fat-aar/output/geckoview/jni (output/jni before 157); `mobile/android/geckoview/build.gradle:130-136` then
 # points the AAR's jniLibs at that directory instead of this objdir's own
 # dist/geckoview/lib.  So the APK's native libraries are the three per-ABI
 # builds', and `mobile/android/fenix/app/build.gradle:230-246` splits them into
@@ -963,8 +963,8 @@ fi
 # The merge really ran, and produced every ABI.  Checked in the objdir rather
 # than inferred from the log.
 for abi in $abi_list; do
-    [ -f "$objdir/dist/fat-aar/output/jni/$abi/libxul.so" ] ||
-        die "gecko: '$objdir/dist/fat-aar/output/jni/$abi/libxul.so' is missing; the
+    [ -f "$objdir/dist/fat-aar/output/geckoview/jni/$abi/libxul.so" ] ||
+        die "gecko: '$objdir/dist/fat-aar/output/geckoview/jni/$abi/libxul.so' is missing; the
        android-fat-aar-artifact tier did not unpack $abi"
 done
 
