@@ -48,59 +48,30 @@
 #   - src/service.rs
 #   - src/client.rs
 # No other patch in either list touches these files. No ordering constraint.
+#
+# 157 rebase (2026-10-02, Firefox 153.4.0esr -> 157.0)
+# ----------------------------------------------------
+# Same three choke points, nothing dropped. What moved upstream:
+#   * service.rs: fetch_changes() is now a method of a new SyncClient (which
+#     owns its own viaduct::Client and sends with send_sync()), and takes the
+#     base URL and the telemetry wrapper as arguments instead of reading them
+#     from self. The body is still replaced by an empty Changes; the two now
+#     unused parameters are renamed _url/_telemetry.
+#   * client.rs: sync() is unchanged; make_request() logs with breadcrumb!()
+#     instead of trace!(). The server-info request in fetch_attachment (which
+#     discovers the attachments base URL) also goes through make_request(),
+#     so the comment there now names it.
+#   * Checked that 157 adds no other egress to this crate: the only viaduct
+#     send sites are SyncClient::fetch_changes and make_request.
+# `cargo check --offline -p remote_settings` on the patched 157 tree passes.
+# It warns (unused imports, never-read fields, dead backoff code), as the
+# 153 patch did; rustc warnings are not fatal for this crate. The crate's
+# own unit tests that drive fetch_changes/make_request against mockito
+# expect network behaviour this patch removes, as on 153.
 
---- a/third_party/application-services/components/remote_settings/src/service.rs
-+++ b/third_party/application-services/components/remote_settings/src/service.rs
-@@ -195,42 +195,10 @@
-     }
- 
-     fn fetch_changes(&mut self) -> Result<Changes> {
--        let mut url = self.base_url.clone();
--        url.path_segments_mut()
--            .push("buckets")
--            .push("monitor")
--            .push("collections")
--            .push("changes")
--            .push("changeset");
--        // For now, always use `0` for the expected value.  This means we'll get updates based on
--        // the default TTL of 1 hour.
--        //
--        // Eventually, we should add support for push notifications and use the timestamp from the
--        // notification.
--        url.query_pairs_mut().append_pair("_expected", "0");
--        let url = url.into_inner();
--        trace!("make_request: {url}");
--        self.remote_state.ensure_no_backoff()?;
--
--        let start_time = std::time::Instant::now();
--        let req = Request::get(url);
--        let resp = req.send()?;
--
--        self.remote_state.handle_backoff_hint(&resp)?;
--
--        const TELEMETRY_SOURCE_POLL: &str = "settings-changes-monitoring";
--        if resp.is_success() {
--            let body = resp.json()?;
--            let duration: u64 = start_time.elapsed().as_millis().try_into().unwrap_or(0);
--            self.telemetry
--                .report_uptake_success(TELEMETRY_SOURCE_POLL, Some(duration));
--            Ok(body)
--        } else {
--            let e = Error::response_error(&resp.url, format!("status code: {}", resp.status));
--            self.telemetry
--                .report_uptake_error(&e, TELEMETRY_SOURCE_POLL);
--            Err(e)
--        }
-+        // LibreWolf: never fetch changes over the network.
-+        // Return an empty changeset so sync() completes without any network I/O.
-+        // Packaged data (get_records Case 1) and cached data (Case 2) remain available.
-+        Ok(Changes { changes: Vec::new() })
-     }
- }
- 
 --- a/third_party/application-services/components/remote_settings/src/client.rs
 +++ b/third_party/application-services/components/remote_settings/src/client.rs
-@@ -377,25 +377,9 @@
+@@ -379,25 +379,9 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
      }
  
      pub fn sync(&self) -> Result<()> {
@@ -129,11 +100,11 @@
          Ok(())
      }
  
-@@ -639,22 +623,13 @@
+@@ -647,22 +631,14 @@ impl ViaductApiClient {
      }
  
      fn make_request(&mut self, url: Url) -> Result<Response> {
--        trace!("make_request: {url}");
+-        breadcrumb!("make_request: {url}");
 -        self.remote_state.ensure_no_backoff()?;
 -
 -        let req = Request::get(url);
@@ -150,12 +121,64 @@
 -            ))
 -        }
 +        // LibreWolf: all network requests to the Remote Settings server are blocked.
-+        // This is the single choke point for all egress in this crate
-+        // (fetch_changeset, fetch_attachment, fetch_cert).
++        // This is the single choke point for all egress in this client
++        // (fetch_changeset, fetch_attachment, fetch_cert, and the server-info
++        // request that discovers the attachments base URL).
 +        Err(Error::ResponseError {
 +            url: url.to_string(),
 +            message: "LibreWolf: Remote Settings network requests are disabled".to_string(),
 +        })
+     }
+ }
+ 
+--- a/third_party/application-services/components/remote_settings/src/service.rs
++++ b/third_party/application-services/components/remote_settings/src/service.rs
+@@ -253,42 +253,13 @@ impl RemoteSettingsService {}
+ impl SyncClient {
+     fn fetch_changes(
+         &mut self,
+-        mut url: BaseUrl,
+-        telemetry: &RemoteSettingsTelemetryWrapper,
++        _url: BaseUrl,
++        _telemetry: &RemoteSettingsTelemetryWrapper,
+     ) -> Result<Changes> {
+-        url.path_segments_mut()
+-            .push("buckets")
+-            .push("monitor")
+-            .push("collections")
+-            .push("changes")
+-            .push("changeset");
+-        // For now, always use `0` for the expected value.  This means we'll get updates based on
+-        // the default TTL of 1 hour.
+-        //
+-        // Eventually, we should add support for push notifications and use the timestamp from the
+-        // notification.
+-        url.query_pairs_mut().append_pair("_expected", "0");
+-        let url = url.into_inner();
+-        trace!("make_request: {url}");
+-        self.remote_state.ensure_no_backoff()?;
+-
+-        let start_time = std::time::Instant::now();
+-        let req = Request::get(url);
+-        let resp = self.client.send_sync(req)?;
+-
+-        self.remote_state.handle_backoff_hint(&resp)?;
+-
+-        const TELEMETRY_SOURCE_POLL: &str = "settings-changes-monitoring";
+-        if resp.is_success() {
+-            let body = resp.json()?;
+-            let duration: u64 = start_time.elapsed().as_millis().try_into().unwrap_or(0);
+-            telemetry.report_uptake_success(TELEMETRY_SOURCE_POLL, Some(duration));
+-            Ok(body)
+-        } else {
+-            let e = Error::response_error(&resp.url, format!("status code: {}", resp.status));
+-            telemetry.report_uptake_error(&e, TELEMETRY_SOURCE_POLL);
+-            Err(e)
+-        }
++        // LibreWolf: never fetch changes over the network.
++        // Return an empty changeset so sync() completes without any network I/O.
++        // Packaged data (get_records Case 1) and cached data (Case 2) remain available.
++        Ok(Changes { changes: Vec::new() })
      }
  }
  
