@@ -642,6 +642,236 @@ def pcap_payloads(path, start_offset, guest_ips, end_offset=None):
     return rows
 
 # --------------------------------------------------------------------------
+# Typing-window attribution by CONNECTION (check-no-suggest).
+#
+# rc2's final acceptance (docs/android/evidence/lw-m7-01/esr-153.4.0/rc2/
+# final-acceptance) failed on 13 non-background packets that were all HTTP/2
+# keep-alive or close records on TLS connections opened before typing: one
+# 39 B or 46 B record about every 59 s per connection, each answered by a
+# record of the same size, then a 24 B or 31 B alert at the idle close.  Those
+# sizes are exactly one 17-byte HTTP/2 control frame (9-byte frame header +
+# 8-byte PING or GOAWAY payload) in one TLS record:
+#   TLS 1.3: 5 header + 1 inner content type + 16 AEAD tag  = 22 -> 39 B
+#   TLS 1.2 AES-GCM: 5 header + 8 explicit nonce + 16 tag   = 29 -> 46 B
+# and the alerts are a 2-byte alert in the same envelopes (24 B / 31 B).
+# 46 B is therefore the largest record such a connection-management frame
+# produces, and leaves at most 24 B of HTTP/2 (15 B of HPACK after the frame
+# header) under TLS 1.3: too small for a request whose :path carries the
+# suggestion endpoint and the typed text.  A segment is keep-alive sized only
+# when it is ONE complete TLS application-data (23) or alert (21) record of at
+# most this size; plaintext, coalesced or larger records count as payload.
+# --------------------------------------------------------------------------
+H2_CONTROL_FRAME_BYTES = 9 + 8
+TLS13_RECORD_OVERHEAD = 5 + 1 + 16
+TLS12_GCM_RECORD_OVERHEAD = 5 + 8 + 16
+KEEPALIVE_RECORD_MAX = H2_CONTROL_FRAME_BYTES + max(TLS13_RECORD_OVERHEAD, TLS12_GCM_RECORD_OVERHEAD)
+DNS_PORTS = (53, 853)
+
+def keepalive_sized(data):
+    """One complete TLS 1.2/1.3 application-data or alert record of at most
+    KEEPALIVE_RECORD_MAX bytes, and nothing else in the segment."""
+    return (0 < len(data) <= KEEPALIVE_RECORD_MAX and data[0] in (0x15, 0x17) and
+            data[1:3] == b"\x03\x03" and 5 + struct.unpack(">H", data[3:5])[0] == len(data))
+
+def _dns_answers(data):
+    """[(name, address)] for the A/AAAA records of one DNS response."""
+    out = []
+    if len(data) < 12 or not data[2] & 0x80:
+        return out
+    qd, an = struct.unpack(">HH", data[4:8])
+    o = 12
+    try:
+        for _ in range(qd):
+            o = _dns_name(data, o)[1] + 4
+        for _ in range(an):
+            name, o = _dns_name(data, o)
+            rtype, _cls, _ttl, rdlen = struct.unpack(">HHIH", data[o:o + 10])
+            o += 10
+            rdata = data[o:o + rdlen]
+            o += rdlen
+            if rtype == 1 and rdlen == 4:
+                out.append((name.lower().rstrip("."), socket.inet_ntoa(rdata)))
+            elif rtype == 28 and rdlen == 16:
+                out.append((name.lower().rstrip("."), socket.inet_ntop(socket.AF_INET6, rdata)))
+    except (struct.error, IndexError, ValueError, OSError):
+        pass
+    return out
+
+def _udp_background(host, dst, dp):
+    # The same classification pcap_payloads applies to a single datagram.
+    if host in SECURITY_SETTINGS_HOSTS or host in OS_NOISE_HOSTS:
+        return True
+    if dp == 53:
+        return False
+    return ((dst.lower() in ("224.0.0.251", "ff02::fb") and dp == 5353) or
+            (dst.lower() in ("255.255.255.255", "ff02::1:2") and dp in (67, 68, 546, 547)))
+
+def attribute_typing_flows(path, guest_ips, window_start, window_end, sensitive_hosts=()):
+    """Attribute every outbound packet of the typing window to its connection.
+
+    The capture is read from its header to window_end (both directions), so a
+    connection's opening -- TCP SYN, first datagram, or the DNS answer for its
+    address -- is known even when it happened long before typing.  A packet
+    belongs to the window when it ends after window_start and at or before
+    window_end (the byte offsets pcap_payloads uses).
+
+    Every flow with an outbound SYN, datagram or payload in the window gets a
+    verdict.  It is typing traffic -- `ok` False -- when any of these hold:
+      dns-query               a query to port 53 or 853 (unless every name in
+                              it is an exempt background host, as before)
+      new-connection          an outbound SYN inside the window
+      not-open-before-typing  first seen inside the window without a SYN
+      udp-datagram            any other non-background UDP (QUIC included):
+                              no evidence justifies a UDP keep-alive exemption
+      resolved-during-typing  its address came from a DNS answer in the window
+      search-or-suggest-host  its SNI is a configured search/suggestion host
+      payload-exceeds-keepalive  an outbound segment that is not one TLS
+                              record of at most KEEPALIVE_RECORD_MAX bytes
+    A flow passes only as `background` (SNI or DNS name on the existing
+    security-settings / OS lists, exactly as pcap_payloads classifies it) or as
+    `keepalive` (opened before typing, only keep-alive sized TLS records out).
+    """
+    flows, resolved = {}, {}
+    sensitive = {h.lower().rstrip(".") for h in sensitive_hosts if h}
+    with open(path, "rb") as f:
+        gh = f.read(24)
+        if len(gh) != 24 or gh[:4] not in (b"\xd4\xc3\xb2\xa1", b"\xa1\xb2\xc3\xd4"):
+            raise HarnessError("unsupported pcap format for flow attribution")
+        endian = "<" if gh[:4] == b"\xd4\xc3\xb2\xa1" else ">"
+        if struct.unpack(endian + "I", gh[20:24])[0] != 1:
+            raise HarnessError("flow attribution requires an Ethernet pcap")
+        while f.tell() + 16 <= window_end:
+            ts, us, size, original = struct.unpack(endian + "IIII", f.read(16))
+            if f.tell() + size > window_end:
+                raise HarnessError("typing window ends inside a packet; attribution is inconclusive")
+            frame = f.read(size)
+            if len(frame) != size:
+                raise HarnessError("capture packet data is incomplete")
+            packet_end = f.tell()
+            in_window = packet_end > window_start
+            t = ts + us / 1e6
+            if len(frame) < 14:
+                continue
+            ether = struct.unpack(">H", frame[12:14])[0]
+            if ether in (0x8100, 0x88a8):
+                raise HarnessError("VLAN-tagged capture is unsupported; cannot attribute flows")
+            ip = frame[14:]
+            if ether == 0x0800 and len(ip) >= 20:
+                src, dst = socket.inet_ntoa(ip[12:16]), socket.inet_ntoa(ip[16:20])
+                outbound = src in guest_ips
+                if outbound and in_window and size != original:
+                    raise HarnessError("truncated packet prevents flow attribution")
+                if struct.unpack(">H", ip[6:8])[0] & 0x3fff:
+                    if outbound and in_window:
+                        raise HarnessError("fragmented outbound IPv4 prevents flow attribution")
+                    continue
+                proto = ip[9]
+                rest = ip[(ip[0] & 15) * 4:struct.unpack(">H", ip[2:4])[0]]
+            elif ether == 0x86dd and len(ip) >= 40:
+                src = socket.inet_ntop(socket.AF_INET6, ip[8:24])
+                dst = socket.inet_ntop(socket.AF_INET6, ip[24:40])
+                outbound = src in guest_ips
+                if outbound and in_window and size != original:
+                    raise HarnessError("truncated packet prevents flow attribution")
+                try:
+                    proto, rest = ipv6_transport(ip)
+                except HarnessError:
+                    if outbound and in_window:
+                        raise
+                    continue
+                if proto not in (6, 17, 58) and outbound and in_window:
+                    raise HarnessError("outbound IPv6 extension header prevents flow attribution")
+            else:
+                continue
+            if proto == 6 and len(rest) >= 20:
+                sp, dp = struct.unpack(">HH", rest[:4])
+                tcp_flags = rest[13]
+                data = rest[(rest[12] >> 4) * 4:]
+            elif proto == 17 and len(rest) >= 8:
+                sp, dp = struct.unpack(">HH", rest[:4])
+                tcp_flags, data = 0, rest[8:]
+            else:
+                continue
+            if not outbound:
+                if proto == 17 and sp == 53 and in_window:
+                    for name, address in _dns_answers(data):
+                        resolved.setdefault(address, []).append({"name": name, "ts": t})
+                key = ("tcp" if proto == 6 else "udp", dst, dp, src, sp)
+                if key in flows:
+                    flow = flows[key]
+                    if in_window and data:
+                        flow["window_in"].append([round(t, 3), len(data)])
+                    elif not in_window:
+                        flow["seen_before_typing"] = True
+                continue
+            key = ("tcp" if proto == 6 else "udp", src, sp, dst, dp)
+            syn = proto == 6 and tcp_flags & 0x02 and not tcp_flags & 0x10
+            flow = flows.get(key)
+            if flow is None or syn:
+                # A SYN on a reused four-tuple starts a new connection.
+                flow = flows[key] = {
+                    "protocol": key[0], "src": src, "src_port": sp, "dst": dst, "port": dp,
+                    "host": None, "names": [], "first_ts": t, "seen_before_typing": not in_window,
+                    "syn_ts": t if syn else None, "syn_in_window": bool(syn and in_window),
+                    "window_out": [], "window_in": [], "udp_background": [],
+                }
+            if not in_window:
+                flow["seen_before_typing"] = True
+            if proto == 6:
+                sni = _tls_sni(data) if data else None
+                if sni:
+                    flow["host"] = sni.lower().rstrip(".")
+            elif dp == 53 and len(data) > 12:
+                name = _dns_name(data, 12)[0].lower().rstrip(".")
+                flow["host"] = name
+                if in_window:
+                    flow["names"].append(name)
+            if in_window and data:
+                flow["window_out"].append([round(t, 3), len(data), keepalive_sized(data)])
+                if proto == 17:
+                    flow["udp_background"].append(_udp_background(flow["host"], dst, dp))
+    out = []
+    for flow in flows.values():
+        if not (flow["syn_in_window"] or flow["window_out"]):
+            continue
+        host = flow["host"]
+        if flow["protocol"] == "tcp":
+            background = host in SECURITY_SETTINGS_HOSTS or host in OS_NOISE_HOSTS
+        else:
+            background = bool(flow["udp_background"]) and all(flow["udp_background"])
+        reasons = []
+        if flow["port"] in DNS_PORTS:
+            reasons.append("dns-query")
+        if flow["syn_in_window"]:
+            reasons.append("new-connection")
+        elif not flow["seen_before_typing"]:
+            reasons.append("not-open-before-typing")
+        if flow["protocol"] == "udp" and flow["port"] not in DNS_PORTS:
+            reasons.append("udp-datagram")
+        if flow["dst"] in resolved:
+            reasons.append("resolved-during-typing")
+        if host and host in sensitive:
+            reasons.append("search-or-suggest-host")
+        if any(not small for _t, _n, small in flow["window_out"]):
+            reasons.append("payload-exceeds-keepalive")
+        verdict = "background" if background else ("typing-traffic" if reasons else "keepalive")
+        out.append({
+            "protocol": flow["protocol"], "src": flow["src"], "src_port": flow["src_port"],
+            "dst": flow["dst"], "port": flow["port"], "host": host,
+            "dns_names": flow["names"], "opened_ts": flow["syn_ts"] or flow["first_ts"],
+            "opened": ("during-typing" if flow["syn_in_window"] or not flow["seen_before_typing"]
+                       else "before-typing"),
+            "resolved_during_typing": resolved.get(flow["dst"], []),
+            "window_out": [[t, n] for t, n, _small in flow["window_out"]],
+            "window_out_bytes": sum(n for _t, n, _small in flow["window_out"]),
+            "window_in": flow["window_in"],
+            "reasons": reasons, "verdict": verdict, "ok": verdict != "typing-traffic",
+        })
+    out.sort(key=lambda r: (r["ok"], r["opened_ts"]))
+    return {"keepalive_record_max": KEEPALIVE_RECORD_MAX, "flows": out,
+            "typing_flows": [r for r in out if not r["ok"]]}
+
+# --------------------------------------------------------------------------
 # DEX string table -- for the APK static checks.  Reads the real string_ids
 # table rather than grepping the file, so a hit is a genuine string constant.
 # --------------------------------------------------------------------------
@@ -3522,12 +3752,51 @@ def expected_engines():
 # the old contile host is kept so a rebase that brings it back is still caught.
 SPONSORED_TILE_HOSTS = ("ads.mozilla.org", "contile.services.mozilla.com")
 
-def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk):
-    """Check typing payloads as well as handshakes, with a real search control.
+SUGGEST_SWITCH = "Show search suggestions"
+
+def search_endpoint_hosts(config):
+    """Every search and suggestion host the shipped engine config names."""
+    from urllib.parse import urlsplit
+    hosts = set()
+    for r in config:
+        if r.get("recordType") != "engine":
+            continue
+        for url in (r.get("base", {}).get("urls") or {}).values():
+            host = urlsplit(url.get("base", "")).hostname
+            if host:
+                hosts.add(host.lower())
+    return sorted(hosts)
+
+def set_suggestions_switch(adb, pkg, scheme, want):
+    """Drive Settings > Search's suggestions switch to `want` through the real UI.
+    Returns (state before, state after); None where the switch was not found."""
+    _deeplink(adb, pkg, scheme, "settings_search_engine")
+    xml, pt = _find_row(adb, SUGGEST_SWITCH)
+    before = _switch_after(xml, SUGGEST_SWITCH) if pt else None
+    after = before
+    if before is not None and before != want:
+        position = _switch_bounds_after(xml, SUGGEST_SWITCH)
+        if position:
+            adb.shell("input tap %d %d" % position, timeout=60)
+            time.sleep(1.5)
+            after = _switch_after(_ui_dump(adb), SUGGEST_SWITCH)
+    adb.shell("input keyevent 4", timeout=60)
+    time.sleep(1.5)
+    return before, after
+
+def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk, negative_control=False):
+    """Check typing traffic by connection, with a real search control.
 
     The typing window opens only after uBO's post-launch filter-list update has
     run and the capture has gone quiet (wait_post_launch_quiet): those fetches
-    are not suggestions, and nothing is exempted to make room for them."""
+    are not suggestions, and nothing is exempted to make room for them.  The
+    window is then judged per connection (attribute_typing_flows): a new
+    connection, a DNS query, or more than a keep-alive record on an old
+    connection is typing traffic.
+
+    negative_control turns "Show search suggestions" ON through Settings before
+    typing.  The check must then FAIL, and the evidence names the suggestion
+    host; the switch is put back OFF afterwards."""
     from urllib.parse import urlsplit, parse_qs
     require_pcap(pcap)
     with open(os.path.join(os.environ.get("LW_SMOKE_REPO", "."),
@@ -3535,10 +3804,14 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk):
         config = json.load(f)["data"]
     default_id = next(r["globalDefault"] for r in config
                       if r.get("recordType") == "defaultEngines")
-    search = next(r["base"]["urls"]["search"] for r in config
-                  if r.get("identifier") == default_id)
+    default_urls = next(r["base"]["urls"] for r in config
+                        if r.get("identifier") == default_id)
+    search = default_urls["search"]
     search_host = urlsplit(search["base"]).hostname
     search_param = search.get("searchTermParamName", "q")
+    suggest_host = urlsplit((default_urls.get("suggestions") or {}).get("base", "")).hostname
+    endpoint_hosts = search_endpoint_hosts(config)
+    check_name = "check-no-suggest" + ("-negative-control" if negative_control else "")
     schedule = ubo_update_schedule(apk)
     app.push_debug_config()
     app.force_stop()
@@ -3548,6 +3821,15 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk):
     launched = time.monotonic()
     app.start_home()
     _xml, _pt, notice_acknowledged = toolbar_ready(adb, app.pkg)
+    control_switch = None
+    if negative_control:
+        before, after = set_suggestions_switch(adb, app.pkg, scheme, True)
+        control_switch = {"before": before, "after": after}
+        log("check-no-suggest: NEGATIVE CONTROL -- '%s' %r -> %r before typing"
+            % (SUGGEST_SWITCH, before, after))
+        if after is not True:
+            raise HarnessError("negative control could not turn '%s' ON (%r)"
+                               % (SUGGEST_SWITCH, control_switch))
 
     def settle_payloads(offset):
         guest.update(app.guest_ips())
@@ -3580,6 +3862,19 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk):
     typing_app = [r for r in typing_rows if not r["os_noise"] and not r.get("harness")]
     typing_payloads = pcap_payloads(pcap, off_typing, guest, off_enter)
     suspect_payloads = [r for r in typing_payloads if not r["background"]]
+    attribution = attribute_typing_flows(pcap, guest, off_typing, off_enter, endpoint_hosts)
+    # Belt and braces: every non-background payload pcap_payloads saw must sit
+    # on a flow the attribution passed, or the window is typing traffic.
+    passed = {(r["protocol"], r["src"], r["src_port"], r["dst"], r["port"])
+              for r in attribution["flows"] if r["ok"]}
+    unattributed = [r for r in suspect_payloads
+                    if (r["protocol"], r["src"], r["src_port"], r["dst"], r["port"]) not in passed]
+    typing_flows = attribution["typing_flows"]
+    for r in attribution["flows"]:
+        log("check-no-suggest: flow %s %s:%d -> %s:%d %s opened %s, out %s: %s%s"
+            % (r["protocol"], r["src"], r["src_port"], r["dst"], r["port"], r["host"] or "-",
+               r["opened"], [n for _t, n in r["window_out"]] or "SYN only", r["verdict"],
+               (" (" + ", ".join(r["reasons"]) + ")") if r["reasons"] else ""))
     sys.stdout.write(render_capture(typing_rows))
 
     # Enter alone commits the original query. Retyping a character here could
@@ -3633,33 +3928,46 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk):
     all_rows = summarise_capture(pcap, off_all, guest_ips=guest)
     sponsored = [r for r in all_rows
                  if any(h in (r["detail"] or "").lower() for h in SPONSORED_TILE_HOSTS)]
-    _deeplink(adb, app.pkg, scheme, "settings_search_engine")
-    sxml, spt = _find_row(adb, "Show search suggestions")
-    switch = _switch_after(sxml, "Show search suggestions") if spt else None
-    toggled = {}
-    if switch is False:
-        position = _switch_bounds_after(sxml, "Show search suggestions")
-        if position:
-            try:
-                adb.shell("input tap %d %d" % position, timeout=60)
-                time.sleep(1.5)
-                toggled["on"] = _switch_after(_ui_dump(adb), "Show search suggestions")
-            finally:
-                current = _ui_dump(adb)
-                if _switch_after(current, "Show search suggestions") is True:
-                    position = _switch_bounds_after(current, "Show search suggestions")
-                    if position:
-                        adb.shell("input tap %d %d" % position, timeout=60)
-                        time.sleep(1.5)
-                toggled["restored_off"] = _switch_after(_ui_dump(adb), "Show search suggestions") is False
-    adb.shell("input keyevent 4", timeout=60)
+    if negative_control:
+        # Put the profile back the way the product ships it.
+        restored = set_suggestions_switch(adb, app.pkg, scheme, False)
+        control_switch["restored_off"] = restored[1] is False
+        switch, toggled = None, {}
+    else:
+        _deeplink(adb, app.pkg, scheme, "settings_search_engine")
+        sxml, spt = _find_row(adb, SUGGEST_SWITCH)
+        switch = _switch_after(sxml, SUGGEST_SWITCH) if spt else None
+        toggled = {}
+        if switch is False:
+            position = _switch_bounds_after(sxml, SUGGEST_SWITCH)
+            if position:
+                try:
+                    adb.shell("input tap %d %d" % position, timeout=60)
+                    time.sleep(1.5)
+                    toggled["on"] = _switch_after(_ui_dump(adb), SUGGEST_SWITCH)
+                finally:
+                    current = _ui_dump(adb)
+                    if _switch_after(current, SUGGEST_SWITCH) is True:
+                        position = _switch_bounds_after(current, SUGGEST_SWITCH)
+                        if position:
+                            adb.shell("input tap %d %d" % position, timeout=60)
+                            time.sleep(1.5)
+                    toggled["restored_off"] = _switch_after(_ui_dump(adb), SUGGEST_SWITCH) is False
+        adb.shell("input keyevent 4", timeout=60)
 
     problems = []
-    if suspect_payloads:
-        problems.append("typing emitted %d outbound payload bytes on %d packet(s), "
-                        "including reused TLS connections; quiet typing is unproven: %s%s"
-                        % (sum(r["bytes"] for r in suspect_payloads), len(suspect_payloads),
-                           sorted({r["host"] or r["dst"] for r in suspect_payloads})[:6],
+    if typing_flows or unattributed:
+        hosts = sorted({r["host"] or r["dst"] for r in typing_flows} |
+                       {r["host"] or r["dst"] for r in unattributed})
+        problems.append("typing produced traffic on %d connection(s) (%s), %d outbound payload "
+                        "bytes; quiet typing is unproven: %s%s%s"
+                        % (len(typing_flows),
+                           "; ".join(sorted({"%s: %s" % (r["host"] or r["dst"], ",".join(r["reasons"]))
+                                             for r in typing_flows}))[:600],
+                           sum(r["window_out_bytes"] for r in typing_flows),
+                           hosts[:8],
+                           " (+%d payload(s) on no passing flow)" % len(unattributed)
+                           if unattributed else "",
                            "" if settle["settled"] else
                            " (the capture never went quiet in the %ds before typing)"
                            % settle["timeout_s"]))
@@ -3669,20 +3977,31 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk):
     if sponsored:
         problems.append("%d event(s) to a sponsored-tile host: %s"
                         % (len(sponsored), sorted({r["detail"] for r in sponsored})[:4]))
-    if switch is None:
-        problems.append("no 'Show search suggestions' switch found in Settings > Search")
+    if negative_control:
+        if not control_switch.get("restored_off"):
+            problems.append("negative control could not restore '%s' OFF: %r"
+                            % (SUGGEST_SWITCH, control_switch))
+    elif switch is None:
+        problems.append("no '%s' switch found in Settings > Search" % SUGGEST_SWITCH)
     elif switch:
-        problems.append("'Show search suggestions' reads ON by default")
+        problems.append("'%s' reads ON by default" % SUGGEST_SWITCH)
     elif toggled.get("on") is not True or toggled.get("restored_off") is not True:
-        problems.append("'Show search suggestions' ON/OFF round trip failed: %r" % toggled)
+        problems.append("'%s' ON/OFF round trip failed: %r" % (SUGGEST_SWITCH, toggled))
+    suggest_flows = [r for r in typing_flows if suggest_host and r["host"] == suggest_host]
+    if negative_control:
+        problems.insert(0, "NEGATIVE CONTROL (suggestions ON before typing): %s"
+                        % ("suggestion traffic to %s was caught on %d connection(s)"
+                           % (suggest_host, len(suggest_flows)) if suggest_flows else
+                           "NO connection to the suggestion host %s was caught -- the check "
+                           "cannot see what it guards" % suggest_host))
     ok = not problems
-    res.add("check-no-suggest", ok,
+    res.add(check_name, ok,
             ("typed %r: no outbound transport payload outside explicitly identified "
              "security-settings/OS background flows for %ds; Enter produced %d payload "
              "bytes to %s and the actual URL contains the submitted query; no sponsored "
              "host; 'Show search suggestions' OFF by default and ON/OFF round trip verified"
              % (token, capture_seconds, search_bytes, search_host)) if ok else
-            "; ".join(problems) + " -- owned by LW-M4-11",
+            "; ".join(problems) + ("" if negative_control else " -- owned by LW-M4-11"),
             {"token": token, "url_after_enter": url, "search_document": document,
              "typing_events": typing_app[:100],
              "typing_payloads": typing_payloads, "enter_payloads": enter_payloads,
@@ -3692,7 +4011,11 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk):
              "app_capture_offset": off_all, "guest_ips": sorted(guest),
              "post_enter_pcap_bytes": dpcap, "post_enter_search_payload_bytes": search_bytes,
              "capture_seconds": capture_seconds, "pre_typing_settle": settle,
-             "ubo_notice_acknowledged": notice_acknowledged})
+             "ubo_notice_acknowledged": notice_acknowledged,
+             "typing_flow_attribution": attribution, "typing_flows_failed": typing_flows,
+             "unattributed_payloads": unattributed, "suggest_host": suggest_host,
+             "suggest_host_flows": suggest_flows, "negative_control": negative_control,
+             "negative_control_switch": control_switch})
     return ok
 
 # LW-M6-06.  The update host, overridable for a build made with
@@ -3864,6 +4187,9 @@ def main(argv):
               "aboutconfig", "no-suggest", "strings", "update-privacy",
               "no-remote-settings", "https-only", "launcher-start"):
         ap.add_argument("--check-" + f, action="store_true")
+    ap.add_argument("--no-suggest-negative-control", action="store_true",
+                    help="with --check-no-suggest: turn 'Show search suggestions' ON before "
+                         "typing; the check must then FAIL on the suggestion host's traffic")
     args = ap.parse_args(argv)
     if (args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_launcher_start) and args.keep_state:
         raise HarnessError("uBO first-install checks require an empty app profile; omit --keep-state")
@@ -4044,7 +4370,8 @@ def main(argv):
         # ---- --check-no-suggest: nothing leaves the toolbar before Enter ----
         if args.check_no_suggest:
             check_no_suggest(app, adb, pcap, args.capture_seconds, res,
-                             deeplink_scheme(args, sdk, apk), apk)
+                             deeplink_scheme(args, sdk, apk), apk,
+                             negative_control=args.no_suggest_negative_control)
             return finish(res, args, work)
 
         # ---- --check-update-privacy: opt-in, and silent when off (LW-M6-06) ----

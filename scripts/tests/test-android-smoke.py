@@ -698,5 +698,226 @@ class PostLaunchQuietTests(unittest.TestCase):
         self.assertGreaterEqual(result['quiet_s'], 3 * self.SCHEDULE['autoUpdateAssetFetchPeriod'])
 
 
+GUEST = '10.0.2.16'
+
+
+def ipv4(src, dst, proto, transport):
+    ip = bytes([0x45, 0]) + struct.pack('>H', 20 + len(transport))
+    ip += bytes(4) + bytes([64, proto]) + bytes(2)
+    ip += socket.inet_aton(src) + socket.inet_aton(dst)
+    return bytes(12) + struct.pack('>H', 0x0800) + ip + transport
+
+
+def segment(src, sport, dst, dport, payload=b'', flags=0x18):
+    return ipv4(src, dst, 6, struct.pack('>HHII', sport, dport, 1, 1)
+                + bytes([0x50, flags]) + bytes(6) + payload)
+
+
+def datagram(src, sport, dst, dport, payload):
+    return ipv4(src, dst, 17, struct.pack('>HHHH', sport, dport, 8 + len(payload), 0) + payload)
+
+
+def tls_record(size, content_type=0x17):
+    """One TLS 1.2/1.3 record of `size` bytes on the wire."""
+    return bytes([content_type, 3, 3]) + struct.pack('>H', size - 5) + bytes(size - 5)
+
+
+def dns_name(name):
+    return b''.join(bytes([len(p)]) + p.encode() for p in name.split('.')) + b'\0'
+
+
+def dns_query(name):
+    return struct.pack('>HHHHHH', 0x1234, 0x0100, 1, 0, 0, 0) + dns_name(name) + struct.pack('>HH', 1, 1)
+
+
+def dns_answer(name, address):
+    question = dns_name(name) + struct.pack('>HH', 1, 1)
+    answer = b'\xc0\x0c' + struct.pack('>HHIH', 1, 1, 60, 4) + socket.inet_aton(address)
+    return struct.pack('>HHHHHH', 0x1234, 0x8180, 1, 1, 0, 0) + question + answer
+
+
+class TypingFlowAttributionTests(unittest.TestCase):
+    """Synthetic captures shaped like rc2's typing window (final-acceptance)."""
+    AMO = ('151.101.65.91', 'services.addons.mozilla.org')
+    SUGGEST = ('52.142.124.215', 'ac.duckduckgo.com')
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp.name) / 'capture.pcap'
+        self.path.write_bytes(struct.pack('<IHHIIII', 0xa1b2c3d4, 2, 4, 0, 0, 65535, 1))
+        self.clock = 1000
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def append(self, frame):
+        self.clock += 1
+        with self.path.open('ab') as f:
+            f.write(struct.pack('<IIII', self.clock, 0, len(frame), len(frame)) + frame)
+        return self.path.stat().st_size
+
+    def offset(self):
+        return self.path.stat().st_size
+
+    def open_tls(self, server, port=48794, dport=443):
+        """A full connection opened before typing: SYN, ClientHello, bulk reply."""
+        address, host = server
+        self.append(segment(GUEST, port, address, dport, flags=0x02))
+        self.append(segment(address, dport, GUEST, port, flags=0x12))
+        self.append(segment(GUEST, port, address, dport, hello(host)))
+        self.append(segment(address, dport, GUEST, port, tls_record(1400)))
+        self.append(segment(GUEST, port, address, dport, tls_record(300)))
+
+    def attribute(self, start, end=None):
+        return harness.attribute_typing_flows(str(self.path), {GUEST}, start,
+                                              self.offset() if end is None else end,
+                                              ['noai.duckduckgo.com', 'ac.duckduckgo.com'])
+
+    def test_keepalive_bound_is_one_h2_control_frame_in_the_largest_tls_envelope(self):
+        self.assertEqual(harness.H2_CONTROL_FRAME_BYTES, 17)
+        self.assertEqual(harness.KEEPALIVE_RECORD_MAX, 46)
+        for size in (24, 31, 39, 46):        # the rc2 alert and ping records
+            self.assertTrue(harness.keepalive_sized(tls_record(size, 0x17)))
+        self.assertFalse(harness.keepalive_sized(tls_record(47)))
+        self.assertFalse(harness.keepalive_sized(tls_record(39) + tls_record(31)))
+        self.assertFalse(harness.keepalive_sized(tls_record(39, 0x16)))
+        self.assertFalse(harness.keepalive_sized(b'GET /ac/?q=lws HTTP/1.1\r\n\r\n'))
+
+    def test_preexisting_keepalive_and_close_records_pass(self):
+        self.open_tls(self.AMO, 39466)
+        start = self.offset()
+        self.append(segment(GUEST, 39466, self.AMO[0], 443, tls_record(46)))
+        self.append(segment(self.AMO[0], 443, GUEST, 39466, tls_record(46)))
+        self.append(segment(GUEST, 39466, self.AMO[0], 443, tls_record(46)))
+        self.append(segment(GUEST, 39466, self.AMO[0], 443, tls_record(31, 0x15)))
+        self.append(segment(GUEST, 39466, self.AMO[0], 443, flags=0x11))   # FIN, no payload
+        result = self.attribute(start)
+        self.assertEqual(result['typing_flows'], [])
+        [flow] = result['flows']
+        self.assertEqual((flow['verdict'], flow['opened'], flow['host']),
+                         ('keepalive', 'before-typing', 'services.addons.mozilla.org'))
+        self.assertEqual([n for _t, n in flow['window_out']], [46, 46, 31])
+        self.assertEqual([n for _t, n in flow['window_in']], [46])
+        # pcap_payloads still sees every packet; only the attribution passes them.
+        self.assertEqual(len([r for r in harness.pcap_payloads(str(self.path), start, {GUEST})
+                              if not r['background']]), 3)
+
+    def test_new_connection_during_typing_fails(self):
+        self.open_tls(self.AMO, 39466)
+        start = self.offset()
+        self.append(segment(GUEST, 51000, self.SUGGEST[0], 443, flags=0x02))
+        self.append(segment(GUEST, 51000, self.SUGGEST[0], 443, hello(self.SUGGEST[1])))
+        [flow] = self.attribute(start)['typing_flows']
+        self.assertEqual(flow['host'], 'ac.duckduckgo.com')
+        self.assertEqual(flow['opened'], 'during-typing')
+        self.assertIn('new-connection', flow['reasons'])
+        self.assertIn('search-or-suggest-host', flow['reasons'])
+
+    def test_bare_syn_during_typing_fails_without_any_payload(self):
+        start = self.offset()
+        self.append(segment(GUEST, 51001, '192.0.2.7', 443, flags=0x02))
+        [flow] = self.attribute(start)['typing_flows']
+        self.assertEqual(flow['reasons'], ['new-connection'])
+
+    def test_reused_four_tuple_with_a_new_syn_is_a_new_connection(self):
+        self.open_tls(self.AMO, 39466)
+        start = self.offset()
+        self.append(segment(GUEST, 39466, self.AMO[0], 443, flags=0x02))
+        self.append(segment(GUEST, 39466, self.AMO[0], 443, tls_record(39)))
+        [flow] = self.attribute(start)['typing_flows']
+        self.assertIn('new-connection', flow['reasons'])
+        self.assertIsNone(flow['host'])
+
+    def test_large_payload_on_an_old_connection_fails(self):
+        self.open_tls(self.SUGGEST, 48516)
+        self.open_tls(self.AMO, 39466)
+        start = self.offset()
+        self.append(segment(GUEST, 39466, self.AMO[0], 443, tls_record(47)))
+        self.append(segment(GUEST, 48516, self.SUGGEST[0], 443, tls_record(39)))
+        flows = {f['host']: f for f in self.attribute(start)['typing_flows']}
+        self.assertEqual(flows['services.addons.mozilla.org']['reasons'], ['payload-exceeds-keepalive'])
+        self.assertEqual(flows['services.addons.mozilla.org']['opened'], 'before-typing')
+        # Even a keep-alive sized record to a suggestion host is typing traffic.
+        self.assertEqual(flows['ac.duckduckgo.com']['reasons'], ['search-or-suggest-host'])
+
+    def test_small_plaintext_or_coalesced_records_on_an_old_connection_fail(self):
+        self.open_tls(self.AMO, 39466)
+        self.append(segment(GUEST, 40080, '192.0.2.80', 80, flags=0x02))
+        start = self.offset()
+        self.append(segment(GUEST, 40080, '192.0.2.80', 80, b'GET /?q=lws HTTP/1.1\r\n\r\n'))
+        self.append(segment(GUEST, 39466, self.AMO[0], 443, tls_record(39) + tls_record(24, 0x15)))
+        reasons = {f['src_port']: f['reasons'] for f in self.attribute(start)['typing_flows']}
+        self.assertEqual(reasons, {40080: ['payload-exceeds-keepalive'],
+                                   39466: ['payload-exceeds-keepalive']})
+
+    def test_dns_during_typing_fails_and_taints_the_resolved_address(self):
+        self.open_tls(self.SUGGEST, 48516)
+        start = self.offset()
+        self.append(datagram(GUEST, 33333, '10.0.2.3', 53, dns_query('ac.duckduckgo.com')))
+        self.append(datagram('10.0.2.3', 53, GUEST, 33333, dns_answer('ac.duckduckgo.com', self.SUGGEST[0])))
+        # A keep-alive sized record to the just-resolved address is still typing traffic.
+        self.append(segment(GUEST, 48516, self.SUGGEST[0], 443, tls_record(39)))
+        flows = {f['protocol']: f for f in self.attribute(start)['typing_flows']}
+        self.assertEqual(flows['udp']['dns_names'], ['ac.duckduckgo.com'])
+        self.assertIn('dns-query', flows['udp']['reasons'])
+        self.assertIn('resolved-during-typing', flows['tcp']['reasons'])
+        self.assertEqual(flows['tcp']['resolved_during_typing'][0]['name'], 'ac.duckduckgo.com')
+
+    def test_dns_over_tls_on_an_old_connection_fails(self):
+        self.open_tls(('9.9.9.9', 'dns.quad9.net'), 41000, dport=853)
+        start = self.offset()
+        self.append(segment(GUEST, 41000, '9.9.9.9', 853, tls_record(39)))
+        [flow] = self.attribute(start)['typing_flows']
+        self.assertEqual(flow['reasons'], ['dns-query'])
+
+    def test_os_noise_dns_keeps_its_existing_exemption(self):
+        start = self.offset()
+        self.append(datagram(GUEST, 33334, '10.0.2.3', 53, dns_query('connectivitycheck.gstatic.com')))
+        result = self.attribute(start)
+        self.assertEqual(result['typing_flows'], [])
+        self.assertEqual(result['flows'][0]['verdict'], 'background')
+
+    def test_udp_on_an_old_flow_is_never_a_keepalive(self):
+        self.append(datagram(GUEST, 44444, '192.0.2.9', 443, b'\x40' + bytes(30)))
+        start = self.offset()
+        self.append(datagram(GUEST, 44444, '192.0.2.9', 443, b'\x40' + bytes(30)))
+        [flow] = self.attribute(start)['typing_flows']
+        self.assertEqual(flow['opened'], 'before-typing')
+        self.assertIn('udp-datagram', flow['reasons'])
+
+    def test_flow_first_seen_inside_the_window_is_not_preexisting(self):
+        start = self.offset()
+        self.append(segment(GUEST, 45000, '192.0.2.10', 443, tls_record(39)))
+        [flow] = self.attribute(start)['typing_flows']
+        self.assertEqual(flow['reasons'], ['not-open-before-typing'])
+
+    def test_security_settings_flow_stays_background_by_sni_only(self):
+        settings = ('151.101.129.91', 'firefox.settings.services.mozilla.com')
+        self.open_tls(settings, 49408)
+        start = self.offset()
+        self.append(segment(GUEST, 49408, settings[0], 443, tls_record(400)))
+        # Another flow to the same CDN address does not inherit the exemption.
+        self.append(segment(GUEST, 49999, settings[0], 443, flags=0x02))
+        result = self.attribute(start)
+        verdicts = {f['src_port']: f['verdict'] for f in result['flows']}
+        self.assertEqual(verdicts, {49408: 'background', 49999: 'typing-traffic'})
+
+    def test_window_ending_inside_a_packet_is_inconclusive(self):
+        start = self.offset()
+        end = self.append(segment(GUEST, 45001, '192.0.2.11', 443, tls_record(39)))
+        with self.assertRaises(harness.HarnessError):
+            self.attribute(start, end - 3)
+
+    def test_engine_hosts_include_the_default_suggestion_endpoint(self):
+        with open(ROOT / 'assets/search-config-v2.json') as f:
+            hosts = harness.search_endpoint_hosts(json.load(f)['data'])
+        self.assertIn('ac.duckduckgo.com', hosts)
+        self.assertIn('noai.duckduckgo.com', hosts)
+
+    def test_negative_control_is_wired_to_the_command_line(self):
+        self.assertIn('--no-suggest-negative-control', source)
+        self.assertIn('negative_control=args.no_suggest_negative_control', source)
+
+
 if __name__ == '__main__':
     unittest.main()
