@@ -181,6 +181,9 @@ rebase from it alone.
 
 ## Release track
 
+> **Reversed 2026-10-02:** Android moved to Firefox release 157.0 and follows Firefox
+> release; the ESR decision below is superseded. See [`TRACK.md`](TRACK.md#decision-reversed-2026-10-02).
+
 Decision, upheld by LW-M0-07 after checking the numbers: **Android tracks esr153
 while desktop stays on release.** Full evidence in [`TRACK.md`](TRACK.md).
 

@@ -1,5 +1,95 @@
 # Release track — Redoubt
 
+## Decision reversed 2026-10-02
+
+**Android leaves ESR. It moves to Firefox release 157.0 now and follows Firefox
+release from here on, the same track as desktop.** Decided 2026-10-02 by the
+maintainer, Manuel Gysin:
+
+> "we do the jump to 157 now and then follow mainstream from firefox, move fast
+> and forward"
+
+This supersedes the decision below (LW-M0-07, 2026-08-15). Everything from
+"Decision" down is the original analysis, kept unedited as the record of what
+was weighed. It is no longer the policy.
+
+### What changes
+
+- **No ESR.** `version.android` = `157.0` and `release.android` = `1`. That is
+  archive.mozilla.org's name for the release
+  (`releases/157.0/source/firefox-157.0.source.tar.xz`, the tarball desktop
+  already builds). `make help TARGETS=android` shows `157.0-1`. Android and
+  desktop now name the same Firefox version. The two-pair mechanism of §6 stays:
+  Android's `version.txt` is still `<version>-<release>` (the shipped
+  `MOZ_APP_VERSION` contract, see `scripts/librewolf-patches.py`), and the files
+  let the tracks diverge for a release if a rebase lands on one target first.
+- **No `-esr` copies.** The Firefox 157 desktop merge had parked eight
+  `patches/android/*-esr.patch` byte copies, `patches/android/pack_vs-esr.py`
+  and `l10n-esr/` so that the Android tree stayed byte-identical on 153. They
+  are deleted. Every patch now has one text for both targets, and the seven
+  entries the merge had moved to `desktop.txt` are back in `common.txt`. The
+  accounting is in `PATCH-SCOPE.md`, at the top.
+- **A rebase every release.** Android now rebases on each Firefox major (every
+  two weeks since Firefox 155, §2) and on each dot release, together with
+  desktop. `REBASE.md` still describes an ESR dot rebase. Its mechanics
+  (tarball, `check-patchfail`, pref audit, smoke) carry over unchanged. Its
+  framing that a major comes once a year does not.
+- **Android-only Firefox for Android fixes now come from upstream.** §3c's
+  standing obligation goes away: someone had to read every "Firefox for Android"
+  MFSA and backport by hand because no ESR `mobile/android` existed. A release
+  tarball carries Mozilla's own `mobile/android` fixes, and out-of-band Gecko
+  security dots reach us the day Mozilla ships them, without §3a's ESR lag
+  (median 14 days, worst 21). The LW-M7-05 statement drafted in §3 has to be
+  rewritten for the release track.
+- **The `MOZ_ESR`-dependent sites of §1 and §5.3 need re-validation**, above all
+  the search-configuration channel (`toolkit/components/search/SearchUtils.sys.mjs:357`
+  on 157: `AppConstants.IS_ESR ? "esr" : AppConstants.MOZ_UPDATE_CHANNEL`) and
+  the Remote Settings channel
+  (`toolkit/modules/RustSharedRemoteSettingsService.sys.mjs:44`, same
+  expression). One correction to how §1 framed this: Redoubt's Android builds
+  never actually had `MOZ_ESR` set. `version_display.txt` was `153.0esr-1` /
+  `153.4.0esr-1`, which does not end in `esr`, so `is_esr` was false
+  (`patches/android/build-fixes.patch`, "MOZ_ESR is not set"). Both channels
+  were already the update channel, and `.jnlp` was already in the
+  dangerous-extension list. What changes is the tree behind them: the search
+  config dump (LW-M4-06), the Remote Settings collections and allowlist
+  (LW-M4-08) and `--enable-appservices-in-tree` (M2) now come from a release
+  tree that moves every two weeks. Re-validate them on 157, then at every
+  rebase.
+- **Settings.** `android.cfg` no longer restates the 153-era values that the
+  Firefox 157 settings port had taken out of `common.cfg` on Android's behalf.
+  Android takes `common.cfg`, apart from its own decisions (Redoubt-settings,
+  branch `android-release-157`).
+
+### What the earlier analysis said this costs
+
+The original analysis argued against this move. It now applies as a cost
+estimate, not as a veto.
+
+- **§2: 26 hard rebases a year instead of 1** (two-week cadence since
+  2026-09-01), about 46 releases a year in total. Each major means re-deriving
+  the patch set, the Fenix Kotlin removals and the pref delivery against a moved
+  tree. The analysis called this "where the port dies" for a one-person team.
+  The maintainer's answer is to accept the per-release cost and automate it
+  ("move fast and forward").
+- **§5.1: the jump is paid in one go.** 153.4.0esr → 157.0 spans four majors
+  (154 to 157) with no intermediate green build to bisect against.
+  `check-patchfail --targets=android` on 157.0 fails 29 of the 44 Android
+  patches. They are being ported separately.
+- **§4: Tor Browser stops being a co-maintainer.** Tor Browser Stable stays on
+  ESR, and its Alpha is on rapid release. Nobody shares our exact base any more.
+- **§5.4: users see a version jump**, 153.4.0esr-1 → 157.0-1. This is cosmetic.
+  The Android versionCode is unaffected: `deterministic-version-code.patch`
+  derives it from `MOZ_BUILD_DATE`, not from the version string.
+- **§5.6 still holds, and is why this can be reversed**: the track was never
+  coupled to the `applicationId` or the signing key, so the move needs no new
+  identity and no re-install.
+
+---
+
+**SUPERSEDED 2026-10-02.** Everything below is the original LW-M0-07 analysis
+and decision. It is kept for the record and is no longer the policy.
+
 **Task:** LW-M0-07 · **Status:** decided, pending maintainer sign-off (see the last
 section) · **Written:** 2026-08-15 against the stock Firefox 153.0.4 tree and the
 Mozilla release calendar as of that date.
