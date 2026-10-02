@@ -700,16 +700,27 @@ rebase gate list gains `./scripts/android-smoke.sh --emulator` and
 names both.
 
 The one runtime check you can do by hand today, and should, is **landmine L1**:
-confirm `librewolf.webgl.prompt` compiled to `false`.
+confirm `librewolf.webgl.prompt` compiled to the value the patch stack intends.
+That value depends on which patches are listed in `assets/patches/android.txt`:
+
+| `canvas-webgl-permissions.patch` (LW-M7-14) listed? | expected header value | why |
+|---|---|---|
+| **yes** (the case since LW-M7-14, and in Beta 2) | `true` | the patch removes the `#if defined(ANDROID) value: false` override that `webgl-prompt-default.patch` added, because it ships the GeckoView/Fenix permission bridge that answers the prompt |
+| no | `false` | without the bridge nothing on Android can grant the `webgl` permission (L1) |
 
 ```sh
-grep -rn 'webgl.prompt' librewolf-153.1esr-1/obj-*/dist/include/mozilla/StaticPrefList_librewolf.h
+grep -A5 '"librewolf.webgl.prompt",' librewolf-153.1esr-1/obj-*/dist/include/mozilla/StaticPrefList_librewolf.h
+grep -n 'canvas-webgl-permissions.patch' assets/patches/android.txt
 ```
 
-If it says `true`, every WebGL context on Android fails — with no crash and no
-console error, and a smoke test of "installs and browses" still passes. Check the
-generated header, not the patch: "it compiles to false in the generated header"
-beats "the patch sets it to false".
+A mismatch either way is a failure. `false` with LW-M7-14 listed means a WebGL
+site never gets asked and the bridge is dead code; `true` without it means
+every WebGL context on Android fails, with no crash and no console error,
+while a smoke test of "installs and browses" still passes. Check the
+generated header, not the patch: "it compiles to the expected value in the
+generated header" beats "the patch sets it". With the bridge present, a
+`true` header is not enough on its own — the runtime proof is the WebGL
+prompt flow in `scripts/android-graphics-smoke.py` and BETA.md's WebGL step.
 
 ---
 
@@ -1157,11 +1168,17 @@ extracts (patches only — not a `make dir` tree, so no `cp`/l10n mutations).
   `ok: 137 prefs declared by GeckoView; 26 of them shipped by us, every unlocked
   one classified in must-not-lock.txt` — identical to the 153.0 tree. No
   `Pref<>` line changed under `mobile/`.
-- **6e not run.** `scripts/android-pref-audit.sh` and
+- **6e not run in stage A.** `scripts/android-pref-audit.sh` and
   `docs/android/expected-prefs.txt` now exist (§6e above predates them), but
   the audit needs a running 153.4.0esr APK — stage B. L1:
   `librewolf.webgl.prompt` in the patched yaml is the deliberate LW-M7-14
-  `true`, byte-identical to 153.0esr; the generated-header check needs a build.
+  `true`, byte-identical to 153.0esr. **Stage B (added 2026-10-02):** the
+  generated `StaticPrefList_librewolf.h` reads `RelaxedAtomicBool, true` for
+  `librewolf.webgl.prompt` (and `true` for `.hide`) in all three objdirs
+  (`obj-arm64-v8a`, `obj-armeabi-v7a`, `obj-x86_64`), which is the expected
+  value with `canvas-webgl-permissions.patch` listed — see the table in §6e.
+  The runtime audit ran on the x86_64 APK; results in
+  `evidence/lw-m7-01/esr-153.4.0/README.md`.
 
 No revert of a pref we set was found, so nothing was changed in `settings/`.
 
