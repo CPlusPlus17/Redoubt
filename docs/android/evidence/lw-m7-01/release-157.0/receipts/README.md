@@ -1,14 +1,16 @@
-# 157.0 source receipts for four hash-pinned Android patches (2026-10-02)
+# 157.0 source receipts for six hash-pinned Android patches (2026-10-02)
 
-Four `scripts/tests` files replay a patch onto pinned "before" source and
+Six `scripts/tests` files replay a patch onto pinned "before" source and
 check pinned "after" hashes:
 
 - `test-extension-update-controls.py` (LW-M7-35)
 - `test-global-privacy-controls.py` (LW-M7-36)
 - `test-session-cleanup.py` (LW-M7-37)
 - `test-translation-assets.py` (LW-M7-16)
+- `test-addon-state-durability.py` (LW-M7-19)
+- `test-extension-permission-durability.py` (LW-M7-31)
 
-On the 157 branch all four failed. `version.android` reads `157.0`, so the
+On the 157 branch the first four failed. `version.android` reads `157.0`, so the
 lookup found no `esr-<version>` receipts, fell back to the 153.0esr chain and
 stopped at its first patch digest. This directory is the 157.0 counterpart of
 `../../esr-153.4.0/receipts`, produced the same way.
@@ -16,8 +18,13 @@ stopped at its first patch digest. This directory is the 157.0 counterpart of
 The lookup in the four tests now reads `esr-<version without esr>` for an ESR
 `version.android` and `release-<version>` otherwise. Without a matching
 directory it still falls back to the original 153.0esr chain, which is left
-untouched as history. `test-translation-assets.py` had no per-version lookup
-before; it now has the same one.
+untouched as history. `test-translation-assets.py` and the two durability
+tests had no per-version lookup before; they now have the same one.
+
+The two durability tests still passed on 157 at first, because their patches
+still carried 153.0esr hunk headers that applied cleanly to the 153.0esr
+baselines. They had to move to 157 receipts once the xpcshell run (below)
+changed those patches.
 
 ## How the receipts were produced
 
@@ -27,6 +34,10 @@ python3 docs/android/evidence/lw-m7-01/release-157.0/receipts/recapture.py \
   --objdir <release tree>/librewolf-157.0-1 \
   --input translation-assets:toolkit/components/translations/bergamot-translator/bergamot-translator.js \
   --input translation-assets:toolkit/components/translations/bergamot-translator/moz.yaml \
+  --input extension-permission-durability:toolkit/components/extensions/Extension.sys.mjs \
+  --input extension-permission-durability:toolkit/components/extensions/ExtensionTaskScheduler.sys.mjs \
+  patches/android/addon-state-durability.patch \
+  patches/android/extension-permission-durability.patch \
   patches/android/extension-update-controls.patch \
   patches/android/global-privacy-controls.patch \
   patches/android/session-cleanup.patch \
@@ -50,12 +61,18 @@ works in five steps:
    JSON).
 4. Replay the target alone on that capture with `--fuzz=0`. It must show no
    offset and no fuzz, and its result must be byte-identical to the stack's.
-5. Compare each touched path after the whole stack with the release tree
-   `build/librewolf-157.0-1`. `make dir` patched that tree independently, and
-   the four 157.0-1 APKs were built from it.
+5. Compare each touched path after the whole stack with an independently
+   patched tree. The final run compares against `work/xpc/librewolf-157.0-1`,
+   the test-enabled x86_64 tree in which the xpcshell tests below ran. `make
+   dir` patched it, and the xpcshell fixes were made and run in it before
+   they were ported back into the patches. The first capture, before those
+   fixes, matched the release tree the 157.0-1 APKs were built from on all
+   paths.
 
-| patch | before files present | `--fuzz=0` replay | equals stack | release tree |
+| patch | before files present | `--fuzz=0` replay | equals stack | xpcshell tree |
 |---|---|---|---|---|
+| addon-state-durability | 7 of 9 | exact (after the hunk-header fix below) | yes | 9/9 identical |
+| extension-permission-durability | 5 of 6 (2 are `--input`) | exact | yes | 6/6 identical |
 | extension-update-controls | 19 of 27 | exact (after the hunk-header fix below) | yes | 27/27 identical |
 | global-privacy-controls | 9 of 21 | exact | yes | 21/21 identical |
 | session-cleanup | 13 of 15 | exact | yes | 15/15 identical |
@@ -69,7 +86,7 @@ predecessor is still extension-update-controls, on `test-api.js` and
 `test-schema.json`. Running `recapture.py` twice gives byte-identical archives
 and JSON.
 
-### `--input`: the Bergamot glue for translation-assets
+### `--input`: untouched files a test reads
 
 LW-M7-16's 153.0esr inventory pinned two upstream files the patch does not
 touch: `bergamot-translator/bergamot-translator.js` and its `moz.yaml`.
@@ -79,7 +96,12 @@ there. `--input STEM:PATH` captures such a path from the same stack state, so
 its before and after hashes are equal, and `replay.py` requires the replay to
 leave it unchanged. Both files are byte-identical to the 153.0esr pins.
 
-### extension-update-controls.patch hunk headers
+LW-M7-31's inventory likewise pinned `Extension.sys.mjs` and
+`ExtensionTaskScheduler.sys.mjs`, which `test-extension-permission-durability.js`
+loads. `ExtensionTaskScheduler.sys.mjs` is unchanged since 153.0esr;
+`Extension.sys.mjs` changed upstream.
+
+### Hunk headers moved to in-order line numbers
 
 On the 157 stack, extension-update-controls applied with offsets: +16 lines on
 the three `mobile/android/geckoview/api.txt` hunks and +3 on
@@ -88,6 +110,47 @@ honest receipt could pin it. Those four hunk headers now carry the in-order
 line numbers. No `+`, `-` or context line changed, and the patched tree is
 identical (27/27 against the release tree, which was patched with the old
 headers).
+
+addon-state-durability likewise applied with offsets on 157 (13 hunks in
+`AddonTestUtils.sys.mjs`, `XPIInstall.sys.mjs`, `moz.build` and
+`xpcshell.toml`). Its `XPIDatabase.sys.mjs` section was regenerated against
+the 157 before tree for the fix below. Its other headers moved by the
+reported offsets.
+
+## Fixes the xpcshell run forced (2026-10-02)
+
+None of these xpcshell tests had ever executed; the task evidence called them
+pending. They ran on an x86_64 Android 11 emulator against a test-enabled
+157 objdir (`../unit-tests/README.md`). Four patches changed:
+
+- **addon-state-durability (product bug).** `_updateAddonDisabledState` set
+  `pendingUninstall = AppConstants.platform == "android" &&
+  aAddon.pendingUninstall`. For an add-on with no pending uninstall that is
+  `undefined`, so enabling a disabled extension computed `isDisabled =
+  undefined` and took the `onOperationCancelled` branch. The choice was saved
+  but the extension was never started again until a restart. It is now
+  `!!aAddon.pendingUninstall`. `test_android_addon_state.js` caught it
+  ("Durable registry activity - false == true").
+- **addon-state-durability, extension-permission-durability (tests).** The
+  failure-injection tests stubbed `IOUtils.writeJSON` on the test global.
+  System modules use the shared module global's own `IOUtils`, so the stub
+  was never called and no write failed. The stubs now target
+  `Cu.getGlobalForObject(<module object>).IOUtils`.
+  `test_addonStartup_save_failures.js` also spies on `_recordSaveError` on
+  Android. Gecko hands Glean metrics to the embedder there
+  (`MOZ_GLEAN_ANDROID`), and `testGetValue()` stays null even for a direct
+  `record()` in xpcshell. `test_android_addon_state.js` finds the installed
+  XPI by its profile path; `_sourceBundle` is undefined on the database entry
+  there.
+- **extension-update-controls (test).** `test_ext_android_update_settings.js`
+  used `AddonManager` without importing it.
+- **session-cleanup (test).** XPConnect reports 0x80070057 as
+  `NS_ERROR_ILLEGAL_VALUE`, so the `/NS_ERROR_INVALID_ARG/` pattern never
+  matched; the test now compares the result code. It also sets
+  `network.cookie.cookieBehavior=0` and
+  `network.cookieJarSettings.unblocked_for_testing`, as upstream's HTTP
+  cookie tests do. Without them every `setCookieStringFromHttp()` positive
+  control was refused.
 
 ## What each file proves
 
@@ -103,8 +166,8 @@ headers).
   `patch` output, and the release-tree comparison.
 - `<stem>-before.tar.gz` is the before tree for that patch.
 - `stack-apply.json` records each stack patch's sha256 and its offset and fuzz
-  counts on 157: 102 offset and 11 fuzz hunks in total. None of them is in the
-  four target patches.
+  counts on 157. None of the offset or fuzz hunks is in the six target
+  patches.
 
 ## Two harness fixes in `test-translation-assets`
 
@@ -135,4 +198,5 @@ Firefox 157 changed two things the 153 harness assumed:
   patched tree. global-privacy-controls and session-cleanup patch some of the
   same files later, so their after hashes differ. That was also true on
   153.4.0esr.
-- Nothing here compiles anything or runs xpcshell, GeckoView or Fenix tests.
+- The receipts compile nothing and run nothing. The xpcshell, Fenix and
+  Android Components runs are recorded in `../unit-tests/`.

@@ -165,7 +165,7 @@ diff --git a/toolkit/components/extensions/test/xpcshell/test_ext_permissions_an
 new file mode 100644
 --- /dev/null
 +++ b/toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,124 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -195,6 +195,9 @@ new file mode 100644
 +  origins: [],
 +  data_collection: [],
 +});
++// The store writes through the shared module global's IOUtils; a stub on this
++// test global's own IOUtils namespace object would never be called.
++const ModuleIOUtils = Cu.getGlobalForObject(ExtensionPermissions).IOUtils;
 +const PERMISSIONS_PATH = PathUtils.join(do_get_profile().path, "extension-preferences.json");
 +
 +add_setup(async function setup() {
@@ -226,7 +229,7 @@ new file mode 100644
 +add_task(async function failed_writes_preserve_retry_and_cache() {
 +  const sandbox = sinon.createSandbox();
 +  try {
-+    sandbox.stub(IOUtils, "writeJSON").rejects(new Error("controlled write failure"));
++    sandbox.stub(ModuleIOUtils, "writeJSON").rejects(new Error("controlled write failure"));
 +    await Assert.rejects(ExtensionPermissions.add(ID, permission()), /controlled write failure/);
 +    Assert.deepEqual((await ExtensionPermissions.get(ID)).permissions, [], "failed grant not published");
 +  } finally {
@@ -235,7 +238,7 @@ new file mode 100644
 +  await ExtensionPermissions.add(ID, permission());
 +  Assert.deepEqual((await IOUtils.readJSON(PERMISSIONS_PATH))[ID], permission(), "same grant retries persistence");
 +  try {
-+    sandbox.stub(IOUtils, "writeJSON").rejects(new Error("controlled write failure"));
++    sandbox.stub(ModuleIOUtils, "writeJSON").rejects(new Error("controlled write failure"));
 +    await Assert.rejects(ExtensionPermissions.remove(ID, permission()), /controlled write failure/);
 +    await Assert.rejects(ExtensionPermissions.removeAll(ID), /controlled write failure/);
 +    Assert.deepEqual(await ExtensionPermissions.get(ID), permission(), "failed removals leave the committed grant");

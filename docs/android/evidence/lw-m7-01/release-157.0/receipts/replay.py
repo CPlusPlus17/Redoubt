@@ -84,4 +84,5 @@ def main(stems):
 
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:] or ['extension-update-controls', 'global-privacy-controls', 'session-cleanup', 'translation-assets']))
+    sys.exit(main(sys.argv[1:] or ['addon-state-durability', 'extension-permission-durability', 'extension-update-controls',
+                              'global-privacy-controls', 'session-cleanup', 'translation-assets']))
