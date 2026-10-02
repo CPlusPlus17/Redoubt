@@ -13,6 +13,22 @@
 # "Ordering" below for the one that is coming.
 #
 #
+# 157 REBASE (2026-10-02, Android leaves ESR for Firefox release 157.0)
+# --------------------------------------------------------------------
+# Same two call arguments, same comment; only the hunk moved (131 -> 142) and
+# gained one indent level, because upstream reformatted createRuntimeSettings()
+# into `val builder =\n    GeckoRuntimeSettings.Builder()...`. Re-checked on 157:
+# GeckoRuntimeSettings.Builder.appZygoteProcessEnabled() still stores false below
+# SDK 29 (GeckoRuntimeSettings.java:705-713) and
+# GeckoProcessType.determineContentProcessType() still re-checks SDK_INT
+# (GeckoProcessType.java:53-62). The isIsolatedProcessEnabled/isAppZygoteEnabled
+# settings still exist (Settings.kt:1104-1115) and are still read by
+# SecretSettingsFragment.kt:463-469 and FenixApplication.kt:1110-1111, so the
+# "left in place" list below still holds; the line numbers quoted further down
+# are 153-era. The device measurements below were NOT repeated on 157, and the
+# Kotlin has not been compiled against 157.
+#
+#
 # What LibreWolf wants instead, and why
 # --------------------------------------
 # On Android, Gecko's own content sandbox is NOT COMPILED IN. This is not an
@@ -336,28 +352,28 @@
 #
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
-@@ -131,8 +131,22 @@
-             .setSameDocumentNavigationOverridesLoadTypeForceDisable(
-                 FxNimbus.features.sameDocumentNavigationOverridesLoadType.value().forceDisableUri,
-             )
--            .isolatedProcessEnabled(context.components.settings.isIsolatedProcessEnabled)
--            .appZygoteProcessEnabled(context.components.settings.isAppZygoteEnabled)
-+            // LibreWolf (LW-M5-02): both of these are forced on, and are deliberately
-+            // NOT read from Settings/Nimbus any more. Gecko's own content sandbox is
-+            // not compiled on Android (MOZ_SANDBOX is absent from the Android
-+            // config.status, so every security.sandbox.* pref is inert), so Android's
-+            // own per-process isolation is the only containment a content process
-+            // gets. That is a security decision and must not sit on a channel that a
-+            // remote experiment, a Fenix settings write or an upstream default flip
-+            // can lower.
-+            //
-+            // appZygoteProcessEnabled(true) is safe on every API level we ship to:
-+            // GeckoRuntimeSettings.Builder itself refuses it below SDK 29 (Android 10)
-+            // and stores false, and GeckoProcessType.determineContentProcessType()
-+            // re-checks SDK_INT, so an API 26-28 device silently falls back to plain
-+            // isolatedProcess (CONTENT_ISOLATED) instead of the zygote variant.
-+            .isolatedProcessEnabled(true)
-+            .appZygoteProcessEnabled(true)
+@@ -139,8 +139,22 @@
+                 .setSameDocumentNavigationOverridesLoadTypeForceDisable(
+                     FxNimbus.features.sameDocumentNavigationOverridesLoadType.value().forceDisableUri
+                 )
+-                .isolatedProcessEnabled(context.components.settings.isIsolatedProcessEnabled)
+-                .appZygoteProcessEnabled(context.components.settings.isAppZygoteEnabled)
++                // LibreWolf (LW-M5-02): both of these are forced on, and are deliberately
++                // NOT read from Settings/Nimbus any more. Gecko's own content sandbox is
++                // not compiled on Android (MOZ_SANDBOX is absent from the Android
++                // config.status, so every security.sandbox.* pref is inert), so Android's
++                // own per-process isolation is the only containment a content process
++                // gets. That is a security decision and must not sit on a channel that a
++                // remote experiment, a Fenix settings write or an upstream default flip
++                // can lower.
++                //
++                // appZygoteProcessEnabled(true) is safe on every API level we ship to:
++                // GeckoRuntimeSettings.Builder itself refuses it below SDK 29 (Android 10)
++                // and stores false, and GeckoProcessType.determineContentProcessType()
++                // re-checks SDK_INT, so an API 26-28 device silently falls back to plain
++                // isolatedProcess (CONTENT_ISOLATED) instead of the zygote variant.
++                .isolatedProcessEnabled(true)
++                .appZygoteProcessEnabled(true)
  
          if (FxNimbus.features.fission.value().shouldUseNimbus) {
-             builder
+             builder.fissionEnabled(FxNimbus.features.fission.value().enabled)

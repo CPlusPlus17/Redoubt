@@ -1,19 +1,23 @@
+# LibreWolf fission-isolation.patch  (Android, LW-M5-01)
+# 157 rebase (2026-10-02): same one-line change. Core.kt's engine-settings block
+# moved from line 204 to 199 and gained one indent level (upstream reformatted the
+# DefaultSettings(...) call); the comment and ISOLATE_HIGH_VALUE are unchanged.
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
-@@ -204,8 +204,15 @@
-             getDesktopMode = {
-                 store.state.desktopMode
-             },
-+            // LW-M5-01: fission web-content isolation is locked to ISOLATE_HIGH_VALUE (2).
-+            // Do not read the FML/Nimbus value here: Core.kt must be unable to lower the
-+            // strategy below isolate-high-value. ISOLATE_EVERYTHING (1) is stronger but
-+            // isolates every site into its own content process and costs more RAM/startup;
-+            // on a 3-4 GB device the Android-tuned ISOLATE_HIGH_VALUE is the correct floor.
-+            // no-nimbus.patch (LW-M4-03) already raised the FML default to 2; this makes the
-+            // applied value unable to be lowered. See docs/android/tasks.yaml LW-M5-01.
-             webContentIsolationStrategy =
--                WebContentIsolationStrategy.fromValue(FxNimbus.features.fission.value().isolationStrategy),
-+                WebContentIsolationStrategy.ISOLATE_HIGH_VALUE,
-             fetchPriorityEnabled = true,
-             parallelMarkingEnabled = FxNimbus.features.javascript.value().parallelMarkingEnabled,
-             certificateTransparencyMode = FxNimbus.features.pki.value().certificateTransparencyMode,
+@@ -199,8 +199,15 @@
+                 getDesktopMode = {
+                     store.state.desktopMode
+                 },
++                // LW-M5-01: fission web-content isolation is locked to ISOLATE_HIGH_VALUE (2).
++                // Do not read the FML/Nimbus value here: Core.kt must be unable to lower the
++                // strategy below isolate-high-value. ISOLATE_EVERYTHING (1) is stronger but
++                // isolates every site into its own content process and costs more RAM/startup;
++                // on a 3-4 GB device the Android-tuned ISOLATE_HIGH_VALUE is the correct floor.
++                // no-nimbus.patch (LW-M4-03) already raised the FML default to 2; this makes the
++                // applied value unable to be lowered. See docs/android/tasks.yaml LW-M5-01.
+                 webContentIsolationStrategy =
+-                    WebContentIsolationStrategy.fromValue(FxNimbus.features.fission.value().isolationStrategy),
++                    WebContentIsolationStrategy.ISOLATE_HIGH_VALUE,
+                 fetchPriorityEnabled = true,
+                 parallelMarkingEnabled = FxNimbus.features.javascript.value().parallelMarkingEnabled,
+                 certificateTransparencyMode = FxNimbus.features.pki.value().certificateTransparencyMode,

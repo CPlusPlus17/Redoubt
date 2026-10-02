@@ -4,8 +4,27 @@
 # Upstream files touched
 # ----------------------
 #   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
-#   mobile/shared/chrome/geckoview/config.js
-#   mobile/shared/chrome/geckoview/config.xhtml
+#   (153.4 only: mobile/shared/chrome/geckoview/config.js and config.xhtml --
+#    dropped on 157, see "157 REBASE" directly below)
+#
+# 157 REBASE (2026-10-02, Android leaves ESR for Firefox release 157.0)
+# --------------------------------------------------------------------
+#   * GeckoProvider.kt: same one-argument change (aboutConfigEnabled(true)), same
+#     comment. The hunk moved 120 -> 131 and gained one indent level (upstream
+#     reformatted createRuntimeSettings() into `val builder =` + an indented
+#     chain). It now sits below isolated-process.patch's hunk in the same file,
+#     11 lines apart, which is why it is regenerated on top of that patch.
+#     Re-checked: GeckoRuntimeSettings.mAboutConfig is still a Pref<Boolean>
+#     "general.aboutConfig.enable" defaulting to false (GeckoRuntimeSettings.java:756),
+#     so the reasoning below (the call site must change, not a defaultPref) holds.
+#   * config.js / config.xhtml: BOTH HUNKS DROPPED, as the end of this header
+#     said they should be once the tree carries upstream's CSP refactor. Pristine
+#     157.0 already has it: config.xhtml md5 bd20ae6c4d1008a5c9bb3388c1ffd95a and
+#     config.js md5 749f786048d44d035c78f11f00fef6c3, exactly the md5s the backport
+#     produced. No intent is lost. Everything below about "THE 153.4 BASELINE CSP"
+#     and ESR-vs-desktop trees is now history; the runtime check
+#     (`android-smoke.sh --check-aboutconfig`, zero script-src-attr errors) still
+#     needs a 157 APK. The Kotlin has not been compiled against 157.
 #
 # Two independent changes, both needed for a WORKING about:config on 153.4:
 #   1. GeckoProvider.kt -- one hunk, one call argument: make the page REACHABLE
@@ -470,180 +489,22 @@
 # confirm zero script-src-attr errors from about:config.
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
-@@ -120,7 +120,17 @@
-             )
-             .consoleOutput(context.components.settings.enableGeckoLogs)
-             .debugLogging(Config.channel.isDebug || context.components.settings.enableGeckoLogs)
--            .aboutConfigEnabled(Config.channel.isBeta || Config.channel.isNightlyOrDebug)
-+            // LibreWolf (LW-M4-09): about:config is enabled on every channel,
-+            // including release. Upstream gates it on beta/nightly/debug, which
-+            // leaves the shipping build with no way to inspect or change a pref;
-+            // LibreWolf's whole configuration story is prefs, so that gate has to
-+            // go. Hard-coded `true` rather than a Settings or Nimbus lookup for the
-+            // same reason LW-M5-02 hard-codes its two: the value must not be
-+            // lowerable by an experiment, a Fenix settings write or an upstream
-+            // default flip. Nothing about the page's own safety copy changes -- see
-+            // the patch header, which records that Android's about:config is
-+            // GeckoView's config.xhtml and has never had desktop's interstitial.
-+            .aboutConfigEnabled(true)
-             .extensionsProcessEnabled(true)
-             .extensionsWebAPIEnabled(true)
-             .translationsOfferPopup(context.components.settings.offerTranslation)
---- a/mobile/shared/chrome/geckoview/config.js
-+++ b/mobile/shared/chrome/geckoview/config.js
-@@ -73,6 +73,28 @@
-     this._intValue = document.getElementById("new-pref-value-int");
- 
-     this._positiveButton = document.getElementById("positive-button");
-+
-+    document
-+      .getElementById("new-pref-toggle-button")
-+      .addEventListener("click", () => this.toggleShowHide());
-+    document
-+      .getElementById("pref-toggle-button")
-+      .addEventListener("click", () => this.toggleBoolValue());
-+    document
-+      .getElementById("negative-button")
-+      .addEventListener("click", () => this.hide());
-+    this._positiveButton.addEventListener("click", () => this.create());
-+
-+    this._prefNameInputElt.addEventListener("focus", event =>
-+      this.focusName(event)
-+    );
-+    this._prefNameInputElt.addEventListener("input", event =>
-+      this.updateName(event)
-+    );
-+
-+    this._prefTypeSelectElt.addEventListener("change", event => {
-+      this.type = event.target.value;
-+    });
-   },
- 
-   // Called to update positive button to display text ("Create"/"Change), and enabled/disabled status
-@@ -235,6 +257,21 @@
- 
-     // Setup the prefs observers
-     Services.prefs.addObserver("", this);
-+
-+    this.filterInput.addEventListener("input", () =>
-+      AboutConfig.bufferFilterInput()
-+    );
-+
-+    document.getElementById("content").addEventListener("touchstart", () => {
-+      this.filterInput.blur();
-+    });
-+
-+    document
-+      .getElementById("copy-pref-name")
-+      .addEventListener("click", () => this.clipboardCopy("name"));
-+    document
-+      .getElementById("copy-pref-value")
-+      .addEventListener("click", () => this.clipboardCopy("value"));
-   },
- 
-   // Uninit the main AboutConfig dialog
-@@ -711,3 +748,12 @@
-     }
-   },
- };
-+
-+window.addEventListener("load", () => {
-+  NewPrefDialog.init();
-+  AboutConfig.init();
-+});
-+
-+window.addEventListener("unload", () => {
-+  AboutConfig.uninit();
-+});
---- a/mobile/shared/chrome/geckoview/config.xhtml
-+++ b/mobile/shared/chrome/geckoview/config.xhtml
-@@ -24,19 +24,10 @@
-     ></script>
-   </head>
- 
--  <body
--    onload="
--      NewPrefDialog.init();
--      AboutConfig.init();
--    "
--    onunload="AboutConfig.uninit()"
--  >
-+  <body>
-     <div class="toolbar">
-       <div class="toolbar-container">
--        <div
--          id="new-pref-toggle-button"
--          onclick="NewPrefDialog.toggleShowHide()"
--        />
-+        <div id="new-pref-toggle-button" />
- 
-         <div class="toolbar-item" id="filter-container">
-           <div id="filter-search-button" />
-@@ -45,13 +36,12 @@
-             type="search"
-             data-l10n-id="config-toolbar-search"
-             value=""
--            oninput="AboutConfig.bufferFilterInput()"
-           />
-         </div>
-       </div>
-     </div>
- 
--    <div id="content" ontouchstart="AboutConfig.filterInput.blur();">
-+    <div id="content">
-       <div id="new-pref-container">
-         <li class="pref-item" id="new-pref-item">
-           <div class="pref-item-line">
-@@ -60,13 +50,8 @@
-               id="new-pref-name"
-               type="text"
-               data-l10n-id="config-new-pref-name"
--              onfocus="NewPrefDialog.focusName(event)"
--              oninput="NewPrefDialog.updateName(event)"
-             />
--            <select
--              id="new-pref-type"
--              onchange="NewPrefDialog.type = event.target.value"
--            >
-+            <select id="new-pref-type">
-               <option
-                 value="boolean"
-                 data-l10n-id="config-new-pref-value-boolean"
-@@ -90,7 +75,7 @@
-             />
-             <div
-               class="pref-button toggle"
--              onclick="NewPrefDialog.toggleBoolValue()"
-+              id="pref-toggle-button"
-               data-l10n-id="config-pref-toggle-button"
-             ></div>
-           </div>
-@@ -113,13 +98,11 @@
-             <div
-               class="pref-button cancel"
-               id="negative-button"
--              onclick="NewPrefDialog.hide()"
-               data-l10n-id="config-new-pref-cancel-button"
-             ></div>
-             <div
-               class="pref-button create"
-               id="positive-button"
--              onclick="NewPrefDialog.create(event)"
-               data-l10n-id="config-new-pref-create-button"
-             ></div>
-           </div>
-@@ -135,12 +118,12 @@
- 
-     <menu type="context" id="prefs-context-menu">
-       <menuitem
-+        id="copy-pref-name"
-         data-l10n-id="config-context-menu-copy-pref-name"
--        onclick="AboutConfig.clipboardCopy('name')"
-       ></menuitem>
-       <menuitem
-+        id="copy-pref-value"
-         data-l10n-id="config-context-menu-copy-pref-value"
--        onclick="AboutConfig.clipboardCopy('value')"
-       ></menuitem>
-     </menu>
-   </body>
+@@ -128,7 +128,17 @@
+                 )
+                 .consoleOutput(context.components.settings.enableGeckoLogs)
+                 .debugLogging(Config.channel.isDebug || context.components.settings.enableGeckoLogs)
+-                .aboutConfigEnabled(Config.channel.isBeta || Config.channel.isNightlyOrDebug)
++                // LibreWolf (LW-M4-09): about:config is enabled on every channel,
++                // including release. Upstream gates it on beta/nightly/debug, which
++                // leaves the shipping build with no way to inspect or change a pref;
++                // LibreWolf's whole configuration story is prefs, so that gate has to
++                // go. Hard-coded `true` rather than a Settings or Nimbus lookup for the
++                // same reason LW-M5-02 hard-codes its two: the value must not be
++                // lowerable by an experiment, a Fenix settings write or an upstream
++                // default flip. Nothing about the page's own safety copy changes -- see
++                // the patch header, which records that Android's about:config is
++                // GeckoView's config.xhtml and has never had desktop's interstitial.
++                .aboutConfigEnabled(true)
+                 .extensionsProcessEnabled(true)
+                 .extensionsWebAPIEnabled(true)
+                 .translationsOfferPopup(context.components.settings.offerTranslation)
