@@ -8,6 +8,15 @@
 # keep browsing paused and present Retry/Close. The filter bootstrap Gecko pref
 # remains independent of the APK asset path. Requires ubo-readiness.patch.
 #
+# Two startup paths the readiness wait must survive. (1) Gecko's ordinary add-on
+# updater can replace uBO with a newer AMO-signed release while its readiness is
+# awaited (first run with AMO serving a newer version); only a strictly newer,
+# enabled copy with the same ID restarts the wait, bounded, with its own timeout.
+# (2) On APP_STARTUP Gecko delays background pages until the first GeckoView
+# window; the session middleware holds every tab, so a launcher start opens none.
+# A speculative session (as IntentReceiverActivity makes for VIEW intents) opens
+# that window without loading anything before the wait begins.
+#
 diff --git a/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt b/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
 --- a/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
 +++ b/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
@@ -328,7 +337,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
 new file mode 100644
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
-@@ -0,0 +1,309 @@
+@@ -0,0 +1,403 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -343,6 +352,7 @@ new file mode 100644
 +import kotlinx.coroutines.Job
 +import kotlinx.coroutines.SupervisorJob
 +import kotlinx.coroutines.TimeoutCancellationException
++import kotlinx.coroutines.delay
 +import kotlinx.coroutines.flow.MutableStateFlow
 +import kotlinx.coroutines.flow.StateFlow
 +import kotlinx.coroutines.flow.asStateFlow
@@ -376,6 +386,12 @@ new file mode 100644
 + * COMPLETE records a provisioning decision, not a promise that the user kept uBO enabled.
 + * ATTEMPTED is persisted before installation: after a crash, an absent add-on requires an
 + * explicit retry. In particular, an interrupted first run must never silently undo removal.
++ *
++ * Gecko's ordinary add-on updater may replace uBO while its readiness is awaited: the
++ * signed AMO update shuts the awaited version down. Only a strictly newer, enabled copy
++ * with the same ID, installed by Gecko (which enforces the AMO signature), restarts the
++ * wait, with its own timeout and a bounded number of times. Absence, disablement or a
++ * downgrade keeps the original failure.
 + */
 +class LibreWolfUboPreinstaller internal constructor(
 +    private val dependencies: Dependencies,
@@ -393,7 +409,7 @@ new file mode 100644
 +        data class Failed(val reason: String) : State
 +    }
 +
-+    internal data class Installed(val enabled: Boolean, val version: String = "1.74.0")
++    internal data class Installed(val enabled: Boolean, val version: String)
 +
 +    internal data class VerifiedAsset(
 +        val id: String,
@@ -465,7 +481,19 @@ new file mode 100644
 +        mutableState.value = State.Preparing
 +        attempt = scope.launch {
 +            try {
-+                withTimeout(timeoutMillis) { reconcile(explicitRetry) }
++                var replacements = 0
++                while (true) {
++                    try {
++                        withTimeout(timeoutMillis) { reconcile(explicitRetry) }
++                        break
++                    } catch (replaced: ReplacedWhileStarting) {
++                        if (++replacements > MAX_REPLACEMENTS) throw replaced
++                        // The registry now holds the newer copy, so a fresh pass takes the
++                        // existing-installation path: no reinstall, its own readiness wait.
++                        logger.info("uBlock Origin was updated to ${replaced.version} during startup")
++                    }
++                }
++                logger.info("uBlock Origin startup ready: ${state.value}")
 +            } catch (exception: TimeoutCancellationException) {
 +                fail(exception)
 +            } catch (exception: CancellationException) {
@@ -490,7 +518,7 @@ new file mode 100644
 +        dependencies.installed()?.let { installed ->
 +            // Never reinstall, downgrade, enable or change private permission on an existing copy.
 +            dependencies.writeDecision(COMPLETE)
-+            if (installed.enabled) dependencies.awaitFilteringReady(installed.version)
++            if (installed.enabled) awaitFilteringReady(installed.version)
 +            mutableState.value = State.Ready(installed = true, enabled = installed.enabled)
 +            return
 +        }
@@ -515,7 +543,7 @@ new file mode 100644
 +            if (!installed.enabled) {
 +                throw IOException("Gecko did not enable the installed uBlock Origin extension")
 +            }
-+            dependencies.awaitFilteringReady(installed.version)
++            awaitFilteringReady(installed.version)
 +            dependencies.writeDecision(COMPLETE)
 +            mutableState.value = State.Ready(installed = true, enabled = true)
 +        } finally {
@@ -523,6 +551,36 @@ new file mode 100644
 +            asset.file?.delete()
 +        }
 +    }
++
++    private suspend fun awaitFilteringReady(version: String) {
++        try {
++            dependencies.awaitFilteringReady(version)
++        } catch (exception: CancellationException) {
++            throw exception
++        } catch (exception: Exception) {
++            val replacement = awaitReplacement(version) ?: throw exception
++            throw ReplacedWhileStarting(replacement.version, exception)
++        }
++    }
++
++    /** The updater's shutdown can fail the wait before the newer copy is registered. */
++    private suspend fun awaitReplacement(awaitedVersion: String): Installed? {
++        var waited = 0L
++        while (true) {
++            val installed = dependencies.installed()
++            if (installed != null && installed.enabled &&
++                compareVersions(installed.version, awaitedVersion) > 0
++            ) {
++                return installed
++            }
++            if (waited >= REPLACEMENT_SETTLE_MILLIS) return null
++            delay(REPLACEMENT_POLL_MILLIS)
++            waited += REPLACEMENT_POLL_MILLIS
++        }
++    }
++
++    private class ReplacedWhileStarting(val version: String, cause: Exception) :
++        IOException("uBlock Origin was replaced by version $version while starting", cause)
 +
 +    private class AndroidDependencies(private val context: Context) : Dependencies {
 +        private val preferences by lazy {
@@ -585,7 +643,20 @@ new file mode 100644
 +            continuation.invokeOnCancellation { operation.cancel() }
 +        }
 +
-+        override suspend fun awaitFilteringReady(version: String): Unit = suspendCancellableCoroutine { continuation ->
++        override suspend fun awaitFilteringReady(version: String) {
++            // On an APP_STARTUP, Gecko delays persistent background pages until the first
++            // GeckoView window sends extensions-late-startup. The session middleware holds
++            // every tab until uBO is ready, so a launcher start (home screen, no incoming
++            // URL) would otherwise never open a window and the wait could only time out.
++            // A speculative session opens that window without loading anything, exactly as
++            // IntentReceiverActivity does for VIEW intents; the first tab later adopts it.
++            withContext(Dispatchers.Main) {
++                context.components.core.engine.speculativeCreateSession(private = false)
++            }
++            awaitBlockingResponseListener(version)
++        }
++
++        private suspend fun awaitBlockingResponseListener(version: String): Unit = suspendCancellableCoroutine { continuation ->
 +            val result = context.components.core.geckoRuntime.webExtensionController.awaitBlockingResponseListener(
 +                ADDON_ID,
 +                version,
@@ -608,6 +679,38 @@ new file mode 100644
 +        const val ADDON_ID = "uBlock0@raymondhill.net"
 +        const val ATTEMPTED = "attempted"
 +        const val COMPLETE = "complete"
++        const val MAX_REPLACEMENTS = 2
++        const val REPLACEMENT_SETTLE_MILLIS = 5_000L
++        const val REPLACEMENT_POLL_MILLIS = 250L
++
++        /**
++         * Numeric dotted comparison; a suffix (1.75.1b3) sorts before its release. An
++         * unparseable part never compares as newer, so it cannot restart the wait.
++         */
++        internal fun compareVersions(left: String, right: String): Int {
++            val a = left.split('.').map { VERSION_PART.matchEntire(it) }
++            val b = right.split('.').map { VERSION_PART.matchEntire(it) }
++            if (a.any { it == null } || b.any { it == null }) return if (left == right) 0 else -1
++            for (index in 0 until maxOf(a.size, b.size)) {
++                val x = a.getOrNull(index) ?: VERSION_PART.matchEntire("0")!!
++                val y = b.getOrNull(index) ?: VERSION_PART.matchEntire("0")!!
++                val number = (x.groupValues[1].toLongOrNull() ?: 0L)
++                    .compareTo(y.groupValues[1].toLongOrNull() ?: 0L)
++                if (number != 0) return number
++                val suffixX = x.groupValues[2]
++                val suffixY = y.groupValues[2]
++                if (suffixX != suffixY) {
++                    return when {
++                        suffixX.isEmpty() -> 1
++                        suffixY.isEmpty() -> -1
++                        else -> suffixX.compareTo(suffixY)
++                    }
++                }
++            }
++            return 0
++        }
++
++        private val VERSION_PART = Regex("([0-9]{0,9})([A-Za-z0-9+-]*)")
 +        internal fun copyAndVerifyAsset(
 +            input: InputStream,
 +            destination: File,
@@ -798,7 +901,7 @@ diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components
 new file mode 100644
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
-@@ -0,0 +1,501 @@
+@@ -0,0 +1,659 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -926,7 +1029,7 @@ new file mode 100644
 +    @Test
 +    fun `existing updated extension waits for its installed version without replacing it`() = runTest {
 +        val dependencies = FakeDependencies().apply {
-+            registry = Installed(enabled = true, version = "1.75.0")
++            registry = Installed(enabled = true, version = UPDATED)
 +            filteringBarrier = CompletableDeferred()
 +        }
 +        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
@@ -935,14 +1038,156 @@ new file mode 100644
 +        runCurrent()
 +
 +        assertEquals(State.Preparing, preinstaller.state.value)
-+        assertEquals(listOf("1.75.0"), dependencies.filteringVersions)
++        assertEquals(listOf(UPDATED), dependencies.filteringVersions)
 +        assertEquals(0, dependencies.prepareCalls)
 +        assertEquals(0, dependencies.installCalls)
 +
 +        dependencies.filteringBarrier!!.complete(Unit)
 +        runCurrent()
 +        assertEquals(State.Ready(installed = true, enabled = true), preinstaller.state.value)
-+        assertEquals("1.75.0", dependencies.registry!!.version)
++        assertEquals(UPDATED, dependencies.registry!!.version)
++    }
++
++    @Test
++    fun `signed update replacing the awaited version during first run is awaited instead`() = runTest {
++        val dependencies = FakeDependencies().apply {
++            onFilteringWait = { version ->
++                if (version == VERSION) {
++                    // Gecko's updater shut the awaited copy down and registered its replacement.
++                    registry = Installed(enabled = true, version = UPDATED)
++                    throw IOException("Blocking extension stopped before becoming ready")
++                }
++            }
++        }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        val navigation = backgroundScope.async { preinstaller.awaitReady() }
++
++        preinstaller.start()
++        runCurrent()
++
++        assertEquals(State.Ready(installed = true, enabled = true), preinstaller.state.value)
++        assertTrue(navigation.isCompleted)
++        assertEquals(listOf(VERSION, UPDATED), dependencies.filteringVersions)
++        assertEquals(1, dependencies.prepareCalls)
++        assertEquals(1, dependencies.installCalls)
++        assertEquals("complete", dependencies.decision)
++        assertEquals(Installed(enabled = true, version = UPDATED), dependencies.registry)
++    }
++
++    @Test
++    fun `replacement registered shortly after the failed wait is still adopted`() = runTest {
++        val dependencies = FakeDependencies().apply {
++            onFilteringWait = { version ->
++                if (version == VERSION) {
++                    delayedRegistry = Installed(enabled = true, version = UPDATED)
++                    delayedRegistryAtQuery = registryQueries + 3
++                    throw IOException("No matching active blocking extension")
++                }
++            }
++        }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++
++        preinstaller.start()
++        runCurrent()
++        assertEquals(State.Preparing, preinstaller.state.value)
++
++        advanceTimeBy(1_000)
++        runCurrent()
++
++        assertEquals(State.Ready(installed = true, enabled = true), preinstaller.state.value)
++        assertEquals(listOf(VERSION, UPDATED), dependencies.filteringVersions)
++        assertEquals(1, dependencies.installCalls)
++    }
++
++    @Test
++    fun `existing extension updated during a later startup is awaited at its new version`() = runTest {
++        val dependencies = FakeDependencies().apply {
++            decision = "complete"
++            registry = Installed(enabled = true, version = VERSION)
++            onFilteringWait = { version ->
++                if (version == VERSION) {
++                    registry = Installed(enabled = true, version = UPDATED)
++                    throw IOException("Blocking extension changed while awaiting readiness")
++                }
++            }
++        }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++
++        preinstaller.start()
++        runCurrent()
++
++        assertEquals(State.Ready(installed = true, enabled = true), preinstaller.state.value)
++        assertEquals(listOf(VERSION, UPDATED), dependencies.filteringVersions)
++        assertEquals(0, dependencies.installCalls)
++    }
++
++    @Test
++    fun `absent disabled same or older copy after a failed wait keeps the failure`() = runTest {
++        for (after in listOf(
++            null,
++            Installed(enabled = false, version = UPDATED),
++            Installed(enabled = true, version = VERSION),
++            Installed(enabled = true, version = "1.73.0"),
++            Installed(enabled = true, version = "1.74.0b1"),
++        )) {
++            val dependencies = FakeDependencies().apply {
++                onFilteringWait = {
++                    registry = after
++                    throw IOException("filter engine not ready")
++                }
++            }
++            val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++            val navigation = backgroundScope.async { preinstaller.awaitReady() }
++
++            preinstaller.start()
++            runCurrent()
++            advanceTimeBy(LibreWolfUboPreinstaller.REPLACEMENT_SETTLE_MILLIS + 1_000)
++            runCurrent()
++
++            assertFailed(preinstaller, "filter engine not ready")
++            assertFalse(navigation.isCompleted)
++            assertEquals(listOf(VERSION), dependencies.filteringVersions)
++            assertEquals("attempted", dependencies.decision)
++        }
++    }
++
++    @Test
++    fun `replacements during startup are bounded`() = runTest {
++        var minor = 75
++        val dependencies = FakeDependencies().apply {
++            onFilteringWait = {
++                minor++
++                registry = Installed(enabled = true, version = "1.$minor.0")
++                throw IOException("Blocking extension stopped before becoming ready")
++            }
++        }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++
++        preinstaller.start()
++        runCurrent()
++
++        assertFailed(preinstaller, "replaced by version 1.78.0")
++        assertEquals(
++            listOf(VERSION, "1.76.0", "1.77.0"),
++            dependencies.filteringVersions,
++        )
++    }
++
++    @Test
++    fun `version comparison orders AMO releases and never ranks garbage as newer`() {
++        val compare = LibreWolfUboPreinstaller::compareVersions
++        assertTrue(compare("1.75.0", "1.74.0") > 0)
++        assertTrue(compare("1.74.10", "1.74.9") > 0)
++        assertTrue(compare("2.0", "1.99.99") > 0)
++        assertTrue(compare("1.74.1", "1.74") > 0)
++        assertEquals(0, compare("1.74", "1.74.0"))
++        assertTrue(compare("1.73.0", "1.74.0") < 0)
++        assertTrue(compare("1.75.0b1", "1.75.0") < 0)
++        assertTrue(compare("1.75.0", "1.75.0b1") > 0)
++        assertTrue(compare("", "1.74.0") < 0)
++        assertTrue(compare("1.75.*", "1.74.0") < 0)
++        assertTrue(compare("2.0.0 ", "1.74.0") < 0)
++        assertEquals(0, compare("1.75.*", "1.75.*"))
 +    }
 +
 +    @Test
@@ -952,7 +1197,7 @@ new file mode 100644
 +        first.start()
 +        runCurrent()
 +
-+        dependencies.asset = dependencies.asset.copy(version = "1.75.0")
++        dependencies.asset = dependencies.asset.copy(version = UPDATED)
 +        val upgraded = LibreWolfUboPreinstaller(dependencies, backgroundScope)
 +        upgraded.start()
 +        upgraded.retry()
@@ -1086,6 +1331,12 @@ new file mode 100644
 +        val navigation = backgroundScope.async { preinstaller.awaitReady() }
 +
 +        preinstaller.start()
++        runCurrent()
++        // An unchanged registry is re-read for a short window: an update's shutdown can
++        // fail the wait before its replacement registers. Nothing newer arrives here.
++        assertEquals(State.Preparing, preinstaller.state.value)
++        assertFalse(navigation.isCompleted)
++        advanceTimeBy(LibreWolfUboPreinstaller.REPLACEMENT_SETTLE_MILLIS + 1_000)
 +        runCurrent()
 +
 +        assertFailed(preinstaller, "filter engine not ready")
@@ -1246,10 +1497,14 @@ new file mode 100644
 +        var filteringFailure: Exception? = null
 +        var completionFailure: Exception? = null
 +        var failingRegistryQuery: Int? = null
++        var onFilteringWait: ((String) -> Unit)? = null
++        var delayedRegistry: Installed? = null
++        var delayedRegistryAtQuery = 0
 +        var prepareCalls = 0
 +        var installCalls = 0
 +        var cancelledInstalls = 0
-+        private var registryQueries = 0
++        var registryQueries = 0
++            private set
 +        val decisionsAtInstall = mutableListOf<String?>()
 +        val filteringVersions = mutableListOf<String>()
 +
@@ -1263,6 +1518,10 @@ new file mode 100644
 +        override suspend fun installed(): Installed? {
 +            registryQueries++
 +            if (registryQueries == failingRegistryQuery) throw IOException("registry unavailable")
++            if (delayedRegistryAtQuery in 1..registryQueries) {
++                registry = delayedRegistry
++                delayedRegistryAtQuery = 0
++            }
 +            return registry
 +        }
 +
@@ -1288,6 +1547,7 @@ new file mode 100644
 +
 +        override suspend fun awaitFilteringReady(version: String) {
 +            filteringVersions.add(version)
++            onFilteringWait?.invoke(version)
 +            filteringBarrier?.await()
 +            filteringFailure?.let { throw it }
 +        }
@@ -1296,7 +1556,8 @@ new file mode 100644
 +    private companion object {
 +        const val ABC_SHA256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 +        const val ID = "uBlock0@raymondhill.net"
-+        const val VERSION = "1.74.0"
++        const val VERSION = "1.75.0"
++        const val UPDATED = "1.76.0"
 +        const val FILE_URI = "file:///private/verified-ublock-origin.xpi"
 +    }
 +}
