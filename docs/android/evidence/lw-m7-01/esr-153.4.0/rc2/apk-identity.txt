@@ -1,0 +1,35 @@
+Redoubt 153.4.0esr-1 release candidate 2 (rc2), built 2026-10-02.
+
+Source: repository commit 0a134441b77a888f365e81da02beee71d6e3b9c4 (branch android/esr-153.4), clean worktree.
+Tree:   fresh 'make dir TARGETS=android' at that commit, moved to build/rc2/librewolf-153.4.0esr-1.
+        Nothing was hand-edited in the tree. build/tree-vs-stageB.diffq lists how it differs from the
+        stage B tree (which the uBO fix had already edited in place): only mobile/shared/chrome/geckoview/config.{js,xhtml} and the GeckoView
+        androidTest CanvasPermissionTest.kt differ in source. The rest are build caches and .orig files.
+Gecko:  all three ABIs built from scratch (new objdirs) in one android-fat-aar.sh run.
+        MOZ_BUILD_DATE pinned to 20261002044800. buildid.h is the same in all three objdirs.
+AAR:    geckoview-default-omni-153.4.20261002044800.aar
+        sha256 a7603eb62741d221ed89a7274af032121b4bfa5d3033f9253899ff80f7a2bb61
+APKs (release variant, R8 :fenix:minifyReleaseWithR8, --disable-debug-signing, unsigned):
+  6762a58cb166cea2c87226ece2ace206a910fbded8102be6646dbe118f9eabc9  fenix-arm64-v8a-release-unsigned.apk
+  092372544d0cb84d7b79cb332b6cb0fe29fe049b34354958a2f7ff1e29ec5f2c  fenix-armeabi-v7a-release-unsigned.apk
+  549c3fa35ec1facb4fc8fbbc0c8010cce73681caff18062126537a4a29280bd9  fenix-universal-release-unsigned.apk
+  1ac3b01d9716ed5c53e7510ba8ba609c6bac2bd6dc6988192bdf3770124d95e8  fenix-x86_64-release-unsigned.apk
+  versionCode 2016187942, versionName 153.4.0esr-1-default, package org.redoubtbrowser
+  (Beta 2 = 2016184438, first 153.4 candidate = 2016187910)
+
+Exercised on the emulator (x86_64 only):
+  unsigned input  sha256 1ac3b01d9716ed5c53e7510ba8ba609c6bac2bd6dc6988192bdf3770124d95e8 fenix-x86_64-release-unsigned.apk
+  installed copy  sha256 77348e7d72bb4183adfec9cf79236d726280c0cd6a8666e8d507b6d6f495af83 (throwaway-signed)
+  signing: apksigner, v2+v3, the stage-C throwaway key (CN=Redoubt throwaway test key 2026-10-02,
+  O=NOT A RELEASE KEY; cert sha256 31e9a40fbc8c57065a54762a6edf46d101a9e3d030c2d1dcdd96128c5255b760).
+  The release key ~/redoubt-release.p12 was not used. The throwaway key is not archived.
+
+Content checks on the unsigned x86_64 APK:
+  assets/omni.ja chrome/geckoview/content/config.js    md5 749f786048d44d035c78f11f00fef6c3 (= upstream firefox-157.0)
+  assets/omni.ja chrome/geckoview/content/config.xhtml md5 bd20ae6c4d1008a5c9bb3388c1ffd95a (= upstream firefox-157.0), no inline on* handlers
+  assets/extensions/ubo-extension.json pins uBlock Origin 1.75.0. assets/extensions/ublock_origin.xpi
+  sha256 5b74415860456370644bd80f16125e865b0e6c356bb5dfcfb84069967eaa5287 (= pin)
+  The AAR's omni.ja carries the same two config.* md5s.
+
+Beta 2 (upgrade test only): ~/Documents/librewolf/librewolf-android-apk-153.0esr-1-rc-unsigned (source 764fc91c),
+  installed throwaway-signed copy sha256 9b63f2edbe18310842b4689551243ed2ae61015f8ba044ac8bd90f15ae380427 (same key).

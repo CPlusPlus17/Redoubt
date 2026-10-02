@@ -512,6 +512,52 @@ index 0000000..2774af1
 +        assertFalse(FxSuggestAdmission.snapshot().choices.onlineEnabled)
 +    }
 +}
+diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProviderTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProviderTest.kt
+index 53e55c7..699c409 100644
+--- a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProviderTest.kt
++++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProviderTest.kt
+@@ -359,15 +359,11 @@ class FxSuggestSuggestionProviderTest {
+ 
+         val suggestions = provider.onInputChanged("la")
+ 
+-        verify(storage).query(
+-            eq(
+-                SuggestionQuery(
+-                    keyword = "la",
+-                    providers = emptyList(),
+-                    limit = 1,
+-                ),
+-            ),
+-        )
++        // LW-M7-26 (firefox-suggest-policy): with no provider admitted there is
++        // nothing to ask the store for, so FxSuggestSuggestionProvider does not
++        // query it at all. Upstream sent a query with providers = [], which
++        // reads the Suggest database for a result it must then discard.
++        verify(storage, never()).query(any())
+         assertTrue(suggestions.isEmpty())
+     }
+ 
+@@ -388,15 +384,11 @@ class FxSuggestSuggestionProviderTest {
+ 
+         val suggestions = provider.onInputChanged("la")
+ 
+-        verify(storage).query(
+-            eq(
+-                SuggestionQuery(
+-                    keyword = "la",
+-                    providers = emptyList(),
+-                    limit = 1,
+-                ),
+-            ),
+-        )
++        // LW-M7-26 (firefox-suggest-policy): with no provider admitted there is
++        // nothing to ask the store for, so FxSuggestSuggestionProvider does not
++        // query it at all. Upstream sent a query with providers = [], which
++        // reads the Suggest database for a result it must then discard.
++        verify(storage, never()).query(any())
+         assertTrue(suggestions.isEmpty())
+     }
+ }
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/datasource/OnlineSuggestionAdmissionTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/datasource/OnlineSuggestionAdmissionTest.kt
 new file mode 100644
 index 0000000..5bab389

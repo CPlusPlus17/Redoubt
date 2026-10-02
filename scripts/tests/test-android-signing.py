@@ -24,7 +24,11 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BUNDLE = ROOT / "librewolf-android-apk-153.0esr-1-unsigned/apk"
+# The Makefile's APK output (ANDROID_APK_OUTDIR) for the Android track named by
+# ./version.android and ./release.android, so a rebase moves the default with
+# it. Point --apk/--apksigner elsewhere for a handoff bundle under another name.
+BUNDLE = ROOT / "librewolf-android-apk-{}-{}/apk".format(
+    (ROOT / "version.android").read_text().strip(), (ROOT / "release.android").read_text().strip())
 ABIS = ("arm64-v8a", "armeabi-v7a", "universal", "x86_64")
 TOOLS = ("apksigner.jar", "sign.sh", "android-verify-signature.sh", "SIGNING.md")
 PASSWORD = "disposable-test-password"

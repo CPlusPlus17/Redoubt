@@ -163,7 +163,7 @@ def verify(pins):
         'parser_harness_sha256': sha((ROOT/'scripts/android-addon-state-smoke.py').read_bytes()),
         'fixtures': records,
         'same_manifest_permission_lists': all(records[0]['manifest'][key] == records[1]['manifest'][key] for key in permission_fields),
-        'pending': ['Gecko version comparator must establish 1.74.0 > 1.73.0',
+        'pending': ['Gecko version comparator must establish 1.75.0 > 1.74.0',
             'ordinary Gecko signedState verification of both unchanged files',
             'actual Fenix file-picker older-to-newer completion and retained choices',
             'normal/private parser and independent server evidence after update/restart']}
@@ -175,7 +175,7 @@ def main():
     parser.add_argument('--write-receipt', action='store_true', help='write derived inspection.json; original downloads are never overwritten')
     args = parser.parse_args()
     pins = read_json(HERE/'fixture-pins.json')
-    require([item['version'] for item in pins['fixtures']] == ['1.73.0', '1.74.0'], 'Unexpected fixture pair')
+    require([item['version'] for item in pins['fixtures']] == ['1.74.0', '1.75.0'], 'Unexpected fixture pair')
     if args.fetch:
         for spec in pins['fixtures']:
             fetch(spec['metadata_url'], HERE/f"amo-version-{spec['version']}.json", 1_000_000)

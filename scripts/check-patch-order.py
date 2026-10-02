@@ -364,6 +364,21 @@ CONSTRAINTS = (
         "changes a shipped byte - it keeps `make check-patchfail` green, which "
         "patches the whole tree regardless of subproject",
     ),
+    (
+        'patches/android/privacy-defaults.patch',
+        'patches/android/doh-mullvad-migration.patch',
+        (
+            'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt',
+            'mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt',
+        ),
+        "doh-mullvad-migration removes the Mullvad entry from the provider "
+        "catalog privacy-defaults writes into DohSettingsProvider.kt, and edits "
+        "the catalog assertions privacy-defaults adds to "
+        "DefaultDohSettingsProviderTest.kt. Full-tree replay on 153.4.0esr with "
+        "doh-mullvad-migration moved before privacy-defaults: all three test-file "
+        "hunks and the catalog hunk reject (patch exits 1). List order applies "
+        "at fuzz 0, offset 0",
+    ),
 )
 
 
@@ -402,17 +417,35 @@ _M157_SWAP = ("measured on firefox-157.0: shipping order, B-moved-before-A and "
 # garbage"). So the mozilla_appservices_suggest dependency never reaches the
 # tree, and the shipped build.gradle is sha256 2ef204e5..., the LW-M6-06 value
 # from before the hunk existed. That is a bug in the patch, not an ordering
-# question; it is recorded here because it is why these pairs cannot conflict
-# today, and because fixing the header changes what the rows rest on.
+# question.
+#
+# REPAIRED at the 153.4.0esr rebase: the section now carries
+# '@@ -545,6 +545,13 @@ dependencies {', generated with git diff against the
+# tree as patched by every earlier entry, so the dependency lands (fuzz 0 in
+# shipping order; build.gradle sha256 33826457..., exactly the value predicted
+# below). Re-measured on firefox-153.4.0esr, whose app/build.gradle is
+# byte-identical to 153.0esr's (sha256 6f776ebe...): a build.gradle-only replay
+# of the 8 editors with suggest-data placed before each of the 7 others, and
+# last, gives 33826457... in all 8 orders. The rows therefore still hold, now
+# on bytes that actually land. scripts/lint-patch-scope.py rejects a bare '@@'
+# in any listed patch since the same rebase.
 _M7_SUGGEST_GRADLE = (
     "measured on firefox-153.0esr, full Android sequence, fresh extract per "
-    "order: suggest-data's build.gradle hunk has a bare '@@' header and GNU "
-    "patch skips it (exit 0, file untouched), so it adds no bytes in any order; "
+    "order: suggest-data's build.gradle hunk then had a bare '@@' header and GNU "
+    "patch skipped it (exit 0, file untouched), so it added no bytes in any order; "
     "A-moved-after-B applies every patch (exit 0) and leaves all 452 files the "
     "sequence touches byte-identical to shipping where no third-party "
     "constraint is crossed. With the header repaired (+7 lines after "
     "mozilla_appservices_merino), a build.gradle-only replay of the 8 patches "
-    "that edit it gives sha256 33826457... with B before each A and last")
+    "that edit it gives sha256 33826457... with B before each A and last "
+    "(header repaired at 153.4.0esr; re-measured there, all 8 orders "
+    "33826457...)")
+
+_DOH_MULLVAD_ORDER_FREE = (
+    "doh-mullvad-migration's HomeActivity.onResume and Core.engine hunks have "
+    "upstream-only context, disjoint from the partner's hunks; swapped full-tree "
+    "replay on 153.4.0esr leaves the shared file(s) byte-identical"
+)
 
 REVIEWED_ORDER_FREE = (
     ('patches/android/no-glean.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml',), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
@@ -1023,6 +1056,39 @@ REVIEWED_ORDER_FREE = (
      "no-gms edits the GMS config/dependency lines. Full-tree A-after-B crosses "
      "no-gms -> no-crashreporter, which rejects in focus-android/app/build.gradle; "
      "build.gradle-only replay is order-free; " + _M7_SUGGEST_GRADLE),
+    # doh-mullvad-migration adds one call each to HomeActivity.onResume (after
+    # the onResume breadcrumb) and to the top of Core.engine, with upstream-only
+    # context. Full-tree 153.4.0esr replay with it moved directly before each
+    # partner: the partner still applies and HomeActivity.kt/Core.kt are
+    # byte-identical to list order.
+    ("patches/android/fission-isolation.patch",
+     "patches/android/doh-mullvad-migration.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt",),
+     _DOH_MULLVAD_ORDER_FREE),
+    ("patches/android/ubo-preinstall.patch",
+     "patches/android/doh-mullvad-migration.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt", "mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt"),
+     _DOH_MULLVAD_ORDER_FREE),
+    ("patches/android/no-nimbus.patch",
+     "patches/android/doh-mullvad-migration.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
+     _DOH_MULLVAD_ORDER_FREE),
+    ("patches/android/no-adjust.patch",
+     "patches/android/doh-mullvad-migration.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
+     _DOH_MULLVAD_ORDER_FREE),
+    ("patches/android/no-suggest.patch",
+     "patches/android/doh-mullvad-migration.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
+     _DOH_MULLVAD_ORDER_FREE),
+    ("patches/android/update-check.patch",
+     "patches/android/doh-mullvad-migration.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
+     _DOH_MULLVAD_ORDER_FREE),
+    ("patches/android/sync-opt-in.patch",
+     "patches/android/doh-mullvad-migration.patch",
+     ("mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt",),
+     _DOH_MULLVAD_ORDER_FREE),
 )
 
 

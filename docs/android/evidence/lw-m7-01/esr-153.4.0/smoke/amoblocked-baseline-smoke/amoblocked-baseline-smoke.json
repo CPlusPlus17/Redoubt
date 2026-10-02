@@ -1,0 +1,183 @@
+{
+ "checks": [
+  {
+   "check": "https-only-interstitial",
+   "ok": true,
+   "detail": "HTTP must reach the HTTPS-only interstitial before the user grants an exception",
+   "evidence": {
+    "prefs": {
+     "enabled": true,
+     "locked": false
+    },
+    "page": {
+     "url": "https://10.0.2.2:33509/?https-only-7be23b687c7d1228",
+     "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+site+not+available&button=Try+Again&description=Most+likely%2C+the+website+simply+does+not+support+HTTPS.%3Cbr%3E%3Cbr%3EHowever%2C+it%E2%80%99s+also+possible+that+an+attacker+is+involved.+If+you+continue+to+the+website%2C+you+should+not+enter+any+sensitive+info.+If+you+continue%2C+HTTPS-Only+mode+will+be+turned+off+temporarily+for+the+site.&image=mozac_error_lock.svg&showSSL=false&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=true&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+     "title": "Secure site not available",
+     "ready": "interactive",
+     "marker": null,
+     "continueVisible": true,
+     "canAddException": true
+    },
+    "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms"
+   }
+  },
+  {
+   "check": "page-load-http",
+   "ok": true,
+   "detail": "http://10.0.2.2:33509/?https-only-7be23b687c7d1228 ready=complete secure=False marker='lw-smoke-page-ok', origin logged 3 request(s)",
+   "evidence": {
+    "page": {
+     "url": "http://10.0.2.2:33509/?https-only-7be23b687c7d1228",
+     "proto": "http:",
+     "secure": false,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 3
+   }
+  },
+  {
+   "check": "page-load-https",
+   "ok": true,
+   "detail": "https://10.0.2.2:33573/ ready=complete secure=True marker='lw-smoke-page-ok', origin logged 5 request(s)",
+   "evidence": {
+    "page": {
+     "url": "https://10.0.2.2:33573/",
+     "proto": "https:",
+     "secure": true,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 5
+   }
+  },
+  {
+   "check": "webgl",
+   "ok": false,
+   "detail": "Actual UI choice did not produce the exact expected engine value/lifetime: {'origin': 'http://localhost:46653', 'principalOrigin': 'http://localhost:46653', 'kind': 'webgl', 'value': 1, 'expireType': 1, 'modificationTime': 1790910269069, 'private': False, 'contextId': None}",
+   "evidence": {
+    "report": "/home/mgysin/redoubt-artifacts/esr-153.4/build/runtime/work/graphics-acceptance/5a6eb7504f96a8c3/graphics-results.json",
+    "report_sha256": "0640de34c6b363c7387bcf27923cbed1aa4611bdf19a3274bf64c0aabe39d0da",
+    "runner_exit": 1,
+    "graphics_status": "FAIL",
+    "acceptanceComplete": false,
+    "apk_sha256": "2d7db8ee8ebd15da82694734e152a9b1eb1a091cc3d464773f339a5464e54f46"
+   }
+  },
+  {
+   "check": "video",
+   "ok": true,
+   "detail": "decoded 13 frames, currentTime=0.455 readyState=4 64x64, origin served the file 1 time(s)",
+   "evidence": {
+    "video": {
+     "events": [],
+     "ok": true,
+     "play": "resolved",
+     "currentTime": 0.455461,
+     "readyState": 4,
+     "videoWidth": 64,
+     "videoHeight": 64,
+     "paused": false,
+     "decoded": 13,
+     "dropped": 0,
+     "mediaError": null,
+     "autoplay_prefs": {
+      "default": 5,
+      "policy": 0
+     }
+    },
+    "origin_requests": 1
+   }
+  },
+  {
+   "check": "getusermedia",
+   "ok": true,
+   "detail": "prompt(s) raised ['com.android.permissioncontroller:id/permission_deny_button'], harness tapped deny 2 time(s), getUserMedia rejected with NotAllowedError in 4584ms",
+   "evidence": {
+    "gum": {
+     "t0": 1790910296622,
+     "hasMediaDevices": true,
+     "hasRTCPeerConnection": true,
+     "state": "rejected",
+     "error": "NotAllowedError",
+     "message": "The request is not allowed by the user agent or the platform in the current context.",
+     "ms": 4584
+    },
+    "prompt_seen": true,
+    "taps": 2,
+    "dialogs": [
+     "com.android.permissioncontroller:id/permission_deny_button"
+    ],
+    "alive": true,
+    "crashed": false
+   }
+  },
+  {
+   "check": "extension",
+   "ok": true,
+   "detail": "installed smoke-probe@librewolf.invalid and its content script ran on a real page (marker='alive-webext'); 7 extensions active",
+   "evidence": {
+    "id": "smoke-probe@librewolf.invalid",
+    "marker": "alive-webext",
+    "addons": [
+     {
+      "id": "icons@mozac.org",
+      "name": "Mozilla Android Components - Browser Icons",
+      "active": true
+     },
+     {
+      "id": "readerview@mozac.org",
+      "name": "Mozilla Android Components - ReaderView",
+      "active": true
+     },
+     {
+      "id": "ads@mozac.org",
+      "name": "Mozilla Android Components - Ads Telemetry",
+      "active": true
+     },
+     {
+      "id": "cookies@mozac.org",
+      "name": "Mozilla Android Components - Search Telemetry",
+      "active": true
+     },
+     {
+      "id": "webcompat@mozilla.org",
+      "name": "Web Compatibility Interventions",
+      "active": true
+     },
+     {
+      "id": "uBlock0@raymondhill.net",
+      "name": "uBlock Origin",
+      "active": true
+     },
+     {
+      "id": "smoke-probe@librewolf.invalid",
+      "name": "LibreWolf smoke probe",
+      "active": true
+     }
+    ]
+   }
+  },
+  {
+   "check": "pref-dump",
+   "ok": true,
+   "detail": "written to /home/mgysin/redoubt-artifacts/esr-153.4/build/runtime/work/prefs.txt (58 prefs; librewolf.webgl.prompt=True)",
+   "evidence": {
+    "path": "/home/mgysin/redoubt-artifacts/esr-153.4/build/runtime/work/prefs.txt"
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/esr-153.4/build/runtime/work",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/esr-153.4/build/runtime/apk/new/fenix-x86_64-release-throwaway.apk",
+  "sha256": "2d7db8ee8ebd15da82694734e152a9b1eb1a091cc3d464773f339a5464e54f46",
+  "size": 132534579,
+  "harness_sha256": "ee0458ec2b22521e879c76133a29ebfd5cc2f9ab888b2d4e2d2f95d0b011ecf4"
+ },
+ "status": "completed",
+ "error": null
+}

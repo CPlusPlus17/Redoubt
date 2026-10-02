@@ -2,6 +2,7 @@
 """Replay pinned Task35 source checks; Android/native target execution is separate."""
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -19,10 +20,43 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def receipt_module():
+    """The rebase receipt replayer for ./version.android, or None for the 153.0esr receipts.
+
+    LW-M7-35's own receipts (guest capture + scoped Task31 + fixtures) pin the
+    153.0esr source and the 153.0esr patch bytes. A rebase re-captures the
+    before tree from the signed tarball plus the Android patch stack; see
+    docs/android/evidence/lw-m7-01/esr-<version>/receipts/README.md.
+    """
+    version = (ROOT / 'version.android').read_text().strip()
+    path = ROOT / 'docs/android/evidence/lw-m7-01' / f"esr-{version.removesuffix('esr')}" / 'receipts/replay.py'
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location('android_receipt_replay', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, help='verify supplied patched source instead of reconstructing')
     args = parser.parse_args()
+    receipts = receipt_module()
+    if receipts is not None:
+        with tempfile.TemporaryDirectory(prefix='lw-m7-35-source-') as scratch:
+            if args.source:
+                source = args.source.resolve()
+                files = receipts.receipt('extension-update-controls')['files']
+            else:
+                source = Path(scratch)
+                data = receipts.replay('extension-update-controls', source)
+                files = data['files']
+                print(f"PASS {data['firefox_version']} before tree (tarball + Android stack) and exact "
+                      f"--fuzz=0 replay of {len(files)} paths", flush=True)
+            source_checks(source, files)
+        print('PENDING target C++/Java/Kotlin compilation, native/Kotlin tests, APK restart/network/signed-update acceptance')
+        return
     manifest = json.loads((EVIDENCE / 'source-files.json').read_text())
     assert sha(PATCH.read_bytes()) == manifest['patch_sha256'], 'patch changed since source receipt'
     assert sha((EVIDENCE / 'guest-source.tar.gz').read_bytes()) == manifest['guest_capture_sha256']
@@ -82,30 +116,34 @@ def main():
             result = subprocess.run(['patch', '--batch', '--forward', '--fuzz=0', '-p1', '-i', str(PATCH)], cwd=source, capture_output=True, text=True, check=True)
             assert 'offset' not in result.stdout and 'fuzz' not in result.stdout, result.stdout
             print('PASS exact captured guest+Task31 baseline; patch applies without offsets or fuzz', flush=True)
-        for item in manifest['files']:
-            path = source / item['path']
-            assert sha(path.read_bytes()) == item['after_sha256'], item['path']
-            if path.suffix in ('.js', '.mjs'):
-                subprocess.run(['node', '--check', str(path)], check=True)
-            if path.suffix == '.json':
-                json.loads(path.read_text())
-            if path.suffix == '.toml':
-                tomllib.loads(path.read_text())
-            if path.suffix == '.xml':
-                ET.parse(path)
-        prefs = (source / 'modules/libpref/Preferences.cpp').read_text()
-        assert 'sPendingWriteData' not in prefs
-        assert 'new PWRunnable(aFile, std::move(prefs), std::move(aPromiseHolder))' in prefs
-        assert 'return async ? NS_OK : writer->Result();' in prefs
-        assert 'writer->Cancel(rv);' in prefs and 'mCounted.exchange(false)' in prefs
-        assert 'mPromiseHolder->RejectIfExists(result, __func__);' in prefs
-        libpref = tomllib.loads((source / 'modules/libpref/test/unit/xpcshell.toml').read_text())
-        assert libpref['test_savePrefFileAsync.js']['prefs'] == ['preferences.allow.omt-write=true']
-        extension_tests = tomllib.loads((source / 'toolkit/components/extensions/test/xpcshell/xpcshell.toml').read_text())
-        assert extension_tests['test_ext_android_update_settings.js']['run-if'] == ["os == 'android'"]
-        print('PASS source hashes, JavaScript syntax, XML/JSON/TOML and native test registration (not C++ compilation)', flush=True)
-        subprocess.run(['node', str(ROOT / 'scripts/tests/test-extension-update-controls.js'), str(source)], check=True, timeout=120)
+        source_checks(source, manifest['files'])
     print('PENDING target C++/Java/Kotlin compilation, native/Kotlin tests, APK restart/network/signed-update acceptance')
+
+
+def source_checks(source, files):
+    for item in files:
+        path = source / item['path']
+        assert sha(path.read_bytes()) == item['after_sha256'], item['path']
+        if path.suffix in ('.js', '.mjs'):
+            subprocess.run(['node', '--check', str(path)], check=True)
+        if path.suffix == '.json':
+            json.loads(path.read_text())
+        if path.suffix == '.toml':
+            tomllib.loads(path.read_text())
+        if path.suffix == '.xml':
+            ET.parse(path)
+    prefs = (source / 'modules/libpref/Preferences.cpp').read_text()
+    assert 'sPendingWriteData' not in prefs
+    assert 'new PWRunnable(aFile, std::move(prefs), std::move(aPromiseHolder))' in prefs
+    assert 'return async ? NS_OK : writer->Result();' in prefs
+    assert 'writer->Cancel(rv);' in prefs and 'mCounted.exchange(false)' in prefs
+    assert 'mPromiseHolder->RejectIfExists(result, __func__);' in prefs
+    libpref = tomllib.loads((source / 'modules/libpref/test/unit/xpcshell.toml').read_text())
+    assert libpref['test_savePrefFileAsync.js']['prefs'] == ['preferences.allow.omt-write=true']
+    extension_tests = tomllib.loads((source / 'toolkit/components/extensions/test/xpcshell/xpcshell.toml').read_text())
+    assert extension_tests['test_ext_android_update_settings.js']['run-if'] == ["os == 'android'"]
+    print('PASS source hashes, JavaScript syntax, XML/JSON/TOML and native test registration (not C++ compilation)', flush=True)
+    subprocess.run(['node', str(ROOT / 'scripts/tests/test-extension-update-controls.js'), str(source)], check=True, timeout=120)
 
 
 if __name__ == '__main__':

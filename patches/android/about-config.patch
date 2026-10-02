@@ -1,11 +1,18 @@
 # LibreWolf about-config.patch  (Android)
 # Owner: LW-M4-09 ("Enable about:config on release builds")
 #
-# Upstream file touched
+# Upstream files touched
 # ----------------------
 #   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+#   mobile/shared/chrome/geckoview/config.js
+#   mobile/shared/chrome/geckoview/config.xhtml
 #
-# One hunk, one call argument.
+# Two independent changes, both needed for a WORKING about:config on 153.4:
+#   1. GeckoProvider.kt -- one hunk, one call argument: make the page REACHABLE
+#      on the release channel (everything down to "NOT VERIFIED" below).
+#   2. config.js / config.xhtml -- an upstream backport: make the page WORK
+#      under 153.4's baseline system-principal CSP (see "THE 153.4 BASELINE CSP"
+#      at the end of this header).
 #
 #
 # READ THIS FIRST: WHICH TREE THE LINE NUMBERS BELOW COME FROM
@@ -166,7 +173,9 @@
 # new pref shipped in any .cfg, no new string. The page, its CSS, its icons and
 # its localisation are already in the APK -- they are packaged unconditionally by
 # mobile/shared/chrome/geckoview/jar.mn regardless of this pref -- which is the
-# whole reason this patch is one line of Kotlin.
+# whole reason the reachability half of this patch is one line of Kotlin. (The
+# config.js/config.xhtml hunks edit files jar.mn already packages; they add no
+# file and no jar.mn entry either.)
 #
 #
 # HOW THIS WAS VERIFIED (second pass; the first pass's evidence is superseded)
@@ -401,6 +410,64 @@
 #     once that is fixed.
 #   * Any physical device; the arm64 and armv7 APKs. x86_64 emulator only.
 #   * A release APK signed with a real LibreWolf key (LW-M6-01 owns the key).
+#
+#
+# THE 153.4 BASELINE CSP: config.xhtml's INLINE HANDLERS ARE BLOCKED
+# -------------------------------------------------------------------
+# 153.4.0esr's Document::InitCSP (dom/base/Document.cpp:3797-3811) appends
+# nsContentSecurityUtils::kBaselineSystemCSP -- `script-src chrome: resource:
+# moz-src:` -- to every system-principal or chrome: document while
+# security.chrome_baseline_csp.enabled is true (default true on 153.4). The only
+# exemptions (IsExemptedFromBaselineSystemCSP, nsContentSecurityUtils.cpp:2029)
+# are mochitest paths in automation and browser.xhtml; config.xhtml is not one,
+# and LibreWolf must not make it one.
+#
+# Pristine 153.4 config.xhtml (md5 ae29fd773b4d8de9db0660cde64a4af0, the same
+# bytes as 153.0esr) wires the whole page up with inline event-handler
+# attributes: body onload/onunload, onclick on the "+" toggle, the bool toggle,
+# Cancel, Create and both context-menu items, oninput on the search and name
+# boxes, onfocus, onchange on the type select, ontouchstart on #content. With no
+# 'unsafe-inline'/'unsafe-hashes' in the baseline policy, script-src-attr blocks
+# every one of them. Stage C on the 153.4 build (runtime diag
+# new-153.4-aboutconfig-csp.json) logged 13 "blocked an event handler
+# (script-src-attr)" errors from about:config, starting with the body onload --
+# so NewPrefDialog.init() and AboutConfig.init() never run, and the page renders
+# its toolbar with an empty, dead pref list.
+#
+# THE FIX IS UPSTREAM'S, BYTE FOR BYTE. Mozilla already removed the handlers:
+# config.xhtml and config.js in firefox-153.0.4 (desktop release; md5s
+# bd20ae6c4d1008a5c9bb3388c1ffd95a / 749f786048d44d035c78f11f00fef6c3) and in
+# firefox-157.0 are byte-identical to each other and differ from pristine 153.4
+# ESR only by that refactor. The hunks below are exactly
+# `diff -u <153.4.0esr> <157.0>` of those two files -- no LibreWolf line in
+# them. Upstream's shape: the attributes are deleted; the three elements that had
+# no id gain one (#pref-toggle-button, #copy-pref-name, #copy-pref-value);
+# NewPrefDialog.init() and AboutConfig.init() attach the same calls with
+# addEventListener; and window load/unload listeners at the end of config.js
+# replace body onload/onunload. config.js is loaded from
+# chrome://geckoview/content/config.js, which `script-src chrome:` allows.
+# The page is NOT exempted from the CSP and the CSP is not weakened.
+#
+# Two semantic notes on the backport, both upstream's choices, kept as-is:
+#   * Create is now `this.create()` with no event; create() in 153.4
+#     (config.js:150) takes no parameter, so the old `create(event)` argument
+#     was already ignored.
+#   * Dynamically built pref rows were never affected: config.js creates them
+#     with createElement and addEventListener, and never sets an on* attribute
+#     or uses eval (checked by grep in both trees).
+#
+# Ordering / scope: no other patch in any list touches either file (grep over
+# patches/ for `geckoview/config.`), so this adds no ordering pair. mobile/ is
+# Android-only, so lint-patch-scope is unaffected. When the ESR train picks up
+# the upstream refactor these hunks will fail to apply (already applied), which
+# is the cue to drop them.
+#
+# NEEDS A GECKO REBUILD: both files are packaged into omni.ja by
+# mobile/shared/chrome/geckoview/jar.mn, so `--skip-gecko` does NOT pick them up.
+# NOT VERIFIED here: the runtime -- this half was prepared statically (patch
+# applies to pristine 153.4 at --fuzz=0; patched files equal upstream 157's
+# md5s). Re-run `android-smoke.sh --check-aboutconfig` on a rebuilt APK and
+# confirm zero script-src-attr errors from about:config.
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
 @@ -120,7 +120,17 @@
@@ -422,3 +489,161 @@
              .extensionsProcessEnabled(true)
              .extensionsWebAPIEnabled(true)
              .translationsOfferPopup(context.components.settings.offerTranslation)
+--- a/mobile/shared/chrome/geckoview/config.js
++++ b/mobile/shared/chrome/geckoview/config.js
+@@ -73,6 +73,28 @@
+     this._intValue = document.getElementById("new-pref-value-int");
+ 
+     this._positiveButton = document.getElementById("positive-button");
++
++    document
++      .getElementById("new-pref-toggle-button")
++      .addEventListener("click", () => this.toggleShowHide());
++    document
++      .getElementById("pref-toggle-button")
++      .addEventListener("click", () => this.toggleBoolValue());
++    document
++      .getElementById("negative-button")
++      .addEventListener("click", () => this.hide());
++    this._positiveButton.addEventListener("click", () => this.create());
++
++    this._prefNameInputElt.addEventListener("focus", event =>
++      this.focusName(event)
++    );
++    this._prefNameInputElt.addEventListener("input", event =>
++      this.updateName(event)
++    );
++
++    this._prefTypeSelectElt.addEventListener("change", event => {
++      this.type = event.target.value;
++    });
+   },
+ 
+   // Called to update positive button to display text ("Create"/"Change), and enabled/disabled status
+@@ -235,6 +257,21 @@
+ 
+     // Setup the prefs observers
+     Services.prefs.addObserver("", this);
++
++    this.filterInput.addEventListener("input", () =>
++      AboutConfig.bufferFilterInput()
++    );
++
++    document.getElementById("content").addEventListener("touchstart", () => {
++      this.filterInput.blur();
++    });
++
++    document
++      .getElementById("copy-pref-name")
++      .addEventListener("click", () => this.clipboardCopy("name"));
++    document
++      .getElementById("copy-pref-value")
++      .addEventListener("click", () => this.clipboardCopy("value"));
+   },
+ 
+   // Uninit the main AboutConfig dialog
+@@ -711,3 +748,12 @@
+     }
+   },
+ };
++
++window.addEventListener("load", () => {
++  NewPrefDialog.init();
++  AboutConfig.init();
++});
++
++window.addEventListener("unload", () => {
++  AboutConfig.uninit();
++});
+--- a/mobile/shared/chrome/geckoview/config.xhtml
++++ b/mobile/shared/chrome/geckoview/config.xhtml
+@@ -24,19 +24,10 @@
+     ></script>
+   </head>
+ 
+-  <body
+-    onload="
+-      NewPrefDialog.init();
+-      AboutConfig.init();
+-    "
+-    onunload="AboutConfig.uninit()"
+-  >
++  <body>
+     <div class="toolbar">
+       <div class="toolbar-container">
+-        <div
+-          id="new-pref-toggle-button"
+-          onclick="NewPrefDialog.toggleShowHide()"
+-        />
++        <div id="new-pref-toggle-button" />
+ 
+         <div class="toolbar-item" id="filter-container">
+           <div id="filter-search-button" />
+@@ -45,13 +36,12 @@
+             type="search"
+             data-l10n-id="config-toolbar-search"
+             value=""
+-            oninput="AboutConfig.bufferFilterInput()"
+           />
+         </div>
+       </div>
+     </div>
+ 
+-    <div id="content" ontouchstart="AboutConfig.filterInput.blur();">
++    <div id="content">
+       <div id="new-pref-container">
+         <li class="pref-item" id="new-pref-item">
+           <div class="pref-item-line">
+@@ -60,13 +50,8 @@
+               id="new-pref-name"
+               type="text"
+               data-l10n-id="config-new-pref-name"
+-              onfocus="NewPrefDialog.focusName(event)"
+-              oninput="NewPrefDialog.updateName(event)"
+             />
+-            <select
+-              id="new-pref-type"
+-              onchange="NewPrefDialog.type = event.target.value"
+-            >
++            <select id="new-pref-type">
+               <option
+                 value="boolean"
+                 data-l10n-id="config-new-pref-value-boolean"
+@@ -90,7 +75,7 @@
+             />
+             <div
+               class="pref-button toggle"
+-              onclick="NewPrefDialog.toggleBoolValue()"
++              id="pref-toggle-button"
+               data-l10n-id="config-pref-toggle-button"
+             ></div>
+           </div>
+@@ -113,13 +98,11 @@
+             <div
+               class="pref-button cancel"
+               id="negative-button"
+-              onclick="NewPrefDialog.hide()"
+               data-l10n-id="config-new-pref-cancel-button"
+             ></div>
+             <div
+               class="pref-button create"
+               id="positive-button"
+-              onclick="NewPrefDialog.create(event)"
+               data-l10n-id="config-new-pref-create-button"
+             ></div>
+           </div>
+@@ -135,12 +118,12 @@
+ 
+     <menu type="context" id="prefs-context-menu">
+       <menuitem
++        id="copy-pref-name"
+         data-l10n-id="config-context-menu-copy-pref-name"
+-        onclick="AboutConfig.clipboardCopy('name')"
+       ></menuitem>
+       <menuitem
++        id="copy-pref-value"
+         data-l10n-id="config-context-menu-copy-pref-value"
+-        onclick="AboutConfig.clipboardCopy('value')"
+       ></menuitem>
+     </menu>
+   </body>

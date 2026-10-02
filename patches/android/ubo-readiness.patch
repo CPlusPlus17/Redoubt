@@ -4,6 +4,8 @@
 # starts filters in an asynchronous IIFE and explicitly unsuspends requests
 # during first installation. In its pinned start.js/traffic.js, live blocking
 # onHeadersReceived registration happens only after filter initialization.
+# The 1.75.0 pin ships byte-identical js/start.js and js/traffic.js, so the
+# property (and the 1.74.0 reference in the code comment below) still holds.
 # Track real registrations, not primed persistent listeners; expose a bounded,
 # version-bound GeckoView wait without modifying the signed XPI or its trust.
 # This API proves listener activation, not arbitrary extension internals.
@@ -237,23 +239,29 @@ index 2f2120d..9a0d0a4 100644
          try {
            await lazy.AddonManager.readyPromise;
 diff --git a/toolkit/components/extensions/parent/ext-webRequest.js b/toolkit/components/extensions/parent/ext-webRequest.js
-index da2b96f..e7855e4 100644
+index 8bd844e79f..c9c2a6baf8 100644
 --- a/toolkit/components/extensions/parent/ext-webRequest.js
 +++ b/toolkit/components/extensions/parent/ext-webRequest.js
-@@ -39,7 +39,8 @@ function registerEvent(
-   fire,
-   filter,
-   info,
--  remoteTab = null
-+  remoteTab = null,
+@@ -33,7 +33,14 @@ function handlerBehaviorChangedCallAllowed(timestamps) {
+ 
+ // The guts of a WebRequest event handler.  Takes care of converting
+ // |details| parameter when invoking listeners.
+-function registerEvent(extension, eventName, fire, filter, info) {
++function registerEvent(
++  extension,
++  eventName,
++  fire,
++  filter,
++  info,
 +  isLiveListener = false
- ) {
-   let listener = async data => {
++) {
+   let listener = data => {
      let event = data.serialize(eventName);
-@@ -116,13 +117,35 @@ function registerEvent(
+     // If this is a blocking listener, the request is suspended until the event
+@@ -105,12 +112,34 @@ function registerEvent(extension, eventName, fire, filter, info) {
    };
    WebRequest[eventName].addListener(listener, filter2, info2, listenerDetails);
-
+ 
 +  // Redoubt: primed listeners can wake a background page before its filters
 +  // have initialized. Signal only an actual blocking response listener from
 +  // the live extension context, including conversion of a primed listener.
@@ -279,22 +287,37 @@ index da2b96f..e7855e4 100644
 +      extension.redoubtBlockingResponseListeners?.delete(registration);
        WebRequest[eventName].removeListener(listener);
      },
-     convert(_fire, context) {
+     convert(_fire) {
        fire = _fire;
-       remoteTab = context.xulBrowser.frameLoader.remoteTab;
 +      markLive();
      },
    };
  }
-@@ -154,7 +177,9 @@ function makeWebRequestEventRegistrar(event) {
-       remoteTab = context.xulBrowser.frameLoader.remoteTab;
-     }
-
--    return registerEvent(extension, event, fire, filter, info, remoteTab);
+@@ -125,14 +154,23 @@ function makeWebRequestEventAPI(context, event, extensionApi) {
+ }
+ 
+ function makeWebRequestEventRegistrar(event) {
+-  return function ({ fire }, params) {
++  return function ({ fire, context }, params) {
+     // ExtensionAPIPersistent makes sure this function will be bound
+     // to the ExtensionAPIPersistent instance.
+     const { extension } = this;
+ 
+     const [filter, extraInfoSpec] = params;
+ 
+-    return registerEvent(extension, event, fire, filter, extraInfoSpec);
++    // Redoubt: only a live registration carries an extension context; a
++    // primed listener does not, and is marked live by convert() instead.
 +    return registerEvent(
-+      extension, event, fire, filter, info, remoteTab, !!context
++      extension,
++      event,
++      fire,
++      filter,
++      extraInfoSpec,
++      !!context
 +    );
    };
  }
+ 
 
 # End of patch.

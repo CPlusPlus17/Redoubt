@@ -1,9 +1,9 @@
 --- a/modules/libpref/Preferences.cpp
 +++ b/modules/libpref/Preferences.cpp
-@@ -3483,11 +3483,6 @@
+@@ -3488,11 +3488,6 @@ class PreferencesWriter final {
                                  []() { return sPendingWriteCount <= 0; });
    }
-
+ 
 -  // This is the data that all of the runnables (see below) will attempt
 -  // to write.  It will always have the most up to date version, or be
 -  // null, if the up to date information has already been written out.
@@ -12,20 +12,21 @@
    // This is the number of writes via PWRunnables which have been dispatched
    // but not yet completed. This is intended to be used by Flush to ensure
    // that there are no outstanding writes left incomplete, and thus our prefs
-@@ -3498,101 +3493,83 @@
+@@ -3503,132 +3498,83 @@ class PreferencesWriter final {
    static StaticMutex sWritingToFile MOZ_UNANNOTATED;
  };
-
+ 
 -Atomic<PrefSaveData*> PreferencesWriter::sPendingWriteData(nullptr);
  Atomic<int> PreferencesWriter::sPendingWriteCount(0);
  StaticMutex PreferencesWriter::sWritingToFile;
-
+ 
 +// LibreWolf Android: each dispatched write owns its snapshot and completion.
 +// The serial target orders current-file, explicit-file and backup requests.
 +// Coalescing a shared snapshot could make one request write another file's data
 +// or acknowledge a different request's result.
  class PWRunnable : public Runnable {
   public:
+-  // Consumes sPendingWriteData, writing it to aFile (the profile prefs.js).
    explicit PWRunnable(
 -      nsIFile* aFile,
 -      UniquePtr<MozPromiseHolder<Preferences::WritePrefFilePromise>>
@@ -35,12 +36,31 @@
        : Runnable("PWRunnable"),
          mFile(aFile),
 -        mPromiseHolder(std::move(aPromiseHolder)) {}
+-
+-  // Writes aData to aFile, bypassing sPendingWriteData; used for backups.
+-  PWRunnable(nsIFile* aFile, UniquePtr<PrefSaveData> aData,
+-             UniquePtr<MozPromiseHolder<Preferences::WritePrefFilePromise>>
+-                 aPromiseHolder)
+-      : Runnable("PWRunnableBackup"),
+-        mFile(aFile),
+-        mData(std::move(aData)),
+-        mPromiseHolder(std::move(aPromiseHolder)) {}
 +        mPrefs(std::move(aPrefs)),
 +        mPromiseHolder(std::move(aPromiseHolder)) {
 +    PreferencesWriter::sPendingWriteCount++;
 +  }
-
+ 
    NS_IMETHOD Run() override {
+-    // Backups carry their own data and bypass the sPendingWriteData coalescing.
+-    if (mData) {
+-      nsresult rv = PreferencesWriter::Write(mFile, *mData);
+-      DispatchWriteComplete(rv, /* aRetryOnFailure */ false);
+-      PreferencesWriter::sPendingWriteCount--;
+-      return rv;
++    if (!mCounted) {
++      return NS_ERROR_ABORT;
+     }
+-
 -    // Preference writes are handled a bit strangely, in that a "newer"
 -    // write is generally regarded as always better. For this reason,
 -    // sPendingWriteData can be overwritten multiple times before anyone
@@ -77,9 +97,6 @@
 -    // would be used more carefully, but it's hard to untangle all that.
 -    nsresult rv = NS_OK;
 -    if (PreferencesWriter::sPendingWriteData) {
-+    if (!mCounted) {
-+      return NS_ERROR_ABORT;
-+    }
 +    {
        StaticMutexAutoLock lock(PreferencesWriter::sWritingToFile);
 -      // If we get a nullptr on the exchange, it means that somebody
@@ -88,76 +105,80 @@
 -          PreferencesWriter::sPendingWriteData.exchange(nullptr));
 -      if (prefs) {
 -        rv = PreferencesWriter::Write(mFile, *prefs);
--        // Make a copy of these so we can have them in runnable lambda.
--        // nsIFile is only there so that we would never release the
--        // ref counted pointer off main thread.
--        nsresult rvCopy = rv;
--        nsCOMPtr<nsIFile> fileCopy(mFile);
--        SchedulerGroup::Dispatch(NS_NewRunnableFunction(
--            "Preferences::WriterRunnable",
--            [fileCopy, rvCopy, promiseHolder = std::move(mPromiseHolder)] {
--              MOZ_RELEASE_ASSERT(NS_IsMainThread());
--              if (NS_FAILED(rvCopy)) {
--                Preferences::HandleDirty();
--              }
--              if (promiseHolder) {
--                promiseHolder->ResolveIfExists(true, __func__);
--              }
--            }));
+-        DispatchWriteComplete(rv, /* aRetryOnFailure */ true);
+-      }
 +      mResult = PreferencesWriter::Write(mFile, *mPrefs);
-+    }
+     }
+-    // We've completed the write to the best of our abilities, whether
+-    // we had prefs to write or another runnable got to them first. If
+-    // PreferencesWriter::Write failed, this is still correct as the
+-    // write is no longer outstanding, and the HandleDirty call that
+-    // DispatchWriteComplete makes on failure will just start the cycle
+-    // again.
+-    PreferencesWriter::sPendingWriteCount--;
+-    return rv;
+-  }
+-
+- private:
+-  // Dispatches a main-thread runnable that settles mPromiseHolder for a write
+-  // that finished with aRv; the captured nsIFile ref keeps mFile alive until it
+-  // is released on the main thread. When aRetryOnFailure is true (the coalesced
+-  // profile prefs.js write), a failed write is retried via HandleDirty() and
+-  // the promise still resolves; otherwise a failed write rejects the promise.
+-  void DispatchWriteComplete(nsresult aRv, bool aRetryOnFailure) {
+-    nsCOMPtr<nsIFile> fileCopy(mFile);
 +    mPrefs = nullptr;
 +    // Keep the final file reference and dirty bookkeeping on the main thread.
 +    // Resolve the thread-safe MozPromise from the actual result, independently
 +    // of when that bookkeeping runnable executes.
 +    nsresult result = mResult;
-+    SchedulerGroup::Dispatch(NS_NewRunnableFunction(
+     SchedulerGroup::Dispatch(NS_NewRunnableFunction(
+-        "Preferences::WriterRunnable",
+-        [fileCopy, aRv, aRetryOnFailure,
+-         promiseHolder = std::move(mPromiseHolder)] {
 +        "Preferences::WriterRunnable", [file = std::move(mFile), result] {
-+          MOZ_RELEASE_ASSERT(NS_IsMainThread());
+           MOZ_RELEASE_ASSERT(NS_IsMainThread());
+-          if (NS_FAILED(aRv) && aRetryOnFailure) {
 +          if (NS_FAILED(result)) {
 +            // A retry captures current prefs; it never replays this old snapshot.
-+            Preferences::HandleDirty();
-+          }
-+        }));
+             Preferences::HandleDirty();
+           }
+-          if (promiseHolder) {
+-            if (NS_SUCCEEDED(aRv) || aRetryOnFailure) {
+-              promiseHolder->ResolveIfExists(true, __func__);
+-            } else {
+-              promiseHolder->RejectIfExists(aRv, __func__);
+-            }
+-          }
+         }));
 +    if (mPromiseHolder) {
 +      if (NS_FAILED(result)) {
 +        mPromiseHolder->RejectIfExists(result, __func__);
 +      } else {
 +        mPromiseHolder->ResolveIfExists(true, __func__);
-       }
-     }
--    // We've completed the write to the best of our abilities, whether
--    // we had prefs to write or another runnable got to them first. If
--    // PreferencesWriter::Write failed, this is still correct as the
--    // write is no longer outstanding, and the above HandleDirty call
--    // will just start the cycle again.
--    PreferencesWriter::sPendingWriteCount--;
--    return rv;
++      }
++    }
 +    CompleteCount();
 +    return result;
-+  }
-+
+   }
+ 
+-  ~PWRunnable() {
 +  nsresult Result() const { return mResult; }
 +
 +  // A failed Dispatch may retain/leak its runnable. Explicitly balance the
 +  // count and reject here; destruction is an additional exactly-once fallback.
 +  void Cancel(nsresult aReason) {
-+    if (mPromiseHolder) {
+     if (mPromiseHolder) {
+-      mPromiseHolder->RejectIfExists(NS_ERROR_ABORT, __func__);
 +      mPromiseHolder->RejectIfExists(aReason, __func__);
-+    }
+     }
 +    mPrefs = nullptr;
 +    NS_ReleaseOnMainThread("PWRunnable::mFile", mFile.forget());
 +    CompleteCount();
    }
-
-  private:
--  ~PWRunnable() {
--    if (mPromiseHolder) {
--      mPromiseHolder->RejectIfExists(NS_ERROR_ABORT, __func__);
--    }
--  }
--
+ 
 - protected:
++ private:
 +  void CompleteCount() {
 +    if (mCounted.exchange(false)) {
 +      PreferencesWriter::sPendingWriteCount--;
@@ -166,14 +187,16 @@
 +  ~PWRunnable() { Cancel(NS_ERROR_ABORT); }
 +
    nsCOMPtr<nsIFile> mFile;
+-  // When set, Run() writes this instead of consuming sPendingWriteData.
+-  UniquePtr<PrefSaveData> mData;
 +  UniquePtr<PrefSaveData> mPrefs;
    UniquePtr<MozPromiseHolder<Preferences::WritePrefFilePromise>> mPromiseHolder;
 +  Atomic<bool> mCounted{true};
 +  nsresult mResult = NS_ERROR_ABORT;
  };
-
+ 
  // Although this is a member of Preferences, it measures sPreferences and
-@@ -4199,9 +4176,11 @@
+@@ -4235,9 +4181,11 @@ Preferences::Observe(nsISupports* aSubject, const char* aTopic,
      // It's possible that a profile-before-change observer after ours
      // set a pref. A blocking save here re-saves if necessary and also waits
      // for any pending saves to complete.
@@ -185,28 +208,15 @@
 +      MOZ_ASSERT(!mDirty, "Preferences should not be dirty");
 +      mProfileShutdown = true;
 +    }
-
+ 
    } else if (!nsCRT::strcmp(aTopic, "suspend_process_notification")) {
      // Our process is being suspended. The OS may wake our process later,
-@@ -4295,21 +4274,27 @@
+@@ -4331,21 +4279,27 @@ bool Preferences::AllowOffMainThreadSave() {
  }
-
+ 
  nsresult Preferences::SavePrefFileBlocking() {
 -  if (mDirty) {
 -    return SavePrefFileInternal(nullptr, SaveMethod::Blocking);
--  }
--
--  // If we weren't dirty to start, SavePrefFileInternal will early exit so
--  // there is no guarantee that we don't have oustanding async saves in the
--  // pipe. Since the contract of SavePrefFileOnMainThread is that the file on
--  // disk matches the preferences, we have to make sure those requests are
--  // completed.
--
--  if (AllowOffMainThreadSave()) {
--    PreferencesWriter::Flush();
--  }
--
--  return NS_OK;
 +  // Always enqueue the latest state, even if a prior asynchronous request
 +  // already cleared mDirty. Queue completion alone cannot prove that request
 +  // succeeded, and its main-thread dirty callback may still be pending.
@@ -216,10 +226,21 @@
 +      PreferencesWriter::Flush();
 +    }
 +    return NS_OK;
-+  }
+   }
+-
+-  // If we weren't dirty to start, SavePrefFileInternal will early exit so
+-  // there is no guarantee that we don't have oustanding async saves in the
+-  // pipe. Since the contract of SavePrefFileOnMainThread is that the file on
+-  // disk matches the preferences, we have to make sure those requests are
+-  // completed.
+-
+-  if (AllowOffMainThreadSave()) {
+-    PreferencesWriter::Flush();
 +  if (mProfileShutdown) {
 +    return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
-+  }
+   }
+-
+-  return NS_OK;
 +  mSavePending = false;
 +  nsresult rv = WritePrefFile(mCurrentFile, SaveMethod::Blocking);
 +  if (NS_SUCCEEDED(rv)) {
@@ -229,14 +250,12 @@
 +  }
 +  return rv;
  }
-
+ 
  nsresult Preferences::SavePrefFileAsynchronous() {
-@@ -4320,6 +4305,40 @@
- Preferences::SavePrefFile(nsIFile* aFile) {
-   // This is the method accessible from service API. Make it off main thread.
+@@ -4358,6 +4312,40 @@ Preferences::SavePrefFile(nsIFile* aFile) {
    return SavePrefFileInternal(aFile, SaveMethod::Asynchronous);
-+}
-+
+ }
+ 
 +NS_IMETHODIMP
 +Preferences::SavePrefFileAsync(JSContext* aCx, Promise** aPromise) {
 +  ENSURE_PARENT_PROCESS("Preferences::SavePrefFileAsync", "all prefs");
@@ -269,13 +288,15 @@
 +      [domPromise](nsresult result) { domPromise.get()->MaybeReject(result); });
 +  promise.forget(aPromise);
 +  return NS_OK;
- }
-
++}
++
  NS_IMETHODIMP
-@@ -4762,73 +4781,31 @@
+ Preferences::BackupPrefFile(nsIFile* aFile, nsIPrefOverrideMap* aJSOverrideMap,
+                             JSContext* aCx, Promise** aPromise) {
+@@ -4798,91 +4786,31 @@ nsresult Preferences::WritePrefFile(
      UniquePtr<PrefSaveData> prefs =
          MakeUnique<PrefSaveData>(pref_savePrefs(aPrefOverrideMap));
-
+ 
 +    // All snapshots use the same serial target. No runnable can consume a
 +    // later request's data or write it to a different request's destination.
      nsresult rv = NS_OK;
@@ -291,6 +312,24 @@
          REJECT_IF_PROMISE_HOLDER_EXISTS(rv);
        }
      }
+-
+-    // Backups target a different file with a filtered pref set and must settle
+-    // their promise, so they can't share the single-slot sPendingWriteData
+-    // coalescing. Dispatch a standalone write instead.
+-    if (aPromiseHolder) {
+-      MOZ_ASSERT(aSaveMethod == SaveMethod::Asynchronous,
+-                 "Backup writes are always asynchronous");
+-      PreferencesWriter::sPendingWriteCount++;
+-      rv = mAsyncTarget->Dispatch(
+-          new PWRunnable(aFile, std::move(prefs), std::move(aPromiseHolder)),
+-          nsIEventTarget::DISPATCH_EVENT_MAY_BLOCK);
+-      if (NS_FAILED(rv)) {
+-        PreferencesWriter::sPendingWriteCount--;
+-        // The PWRunnable rejected the holder in its destructor.
+-        return rv;
+-      }
+-      return NS_OK;
+-    }
 -
 -    if (mCurrentFile) {
 -      rv = mCurrentFile->Equals(aFile, &writingToCurrent);
@@ -355,7 +394,7 @@
 +    // SyncRunnable reports dispatch success, not the wrapped Run() result.
 +    return async ? NS_OK : writer->Result();
    }
-
+ 
    // This will do a main thread write. It is safe to do it this way because
 --- a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
 +++ b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
@@ -1395,7 +1434,15 @@
                      "Unable to update extension $extensionId - reason=${exception.message}",
 --- a/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
 +++ b/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
-@@ -31,6 +31,7 @@
+@@ -22,6 +22,7 @@
+ import mozilla.components.feature.addons.AddonManager
+ import mozilla.components.support.test.any
+ import mozilla.components.support.test.argumentCaptor
++import mozilla.components.support.test.eq
+ import mozilla.components.support.test.mock
+ import mozilla.components.support.test.robolectric.testContext
+ import mozilla.components.support.test.whenever
+@@ -31,6 +32,7 @@
  import org.junit.Test
  import org.junit.runner.RunWith
  import org.mockito.ArgumentMatchers.anyString
@@ -1403,7 +1450,7 @@
  import org.mockito.Mockito.doReturn
  import org.mockito.Mockito.spy
  import org.mockito.Mockito.verify
-@@ -59,9 +60,10 @@
+@@ -59,9 +61,10 @@
          WebExtensionSupport.initialize(engine, store)
      }
 
@@ -1415,7 +1462,7 @@
              .setWorkerFactory(object : WorkerFactory() {
                  override fun createWorker(
                      appContext: Context,
-@@ -90,7 +92,7 @@
+@@ -90,7 +93,7 @@
          doReturn(updateAttemptStorage).`when`(worker).updateAttemptStorage
          GlobalAddonDependencyProvider.initialize(addonManager, mock())
 
@@ -1424,7 +1471,7 @@
              onFinishCaptor.value.invoke(AddonUpdater.Status.SuccessfullyUpdated)
          }
 
-@@ -111,7 +113,7 @@
+@@ -111,7 +114,7 @@
 
          GlobalAddonDependencyProvider.initialize(addonManager, mock())
 
@@ -1433,7 +1480,7 @@
              onFinishCaptor.value.invoke(AddonUpdater.Status.NoUpdateAvailable)
          }
 
-@@ -129,7 +131,7 @@
+@@ -129,7 +132,7 @@
 
          GlobalAddonDependencyProvider.initialize(addonManager, mock())
 
@@ -1442,7 +1489,7 @@
              onFinishCaptor.value.invoke(AddonUpdater.Status.NotInstalled)
          }
 
-@@ -151,7 +153,7 @@
+@@ -151,7 +154,7 @@
 
          GlobalAddonDependencyProvider.initialize(addonManager, mock())
 
@@ -1451,7 +1498,7 @@
              onFinishCaptor.value.invoke(AddonUpdater.Status.Error("error", exception))
          }
 
-@@ -176,7 +178,7 @@
+@@ -176,7 +179,7 @@
          GlobalAddonDependencyProvider.initialize(addonManager, mock(), crashReporter)
          GlobalAddonDependencyProvider.addonManager = null
 
@@ -1460,7 +1507,7 @@
              onFinishCaptor.value.invoke(AddonUpdater.Status.Error("error", Exception()))
          }
 
-@@ -185,4 +187,31 @@
+@@ -185,4 +188,31 @@
          assertEquals(ListenableWorker.Result.failure(), result)
          assertTrue(crashWasReported)
      }
@@ -1480,15 +1527,15 @@
 +        doReturn(this).`when`(restored).attemptScope
 +        restored.updateAttemptStorage = mock()
 +        assertEquals(ListenableWorker.Result.success(), restored.startWork().await())
-+        verify(manager).updateAddonAutomatically(org.mockito.ArgumentMatchers.eq("restored"), any())
-+        verify(manager, never()).updateAddon(org.mockito.ArgumentMatchers.eq("restored"), any())
++        verify(manager).updateAddonAutomatically(eq("restored"), any())
++        verify(manager, never()).updateAddon(eq("restored"), any())
 +
 +        val explicit = createWorker("explicit", listOf(DefaultAddonUpdater.WORK_TAG_IMMEDIATE))
 +        doReturn(this).`when`(explicit).attemptScope
 +        explicit.updateAttemptStorage = mock()
 +        assertEquals(ListenableWorker.Result.success(), explicit.startWork().await())
-+        verify(manager).updateAddon(org.mockito.ArgumentMatchers.eq("explicit"), any())
-+        verify(manager, never()).updateAddonAutomatically(org.mockito.ArgumentMatchers.eq("explicit"), any())
++        verify(manager).updateAddon(eq("explicit"), any())
++        verify(manager, never()).updateAddonAutomatically(eq("explicit"), any())
 +    }
 +
  }

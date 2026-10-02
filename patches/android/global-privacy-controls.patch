@@ -140,10 +140,10 @@ index 0000000..8e97e24
 +}
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt
 new file mode 100644
-index 0000000..9f425df
+index 0000000..6c5f87c
 --- /dev/null
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,92 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -218,8 +218,9 @@ index 0000000..9f425df
 +        GeckoGlobalPrivacyController(api).setBoolean(GlobalPrivacySetting.RESIST_FINGERPRINTING, false, { result = it }, { throw it })
 +        shadowOf(Looper.getMainLooper()).idle()
 +        assertEquals("rfp", api.lastId); assertEquals(false, api.lastValue)
-+        assertEquals(GlobalPrivacySaveStatus.UNCONFIRMED, result!!.status)
-+        assertTrue(result!!.state.settings.getValue(GlobalPrivacySetting.RESIST_FINGERPRINTING).persistenceUnconfirmed)
++        val changed = result!!
++        assertEquals(GlobalPrivacySaveStatus.UNCONFIRMED, changed.status)
++        assertTrue(changed.state.settings.getValue(GlobalPrivacySetting.RESIST_FINGERPRINTING).persistenceUnconfirmed)
 +    }
 +    @Test fun `synchronous and asynchronous native failures both reach the error callback`() {
 +        for (synchronous in listOf(false, true)) {

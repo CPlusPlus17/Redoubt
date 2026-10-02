@@ -1,0 +1,10 @@
+<!doctype html><meta name=viewport content="width=device-width"><title>defc fixture delayed</title>
+<p id=s>waiting 4 s before canvas/WebGL (like the harness, whose probes run after navigation)</p>
+<script>
+setTimeout(() => {
+  const out=[];
+  try{const c=document.createElement('canvas');c.width=c.height=8;const x=c.getContext('2d');x.fillStyle='#c33';x.fillRect(0,0,8,8);out.push('canvas:'+c.toDataURL().length);}catch(e){out.push('canvas-err:'+e)}
+  try{const g=document.createElement('canvas').getContext('webgl');out.push('webgl:'+(g?'ctx':'null'));}catch(e){out.push('webgl-err:'+e)}
+  document.getElementById('s').textContent=out.join(' ')+' t='+Date.now();
+}, 4000);
+</script>

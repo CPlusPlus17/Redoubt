@@ -204,6 +204,12 @@ UBO_FILTER_FILE = "assets/thirdparties/easylist/easylist.txt"
 UBO_FILTER_RULE = "/banner_ads/*$~xmlhttprequest,domain=~clickbd.com"
 UBO_BLOCKED_PATH = "/banner_ads/redoubt-probe.js"
 UBO_ALLOWED_PATH = "/redoubt-allowed.js"
+# --check-launcher-start: what LibreWolfUboPreinstaller shows and logs.
+UBO_FAILURE_TITLE = "uBlock Origin setup failed"
+UBO_FAILED_LOG = "uBlock Origin startup failed"
+UBO_READY_LOG = "uBlock Origin startup ready: Ready(installed=true, enabled=true)"
+# The preinstaller's readiness timeout is 30 s; the window must outlast it.
+LAUNCHER_START_WAIT = 45
 
 def ubo_probe_response(path):
     """Real parser-inserted subresources, served before Marionette connects.
@@ -634,6 +640,236 @@ def pcap_payloads(path, start_offset, guest_ips, end_offset=None):
         if end_offset is not None and f.tell() != limit:
             raise HarnessError("typing window ends inside a packet header; attribution is inconclusive")
     return rows
+
+# --------------------------------------------------------------------------
+# Typing-window attribution by CONNECTION (check-no-suggest).
+#
+# rc2's final acceptance (docs/android/evidence/lw-m7-01/esr-153.4.0/rc2/
+# final-acceptance) failed on 13 non-background packets that were all HTTP/2
+# keep-alive or close records on TLS connections opened before typing: one
+# 39 B or 46 B record about every 59 s per connection, each answered by a
+# record of the same size, then a 24 B or 31 B alert at the idle close.  Those
+# sizes are exactly one 17-byte HTTP/2 control frame (9-byte frame header +
+# 8-byte PING or GOAWAY payload) in one TLS record:
+#   TLS 1.3: 5 header + 1 inner content type + 16 AEAD tag  = 22 -> 39 B
+#   TLS 1.2 AES-GCM: 5 header + 8 explicit nonce + 16 tag   = 29 -> 46 B
+# and the alerts are a 2-byte alert in the same envelopes (24 B / 31 B).
+# 46 B is therefore the largest record such a connection-management frame
+# produces, and leaves at most 24 B of HTTP/2 (15 B of HPACK after the frame
+# header) under TLS 1.3: too small for a request whose :path carries the
+# suggestion endpoint and the typed text.  A segment is keep-alive sized only
+# when it is ONE complete TLS application-data (23) or alert (21) record of at
+# most this size; plaintext, coalesced or larger records count as payload.
+# --------------------------------------------------------------------------
+H2_CONTROL_FRAME_BYTES = 9 + 8
+TLS13_RECORD_OVERHEAD = 5 + 1 + 16
+TLS12_GCM_RECORD_OVERHEAD = 5 + 8 + 16
+KEEPALIVE_RECORD_MAX = H2_CONTROL_FRAME_BYTES + max(TLS13_RECORD_OVERHEAD, TLS12_GCM_RECORD_OVERHEAD)
+DNS_PORTS = (53, 853)
+
+def keepalive_sized(data):
+    """One complete TLS 1.2/1.3 application-data or alert record of at most
+    KEEPALIVE_RECORD_MAX bytes, and nothing else in the segment."""
+    return (0 < len(data) <= KEEPALIVE_RECORD_MAX and data[0] in (0x15, 0x17) and
+            data[1:3] == b"\x03\x03" and 5 + struct.unpack(">H", data[3:5])[0] == len(data))
+
+def _dns_answers(data):
+    """[(name, address)] for the A/AAAA records of one DNS response."""
+    out = []
+    if len(data) < 12 or not data[2] & 0x80:
+        return out
+    qd, an = struct.unpack(">HH", data[4:8])
+    o = 12
+    try:
+        for _ in range(qd):
+            o = _dns_name(data, o)[1] + 4
+        for _ in range(an):
+            name, o = _dns_name(data, o)
+            rtype, _cls, _ttl, rdlen = struct.unpack(">HHIH", data[o:o + 10])
+            o += 10
+            rdata = data[o:o + rdlen]
+            o += rdlen
+            if rtype == 1 and rdlen == 4:
+                out.append((name.lower().rstrip("."), socket.inet_ntoa(rdata)))
+            elif rtype == 28 and rdlen == 16:
+                out.append((name.lower().rstrip("."), socket.inet_ntop(socket.AF_INET6, rdata)))
+    except (struct.error, IndexError, ValueError, OSError):
+        pass
+    return out
+
+def _udp_background(host, dst, dp):
+    # The same classification pcap_payloads applies to a single datagram.
+    if host in SECURITY_SETTINGS_HOSTS or host in OS_NOISE_HOSTS:
+        return True
+    if dp == 53:
+        return False
+    return ((dst.lower() in ("224.0.0.251", "ff02::fb") and dp == 5353) or
+            (dst.lower() in ("255.255.255.255", "ff02::1:2") and dp in (67, 68, 546, 547)))
+
+def attribute_typing_flows(path, guest_ips, window_start, window_end, sensitive_hosts=()):
+    """Attribute every outbound packet of the typing window to its connection.
+
+    The capture is read from its header to window_end (both directions), so a
+    connection's opening -- TCP SYN, first datagram, or the DNS answer for its
+    address -- is known even when it happened long before typing.  A packet
+    belongs to the window when it ends after window_start and at or before
+    window_end (the byte offsets pcap_payloads uses).
+
+    Every flow with an outbound SYN, datagram or payload in the window gets a
+    verdict.  It is typing traffic -- `ok` False -- when any of these hold:
+      dns-query               a query to port 53 or 853 (unless every name in
+                              it is an exempt background host, as before)
+      new-connection          an outbound SYN inside the window
+      not-open-before-typing  first seen inside the window without a SYN
+      udp-datagram            any other non-background UDP (QUIC included):
+                              no evidence justifies a UDP keep-alive exemption
+      resolved-during-typing  its address came from a DNS answer in the window
+      search-or-suggest-host  its SNI is a configured search/suggestion host
+      payload-exceeds-keepalive  an outbound segment that is not one TLS
+                              record of at most KEEPALIVE_RECORD_MAX bytes
+    A flow passes only as `background` (SNI or DNS name on the existing
+    security-settings / OS lists, exactly as pcap_payloads classifies it) or as
+    `keepalive` (opened before typing, only keep-alive sized TLS records out).
+    """
+    flows, resolved = {}, {}
+    sensitive = {h.lower().rstrip(".") for h in sensitive_hosts if h}
+    with open(path, "rb") as f:
+        gh = f.read(24)
+        if len(gh) != 24 or gh[:4] not in (b"\xd4\xc3\xb2\xa1", b"\xa1\xb2\xc3\xd4"):
+            raise HarnessError("unsupported pcap format for flow attribution")
+        endian = "<" if gh[:4] == b"\xd4\xc3\xb2\xa1" else ">"
+        if struct.unpack(endian + "I", gh[20:24])[0] != 1:
+            raise HarnessError("flow attribution requires an Ethernet pcap")
+        while f.tell() + 16 <= window_end:
+            ts, us, size, original = struct.unpack(endian + "IIII", f.read(16))
+            if f.tell() + size > window_end:
+                raise HarnessError("typing window ends inside a packet; attribution is inconclusive")
+            frame = f.read(size)
+            if len(frame) != size:
+                raise HarnessError("capture packet data is incomplete")
+            packet_end = f.tell()
+            in_window = packet_end > window_start
+            t = ts + us / 1e6
+            if len(frame) < 14:
+                continue
+            ether = struct.unpack(">H", frame[12:14])[0]
+            if ether in (0x8100, 0x88a8):
+                raise HarnessError("VLAN-tagged capture is unsupported; cannot attribute flows")
+            ip = frame[14:]
+            if ether == 0x0800 and len(ip) >= 20:
+                src, dst = socket.inet_ntoa(ip[12:16]), socket.inet_ntoa(ip[16:20])
+                outbound = src in guest_ips
+                if outbound and in_window and size != original:
+                    raise HarnessError("truncated packet prevents flow attribution")
+                if struct.unpack(">H", ip[6:8])[0] & 0x3fff:
+                    if outbound and in_window:
+                        raise HarnessError("fragmented outbound IPv4 prevents flow attribution")
+                    continue
+                proto = ip[9]
+                rest = ip[(ip[0] & 15) * 4:struct.unpack(">H", ip[2:4])[0]]
+            elif ether == 0x86dd and len(ip) >= 40:
+                src = socket.inet_ntop(socket.AF_INET6, ip[8:24])
+                dst = socket.inet_ntop(socket.AF_INET6, ip[24:40])
+                outbound = src in guest_ips
+                if outbound and in_window and size != original:
+                    raise HarnessError("truncated packet prevents flow attribution")
+                try:
+                    proto, rest = ipv6_transport(ip)
+                except HarnessError:
+                    if outbound and in_window:
+                        raise
+                    continue
+                if proto not in (6, 17, 58) and outbound and in_window:
+                    raise HarnessError("outbound IPv6 extension header prevents flow attribution")
+            else:
+                continue
+            if proto == 6 and len(rest) >= 20:
+                sp, dp = struct.unpack(">HH", rest[:4])
+                tcp_flags = rest[13]
+                data = rest[(rest[12] >> 4) * 4:]
+            elif proto == 17 and len(rest) >= 8:
+                sp, dp = struct.unpack(">HH", rest[:4])
+                tcp_flags, data = 0, rest[8:]
+            else:
+                continue
+            if not outbound:
+                if proto == 17 and sp == 53 and in_window:
+                    for name, address in _dns_answers(data):
+                        resolved.setdefault(address, []).append({"name": name, "ts": t})
+                key = ("tcp" if proto == 6 else "udp", dst, dp, src, sp)
+                if key in flows:
+                    flow = flows[key]
+                    if in_window and data:
+                        flow["window_in"].append([round(t, 3), len(data)])
+                    elif not in_window:
+                        flow["seen_before_typing"] = True
+                continue
+            key = ("tcp" if proto == 6 else "udp", src, sp, dst, dp)
+            syn = proto == 6 and tcp_flags & 0x02 and not tcp_flags & 0x10
+            flow = flows.get(key)
+            if flow is None or syn:
+                # A SYN on a reused four-tuple starts a new connection.
+                flow = flows[key] = {
+                    "protocol": key[0], "src": src, "src_port": sp, "dst": dst, "port": dp,
+                    "host": None, "names": [], "first_ts": t, "seen_before_typing": not in_window,
+                    "syn_ts": t if syn else None, "syn_in_window": bool(syn and in_window),
+                    "window_out": [], "window_in": [], "udp_background": [],
+                }
+            if not in_window:
+                flow["seen_before_typing"] = True
+            if proto == 6:
+                sni = _tls_sni(data) if data else None
+                if sni:
+                    flow["host"] = sni.lower().rstrip(".")
+            elif dp == 53 and len(data) > 12:
+                name = _dns_name(data, 12)[0].lower().rstrip(".")
+                flow["host"] = name
+                if in_window:
+                    flow["names"].append(name)
+            if in_window and data:
+                flow["window_out"].append([round(t, 3), len(data), keepalive_sized(data)])
+                if proto == 17:
+                    flow["udp_background"].append(_udp_background(flow["host"], dst, dp))
+    out = []
+    for flow in flows.values():
+        if not (flow["syn_in_window"] or flow["window_out"]):
+            continue
+        host = flow["host"]
+        if flow["protocol"] == "tcp":
+            background = host in SECURITY_SETTINGS_HOSTS or host in OS_NOISE_HOSTS
+        else:
+            background = bool(flow["udp_background"]) and all(flow["udp_background"])
+        reasons = []
+        if flow["port"] in DNS_PORTS:
+            reasons.append("dns-query")
+        if flow["syn_in_window"]:
+            reasons.append("new-connection")
+        elif not flow["seen_before_typing"]:
+            reasons.append("not-open-before-typing")
+        if flow["protocol"] == "udp" and flow["port"] not in DNS_PORTS:
+            reasons.append("udp-datagram")
+        if flow["dst"] in resolved:
+            reasons.append("resolved-during-typing")
+        if host and host in sensitive:
+            reasons.append("search-or-suggest-host")
+        if any(not small for _t, _n, small in flow["window_out"]):
+            reasons.append("payload-exceeds-keepalive")
+        verdict = "background" if background else ("typing-traffic" if reasons else "keepalive")
+        out.append({
+            "protocol": flow["protocol"], "src": flow["src"], "src_port": flow["src_port"],
+            "dst": flow["dst"], "port": flow["port"], "host": host,
+            "dns_names": flow["names"], "opened_ts": flow["syn_ts"] or flow["first_ts"],
+            "opened": ("during-typing" if flow["syn_in_window"] or not flow["seen_before_typing"]
+                       else "before-typing"),
+            "resolved_during_typing": resolved.get(flow["dst"], []),
+            "window_out": [[t, n] for t, n, _small in flow["window_out"]],
+            "window_out_bytes": sum(n for _t, n, _small in flow["window_out"]),
+            "window_in": flow["window_in"],
+            "reasons": reasons, "verdict": verdict, "ok": verdict != "typing-traffic",
+        })
+    out.sort(key=lambda r: (r["ok"], r["opened_ts"]))
+    return {"keepalive_record_max": KEEPALIVE_RECORD_MAX, "flows": out,
+            "typing_flows": [r for r in out if not r["ok"]]}
 
 # --------------------------------------------------------------------------
 # DEX string table -- for the APK static checks.  Reads the real string_ids
@@ -2954,6 +3190,73 @@ def check_ubo_preinstall(m, res):
             {"addons": listed, "bootstrap_location": boot})
     return ok
 
+def launcher_component(adb, pkg):
+    """The activity a home-screen tap starts, as the package manager resolves it."""
+    out = adb.shell("cmd package resolve-activity --brief -a android.intent.action.MAIN "
+                    "-c android.intent.category.LAUNCHER %s" % pkg, timeout=60)
+    lines = [l.strip() for l in out.splitlines() if l.strip()]
+    if not lines or not lines[-1].startswith(pkg + "/"):
+        raise HarnessError("could not resolve the launcher activity of %s: %r" % (pkg, out))
+    return lines[-1]
+
+def grade_launcher_phase(xml, logcat, alive):
+    """One launcher cold start: no failure dialog or log, a positive ready line,
+    and the app still running. A missing ready line is a failure, not a pass:
+    "no dialog" alone cannot tell a ready browser from one that never started."""
+    lines = logcat.splitlines()
+    failed = [l for l in lines if UBO_FAILED_LOG in l]
+    ready = [l for l in lines if UBO_READY_LOG in l]
+    dialog = UBO_FAILURE_TITLE in html.unescape(xml or "")
+    problems = []
+    if dialog:
+        problems.append("the '%s' dialog is showing" % UBO_FAILURE_TITLE)
+    if failed:
+        problems.append("the preinstaller logged a startup failure")
+    if not ready:
+        problems.append("no readiness line was logged")
+    if not alive:
+        problems.append("the app is not running")
+    return {"ok": not problems, "problems": problems, "dialog": dialog,
+            "failed_lines": failed[:5], "ready_lines": ready[:5],
+            "gecko_window_lines": [l for l in lines if "chrome startup finished" in l][:5]}
+
+def check_launcher_start(app, adb, res, wait=LAUNCHER_START_WAIT):
+    """Cold-start from the LAUNCHER, never from a URL, on a fresh profile and again
+    on a restart. Every other device check opens a URL first (Marionette needs a
+    Gecko window), and a VIEW intent makes IntentReceiverActivity open a speculative
+    GeckoSession. That window is what releases Gecko's delayed extension startup,
+    so a URL-started harness could never see a launcher start that has none: Beta 2
+    showed the uBO failure dialog 30 s into every launcher cold start."""
+    component = launcher_component(adb, app.pkg)
+    phases = []
+    for name in ("first-run", "restart"):
+        app.force_stop()
+        time.sleep(2)
+        adb.run("logcat", "-c", timeout=60)
+        started = time.time()
+        adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "
+                  "-f 0x10200000 -n %s" % component, timeout=90)
+        time.sleep(max(0, wait - (time.time() - started)))
+        xml = _ui_dump(adb)
+        logcat = adb.out("logcat", "-d", "-v", "threadtime", timeout=120)
+        for suffix, body in (("ui.xml", xml), ("logcat.txt", logcat)):
+            with open(os.path.join(app.work, "launcher-start-%s-%s" % (name, suffix)), "w") as f:
+                f.write(body)
+        phase = grade_launcher_phase(xml, logcat, app.alive())
+        phase.update({"phase": name, "component": component,
+                      "waited_seconds": round(time.time() - started, 1)})
+        phases.append(phase)
+        log("check-launcher-start: %s %s%s" % (name, "ok" if phase["ok"] else "FAILED: ",
+                                               "; ".join(phase["problems"])))
+    ok = all(p["ok"] for p in phases)
+    res.add("check-launcher-start", ok,
+            ("launcher cold starts (fresh profile and restart, %s) reached uBO readiness "
+             "with no setup-failure dialog after %ds" % (component, wait)) if ok else
+            "; ".join("%s: %s" % (p["phase"], ", ".join(p["problems"]))
+                      for p in phases if not p["ok"]),
+            {"phases": phases})
+    return ok
+
 def ubo_bundle_evidence(apk):
     """Bind a behavior probe to the exact packaged, pinned filter input."""
     with zipfile.ZipFile(apk) as archive:
@@ -3151,13 +3454,7 @@ def check_search(m, res, adb, apk, app=None, scheme=None):
     from Gecko at all.  Fenix owns it, so the query has to be typed into the
     Fenix toolbar like a user would."""
     token = "lwsmokeq%d" % int(time.time() % 100000)
-    adb.shell("uiautomator dump /sdcard/lw-smoke-ui.xml", timeout=60)
-    xml = adb.shell("cat /sdcard/lw-smoke-ui.xml", timeout=60)
-    pt = None
-    for ident in URLBAR_IDS:
-        pt = _node_bounds(xml, ident)
-        if pt:
-            break
+    xml, pt, notice_acknowledged = toolbar_ready(adb, app.pkg if app is not None else None)
     if not pt:
         raise HarnessError("could not find the Fenix address bar in the UI tree (tried %s). "
                            "Without it there is no way to run a real query, and a static scan "
@@ -3224,7 +3521,8 @@ def check_search(m, res, adb, apk, app=None, scheme=None):
             {"url": url, "partner_codes": ["%s=%s" % c for c in codes],
              "expected_engines": expected, "expected_default": expected_default,
              "shown_engine_screen": shown[:60], "shown_default": shown_default,
-             "legacy_bundle_plugins": len(plugins)})
+             "legacy_bundle_plugins": len(plugins),
+             "ubo_notice_acknowledged": notice_acknowledged})
     return ok
 
 
@@ -3284,6 +3582,140 @@ def _deeplink(adb, pkg, scheme, path):
               timeout=90)
     time.sleep(3)
 
+# The first-run "uBlock Origin was added" sheet covers the toolbar on a fresh
+# profile.  Recognition is the graphics harness's ubo_added_notice(): the exact
+# native installed notice and its OK, never a generic OK or a permission dialog.
+# Tapping that OK is a user action that only dismisses the completed notice.
+_GRAPHICS_MODULE = None
+
+def _graphics_module():
+    global _GRAPHICS_MODULE
+    if _GRAPHICS_MODULE is None:
+        import importlib.util
+        path = os.path.join(os.environ.get("LW_SMOKE_REPO", "."), "scripts", "android-graphics-smoke.py")
+        if not os.path.isfile(path):
+            raise HarnessError("the uBO installed-notice recognizer lives in %s, which is missing" % path)
+        spec = importlib.util.spec_from_file_location("lw_smoke_graphics_ui", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _GRAPHICS_MODULE = module
+    return _GRAPHICS_MODULE
+
+def acknowledge_ubo_added_notice(adb, pkg, xml, timeout=25):
+    """(xml, acknowledged).  Tap the notice's OK once, then wait read-only for
+    the sheet to go; xml is the fresh hierarchy without it."""
+    g = _graphics_module()
+    try:
+        button = g.ubo_added_notice(xml, pkg)
+    except g.Failure as e:
+        raise HarnessError(str(e))
+    if button is None:
+        return xml, False
+    log("acknowledging the first-run 'uBlock Origin was added' sheet (one tap on its OK)")
+    adb.shell("input tap %d %d" % tuple(button["centre"]), timeout=60)
+    deadline = time.time() + timeout
+    while True:
+        time.sleep(0.5)
+        xml = _ui_dump(adb)
+        try:
+            present = g.ubo_added_notice_present(xml, pkg)
+        except g.Failure as e:
+            raise HarnessError(str(e))
+        if not present:
+            return xml, True
+        if time.time() >= deadline:
+            raise HarnessError("the uBlock Origin installed notice did not close after its OK")
+
+def toolbar_ready(adb, pkg, timeout=45, settle=2.0):
+    """(xml, address-bar centre or None, notice acknowledged).
+
+    The bar counts as ready when two dumps `settle` seconds apart both show it
+    at the same place with no uBO installed notice: the sheet arrives a moment
+    after uBO's startup, so one clean dump does not prove it will not cover the
+    bar.  pkg None skips notice handling (no app object)."""
+    acknowledged, previous, xml = False, None, ""
+    deadline = time.time() + timeout
+    while True:
+        xml = _ui_dump(adb)
+        if pkg:
+            xml, acked = acknowledge_ubo_added_notice(adb, pkg, xml)
+            if acked:
+                acknowledged, previous = True, None
+                continue
+        pt = next((p for ident in URLBAR_IDS for p in [_node_bounds(xml, ident)] if p), None)
+        if pt and pt == previous:
+            return xml, pt, acknowledged
+        previous = pt
+        if time.time() >= deadline:
+            return xml, None, acknowledged
+        time.sleep(settle)
+
+# uBO's asset updater, read from the bundled xpi rather than assumed: start.js
+# schedules it autoUpdateDelayAfterLaunch seconds after every launch and
+# assets.js then fetches one stale list every autoUpdateAssetFetchPeriod seconds
+# until none is left ("Updater: cycle end").  check_no_suggest restarts the app,
+# so on a young profile the cycle lands in the typing window unless it waits.
+def ubo_update_schedule(apk):
+    with zipfile.ZipFile(apk) as archive:
+        xpi = archive.read("assets/extensions/ublock_origin.xpi")
+    with zipfile.ZipFile(io.BytesIO(xpi)) as extension:
+        background = extension.read("js/background.js").decode("utf-8", "replace")
+    out = {}
+    for key in ("autoUpdateDelayAfterLaunch", "autoUpdateAssetFetchPeriod"):
+        m = re.search(r"\b%s:\s*(\d+)\s*," % key, background)
+        if not m:
+            raise HarnessError("bundled uBO js/background.js has no numeric %s default; "
+                               "the post-launch quiet wait cannot be derived" % key)
+        out[key] = int(m.group(1))
+    return out
+
+# Margin for uBO's own startup before its launch timer starts (rc2: ready 5.7 s
+# after START on a fresh profile), and the quiet span that proves the cycle
+# ended: several fetch periods with nothing outbound.
+UBO_STARTUP_ALLOWANCE_S = 30
+SETTLE_TIMEOUT_S = 300
+
+def wait_post_launch_quiet(payloads, size, start_offset, launched, schedule,
+                           timeout=SETTLE_TIMEOUT_S, poll=2.0, clock=time.monotonic,
+                           sleep=time.sleep):
+    """Wait until uBO's post-launch updater cycle is over, judged by the capture.
+
+    Ready when (a) uBO's launch timer must have fired -- autoUpdateDelayAfterLaunch
+    plus a startup allowance since `launched` -- and (b) no non-background
+    outbound payload appeared for `quiet` seconds, longer than several of the
+    updater's fetch periods, so a pause between two list fetches is not taken
+    for the end.  Nothing is exempted: traffic here is only recorded, and the
+    typing window that follows is judged exactly as before.  `payloads(offset)`
+    returns pcap_payloads rows from offset; `size()` the capture size;
+    start_offset is the capture size at launch, so nothing since then is missed
+    (traffic is timed when a poll first sees it, which can only lengthen the wait)."""
+    earliest = schedule["autoUpdateDelayAfterLaunch"] + UBO_STARTUP_ALLOWANCE_S
+    quiet = max(20, 3 * schedule["autoUpdateAssetFetchPeriod"])
+    offset, last_activity, seen = start_offset, launched, {}
+    while True:
+        now = clock()
+        if now - launched >= earliest and now - last_activity >= quiet:
+            settled = True
+            break
+        if now - launched >= timeout:
+            settled = False
+            break
+        sleep(poll)
+        end = size()
+        # A packet completed after `end` but read now is counted again next
+        # poll; that only refreshes last_activity, it never hides traffic.
+        rows = [r for r in payloads(offset) if not r["background"]]
+        offset = end
+        if rows:
+            last_activity = clock()
+            for r in rows:
+                key = r["host"] or r["dst"]
+                seen[key] = seen.get(key, 0) + r["bytes"]
+    return {"settled": settled, "waited_s": round(clock() - launched, 1),
+            "earliest_s": earliest, "quiet_s": quiet, "timeout_s": timeout,
+            "quiet_since_s": round(clock() - last_activity, 1),
+            "ubo_schedule": schedule, "hosts_bytes": seen}
+
 def deeplink_scheme(args, sdk, apk):
     """The APK's own scheme when aapt2 is around to read it; otherwise the one
     LW-M4-07's branding.patch registers, said out loud."""
@@ -3320,8 +3752,51 @@ def expected_engines():
 # the old contile host is kept so a rebase that brings it back is still caught.
 SPONSORED_TILE_HOSTS = ("ads.mozilla.org", "contile.services.mozilla.com")
 
-def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
-    """Check typing payloads as well as handshakes, with a real search control."""
+SUGGEST_SWITCH = "Show search suggestions"
+
+def search_endpoint_hosts(config):
+    """Every search and suggestion host the shipped engine config names."""
+    from urllib.parse import urlsplit
+    hosts = set()
+    for r in config:
+        if r.get("recordType") != "engine":
+            continue
+        for url in (r.get("base", {}).get("urls") or {}).values():
+            host = urlsplit(url.get("base", "")).hostname
+            if host:
+                hosts.add(host.lower())
+    return sorted(hosts)
+
+def set_suggestions_switch(adb, pkg, scheme, want):
+    """Drive Settings > Search's suggestions switch to `want` through the real UI.
+    Returns (state before, state after); None where the switch was not found."""
+    _deeplink(adb, pkg, scheme, "settings_search_engine")
+    xml, pt = _find_row(adb, SUGGEST_SWITCH)
+    before = _switch_after(xml, SUGGEST_SWITCH) if pt else None
+    after = before
+    if before is not None and before != want:
+        position = _switch_bounds_after(xml, SUGGEST_SWITCH)
+        if position:
+            adb.shell("input tap %d %d" % position, timeout=60)
+            time.sleep(1.5)
+            after = _switch_after(_ui_dump(adb), SUGGEST_SWITCH)
+    adb.shell("input keyevent 4", timeout=60)
+    time.sleep(1.5)
+    return before, after
+
+def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk, negative_control=False):
+    """Check typing traffic by connection, with a real search control.
+
+    The typing window opens only after uBO's post-launch filter-list update has
+    run and the capture has gone quiet (wait_post_launch_quiet): those fetches
+    are not suggestions, and nothing is exempted to make room for them.  The
+    window is then judged per connection (attribute_typing_flows): a new
+    connection, a DNS query, or more than a keep-alive record on an old
+    connection is typing traffic.
+
+    negative_control turns "Show search suggestions" ON through Settings before
+    typing.  The check must then FAIL, and the evidence names the suggestion
+    host; the switch is put back OFF afterwards."""
     from urllib.parse import urlsplit, parse_qs
     require_pcap(pcap)
     with open(os.path.join(os.environ.get("LW_SMOKE_REPO", "."),
@@ -3329,19 +3804,46 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
         config = json.load(f)["data"]
     default_id = next(r["globalDefault"] for r in config
                       if r.get("recordType") == "defaultEngines")
-    search = next(r["base"]["urls"]["search"] for r in config
-                  if r.get("identifier") == default_id)
+    default_urls = next(r["base"]["urls"] for r in config
+                        if r.get("identifier") == default_id)
+    search = default_urls["search"]
     search_host = urlsplit(search["base"]).hostname
     search_param = search.get("searchTermParamName", "q")
+    suggest_host = urlsplit((default_urls.get("suggestions") or {}).get("base", "")).hostname
+    endpoint_hosts = search_endpoint_hosts(config)
+    check_name = "check-no-suggest" + ("-negative-control" if negative_control else "")
+    schedule = ubo_update_schedule(apk)
     app.push_debug_config()
     app.force_stop()
     time.sleep(1)
     guest = app.guest_ips()
     off_all = pcap_size(pcap)
+    launched = time.monotonic()
     app.start_home()
-    time.sleep(8)
-    xml = _ui_dump(adb)
-    pt = next((p for ident in URLBAR_IDS for p in [_node_bounds(xml, ident)] if p), None)
+    _xml, _pt, notice_acknowledged = toolbar_ready(adb, app.pkg)
+    control_switch = None
+    if negative_control:
+        before, after = set_suggestions_switch(adb, app.pkg, scheme, True)
+        control_switch = {"before": before, "after": after}
+        log("check-no-suggest: NEGATIVE CONTROL -- '%s' %r -> %r before typing"
+            % (SUGGEST_SWITCH, before, after))
+        if after is not True:
+            raise HarnessError("negative control could not turn '%s' ON (%r)"
+                               % (SUGGEST_SWITCH, control_switch))
+
+    def settle_payloads(offset):
+        guest.update(app.guest_ips())
+        return pcap_payloads(pcap, offset, guest)
+    log("check-no-suggest: waiting for uBO's post-launch list update (%ds after launch, "
+        "fetch period %ds) and a quiet capture before typing"
+        % (schedule["autoUpdateDelayAfterLaunch"], schedule["autoUpdateAssetFetchPeriod"]))
+    settle = wait_post_launch_quiet(settle_payloads, lambda: pcap_size(pcap), off_all,
+                                    launched, schedule)
+    log("check-no-suggest: %s after %.0fs; pre-typing outbound bytes by host: %s"
+        % ("quiet" if settle["settled"] else "NOT quiet", settle["waited_s"],
+           settle["hosts_bytes"] or "none"))
+    xml, pt, acked = toolbar_ready(adb, app.pkg)
+    notice_acknowledged = notice_acknowledged or acked
     if not pt:
         raise HarnessError("could not find the Fenix address bar; typing check cannot run")
     adb.shell("input tap %d %d" % pt, timeout=60)
@@ -3360,6 +3862,19 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
     typing_app = [r for r in typing_rows if not r["os_noise"] and not r.get("harness")]
     typing_payloads = pcap_payloads(pcap, off_typing, guest, off_enter)
     suspect_payloads = [r for r in typing_payloads if not r["background"]]
+    attribution = attribute_typing_flows(pcap, guest, off_typing, off_enter, endpoint_hosts)
+    # Belt and braces: every non-background payload pcap_payloads saw must sit
+    # on a flow the attribution passed, or the window is typing traffic.
+    passed = {(r["protocol"], r["src"], r["src_port"], r["dst"], r["port"])
+              for r in attribution["flows"] if r["ok"]}
+    unattributed = [r for r in suspect_payloads
+                    if (r["protocol"], r["src"], r["src_port"], r["dst"], r["port"]) not in passed]
+    typing_flows = attribution["typing_flows"]
+    for r in attribution["flows"]:
+        log("check-no-suggest: flow %s %s:%d -> %s:%d %s opened %s, out %s: %s%s"
+            % (r["protocol"], r["src"], r["src_port"], r["dst"], r["port"], r["host"] or "-",
+               r["opened"], [n for _t, n in r["window_out"]] or "SYN only", r["verdict"],
+               (" (" + ", ".join(r["reasons"]) + ")") if r["reasons"] else ""))
     sys.stdout.write(render_capture(typing_rows))
 
     # Enter alone commits the original query. Retyping a character here could
@@ -3413,53 +3928,84 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
     all_rows = summarise_capture(pcap, off_all, guest_ips=guest)
     sponsored = [r for r in all_rows
                  if any(h in (r["detail"] or "").lower() for h in SPONSORED_TILE_HOSTS)]
-    _deeplink(adb, app.pkg, scheme, "settings_search_engine")
-    sxml, spt = _find_row(adb, "Show search suggestions")
-    switch = _switch_after(sxml, "Show search suggestions") if spt else None
-    toggled = {}
-    if switch is False:
-        position = _switch_bounds_after(sxml, "Show search suggestions")
-        if position:
-            try:
-                adb.shell("input tap %d %d" % position, timeout=60)
-                time.sleep(1.5)
-                toggled["on"] = _switch_after(_ui_dump(adb), "Show search suggestions")
-            finally:
-                current = _ui_dump(adb)
-                if _switch_after(current, "Show search suggestions") is True:
-                    position = _switch_bounds_after(current, "Show search suggestions")
-                    if position:
-                        adb.shell("input tap %d %d" % position, timeout=60)
-                        time.sleep(1.5)
-                toggled["restored_off"] = _switch_after(_ui_dump(adb), "Show search suggestions") is False
-    adb.shell("input keyevent 4", timeout=60)
+    if negative_control:
+        # Put the profile back the way the product ships it.
+        restored = set_suggestions_switch(adb, app.pkg, scheme, False)
+        control_switch["restored_off"] = restored[1] is False
+        switch, toggled = None, {}
+    else:
+        _deeplink(adb, app.pkg, scheme, "settings_search_engine")
+        sxml, spt = _find_row(adb, SUGGEST_SWITCH)
+        switch = _switch_after(sxml, SUGGEST_SWITCH) if spt else None
+        toggled = {}
+        if switch is False:
+            position = _switch_bounds_after(sxml, SUGGEST_SWITCH)
+            if position:
+                try:
+                    adb.shell("input tap %d %d" % position, timeout=60)
+                    time.sleep(1.5)
+                    toggled["on"] = _switch_after(_ui_dump(adb), SUGGEST_SWITCH)
+                finally:
+                    current = _ui_dump(adb)
+                    if _switch_after(current, SUGGEST_SWITCH) is True:
+                        position = _switch_bounds_after(current, SUGGEST_SWITCH)
+                        if position:
+                            adb.shell("input tap %d %d" % position, timeout=60)
+                            time.sleep(1.5)
+                    toggled["restored_off"] = _switch_after(_ui_dump(adb), SUGGEST_SWITCH) is False
+        adb.shell("input keyevent 4", timeout=60)
 
     problems = []
-    if suspect_payloads:
-        problems.append("typing emitted %d outbound payload bytes on %d packet(s), "
-                        "including reused TLS connections; quiet typing is unproven: %s"
-                        % (sum(r["bytes"] for r in suspect_payloads), len(suspect_payloads),
-                           sorted({r["host"] or r["dst"] for r in suspect_payloads})[:6]))
+    if typing_flows or unattributed:
+        hosts = sorted({r["host"] or r["dst"] for r in typing_flows} |
+                       {r["host"] or r["dst"] for r in unattributed})
+        problems.append("typing produced traffic on %d connection(s) (%s), %d outbound payload "
+                        "bytes; quiet typing is unproven: %s%s%s"
+                        % (len(typing_flows),
+                           "; ".join(sorted({"%s: %s" % (r["host"] or r["dst"], ",".join(r["reasons"]))
+                                             for r in typing_flows}))[:600],
+                           sum(r["window_out_bytes"] for r in typing_flows),
+                           hosts[:8],
+                           " (+%d payload(s) on no passing flow)" % len(unattributed)
+                           if unattributed else "",
+                           "" if settle["settled"] else
+                           " (the capture never went quiet in the %ds before typing)"
+                           % settle["timeout_s"]))
     if not searched:
         problems.append("search control unproven: %d payload bytes to %s, current URL=%r"
                         % (search_bytes, search_host, url))
     if sponsored:
         problems.append("%d event(s) to a sponsored-tile host: %s"
                         % (len(sponsored), sorted({r["detail"] for r in sponsored})[:4]))
-    if switch is None:
-        problems.append("no 'Show search suggestions' switch found in Settings > Search")
+    if negative_control:
+        if not control_switch.get("restored_off"):
+            problems.append("negative control could not restore '%s' OFF: %r"
+                            % (SUGGEST_SWITCH, control_switch))
+    elif switch is None:
+        problems.append("no '%s' switch found in Settings > Search" % SUGGEST_SWITCH)
     elif switch:
-        problems.append("'Show search suggestions' reads ON by default")
+        problems.append("'%s' reads ON by default" % SUGGEST_SWITCH)
     elif toggled.get("on") is not True or toggled.get("restored_off") is not True:
-        problems.append("'Show search suggestions' ON/OFF round trip failed: %r" % toggled)
+        problems.append("'%s' ON/OFF round trip failed: %r" % (SUGGEST_SWITCH, toggled))
+    suggest_flows = [r for r in typing_flows if suggest_host and r["host"] == suggest_host]
+    if negative_control:
+        problems.insert(0, "NEGATIVE CONTROL (suggestions ON before typing): %s"
+                        % ("suggestion traffic to %s was caught on %d connection(s)"
+                           % (suggest_host, len(suggest_flows)) if suggest_flows else
+                           "NO connection to the suggestion host %s was caught -- the check "
+                           "cannot see what it guards" % suggest_host))
     ok = not problems
-    res.add("check-no-suggest", ok,
-            ("typed %r: no outbound transport payload outside explicitly identified "
-             "security-settings/OS background flows for %ds; Enter produced %d payload "
+    res.add(check_name, ok,
+            ("typed %r: for %ds no new connection, no DNS query and nothing but HTTP/2 "
+             "keep-alive records on connections opened before typing (%d keep-alive, %d "
+             "background flow(s)); Enter produced %d payload "
              "bytes to %s and the actual URL contains the submitted query; no sponsored "
              "host; 'Show search suggestions' OFF by default and ON/OFF round trip verified"
-             % (token, capture_seconds, search_bytes, search_host)) if ok else
-            "; ".join(problems) + " -- owned by LW-M4-11",
+             % (token, capture_seconds,
+                sum(r["verdict"] == "keepalive" for r in attribution["flows"]),
+                sum(r["verdict"] == "background" for r in attribution["flows"]),
+                search_bytes, search_host)) if ok else
+            "; ".join(problems) + ("" if negative_control else " -- owned by LW-M4-11"),
             {"token": token, "url_after_enter": url, "search_document": document,
              "typing_events": typing_app[:100],
              "typing_payloads": typing_payloads, "enter_payloads": enter_payloads,
@@ -3468,7 +4014,12 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme):
              "typing_capture_offset": off_typing, "enter_capture_offset": off_enter,
              "app_capture_offset": off_all, "guest_ips": sorted(guest),
              "post_enter_pcap_bytes": dpcap, "post_enter_search_payload_bytes": search_bytes,
-             "capture_seconds": capture_seconds})
+             "capture_seconds": capture_seconds, "pre_typing_settle": settle,
+             "ubo_notice_acknowledged": notice_acknowledged,
+             "typing_flow_attribution": attribution, "typing_flows_failed": typing_flows,
+             "unattributed_payloads": unattributed, "suggest_host": suggest_host,
+             "suggest_host_flows": suggest_flows, "negative_control": negative_control,
+             "negative_control_switch": control_switch})
     return ok
 
 # LW-M6-06.  The update host, overridable for a build made with
@@ -3638,10 +4189,13 @@ def main(argv):
                     help="prove the harness reports failure when a probe fails")
     for f in ("ubo", "ubo-preinstall", "ubo-lifecycle", "search", "no-gms", "no-adjust",
               "aboutconfig", "no-suggest", "strings", "update-privacy",
-              "no-remote-settings", "https-only"):
+              "no-remote-settings", "https-only", "launcher-start"):
         ap.add_argument("--check-" + f, action="store_true")
+    ap.add_argument("--no-suggest-negative-control", action="store_true",
+                    help="with --check-no-suggest: turn 'Show search suggestions' ON before "
+                         "typing; the check must then FAIL on the suggestion host's traffic")
     args = ap.parse_args(argv)
-    if (args.check_ubo_preinstall or args.check_ubo_lifecycle) and args.keep_state:
+    if (args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_launcher_start) and args.keep_state:
         raise HarnessError("uBO first-install checks require an empty app profile; omit --keep-state")
 
     for flag, why in NOT_IMPLEMENTED.items():
@@ -3691,7 +4245,8 @@ def main(argv):
         args.emulator or args.serial or args.pref_dump or args.network_capture
         or args.first_run_capture or args.check_ubo or args.check_search
         or args.check_aboutconfig or args.check_no_suggest or args.check_update_privacy
-        or args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_https_only or args.self_test)
+        or args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_https_only
+        or args.check_launcher_start or args.self_test)
     if args.check_no_gms:
         check_no_gms(apk, res)
     if args.check_no_adjust:
@@ -3811,10 +4366,16 @@ def main(argv):
                                           "guest_ips": sorted(guest)})
             return finish(res, args, work)
 
+        # ---- --check-launcher-start: no URL, no Marionette, empty profile ----
+        if args.check_launcher_start:
+            check_launcher_start(app, adb, res)
+            return finish(res, args, work)
+
         # ---- --check-no-suggest: nothing leaves the toolbar before Enter ----
         if args.check_no_suggest:
             check_no_suggest(app, adb, pcap, args.capture_seconds, res,
-                             deeplink_scheme(args, sdk, apk))
+                             deeplink_scheme(args, sdk, apk), apk,
+                             negative_control=args.no_suggest_negative_control)
             return finish(res, args, work)
 
         # ---- --check-update-privacy: opt-in, and silent when off (LW-M6-06) ----

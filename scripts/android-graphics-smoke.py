@@ -211,6 +211,119 @@ def ubo_added_notice(xml, package):
     return matches[0] if matches else None
 
 
+def ubo_added_notice_present(xml, package):
+    """True while any part of the notice's title is still in the hierarchy.
+
+    Read-only check used after the single OK tap: the sheet may be mid-animation
+    and no longer match ubo_added_notice()'s exact shape, yet still be on screen.
+    """
+    return any(node.get("package") == package and
+               node.get("resource-id") == package + ":id/title" and
+               node.get("text") == UBO_ADDED_TITLE
+               for node in parse_ui(xml).iter("node"))
+
+
+def menu_item(xml, label, package):
+    """The unique visible menu entry labelled `label`, by text or content-desc.
+
+    Fenix's Compose toolbar menu (PopupToMenuItemsMapper.kt) clears the item's
+    semantics and sets only contentDescription, so uiautomator shows it as
+    content-desc="New private tab" with text="". A View-based menu exposes the
+    label as text instead. One node carrying both counts once; two different
+    nodes are ambiguous, never resolved by picking one.
+    """
+    found = {}
+    for selector in ({"text": label}, {"description": label}):
+        node = select_node(xml, package=package, required=False, **selector)
+        if node:
+            found[(node.get("bounds"), node.get("resource-id", ""), node.get("class", ""))] = node
+    require(len(found) <= 1, f"Ambiguous menu item {label!r}: matched by text and by content-desc on different nodes")
+    return next(iter(found.values()), None)
+
+
+def empty_private_home(xml, package):
+    """True on the private home Fenix shows after the last private tab closed.
+
+    Its tab-counter menu offers only "New tab"; a user types into the private
+    home's own address bar instead. Requires the counter to read 0 private tabs
+    and the address bar to be present, both from the real Fenix hierarchy.
+    """
+    counter = select_node(xml, package=package, description="Private Tabs Open: 0. Tap to switch tabs.",
+                          required=False)
+    return bool(counter and select_node(xml, package=package, rid="ADDRESSBAR_URL_BOX", required=False))
+
+
+TYPE_INPUT_METHOD = 0x7DB          # WindowManager.LayoutParams.TYPE_INPUT_METHOD
+FLAG_NOT_TOUCHABLE = 0x10
+INPUT_WINDOW_LINE = re.compile(r"^\s*\d+: name='(?P<name>[^']*)', (?P<attrs>.*)$")
+RECT = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
+
+
+def input_windows(dumpsys_input):
+    """Display 0's input windows from `dumpsys input`, topmost first.
+
+    This is what the input dispatcher targets, not what uiautomator dumps: a
+    uiautomator hierarchy holds only the active app window, so an IME or other
+    overlay above it is invisible to every selector. Only the live state is read;
+    the copy kept under "...at time of last ANR" is stale and ignored.
+    """
+    text = dumpsys_input.split("Input Dispatcher State at time of last ANR", 1)[0]
+    lines = text.splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines)
+                     if line.strip() == "Display: 0") + 1
+        start = next(i for i in range(start, len(lines)) if lines[i].strip() == "Windows:") + 1
+    except StopIteration:
+        raise Failure("dumpsys input has no window list for display 0")
+    windows = []
+    for line in lines[start:]:
+        match = INPUT_WINDOW_LINE.match(line)
+        if not match:
+            break
+        attrs = match.group("attrs")
+        field = lambda key: (re.search(r"(?:^|, )" + key + r"=([^,\s]*)", attrs) or [None, ""])[1]
+        region = re.search(r"touchableRegion=((?:\[-?\d+,-?\d+\]\[-?\d+,-?\d+\])*|<empty>)", attrs)
+        windows.append({
+            "name": match.group("name"),
+            "visible": field("visible") == "true",
+            "flags": int(field("flags") or "0", 16),
+            "type": int(field("type") or "0", 16),
+            "ownerUid": int(field("ownerUid") or "-1"),
+            "touchable": [tuple(map(int, rect)) for rect in RECT.findall(region.group(1) if region else "")],
+        })
+    require(windows, "dumpsys input listed no windows for display 0")
+    return windows
+
+
+def takes_touch(window, x, y):
+    return (window["visible"] and not window["flags"] & FLAG_NOT_TOUCHABLE and
+            any(left <= x < right and top <= y < bottom for left, top, right, bottom in window["touchable"]))
+
+
+def windows_covering(dumpsys_input, x, y, package):
+    """Foreign windows that would receive a tap at (x, y) before the app does.
+
+    Windows belong to the app by owner uid, so its dialogs and popups count as
+    its own. A tap that no app window would take is a failure, not an empty list.
+    """
+    windows = input_windows(dumpsys_input)
+    app_uids = {window["ownerUid"] for window in windows if package + "/" in window["name"]}
+    require(app_uids, f"No {package} window is in the input dispatcher's window list")
+    covering = []
+    for window in windows:
+        if not takes_touch(window, x, y):
+            continue
+        if window["ownerUid"] in app_uids:
+            return covering
+        covering.append(window)
+    raise Failure(f"No {package} window would receive a tap at {x},{y}")
+
+
+def soft_keyboard_window(dumpsys_input):
+    return next((window for window in input_windows(dumpsys_input)
+                 if window["type"] == TYPE_INPUT_METHOD and window["visible"] and window["touchable"]), None)
+
+
 def transport_config_facts(body):
     """Accept only the established transport-only config; report no secret values."""
     lines = [line.strip() for line in body.splitlines()
@@ -528,6 +641,7 @@ class UI:
         self.remote = "/sdcard/lw-graphics-" + run + ".xml"
         self.remote_used = False
         self.timeout, self.screenshots = timeout, screenshots
+        self.review_results = []
 
     def node(self, xml, **selector):
         return select_node(xml, package=self.package, **selector)
@@ -558,8 +672,59 @@ class UI:
                 raise Failure(f"Visible Fenix control did not appear: {selector}")
             time.sleep(0.25)
 
+    def input_state(self):
+        return self.shell("dumpsys", "input", timeout=30)
+
+    def close_soft_keyboard(self, reason, grace=1.5):
+        """Make sure no soft keyboard window takes touches; never touch the app to do it.
+
+        On the rc2 emulator, a URL submitted from the tab-counter menu's New
+        (private) tab leaves the keyboard on screen and in the input dispatcher
+        while InputMethodManagerService reports it hidden (mInputShown=false).
+        Back then goes to the browser and navigates; the keyboard stays. A tap
+        planned from a uiautomator dump, which cannot see the IME window, lands
+        on a key instead. The normal hide gets `grace` seconds; a keyboard still
+        taking touches after that is ended by force-stopping the IME package,
+        which is not the app under test, and the event is recorded.
+        """
+        deadline = time.monotonic() + grace
+        while True:
+            window = soft_keyboard_window(self.input_state())
+            if window is None:
+                return
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.2)
+        component = self.shell("settings", "get", "secure", "default_input_method").strip()
+        ime = component.split("/", 1)[0]
+        require(re.fullmatch(r"[A-Za-z][\w.]*", ime) and ime != self.package,
+                f"Cannot identify the default input method to close it: {component!r}")
+        listing = self.shell("pm", "list", "packages", "-U", ime)
+        uids = {int(uid) for name, uid in re.findall(r"package:(\S+) uid:(\d+)", listing) if name == ime}
+        require(window["ownerUid"] in uids,
+                f"The window taking touches ({window['name']}) does not belong to the default IME {ime}")
+        self.shell("am", "force-stop", ime)
+        self.evidence.event("soft-keyboard-closed", {"reason": reason, "method": "force-stop default IME",
+            "ime": component, "window": window["name"], "touchable": window["touchable"]})
+        deadline = time.monotonic() + 5
+        while soft_keyboard_window(self.input_state()) is not None:
+            if time.monotonic() >= deadline:
+                raise Failure("The soft keyboard still takes touches after its IME was stopped")
+            time.sleep(0.2)
+
+    def require_reachable(self, x, y, label):
+        """Refuse to tap through a window the uiautomator dump could not see."""
+        covering = windows_covering(self.input_state(), x, y, self.package)
+        if covering and all(window["type"] == TYPE_INPUT_METHOD for window in covering):
+            self.close_soft_keyboard(f"keyboard covered {label} at {x},{y}", grace=0)
+            covering = windows_covering(self.input_state(), x, y, self.package)
+        if covering:
+            raise Failure(f"Tap {label!r} at {x},{y} would land on another window: "
+                          + ", ".join(window["name"] for window in covering))
+
     def tap(self, node, label, long=False):
         x, y = node["centre"]
+        self.require_reachable(x, y, label)
         self.evidence.event("ui-action", {"action": "long-press" if long else "tap", "label": label,
             "resourceId": node.get("resource-id"), "text": node.get("text"), "centre": [x, y]})
         if long:
@@ -585,11 +750,7 @@ class UI:
         deadline = time.monotonic() + self.timeout
         while True:
             xml = self.dump("after-ubo-installed-notice", screenshot=True)
-            title_present = any(node.get("package") == self.package and
-                                node.get("resource-id") == self.package + ":id/title" and
-                                node.get("text") == UBO_ADDED_TITLE
-                                for node in parse_ui(xml).iter("node"))
-            if not title_present:
+            if not ubo_added_notice_present(xml, self.package):
                 return xml
             if time.monotonic() >= deadline:
                 raise Failure("uBlock Origin installed notice did not close after its OK action")
@@ -610,7 +771,43 @@ class UI:
                 return
         raise Failure("Permission controls did not close")
 
-    def open_permissions(self):
+    def quiet_review(self, notice, private):
+        """Tap the quiet notice's Review; True when it opened the permissions list.
+
+        The notice is a LENGTH_LONG snackbar shown on the first blocked request,
+        so it can expire between the dump that found it and the tap (rc2 had one
+        such miss in 34 normal-tab taps). A miss counts as expired only when the
+        notice is gone and no permission UI opened; the caller then uses the site
+        controls instead. run() still requires Review to have opened the list in
+        a normal and in a private tab, so a broken Review action cannot pass.
+        """
+        self.tap(notice, "quiet-review")
+        deadline = time.monotonic() + 6
+        while True:
+            xml = self.dump("quiet-review-list")
+            if self.node(xml, rid="origin_permissions_dialog_list", required=False):
+                self.review_results.append({"private": private, "opened": True})
+                self.evidence.event("quiet-review", {"private": private, "opened": True})
+                return True
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.25)
+        xml = self.dump("quiet-review-missed", screenshot=True)
+        if self.node(xml, rid="origin_permissions_dialog_list", required=False):
+            self.review_results.append({"private": private, "opened": True})
+            self.evidence.event("quiet-review", {"private": private, "opened": True})
+            return True
+        require(self.node(xml, rid="snackbar_action", text="Review", required=False) is None,
+                "Review was tapped and is still shown, but the permissions list did not open")
+        require(not any(self.node(xml, rid=rid, required=False) for rid in
+                        ("origin_permissions_entry", "origin_permission_allow", "origin_permission_reload")),
+                "Review opened something other than the permissions list")
+        self.review_results.append({"private": private, "opened": False})
+        self.evidence.event("quiet-review", {"private": private, "opened": False,
+                                             "fallback": "notice expired before the tap; using site controls"})
+        return False
+
+    def open_permissions(self, private=False):
         xml = self.dump("before-open-permissions", screenshot=True)
         xml = self.acknowledge_ubo_added_notice(xml)
         if self.node(xml, rid="origin_permissions_dialog_list", required=False):
@@ -618,10 +815,10 @@ class UI:
         entry = self.node(xml, rid="origin_permissions_entry", required=False)
         if not entry:
             notice = self.node(xml, text="Review", required=False)
-            if notice:
-                self.tap(notice, "quiet-review")
-                self.wait(rid="origin_permissions_dialog_list", label="quiet-review-list")
+            if notice and self.quiet_review(notice, private):
                 return
+            if notice:
+                xml = self.dump("after-expired-review")
             for rid in ("mozac_browser_toolbar_tracking_protection_indicator",
                         "mozac_browser_toolbar_site_info_indicator"):
                 indicator = self.node(xml, rid=rid, required=False)
@@ -637,7 +834,7 @@ class UI:
         self.wait(rid="origin_permissions_dialog_list", label="graphics-permissions-list")
 
     def choose(self, *, origin, kind, saved, decision, permanent, private, top_origin=None):
-        self.open_permissions()
+        self.open_permissions(private)
         row = f"origin_permission_{'saved' if saved else 'pending'}_{kind}"
         self.click(rid=row, origin=origin, label=f"select-{kind}-{'saved' if saved else 'pending'}")
         xml, node = self.wait(rid="origin_permission_request_origin", label="permission-origin")
@@ -676,7 +873,16 @@ class UI:
             require(len(matches) == 1, "Cannot identify the real Fenix tab counter uniquely")
             counter = self.node(xml, description=matches[0].get("content-desc"))
         self.tap(counter, "open-tab-counter-menu", long=True)
-        self.click(text=item, label="tab-menu-" + item)
+        deadline = time.monotonic() + self.timeout
+        while True:
+            xml = self.dump("tab-menu-" + item)
+            node = menu_item(xml, item, self.package)
+            if node:
+                self.tap(node, "tab-menu-" + item)
+                return
+            if time.monotonic() >= deadline:
+                raise Failure(f"Tab counter menu item {item!r} did not appear by text or content-desc")
+            time.sleep(0.25)
 
     def type_url(self, url):
         xml = self.dump("private-url-entry")
@@ -701,6 +907,8 @@ class UI:
         require(value == "" or (hint and value == hint), "New private address field is not empty")
         self.shell("input", "text", url)
         self.shell("input", "keyevent", "66")
+        # The page's quiet snackbar sits where the keyboard is; see close_soft_keyboard.
+        self.close_soft_keyboard("after private URL submission")
 
 
 class Runner:
@@ -843,7 +1051,8 @@ class Runner:
         since = time.time()
         self.evidence.event("navigate", {"url": url, "private": private})
         if private:
-            self.ui.tab_menu("New private tab")
+            if not empty_private_home(self.ui.dump("before-private-tab"), self.args.package):
+                self.ui.tab_menu("New private tab")
             self.ui.type_url(url)
         else:
             self.ui.close_permissions() if self.marionette else None
@@ -885,7 +1094,9 @@ class Runner:
             last = self.matching_record(origin, kind, private)
             if value is None and last is None:
                 return None
-            if last and last["value"] == value and last["expireType"] == (0 if permanent and not private else 2):
+            # nsIPermissionManager: EXPIRE_NEVER=0 for Remember in normal browsing,
+            # EXPIRE_SESSION=1 for one-time and private choices (dies with the process).
+            if last and last["value"] == value and last["expireType"] == (0 if permanent and not private else 1):
                 return last
             time.sleep(0.2)
         raise Failure("Actual UI choice did not produce the exact expected engine value/lifetime: " + str(last))
@@ -1121,6 +1332,12 @@ class Runner:
         for installed in self.evidence.data["installed"]["apk"]:
             final_hash = self.shell("sha256sum", installed["path"]).strip().split()[0]
             require(final_hash == installed["sha256"], "Installed APK changed during acceptance")
+        for private in (False, True):
+            require(any(r["opened"] and r["private"] == private for r in self.ui.review_results),
+                    "The quiet Review action never opened the permissions list in a %s tab"
+                    % ("private" if private else "normal"))
+        self.evidence.check("quiet-review-opens-permissions-in-normal-and-private-tabs",
+                            {"attempts": self.ui.review_results})
         required = {"core-real-ui-consent-and-revoke", "session-exceptions-expire-on-process-restart",
                     "remembered-exceptions-survive-process-restart",
                     "private-choices-isolated-and-cleared-on-last-private-close", "frame-origin-port-and-revoke-isolation"}

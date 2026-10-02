@@ -128,6 +128,31 @@ rule, the installed add-on's signature state, the DOM observations, and origin
 requests. The gate never adds test filters or installs a test uBO extension.
 Runtime evidence is still required before claiming that a candidate passes.
 
+### Launcher cold start: `--check-launcher-start`
+
+Every other device check starts the app with a URL (`App.start_url`), because
+Marionette's NewSession needs a Gecko window and the Fenix home screen is not
+one. That made one startup path invisible: a VIEW intent goes through
+`IntentReceiverActivity`, which opens a speculative GeckoSession, and that
+window's `extensions-late-startup` notification is what releases Gecko's delayed
+background-page startup. A launcher start opens no window — the uBO session
+middleware holds every tab until uBO is ready — so on Beta 2 and the first
+153.4 candidate uBO's background page never started and every launcher cold
+start after the first showed "uBlock Origin setup failed" exactly 30 s in, while
+every harness run (URL-started) was green.
+
+`--check-launcher-start` wipes the profile, then twice (fresh profile, then a
+restart) force-stops the app, clears logcat, starts the package manager's
+resolved launcher activity (`am start -a MAIN -c LAUNCHER -f 0x10200000 -n
+<pkg>/.App`, as a home-screen tap does), waits 45 s (past the preinstaller's 30 s
+timeout), and requires: no failure dialog in a `uiautomator` dump, no
+`uBlock Origin startup failed` log line, a positive `uBlock Origin startup ready:
+Ready(installed=true, enabled=true)` line, and a live process. Silence is not a
+pass. It uses no Marionette and no debug config. With AMO reachable the first
+phase also exercises an add-on update racing first-run readiness whenever AMO
+serves a newer uBO than the pin. The UI dump and logcat of each phase are kept
+in the work directory as `launcher-start-<phase>-*`.
+
 `--check-https-only` exercises the new default and is also part of the baseline
 page-load suite. HTTP to the local non-loopback fixture must show the browser's
 HTTPS-only interstitial. The test uses its actual Continue button, then requires
@@ -382,9 +407,10 @@ task is genuinely done.
 | `--first-run-capture` | LW-M4-10 | implemented | **FAIL** — 53–58 outbound events before any navigation |
 | `--network-capture` | LW-M4-01/03/08 | implemented | reports; the caller greps |
 | `--check-aboutconfig` | LW-M4-09 | implemented | exit 3 on a **debuggable** build (a pass there proves nothing); **PASS** on the release-configured APK — see below |
-| `--check-no-suggest` | LW-M4-11 | implemented | types a query into the toolbar and idles with Enter NOT pressed: the capture window must be empty, then Enter must produce traffic (the positive control that proves the capture was alive), no sponsored-tile host (`ads.mozilla.org`) anywhere since launch, and the "Show search suggestions" switch must exist in Settings > Search and read OFF |
+| `--check-no-suggest` | LW-M4-11 | implemented | after uBO's post-launch list update has gone quiet, types a query into the toolbar and idles with Enter NOT pressed: no connection may open, no DNS query may leave and no connection open before typing may carry more than an HTTP/2 keep-alive record (see below), then Enter must produce traffic (the positive control that proves the capture was alive), no sponsored-tile host (`ads.mozilla.org`) anywhere since launch, and the "Show search suggestions" switch must exist in Settings > Search and read OFF |
 | `--check-strings` | LW-M4-12 | implemented | two halves: the resource table (`aapt2` over the APK's `resources.arsc`, every locale) and a running-app traversal of the deep-linked settings screens (`--strings-locale`, `--strings-depth`, `--strings-max-taps`); a brand word in any string value that is not on the enumerated exception list fails it |
 | `--check-update-privacy` | LW-M6-06 | implemented | OFF window: launch, idle, open Settings — no event to an update host, and a dead capture (zero events) fails rather than passes. If the "Check for updates" row exists it must read OFF; the harness flips it, relaunches, and requires the update host to be contacted and nothing else new. A build without a row (compiled out, as a store build should be) passes the OFF half only |
+| `--check-launcher-start` | LW-M3-07 | implemented | launcher (not URL) cold starts on a fresh profile and a restart; fails on the uBO setup-failure dialog, a logged failure, or a missing readiness line. Beta 2 and the first 153.4 candidate: **FAIL** (dialog 30 s into the restart) |
 
 ### `--check-search` deserves a note
 
@@ -401,6 +427,121 @@ Marionette. That URL is then scanned for partner/attribution parameters. If the
 address bar cannot be found the harness raises a harness error rather than
 guessing — a static scan of the shipped engine list would not satisfy "verified
 from a real query", because a code appended at runtime would not appear in it.
+
+### `--check-no-suggest`: how the typing window is judged
+
+The check restarts the app, types a token into the toolbar in three
+`input text` chunks, idles `--capture-seconds` (60 s) with Enter **not**
+pressed, then presses Enter. The steps that make the typing window mean
+something:
+
+1. **The uBO installed notice.** On a fresh profile the "uBlock Origin was
+   added" sheet covers the toolbar. `toolbar_ready()` recognises that exact
+   native notice with the graphics harness's own `ubo_added_notice()` (loaded
+   from `scripts/android-graphics-smoke.py`, not copied), taps its OK once, and
+   accepts the address bar only after two dumps 2 s apart show it at the same
+   place with no sheet. A generic OK or a permission dialog is never tapped; a
+   notice that does not close is a harness error. `--check-search` uses the
+   same wait. The evidence records `ubo_notice_acknowledged`.
+2. **The pre-typing quiet wait.** uBO's asset updater runs
+   `autoUpdateDelayAfterLaunch` seconds after every launch and then fetches one
+   stale list every `autoUpdateAssetFetchPeriod` seconds. Both values are read
+   from the APK's bundled `ublock_origin.xpi` (`js/background.js`), never
+   assumed (1.75.0: 37 s and 5 s). Typing starts only when the launch timer must
+   have fired (delay + 30 s startup allowance) **and** the capture has carried
+   no non-background outbound payload for `max(20 s, 3 × fetch period)`. Nothing
+   is exempted: traffic seen during the wait is recorded per host
+   (`pre_typing_settle.hosts_bytes`). A capture that never goes quiet within
+   300 s is named in the failure detail.
+3. **Attribution by connection** (`attribute_typing_flows`). The quiet wait
+   cannot outlast HTTP/2 keep-alives: connections opened during startup (AMO,
+   uBO's list hosts) ping about every 59 s, so a ping or an idle-timeout close
+   lands in any 60 s window. rc2's final acceptance failed on exactly that: 13
+   non-background packets, all 39/46 B pings and 24/31 B TLS alerts on
+   connections opened before typing. The capture is therefore read from its
+   header to the end of the window in both directions, and every flow with an
+   outbound SYN, datagram or payload in the window gets a verdict. It is
+   **typing traffic** (the check fails) when any of these holds:
+
+   | reason | meaning |
+   | --- | --- |
+   | `dns-query` | a query to port 53 or 853, unless every name in it is an exempt background host (as before) |
+   | `new-connection` | an outbound TCP SYN inside the window |
+   | `not-open-before-typing` | a flow first seen inside the window without a SYN |
+   | `udp-datagram` | any other non-background UDP, QUIC included. No evidence justifies a UDP keep-alive exemption |
+   | `resolved-during-typing` | the flow's address came from a DNS answer inside the window |
+   | `search-or-suggest-host` | the flow's SNI is a search or suggestion host of any engine in `assets/search-config-v2.json`, whatever the size |
+   | `payload-exceeds-keepalive` | an outbound segment that is not **one** complete TLS application-data or alert record of at most 46 B |
+
+   A flow passes only as `background` (an SNI or DNS name on the existing
+   security-settings / OS-noise lists, the same exemption `pcap_payloads`
+   applies) or as `keepalive` (open before typing, nothing out but
+   keep-alive-sized records). As a cross-check, every non-background payload
+   `pcap_payloads` sees in the window must sit on a flow that passed.
+
+   **Why 46 B.** An HTTP/2 PING or GOAWAY is a 9-byte frame header plus an
+   8-byte payload: 17 B. TLS 1.3 wraps it in 5 B of record header, 1 B of inner
+   content type and a 16 B AEAD tag (39 B on the wire). TLS 1.2 AES-GCM uses a
+   5 B header, an 8 B explicit nonce and a 16 B tag (46 B). A 2-byte alert in the
+   same envelopes is 24 B or 31 B. Those four sizes are exactly what rc2 sent. A
+   46 B record leaves at most 24 B of HTTP/2 (15 B of HPACK after the frame
+   header) under TLS 1.3, too little for a request whose `:path` carries the
+   suggestion endpoint and the typed text. Plaintext, a handshake record, two
+   records coalesced into one segment, or a 47 B record all count as payload.
+
+   Every flow is listed in the check JSON under `typing_flow_attribution.flows`
+   (addresses, ports, SNI, when it was opened, the size of each outbound and
+   inbound segment in the window, the reasons and the verdict). The failing
+   ones are repeated in `typing_flows_failed`.
+4. **The search control.** Enter alone must then put the query on the wire to
+   the default engine's host, and Marionette must read the token from both the
+   current URL and the loaded document. A dead capture cannot pass.
+5. **Settings.** No sponsored-tile host since launch, and "Show search
+   suggestions" must exist in Settings > Search, read OFF, and survive an
+   ON/OFF round trip through the UI.
+
+**Negative control.** `--check-no-suggest --no-suggest-negative-control` turns
+"Show search suggestions" ON through Settings before the quiet wait, then runs
+the same window. It must FAIL, and its detail begins `NEGATIVE CONTROL` and
+names the suggestion host it caught (`ac.duckduckgo.com` for the shipped
+default). The switch is put back OFF afterwards; failing to restore it is
+reported too. The result row is called `check-no-suggest-negative-control`, so
+it cannot be mistaken for the gate.
+
+### Graphics acceptance: the soft keyboard and the quiet Review
+
+`scripts/android-graphics-smoke.py` (run as part of the baseline) taps controls
+it found in a uiautomator dump. A dump contains only the app window, so it
+cannot see a window above the app. On the rc2 emulator, a URL submitted from
+the tab-counter menu's New (private) tab leaves the soft keyboard on screen and
+taking touches over the bottom of the screen, even though
+`InputMethodManagerService` reports it hidden. A tap on the quiet "Review"
+snackbar then landed on a key (rc2 defect C, commit `f7f519f6`).
+
+- **Every tap is checked against the input dispatcher.** Before tapping, the
+  harness reads `dumpsys input` and refuses to tap through any foreign window.
+  If only a soft keyboard covers the point, it is closed first; anything else
+  is a failure.
+- **Keyboard force-close.** After submitting a URL the harness gives the
+  normal hide 1.5 s. A keyboard still taking touches after that is ended with
+  `am force-stop` of the **default IME package**, never the app under test.
+  Before doing so the harness checks that the covering window belongs to that
+  IME's uid, and afterwards it waits up to 5 s for the window to go. The event
+  is recorded as `soft-keyboard-closed`.
+- **Review-expiry fallback, and its requirement.** The quiet notice is a
+  LENGTH_LONG snackbar and can expire between the dump and the tap (rc2 had one
+  such miss in a normal tab). A missed Review counts as expired only if the
+  notice is gone **and** no other permission UI opened; the harness then opens
+  the permissions through the site controls instead. A Review that is still
+  shown after the tap, or that opened something other than the permissions
+  list, is a failure. To stop the fallback from hiding a broken Review action,
+  the run must still have had Review open the permissions list **at least once
+  in a normal tab and at least once in a private tab**. That is the check
+  `quiet-review-opens-permissions-in-normal-and-private-tabs`, and its evidence
+  lists every attempt.
+- After "Close tab" closes the last private tab, Fenix shows the empty private
+  home, whose tab-counter menu has no "New private tab". The next private page
+  is typed into that home's address bar.
 
 ### `--check-aboutconfig`, and the selector bug that made it a lie
 
@@ -624,6 +765,7 @@ the vacuous version later.
 --capture-seconds N    window length for the two capture modes (default 60)
 --pref-dump --network-capture --first-run-capture --self-test
 --check-{ubo,search,no-gms,no-adjust,aboutconfig,no-suggest,strings,update-privacy}
+--no-suggest-negative-control  with --check-no-suggest: suggestions ON before typing; must FAIL
 ```
 
 | variable | effect |
