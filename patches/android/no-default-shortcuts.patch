@@ -1,9 +1,14 @@
 # LW-M7-30: match the empty LibreWolf default-site seed; preserve existing user data.
+#
+# 157 rebase: upstream changed the bundled seed entries; the file is still read by
+# DefaultTopSitesBinding.getTopSites() (R.raw.initial_shortcuts), which adds nothing
+# for an empty list. Regenerated against the 157 seed.
 
 diff --git a/mobile/android/fenix/app/src/main/res/raw/initial_shortcuts.json b/mobile/android/fenix/app/src/main/res/raw/initial_shortcuts.json
+index e318e7c6d2..268c73f0e3 100644
 --- a/mobile/android/fenix/app/src/main/res/raw/initial_shortcuts.json
 +++ b/mobile/android/fenix/app/src/main/res/raw/initial_shortcuts.json
-@@ -1,123 +1,3 @@
+@@ -1,105 +1,3 @@
  {
 -  "data": [
 -    {
@@ -44,26 +49,8 @@ diff --git a/mobile/android/fenix/app/src/main/res/raw/initial_shortcuts.json b/
 -      "last_modified": 1
 -    },
 -    {
--      "url": "https://blog.mozilla.org/ja/firefox-ja/android-guide/",
--      "order": 1,
--      "title": "Firefoxガイド",
--      "schema": 1,
--      "exclude_locales": [],
--      "exclude_regions": [],
--      "include_locales": [],
--      "include_regions": [
--        "JP"
--      ],
--      "exclude_experiments": [],
--      "include_experiments": [
--        "firefox-jp-guide-default-site"
--      ],
--      "id": "",
--      "last_modified": 1
--    },
--    {
 -      "url": "https://tenki.jp/",
--      "order": 2,
+-      "order": 1,
 -      "title": "tenki.jp",
 -      "schema": 1,
 -      "exclude_locales": [],
@@ -79,7 +66,7 @@ diff --git a/mobile/android/fenix/app/src/main/res/raw/initial_shortcuts.json b/
 -    },
 -    {
 -      "url": "https://m.yahoo.co.jp/",
--      "order": 3,
+-      "order": 2,
 -      "title": "Yahoo! JAPAN",
 -      "schema": 1,
 -      "exclude_locales": [],
@@ -95,7 +82,7 @@ diff --git a/mobile/android/fenix/app/src/main/res/raw/initial_shortcuts.json b/
 -    },
 -    {
 -      "url": "https://ameblo.jp/",
--      "order": 4,
+-      "order": 3,
 -      "title": "Amebaブログ",
 -      "schema": 1,
 -      "exclude_locales": [],
@@ -111,7 +98,7 @@ diff --git a/mobile/android/fenix/app/src/main/res/raw/initial_shortcuts.json b/
 -    },
 -    {
 -      "url": "https://ja.wikipedia.org/wiki/%E3%83%A1%E3%82%A4%E3%83%B3%E3%83%9A%E3%83%BC%E3%82%B8",
--      "order": 5,
+-      "order": 4,
 -      "title": "ウィキペディア",
 -      "schema": 1,
 -      "exclude_locales": [],
