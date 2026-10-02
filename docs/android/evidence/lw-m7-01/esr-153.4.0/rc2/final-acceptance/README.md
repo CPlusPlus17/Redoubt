@@ -2,7 +2,8 @@
 
 No rc3 exists. The product did not change after rc2: the defect A, B and C fixes were all made in
 the harness (`c35662c4`, `f7f519f6`). So this run is against the **rc2 APK**, using the harness as
-committed at `11fd562e`.
+committed at `11fd562e`. Rows 8a–8d were added later. They rerun `--check-no-suggest`, and its negative control, after the
+harness change that attributes the typing window by connection (harness sha256 `dba0f279…ce46`).
 
 ## What was tested
 
@@ -49,7 +50,11 @@ records `harness_sha256` from inside the driver.
 | 5 | `--check-ubo-lifecycle` | 0 | **PASS**: all 10 rows (disable, restart, remove, APK reinstall) | `smoke/check-ubo-lifecycle/` |
 | 6 | `--check-ubo` | 0 | **PASS** | `smoke/check-ubo/` |
 | 7 | `--check-search` | 0 | **PASS** on a fresh profile. The uBO sheet is acknowledged by the harness, the query goes to `noai.duckduckgo.com` with no partner parameter, and the 4 engines are as configured. **Defect B is fixed** | `smoke/check-search/` |
-| 8 | `--check-no-suggest` | 1 | **FAIL**: 504 B on 13 packets in the typing window. The sheet was acknowledged (defect B fixed), the pre-typing wait settled after 106 s, no suggestion endpoint or sponsored host was contacted, the switch is OFF and the round trip passes. Every red packet is an HTTP/2-sized keep-alive or close record on a connection opened **before** typing. **Not attributed to the search toolbar**; see below | `smoke/check-no-suggest/` (includes `typing-window-connection-trace.txt`) |
+| 8 | `--check-no-suggest` (harness `aabbb7a7`, byte rule) | 1 | **FAIL** under that harness's rule: 16 outbound payload packets (642 B) in the typing window, of which 3 (138 B) are classed background (Remote Settings) and 13 (504 B) are not; the 13 failed the check. The sheet was acknowledged (defect B fixed), the pre-typing wait settled after 106 s, no suggestion endpoint or sponsored host was contacted, the switch is OFF and the round trip passes. Every red packet is an HTTP/2-sized keep-alive or close record on a connection opened **before** typing. **Not attributed to the search toolbar**; see below. **Superseded by rows 8a–8d** | `smoke/check-no-suggest/` (includes `typing-window-connection-trace.txt`) |
+| 8a | `--check-no-suggest --no-suggest-negative-control` (harness `dba0f279`, per-connection rule) | 1 | **FAIL, as expected.** "Show search suggestions" was turned ON through Settings before typing (`False -> True`) and restored OFF afterwards. Typing then opened 3 new TLS connections to **`ac.duckduckgo.com`** (40.114.177.156:443; 3,404 + 2,107 + 2,107 B out) after a udp/53 query for it, plus 2 new DoT connections to 10.0.2.3:853: 6 typing flows. In the same window the 7 pre-existing AMO/uBO-host flows were graded `keepalive`. The check sees what it guards | `no-suggest-attribution/check-no-suggest-negative-control/` |
+| 8b | `--check-no-suggest` (harness `dba0f279`) | 0 | **PASS**. Fresh profile, sheet acknowledged, quiet after 107 s. Typing window: 7 `keepalive` + 3 `background` flows, 0 typing flows. The byte rule would still have failed it: 13 non-background packets, 504 B, all keep-alive or close records | `no-suggest-attribution/check-no-suggest-1/` |
+| 8c | `--check-no-suggest` (harness `dba0f279`) | 0 | **PASS**. Quiet after 103 s; 7 `keepalive` + 3 `background`, 0 typing flows (again 13 packets / 504 B under the old rule) | `no-suggest-attribution/check-no-suggest-2/` |
+| 8d | `--check-no-suggest` (harness `dba0f279`) | 0 | **PASS**. Quiet after 106 s; 7 `keepalive` + 3 `background`, 0 typing flows (again 13 packets / 504 B under the old rule) | `no-suggest-attribution/check-no-suggest-3/` |
 | 9 | baseline suite, including the **full graphics acceptance** | 0 | **PASS**, 8 of 8: https-only interstitial, page-load http/https, **webgl**, video, getUserMedia, extension, pref-dump. Graphics acceptance `acceptanceComplete: true`, **161 checks passed**. These include `ui-canvas-allow-private`, `ui-webgl-allow-private`, `private-choices-isolated-and-cleared-on-last-private-close`, every `frame-*` row and `frame-origin-port-and-revoke-isolation`, `session-exceptions-expire-on-process-restart`, `remembered-exceptions-survive-process-restart`, and `quiet-review-opens-permissions-in-normal-and-private-tabs` | `smoke/baseline-smoke/` (`graphics-summary.json`, `graphics-runner-tail.log`, `graphics-acceptance.tar.xz`) |
 | 10 | `--check-update-privacy` | 0 | **PASS**. The row is compiled out, and no update-host traffic was seen across launch and Settings | `smoke/check-update-privacy/` |
 | 11 | `--check-https-only` | 0 | **PASS** | `smoke/check-https-only/` |
@@ -59,8 +64,12 @@ records `harness_sha256` from inside the driver.
 | 15 | `--first-run-capture` | 1 | **expected red (E12)**. 107 events, app UID rx +20,720,714 B / tx +422,109 B | `smoke/first-run-capture/`, `first-run-host-comparison.json` |
 | 16 | `--check-no-remote-settings` | 1 | **expected red (E12)**. 4 events to the 3 Remote Settings hosts | `smoke/check-no-remote-settings/` |
 
-**Tally:** 14 PASS and 1 expected negative-control FAIL (Beta 2). Two rows are expected red under
-E12. One row FAILs: `--check-no-suggest`.
+**Tally (rows 1–16, harness `aabbb7a7`):** 14 PASS and 1 expected negative-control FAIL (Beta 2). Two rows
+are expected red under E12. One row FAILed: `--check-no-suggest` (row 8).
+
+**After the harness change (rows 8a–8d, harness `dba0f279`):** `--check-no-suggest` PASSes 3 of 3 on fresh
+profiles, and its negative control FAILs as expected on `ac.duckduckgo.com`. No row is red apart from
+the E12 rows and the two negative controls.
 
 ### about:config CSP (3a): why logcat alone proves nothing, and what does
 
@@ -89,8 +98,10 @@ The packets in the typing window are listed in the check JSON (`typing_payloads`
 - Times in the trace are epoch − 1790932500. The pcap record at the check's `typing_capture_offset`
   is at +12.3 s, and the record at `enter_capture_offset` is at +70.8 s, so typing began at or
   before +12.3 s.
-- All 16 typing-window packets went out on **10 TLS connections that were already open before
-  typing**: to AMO, Remote Settings, and uBO's filter-list hosts. Between −1 s and Enter (+70.8 s)
+- The window held 16 outbound payload packets (642 B). The harness classed 3 of them (138 B, Remote
+  Settings) as background, and the other **13 (504 B) failed the check**. All 16 went out on **10 TLS
+  connections that were already open before typing**: 7 to AMO and uBO's filter-list hosts (the 13)
+  and 3 to Remote Settings. Between −1 s and Enter (+70.8 s)
   the device sent no SYN, no DNS query (udp/53 or DoT 853) and no QUIC packet (udp/443). The
   first ones after that are the DoT lookup and the connection for `noai.duckduckgo.com`.
 - Payloads were 39 B or 46 B, and each was answered by a reply of the same size (the server's
@@ -101,13 +112,47 @@ The packets in the typing window are listed in the check JSON (`typing_payloads`
   It does not look like a request.
 - No suggestion endpoint, no sponsored host and no search host was contacted before Enter.
 
-The committed harness counts these packets as typing traffic. Its pre-typing wait
+The harness at `aabbb7a7` counts these packets as typing traffic. Its pre-typing wait
 (`quiet_s` = 20 s) is shorter than the roughly 59 s keep-alive period, so pings from connections
 opened during startup are bound to fall inside the 60 s window. **This run does not show a product
-leak, but by the committed harness's rule the check FAILs, and it is recorded as a FAIL.** The
-harness was not changed here. Making it distinguish keep-alive and close records on pre-existing
-connections from new traffic is a harness change that would need its own review and tests.
-Beyond what is in this run, this was not verified by decrypting the traffic.
+leak, but by that harness's rule the check FAILs, and row 8 stays recorded as a FAIL.** Beyond what
+is in this run, this was not verified by decrypting the traffic.
+
+### `--check-no-suggest` after the harness change (rows 8a–8d)
+
+`ac1c6ee4` changed the rule to attribute the typing window **by connection**, and `86a8fd02` only
+reworded its PASS line. `docs/android/SMOKE.md` ("how the typing window is judged") describes the
+rule. In short, a flow is typing traffic if it opens in the window (SYN, first datagram, or a
+DNS answer for its address), sends any DNS query, is any non-background UDP, goes to a configured
+search or suggestion host, or sends anything but one TLS record of at most 46 B. 46 B is one 17-byte
+HTTP/2 PING/GOAWAY frame in a TLS 1.2 AES-GCM record, and is the size rc2 actually sent. Every flow
+and its verdict are recorded in each run's JSON under `typing_flow_attribution`.
+
+| | |
+| --- | --- |
+| `scripts/android-smoke.sh` | sha256 `dba0f279e5ca6eec7a51c1ac9d43e320536a88943c7494dca7e33b67a824ce46` (`86a8fd02`), recorded at the start of every run in `no-suggest-attribution/exit-status.jsonl` and by the driver as `harness_sha256` |
+| HEAD at start | `86a8fd02` for 8a, `0927a58c` (SMOKE.md only) for 8b–8d; 0 uncommitted changes under `scripts/` for every run |
+| APK | the same installed `77348e7d…af83` |
+| Conditions | as above: one emulator (emulator-5584, rebooted from the same AVD with `-dns-server 9.9.9.9 -tcpdump`), `pm clear` before each run (the uBO sheet appeared and was acknowledged in all four), AMO reachable, no priming, no iptables. Every run streamed logcat |
+| Wrapper | `no-suggest-attribution/run-check-attr.sh`: `smoke/run-check.sh` with only the output directory changed |
+
+- **Re-grade of row 8.** `no-suggest-attribution/regrade-rc2-row8.py` runs the new attribution on row 8's
+  own capture and offsets (the pcap kept on the build host as `work/capture-rc2-final-acceptance.pcap`).
+  It gives 7 `keepalive` + 3 `background` flows and 0 typing flows (`regrade-rc2-row8.json`).
+- **Negative control (8a).** The detail reads `NEGATIVE CONTROL (suggestions ON before typing):
+  suggestion traffic to ac.duckduckgo.com was caught on 4 connection(s)`. Those 4 are the udp/53
+  query and the 3 TLS connections. The other 2 typing flows are DoT lookups. The post-Enter search
+  control and the OFF restore both passed.
+- **Superseded run.** The first run after `ac1c6ee4` (harness `e5ecbc8e…`, the first line of
+  `exit-status.jsonl`) PASSed too. It booted the emulator, so it has no logcat stream. Its PASS line
+  still used the old wording, and it was rerun under `dba0f279` rather than counted. Its output is not
+  copied here.
+- **Unit tests** (`no-suggest-attribution/unit-tests/`, HEAD `0927a58c`, harness `dba0f279`):
+  `scripts/tests/test-*.py` all exit 0. `test-android-smoke.py` ran 81 tests (65 before, plus 16 for
+  the attribution on synthetic captures). Among them: a pre-existing keep-alive passes, a new connection
+  during typing fails, a large payload on an old connection fails, and DNS during typing fails.
+  `test-android-graphics-smoke.py` ran 30. `test-android-signing.py` and `test-android-version-code.py`
+  exit 2 without their required arguments, as in `gates/`.
 
 ### First-run capture compared with rc2's own run
 
@@ -148,6 +193,7 @@ LW-M7-14 test fix and this directory).
 - No physical device, no ABI other than x86_64, and no release-key signing.
 - No `--strings-locale` sweep, no Fenix unit-test run, and no Mullvad upgrade rerun (rc2's
   `../upgrade/` stands).
-- `--check-no-suggest` ran once. It was not repeated, and no harness change was tried.
-- The pcap (`work/capture.pcap`, 134 MB) and the AVD are not archived. They remain in
-  `build/rc2/final/runtime/work/` on the build host.
+- Row 8 (`--check-no-suggest` under `aabbb7a7`) ran once. The harness change and its runs are rows 8a–8d.
+- The pcaps and the AVD are not archived. They remain on the build host in
+  `build/rc2/final/runtime/work/`: rows 1–16 in `capture-rc2-final-acceptance.pcap` (renamed from
+  `capture.pcap` before the reboot, which would have deleted it), and rows 8a–8d in `capture.pcap`.
