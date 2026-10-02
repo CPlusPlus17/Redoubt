@@ -34,23 +34,7 @@
 # Nothing may be dropped from common.txt to make an Android build compile.
 # See "What not to do" in docs/android/AGENTS.md.
 
-# Firefox 157 desktop merge: three former common.txt entries whose text
-# upstream changed for 156/157 (it still applies to firefox-153.0esr, but it
-# would change the Android tree). These are byte-identical copies of the
-# pre-merge Redoubt files, i.e. exactly what Android was built and verified
-# against; the 157 text keeps the original name at the head of desktop.txt.
-# They are placed FIRST in this file, in their common.txt order, so they still
-# apply before every Android patch, as they did from common.txt. Moving them
-# past the rest of common.txt changes no byte: none of the common.txt entries
-# that used to follow them (rust-gentoo-musl, xmas-common, eme-permission-common,
-# moz-official-common) touches any of their files. Proven: the patched
-# 153.0esr tree is diff -r identical to the pre-merge one. Drop them, and
-# re-merge the desktop text into common.txt, when Android moves to an ESR >= 157.
-patches/android/rs-blocker-esr.patch                    # was common.txt patches/rs-blocker.patch (pre-merge bytes). services/settings + toolkit/components/search both ship on Android; the allowlist prefs are Android's too -> LW-M4-08 populates them. The 157 text (startup-bundle filter, debug-log blocked collections) is desktop-only for now
-patches/android/vendor-name-esr.patch                   # was common.txt patches/vendor-name.patch (pre-merge bytes). ext-runtime.js + nsAppRunner.cpp, both core. Shares ext-runtime.js with extensions-setUninstallURL (common.txt), applied before it as always (grandfathered shipping order, scripts/check-patch-order.py). The 157 text (getBrowserInfo version_display, 81e96593) is desktop-only for now
-patches/android/disable-data-reporting-common-esr.patch # was common.txt patches/disable-data-reporting-common.patch (pre-merge bytes): LW-M1-02 common half - mach telemetry, mach.txt glean-sdk 67.3.2, glean init/mod.rs, Telemetry.cpp, gkrust features. Must be applied with disable-data-reporting-android (next), never instead of it
-
-patches/android/disable-data-reporting-android.patch    # LW-M1-02: mobile/android/moz.configure:132 implies MOZ_SERVICES_HEALTHREPORT True, so the common half of disable-data-reporting leaves MOZ_DATA_REPORTING ON for Android. This is the counterpart of the browser/moz.configure hunk in the desktop half. Must be applied with patches/android/disable-data-reporting-common-esr.patch (above; patches/disable-data-reporting-common.patch before the Firefox 157 desktop merge), never instead of it
+patches/android/disable-data-reporting-android.patch    # LW-M1-02: mobile/android/moz.configure:132 implies MOZ_SERVICES_HEALTHREPORT True, so the common half of disable-data-reporting leaves MOZ_DATA_REPORTING ON for Android. This is the counterpart of the browser/moz.configure hunk in the desktop half. Must be applied with patches/disable-data-reporting-common.patch, never instead of it
 #
 # LW-M1-06 (remove-pingsender): NO Android patch needed, checked against the
 # pristine tree. The APK packaging manifest is mobile/android/installer/
@@ -101,10 +85,8 @@ patches/android/disable-data-reporting-android.patch    # LW-M1-02: mobile/andro
 #     LibreWolf patch swaps one desktop-only-packaged illustration for another;
 #     it does not create a new Android-only breakage.
 
-patches/android/neterror-common-esr.patch               # Firefox 157 desktop merge: byte-identical copy of patches/ui-patches/neterror-common.patch as of the pre-merge Redoubt tree (the LW-M1-07 common half Android was built and verified against). Upstream 3ac002b0 rewrote its net-error-card.mjs hunk for 156 and that text now lives in desktop.txt, where it rejects on firefox-153.0esr. Formerly in common.txt, i.e. applied before everything here; KEEP IT BEFORE neterror-jar below, which packages the illustrations/warning.svg this patch adds and points net-error-illustrations.mjs at. Drop when Android moves to an ESR >= 157 and neterror-common returns to common.txt
 patches/android/neterror-jar.patch                      # LW-M1-07: packages illustrations/warning.svg for toolkit/themes/mobile, which never includes desktop-jar.inc.mn
 
-patches/android/webgl-permission-common-esr.patch      # Firefox 157 desktop merge: byte-identical copy of patches/webgl-permission-common.patch as of merge base 71177a33 (the LW-M1-08 common half Android was built and verified against). Upstream rewrote that patch for 156/157 and the rewrite now lives in desktop.txt; android/canvas-webgl-permissions.patch's ClientWebGLContext.cpp hunks quote THIS text (2 of its 5 hunks fail against the 157 text on firefox-153.0esr). Needs fpp-canvas-fix (common.txt) first, and must stay BEFORE webgl-prompt-default and canvas-webgl-permissions. Drop when Android moves to an ESR >= 157 and webgl-permission-common returns to common.txt
 patches/android/webgl-prompt-default.patch              # LW-M1-08 / landmine L1: librewolf.webgl.prompt defaults to false on Android. The prompt's UI and observers are all under browser/, so with the desktop default of true IsWebGLAllowed_impl fails closed and every WebGL context dies silently. Applies to the librewolf pref block that patches/webgl-permission-common.patch adds, so it needs common.txt first - which is always applied first
 
 patches/android/autoconfig-resource-fallback.patch      # LW-M3-08 spike, landed by LW-M3-02: makes nsReadConfig read the .cfg through resource://gre/defaults/autoconfig/ on Android, and names librewolf.cfg + defaults/pref/local-settings.js in mobile/android/installer/package-manifest.in so they are inside omni.ja to be read from. This is the autoconfig/lockPref channel landmine L2 depends on, and it is PROVEN on a running build - see docs/android/AUTOCONFIG-SPIKE.md. NS_GRE_DIR does NOT fail on Android (it answers the APK's lib/<abi> dir), so the branch is keyed off #if defined(MOZ_WIDGET_ANDROID) and never off a failed directory lookup; a patch keyed off NS_FAILED() is dead code and was measured to be. Needs patches/xmas-common.patch (common.txt) first: xmas-common creates lw/moz.build and this appends FINAL_TARGET_FILES.defaults.autoconfig to it. That is cross-list, so common.txt-before-android.txt satisfies it by construction - declared in scripts/check-patch-order.py rather than assumed
@@ -216,32 +198,3 @@ patches/android/extension-update-controls.patch # LW-M7-35: native automatic upd
 patches/android/global-privacy-controls.patch # LW-M7-36: authoritative native global privacy settings and acknowledged saves.
 patches/android/session-cleanup.patch # LW-M7-37: checked native frame and cookie cleanup primitives; full session coordinator pending.
 patches/android/doh-mullvad-migration.patch # Mullvad DoH shutdown: once per profile, a stored Mullvad provider becomes the Android default (Quad9) before the engine starts, mode kept, one-time notice; Mullvad leaves the picker. After privacy-defaults.
-
-# Firefox 157 desktop merge: two former common.txt entries that upstream
-# LibreWolf deleted (the desktop 157 tree no longer needs them). Both moved here
-# as byte-identical copies of the upstream patch as of merge base 71177a33:
-#   - mozversioncontrol/repo/source.py:114 still has the unnormalised join in
-#     firefox-153.4.0esr, so bootstrap-esr stays. It shares no tree file with
-#     any other listed patch, so position is free. Drop it when Android moves
-#     to an ESR based on >= 157.
-#   - fix-canvas-extraction-permission-esr is GONE as of the 153.4.0esr rebase:
-#     153.4.0esr carries the same fix upstream (HTMLCanvasElement.cpp:918
-#     CaptureStream now passes nsContentUtils::GetCurrentJSContext() to
-#     ImageExtractionResult, clang-formatted over two lines), so the patch
-#     rejected and had nothing left to do. Dropped because Gecko fixed it, not
-#     to silence an error - see docs/android/PATCH-SCOPE.md.
-patches/android/bootstrap-esr.patch # was common.txt patches/bootstrap.patch; upstream removed it in cd7ec6e7. Build tooling (python/mozversioncontrol path normalisation), Windows-host relevant.
-
-# Firefox 157 desktop merge, continued: two former common.txt entries that
-# upstream KEPT but whose 157 text no longer applies to firefox-153.0esr (proven
-# by applying the full common+android order to the pristine 153.0esr tarball).
-# The 157 text keeps the original name in desktop.txt; these are byte-identical
-# copies of the pre-merge Redoubt files, i.e. exactly what Android shipped.
-# Neither shares a tree file with any other android.txt or common.txt entry, so
-# moving them from the head of the sequence (common.txt) to here changes no
-# patched byte - the resulting 153.0esr tree is identical to the pre-merge one.
-# neterror-common-esr, the third such split, sits above neterror-jar instead.
-# Drop both, and re-merge the desktop text into common.txt, when Android moves
-# to an ESR >= 157.
-patches/android/always-fetch-latest-toolchain-artifact-esr.patch # was common.txt patches/always-fetch-latest-toolchain-artifact.patch; upstream 9f21b38c rewrote it for 157 and its import hunk rejects on 153.0esr. Build tooling (python/mozbuild/mozbuild/artifact_commands.py)
-patches/android/remove-openai-esr.patch # was common.txt patches/remove-openai.patch (Redoubt's fuzz-0 rewrite for the 153 tree, landmine L4 tripwire). MANDATORY: toolkit/components/moz.build traverses ml/ on Android and librewolf-patches.py deletes the OpenAI paths for every target. Its jar.mn context is gone on 157, so desktop.txt carries a 157 regeneration

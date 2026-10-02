@@ -157,7 +157,7 @@ CONSTRAINTS = (
         "LW-M7-14 removes the predecessor's Android false block together with the complete native/GV/Fenix bridge.",
     ),
     (
-        "patches/android/webgl-permission-common-esr.patch",
+        "patches/webgl-permission-common.patch",
         "patches/android/canvas-webgl-permissions.patch",
         ("dom/canvas/ClientWebGLContext.cpp", "modules/libpref/init/StaticPrefList.yaml"),
         "LW-M7-14 wraps the common GetWebGLPermission/IsWebGLAllowed helpers and its context-creation call; "
@@ -203,15 +203,6 @@ CONSTRAINTS = (
         "the monolith's position and both list comments record the direction",
     ),
     (
-        "patches/fpp-canvas-fix.patch",
-        "patches/android/webgl-permission-common-esr.patch",
-        "dom/canvas/ClientWebGLContext.cpp",
-        "Firefox 157 desktop merge: the pre-157 webgl-permission-common text "
-        "moved verbatim to android.txt for the 153 ESR tree, so the row above "
-        "now holds common.txt -> desktop.txt and this one common.txt -> "
-        "android.txt; both are satisfied because common.txt is applied first",
-    ),
-    (
         "patches/mozilla_dirs.patch",
         "patches/xdg-dir.patch",
         "toolkit/xre/nsXREDirProvider.cpp",
@@ -222,7 +213,7 @@ CONSTRAINTS = (
         "makes the direction mandatory",
     ),
     (
-        "patches/android/webgl-permission-common-esr.patch",
+        "patches/webgl-permission-common.patch",
         "patches/android/webgl-prompt-default.patch",
         "modules/libpref/init/StaticPrefList.yaml",
         "also in the AGENTS.md table - see the note above. The Android patch's "
@@ -747,59 +738,26 @@ REVIEWED_ORDER_FREE = (
      ("browser/components/preferences/config/privacy.mjs",),
      "disjoint regions of the privacy settings config; " + _M157_SWAP),
 
-    # Recorded in assets/patches/desktop.txt on the moz-official-desktop entry:
-    # "different region, ~line 300 vs ~504". INERT since the Firefox 157 merge:
-    # upstream dropped hide-passwordmgr.patch, and the checks skip a row whose
-    # patch is in no list. Kept for the record; drop it with the other rows
-    # naming the patches 157 deleted (hide-default-browser, firefox-view).
-    ("patches/hide-passwordmgr.patch", "patches/moz-official-desktop.patch",
-     ("browser/base/content/browser-init.js",),
-     "different regions of browser-init.js (~300 vs ~500), noted in desktop.txt"),
-
     # Everything below is the pre-existing patch set, grandfathered in the
     # order it ships. Most of it is browser/components/preferences/, where a
     # dozen patches have edited the same handful of files for years.
     ("patches/extensions-setUninstallURL.patch", "patches/vendor-name.patch",
      ("toolkit/components/extensions/parent/ext-runtime.js",),
-     "grandfathered: shipping order, both in common.txt until the Firefox 157 "
-     "merge moved vendor-name to the head of desktop.txt (still after it)"),
-    ("patches/extensions-setUninstallURL.patch",
-     "patches/android/vendor-name-esr.patch",
-     ("toolkit/components/extensions/parent/ext-runtime.js",),
-     "the row above for the Android ESR tree: vendor-name-esr is the pre-157 "
-     "vendor-name text, byte for byte, moved from common.txt to the head of "
-     "android.txt in the Firefox 157 merge - same shipping order, and the "
-     "patched firefox-153.0esr tree is diff -r identical to the pre-merge one"),
+     "grandfathered: shipping order, both in common.txt"),
     ("patches/fullpage-translations-customization.patch",
      "patches/pref-pane/pref-pane-small.patch",
      ("browser/components/preferences/main.js",),
-     "grandfathered: shipping order"),
-    ("patches/fullpage-translations-customization.patch",
-     "patches/ui-patches/hide-default-browser.patch",
-     ("browser/components/preferences/main.inc.xhtml",
-      "browser/components/preferences/main.js"),
      "grandfathered: shipping order"),
     ("patches/fullpage-translations-customization.patch",
      "patches/ui-patches/settings-redesign.patch",
      ("browser/components/preferences/config/languages.mjs",
       "browser/components/preferences/main.js"),
      "grandfathered: shipping order"),
-    ("patches/hide-passwordmgr.patch",
-     "patches/ui-patches/privacy-preferences.patch",
-     ("browser/components/preferences/privacy.js",),
-     "grandfathered: shipping order"),
-    ("patches/hide-passwordmgr.patch",
-     "patches/ui-patches/settings-redesign.patch",
-     ("browser/components/preferences/privacy.js",),
-     "grandfathered: shipping order"),
     ("patches/link-preview.patch", "patches/ui-patches/remove-cfrprefs.patch",
      ("browser/components/preferences/config/tabs-browsing.mjs",),
      "grandfathered: shipping order"),
     ("patches/link-preview.patch", "patches/ui-patches/settings-redesign.patch",
      ("browser/components/preferences/config/tabs-browsing.mjs",),
-     "grandfathered: shipping order"),
-    ("patches/lw-permissions.patch", "patches/ui-patches/firefox-view.patch",
-     ("browser/base/content/navigator-toolbox.inc.xhtml",),
      "grandfathered: shipping order"),
     ("patches/lw-permissions.patch",
      "patches/ui-patches/privacy-preferences.patch",
@@ -811,14 +769,6 @@ REVIEWED_ORDER_FREE = (
     ("patches/ui-patches/allow_cookies_for_site.patch",
      "patches/ui-patches/settings-redesign.patch",
      ("browser/components/controlcenter/content/trustPanel.inc.xhtml",),
-     "grandfathered: shipping order"),
-    ("patches/ui-patches/hide-default-browser.patch",
-     "patches/pref-pane/pref-pane-small.patch",
-     ("browser/components/preferences/main.js",),
-     "grandfathered: shipping order"),
-    ("patches/ui-patches/hide-default-browser.patch",
-     "patches/ui-patches/settings-redesign.patch",
-     ("browser/components/preferences/main.js",),
      "grandfathered: shipping order"),
     ("patches/ui-patches/pref-naming.patch",
      "patches/ui-patches/privacy-preferences.patch",

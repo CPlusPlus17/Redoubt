@@ -1,8 +1,0 @@
--screenshots-brand-name = Capturas de pantalla
--translations-brand-name = Traducións
--firefox-suggest-brand-name = Suxerencias
--firefox-home-brand-name = Páxina de inicio
--firefoxlabs-brand-name = Firefox Labs por Mozilla
--profiler-brand-name = Perfilador
--firefoxview-brand-name = Vista das pestanas
--relay-brand-name = Relé de Mozilla

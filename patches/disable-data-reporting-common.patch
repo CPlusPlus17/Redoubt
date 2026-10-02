@@ -3,21 +3,19 @@ Disable data reporting at compile time -- COMMON half (LW-M1-02).
 Split out of upstream's patches/disable-data-reporting-at-compile-time.patch,
 which is a straddler: it mixes toolkit/python hunks that are built on every
 target with browser/-only hunks. This file holds the target-independent hunks;
-patches/disable-data-reporting-desktop.patch holds the browser/ hunks and the
-hunks whose context only exists in the desktop Firefox version. common + desktop
-together are byte-for-byte upstream's current patch.
+patches/disable-data-reporting-desktop.patch holds the browser/ hunk. common +
+desktop together are byte-for-byte upstream's current patch.
 
-LISTED IN desktop.txt, NOT common.txt, SINCE THE FIREFOX 157 DESKTOP MERGE.
-Desktop builds firefox-157.0; Android builds firefox-153.0esr (version.android)
-and its patched tree is held byte-identical to the pre-merge one. So Android
-does not apply this file: it applies the pre-merge common half verbatim,
-patches/android/disable-data-reporting-common-esr.patch, followed by
-patches/android/disable-data-reporting-android.patch (also pre-merge bytes),
-both in assets/patches/android.txt. Re-merge this file into common.txt (and drop
-the -esr copy) when Android moves to an ESR >= 157.
+Both targets build firefox-157.0 (docs/android/TRACK.md, "Decision reversed
+2026-10-02"), so this is a common.txt entry again. The Firefox 157 desktop merge
+had parked it in desktop.txt, and the mach.txt / glean-core hunks in the desktop
+half, while Android stayed on 153esr; both moves are undone.
 
 What is here:
   python/mach/mach/telemetry.py                    mach telemetry, target-independent
+  python/sites/mach.txt                            comments out the glean-sdk pypi
+                                                   requirement (version in context:
+                                                   68.0.1 on 157)
   toolkit/components/telemetry/core/Telemetry.cpp  TelemetryImpl never records
   toolkit/library/rust/gkrust-features.mozbuild    glean_disable_upload for official builds
   toolkit/components/telemetry/core/Stopwatch.cpp,
@@ -27,20 +25,20 @@ What is here:
                                                    "cannot be recorded" errors. This
                                                    replaces the old tabbrowser.js hunk
                                                    (dropped upstream in a1bd18fa).
-
-What is NOT here any more, and why (both became version-specific at 157):
-  python/sites/mach.txt     pins the glean-sdk version (68.0.1 on 157, 67.3.2 on
-                            153esr) -> the 157 hunk is in the desktop half; the
-                            153esr hunk is in disable-data-reporting-common-esr.
-  glean disable hunks       157: upstream patches third_party/rust/glean-core
-                            (lib.rs, core/mod.rs) -> desktop half; the matching
-                            .cargo-checksum.json hashes rewritten by
-                            scripts/librewolf-patches.py are the 157 hashes and do
-                            NOT match the 153esr files.
-                            153esr: toolkit/components/glean/src/init/mod.rs
-                            (use_core_mps / enable_internal_pings false), kept in
-                            disable-data-reporting-common-esr; on 157 that code
-                            became a builder and the hunk rejects.
+  third_party/rust/glean-core/src/lib.rs, third_party/rust/glean-core/src/core/mod.rs
+                                                   Glean upload/collection forced off
+                                                   inside glean-core (upstream 77f8fcd8,
+                                                   which replaced the old
+                                                   toolkit/components/glean/src/init/mod.rs
+                                                   hunk -- on 157 build_configuration()
+                                                   uses a builder and that hunk rejects).
+                                                   glean-core is compiled into libxul on
+                                                   Android too. It is a vendored crate:
+                                                   scripts/librewolf-patches.py rewrites
+                                                   the two affected hashes in
+                                                   third_party/rust/glean-core/
+                                                   .cargo-checksum.json (upstream
+                                                   f072d15c) on every target.
 
 WHERE THE ANDROID OFF SWITCH LIVES -- READ THIS BEFORE ASSUMING THIS PATCH IS
 ENOUGH ON ANDROID.
@@ -58,8 +56,7 @@ end supplies its own:
   mobile/android/moz.configure:131 MOZ_NORMANDY False               (already off)
   mobile/android/moz.configure:132 MOZ_SERVICES_HEALTHREPORT True   (still ON)
 
-So on Android the common half alone (today: its 153esr copy,
-patches/android/disable-data-reporting-common-esr.patch) leaves
+So on Android the common half alone leaves
 MOZ_SERVICES_HEALTHREPORT defined and MOZ_DATA_REPORTING with it. That is
 closed by
 
@@ -196,3 +193,51 @@ index 0db315684f..39dcbc4cfa 100644
  
  }  // namespace TelemetryUserInteraction
  
+diff --git a/python/sites/mach.txt b/python/sites/mach.txt
+index d5cdce8..f4f38c1 100644
+--- a/python/sites/mach.txt
++++ b/python/sites/mach.txt
+@@ -58,7 +58,7 @@ pth:xpcom/geckoprocesstypes_generator
+ pth:xpcom/idl-parser
+ # glean-sdk may not be installable if a wheel isn't available
+ # and it has to be built from source.
+-pypi-optional:glean-sdk==68.0.1:telemetry will not be collected
++# pypi-optional:glean-sdk==68.0.1:telemetry will not be collected
+ pypi-optional:orjson>=3.10:json operations will be slower in various tools
+ # Mach gracefully handles the case where `psutil` is unavailable.
+ # We aren't (yet) able to pin packages in automation, so we have to
+diff --git a/third_party/rust/glean-core/src/lib.rs b/third_party/rust/glean-core/src/lib.rs
+index c401c3d..d6c744a 100644
+--- a/third_party/rust/glean-core/src/lib.rs
++++ b/third_party/rust/glean-core/src/lib.rs
+@@ -916,6 +916,7 @@ pub extern "C" fn glean_enable_logging() {
+ /// **DEPRECATION NOTICE**:
+ /// This API is deprecated. Use `set_collection_enabled` instead.
+ pub fn glean_set_upload_enabled(enabled: bool) {
++    let enabled = false;
+     if !was_initialize_called() {
+         return;
+     }
+@@ -951,6 +952,8 @@ pub fn glean_set_upload_enabled(enabled: bool) {
+ ///
+ /// This replaces `set_upload_enabled`.
+ pub fn glean_set_collection_enabled(enabled: bool) {
++    // Redundant currently
++    let enabled = false;
+     glean_set_upload_enabled(enabled)
+ }
+ 
+diff --git a/third_party/rust/glean-core/src/core/mod.rs b/third_party/rust/glean-core/src/core/mod.rs
+index 0130646..1370f08 100644
+--- a/third_party/rust/glean-core/src/core/mod.rs
++++ b/third_party/rust/glean-core/src/core/mod.rs
+@@ -813,7 +813,8 @@ impl Glean {
+     ///
+     /// When upload is disabled, no data will be recorded.
+     pub fn is_upload_enabled(&self) -> bool {
+-        self.upload_enabled
++        _ = self.upload_enabled;
++       false
+     }
+ 
+     /// Check if a ping is enabled.

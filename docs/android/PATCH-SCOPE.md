@@ -15,12 +15,52 @@ read in full, every file it touches was traced to the `moz.build` / `jar.mn` /
 preprocessor guard that decides whether that file is built on Android, and the
 decision below follows from that guard rather than from the path.
 
-Current classification: **15 common / 52 android / 53 desktop-only / 0 straddlers = 120
+Current classification: **22 common / 44 android / 46 desktop-only / 0 straddlers = 112
 patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
 
-## The Firefox 157 desktop merge — what moved, and why Android did not
+## Android moves to Firefox 157 (2026-10-02) — the `-esr` split undone
+
+The maintainer reversed the ESR track (`docs/android/TRACK.md`, "Decision
+reversed 2026-10-02"): Android builds the same `firefox-157.0` tarball as
+desktop (`version.android` = `157.0`) and follows Firefox release. The two
+sections below this one describe a split that existed only because Android was
+on 153.0esr; they are kept as history and are **superseded** by this one.
+
+- **Seven entries are back in `common.txt`**, at their pre-merge positions, in
+  their 157 text: `always-fetch-latest-toolchain-artifact`, `rs-blocker`,
+  `ui-patches/neterror-common`, `vendor-name`, `remove-openai`,
+  `disable-data-reporting-common`, `webgl-permission-common`. They left
+  `desktop.txt`.
+- **All eight `patches/android/*-esr.patch` files are deleted** (the seven
+  pre-merge copies above plus `bootstrap-esr`), together with
+  `patches/android/pack_vs-esr.py` and `l10n-esr/`. `bootstrap` and
+  `fix-canvas-extraction-permission` are simply gone: upstream deleted both for
+  157 (cd7ec6e7; d374f724, Gecko carries the fix).
+- **`disable-data-reporting` is re-split the pre-merge way.** The
+  `python/sites/mach.txt` and `third_party/rust/glean-core` hunks moved from the
+  desktop half back to the common half: they were desktop-only solely because
+  their context is version-specific, and glean-core is compiled into libxul on
+  Android too. `scripts/librewolf-patches.py` now rewrites the two glean-core
+  `.cargo-checksum.json` hashes on every target. `common + desktop` is still
+  byte-for-byte upstream's patch. `android/disable-data-reporting-android`
+  applies to 157 unchanged and keeps its pre-merge bytes.
+- **`scripts/librewolf-patches.py`** lost its android-only ESR branches (the
+  `l10n-esr/` overlay, the `pack_vs-esr.py` copy and the mozconfig
+  `MOZ_PKG_VERSION` strip). It keeps one android rule: `version.txt` =
+  `<version>-<release>` (the shipped `MOZ_APP_VERSION` contract).
+- **Still open:** the seven 157 desktop entries that edit shared code
+  ("New in the Firefox 157 merge and touching more than `browser/`" below) are
+  in `desktop.txt` because Android was frozen, not because a guard proves them
+  inert. Now that Android builds 157 they need the Android review that section
+  asks for. Classifying them is not part of this restructuring, so they stay
+  desktop-only until reviewed.
+
+So: common 15 + 7 = 22; android 52 − 8 = 44; desktop-only 53 − 7 = 46; total
+120 − 8 = 112 (the eight deleted `-esr` files).
+
+## The Firefox 157 desktop merge — what moved, and why Android did not (history, superseded 2026-10-02)
 
 Desktop moved to Firefox 157.0 (LibreWolf upstream `main`); Android stays on
 `firefox-153.0esr` (`version.android`) and must build exactly the tree it built
@@ -93,7 +133,7 @@ asymmetry, not from a re-review:
 So: common 24 − 9 = 15; android 43 + 9 = 52; desktop-only 36 − 5 + 7 + 15 = 53;
 total 103 − 5 + 7 + 15 = 120 (the two renamed files are not new files).
 
-## The 153.0esr → 153.4.0esr rebase
+## The 153.0esr → 153.4.0esr rebase (history)
 
 `version.android` moved to `153.4.0esr` (archive.mozilla.org's spelling; the
 tarball unpacks to `firefox-153.4.0/`). One file left the Android list and one
@@ -153,9 +193,9 @@ claimed an application order the build never uses.
 
 | list | entries | contents |
 |---|---|---|
-| `common.txt` | 15 | 11 pure-common **+ 4 of the 7 common halves of the split straddlers** (the other six pure-common entries and three common halves left in the Firefox 157 merge, see above) |
-| `desktop.txt` | 53 | 27 pure desktop + `msix` (not a straddler) **+ the 7 desktop halves** + `pref-pane/pref-pane-small` (moved in from its own call site by LW-M1-13), as of the pre-merge 36; then the Firefox 157 merge: − 5 dropped upstream, + 7 former `common.txt` entries at their 157 text, + 15 of the 17 new upstream patches (`updater` and `ui-patches/allow-disabling-updater` declined, see above) |
-| `android.txt` | 52 | eight `-esr` byte copies of former `common.txt` entries (Firefox 157 merge; the ninth, `fix-canvas-extraction-permission-esr`, was dropped at 153.4.0esr because Gecko carries the fix), plus the three Android-side patches the M1 splits pulled in, plus `build-fixes` (LW-M2-02), `appservices-logins-addmany` (LW-M2-04), `no-nimbus` (LW-M4-03), `no-nimbus-toolkit` (LW-M4-13), `isolated-process` (LW-M5-02), `autoconfig-resource-fallback` (LW-M3-08/LW-M3-02), `no-onboarding` (LW-M4-10), `no-gms` (LW-M4-05), `branding` (LW-M4-07), `gradle-no-config-cache` (LW-M3-13), `rs-blocker-android` (LW-M4-08), `no-suggest` (LW-M4-11), `search-config` (LW-M4-06), `update-check` (LW-M6-06), `deterministic-version-code` (LW-M6-08), `ubo-readiness` and `ubo-preinstall` (LW-M3-07), `privacy-defaults` (LW-M7-07/LW-M7-12), `cookie-banner-rules` (LW-M7-13), `canvas-webgl-permissions` (LW-M7-14), `translation-assets` (LW-M7-16), `home-section-defaults` (LW-M7-24), `addon-state-durability` (LW-M7-19), `sync-opt-in` (LW-M7-20), `cookie-banner-controls` (LW-M7-23), `firefox-suggest-policy` (LW-M7-26), `no-default-shortcuts` (LW-M7-30), `extension-permission-durability` (LW-M7-31), `firefox-suggest-data` (LW-M7-29), `extension-update-controls` (LW-M7-35), `global-privacy-controls` (LW-M7-36), `session-cleanup` (LW-M7-37), `doh-mullvad-migration` (Mullvad DoH shutdown, 153.4.0esr) and the M4 dependency removals landing alongside it — one row each in the table below. |
+| `common.txt` | 22 | 15 pure-common (the 17 originals minus `bootstrap` and `fix-canvas-extraction-permission`, deleted upstream for 157) **+ all 7 common halves of the split straddlers** |
+| `desktop.txt` | 46 | 27 pure desktop + `msix` (not a straddler) **+ the 7 desktop halves** + `pref-pane/pref-pane-small` (moved in from its own call site by LW-M1-13), as of the pre-merge 36; then the Firefox 157 merge: − 5 dropped upstream, + 15 of the 17 new upstream patches (`updater` and `ui-patches/allow-disabling-updater` declined, see above) |
+| `android.txt` | 44 | the three Android-side patches the M1 splits pulled in, plus `build-fixes` (LW-M2-02), `appservices-logins-addmany` (LW-M2-04), `no-nimbus` (LW-M4-03), `no-nimbus-toolkit` (LW-M4-13), `isolated-process` (LW-M5-02), `autoconfig-resource-fallback` (LW-M3-08/LW-M3-02), `no-onboarding` (LW-M4-10), `no-gms` (LW-M4-05), `branding` (LW-M4-07), `gradle-no-config-cache` (LW-M3-13), `rs-blocker-android` (LW-M4-08), `no-suggest` (LW-M4-11), `search-config` (LW-M4-06), `update-check` (LW-M6-06), `deterministic-version-code` (LW-M6-08), `ubo-readiness` and `ubo-preinstall` (LW-M3-07), `privacy-defaults` (LW-M7-07/LW-M7-12), `cookie-banner-rules` (LW-M7-13), `canvas-webgl-permissions` (LW-M7-14), `translation-assets` (LW-M7-16), `home-section-defaults` (LW-M7-24), `addon-state-durability` (LW-M7-19), `sync-opt-in` (LW-M7-20), `cookie-banner-controls` (LW-M7-23), `firefox-suggest-policy` (LW-M7-26), `no-default-shortcuts` (LW-M7-30), `extension-permission-durability` (LW-M7-31), `firefox-suggest-data` (LW-M7-29), `extension-update-controls` (LW-M7-35), `global-privacy-controls` (LW-M7-36), `session-cleanup` (LW-M7-37), `doh-mullvad-migration` (Mullvad DoH shutdown) and the M4 dependency removals landing alongside it — one row each in the table below. |
 
 The arithmetic, and it is now boring on purpose: **every patch file on disk is in
 exactly one list**, so the three lists sum straight to the total, and
@@ -184,10 +224,9 @@ same diff applied to a desktop tree. `scripts/librewolf-patches.py` compares the
 shim as a set, and since LW-M1-12 regenerated it the two agree — the out-of-sync
 warning is gone.
 
-**The straddlers are gone, and Android now gets all seven common halves** —
-four from `common.txt` and, since the Firefox 157 merge, `neterror-common`,
-`webgl-permission-common` and `disable-data-reporting-common` as their
-pre-merge `-esr` byte copies in `android.txt`. They
+**The straddlers are gone, and Android now gets all seven common halves** from
+`common.txt` (between the Firefox 157 desktop merge and the 2026-10-02 move to
+157, three of them reached Android as `-esr` byte copies in `android.txt`). They
 are no longer parked in `desktop.txt`, the monolithic files are deleted from
 disk, and `scripts/check-patchfail.sh` therefore exercises the halves that
 actually ship rather than the pre-split monoliths.
@@ -238,7 +277,7 @@ own line in this table.
 
 | patch | task | why it exists |
 |---|---|---|
-| `patches/android/disable-data-reporting-android.patch` | LW-M1-02 | `mobile/android/moz.configure:131-132` implies the *opposite* pair to `browser/moz.configure` (`MOZ_NORMANDY` False, `MOZ_SERVICES_HEALTHREPORT` **True**), so the common half alone leaves `MOZ_DATA_REPORTING` on for Android. Must be applied *with* the common half — since the Firefox 157 merge that is `android/disable-data-reporting-common-esr`, listed immediately before it — never instead of it. Unchanged by the merge (pre-merge bytes): the 157 merge's three-way re-split of upstream's patch was undone for Android so its tree stays identical; the 153esr-only `mach.txt`/Glean `init/mod.rs` hunks stay in the `-esr` common half, where they always were. |
+| `patches/android/disable-data-reporting-android.patch` | LW-M1-02 | `mobile/android/moz.configure:131-132` implies the *opposite* pair to `browser/moz.configure` (`MOZ_NORMANDY` False, `MOZ_SERVICES_HEALTHREPORT` **True**), so the common half alone leaves `MOZ_DATA_REPORTING` on for Android. Must be applied *with* the common half (`disable-data-reporting-common`, common.txt), never instead of it. Pre-merge bytes; applies to 157 unchanged. |
 | `patches/android/neterror-jar.patch` | LW-M1-07 | Packages `illustrations/warning.svg` for `toolkit/themes/mobile`, which never includes `desktop-jar.inc.mn`. Insurance, not a fix — see the LW-M1-07 row below for why the reference is unreachable on Android three ways over. |
 | `patches/android/webgl-prompt-default.patch` | LW-M1-08 | **Landmine L1.** Defaults `librewolf.webgl.prompt` to false on Android, where the prompt's UI and observers are all `browser/`-only. Without it `IsWebGLAllowed_impl` fails closed and every WebGL context dies silently. Shipped in the same change as the split, never as a follow-up. |
 | `patches/android/canvas-webgl-permissions.patch` | LW-M7-14 | Android exact-origin native/GV/Fenix WebGL and canvas permissions, explicit session/private/remembered lifetime, acknowledged document-bound reload and saved exception controls. Supersedes the earlier prompt=false block only with the complete bridge. Source and mocked bridge tests exist; target ABI builds, Android tests and runtime rendering/consent checks remain pending. |
@@ -268,7 +307,7 @@ own line in this table.
 | `patches/android/fenix-abi-split.patch` | LW-M6-07 | **Makes the Fenix ABI split honour the `--abis` request.** `fenix/app/build.gradle`'s `splits` block hardcoded `include "armeabi-v7a","arm64-v8a","x86_64"`, so `--abis x86_64` still produced the full three-ABI split plus a universal and `scripts/android-apk.sh`'s `apk_index` check (which asserts the produced set equals the requested set — correct to do so) exited 1 with `AGP split for [arm64-v8a,armeabi-v7a,x86_64], expected [x86_64]`. The owner's verdict: the check is right, the build is wrong. Generalises the existing `benchmarkTest` branch (which already proves a property can drive the split set — it restricts to `arm64-v8a`) with a `fenixSplitAbi` property: when set to a comma-separated ABI list it includes exactly those ABIs and keeps a universal (the check requires exactly one), otherwise behaviour is unchanged. `scripts/android-apk.sh` passes the requested `--abis` set as `-PfenixSplitAbi`, reusing the `MOZ_ANDROID_FAT_AAR_ARCHITECTURES` env var it already sets for both passes. The `splits` block is touched by no other patch, so the hunk is in vanilla coordinates (identical in the desktop and ESR trees, verified by diff) and order-free against the four `fenix/app/build.gradle` touchers (no-adjust, no-glean, no-gms, no-crashreporter) — all four pairs recorded in `scripts/check-patch-order.py`. |
 | `patches/android/l10n-strings.patch` | LW-M4-12 | **The Fenix UI's strings, in every locale.** `mobile/android/fenix/l10n.toml` has `basepath = "."`, so mozilla-l10n/android-l10n is synced into in-tree `res/values-*/strings.xml` before upstream cuts a release — 4,969 values files across 81 resource directories, 250,412 translated string rows in the built APK — and neither `--with-l10n-base` nor the repository's `l10n/` overlay reaches one of them. The patch adds `mobile/android/lw-brand/` (rewriter, brand map, android-l10n pin, Gradle glue, host-side UI scanner) and one `gradle.projectsLoaded` hook at the end of `mobile/android/shared-settings.gradle`. The rewrite runs per module as `:<module>:lwBrandStrings`, writes a rewritten copy of each `res` directory into that module's build directory and **replaces** `res.srcDirs` with it: the source tree is never mutated (contrast landmine L4), and replacing rather than overlaying is forced — a second srcDir in the same source set makes every rewritten string a duplicate-resource error. Measured with `aapt2` over the built `resources.arsc`: brand-word occurrences in string values **6,259 → 0**, with 300 rows of *enumerated* exception (`firefox.com/pair` in the two Mozilla-account pairing instructions, and Google's `client=firefox` suggestion-URL example) and 16 internal key strings whose value equals their own name (`pref_key_*`, `mozac_error_*`) deliberately untouched — rewriting those breaks stored preferences and error-page image lookups, which a `sed` over `strings.xml` would do silently. **37 locales spell the mark in their own script** (Фајерфокс, فايرفوكس, ഫയർഫോക്സ്, ෆයර්ෆොක්ස්, ᱯᱷᱟᱭᱟᱨᱯᱷᱚᱠᱥ), so an ASCII substitution moves the problem rather than solving it; those spellings are derived from the android-l10n commit pinned and sha256-verified in `mobile/android/lw-brand/android-l10n-pin.txt`. Anything the map cannot clean is **dropped** from the translated file and falls back to the rewritten English string — 43 (string, locale) pairs on this tree, listed in each module's `build/lw-brand/dropped.txt`. No ordering constraint: `shared-settings.gradle` is touched by no other patch, which is why the hook is there and not at the end of the root `build.gradle`. See `docs/android/L10N-ANDROID.md`. |
 | `patches/android/gradle-no-config-cache.patch` | LW-M3-13 | **Turns the Gradle configuration cache off for the Android build.** Every Gecko/AAR pass died at `:geckoview:compileDebugKotlin` with *"Could not **load** the value of field `__buildFusService__` … Cannot set the value of a property of type `BuildFusService` using a provider of type `FlowActionBuildFusService`"*. The operative word is **load**: this is configuration-cache *deserialization*. The Kotlin Gradle plugin writes its FUS usage-statistics build service into the cache as `FlowActionBuildFusService` and reads it back into a field declared `BuildFusService`; the types do not round-trip. The cache is therefore not *stale* but *unusable* — deleting `<srcdir>/.gradle/configuration-cache` does not help, and a freshly written entry fails identically. Two things disguised this and are worth recording: the cache lives in the **source tree**, not the `--outdir`, so every "clean fresh outdir" run silently reused it; and `armeabi-v7a` is both first in `DEFAULT_ABIS` and the default `--fat-host-abi`, so in a 3-ABI run it always failed first and the other two ABIs never ran, manufacturing an "ARM-specific" conclusion from a single data point. Three diagnoses were drawn and acted on before this one — ARM-specificity; a Kotlin 2.3.21-vs-2.3.20 mismatch (real, flagged by the build log itself, and **harmless** — aligning it changed nothing, and that patch is dropped rather than kept as an unproven divergence every rebase would carry); and a stale cache — none of which held. Measured 2026-08-24: with the cache off, `compileDebugKotlin` completes at upstream's Kotlin 2.3.21. Cost is negligible — the configuration cache accelerates the *configuration* phase of repeated builds, and these are from-scratch container release builds where configuration is a rounding error against a ~20 minute compile. Touches `gradle.properties`, which no other patch in any list touches, so no ordering constraint. Revisit when KGP fixes the round-trip: flip the flag, run one ABI pass. |
-| `patches/android/rs-blocker-android.patch` | LW-M4-08 | **Stops the Rust RemoteSettingsService's network traffic on Android.** Desktop's `rs-blocker.patch` (common.txt until the Firefox 157 merge; Android now applies its pre-merge text as `android/rs-blocker-esr`) covers only the JS/Gecko stack (`services/settings/*.mjs` + `SearchEngineSelector.sys.mjs`); Fenix's Remote Settings traffic goes through the Rust crate in `third_party/application-services/components/remote_settings/`, which that patch never touches. Three hunks close all network choke points: `fetch_changes()` returns an empty `Changes`, `sync()` is a no-op, `make_request()` returns an error (the single choke point for `fetch_changeset`, `fetch_attachment`, `fetch_cert`). The server stays Prod so `is_prod_server()` remains true and the packaged data path (`get_records` Case 1, `get_attachment` step 2, `reset_storage` re-seed) keeps working — the seven packaged collections and their attachments are served from the binary. `search-config-overrides-v2` is NOT packaged but Fenix passes `applyEngineOverrides=false` so no client is created for it. Touches two files (`service.rs`, `client.rs`) in the Rust crate; no other patch in either list touches these files, so no ordering constraint. |
+| `patches/android/rs-blocker-android.patch` | LW-M4-08 | **Stops the Rust RemoteSettingsService's network traffic on Android.** Desktop's `rs-blocker.patch` (common.txt) covers only the JS/Gecko stack (`services/settings/*.mjs` + `SearchEngineSelector.sys.mjs`); Fenix's Remote Settings traffic goes through the Rust crate in `third_party/application-services/components/remote_settings/`, which that patch never touches. Three hunks close all network choke points: `fetch_changes()` returns an empty `Changes`, `sync()` is a no-op, `make_request()` returns an error (the single choke point for `fetch_changeset`, `fetch_attachment`, `fetch_cert`). The server stays Prod so `is_prod_server()` remains true and the packaged data path (`get_records` Case 1, `get_attachment` step 2, `reset_storage` re-seed) keeps working — the seven packaged collections and their attachments are served from the binary. `search-config-overrides-v2` is NOT packaged but Fenix passes `applyEngineOverrides=false` so no client is created for it. Touches two files (`service.rs`, `client.rs`) in the Rust crate; no other patch in either list touches these files, so no ordering constraint. |
 | `patches/android/no-suggest.patch` | LW-M4-11 | **Search suggestions and trending searches off by default; the sponsored top-sites feed removed.** Two Fenix defaults flip (`Settings.shouldShowSearchSuggestions`, `trendingSearchSuggestionsEnabled`): a default, not a lock — both rows stay in Settings > Search, which is acceptance line 3. The sponsored tiles ("Contile", in 153 the MARS / Mozilla ads client feed at `ads.mozilla.org`, measured by LW-M4-10) are removed rather than switched off: `Settings.showContileFeature` becomes a constant `false` getter (no preference, so no settings write, Nimbus experiment or upstream default flip can revive it), the `TopSitesRefresher` observer and the `ContileTopSitesUpdater` periodic work are deleted from `HomeActivity.kt`, and the "Sponsored shortcuts" checkbox leaves Settings > Homepage. `Core.kt`'s MARS/MAC providers stay but have no caller (`lazyMonitored`, never constructed). Five files incl. `SettingsTest.kt`. Shares `Settings.kt` with `no-adjust`/`no-onboarding`/`no-gms`, `HomeActivity.kt` with `no-nimbus`/`no-adjust`, `SettingsTest.kt` with `no-onboarding`; every pair replayed from the pristine file in both orders, byte-identical (check-patch-order rows). Verify: `android-smoke.sh --check-no-suggest`. |
 | `patches/android/search-config.patch` | LW-M4-06 | **The LibreWolf engine set on Android.** Fenix never reads `services/settings/dumps/`; its engines come from the app-services `search` component reading the `search-config-v2` / `search-config-icons` Remote Settings dumps compiled into `libmegazord.so` (`remote_settings/src/client.rs` `packaged_collections!`), which `rs-blocker-android` freezes for the life of the build. The data half is a plain copy, like desktop: `scripts/librewolf-patches.py` `android_search_config()` puts `assets/search-config-v2.json` (DuckDuckGo No-AI default, Startpage, Mojeek, Wikipedia) and the icons dump into `third_party/application-services/components/remote_settings/dumps/main/`, rewrites the `.timestamp` sidecars, drops icon records android-components cannot decode (the DuckDuckGo *pdf* record would be the first match for `ddg`), and writes the Mojeek attachment plus a sidecar whose hash/size are computed from the file. The diff half: the Mojeek and Startpage record ids join `packaged_attachments!` in `client.rs` (attachments are served from the binary by record id, nothing else; upstream ships Startpage's file but never lists it, and the patcher now asserts every kept icon id is listed), `Settings.useRemoteSearchConfiguration` is pinned to `true` so the legacy `assets/search/list.json` bundle (Google default, partner codes) stays unreachable across a rebase, and the hidden debug switch for it is removed. Shares `Settings.kt` with `no-adjust`/`no-onboarding`/`no-gms`/`no-suggest` and `client.rs` with `rs-blocker-android`; measured order-free. Verify: `android-smoke.sh --check-search` (engine list read off the running Settings screen + a real query). |
 | `patches/android/deterministic-version-code.patch` | LW-M6-08 | Derives Fenix versionCode from the pinned UTC MOZ_BUILD_DATE, with strict date validation. The Android Gradle config plugin is never used by desktop; no other patch touches its source file. |
@@ -277,22 +316,11 @@ own line in this table.
 | `patches/android/privacy-defaults.patch` | LW-M7-07/LW-M7-12 | Fenix preference defaults and their settings screens agree on HTTPS-only, strict tracking protection, cookie/cache cleanup, disabled password/address/card autofill and DoH off with the LibreWolf provider catalog. Existing explicit choices remain effective; absent companion radio keys use the same fallback as the engine policy. The patch changes only Fenix Kotlin, XML preferences and tests. Five shared-file pairs with prior defaults patches are reviewed in the LW-M7-12 integration evidence; registration does not establish compiled or runtime behavior. |
 | `patches/android/cookie-banner-rules.patch` | LW-M7-13 | Packages the pinned cookie-banner snapshot directly for Android and validates its hash, metadata and schema before importing through CookieBannerListService. Android constructs no cookie Remote Settings client or subscription; both collection allowlists and blockers remain unchanged. Desktop retains its existing data path. The 23 actual-source tests pass; Gecko compilation, packaged resource loading and real native banner rejection remain pending. No new co-applied shared-file pair. |
 | `patches/android/update-check.patch` | LW-M6-06 | **The opt-in update check for the direct-APK distribution** (contract: `DISTRIBUTION.md`). A switch in Settings > About, off by default, whose summary names the host, the cadence and what is sent. When on, `HomeActivity.onResume` calls `org.mozilla.fenix.lw.UpdateCheck.maybeRun`: at most once per 24 h it fetches `latest.json` and `latest.json.sig`, verifies ECDSA P-256 / SHA-256 against a public key embedded at build time, and if a newer version is named shows a dialog offering the download page — never downloads, never installs, every failure is silent. The request carries a static User-Agent, no cookies, no cache validators, no redirects, and not even the version string (the comparison is local); `UpdateCheckerTest` pins each of those fields. Without `-PlwUpdateCheckPubkey` (forwarded from `LW_UPDATE_CHECK_PUBKEY` by `scripts/android-apk.sh`) the feature is compiled out: no row, no reachable code — which is how store builds (F-Droid, Accrescent) are told apart from the direct APK, by artifact rather than by runtime query. No key is checked in; no endpoint exists yet. Seven files, three new. Shares `fenix/app/build.gradle` with the ordered `no-adjust`…`branding` chain and `HomeActivity.kt` with `no-nimbus`/`no-adjust`/`no-suggest`; measured order-free. Verify: `android-smoke.sh --check-update-privacy`. |
-| `patches/android/neterror-common-esr.patch` | 157 merge | Byte copy of the pre-merge `ui-patches/neterror-common` (LW-M1-07 common half). Upstream 3ac002b0's 156 rewrite of its `net-error-card.mjs` hunk rejects on 153.0esr. Must stay before `android/neterror-jar`. |
-| `patches/android/webgl-permission-common-esr.patch` | 157 merge | Byte copy of the pre-merge `webgl-permission-common` (LW-M1-08 common half), which `android/canvas-webgl-permissions` quotes. Needs `fpp-canvas-fix` (common) first; must stay before `android/webgl-prompt-default` and `android/canvas-webgl-permissions`. |
-| `patches/android/bootstrap-esr.patch` | 157 merge | The pre-merge `bootstrap` (renamed, unchanged); upstream deleted it (cd7ec6e7). Build tooling. |
-| `patches/android/always-fetch-latest-toolchain-artifact-esr.patch` | 157 merge | Byte copy of the pre-merge `always-fetch-latest-toolchain-artifact`; upstream 9f21b38c's 157 text has an import hunk that rejects on 153.0esr. |
-| `patches/android/remove-openai-esr.patch` | 157 merge | Byte copy of the pre-merge `remove-openai` (landmine L4 tripwire). Mandatory: `librewolf-patches.py` deletes the OpenAI paths on every target. 157's `toolkit/components/ml/jar.mn` lost context the 153 text quotes. |
-| `patches/android/rs-blocker-esr.patch` | 157 merge | Byte copy of the pre-merge `rs-blocker` (head of `android.txt`, i.e. still before every Android patch). Upstream's 156/157 text (5b4201be startup-bundle filter, 3536d182 blocked collections as debug logs, new `remote-settings.sys.mjs` and `ConfigSearchEngine.sys.mjs` hunks) applies to 153.0esr but would change the Android tree; it is in `desktop.txt`. Same LW-M4-08 allowlist caveat as the common row. |
-| `patches/android/vendor-name-esr.patch` | 157 merge | Byte copy of the pre-merge `vendor-name`. Upstream 81e96593 (`getBrowserInfo()` reports `MOZ_APP_VERSION_DISPLAY`) is in the 157 text in `desktop.txt`. Shares `ext-runtime.js` with `extensions-setUninstallURL` (common.txt), which still applies first. |
-| `patches/android/disable-data-reporting-common-esr.patch` | 157 merge | Byte copy of the pre-merge `disable-data-reporting-common` (LW-M1-02 common half: `python/mach/mach/telemetry.py`, `python/sites/mach.txt` at glean-sdk 67.3.2, `toolkit/components/glean/src/init/mod.rs`, `Telemetry.cpp`, `gkrust-features.mozbuild`). Applied immediately before `android/disable-data-reporting-android`. The 157 common text in `desktop.txt` dropped the version-specific `mach.txt`/`init/mod.rs` hunks (157 equivalents are in `disable-data-reporting-desktop`) and added the Stopwatch/UserInteraction hunks (fb4c7a32). |
 
 The first three rows are the ones the M1 splits pulled in; the rest are later
-work. The eight `-esr` rows at the end are not new Android work: they keep
-Android's `common + android` sequence identical across the Firefox 157 desktop
-merge, and each is dropped (its 157 text returning to `common.txt`, or simply
-deleted for `bootstrap`) when Android moves to an ESR >= 157. A ninth,
-`fix-canvas-extraction-permission-esr`, was already deleted at the 153.4.0esr
-rebase: Gecko 153.4.0esr carries the fix. Where a split needed **no** Android counterpart, that is recorded as a
+work. (Between the Firefox 157 desktop merge and the 2026-10-02 move to 157 this
+table also carried eight `-esr` byte copies of former `common.txt` entries; they
+are deleted, see the top of this file.) Where a split needed **no** Android counterpart, that is recorded as a
 comment block in `assets/patches/android.txt` with the evidence — LW-M1-03
 (`eme-permission`), LW-M1-04 (`moz-official`) and LW-M1-06 (`remove-pingsender`)
 each have one. A silent absence and a checked absence look identical in a patch
@@ -302,32 +330,32 @@ list, which is why those blocks are there.
 
 ## Common — apply to both desktop and Android
 
-15 entries: 11 of the 17 originally-common patches below, plus 4 of the 7
-common halves of the split straddlers (table after this one). Every row was
-traced to the guard that proves the file is built on Android. Rows marked
-**157 merge** left `common.txt` in the Firefox 157 desktop merge; the reasoning
-still holds for Android, which applies the pre-merge text from the named
-`android/…-esr` copy.
+22 entries: 15 of the 17 originally-common patches below, plus all 7 common
+halves of the split straddlers (table after this one). Every row was traced to
+the guard that proves the file is built on Android. Rows marked **157** were
+parked in `desktop.txt` (with an `android/…-esr` copy for Android) between the
+Firefox 157 desktop merge and the 2026-10-02 move of Android to 157; they are
+back in `common.txt` at their 157 text.
 
 | patch | touches | why common (reviewed) |
 |---|---|---|
-| `always-fetch-latest-toolchain-artifact` | `python/mozbuild/…/artifact_commands.py` | **157 merge:** 157 text in `desktop.txt`, Android applies `android/always-fetch-latest-toolchain-artifact-esr`. Build tooling. mach imports it for every target; artifact builds are not desktop-specific. |
+| `always-fetch-latest-toolchain-artifact` | `python/mozbuild/…/artifact_commands.py` | **157:** upstream 9f21b38c's 157 text. Build tooling. mach imports it for every target; artifact builds are not desktop-specific. |
 | `autoconfig-setEnv` | `extensions/pref/autoconfig/src/prefcalls.js` | `toolkit/moz.configure:3186-3187` makes `MOZ_PREF_EXTENSIONS` default-on (`--disable-pref-extensions`), and `toolkit/toolkit.mozbuild:135-136` traverses `/extensions/pref` under it. `prefcalls.js` ships on Android. Must apply **before** `profile-directory`. |
-| `bootstrap` | `python/mozversioncontrol/…/source.py` | **157 merge:** deleted upstream (cd7ec6e7), now only `android/bootstrap-esr`. Build tooling; path separator normalisation, target-independent. |
+| `bootstrap` | `python/mozversioncontrol/…/source.py` | **Gone:** deleted upstream for 157 (cd7ec6e7); Android's `bootstrap-esr` copy was deleted with the ESR track. Build tooling; path separator normalisation, target-independent. |
 | `custom-ubo-assets-bootstrap-location` | `toolkit/components/extensions/parent/ext-storage.js` | **Live on Android, and more useful there than on desktop.** `jar.mn:45` ships `parent/ext-storage.js` with no `#ifndef ANDROID` (the only such guard in that file is for `child/ext-identity.js`). Upstream `storage.managed` goes through `getManagedStorageManifestData` → `NativeManifests.init()`, which *throws* on Android (`AppConstants.platform` matches neither `win` nor `macosx`/`linux`). The patch wraps that call in `try/catch` and returns `adminSettings` anyway, so it is the only reason `storage.managed` returns anything at all for uBO on Android. Answers LW-M3-07: **yes, the code path is live.** |
 | `devtools-bypass` | `devtools/server/actors/*`, `devtools/shared/flags.js` | `devtools/moz.build:11-16` adds `platform/`, `server/`, `shared/`, `startup/` to `DIRS` with no guard. Ships on Android. |
 | `extensions-setUninstallURL` | `toolkit/components/extensions/parent/ext-runtime.js` | `jar.mn:43`, unguarded. WebExtensions ship on Android. |
 | `firefox-in-ua` | `toolkit/moz.configure` | Shared configure file. `mobile/android/moz.configure:135` already does `imply_option("MOZ_APP_UA_NAME", "Firefox")`, and an implied value outranks a `project_flag` default without conflicting (`_value_for_option` only raises on command-line/environment origins), so on Android this is a safe no-op with the same outcome. Kept common: it edits a file `moz-configure` also edits, and must apply **before** it. |
-| `fix-canvas-extraction-permission` | `dom/html/HTMLCanvasElement.cpp` | **157 merge:** deleted upstream (d374f724, fixed in Gecko by 157), then only `android/fix-canvas-extraction-permission-esr`, itself deleted at the 153.4.0esr rebase because Gecko 153.4.0esr carries the same fix — neither list applies it now. Core DOM, built everywhere. |
+| `fix-canvas-extraction-permission` | `dom/html/HTMLCanvasElement.cpp` | **Gone:** deleted upstream (d374f724, fixed in Gecko by 157); neither list applies it. Core DOM, built everywhere. |
 | `fpp-canvas-fix` | `dom/canvas/*`, `toolkit/components/resistfingerprinting/nsRFPService.cpp` | Core canvas + RFP. Must apply **before** `webgl-permission`; that holds across files because `common.txt` is applied first. |
 | `limit-access` | `caps/nsScriptSecurityManager.cpp` | Core security check on `chrome://branding/` access. Genuinely common. |
 | `moz-configure` | `toolkit/moz.configure` | **Not inert on Android.** `MOZ_APP_PROFILE` is defined only by this `project_flag` (`toolkit/moz.configure:35`) — nothing under `mobile/` implies it — so the added `default="librewolf"` reaches the Android build and lands in `application.ini` via `build/moz.build:88-89`, i.e. `gAppData->profile`. |
 | `mozilla_dirs` | `NativeManifests.sys.mjs`, `toolkit/xre/nsXREDirProvider.cpp`, `xpcom/build/nsXULAppAPI.h` | **The heuristic guess ("native messaging is desktop-only") was wrong about the file, right about the feature.** `XP_UNIX` is set for every unix target including Android (`build/moz.configure/init.configure:867`), so the `#if defined(XP_UNIX) \|\| defined(XP_MACOSX)` blocks at `nsXULAppAPI.h:108-116`, `nsXREDirProvider.cpp:326-362` and `:416-430` all **compile on Android**, and the `AppendSysUserExtensionPath` `.mozilla` → `.librewolf` rename (`:1293-1302`, `#elif defined(XP_UNIX)`) takes effect there. Only the JS half is dead: `NativeManifests.init()` throws on Android before it reaches the patched `dirs` array. Dropping this would be a real Android branding regression. Must apply **before** `xdg-dir`. |
 | `profile-directory` | `extensions/pref/autoconfig/src/prefcalls.js` | Same file and same reasoning as `autoconfig-setEnv`; must apply **after** it. The `HOME`/`XDG_CONFIG_HOME` lookup resolves to a non-existent path on Android, which is harmless — the file ships, so the patch stays with its partner rather than splitting the pair across lists. |
-| `remove-openai` | `toolkit/components/ml/*`, `toolkit/content/license.html` | **157 merge:** 157 regeneration in `desktop.txt`, Android applies `android/remove-openai-esr`. **Mandatory on Android, not merely allowed.** `toolkit/components/moz.build:59` puts `ml` in the unconditional `DIRS`, and `scripts/librewolf-patches.py:325-328` deletes `OpenAIPipeline.mjs` and `vendor/openai/` for *every* target. Leaving the patch off an Android build would leave `toolkit/components/ml/jar.mn` referencing files that no longer exist. This is landmine L4 pointing at scope. (The `aboutinference` hunk is `NIGHTLY_BUILD`-only per `toolkit/components/moz.build:155-156`, on every platform; that does not change the classification.) |
-| `rs-blocker` | `services/settings/*`, `toolkit/components/search/SearchEngineSelector.sys.mjs` (157 text also `services/settings/remote-settings.sys.mjs`, `toolkit/components/search/ConfigSearchEngine.sys.mjs`) | **157 merge:** 157 text at the head of `desktop.txt`, Android applies `android/rs-blocker-esr`. `services/moz.build:12` traverses `settings` unconditionally; `toolkit/components/moz.build:79` traverses `search` and `search/moz.build:21` ships `SearchEngineSelector.sys.mjs`. Both halves are live on Android. **Caveat for LW-M4-08:** the allowlist defaults to the empty pref, and `"".split(",")` is `[""]`, i.e. deny-everything. Android must populate `librewolf.services.settings.allowedCollections{,FromDump}` with its own collections or remote settings is dead there — that is the LW-M4-08 work, and it is a configuration gap, not a reason to move this patch. |
+| `remove-openai` | `toolkit/components/ml/*`, `toolkit/content/license.html` | **157:** regenerated from the firefox-157.0 tree. **Mandatory on Android, not merely allowed.** `toolkit/components/moz.build:59` puts `ml` in the unconditional `DIRS`, and `scripts/librewolf-patches.py:325-328` deletes `OpenAIPipeline.mjs` and `vendor/openai/` for *every* target. Leaving the patch off an Android build would leave `toolkit/components/ml/jar.mn` referencing files that no longer exist. This is landmine L4 pointing at scope. (The `aboutinference` hunk is `NIGHTLY_BUILD`-only per `toolkit/components/moz.build:155-156`, on every platform; that does not change the classification.) |
+| `rs-blocker` | `services/settings/*`, `toolkit/components/search/SearchEngineSelector.sys.mjs` (157 text also `services/settings/remote-settings.sys.mjs`, `toolkit/components/search/ConfigSearchEngine.sys.mjs`) | **157:** upstream's 157 text (5b4201be, 3536d182). `services/moz.build:12` traverses `settings` unconditionally; `toolkit/components/moz.build:79` traverses `search` and `search/moz.build:21` ships `SearchEngineSelector.sys.mjs`. Both halves are live on Android. **Caveat for LW-M4-08:** the allowlist defaults to the empty pref, and `"".split(",")` is `[""]`, i.e. deny-everything. Android must populate `librewolf.services.settings.allowedCollections{,FromDump}` with its own collections or remote settings is dead there — that is the LW-M4-08 work, and it is a configuration gap, not a reason to move this patch. |
 | `rust-gentoo-musl` | `build/moz.configure/rust.configure` | **Does not disturb the NDK path.** The added block sits between the existing vendor narrowing and the terminal `return None` in `find_candidate`, i.e. it only runs on the path that would otherwise `die("Don't know how to translate …")`. Android targets (`aarch64-linux-android` &c.) resolve earlier, at the `sub_configure_alias`/`raw_os` narrowing. It strictly widens; it can never displace a candidate that would otherwise have won. And `detect_rustc_target` runs for the **host** as well as the target, so a Gentoo/musl build host cross-compiling to Android needs it. |
-| `vendor-name` | `toolkit/components/extensions/parent/ext-runtime.js`, `toolkit/xre/nsAppRunner.cpp` | **157 merge:** 157 text (81e96593, `version_display` in `getBrowserInfo()`) at the head of `desktop.txt`, Android applies `android/vendor-name-esr`. Both files are core and built on Android. |
+| `vendor-name` | `toolkit/components/extensions/parent/ext-runtime.js`, `toolkit/xre/nsAppRunner.cpp` | **157:** upstream 81e96593 (`version_display` in `getBrowserInfo()`). Both files are core and built on Android. |
 
 ### The 7 common halves added by the M1 splits
 
@@ -337,12 +365,12 @@ own header and in the straddler table further down.
 
 | patch | task | touches | why common |
 |---|---|---|---|
-| `disable-data-reporting-common` | LW-M1-02 | 157 text: `python/mach/mach/telemetry.py`, `toolkit/components/telemetry/core/Telemetry.cpp`, `toolkit/library/rust/gkrust-features.mozbuild`, `toolkit/components/telemetry/core/Stopwatch.cpp`, `toolkit/components/telemetry/core/TelemetryUserInteraction.{cpp,h}`. Android's `-esr` copy (pre-merge): `python/mach/mach/telemetry.py`, `python/sites/mach.txt`, `toolkit/components/glean/src/init/mod.rs`, `toolkit/components/telemetry/core/Telemetry.cpp`, `toolkit/library/rust/gkrust-features.mozbuild` | **157 merge:** 157 text at the head of `desktop.txt`, Android applies `android/disable-data-reporting-common-esr` then `android/disable-data-reporting-android`. The 157 `mach.txt` (glean-sdk 68.0.1) and `third_party/rust/glean-core` hunks are version-specific and live in `disable-data-reporting-desktop`. Build tooling plus core Glean/Telemetry, all built on Android. Note the *name drops* `-at-compile-time`. The compile-time switch itself is per-front-end, hence the separate `android.txt` entry. |
+| `disable-data-reporting-common` | LW-M1-02 | `python/mach/mach/telemetry.py`, `python/sites/mach.txt`, `toolkit/components/telemetry/core/Telemetry.cpp`, `toolkit/library/rust/gkrust-features.mozbuild`, `toolkit/components/telemetry/core/Stopwatch.cpp`, `toolkit/components/telemetry/core/TelemetryUserInteraction.{cpp,h}`, `third_party/rust/glean-core/src/{lib.rs,core/mod.rs}` | **157:** upstream's 157 text, with the `mach.txt` and glean-core hunks back from the desktop half (see the top of this file); `librewolf-patches.py` rewrites the glean-core checksums on every target. Android also applies `android/disable-data-reporting-android`. Build tooling plus core Glean/Telemetry, all built on Android. Note the *name drops* `-at-compile-time`. The compile-time switch itself is per-front-end, hence the separate `android.txt` entry. |
 | `eme-permission-common` | LW-M1-03 | `dom/media/eme/MediaKeySystemAccessManager.cpp` | `dom/media/moz.build:28,32` puts `eme` in `DIRS` with no guard. |
 | `moz-official-common` | LW-M1-04 | `dom/media/gmp/ChromiumCDMAdapter.cpp`, `media/gmp-clearkey/0.1/gmp-clearkey.cpp` | `dom/media/moz.build:28-36` has `gmp` unguarded; `toolkit/toolkit.mozbuild:167-169` traverses clearkey unconditionally and `clearkey/moz.build:13-16` has an explicit Android `FINAL_TARGET` branch, i.e. it is packaged into the APK. |
 | `remove-pingsender-common` | LW-M1-06 | `toolkit/components/telemetry/moz.build`, `toolkit/components/telemetry/app/TelemetrySend.sys.mjs`, `python/mozbuild/mozbuild/artifacts.py` | `toolkit/components/telemetry/moz.build:9-11` has `DIRS = ["pingsender"]` with no guard, so dropping it really does change the Android build — see the corrected mechanism in the straddler table. |
-| `ui-patches/neterror-common` | LW-M1-07 | `toolkit/content/errors/net-error-illustrations.mjs`, `toolkit/content/net-error-card.mjs`, `toolkit/themes/shared/aboutNetError.css`, `toolkit/themes/shared/illustrations/warning.svg` | **157 merge:** upstream 3ac002b0's text in `desktop.txt`, Android applies `android/neterror-common-esr` (kept before `android/neterror-jar`). The two `.mjs` files ship unguarded (`toolkit/content/jar.mn:18,214`); the CSS and SVG are shared theme files. The desktop boundary was the *filename* `desktop-jar.inc.mn`, which is in the desktop half — landmine L3. |
-| `webgl-permission-common` | LW-M1-08 | `dom/canvas/ClientWebGLContext.cpp`, `dom/ipc/BrowserParent.{cpp,h}`, `dom/ipc/PBrowser.ipdl`, `modules/libpref/init/StaticPrefList.yaml`, `modules/libpref/moz.build` | **157 merge:** the 156/157 rewrite in `desktop.txt`, Android applies `android/webgl-permission-common-esr` (which `android/canvas-webgl-permissions` quotes). Core Gecko. Must apply **after** `fpp-canvas-fix` (shared `ClientWebGLContext.cpp`). Ships with `patches/android/webgl-prompt-default.patch` — landmine L1. |
+| `ui-patches/neterror-common` | LW-M1-07 | `toolkit/content/errors/net-error-illustrations.mjs`, `toolkit/content/net-error-card.mjs`, `toolkit/themes/shared/aboutNetError.css`, `toolkit/themes/shared/illustrations/warning.svg` | **157:** upstream 3ac002b0's text. The two `.mjs` files ship unguarded (`toolkit/content/jar.mn:18,214`); the CSS and SVG are shared theme files. The desktop boundary was the *filename* `desktop-jar.inc.mn`, which is in the desktop half — landmine L3. |
+| `webgl-permission-common` | LW-M1-08 | `dom/canvas/ClientWebGLContext.cpp`, `dom/ipc/BrowserParent.{cpp,h}`, `dom/ipc/PBrowser.ipdl`, `modules/libpref/init/StaticPrefList.yaml`, `modules/libpref/moz.build` | **157:** upstream's 156/157 rewrite (OffscreenCanvas/worker gating), which `android/canvas-webgl-permissions` quotes as context. Core Gecko. Must apply **after** `fpp-canvas-fix` (shared `ClientWebGLContext.cpp`). Ships with `patches/android/webgl-prompt-default.patch` — landmine L1. |
 | `xmas-common` | LW-M1-09 | root `moz.build` (`DIRS += ["lw"]`), `lw/moz.build` | `FINAL_TARGET_FILES` works on any target, so `lw/` enters the build on both. Necessary but **not sufficient** on Android: it does not reach the APK. See landmine L2. |
 
 ### Moved out of common by this review
@@ -369,14 +397,13 @@ That asymmetry is the whole point of this task.
 
 ## Desktop only — never applied to Android
 
-53 entries, all in `desktop.txt` (`pref-pane/pref-pane-small` included; LW-M1-13
-moved it there from its own call site). Of those 53: **27** are the plain
+46 entries, all in `desktop.txt` (`pref-pane/pref-pane-small` included; LW-M1-13
+moved it there from its own call site). Of those 46: **27** are the plain
 `browser/`-only rows listed below (one of them being `pref-pane-small` itself;
 nine arrived with the Firefox 157 merge), **4** were moved out of common by
 LW-M1-01 (the fifth was dropped upstream for 157), **7** are the desktop halves
 of the split straddlers, **`msix`** is desktop-only for the reason LW-M1-05
-established, **7** are the 157 text of former `common.txt` entries whose
-pre-merge text Android applies as `-esr` copies, and **7** are 157 texts that
+established, and **7** are 157 texts that
 also edit shared code (second table below): six new upstream patches plus
 `newtab-fix`, whose 157 rewrite left `browser/` for
 `toolkit/components/nimbus/`. The plain rows share one justification, so it is
@@ -414,17 +441,17 @@ plus the seven desktop halves, which are desktop-only by construction —
 `ui-patches/neterror-desktop`, `webgl-permission-desktop`, `xmas-desktop`. Six of
 those touch only `browser/`; the seventh, `ui-patches/neterror-desktop`, touches
 only `toolkit/themes/shared/desktop-jar.inc.mn`, which is landmine L3 and the
-reason the whole split existed; plus the 157 text of `always-fetch-latest-toolchain-artifact`,
-`remove-openai`, `ui-patches/neterror-common`, `webgl-permission-common`,
-`rs-blocker`, `vendor-name` and `disable-data-reporting-common`, whose rows and
-Android `-esr` counterparts are in the common tables above.
+reason the whole split existed. (Between the Firefox 157 desktop merge and the
+2026-10-02 move of Android to 157, seven former `common.txt` entries sat here
+too; they are back in `common.txt`.)
 
 ### New in the Firefox 157 merge and touching more than `browser/`
 
 Upstream LibreWolf added these for 156/157 (`newtab-fix` was rewritten). They are in `desktop.txt` because the
-Android track (153.0esr) is held at its shipped state, **not** because a guard
-proves them inert there. None has been reviewed for Android; each needs that
-review, and possibly an Android counterpart, when Android moves to an ESR >= 157.
+Android track was held at its shipped 153.0esr state when they arrived, **not**
+because a guard proves them inert there. None has been reviewed for Android.
+**Android builds 157 since 2026-10-02, so that review is now due** (and possibly
+an Android counterpart each); until it lands they stay desktop-only.
 
 | patch | files outside `browser/` | note |
 |---|---|---|
@@ -461,10 +488,11 @@ section's own definition — edits both shared Gecko code and desktop-only code 
 that arrived with the 157 merge (so was `ui-patches/allow-disabling-updater` on
 a looser reading, until the owner decision above took it out of the list). It
 is neither split nor tagged: it sits whole in `desktop.txt`
-because Android stays on its shipped 153.0esr patch set. The other new entries
+because Android was on its shipped 153.0esr patch set when it arrived. The other new entries
 that touch shared code (table in "Desktop only") edit no `browser/` file and are
-simply unreviewed for Android. Splitting any of them is Android work for the
-move to an ESR >= 157, not part of the desktop merge.
+simply unreviewed for Android. Splitting or reviewing any of them is Android
+work now due (Android builds 157 since 2026-10-02), not part of the list
+restructuring that moved Android there.
 
 LW-M1-01 nominated eight. Seven really did edit both shared Gecko code and
 desktop-only code and were cut in half; the eighth (`msix`) turned out not to be
@@ -498,13 +526,13 @@ does not make any of it common.
 
 | former straddler | common half | desktop half | Android patch |
 |---|---|---|---|
-| `disable-data-reporting-at-compile-time` | `disable-data-reporting-common` (name drops `-at-compile-time`; 157 text in `desktop.txt` since the 157 merge; Android: `android/disable-data-reporting-common-esr`) | `disable-data-reporting-desktop` | `android/disable-data-reporting-android` |
+| `disable-data-reporting-at-compile-time` | `disable-data-reporting-common` (name drops `-at-compile-time`) | `disable-data-reporting-desktop` | `android/disable-data-reporting-android` |
 | `eme-permission` | `eme-permission-common` | `eme-permission-desktop` | none needed (checked) |
 | `moz-official` | `moz-official-common` | `moz-official-desktop` | none needed (checked) |
 | `msix` | — | `msix` (unsplit) | — |
 | `remove-pingsender` | `remove-pingsender-common` | `remove-pingsender-desktop` | none needed (checked) |
-| `ui-patches/neterror` | `ui-patches/neterror-common` (157 text in `desktop.txt` since the 157 merge; Android: `android/neterror-common-esr`) | `ui-patches/neterror-desktop` | `android/neterror-jar` |
-| `webgl-permission` | `webgl-permission-common` (157 text in `desktop.txt` since the 157 merge; Android: `android/webgl-permission-common-esr`) | `webgl-permission-desktop` | `android/webgl-prompt-default` (L1, mandatory) |
+| `ui-patches/neterror` | `ui-patches/neterror-common` | `ui-patches/neterror-desktop` | `android/neterror-jar` |
+| `webgl-permission` | `webgl-permission-common` | `webgl-permission-desktop` | `android/webgl-prompt-default` (L1, mandatory) |
 | `xmas` | `xmas-common` | `xmas-desktop` (kept last in `desktop.txt`) | none yet — the APK packaging half is still owed, see L2 |
 
 All eight monolithic files are off disk except `patches/msix.patch`, which is not
@@ -556,9 +584,8 @@ Two things this task could not settle, recorded so they are not silently assumed
   cross-list case for this pair too; `scripts/enable-patch.sh` already models it
   correctly via `applies_before()`. The second pair was *within* one list
   after LW-M1-08 (`fpp-canvas-fix` → `webgl-permission-common`, both in
-  `common.txt`); since the Firefox 157 merge it is cross-list again, twice:
-  `fpp-canvas-fix` (common) → `webgl-permission-common` (desktop) and →
-  `android/webgl-permission-common-esr` (android).
+  `common.txt`), was cross-list between the Firefox 157 desktop merge and the
+  2026-10-02 move of Android to 157, and is within `common.txt` again.
 
 ### Corrections landed by LW-M1-12
 
