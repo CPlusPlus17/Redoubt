@@ -13,11 +13,12 @@
 # applied unchanged, and this file is the ONLY change LW-M2-02 made to any patch
 # or patch list.
 #
-# It contains exactly one hunk. That is the finding, not a placeholder: with the
-# straddler splits from M1 in place, the LibreWolf common patch set compiles on
+# On 153 it contained exactly one hunk (section 1): with the straddler splits
+# from M1 in place, the LibreWolf common patch set compiled on
 # aarch64-linux-android with no C++, Rust, moz.build or moz.configure change of
-# any kind. The single failure is in Gradle, and it is caused by an out-of-patch
-# tree mutation (landmine L4), not by any patch.
+# any kind. That failure is in Gradle, and it is caused by an out-of-patch tree
+# mutation (landmine L4), not by any patch. Firefox 157 added section 2, also
+# Gradle-only.
 #
 # Applied last in assets/patches/android.txt. It has no ordering constraint with
 # anything else: no other patch in common.txt, android.txt or desktop.txt touches
@@ -217,9 +218,36 @@
 # rejects. Do not paper over it - re-read computeVersionCode() and check what it
 # does with a version string carrying a "-N" suffix before regenerating.
 #
+# ===========================================================================
+# 2. component-common.gradle - Kotlin 2.4 rejects the pre-generated UniFFI
+#    bindings under -Werror  (added for Firefox 157, 2026-10-02)
+# ===========================================================================
+#
+# THE FAILURE: on Firefox 157, with --enable-appservices-in-tree, the
+# application-services components no longer run uniffi-bindgen at build time.
+# component-common.gradle adds the checked-in bindings under
+# toolkit/components/uniffi-bindgen-gecko-js/android/components/<name>/ as a
+# source dir instead. All 21 of those generated files end
+# uniffiEnsureInitialized() with a bare `UniffiLib` reference, Kotlin 2.4.20
+# reports it as "Expression is unused", and the conventions plugin
+# (ProjectPlugin.kt configureKotlinWarningsAsErrors) makes every Kotlin warning
+# an error, so `mach build` stops in the appservices Gradle stage before the
+# GeckoView AAR is written. Found by the LW-M7-40 harden build in a scratch
+# tree; reproduced and fixed here for the 157.0-1 release build.
+#
+# THE FIX: switch that one diagnostic off for the appservices components, and
+# only in a mozilla-central build (gradle.mozconfig present), which is the only
+# case that compiles the pre-generated files. Editing 21 generated files would
+# be overwritten by the next `mach uniffi generate`, and disabling -Werror for
+# the components would hide every other warning too.
+#
+# REBASE CHECK: if upstream's generator stops emitting the bare reference, this
+# hunk is dead weight and can go; if component-common.gradle's kotlin block
+# moves, it rejects.
+#
 --- a/build.gradle
 +++ b/build.gradle
-@@ -168,8 +168,23 @@
+@@ -221,8 +221,23 @@
  // Non-official versions are like "61.0a1" or "61.0b1", where "a1" and "b1"
  // are the milestone.
  // This simply strips that off, leaving "61.0" in this example.
@@ -244,3 +272,25 @@
  }
 
  // This converts MOZ_APP_VERSION into an integer
+--- a/third_party/application-services/build-scripts/component-common.gradle
++++ b/third_party/application-services/build-scripts/component-common.gradle
+@@ -101,6 +101,19 @@
+ 
+ kotlin {
+     jvmToolchain(rootProject.config.jvmTargetCompatibility)
++    // LibreWolf (patches/android/build-fixes.patch, section 2): in a
++    // mozilla-central build the UniFFI bindings come pre-generated from
++    // toolkit/components/uniffi-bindgen-gecko-js/android (see the srcDirs line
++    // above), and every one of them ends uniffiEnsureInitialized() with a bare
++    // `UniffiLib` reference. Kotlin 2.4 reports that as "Expression is unused",
++    // and the conventions plugin turns every Kotlin warning into an error.
++    // The files are generated and checked in upstream, so the fix belongs in
++    // the build config, not in 21 generated files.
++    if (gradle.hasProperty("mozconfig")) {
++        compilerOptions {
++            freeCompilerArgs.add("-Xwarning-level=UNUSED_EXPRESSION:disabled")
++        }
++    }
+ }
+ 
+ dependencies {
