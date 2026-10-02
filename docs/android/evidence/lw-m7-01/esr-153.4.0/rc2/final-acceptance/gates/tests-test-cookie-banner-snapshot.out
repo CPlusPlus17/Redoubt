@@ -1,0 +1,28 @@
+PASS patch applies with fuzz=0 and no offsets
+PASS actual moz.build adds exactly one Android snapshot and preserves desktop/iOS outputs
+PASS pinned snapshot: 262208 bytes, 558 unique IDs, 1601 domains, 9 global rules
+PASS actual pinned snapshot imports all 558 unique rules without any Remote Settings client
+PASS missing file rejects initialization before inserting rules or observers
+PASS fetch failure rejects initialization before inserting rules or observers
+PASS truncated file rejects initialization before inserting rules or observers
+PASS same-size corruption rejects initialization before inserting rules or observers
+PASS actual schema validator accepts the complete reviewed snapshot
+PASS wrong timestamp is rejected by the production snapshot validator
+PASS wrong count is rejected by the production snapshot validator
+PASS unknown envelope field is rejected by the production snapshot validator
+PASS duplicate rule ID is rejected by the production snapshot validator
+PASS invalid rule shape is rejected by the production snapshot validator
+PASS unknown rule field is rejected by the production snapshot validator
+PASS missing metadata is rejected by the production snapshot validator
+PASS unsupported targeting is rejected by the production snapshot validator
+PASS shutdown during snapshot load prevents insertion and observer registration
+PASS old load cannot insert into a newly initialized lifecycle
+PASS test rule schema completion after shutdown cannot insert stale test rules
+PASS normal-only and private-only enabled services can initialize and both-disabled cannot import
+PASS repeated init registers observers once and shutdown/reinit reloads the snapshot
+PASS test override skips packaged data and rejects invalid rules without Remote Settings
+PASS concurrent test-pref reloads keep only the latest rules and reset both execution contexts
+PASS Android ignores a synthetic Remote Settings sync event
+PASS desktop still imports Remote Settings and applies sync events including legacy conversion
+23 actual-source cookie-banner loader tests passed; native rejection is NOT tested here.
+PASS source validation; Gecko build, xpcshell and actual banner-rejection runtime remain separate gates

@@ -1,5 +1,9 @@
 /* Execute the actual patched GeckoView modules with minimal platform doubles.
  * Usage: node origin-permission-unit-test.cjs /path/to/patched/gecko/source
+ * The .tap next to this file is regenerated with:
+ *   node --test-reporter=tap origin-permission-unit-test.cjs <patched tree> > origin-permission-unit-test.tap
+ * The Services.perms double uses nsIPermissionManager's real values (EXPIRE_NEVER 0,
+ * EXPIRE_SESSION 1, netwerk/base/nsIPermissionManager.idl), and the asserts use them literally.
  * This proves bridge logic; it does not replace native/instrumentation tests. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -20,7 +24,7 @@ function fixture() {
   let serial = 0;
   const key = (p, type) => `${p.origin}|${type}`;
   const perms = {
-    ALLOW_ACTION: 1, DENY_ACTION: 2, PROMPT_ACTION: 3, EXPIRE_NEVER: 0, EXPIRE_SESSION: 2,
+    ALLOW_ACTION: 1, DENY_ACTION: 2, PROMPT_ACTION: 3, EXPIRE_NEVER: 0, EXPIRE_SESSION: 1,
     getPermissionObject(p, type, exact) { assert.equal(exact, true); return rows.get(key(p, type)); },
     addFromPrincipal(p, type, value, expireType) { writes.push({ p, type, value, expireType }); rows.set(key(p, type), { principal: p, type, capability: value, expireType, modificationTime: ++serial }); },
     removeFromPrincipal(p, type) { rows.delete(key(p, type)); },
@@ -78,10 +82,10 @@ test('request uses actor frame principal, quiet metadata, and exact session life
   const data = f.events[0].data;
   assert.equal(data.principal, p); assert.equal(data.uri, p.originNoSuffix);
   assert.equal(data.topLevelOrigin, 'https://top.example'); assert.equal(data.isQuiet, true);
-  assert.equal(data.principalOrigin, p.origin); assert.equal(data.expireType, 2);
+  assert.equal(data.principalOrigin, p.origin); assert.equal(data.expireType, 1);
   answer.resolve(decision()); assert.equal(await result, true);
   assert.equal(await f.service.awaitOriginPermissionDecision(data.requestId), true);
-  assert.equal(f.writes[0].p, p); assert.equal(f.writes[0].expireType, 2);
+  assert.equal(f.writes[0].p, p); assert.equal(f.writes[0].expireType, 1);
 });
 for (const value of [1, 2]) for (const permanent of [false, true]) for (const pb of [0, 1]) {
   test(`decision ${value}, permanent=${permanent}, private=${pb} writes correct lifetime`, async () => {
@@ -89,7 +93,7 @@ for (const value of [1, 2]) for (const permanent of [false, true]) for (const pb
     const result = f.service.requestOriginPermission(actor, 'webgl', false);
     answer.resolve(decision(value, permanent)); assert.equal(await result, true);
     assert.equal(f.writes[0].value, value);
-    assert.equal(f.writes[0].expireType, permanent && !pb ? 0 : 2);
+    assert.equal(f.writes[0].expireType, permanent && !pb ? 0 : 1);
     assert.equal(f.events[0].data.contextId, 'container');
   });
 }
@@ -186,7 +190,7 @@ test('child accepts only its own inner window and emits no principal supplied by
 test('exact revoke preserves scheme, port, subdomain, private, context, and other kind records', async () => {
   const f = fixture(), p = principal();
   const others = [principal('http://frame.example:8443'), principal('https://frame.example'), principal('https://sub.frame.example:8443'), principal(undefined, 1), principal(undefined, 0, 'other')];
-  for (const item of [p, ...others]) f.perms.addFromPrincipal(item, 'canvas', 1, 2);
+  for (const item of [p, ...others]) f.perms.addFromPrincipal(item, 'canvas', 1, 1);
   f.perms.addFromPrincipal(p, 'webgl', 2, 0);
   await f.update({ principal: p, principalOrigin: p.origin, perm: 'canvas', newValue: 3, permanent: false });
   assert.equal(f.perms.getPermissionObject(p, 'canvas', true), undefined);
@@ -195,9 +199,9 @@ test('exact revoke preserves scheme, port, subdomain, private, context, and othe
 });
 test('stored updates validate exact principal identity and acknowledged lifetime', async () => {
   const f = fixture(), p = principal(undefined, 1);
-  f.perms.addFromPrincipal(p, 'canvas', 2, 2);
+  f.perms.addFromPrincipal(p, 'canvas', 2, 1);
   const data = { principal: p, principalOrigin: p.origin, perm: 'canvas', newValue: 1, permanent: true };
-  await f.update(data); assert.equal(f.writes[1].expireType, 2);
+  await f.update(data); assert.equal(f.writes[1].expireType, 1);
   await assert.rejects(f.update({ ...data, principalOrigin: p.originNoSuffix }));
   await assert.rejects(f.update({ ...data, perm: 'camera' }));
   await assert.rejects(f.update({ ...data, newValue: '1' }));
@@ -206,10 +210,10 @@ test('stored updates validate exact principal identity and acknowledged lifetime
 });
 test('record enumeration exports actual expiry and canonical origin with attributes', async () => {
   const f = fixture(), p = principal(undefined, 1, 'context');
-  f.perms.addFromPrincipal(p, 'webgl', 1, 2);
+  f.perms.addFromPrincipal(p, 'webgl', 1, 1);
   const result = await new Promise(resolve => f.Storage.onEvent('GeckoView:GetAllPermissions', {}, { onSuccess: resolve }));
   const row = result.permissions[0];
-  assert.equal(row.uri, p.originNoSuffix); assert.equal(row.principalOrigin, p.origin); assert.equal(row.expireType, 2);
+  assert.equal(row.uri, p.originNoSuffix); assert.equal(row.principalOrigin, p.origin); assert.equal(row.expireType, 1);
   assert.equal(row.privateMode, true); assert.equal(row.contextId, 'context');
 });
 
@@ -224,7 +228,7 @@ for (const state of ['isCurrentGlobal', 'isActiveInTab']) {
 
 test('private-ended or revoked snapshot cannot recreate its record', async () => {
   const f = fixture(), p = principal(undefined, 1);
-  f.perms.addFromPrincipal(p, 'canvas', 1, 2);
+  f.perms.addFromPrincipal(p, 'canvas', 1, 1);
   const snapshot = f.perms.getPermissionObject(p, 'canvas', true);
   f.perms.removeFromPrincipal(p, 'canvas');
   await assert.rejects(f.update({ principal: p, principalOrigin: p.origin, perm: 'canvas', value: snapshot.capability, expireType: snapshot.expireType, modificationTime: snapshot.modificationTime, newValue: 2, permanent: false }));
@@ -232,9 +236,9 @@ test('private-ended or revoked snapshot cannot recreate its record', async () =>
 });
 test('stale settings snapshot cannot overwrite a newer same-value lifetime record', async () => {
   const f = fixture(), p = principal();
-  f.perms.addFromPrincipal(p, 'canvas', 1, 2);
+  f.perms.addFromPrincipal(p, 'canvas', 1, 1);
   const old = f.perms.getPermissionObject(p, 'canvas', true);
-  f.perms.addFromPrincipal(p, 'canvas', 1, 2);
+  f.perms.addFromPrincipal(p, 'canvas', 1, 1);
   await assert.rejects(f.update({ principal: p, principalOrigin: p.origin, perm: 'canvas', value: old.capability, expireType: old.expireType, modificationTime: old.modificationTime, newValue: 2, permanent: false }));
   assert.equal(f.perms.getPermissionObject(p, 'canvas', true).capability, 1);
 });

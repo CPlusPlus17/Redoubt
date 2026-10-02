@@ -1,0 +1,153 @@
+# 153.4.0esr rc2: full device acceptance with the committed harness, 2026-10-02
+
+No rc3 exists. The product did not change after rc2: the defect A, B and C fixes were all made in
+the harness (`c35662c4`, `f7f519f6`). So this run is against the **rc2 APK**, using the harness as
+committed at `11fd562e`.
+
+## What was tested
+
+| | |
+| --- | --- |
+| Candidate source | `0a134441b77a888f365e81da02beee71d6e3b9c4` (rc2; see [`../README.md`](../README.md) and [`../apk-identity.txt`](../apk-identity.txt)) |
+| x86_64 unsigned | `1ac3b01d9716ed5c53e7510ba8ba609c6bac2bd6dc6988192bdf3770124d95e8` |
+| x86_64 installed | `77348e7d72bb4183adfec9cf79236d726280c0cd6a8666e8d507b6d6f495af83`. Signed with the throwaway key (cert `31e9a40f…b760`, `CN=Redoubt throwaway test key 2026-10-02, O=NOT A RELEASE KEY`), not the release key. Apart from `META-INF/`, every zip entry (CRC and size) equals the unsigned APK's |
+| Beta 2 (negative control only) | installed `9b63f2edbe18310842b4689551243ed2ae61015f8ba044ac8bd90f15ae380427`, signed with the same throwaway key. Apart from `META-INF/`, every entry equals `~/Documents/librewolf/librewolf-android-apk-153.0esr-1-rc-unsigned/apk/fenix-x86_64-release-unsigned.apk` (`503bfd79…955d`, source `764fc91c`) |
+| Repository HEAD for every run | `11fd562ea0e0f5f6dcd5e6350e273cc309f734df`, with 0 uncommitted changes under `scripts/` |
+| `scripts/android-smoke.sh` | sha256 `aabbb7a70126f10415eebba4daae484aebffadb2157f246d9c531610ccc43ad5` (last changed in `c35662c4`) |
+| `scripts/android-graphics-smoke.py` | sha256 `ce0072ea63fa3fdd1b183bcab3f7adfed279842c6fe090ef5834eec9e96a4612` (last changed in `f7f519f6`) |
+
+Each run records the HEAD, the dirty count, both harness hashes and the installed APK hash
+**at the moment it started**, in `smoke/exit-status.jsonl`. `smoke/run-check.sh`,
+`smoke/batch1.sh` and `smoke/batch2.sh` are the exact wrappers used. The run's harness JSON also
+records `harness_sha256` from inside the driver.
+
+## Conditions
+
+- **Emulator:** one emulator, emulator-5584, android-30 `default` x86_64 (no GMS), swangle. The
+  harness booted it from a new AVD (`--emulator --keep-emulator`, first check) under
+  `build/rc2/final/runtime/work`, with `-dns-server 9.9.9.9 -tcpdump`. Every later check reused it
+  with `--serial`. It was shut down at the end.
+- **Network and profile:** AMO was reachable. There was **no Retry priming and no iptables**. Every
+  check ran on a fresh profile, because the harness runs `pm clear` before each one.
+- **Logcat:** each `--serial` run also streamed `logcat -v threadtime` to `smoke/<check>/<check>.logcat.gz`.
+  The first check booted the emulator itself, so it has no stream; its own logcats are in
+  `launcher-start-*`.
+- **First batch attempt:** the first attempt of batch 1 exited 2 before installing anything. The
+  APK had been copied away from its `output-metadata.json`, so the harness could not determine the
+  applicationId. Those two empty results were deleted and the batch was rerun. Every result below
+  comes from the rerun.
+
+## Results
+
+| # | Check | Exit | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| 1 | `--check-launcher-start` (rc2) | 0 | **PASS**. Fresh profile and restart both log `uBlock Origin startup ready: Ready(installed=true, enabled=true)`. No setup-failure dialog after 46 s | `smoke/check-launcher-start/` |
+| 2 | `--check-launcher-start` against **Beta 2** (negative control) | 1 | **FAIL, as expected.** Both phases show the "uBlock Origin setup failed" dialog, the preinstaller logged a startup failure, and no readiness line was logged. The check can see the defect it guards | `smoke/beta2-check-launcher-start/` |
+| 3 | `--check-aboutconfig` | 0 | **PASS**. 30 rows. `general.aboutConfig.enable=true` on the default branch with no user value. An edit through the page's toggle survives a restart | `smoke/check-aboutconfig/` |
+| 3a | about:config CSP (diagnostic probe, not a gate) | n/a | **0 CSP / script-src-attr errors from about:config** in the console service, with a working positive control. Logcat also has 0, but it is **not** a usable witness; see below | `aboutconfig-csp/` |
+| 4 | `--check-ubo-preinstall` | 0 | **PASS**. The bundled-list script is blocked on first navigation, and the pinned AMO-signed add-on is active | `smoke/check-ubo-preinstall/` |
+| 5 | `--check-ubo-lifecycle` | 0 | **PASS**: all 10 rows (disable, restart, remove, APK reinstall) | `smoke/check-ubo-lifecycle/` |
+| 6 | `--check-ubo` | 0 | **PASS** | `smoke/check-ubo/` |
+| 7 | `--check-search` | 0 | **PASS** on a fresh profile. The uBO sheet is acknowledged by the harness, the query goes to `noai.duckduckgo.com` with no partner parameter, and the 4 engines are as configured. **Defect B is fixed** | `smoke/check-search/` |
+| 8 | `--check-no-suggest` | 1 | **FAIL**: 504 B on 13 packets in the typing window. The sheet was acknowledged (defect B fixed), the pre-typing wait settled after 106 s, no suggestion endpoint or sponsored host was contacted, the switch is OFF and the round trip passes. Every red packet is an HTTP/2-sized keep-alive or close record on a connection opened **before** typing. **Not attributed to the search toolbar**; see below | `smoke/check-no-suggest/` (includes `typing-window-connection-trace.txt`) |
+| 9 | baseline suite, including the **full graphics acceptance** | 0 | **PASS**, 8 of 8: https-only interstitial, page-load http/https, **webgl**, video, getUserMedia, extension, pref-dump. Graphics acceptance `acceptanceComplete: true`, **161 checks passed**. These include `ui-canvas-allow-private`, `ui-webgl-allow-private`, `private-choices-isolated-and-cleared-on-last-private-close`, every `frame-*` row and `frame-origin-port-and-revoke-isolation`, `session-exceptions-expire-on-process-restart`, `remembered-exceptions-survive-process-restart`, and `quiet-review-opens-permissions-in-normal-and-private-tabs` | `smoke/baseline-smoke/` (`graphics-summary.json`, `graphics-runner-tail.log`, `graphics-acceptance.tar.xz`) |
+| 10 | `--check-update-privacy` | 0 | **PASS**. The row is compiled out, and no update-host traffic was seen across launch and Settings | `smoke/check-update-privacy/` |
+| 11 | `--check-https-only` | 0 | **PASS** | `smoke/check-https-only/` |
+| 12 | `--check-no-gms --check-no-adjust` (with `--serial`, so the baseline runs again) | 0 | **PASS**: both static checks, plus the whole baseline again, including a **second full graphics acceptance pass** | `smoke/static-no-gms-no-adjust/` |
+| 13 | `--check-strings` | 0 | **PASS**. 234,764 rows, 0 unexplained. 36 screen stops, 0 branded strings shipped by the APK. 1 remote AMO description is reported, not gated | `smoke/check-strings/` |
+| 14 | `--self-test` | 0 | **PASS** (`SELF-TEST OK`). All 7 probes reported FAIL when fed a wrong expectation | `smoke/self-test/` |
+| 15 | `--first-run-capture` | 1 | **expected red (E12)**. 107 events, app UID rx +20,720,714 B / tx +422,109 B | `smoke/first-run-capture/`, `first-run-host-comparison.json` |
+| 16 | `--check-no-remote-settings` | 1 | **expected red (E12)**. 4 events to the 3 Remote Settings hosts | `smoke/check-no-remote-settings/` |
+
+**Tally:** 14 PASS and 1 expected negative-control FAIL (Beta 2). Two rows are expected red under
+E12. One row FAILs: `--check-no-suggest`.
+
+### about:config CSP (3a): why logcat alone proves nothing, and what does
+
+`aboutconfig-csp/aboutconfig-csp-probe.py` ran on the same emulator right after row 3, on a fresh
+profile, and reused the committed harness's own client and probes (`work/harness/driver.py`). It
+opened about:config, waited for 30 rows, drove the page's own filter box, and toggled a pref it had
+created (the toggle took effect). It then read the whole console service.
+
+- **Console service:** 0 `Content-Security-Policy` / `script-src-attr` messages whose source is
+  about:config. As a positive control, the probe deliberately triggered an inline handler under
+  `script-src 'none'` in a web page. The query caught that violation: category
+  `CSP_CSPEventHandlerScriptViolation2`, source `about:srcdoc`, text "blocked an event handler
+  (script-src-attr)". So the query does see this class of error, and about:config produced none.
+  Stage C's failing build produced 13 of these (`../../diag/new-153.4-aboutconfig-csp.json`).
+- **Logcat:** 0 CSP lines, both in the probe's stream (4,019 lines) and in row 3's stream
+  (`smoke/check-aboutconfig/check-aboutconfig.logcat.gz`, 1,686 lines). However, **this release
+  build does not forward console errors to logcat.** Neither the probe's `Cu.reportError` marker nor
+  the positive-control CSP violation appeared there. So a clean logcat cannot show the absence of
+  CSP errors on this build. The console-service result above is the evidence.
+
+### `--check-no-suggest` (row 8): what the red packets are
+
+The packets in the typing window are listed in the check JSON (`typing_payloads`).
+`typing-window-connection-trace.txt` traces their TCP connections in both directions.
+
+- Times in the trace are epoch − 1790932500. The pcap record at the check's `typing_capture_offset`
+  is at +12.3 s, and the record at `enter_capture_offset` is at +70.8 s, so typing began at or
+  before +12.3 s.
+- All 16 typing-window packets went out on **10 TLS connections that were already open before
+  typing**: to AMO, Remote Settings, and uBO's filter-list hosts. Between −1 s and Enter (+70.8 s)
+  the device sent no SYN, no DNS query (udp/53 or DoT 853) and no QUIC packet (udp/443). The
+  first ones after that are the DoT lookup and the connection for `noai.duckduckgo.com`.
+- Payloads were 39 B or 46 B, and each was answered by a reply of the same size (the server's
+  ack sequence advances by exactly that size). The same connections sent the same 39/46 B
+  exchange about 59 s before typing started. For example, `raw.githubusercontent.com` port 48794
+  exchanged one at −46.6 s, again at +12.3 s, then sent 39 B + 24 B and closed at +65.4 s. This
+  matches a periodic HTTP/2 keep-alive (PING / PING-ACK sized), followed by an idle-timeout close.
+  It does not look like a request.
+- No suggestion endpoint, no sponsored host and no search host was contacted before Enter.
+
+The committed harness counts these packets as typing traffic. Its pre-typing wait
+(`quiet_s` = 20 s) is shorter than the roughly 59 s keep-alive period, so pings from connections
+opened during startup are bound to fall inside the 60 s window. **This run does not show a product
+leak, but by the committed harness's rule the check FAILs, and it is recorded as a FAIL.** The
+harness was not changed here. Making it distinguish keep-alive and close records on pre-existing
+connections from new traffic is a harness change that would need its own review and tests.
+Beyond what is in this run, this was not verified by decrypting the traffic.
+
+### First-run capture compared with rc2's own run
+
+Both runs used the same APK. Compared with the rc2 first-run capture, `malware-filter.pages.dev`
+is the only new named host. It is the mirror for uBO's URLhaus list in the bundled uBO 1.75.0
+`assets/assets.json`. The other differences are raw CDN addresses with no DNS name in the capture.
+No named host disappeared. Event count: 107 now, 91 in rc2. rx: 20.7 MB now, 23.6 MB in rc2.
+
+## Gates and unit tests (`gates/`)
+
+All were run after the device batch, on the tree being committed (HEAD `11fd562e` plus the
+LW-M7-14 test fix and this directory).
+
+- `check-patchfail.sh --targets=android` (153.4.0esr): 0, "All patches where applied successfully".
+- `lint-patch-scope`: 0. `check-patch-order`: 0. `board.py --check`: ok, 122 tasks, 32 waves, 0 warnings.
+  `board.py --check-scope`: ok.
+- `scripts/tests/test-*.py`: all 0. `test-android-smoke.py` ran 65 tests, `test-android-graphics-smoke.py` ran 30.
+  The exceptions are `test-android-signing.py` and `test-android-version-code.py`, which exit 2 without
+  their required APK, classes or gradle-home arguments, as before. `test-android-signing.py` was then
+  run with `--apk` (the rc2 unsigned x86_64) and `--apksigner …/apksigner.jar`: 29 tests OK.
+  `test-android-version-code.py` was not run with arguments.
+
+## Also in this commit
+
+- **LW-M7-14 unit-test mock** (`docs/android/evidence/lw-m7-14/`): the `Services.perms` double said
+  `EXPIRE_SESSION: 2`. The real value is 1 (`nsIPermissionManager.idl`). The literal asserts and
+  the fixture seeds used 2 as well. All of them now use 1, and the `.tap` was regenerated against
+  the rc2 tree with the command now written in the file header: still 37/37. This is evidence only;
+  no shipped byte changes.
+- **Not changed:** the `pinned uBO 1.74.0` code comment in `patches/android/ubo-readiness.patch`
+  (line 124) is stale, since the pin is now 1.75.0. That comment is in Gecko JS that is packed into
+  `omni.ja`, so fixing it changes shipped bytes and would require a Gecko rebuild (a new rc). It is
+  left for the next rc that rebuilds Gecko anyway. The patch header (lines 3–8) already notes that
+  the comment is stale.
+
+## Not run or not shown
+
+- No physical device, no ABI other than x86_64, and no release-key signing.
+- No `--strings-locale` sweep, no Fenix unit-test run, and no Mullvad upgrade rerun (rc2's
+  `../upgrade/` stands).
+- `--check-no-suggest` ran once. It was not repeated, and no harness change was tried.
+- The pcap (`work/capture.pcap`, 134 MB) and the AVD are not archived. They remain in
+  `build/rc2/final/runtime/work/` on the build host.

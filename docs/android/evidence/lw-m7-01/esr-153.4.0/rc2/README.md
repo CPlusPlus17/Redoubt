@@ -42,6 +42,13 @@ shut down at the end.
 
 ## Verdict
 
+> **Later run (same day), [`final-acceptance/`](final-acceptance/README.md):** every check rerun on the same
+> rc2 APK with the committed harness (`11fd562e`), fresh profile each. 14 PASS, including the full graphics
+> acceptance (161 checks, private grants, frames, lifetimes) twice, `--check-search` and `--check-launcher-start`.
+> Beta 2 FAILs `--check-launcher-start` as the negative control. First-run and Remote Settings are expected red (E12).
+> `--check-no-suggest` still FAILs, on HTTP/2 keep-alive-sized records on connections opened before typing.
+> The section below is the original record.
+
 **Not fully green.** The three product defects that stage C found are fixed on device:
 about:config, launcher cold start, and the uBO update race. The pref audit and the Mullvad upgrade
 behave as expected. Three device checks still fail on a fresh profile, and the evidence says the

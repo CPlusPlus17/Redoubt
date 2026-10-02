@@ -23,6 +23,11 @@ UI routes, lifetime labels and stable resource selectors are in [android-ui-hand
 ## Evidence obtained
 
 - `origin-permission-unit-test.cjs` executes the actual patched permission service, parent/child actors and storage module with small platform doubles. **37/37 tests pass**, with no skips. Coverage includes exact frame origins, private/context/port/subdomain separation, invalid replies, lifetime choices, stale same-origin documents, cached/inactive ancestors, pagehide cancellation, concurrent reloads, failed writes and compare-and-update revocation races. See the TAP output.
+- Correction, 2026-10-02: the `Services.perms` double had `EXPIRE_SESSION: 2`. The real value is 1
+  (`nsIPermissionManager.idl`; 2 is `EXPIRE_TIME`), and the asserts and fixture seeds used the same literal 2,
+  so the old run could not tell a session lifetime from a timed one. The double and every literal now use 1.
+  The `.tap` was regenerated against the rc2 tree (`build/rc2/librewolf-153.4.0esr-1`, source `0a134441`) with
+  the command in the file header: still 37/37. No product file changed.
 - The full generated patch applied cleanly to a second fresh sparse baseline. All 36 resulting files match `source-sha256.txt`; the 37 JavaScript tests also passed against that replay. This proves patch replay, not native IPC behavior.
 - All 21 changed/new Kotlin files pass the compiler PSI syntax parser. Three XML resources parse, and new string/ID references resolve. Both changed Java API files were parsed/formatted with google-java-format 1.36.1. JavaScript syntax checks and `git diff --check` in the patched source checkout pass. These are syntax checks, not target compilation.
 - Board check: `ok: 100 tasks, 23 waves, 0 warning(s)` in this branch before root's subsequent task additions.
