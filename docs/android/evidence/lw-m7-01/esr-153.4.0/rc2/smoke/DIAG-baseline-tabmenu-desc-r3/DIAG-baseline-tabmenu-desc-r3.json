@@ -1,0 +1,183 @@
+{
+ "checks": [
+  {
+   "check": "https-only-interstitial",
+   "ok": true,
+   "detail": "HTTP must reach the HTTPS-only interstitial before the user grants an exception",
+   "evidence": {
+    "prefs": {
+     "enabled": true,
+     "locked": false
+    },
+    "page": {
+     "url": "https://10.0.2.2:34845/?https-only-f3b4e1dab11d6d9b",
+     "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+site+not+available&button=Try+Again&description=Most+likely%2C+the+website+simply+does+not+support+HTTPS.%3Cbr%3E%3Cbr%3EHowever%2C+it%E2%80%99s+also+possible+that+an+attacker+is+involved.+If+you+continue+to+the+website%2C+you+should+not+enter+any+sensitive+info.+If+you+continue%2C+HTTPS-Only+mode+will+be+turned+off+temporarily+for+the+site.&image=mozac_error_lock.svg&showSSL=false&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=true&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+     "title": "Secure site not available",
+     "ready": "interactive",
+     "marker": null,
+     "continueVisible": true,
+     "canAddException": true
+    },
+    "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms"
+   }
+  },
+  {
+   "check": "page-load-http",
+   "ok": true,
+   "detail": "http://10.0.2.2:34845/?https-only-f3b4e1dab11d6d9b ready=complete secure=False marker='lw-smoke-page-ok', origin logged 3 request(s)",
+   "evidence": {
+    "page": {
+     "url": "http://10.0.2.2:34845/?https-only-f3b4e1dab11d6d9b",
+     "proto": "http:",
+     "secure": false,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 3
+   }
+  },
+  {
+   "check": "page-load-https",
+   "ok": true,
+   "detail": "https://10.0.2.2:35437/ ready=complete secure=True marker='lw-smoke-page-ok', origin logged 5 request(s)",
+   "evidence": {
+    "page": {
+     "url": "https://10.0.2.2:35437/",
+     "proto": "https:",
+     "secure": true,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 5
+   }
+  },
+  {
+   "check": "webgl",
+   "ok": false,
+   "detail": "Visible Fenix control did not appear: {'rid': 'origin_permissions_dialog_list'}",
+   "evidence": {
+    "report": "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/runtime/work/graphics-acceptance/82fcfbb50eabb6a0/graphics-results.json",
+    "report_sha256": "f122bd3a704873103b97c58d004129ed21d98dc0355193bee9c99b9a60322a50",
+    "runner_exit": 1,
+    "graphics_status": "FAIL",
+    "acceptanceComplete": false,
+    "apk_sha256": "77348e7d72bb4183adfec9cf79236d726280c0cd6a8666e8d507b6d6f495af83"
+   }
+  },
+  {
+   "check": "video",
+   "ok": true,
+   "detail": "decoded 13 frames, currentTime=0.455 readyState=4 64x64, origin served the file 1 time(s)",
+   "evidence": {
+    "video": {
+     "events": [],
+     "ok": true,
+     "play": "resolved",
+     "currentTime": 0.455452,
+     "readyState": 4,
+     "videoWidth": 64,
+     "videoHeight": 64,
+     "paused": false,
+     "decoded": 13,
+     "dropped": 0,
+     "mediaError": null,
+     "autoplay_prefs": {
+      "default": 5,
+      "policy": 0
+     }
+    },
+    "origin_requests": 1
+   }
+  },
+  {
+   "check": "getusermedia",
+   "ok": true,
+   "detail": "prompt(s) raised ['com.android.permissioncontroller:id/permission_deny_button'], harness tapped deny 2 time(s), getUserMedia rejected with NotAllowedError in 4583ms",
+   "evidence": {
+    "gum": {
+     "t0": 1790926786669,
+     "hasMediaDevices": true,
+     "hasRTCPeerConnection": true,
+     "state": "rejected",
+     "error": "NotAllowedError",
+     "message": "The request is not allowed by the user agent or the platform in the current context.",
+     "ms": 4583
+    },
+    "prompt_seen": true,
+    "taps": 2,
+    "dialogs": [
+     "com.android.permissioncontroller:id/permission_deny_button"
+    ],
+    "alive": true,
+    "crashed": false
+   }
+  },
+  {
+   "check": "extension",
+   "ok": true,
+   "detail": "installed smoke-probe@librewolf.invalid and its content script ran on a real page (marker='alive-webext'); 7 extensions active",
+   "evidence": {
+    "id": "smoke-probe@librewolf.invalid",
+    "marker": "alive-webext",
+    "addons": [
+     {
+      "id": "icons@mozac.org",
+      "name": "Mozilla Android Components - Browser Icons",
+      "active": true
+     },
+     {
+      "id": "readerview@mozac.org",
+      "name": "Mozilla Android Components - ReaderView",
+      "active": true
+     },
+     {
+      "id": "ads@mozac.org",
+      "name": "Mozilla Android Components - Ads Telemetry",
+      "active": true
+     },
+     {
+      "id": "cookies@mozac.org",
+      "name": "Mozilla Android Components - Search Telemetry",
+      "active": true
+     },
+     {
+      "id": "webcompat@mozilla.org",
+      "name": "Web Compatibility Interventions",
+      "active": true
+     },
+     {
+      "id": "uBlock0@raymondhill.net",
+      "name": "uBlock Origin",
+      "active": true
+     },
+     {
+      "id": "smoke-probe@librewolf.invalid",
+      "name": "LibreWolf smoke probe",
+      "active": true
+     }
+    ]
+   }
+  },
+  {
+   "check": "pref-dump",
+   "ok": true,
+   "detail": "written to /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/runtime/work/prefs.txt (58 prefs; librewolf.webgl.prompt=True)",
+   "evidence": {
+    "path": "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/runtime/work/prefs.txt"
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/runtime/work",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/runtime/apk/rc2/fenix-x86_64-release-throwaway.apk",
+  "sha256": "77348e7d72bb4183adfec9cf79236d726280c0cd6a8666e8d507b6d6f495af83",
+  "size": 132567347,
+  "harness_sha256": "e589d790907431018c04ce9169b2e04da49b56a33b224e128fb0c31ff04c19c0"
+ },
+ "status": "completed",
+ "error": null
+}

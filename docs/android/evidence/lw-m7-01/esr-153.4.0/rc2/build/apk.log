@@ -1,0 +1,84 @@
+test -d "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1" || { echo "no such directory: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1 - extract it with 'make android-dir', or point LW_ANDROID_SRCDIR at a tree that exists" >&2; exit 1; }; mkdir -p "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1/lw/l10n"
+./scripts/android-apk.sh \
+	--srcdir "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1" \
+	--aar-dir "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1" \
+	--outdir "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-apk-153.4.0esr-1" \
+	--mozconfig "/home/mgysin/redoubt-artifacts/esr-153.4/repo/assets/mozconfig.android" \
+	--engine "podman" \
+	--image "librewolf-android-build" \
+	--jobs=8 --variant=release --disable-debug-signing --build-date=20261002044800 --gradle-home=/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1/gradle-home
+05:59:32 [android-apk.sh] source tree     : /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1
+05:59:32 [android-apk.sh] fat AAR inputs  : /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1
+05:59:32 [android-apk.sh] output          : /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-apk-153.4.0esr-1
+05:59:32 [android-apk.sh] base mozconfig  : /home/mgysin/redoubt-artifacts/esr-153.4/repo/assets/mozconfig.android
+05:59:32 [android-apk.sh] variant         : release (fenix:assembleRelease)
+05:59:32 [android-apk.sh] ABIs            : armeabi-v7a arm64-v8a x86_64(host x86_64)
+05:59:32 [android-apk.sh] objdir          : /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1/obj-x86_64
+05:59:32 [android-apk.sh] engine / image  : podman / librewolf-android-build
+05:59:32 [android-apk.sh] mach jobs       : -j8
+05:59:32 [android-apk.sh] MOZ_BUILD_DATE  : 20261002044800
+05:59:32 [android-apk.sh] copying per-ABI maven zips from /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1
+05:59:32 [android-apk.sh] seeding gradle home from /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1/gradle-home
+05:59:44 [android-apk.sh] gecko: building x86_64 (-j8), log: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-apk-153.4.0esr-1/logs/gecko.log
+06:12:42 [android-apk.sh] gecko: build ok in 778s
+06:12:42 [android-apk.sh] apk: ./mach gradle fenix:assembleRelease, log: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-apk-153.4.0esr-1/logs/apk.log
+06:24:20 [android-apk.sh] apk: gradle ok in 698s
+06:24:20 [android-apk.sh] APKs produced:
+06:24:20 [android-apk.sh]   fenix-arm64-v8a-release-unsigned.apk  121M
+06:24:20 [android-apk.sh]   fenix-armeabi-v7a-release-unsigned.apk  118M
+06:24:20 [android-apk.sh]   fenix-universal-release-unsigned.apk  272M
+06:24:20 [android-apk.sh]   fenix-x86_64-release-unsigned.apk  127M
+06:24:20 [android-apk.sh] verifying each APK against the per-ABI GeckoView builds
+  armeabi-v7a: libxul.so 118565308 bytes, sha256-identical to the AAR input (5dc156892988524f)
+  arm64-v8a: libxul.so 158147504 bytes, sha256-identical to the AAR input (c33cdc87b8fb97c8)
+  x86_64: libxul.so 172887664 bytes, sha256-identical to the AAR input (75701c2de560f2a5)
+06:24:23 [android-apk.sh]   universal: every ABI directory [arm64-v8a armeabi-v7a x86_64] carries libxul.so (none empty)
+06:24:23 [android-apk.sh] checking the applicationId is still stock for the release build type
+06:24:24 [android-apk.sh]   applicationId: org.redoubtbrowser (stock, and output-metadata.json agrees)
+06:24:24 [android-apk.sh] recording the LibreWolf configuration layer present in the APK
+apk=/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-apk-153.4.0esr-1/apk/fenix-x86_64-release-unsigned.apk
+apk entries=2991  omni.ja entries=2287
+librewolf.cfg: PRESENT ['assets/omni.ja!/defaults/autoconfig/librewolf.cfg']
+local-settings.js: PRESENT ['assets/omni.ja!/defaults/pref/local-settings.js']
+policies.json: absent
+autoconfig.js: absent
+distribution.ini: absent
+arm64-v8a/greprefs.js: 0 librewolf.* pref lines
+armeabi-v7a/greprefs.js: 0 librewolf.* pref lines
+defaults/pref/arm64-v8a/geckoview-prefs.js: 0 librewolf.* pref lines
+defaults/pref/armeabi-v7a/geckoview-prefs.js: 0 librewolf.* pref lines
+defaults/pref/x86_64/geckoview-prefs.js: 0 librewolf.* pref lines
+x86_64/greprefs.js: 0 librewolf.* pref lines
+total librewolf.* pref lines in omni.ja pref files: 0
+06:24:24 [android-apk.sh] checking no prebuilt GeckoView or app-services artifact was resolved
+06:24:25 [android-apk.sh]   none resolved: GeckoView and app-services are both in-tree
+06:24:25 [android-apk.sh] verifying the APKs are UNSIGNED (--disable-debug-signing)
+06:24:25 [android-apk.sh]   fenix-arm64-v8a-release-unsigned.apk: unsigned (no v1 block, no v2/v3 signing block)
+06:24:25 [android-apk.sh]   fenix-armeabi-v7a-release-unsigned.apk: unsigned (no v1 block, no v2/v3 signing block)
+06:24:25 [android-apk.sh]   fenix-universal-release-unsigned.apk: unsigned (no v1 block, no v2/v3 signing block)
+06:24:25 [android-apk.sh]   fenix-x86_64-release-unsigned.apk: unsigned (no v1 block, no v2/v3 signing block)
+06:24:25 [android-apk.sh] APKs      : /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-apk-153.4.0esr-1/apk
+06:24:25 [android-apk.sh] install   : adb install -r /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-apk-153.4.0esr-1/apk/fenix-universal-release-unsigned.apk
+06:24:25 [android-apk.sh] total wall clock: 1493s
+
+LibreWolf Android APK -- 2026-10-02T05:59:44Z
+tree=/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1
+aar=/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1
+abis=armeabi-v7a,arm64-v8a,x86_64 host=x86_64
+jobs=8
+MOZ_BUILD_DATE=20261002044800
+engine=podman image=librewolf-android-build
+
+pass              seconds  peak_mem_GB  status
+gecko                 778        17.02  ok
+apk                   698        25.63  ok
+
+total                1493
+
+APKs:
+  fenix-arm64-v8a-release-unsigned.apk 121M
+  fenix-armeabi-v7a-release-unsigned.apk 118M
+  fenix-universal-release-unsigned.apk 272M
+  fenix-x86_64-release-unsigned.apk 127M
+
+configuration layer: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-apk-153.4.0esr-1/apk-config-layer.txt

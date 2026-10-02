@@ -1,0 +1,51 @@
+test -d "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1" || { echo "no such directory: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1 - extract it with 'make android-dir', or point LW_ANDROID_SRCDIR at a tree that exists" >&2; exit 1; }; mkdir -p "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1/lw/l10n"
+./scripts/android-fat-aar.sh --srcdir "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1" --outdir "/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1" --mozconfig "/home/mgysin/redoubt-artifacts/esr-153.4/repo/assets/mozconfig.android" --engine "podman" --image "librewolf-android-build" --jobs=8 --build-date=20261002044800
+04:50:19 [android-fat-aar.sh] source tree     : /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1
+04:50:19 [android-fat-aar.sh] output          : /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1
+04:50:19 [android-fat-aar.sh] base mozconfig  : /home/mgysin/redoubt-artifacts/esr-153.4/repo/assets/mozconfig.android
+04:50:19 [android-fat-aar.sh] ABIs            : armeabi-v7a arm64-v8a x86_64(merge hosted by armeabi-v7a)
+04:50:19 [android-fat-aar.sh] engine / image  : podman / librewolf-android-build
+04:50:19 [android-fat-aar.sh] mach jobs       : -j8
+04:50:19 [android-fat-aar.sh] MOZ_BUILD_DATE  : 20261002044800
+04:50:19 [android-fat-aar.sh] armeabi-v7a: building (-j8), log: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1/logs/armeabi-v7a.log
+05:12:00 [android-fat-aar.sh] armeabi-v7a: build ok in 1301s
+05:12:00 [android-fat-aar.sh] armeabi-v7a: packing target.maven.zip
+05:12:00 [android-fat-aar.sh] armeabi-v7a: target.maven.zip ok (87M), jni: armeabi-v7a 
+05:12:00 [android-fat-aar.sh] arm64-v8a: building (-j8), log: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1/logs/arm64-v8a.log
+05:29:08 [android-fat-aar.sh] arm64-v8a: build ok in 1028s
+05:29:08 [android-fat-aar.sh] arm64-v8a: packing target.maven.zip
+05:29:08 [android-fat-aar.sh] arm64-v8a: target.maven.zip ok (91M), jni: arm64-v8a 
+05:29:08 [android-fat-aar.sh] x86_64: building (-j8), log: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1/logs/x86_64.log
+05:46:49 [android-fat-aar.sh] x86_64: build ok in 1061s
+05:46:49 [android-fat-aar.sh] x86_64: packing target.maven.zip
+05:46:49 [android-fat-aar.sh] x86_64: target.maven.zip ok (97M), jni: x86_64 
+05:46:49 [android-fat-aar.sh] merge: building in the armeabi-v7a objdir (incremental), log: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1/logs/fat.log
+05:59:09 [android-fat-aar.sh] merge: build ok in 740s
+05:59:10 [android-fat-aar.sh] verifying the merge pass's own half of the AAR
+  omni.ja, classes.jar, AndroidManifest.xml present; per-ABI prefs for armeabi-v7a, arm64-v8a, x86_64
+05:59:10 [android-fat-aar.sh] verifying native libraries against the per-ABI builds
+  armeabi-v7a: 12 native libraries, all sha256-identical to the per-ABI build
+  arm64-v8a: 12 native libraries, all sha256-identical to the per-ABI build
+  x86_64: 12 native libraries, all sha256-identical to the per-ABI build
+05:59:16 [android-fat-aar.sh] merged AAR: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1/geckoview-default-omni-153.4.20261002044800.aar (240M)
+05:59:16 [android-fat-aar.sh] jni ABIs in it: arm64-v8a armeabi-v7a x86_64
+05:59:16 [android-fat-aar.sh] maven repository: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1/maven
+05:59:16 [android-fat-aar.sh] total wall clock: 4137s
+
+LibreWolf Android fat AAR -- 2026-10-02T04:50:19Z
+tree=/home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-153.4.0esr-1
+abis=armeabi-v7a,arm64-v8a,x86_64
+jobs=8
+MOZ_BUILD_DATE=20261002044800
+engine=podman image=librewolf-android-build
+
+pass              seconds  peak_mem_GB  status
+armeabi-v7a          1301        23.97  ok
+arm64-v8a            1028        20.66  ok
+x86_64               1061        15.79  ok
+fat                   740        17.65  ok
+
+total                4137
+
+merged AAR: /home/mgysin/redoubt-artifacts/esr-153.4/build/rc2/librewolf-android-aar-153.4.0esr-1/geckoview-default-omni-153.4.20261002044800.aar
+jni ABIs  : arm64-v8a armeabi-v7a x86_64

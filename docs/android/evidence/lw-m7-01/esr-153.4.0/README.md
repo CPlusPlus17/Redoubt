@@ -1,8 +1,16 @@
 # 153.4.0esr runtime verification (LW-M7-01), 2026-10-02
 
-This directory holds emulator evidence for the stage B build of `android/esr-153.4`. The source is
-`d0ae91de` with settings at `3db3803`. Every result here is bound to one x86_64 APK, and the
-previous beta candidate was rerun under the same conditions for comparison.
+This directory holds emulator evidence for the stage B build of `android/esr-153.4`. The repository
+was at `d0ae91de` (settings `3db3803`) when it was taken. Every result here is bound to one x86_64
+APK, and the previous beta candidate was rerun under the same conditions for comparison.
+
+**The APK predates later patch-byte changes.** It was built from the stage B tree, made by
+`make dir` at `3777a915` (`build/commands.log`). Patch bytes changed after that: `d0ae91de` and
+`d91aab7d` (Android Components test hunks in `extension-update-controls`, `firefox-suggest-data`,
+`global-privacy-controls`, `firefox-suggest-policy` and `l10n-strings`), `3d801454`
+(`session-cleanup.patch` context refresh, no change lines), and, after this evidence, the
+about:config, uBO and harness fixes. Results here describe that APK, not a later tree. The rebuilt
+candidate, made from a committed tree, is in `rc2/`.
 
 ## Verdict
 
@@ -194,7 +202,7 @@ emulator resolver (tcp/853), so few DNS questions are visible in the pcap; hosts
 
 | Run | Directory | Steps and result |
 | --- | --- | --- |
-| Run 1 | `upgrade/` | Beta 2 fresh install. Retry on the uBO dialog. In the UI, Settings → DNS over HTTPS → Max Protection → Mullvad (No Filtering) (`15-*.png`). Gecko then reports Mullvad (`16-*.json`: `network.trr.uri` Mullvad on the default branch, mode 3, the DNS service's current TRR is Mullvad). `adb install -r` of the new build (`20-*`, `21-*`: versionCode 2016184438→2016187910, `firstInstallTime` kept). First launch shows "DNS over HTTPS provider changed" naming dns10.quad9.net (`22-*.png`); the log has `Replaced discontinued Mullvad DoH provider; mode MAX kept`. OK was tapped. The second launch has no migration log line and no DoH dialog (`25-*`; but see defect 3, it was dumped at 20 s). The `trr.js` read (`26-*.json`) shows `network.trr.uri` = `https://dns10.quad9.net/dns-query` on the default branch with no user value, `network.trr.mode` = 3, and `example.org` loads. DoH Settings shows Max Protection with Quad9 (No Filtering) (`28-*.png`), and the picker no longer lists Mullvad (`29a-c`). |
+| Run 1 | `upgrade/` | Beta 2 fresh install. Retry on the uBO dialog. In the UI, Settings → DNS over HTTPS → Max Protection → Mullvad (No Filtering) (`15-*.png`). Gecko then reports Mullvad (`16-*.json`: `network.trr.uri` Mullvad on the default branch, mode 3, the DNS service's current TRR is Mullvad). `adb install -r` of the new build (`20-*`, `21-*`: versionCode 2016184438→2016187910, `firstInstallTime` kept). First launch shows "DNS over HTTPS provider changed" naming dns10.quad9.net (`22-*.png`); the log has `Replaced discontinued Mullvad DoH provider; mode MAX kept`. OK was tapped. The second launch shows no DoH dialog (`25-*.png`/`.xml`; but see defect 3, it was dumped at 20 s). Its logcat, `25-new-second-launch.logcat`, is **empty** (the capture caught nothing), so it is no evidence either way; the absence of the migration line on a second launch is shown by Run 2's `run2/16-new-second-launch.logcat` (369 lines, no `DohProviderMigration` line). The `trr.js` read (`26-*.json`) shows `network.trr.uri` = `https://dns10.quad9.net/dns-query` on the default branch with no user value, `network.trr.mode` = 3, and `example.org` loads. DoH Settings shows Max Protection with Quad9 (No Filtering) (`28-*.png`), and the picker no longer lists Mullvad (`29a-c`). |
 | Run 2 | `upgrade/run2/` | Repeated with full logcat. The migration log line appears exactly once (`12-*.logcat`) and is absent on the second launch (`16-*.logcat`). The dialog appears once, and the second launch shows no DoH dialog (`15-*.xml`). The uBO timeout (defect 3) stacks over the DoH dialog on launcher cold starts. |
 | Fresh install | `upgrade/control-fresh-new/` | No migration log line and no DoH dialog (`01.logcat`, `03-no-doh-dialog.*`). |
 

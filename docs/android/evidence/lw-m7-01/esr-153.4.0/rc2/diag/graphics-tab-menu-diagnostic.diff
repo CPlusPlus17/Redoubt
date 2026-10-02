@@ -1,0 +1,12 @@
+--- /home/mgysin/redoubt-artifacts/esr-153.4/repo/scripts/android-graphics-smoke.py	2026-10-02 05:36:12.775637617 +0200
++++ /tmp/claude-1000/-home-mgysin-Documents-librewolf/e0d297a6-dd59-4761-bb99-51f0017f288f/scratchpad/diagrepo/scripts/android-graphics-smoke.py	2026-10-02 08:33:58.076108617 +0200
+@@ -676,7 +676,8 @@
+             require(len(matches) == 1, "Cannot identify the real Fenix tab counter uniquely")
+             counter = self.node(xml, description=matches[0].get("content-desc"))
+         self.tap(counter, "open-tab-counter-menu", long=True)
+-        self.click(text=item, label="tab-menu-" + item)
++        # DIAGNOSTIC ONLY (rc2): Fenix's Compose toolbar menu exposes items as content-desc, not text.
++        self.click(description=item, label="tab-menu-" + item)
+ 
+     def type_url(self, url):
+         xml = self.dump("private-url-entry")
