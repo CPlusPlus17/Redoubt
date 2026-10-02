@@ -43,7 +43,44 @@ def command(argv, cwd):
     return result.stdout + result.stderr
 
 
+def receipt_module():
+    """The rebase receipt replayer for ./version.android, or None for the 153.0esr receipts.
+
+    LW-M7-37's own receipts (guest capture + scoped Task35 inputs) pin the
+    153.0esr source and the 153.0esr bytes of extension-update-controls.patch,
+    a predecessor on two shared paths. A rebase re-captures the before tree
+    from the signed tarball plus the Android patch stack; see
+    docs/android/evidence/lw-m7-01/esr-<version>/receipts/README.md.
+    """
+    version = (ROOT / 'version.android').read_text().strip()
+    path = ROOT / 'docs/android/evidence/lw-m7-01' / f"esr-{version.removesuffix('esr')}" / 'receipts/replay.py'
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location('android_receipt_replay', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def main():
+    receipts = receipt_module()
+    spec = importlib.util.spec_from_file_location('ordering_sections',
+        ROOT / 'docs/android/evidence/lw-m7-35/check-ordering.py')
+    sections = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sections)
+    if receipts is not None:
+        with tempfile.TemporaryDirectory(prefix='lw-m7-37-native-') as scratch:
+            scratch = Path(scratch)
+            source = scratch / 'source'
+            source.mkdir()
+            data = receipts.replay('session-cleanup', source)
+            patch = ROOT / data['patch']
+            assert sorted(sections.sections(patch)) == sorted(item['path'] for item in data['files'])
+            print(f"PASS {data['firefox_version']} before tree (tarball + Android stack); "
+                  f"all {len(data['files'])} declared source outputs; exact replay without offsets/fuzz")
+            target_checks(scratch, source)
+        pending()
+        return
     manifest = json.loads((HERE / 'native-source-files.json').read_text())
     composition = json.loads((HERE / 'native-composition.json').read_text())
     assert sha((HERE / 'native-composition.json').read_bytes()) == manifest['source_composition_sha256']
@@ -51,10 +88,6 @@ def main():
     assert sha(patch.read_bytes()) == manifest['patch_sha256']
     assert sha((HERE / 'native-source-baseline.tar.gz').read_bytes()) == manifest['baseline_archive_sha256']
     assert sha((HERE / 'current-capture/guest-source.tar.gz').read_bytes()) == composition['capture_archive_sha256']
-    spec = importlib.util.spec_from_file_location('ordering_sections',
-        ROOT / 'docs/android/evidence/lw-m7-35/check-ordering.py')
-    sections = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(sections)
     with tempfile.TemporaryDirectory(prefix='lw-m7-37-native-') as scratch:
         scratch = Path(scratch)
         source = scratch / 'source'
@@ -89,45 +122,53 @@ def main():
         for item in manifest['files']:
             assert sha((source / item['path']).read_bytes()) == item['after_sha256'], item['path']
         print('PASS all 15 declared source outputs; exact replay without offsets/fuzz')
-        parser_inputs = json.loads((HERE / 'native-parser-inputs.json').read_text())
-        assert sha((HERE / 'native-parser-inputs.tar.gz').read_bytes()) == parser_inputs['archive_sha256']
-        parsers = scratch / 'parsers'
-        unpack(HERE / 'native-parser-inputs.tar.gz', parsers)
-        for item in parser_inputs['files']:
-            assert sha((parsers / item['path']).read_bytes()) == item['sha256']
-        sys.path[:0] = [str(parsers / name) for name in (
-            'third_party/python/ply', 'xpcom/idl-parser', 'dom/bindings/parser')]
-        from xpidl import xpidl
-        import WebIDL
-        name = 'netwerk/cookie/nsICookieManager.idl'
-        xpidl.IDLParser().parse((source / name).read_text(), name)
-        frame = (source / 'dom/chrome-webidl/FrameLoader.webidl').read_text()
-        parser = WebIDL.Parser(outputdir=str(scratch))
-        parser.parse(frame, 'FrameLoader.webidl')
-        method = re.search(r'(\[[^\]]+\]\s+Promise<undefined>\s+whenDestroyed\(\);)', frame).group(1)
-        parser = WebIDL.Parser(outputdir=str(scratch))
-        parser.parse('[Global=Window, Exposed=Window] interface Window {}; '
-                     '[ChromeOnly, Exposed=Window] interface FrameProbe { ' + method + ' };')
-        parser.finish()
-        print('PASS pinned XPIDL/WebIDL parsers and new-method semantics; imported-type code generation remains target work')
-        js = 'netwerk/cookie/test/unit/test_cookie_session_cleanup.js'
-        test_api = 'mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js'
-        for name in (js, test_api):
-            command(['node', '--check', str(source / name)], scratch)
-        schema = json.loads((source / test_api.replace('test-api.js', 'test-schema.json')).read_text())
-        functions = [item['name'] for item in schema[0]['functions']]
-        assert len(set(functions)) == len(functions)
-        assert all(name in functions for name in ('prepareFrameDestructionProbe', 'finishFrameDestructionProbe',
-                                                 'runInProcessFrameDestructionProbe', 'runPrefSaveFileAsyncIOTest'))
-        config = tomllib.loads((source / 'netwerk/cookie/test/unit/xpcshell.toml').read_text())
-        assert 'test_cookie_session_cleanup.js' in config
-        tasks = re.findall(r'add_task\(async function (\w+)\(', (source / js).read_text())
-        kotlin = source / 'mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/SessionCleanupTest.kt'
-        methods = re.findall(r'@Test\s+(?:@[^\n]+\s+)*fun\s+(\w+)\(', kotlin.read_text())
-        assert len(set(tasks)) == 9 and len(set(methods)) == 5
-        print('PASS JS syntax, JSON/TOML, inherited35 test API and 9 cookie / 5 frame target test definitions')
+        target_checks(scratch, source)
+    pending()
+
+
+def pending():
     print('PENDING native C++/IDL code generation and Kotlin compilation; actual cookie xpcshell/GeckoView execution.')
     print('PENDING all-writer/cache admission, remaining category acknowledgments, retention coordinator and durable journal; no full cleanup-success claim.')
+
+
+def target_checks(scratch, source):
+    parser_inputs = json.loads((HERE / 'native-parser-inputs.json').read_text())
+    assert sha((HERE / 'native-parser-inputs.tar.gz').read_bytes()) == parser_inputs['archive_sha256']
+    parsers = scratch / 'parsers'
+    unpack(HERE / 'native-parser-inputs.tar.gz', parsers)
+    for item in parser_inputs['files']:
+        assert sha((parsers / item['path']).read_bytes()) == item['sha256']
+    sys.path[:0] = [str(parsers / name) for name in (
+        'third_party/python/ply', 'xpcom/idl-parser', 'dom/bindings/parser')]
+    from xpidl import xpidl
+    import WebIDL
+    name = 'netwerk/cookie/nsICookieManager.idl'
+    xpidl.IDLParser().parse((source / name).read_text(), name)
+    frame = (source / 'dom/chrome-webidl/FrameLoader.webidl').read_text()
+    parser = WebIDL.Parser(outputdir=str(scratch))
+    parser.parse(frame, 'FrameLoader.webidl')
+    method = re.search(r'(\[[^\]]+\]\s+Promise<undefined>\s+whenDestroyed\(\);)', frame).group(1)
+    parser = WebIDL.Parser(outputdir=str(scratch))
+    parser.parse('[Global=Window, Exposed=Window] interface Window {}; '
+                 '[ChromeOnly, Exposed=Window] interface FrameProbe { ' + method + ' };')
+    parser.finish()
+    print('PASS pinned XPIDL/WebIDL parsers and new-method semantics; imported-type code generation remains target work')
+    js = 'netwerk/cookie/test/unit/test_cookie_session_cleanup.js'
+    test_api = 'mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js'
+    for name in (js, test_api):
+        command(['node', '--check', str(source / name)], scratch)
+    schema = json.loads((source / test_api.replace('test-api.js', 'test-schema.json')).read_text())
+    functions = [item['name'] for item in schema[0]['functions']]
+    assert len(set(functions)) == len(functions)
+    assert all(name in functions for name in ('prepareFrameDestructionProbe', 'finishFrameDestructionProbe',
+                                             'runInProcessFrameDestructionProbe', 'runPrefSaveFileAsyncIOTest'))
+    config = tomllib.loads((source / 'netwerk/cookie/test/unit/xpcshell.toml').read_text())
+    assert 'test_cookie_session_cleanup.js' in config
+    tasks = re.findall(r'add_task\(async function (\w+)\(', (source / js).read_text())
+    kotlin = source / 'mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/SessionCleanupTest.kt'
+    methods = re.findall(r'@Test\s+(?:@[^\n]+\s+)*fun\s+(\w+)\(', kotlin.read_text())
+    assert len(set(tasks)) == 9 and len(set(methods)) == 5
+    print('PASS JS syntax, JSON/TOML, inherited35 test API and 9 cookie / 5 frame target test definitions')
 
 
 if __name__ == '__main__':

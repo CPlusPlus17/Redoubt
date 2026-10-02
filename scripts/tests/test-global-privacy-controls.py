@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 CHECK = ROOT / 'docs/android/evidence/lw-m7-36/check-source.py'
@@ -14,11 +15,44 @@ spec.loader.exec_module(source)
 ANDROID = '{http://schemas.android.com/apk/res/android}'
 
 
+def receipt_module():
+    """The rebase receipt replayer for ./version.android, or None for the 153.0esr receipts.
+
+    LW-M7-36's source-files.json pins the 153.0esr scoped pristine source, seven
+    scoped predecessors and the 153.0esr patch bytes. A rebase re-captures the
+    before tree from the signed tarball plus the Android patch stack; see
+    docs/android/evidence/lw-m7-01/esr-<version>/receipts/README.md.
+    """
+    version = (ROOT / 'version.android').read_text().strip()
+    path = ROOT / 'docs/android/evidence/lw-m7-01' / f"esr-{version.removesuffix('esr')}" / 'receipts/replay.py'
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location('android_receipt_replay', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def replay(tree):
+    receipts = receipt_module()
+    if receipts is None:
+        source.replay(tree)
+        return
+    data = receipts.replay('global-privacy-controls', tree)
+    paths = [item['path'] for item in data['files']]
+    task = next(item for item in yaml.safe_load((ROOT / 'docs/android/tasks.yaml').read_text())['tasks'] if item['id'] == 'LW-M7-36')
+    source.require(set(task['tree_paths']) == set(paths), 'task scope differs')
+    print(f"PASS {data['firefox_version']} before tree (tarball + Android stack); exact --fuzz=0 replay; "
+          f"{len(paths)} after hashes")
+
+
 def main():
+    # The original 153.0esr audit inputs are repository evidence, independent
+    # of the Firefox version, so they are verified either way.
     source.verify_originals()
     with tempfile.TemporaryDirectory(prefix='lw-m7-36-host-') as directory:
         tree = Path(directory)
-        source.replay(tree)
+        replay(tree)
         shared = tree / 'mobile/shared/components/geckoview'
         subprocess.run(['node', str(ROOT / 'scripts/tests/test-global-privacy-controls.js'), str(shared / 'GeckoViewGlobalPrivacy.sys.mjs')], check=True)
         startup = (shared / 'GeckoViewStartup.sys.mjs').read_text()
