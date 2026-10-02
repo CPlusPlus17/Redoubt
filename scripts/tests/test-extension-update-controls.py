@@ -26,10 +26,11 @@ def receipt_module():
     LW-M7-35's own receipts (guest capture + scoped Task31 + fixtures) pin the
     153.0esr source and the 153.0esr patch bytes. A rebase re-captures the
     before tree from the signed tarball plus the Android patch stack; see
-    docs/android/evidence/lw-m7-01/esr-<version>/receipts/README.md.
+    docs/android/evidence/lw-m7-01/{esr,release}-<version>/receipts/README.md.
     """
     version = (ROOT / 'version.android').read_text().strip()
-    path = ROOT / 'docs/android/evidence/lw-m7-01' / f"esr-{version.removesuffix('esr')}" / 'receipts/replay.py'
+    name = f"esr-{version.removesuffix('esr')}" if version.endswith('esr') else f'release-{version}'
+    path = ROOT / 'docs/android/evidence/lw-m7-01' / name / 'receipts/replay.py'
     if not path.is_file():
         return None
     spec = importlib.util.spec_from_file_location('android_receipt_replay', path)

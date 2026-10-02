@@ -24,6 +24,25 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def receipt_module():
+    """The rebase receipt replayer for ./version.android, or None for the 153.0esr baseline.
+
+    LW-M7-16's source-files.json and source-baseline.tar.gz pin the 153.0esr
+    source and patch bytes. A rebase re-captures the before tree from the
+    signed tarball plus the Android patch stack; see
+    docs/android/evidence/lw-m7-01/{esr,release}-<version>/receipts/README.md.
+    """
+    version = (ROOT / 'version.android').read_text().strip()
+    name = f"esr-{version.removesuffix('esr')}" if version.endswith('esr') else f'release-{version}'
+    path = ROOT / 'docs/android/evidence/lw-m7-01' / name / 'receipts/replay.py'
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location('android_receipt_replay', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class PackageTests(unittest.TestCase):
     def test_verified_inputs(self):
         catalog = package.verify_inputs()
@@ -96,11 +115,19 @@ def main():
     result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(PackageTests))
     if not result.wasSuccessful():
         raise SystemExit(1)
-    inventory = json.loads((EVIDENCE / 'source-files.json').read_text())['files']
+    receipts = receipt_module()
+    if receipts is not None:
+        inventory = receipts.receipt('translation-assets')['files']
+    else:
+        inventory = json.loads((EVIDENCE / 'source-files.json').read_text())['files']
     originals = {entry['path']: entry for entry in inventory if entry['before_sha256']}
     with tempfile.TemporaryDirectory(prefix='lw-m7-16-source-') as scratch:
         source = args.source.resolve() if args.source else Path(scratch)
-        if not args.source:
+        if not args.source and receipts is not None:
+            data = receipts.replay('translation-assets', source)
+            print(f"PASS {data['firefox_version']} before tree (tarball + Android stack); exact --fuzz=0 replay; "
+                  f"{len(inventory)} after hashes", flush=True)
+        elif not args.source:
             with tarfile.open(EVIDENCE / 'source-baseline.tar.gz') as archive:
                 assert {member.name for member in archive} == set(originals)
                 for member in archive:
@@ -114,6 +141,9 @@ def main():
             assert 'offset' not in result.stdout and 'fuzz' not in result.stdout
             print('PASS patch applies with zero fuzz and no offsets', flush=True)
         for entry in inventory:
+            if entry['after_sha256'] is None:
+                assert not (source / entry['path']).exists(), entry['path']
+                continue
             data = (source / entry['path']).read_bytes()
             assert sha(data) == entry['after_sha256'], entry['path']
             if entry['path'].endswith(('.js', '.mjs')):
@@ -134,6 +164,9 @@ def main():
                     }
                     for actor in ('TranslationsParent', 'TranslationsChild', 'TranslationsEngineChild'):
                         packaged[f'toolkit/components/translations/actors/{actor}.sys.mjs'] = f'actors/{actor}.sys.mjs'
+                    # Firefox 157 packs the GeckoView modules at modules/, not modules/geckoview/.
+                    if 'modules/geckoview/GeckoViewTranslations.sys.mjs' not in omni.namelist():
+                        packaged['mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs'] = 'modules/GeckoViewTranslations.sys.mjs'
                     for original, resource in packaged.items():
                         assert omni.read(resource) == (source / original).read_bytes(), resource
             print('PASS APK pinned resources and production JS; APK SHA256=' + sha(args.apk.read_bytes()))

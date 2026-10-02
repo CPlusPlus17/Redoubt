@@ -209,7 +209,10 @@ function parentFixture() {
   const Parent=sourceModule(context,'toolkit/components/translations/actors/TranslationsParent.sys.mjs','TranslationsParent');
   const actor=new Parent();actor.manager={};actor.browsingContext={currentWindowGlobal:actor.manager};actor.innerWindowId=12;
   let translates=0;actor.translate=async()=>{translates++;};
-  return {...f,Parent,actor,modules,utils,translated:()=>translates};
+  // JSWindowActorParent.sendAsyncMessage: since 157 translateFromUser() creates
+  // the on-demand TranslationsChild with Translations:WatchPageHide.
+  const sent=[];actor.sendAsyncMessage=name=>{sent.push(name);};
+  return {...f,Parent,actor,modules,utils,sent,translated:()=>translates};
 }
 
 test('actual Parent selection retains complete direct and pivot record sets without RS clients',async()=>{
@@ -220,6 +223,7 @@ test('actual Parent selection retains complete direct and pivot record sets with
   await f.actor.translateFromUser({sourceLanguage:'es',targetLanguage:'fr'},true);
   const pairs=new Set(records.map(r=>r.sourceLanguage+'-'+r.targetLanguage));assert.deepEqual([...pairs].sort(),['en-fr','es-en']);
   assert.equal(f.translated(),2);assert.equal(networkRows(f).length,0);
+  assert.deepEqual(f.sent,['Translations:WatchPageHide','Translations:WatchPageHide']);
 });
 test('actual Parent size, passive engine payload and false-download request cannot authorize transfers',async()=>{
   const f=parentFixture();const size=await f.Parent.getExpectedTranslationDownloadSize('es','en');assert.ok(size>0);
@@ -230,7 +234,7 @@ test('actual Parent size, passive engine payload and false-download request cann
 test('actual Parent refuses stale documents before operation selection',async()=>{
   const f=parentFixture();f.actor.browsingContext.currentWindowGlobal={};
   await assert.rejects(f.actor.translateFromUser({sourceLanguage:'es',targetLanguage:'en'},true),{name:'AbortError'});
-  assert.equal(f.state.fetches.length,0);assert.equal(f.translated(),0);
+  assert.equal(f.state.fetches.length,0);assert.equal(f.translated(),0);assert.deepEqual(f.sent,[]);
 });
 test('actual Parent pagehide cancellation prevents late preparation from translating',async()=>{
   const f=parentFixture();const gate=deferred(),requested=deferred();const read=f.provider.read.bind(f.provider);
@@ -315,7 +319,9 @@ test('actual child actor binds pagehide cancellation to its own actor on Android
   const source='toolkit/components/translations/actors/TranslationsChild.sys.mjs';
   for(const platform of ['android','linux']) {
     const listeners=new Map(),messages=[];
-    const context=vm.createContext({AppConstants:{platform},ChromeUtils:{defineESModuleGetters(){}},JSWindowActorChild:class {}});
+    const quiet={debug(){},log(){},warn(){},error(){}};
+    const context=vm.createContext({AppConstants:{platform},console:{createInstance:()=>quiet},JSWindowActorChild:class {},
+      ChromeUtils:{defineESModuleGetters(){},defineLazyGetter:(target,name,getter)=>Object.defineProperty(target,name,{get:getter})}});
     const Child=sourceModule(context,source,'TranslationsChild');const child=new Child();
     child.contentWindow={addEventListener:(name,listener)=>listeners.set(name,listener),removeEventListener:name=>listeners.delete(name)};
     child.sendAsyncMessage=name=>messages.push(name);child.actorCreated();
