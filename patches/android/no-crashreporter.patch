@@ -444,25 +444,61 @@
 # the suite is ALREADY RED for reasons owned by other tasks, so "the tests pass"
 # is not a statement anyone can make about this tree today.
 #
+#
+# 157 REBASE (2026-10-02, Android leaves ESR for Firefox release 157.0)
+# ---------------------------------------------------------------------
+# Same decision, same four paths, redone on the 157 sources after the 157 no-adjust,
+# no-glean and no-gms (list order unchanged). The seven deleted lib-crash files were
+# regenerated from their 157 bytes. What moved:
+#   * Analytics.kt: the Sentry block lost its per-channel shouldSendCaughtExceptions
+#     (upstream now hard-codes false) and useLegacyReporting lost its
+#     useNewCrashReporterFlow arm; the whole services/telemetryServices construction is
+#     still replaced by two empty lists, Prompt.NEVER and useLegacyReporting = false.
+#     The runWhenReadyQueue constructor parameter (only Sentry used it) goes with
+#     Components' visualCompletenessQueue argument, as before.
+#   * CrashMiddleware (lib-crash store) re-checked on 157: Initialize still returns
+#     immediately on CrashReportOption.Never and FinishCheckingForCrashes still does
+#     nothing on Never, so SettingsCrashReportCache.getReportOption() = Never is still
+#     the single choke point.
+#   * GeckoProvider.kt: the crashPullDelegate assignment is still removed. Re-checked:
+#     toolkit/components/crashes/moz.build on 157 still packages
+#     RemoteSettingsCrashPull.sys.mjs only under MOZ_CRASHREPORTER, and
+#     GeckoViewStartup.sys.mjs still starts it on the Delegate:Attached message.
+#   * DataChoicesScreen.kt: CRASH_REPORTS section and search item removed as before.
+#     NEW 157 unit test DataChoicesSearchProviderTest expected a CRASH_REPORTS search
+#     key; both of its expectations drop it.
+#   * StartupCrashActivity (initial UiState.Finished) and StartupCrashScreen
+#     (librewolf_startup_crash_body) re-applied to 157's formatting; the Idle/Loading/
+#     Finished states are unchanged.
+#   * focus-android Components.kt createCrashReporter() and getLocaleTag() re-done on the
+#     157 text (still not compiler-verified; :focus-android is never configured here).
+# Not re-measured: the dex counts and the emulator A/B above (no 157 APK yet).
 diff --git a/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt b/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt
 deleted file mode 100644
+index b82ec60..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt
 +++ /dev/null
-@@ -1,452 +0,0 @@
+@@ -1,472 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
--
--// We allow wildcard imports as a convenience for the many json extension
--// methods used.
--@file:Suppress("ktlint:standard:no-wildcard-imports")
 -
 -package mozilla.components.lib.crash.service
 -
 -import android.content.Context
 -import androidx.test.core.app.ApplicationProvider
 -import androidx.test.ext.junit.runners.AndroidJUnit4
--import kotlinx.serialization.json.*
+-import java.io.IOException
+-import java.util.Date
+-import kotlin.test.assertNotNull
+-import kotlinx.serialization.json.Json
+-import kotlinx.serialization.json.JsonArray
+-import kotlinx.serialization.json.JsonObject
+-import kotlinx.serialization.json.JsonPrimitive
+-import kotlinx.serialization.json.jsonArray
+-import kotlinx.serialization.json.jsonObject
+-import kotlinx.serialization.json.jsonPrimitive
+-import kotlinx.serialization.json.long
 -import mozilla.components.concept.base.crash.Breadcrumb
 -import mozilla.components.lib.crash.BuildConfig
 -import mozilla.components.lib.crash.Crash
@@ -478,17 +514,13 @@ deleted file mode 100644
 -import org.junit.Test
 -import org.junit.rules.TemporaryFolder
 -import org.junit.runner.RunWith
--import java.io.IOException
--import java.util.Date
--import kotlin.test.assertNotNull
 -
 -@RunWith(AndroidJUnit4::class)
 -class GleanCrashReporterServiceTest {
 -    private val context: Context
 -        get() = ApplicationProvider.getApplicationContext()
 -
--    @get:Rule
--    val tempFolder = TemporaryFolder()
+-    @get:Rule val tempFolder = TemporaryFolder()
 -
 -    private fun crashCountJson(key: String): String = """{"type":"count","label":"$key"}"""
 -
@@ -505,9 +537,8 @@ deleted file mode 100644
 -    }
 -
 -    /**
--     * This tests that the JNI path works without e.g. crashing. There's no
--     * convenient way to test whether Glean sends the pings at this point (e.g.
--     * the `testMetricsValuesBeforeNextSend` callback is still called).
+-     * This tests that the JNI path works without e.g. crashing. There's no convenient way to test whether Glean sends
+-     * the pings at this point (e.g. the `testMetricsValuesBeforeNextSend` callback is still called).
 -     */
 -    @Test
 -    fun nativeCrashToolsCanDisableTelemetry() {
@@ -521,15 +552,16 @@ deleted file mode 100644
 -    fun gleanCrashReporterServiceSendsCrashPings() {
 -        val service = GleanCrashReporterService(context)
 -
--        val crash = Crash.NativeCodeCrash(
--            12340000,
--            null,
--            null,
--            Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--            processType = "main",
--            breadcrumbs = arrayListOf(),
--            remoteType = null,
--        )
+-        val crash =
+-            Crash.NativeCodeCrash(
+-                12340000,
+-                null,
+-                null,
+-                Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                processType = "main",
+-                breadcrumbs = arrayListOf(),
+-                remoteType = null,
+-            )
 -
 -        var pingSent = false
 -        getNativeCrashTools()?.testMetricValuesBeforeNextSend {
@@ -559,24 +591,26 @@ deleted file mode 100644
 -    fun gleanCrashReporterServiceSendsBreadcrumbs() {
 -        val service = GleanCrashReporterService(context)
 -
--        val crash = Crash.NativeCodeCrash(
--            12340000,
--            null,
--            null,
--            Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--            processType = "main",
--            breadcrumbs = arrayListOf(
--                Breadcrumb(
--                    message = "Breadcrumb-1",
--                    category = "bread",
--                    level = Breadcrumb.Level.WARNING,
--                    type = Breadcrumb.Type.USER,
--                    date = Date(12340000),
--                    data = mapOf("foo" to "bar"),
--                ),
--            ),
--            remoteType = null,
--        )
+-        val crash =
+-            Crash.NativeCodeCrash(
+-                12340000,
+-                null,
+-                null,
+-                Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                processType = "main",
+-                breadcrumbs =
+-                    arrayListOf(
+-                        Breadcrumb(
+-                            message = "Breadcrumb-1",
+-                            category = "bread",
+-                            level = Breadcrumb.Level.WARNING,
+-                            type = Breadcrumb.Type.USER,
+-                            date = Date(12340000),
+-                            data = mapOf("foo" to "bar"),
+-                        )
+-                    ),
+-                remoteType = null,
+-            )
 -
 -        service.record(crash)
 -
@@ -598,28 +632,29 @@ deleted file mode 100644
 -                assertNull(get("crash.remote_type"))
 -                assertEquals(
 -                    JsonArray(
--                    listOf(
--                        JsonObject(
--                            mapOf(
--                                "timestamp" to JsonPrimitive("1970-01-01T03:25:40"),
--                                "message" to JsonPrimitive("Breadcrumb-1"),
--                                "category" to JsonPrimitive("bread"),
--                                "level" to JsonPrimitive("Warning"),
--                                "type" to JsonPrimitive("User"),
--                                "data" to JsonArray(
--                                    listOf(
--                                        JsonObject(
--                                            mapOf(
--                                                "key" to JsonPrimitive("foo"),
--                                                "value" to JsonPrimitive("bar"),
--                                            ),
+-                        listOf(
+-                            JsonObject(
+-                                mapOf(
+-                                    "timestamp" to JsonPrimitive("1970-01-01T03:25:40"),
+-                                    "message" to JsonPrimitive("Breadcrumb-1"),
+-                                    "category" to JsonPrimitive("bread"),
+-                                    "level" to JsonPrimitive("Warning"),
+-                                    "type" to JsonPrimitive("User"),
+-                                    "data" to
+-                                        JsonArray(
+-                                            listOf(
+-                                                JsonObject(
+-                                                    mapOf(
+-                                                        "key" to JsonPrimitive("foo"),
+-                                                        "value" to JsonPrimitive("bar"),
+-                                                    )
+-                                                )
+-                                            )
 -                                        ),
--                                    ),
--                                ),
--                            ),
--                        ),
+-                                )
+-                            )
+-                        )
 -                    ),
--                ),
 -                    get("crash.breadcrumbs"),
 -                )
 -                pingSent = true
@@ -634,7 +669,8 @@ deleted file mode 100644
 -    @Test
 -    fun gleanCrashReporterServiceReadsExtras() {
 -        val service = GleanCrashReporterService(context)
--        val stackTracesAnnotation = """
+-        val stackTracesAnnotation =
+-            """
 -        {
 -            "crash_type": "main",
 -            "crash_address": "0xf001ba11",
@@ -678,7 +714,8 @@ deleted file mode 100644
 -        }
 -        """
 -
--        val stackTracesGlean = """
+-        val stackTracesGlean =
+-            """
 -        {
 -            "crash_type": "main",
 -            "crash_address": "0xf001ba11",
@@ -736,18 +773,20 @@ deleted file mode 100644
 -                "JSLargeAllocationFailure": "reporting",
 -                "JSOutOfMemory": "recovered"
 -            }
--            """.trimIndent(),
+-            """
+-                .trimIndent()
 -        )
 -
--        val crash = Crash.NativeCodeCrash(
--            12340000,
--            "",
--            extrasFile.path,
--            Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--            processType = "main",
--            breadcrumbs = arrayListOf(),
--            remoteType = null,
--        )
+-        val crash =
+-            Crash.NativeCodeCrash(
+-                12340000,
+-                "",
+-                extrasFile.path,
+-                Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                processType = "main",
+-                breadcrumbs = arrayListOf(),
+-                remoteType = null,
+-            )
 -
 -        var pingSent = false
 -        getNativeCrashTools()?.testMetricValuesBeforeNextSend {
@@ -757,6 +796,9 @@ deleted file mode 100644
 -            )
 -            assertEquals("main", get("crash.process_type")?.jsonPrimitive?.content)
 -            assertEquals("d462c4b4-a9f8-4244-b526-7435fcdc4403", get("crash.event_id")?.jsonPrimitive?.content)
+-            assertEquals("Android", get("crash.os")?.jsonPrimitive?.content)
+-            assertNotNull(get("crash.os_version"))
+-            assertNotNull(get("crash.cpu_architecture"))
 -            assertEquals(
 -                "fatal native crash",
 -                get("crash.crash_type")?.jsonPrimitive?.content,
@@ -769,22 +811,23 @@ deleted file mode 100644
 -            assertEquals("recovered", get("memory.js_out_of_memory")?.jsonPrimitive?.content)
 -            assertEquals(
 -                JsonObject(
--                mapOf(
--                    "phase" to JsonPrimitive("abcd"),
--                    "conditions" to JsonPrimitive("[{\"foo\":\"bar\"}]"),
--                    "broken_add_blockers" to JsonArray(listOf(JsonPrimitive("foo"))),
+-                    mapOf(
+-                        "phase" to JsonPrimitive("abcd"),
+-                        "conditions" to JsonPrimitive("[{\"foo\":\"bar\"}]"),
+-                        "broken_add_blockers" to JsonArray(listOf(JsonPrimitive("foo"))),
+-                    )
 -                ),
--            ),
 -                get("crash.async_shutdown_timeout"),
 -            )
 -            assertEquals(
 -                JsonArray(
--                listOf(
--                    "line1",
--                    "line2",
--                    "line3",
--                ).map { e -> JsonPrimitive(e) },
--            ),
+-                    listOf(
+-                            "line1",
+-                            "line2",
+-                            "line3",
+-                        )
+-                        .map { e -> JsonPrimitive(e) }
+-                ),
 -                get("crash.quota_manager_shutdown_timeout"),
 -            )
 -            assertEquals(Json.decodeFromString<JsonObject>(stackTracesGlean), get("crash.stack_traces"))
@@ -801,16 +844,18 @@ deleted file mode 100644
 -    fun gleanCrashReporterServiceSendsExceptionCrashPings() {
 -        val service = GleanCrashReporterService(context)
 -
--        val crash = Crash.UncaughtExceptionCrash(
--            12340000,
--            RuntimeException("Test", IOException("IO")),
--            arrayListOf(),
--            runtimeTags = mapOf(
--                RuntimeTag.VERSION_NAME to "142.0.0",
--                RuntimeTag.BUILD_ID to "1337",
--            ),
--            uuid = "2b341259-e273-47a8-8a31-86c7ebe2e6f8",
--        )
+-        val crash =
+-            Crash.UncaughtExceptionCrash(
+-                12340000,
+-                RuntimeException("Test", IOException("IO")),
+-                arrayListOf(),
+-                runtimeTags =
+-                    mapOf(
+-                        RuntimeTag.VERSION_NAME to "142.0.0",
+-                        RuntimeTag.BUILD_ID to "1337",
+-                    ),
+-                uuid = "2b341259-e273-47a8-8a31-86c7ebe2e6f8",
+-            )
 -
 -        var pingSent = false
 -        getNativeCrashTools()?.testMetricValuesBeforeNextSend {
@@ -820,6 +865,9 @@ deleted file mode 100644
 -            )
 -            assertEquals("main", get("crash.process_type")?.jsonPrimitive?.content)
 -            assertEquals("2b341259-e273-47a8-8a31-86c7ebe2e6f8", get("crash.event_id")?.jsonPrimitive?.content)
+-            assertEquals("Android", get("crash.os")?.jsonPrimitive?.content)
+-            assertNotNull(get("crash.os_version"))
+-            assertNotNull(get("crash.cpu_architecture"))
 -            assertEquals(
 -                "uncaught exception",
 -                get("crash.crash_type")?.jsonPrimitive?.content,
@@ -841,7 +889,7 @@ deleted file mode 100644
 -                        mapOf(
 -                            "type_name" to JsonPrimitive("java.lang.RuntimeException"),
 -                            "message" to JsonPrimitive("Test"),
--                        ),
+-                        )
 -                    ),
 -                    first,
 -                )
@@ -851,9 +899,9 @@ deleted file mode 100644
 -                        mapOf(
 -                            "type_name" to JsonPrimitive("java.io.IOException"),
 -                            "message" to JsonPrimitive("IO"),
--                        ),
+-                        )
 -                    ),
--                        second,
+-                    second,
 -                )
 -            }
 -            pingSent = true
@@ -875,18 +923,20 @@ deleted file mode 100644
 -
 -    @Test
 -    fun gleanCrashReporterServiceExceptionCrashPingsHaveCrashTimeAppInformationMetrics() {
--        val service = GleanCrashReporterService(
--            context,
--            appChannel = "channel",
--            appVersion = "version",
--            appBuildId = "buildid",
--        )
+-        val service =
+-            GleanCrashReporterService(
+-                context,
+-                appChannel = "channel",
+-                appVersion = "version",
+-                appBuildId = "buildid",
+-            )
 -
--        val crash = Crash.UncaughtExceptionCrash(
--            12340000,
--            RuntimeException("Test", IOException("IO")),
--            arrayListOf(),
--        )
+-        val crash =
+-            Crash.UncaughtExceptionCrash(
+-                12340000,
+-                RuntimeException("Test", IOException("IO")),
+-                arrayListOf(),
+-            )
 -
 -        var pingSent = false
 -        getNativeCrashTools()?.testMetricValuesBeforeNextSend {
@@ -902,9 +952,10 @@ deleted file mode 100644
 -    }
 -}
 diff --git a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/CrashReporter.kt b/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/CrashReporter.kt
+index 0038d4e..7361ecf 100644
 --- a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/CrashReporter.kt
 +++ b/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/CrashReporter.kt
-@@ -153,11 +153,11 @@ class CrashReporter internal constructor(
+@@ -150,11 +150,11 @@ internal constructor(
      private val runtimeTags: Map<String, String>
          get() = runtimeTagProviders.fold(emptyMap()) { acc, provider -> acc + provider() }
  
@@ -919,13 +970,14 @@ diff --git a/mobile/android/android-components/components/lib/crash/src/main/jav
 +    // *local* crash record with it.  onCrash() below still writes every crash into the on-device
 +    // Room database that the crash list ("about:crashes") reads; only the upload services are gone.
  
-     /**
-      * Install this [CrashReporter] instance. At this point the component will be setup to collect crash reports.
+     /** Install this [CrashReporter] instance. At this point the component will be setup to collect crash reports. */
+     fun install(
 diff --git a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/GleanCrashReporterService.kt b/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/GleanCrashReporterService.kt
 deleted file mode 100644
+index b8f82ee..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/GleanCrashReporterService.kt
 +++ /dev/null
-@@ -1,351 +0,0 @@
+@@ -1,338 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -933,7 +985,12 @@ deleted file mode 100644
 -package mozilla.components.lib.crash.service
 -
 -import android.content.Context
+-import android.os.Build
 -import androidx.annotation.VisibleForTesting
+-import java.io.File
+-import java.io.FileOutputStream
+-import java.io.IOException
+-import java.security.MessageDigest
 -import kotlinx.serialization.ExperimentalSerializationApi
 -import kotlinx.serialization.SerialName
 -import kotlinx.serialization.Serializable
@@ -953,18 +1010,13 @@ deleted file mode 100644
 -import mozilla.components.support.base.ext.getStacktraceAsJsonString
 -import mozilla.components.support.base.log.logger.Logger
 -import mozilla.components.support.ktx.android.content.isMainProcess
--import java.io.File
--import java.io.FileOutputStream
--import java.io.IOException
--import java.security.MessageDigest
 -
 -private val logger = Logger("glean/GleanCrashReporterService")
 -
 -/**
-- * A [CrashReporterService] implementation for recording metrics with Glean.  The purpose of this
-- * crash reporter is to collect crash count metrics by capturing [Crash.UncaughtExceptionCrash],
-- * [Throwable] and [Crash.NativeCodeCrash] events and record to the respective
-- * [mozilla.telemetry.glean.private.CounterMetricType].
+- * A [CrashReporterService] implementation for recording metrics with Glean. The purpose of this crash reporter is to
+- * collect crash count metrics by capturing [Crash.UncaughtExceptionCrash], [Throwable] and [Crash.NativeCodeCrash]
+- * events and record to the respective [mozilla.telemetry.glean.private.CounterMetricType].
 - */
 -class GleanCrashReporterService(
 -    val context: Context,
@@ -974,7 +1026,7 @@ deleted file mode 100644
 -    private val appVersion: String? = null,
 -    private val appBuildId: String? = null,
 -    private val isUploadEnabled: Boolean = true,
--    ) : CrashTelemetryService {
+-) : CrashTelemetryService {
 -    companion object {
 -        // This file is stored in the application's data directory, so it should be located in the
 -        // same location as the application.
@@ -995,17 +1047,14 @@ deleted file mode 100644
 -    }
 -
 -    /**
--     * The subclasses of GleanCrashAction are used to persist Glean actions to handle them later
--     * (in the application which has Glean initialized). They are serialized to JSON objects and
--     * appended to a file, in case multiple crashes occur prior to being able to submit the metrics
--     * to Glean.
+-     * The subclasses of GleanCrashAction are used to persist Glean actions to handle them later (in the application
+-     * which has Glean initialized). They are serialized to JSON objects and appended to a file, in case multiple
+-     * crashes occur prior to being able to submit the metrics to Glean.
 -     */
 -    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
 -    @Serializable
 -    internal sealed class GleanCrashAction {
--        /**
--         * Submit the glean metrics/pings.
--         */
+-        /** Submit the glean metrics/pings. */
 -        abstract fun submit()
 -
 -        @Serializable
@@ -1066,29 +1115,27 @@ deleted file mode 100644
 -    }
 -
 -    /**
--     * Parses the crashes collected in the persisted crash file. The format of this file is simple,
--     * a stream of serialized JSON GleanCrashAction objects.
+-     * Parses the crashes collected in the persisted crash file. The format of this file is simple, a stream of
+-     * serialized JSON GleanCrashAction objects.
 -     *
 -     * Example:
 -     *
--     * <--Beginning of file-->
--     * {"type":"count","label":"uncaught_exception"}\n
--     * {"type":"count","label":"uncaught_exception"}\n
--     * {"type":"count","label":"main_process_native_code_crash"}\n
+-     * <--Beginning of file--> {"type":"count","label":"uncaught_exception"}\n
+-     * {"type":"count","label":"uncaught_exception"}\n {"type":"count","label":"main_process_native_code_crash"}\n
 -     * <--End of file-->
 -     *
--     * It is unlikely that there will be more than one crash in a file, but not impossible.  This
--     * could happen, for instance, if the application crashed again before the file could be
--     * processed.
+-     * It is unlikely that there will be more than one crash in a file, but not impossible. This could happen, for
+-     * instance, if the application crashed again before the file could be processed.
 -     */
 -    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
 -    internal fun parseCrashFile() {
 -        try {
 -            @OptIn(ExperimentalSerializationApi::class)
--            val actionSequence = Json.decodeToSequence<GleanCrashAction>(
--                file.inputStream(),
--                DecodeSequenceMode.WHITESPACE_SEPARATED,
--            )
+-            val actionSequence =
+-                Json.decodeToSequence<GleanCrashAction>(
+-                    file.inputStream(),
+-                    DecodeSequenceMode.WHITESPACE_SEPARATED,
+-                )
 -            for (action in actionSequence) {
 -                // We do not expect an exception to occur, however if the worst should happen, it's
 -                // essential that we don't allow the exception to interfere with other actions that
@@ -1110,12 +1157,11 @@ deleted file mode 100644
 -    }
 -
 -    /**
--     * This function handles the actual recording of the crash to the persisted crash file. We are
--     * only guaranteed runtime for the lifetime of the [CrashTelemetryService.record] function,
--     * anything that we do in this function **MUST** be synchronous and blocking.  We cannot spawn
--     * work to background processes or threads here if we want to guarantee that the work is
--     * completed. Also, since the [CrashTelemetryService.record] functions are called synchronously,
--     * and from lib-crash's own process, it is unlikely that this would be called from more than one
+-     * This function handles the actual recording of the crash to the persisted crash file. We are only guaranteed
+-     * runtime for the lifetime of the [CrashTelemetryService.record] function, anything that we do in this function
+-     * **MUST** be synchronous and blocking. We cannot spawn work to background processes or threads here if we want to
+-     * guarantee that the work is completed. Also, since the [CrashTelemetryService.record] functions are called
+-     * synchronously, and from lib-crash's own process, it is unlikely that this would be called from more than one
 -     * place at the same time.
 -     *
 -     * @param action Pass in the crash action to record.
@@ -1137,8 +1183,7 @@ deleted file mode 100644
 -        // Add a line representing the crash that was received
 -        if (file.canWrite()) {
 -            try {
--                @OptIn(ExperimentalSerializationApi::class)
--                Json.encodeToStream(action, FileOutputStream(file, true))
+-                @OptIn(ExperimentalSerializationApi::class) Json.encodeToStream(action, FileOutputStream(file, true))
 -                file.appendText("\n")
 -            } catch (e: IOException) {
 -                logger.error("Failed to write to crash file", e)
@@ -1158,6 +1203,11 @@ deleted file mode 100644
 -
 -    private fun setCommonPingFields(extras: MutableMap<String, JsonElement>, crash: Crash) {
 -        extras.setIfAbsent(Annotation.CrashTime) { JsonPrimitive((crash.timestamp / 1000).toString()) }
+-        // CrashEventID and platform info may already be present for native crashes
+-        extras.setIfAbsent(Annotation.CrashEventID) { JsonPrimitive(crash.uuid) }
+-        extras.setIfAbsent(Annotation.OS) { JsonPrimitive("Android") }
+-        extras.setIfAbsent(Annotation.OSVersion) { JsonPrimitive("${Build.VERSION.SDK_INT}") }
+-        extras.setIfAbsent(Annotation.CPUArchitecture) { JsonPrimitive(Crash.CPU_ARCH) }
 -    }
 -
 -    override fun record(crash: Crash.UncaughtExceptionCrash) {
@@ -1175,7 +1225,6 @@ deleted file mode 100644
 -            appBuildId?.let { extras[Annotation.BuildID] = JsonPrimitive(it) }
 -            extras[Annotation.JavaException] = JsonPrimitive(crash.throwable.getStacktraceAsJsonString())
 -            extras[Annotation.CrashType] = JsonPrimitive("uncaught exception")
--            extras[Annotation.CrashEventID] = JsonPrimitive(crash.uuid)
 -
 -            sendCrashPing(Json.encodeToString(extras))
 -        }
@@ -1231,17 +1280,9 @@ deleted file mode 100644
 -            Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN ->
 -                recordCrashAction(GleanCrashAction.Count(MAIN_PROCESS_NATIVE_CODE_CRASH_KEY))
 -            Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD ->
--                recordCrashAction(
--                    GleanCrashAction.Count(
--                        FOREGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY,
--                    ),
--                )
+-                recordCrashAction(GleanCrashAction.Count(FOREGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY))
 -            Crash.NativeCodeCrash.PROCESS_VISIBILITY_BACKGROUND_CHILD ->
--                recordCrashAction(
--                    GleanCrashAction.Count(
--                        BACKGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY,
--                    ),
--                )
+-                recordCrashAction(GleanCrashAction.Count(BACKGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY))
 -        }
 -
 -        val processType = crash.processType ?: "main"
@@ -1262,8 +1303,6 @@ deleted file mode 100644
 -            extras.setIfAbsent(Annotation.CrashType) {
 -                JsonPrimitive("${if (!crash.isFatal) "non-" else ""}fatal native crash")
 -            }
--            // CrashEventID should only be absent if there is no extras file
--            extras.setIfAbsent(Annotation.CrashEventID) { JsonPrimitive(crash.uuid) }
 -
 -            sendCrashPing(Json.encodeToString(extras))
 -        }
@@ -1279,9 +1318,10 @@ deleted file mode 100644
 -}
 diff --git a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/MozillaSocorroService.kt b/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/MozillaSocorroService.kt
 deleted file mode 100644
+index 85e0ea7..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/MozillaSocorroService.kt
 +++ /dev/null
-@@ -1,606 +0,0 @@
+@@ -1,608 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1295,17 +1335,6 @@ deleted file mode 100644
 -import androidx.annotation.VisibleForTesting
 -import androidx.core.content.pm.PackageInfoCompat
 -import androidx.core.net.toUri
--import mozilla.components.concept.base.crash.Breadcrumb
--import mozilla.components.lib.crash.Crash
--import mozilla.components.lib.crash.RuntimeTag
--import mozilla.components.lib.crash.service.CrashReport.Annotation
--import mozilla.components.support.base.ext.getStacktraceAsJsonString
--import mozilla.components.support.base.ext.getStacktraceAsString
--import mozilla.components.support.base.log.logger.Logger
--import mozilla.components.support.utils.ext.packageManagerCompatHelper
--import org.json.JSONArray
--import org.json.JSONException
--import org.json.JSONObject
 -import java.io.BufferedReader
 -import java.io.File
 -import java.io.FileInputStream
@@ -1322,12 +1351,22 @@ deleted file mode 100644
 -import java.util.zip.GZIPOutputStream
 -import kotlin.random.Random
 -import mozilla.components.Build as AcBuild
+-import mozilla.components.concept.base.crash.Breadcrumb
+-import mozilla.components.lib.crash.Crash
+-import mozilla.components.lib.crash.RuntimeTag
+-import mozilla.components.lib.crash.service.CrashReport.Annotation
+-import mozilla.components.support.base.ext.getStacktraceAsJsonString
+-import mozilla.components.support.base.ext.getStacktraceAsString
+-import mozilla.components.support.base.log.logger.Logger
+-import mozilla.components.support.utils.ext.packageManagerCompatHelper
+-import org.json.JSONArray
+-import org.json.JSONException
+-import org.json.JSONObject
 -
 -// This ID is used for all Mozilla products.  Setting as default if no ID is passed in
 -private const val MOZILLA_PRODUCT_ID = "{eeb82917-e434-4870-8148-5c03d4caa81b}"
 -
--@VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
--internal const val CAUGHT_EXCEPTION_TYPE = "caught exception"
+-@VisibleForTesting(otherwise = VisibleForTesting.PRIVATE) internal const val CAUGHT_EXCEPTION_TYPE = "caught exception"
 -internal const val UNCAUGHT_EXCEPTION_TYPE = "uncaught exception"
 -internal const val FATAL_NATIVE_CRASH_TYPE = "fatal native crash"
 -internal const val NON_FATAL_NATIVE_CRASH_TYPE = "non-fatal native crash"
@@ -1350,10 +1389,10 @@ deleted file mode 100644
 - * A [CrashReporterService] implementation uploading crash reports to crash-stats.mozilla.com.
 - *
 - * @param applicationContext The application [Context].
-- * @param appName A human-readable app name. This name is used on crash-stats.mozilla.com to filter crashes by app.
-- *                The name needs to be safelisted for the server to accept the crash.
-- *                [File a bug](https://bugzilla.mozilla.org/enter_bug.cgi?product=Socorro) if you would like to get your
-- *                app added to the safelist.
+- * @param appName A human-readable app name. This name is used on crash-stats.mozilla.com to filter crashes by app. The
+- *   name needs to be safelisted for the server to accept the crash.
+- *   [File a bug](https://bugzilla.mozilla.org/enter_bug.cgi?product=Socorro) if you would like to get your app added to
+- *   the safelist.
 - * @param appId The application ID assigned by Socorro server.
 - * @param version The engine version.
 - * @param buildId The engine build ID.
@@ -1363,6 +1402,7 @@ deleted file mode 100644
 - * @param versionCode The version code of the application.
 - * @param releaseChannel The release channel of the application.
 - * @param distributionId The distribution id of the application.
+- * @param startTime the process start time in milliseconds, injectable for testing.
 - */
 -@Suppress("LargeClass")
 -class MozillaSocorroService(
@@ -1372,15 +1412,14 @@ deleted file mode 100644
 -    private val version: String = DEFAULT_VERSION,
 -    private val buildId: String = DEFAULT_BUILD_ID,
 -    private val vendor: String = DEFAULT_VENDOR,
--    @get:VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
--    internal val serverUrl: String? = null,
+-    @get:VisibleForTesting(otherwise = VisibleForTesting.PRIVATE) internal val serverUrl: String? = null,
 -    private var versionName: String = DEFAULT_VERSION_NAME,
 -    private var versionCode: String = DEFAULT_VERSION_CODE,
 -    private val releaseChannel: String = DEFAULT_RELEASE_CHANNEL,
 -    private val distributionId: String = DEFAULT_DISTRIBUTION_ID,
+-    private val startTime: Long = System.currentTimeMillis(),
 -) : CrashReporterService {
 -    private val logger = Logger("mozac/MozillaSocorroCrashHelperService")
--    private val startTime = System.currentTimeMillis()
 -    private val ignoreKeys = hashSetOf("URL", "ServerURL", "StackTraces")
 -
 -    override val id: String = "socorro"
@@ -1392,15 +1431,16 @@ deleted file mode 100644
 -    }
 -
 -    init {
--        val packageInfo = try {
--            applicationContext.packageManagerCompatHelper.getPackageInfoCompat(
--                applicationContext.packageName,
--                0,
--            )
--        } catch (e: PackageManager.NameNotFoundException) {
--            logger.error("package name not found, failed to get application version")
--            null
--        }
+-        val packageInfo =
+-            try {
+-                applicationContext.packageManagerCompatHelper.getPackageInfoCompat(
+-                    applicationContext.packageName,
+-                    0,
+-                )
+-            } catch (e: PackageManager.NameNotFoundException) {
+-                logger.error("package name not found, failed to get application version")
+-                null
+-            }
 -
 -        packageInfo?.let {
 -            if (versionName == DEFAULT_VERSION_NAME) {
@@ -1563,25 +1603,29 @@ deleted file mode 100644
 -        formDataWriter.sendAnnotation(Annotation.DistributionID, distributionId)
 -
 -        var additionalDumps: FormDataWriter.AdditionalMinidumps? = null
--        var hasCrashEventId = false
+-        var extrasFileKeys = setOf<String>()
 -
 -        extrasFilePath?.let {
 -            val regex = "$FILE_REGEX$EXTRAS_FILE_EXT".toRegex()
 -            if (regex.matchEntire(it.substringAfterLast("/")) != null) {
 -                val extrasFile = File(it)
 -                val extrasMap = readExtrasFromFile(extrasFile)
+-                extrasFileKeys = extrasMap.keys
 -                for (key in extrasMap.keys) {
 -                    formDataWriter.sendPart(key, extrasMap[key])
 -                }
--                hasCrashEventId = extrasMap.containsKey(Annotation.CrashEventID.toString())
 -                additionalDumps = formDataWriter.AdditionalMinidumps(extrasMap)
 -                extrasFile.delete()
 -            }
 -        }
 -
--        if (!hasCrashEventId) {
--            formDataWriter.sendAnnotation(Annotation.CrashEventID, crashEventId)
+-        val sendIfMissing = { a: Annotation, value: () -> String ->
+-            if (!extrasFileKeys.contains(a.toString())) {
+-                formDataWriter.sendAnnotation(a, value())
+-            }
 -        }
+-
+-        sendIfMissing(Annotation.CrashEventID) { crashEventId }
 -
 -        if (throwable?.stackTrace?.isEmpty() == false) {
 -            formDataWriter.sendAnnotation(
@@ -1643,6 +1687,9 @@ deleted file mode 100644
 -                formDataWriter.sendAnnotation(Annotation.Android_CPU_ABI2, Build.SUPPORTED_ABIS[1])
 -            }
 -        }
+-        sendIfMissing(Annotation.OS) { "Android" }
+-        sendIfMissing(Annotation.OSVersion) { "${Build.VERSION.SDK_INT}" }
+-        sendIfMissing(Annotation.CPUArchitecture) { Crash.CPU_ARCH }
 -
 -        formDataWriter.finish()
 -    }
@@ -1661,9 +1708,7 @@ deleted file mode 100644
 -    ) {
 -        private val nameSet: MutableSet<String> = mutableSetOf()
 -
--        internal inner class AdditionalMinidumps(
--            extrasMap: HashMap<String, String>,
--        ) {
+-        internal inner class AdditionalMinidumps(extrasMap: HashMap<String, String>) {
 -            private val names = extrasMap[Annotation.additional_minidumps.toString()]?.split(',') ?: listOf()
 -
 -            fun send(baseMinidumpPath: String) {
@@ -1694,10 +1739,7 @@ deleted file mode 100644
 -
 -            try {
 -                os.write(
--                    (
--                        "--$boundary\r\nContent-Disposition: form-data; " +
--                            "name=$name\r\n\r\n$data\r\n"
--                        ).toByteArray(),
+-                    ("--$boundary\r\nContent-Disposition: form-data; " + "name=$name\r\n\r\n$data\r\n").toByteArray()
 -                )
 -            } catch (e: IOException) {
 -                logger.error("Exception when sending $name", e)
@@ -1727,12 +1769,11 @@ deleted file mode 100644
 -
 -            try {
 -                os.write(
--                    (
--                        "--${boundary}\r\n" +
+-                    ("--${boundary}\r\n" +
 -                            "Content-Disposition: form-data; name=\"$name\"; " +
 -                            "filename=\"${file.getName()}\"\r\n" +
--                            "Content-Type: application/octet-stream\r\n\r\n"
--                        ).toByteArray(),
+-                            "Content-Type: application/octet-stream\r\n\r\n")
+-                        .toByteArray()
 -                )
 -            } catch (e: IOException) {
 -                logger.error("failed to write boundary", e)
@@ -1758,10 +1799,12 @@ deleted file mode 100644
 -        fun sendProcessName(applicationContext: Context) {
 -            val pid = android.os.Process.myPid()
 -            val manager = applicationContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
--            manager.runningAppProcesses.filter { it.pid == pid }.forEach {
--                sendAnnotation(Annotation.Android_ProcessName, it.processName)
--                return
--            }
+-            manager.runningAppProcesses
+-                .filter { it.pid == pid }
+-                .forEach {
+-                    sendAnnotation(Annotation.Android_ProcessName, it.processName)
+-                    return
+-                }
 -        }
 -
 -        fun sendPackageInstallTime(applicationContext: Context) {
@@ -1770,9 +1813,7 @@ deleted file mode 100644
 -                val packageInfo = packageManager.getPackageInfoCompat(applicationContext.packageName, 0)
 -                sendAnnotation(
 -                    Annotation.InstallTime,
--                    TimeUnit.MILLISECONDS.toSeconds(
--                        packageInfo.lastUpdateTime,
--                    ).toString(),
+-                    TimeUnit.MILLISECONDS.toSeconds(packageInfo.lastUpdateTime).toString(),
 -                )
 -            } catch (e: PackageManager.NameNotFoundException) {
 -                logger.error("Error getting package info", e)
@@ -1841,8 +1882,7 @@ deleted file mode 100644
 -
 -        try {
 -            FileReader(file).use { fileReader ->
--                val input = fileReader.readLines().firstOrNull()
--                    ?: throw JSONException("failed to read json file")
+-                val input = fileReader.readLines().firstOrNull() ?: throw JSONException("failed to read json file")
 -
 -                val jsonObject = JSONObject(input)
 -                for (key in jsonObject.keys()) {
@@ -1881,18 +1921,21 @@ deleted file mode 100644
 -    }
 -
 -    internal fun buildServerUrl(versionName: String): String =
--        "https://crash-reports.mozilla.com/submit".toUri()
+-        "https://crash-reports.mozilla.com/submit"
+-            .toUri()
 -            .buildUpon()
 -            .appendQueryParameter("id", appId)
 -            .appendQueryParameter("version", versionName)
 -            .appendQueryParameter("android_component_version", AcBuild.VERSION)
--            .build().toString()
+-            .build()
+-            .toString()
 -}
 diff --git a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroService.kt b/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroService.kt
 deleted file mode 100644
+index ead2e82..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroService.kt
 +++ /dev/null
-@@ -1,513 +0,0 @@
+@@ -1,505 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1905,17 +1948,6 @@ deleted file mode 100644
 -import android.os.Build
 -import androidx.annotation.VisibleForTesting
 -import androidx.core.net.toUri
--import mozilla.components.concept.base.crash.Breadcrumb
--import mozilla.components.lib.crash.Crash
--import mozilla.components.lib.crash.service.CrashReport.Annotation
--import mozilla.components.lib.crash.service.CrashReporterService
--import mozilla.components.lib.crash.service.LIB_CRASH_INFO_PREFIX
--import mozilla.components.support.base.ext.getStacktraceAsJsonString
--import mozilla.components.support.base.ext.getStacktraceAsString
--import mozilla.components.support.base.log.logger.Logger
--import mozilla.components.support.utils.ext.packageManagerCompatHelper
--import org.json.JSONException
--import org.json.JSONObject
 -import java.io.BufferedReader
 -import java.io.File
 -import java.io.FileInputStream
@@ -1931,12 +1963,22 @@ deleted file mode 100644
 -import java.util.concurrent.TimeUnit
 -import java.util.zip.GZIPOutputStream
 -import kotlin.random.Random
+-import mozilla.components.concept.base.crash.Breadcrumb
+-import mozilla.components.lib.crash.Crash
+-import mozilla.components.lib.crash.service.CrashReport.Annotation
+-import mozilla.components.lib.crash.service.CrashReporterService
+-import mozilla.components.lib.crash.service.LIB_CRASH_INFO_PREFIX
+-import mozilla.components.support.base.ext.getStacktraceAsJsonString
+-import mozilla.components.support.base.ext.getStacktraceAsString
+-import mozilla.components.support.base.log.logger.Logger
+-import mozilla.components.support.utils.ext.packageManagerCompatHelper
+-import org.json.JSONException
+-import org.json.JSONObject
 -
 -// This ID is used for all Mozilla products.  Setting as default if no ID is passed in
 -private const val MOZILLA_PRODUCT_ID = "{eeb82917-e434-4870-8148-5c03d4caa81b}"
 -
--@VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
--internal const val CAUGHT_EXCEPTION_TYPE = "caught exception"
+-@VisibleForTesting(otherwise = VisibleForTesting.PRIVATE) internal const val CAUGHT_EXCEPTION_TYPE = "caught exception"
 -internal const val UNCAUGHT_EXCEPTION_TYPE = "uncaught exception"
 -internal const val FATAL_NATIVE_CRASH_TYPE = "fatal native crash"
 -internal const val NON_FATAL_NATIVE_CRASH_TYPE = "non-fatal native crash"
@@ -1954,19 +1996,19 @@ deleted file mode 100644
 -/**
 - * A [CrashReporterService] implementation uploading crash reports to crash-stats.mozilla.com.
 - *
-- * IMPORTANT: This is a duplicate of [mozilla.components.lib.crash.service.MozillaSocorroService],
-- * as part of releasing the new crash reporter [Bug 1987661](https://bugzilla.mozilla.org/show_bug.cgi?id=1987661)
-- * was filed which required us change where we found the metadata to attach to the Socorro crash report.
+- * IMPORTANT: This is a duplicate of [mozilla.components.lib.crash.service.MozillaSocorroService], as part of releasing
+- * the new crash reporter [Bug 1987661](https://bugzilla.mozilla.org/show_bug.cgi?id=1987661) was filed which required
+- * us change where we found the metadata to attach to the Socorro crash report.
 - *
-- * To minimize the chance of causing a regression in other applications that may be using this service
-- * we decided the best path forward would be to duplicate the class to use in Fenix. Both of these classes
-- * will be deprecated with Bug 1989492.
+- * To minimize the chance of causing a regression in other applications that may be using this service we decided the
+- * best path forward would be to duplicate the class to use in Fenix. Both of these classes will be deprecated with
+- * Bug 1989492.
 - *
 - * @param applicationContext The application [Context].
-- * @param appName A human-readable app name. This name is used on crash-stats.mozilla.com to filter crashes by app.
-- *                The name needs to be safelisted for the server to accept the crash.
-- *                [File a bug](https://bugzilla.mozilla.org/enter_bug.cgi?product=Socorro) if you would like to get your
-- *                app added to the safelist.
+- * @param appName A human-readable app name. This name is used on crash-stats.mozilla.com to filter crashes by app. The
+- *   name needs to be safelisted for the server to accept the crash.
+- *   [File a bug](https://bugzilla.mozilla.org/enter_bug.cgi?product=Socorro) if you would like to get your app added to
+- *   the safelist.
 - * @param appId The application ID assigned by Socorro server.
 - * @param vendor The application vendor name.
 - * @param serverUrl The URL of the server.
@@ -1979,8 +2021,7 @@ deleted file mode 100644
 -    private val appName: String,
 -    private val appId: String = MOZILLA_PRODUCT_ID,
 -    private val vendor: String = DEFAULT_VENDOR,
--    @get:VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
--    internal val serverUrl: String? = null,
+-    @get:VisibleForTesting(otherwise = VisibleForTesting.PRIVATE) internal val serverUrl: String? = null,
 -    private val releaseChannel: String = DEFAULT_RELEASE_CHANNEL,
 -    private val distributionId: String = DEFAULT_DISTRIBUTION_ID,
 -) : CrashReporterService {
@@ -2009,9 +2050,7 @@ deleted file mode 100644
 -    }
 -
 -    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
--    internal fun sendReport(
--        crash: Crash,
--    ): String? {
+-    internal fun sendReport(crash: Crash): String? {
 -        val url = URL(serverUrl ?: buildServerUrl(crash))
 -        val boundary = generateBoundary()
 -        var conn: HttpURLConnection? = null
@@ -2171,9 +2210,7 @@ deleted file mode 100644
 -    ) {
 -        private val nameSet: MutableSet<String> = mutableSetOf()
 -
--        internal inner class AdditionalMinidumps(
--            extrasMap: HashMap<String, String>,
--        ) {
+-        internal inner class AdditionalMinidumps(extrasMap: HashMap<String, String>) {
 -            private val names = extrasMap[Annotation.additional_minidumps.toString()]?.split(',') ?: listOf()
 -
 -            fun send(baseMinidumpPath: String) {
@@ -2204,10 +2241,7 @@ deleted file mode 100644
 -
 -            try {
 -                os.write(
--                    (
--                        "--$boundary\r\nContent-Disposition: form-data; " +
--                            "name=$name\r\n\r\n$data\r\n"
--                        ).toByteArray(),
+-                    ("--$boundary\r\nContent-Disposition: form-data; " + "name=$name\r\n\r\n$data\r\n").toByteArray()
 -                )
 -            } catch (e: IOException) {
 -                logger.error("Exception when sending $name", e)
@@ -2237,12 +2271,11 @@ deleted file mode 100644
 -
 -            try {
 -                os.write(
--                    (
--                        "--${boundary}\r\n" +
+-                    ("--${boundary}\r\n" +
 -                            "Content-Disposition: form-data; name=\"$name\"; " +
 -                            "filename=\"${file.getName()}\"\r\n" +
--                            "Content-Type: application/octet-stream\r\n\r\n"
--                        ).toByteArray(),
+-                            "Content-Type: application/octet-stream\r\n\r\n")
+-                        .toByteArray()
 -                )
 -            } catch (e: IOException) {
 -                logger.error("failed to write boundary", e)
@@ -2268,10 +2301,12 @@ deleted file mode 100644
 -        fun sendProcessName(applicationContext: Context) {
 -            val pid = android.os.Process.myPid()
 -            val manager = applicationContext.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
--            manager.runningAppProcesses.filter { it.pid == pid }.forEach {
--                sendAnnotation(Annotation.Android_ProcessName, it.processName)
--                return
--            }
+-            manager.runningAppProcesses
+-                .filter { it.pid == pid }
+-                .forEach {
+-                    sendAnnotation(Annotation.Android_ProcessName, it.processName)
+-                    return
+-                }
 -        }
 -
 -        fun sendPackageInstallTime(applicationContext: Context) {
@@ -2280,9 +2315,7 @@ deleted file mode 100644
 -                val packageInfo = packageManager.getPackageInfoCompat(applicationContext.packageName, 0)
 -                sendAnnotation(
 -                    Annotation.InstallTime,
--                    TimeUnit.MILLISECONDS.toSeconds(
--                        packageInfo.lastUpdateTime,
--                    ).toString(),
+-                    TimeUnit.MILLISECONDS.toSeconds(packageInfo.lastUpdateTime).toString(),
 -                )
 -            } catch (e: PackageManager.NameNotFoundException) {
 -                logger.error("Error getting package info", e)
@@ -2351,8 +2384,7 @@ deleted file mode 100644
 -
 -        try {
 -            FileReader(file).use { fileReader ->
--                val input = fileReader.readLines().firstOrNull()
--                    ?: throw JSONException("failed to read json file")
+-                val input = fileReader.readLines().firstOrNull() ?: throw JSONException("failed to read json file")
 -
 -                val jsonObject = JSONObject(input)
 -                for (key in jsonObject.keys()) {
@@ -2391,26 +2423,30 @@ deleted file mode 100644
 -    }
 -
 -    internal fun buildServerUrl(crash: Crash): String =
--        "https://crash-reports.mozilla.com/submit".toUri()
+-        "https://crash-reports.mozilla.com/submit"
+-            .toUri()
 -            .buildUpon()
 -            .appendQueryParameter("id", appId)
 -            .appendQueryParameter("version", crash.versionName)
 -            .appendQueryParameter("android_component_version", crash.acVersion)
--            .build().toString()
+-            .build()
+-            .toString()
 -
 -    internal val Crash.crashType: String
--        get() = when {
--            isNativeCodeCrash && isFatalCrash -> FATAL_NATIVE_CRASH_TYPE
--            isNativeCodeCrash -> NON_FATAL_NATIVE_CRASH_TYPE
--            isFatalCrash -> UNCAUGHT_EXCEPTION_TYPE
--            else -> CAUGHT_EXCEPTION_TYPE
--        }
+-        get() =
+-            when {
+-                isNativeCodeCrash && isFatalCrash -> FATAL_NATIVE_CRASH_TYPE
+-                isNativeCodeCrash -> NON_FATAL_NATIVE_CRASH_TYPE
+-                isFatalCrash -> UNCAUGHT_EXCEPTION_TYPE
+-                else -> CAUGHT_EXCEPTION_TYPE
+-            }
 -}
 diff --git a/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt b/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt
 deleted file mode 100644
+index 873888d..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt
 +++ /dev/null
-@@ -1,339 +0,0 @@
+@@ -1,360 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -2421,6 +2457,7 @@ deleted file mode 100644
 -import androidx.test.core.app.ApplicationProvider
 -import androidx.test.ext.junit.runners.AndroidJUnit4
 -import androidx.work.testing.WorkManagerTestInitHelper
+-import java.io.File
 -import mozilla.components.lib.crash.Crash
 -import mozilla.components.lib.crash.GleanMetrics.CrashMetrics
 -import mozilla.components.support.test.whenever
@@ -2434,7 +2471,6 @@ deleted file mode 100644
 -import org.junit.Test
 -import org.junit.runner.RunWith
 -import org.mockito.Mockito.spy
--import java.io.File
 -
 -@RunWith(AndroidJUnit4::class)
 -class GleanCrashReporterServiceTest {
@@ -2464,51 +2500,57 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `GleanCrashReporterService records all crash types`() {
--        val crashTypes = hashMapOf(
--            GleanCrashReporterService.MAIN_PROCESS_NATIVE_CODE_CRASH_KEY to Crash.NativeCodeCrash(
--                0,
--                "",
--                "",
--                Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            ),
--            GleanCrashReporterService.FOREGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY to Crash.NativeCodeCrash(
--                0,
--                "",
--                "",
--                Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
--                processType = "content",
--                breadcrumbs = arrayListOf(),
--                remoteType = "web",
--            ),
--            GleanCrashReporterService.BACKGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY to Crash.NativeCodeCrash(
--                0,
--                "",
--                "",
--                Crash.NativeCodeCrash.PROCESS_VISIBILITY_BACKGROUND_CHILD,
--                processType = "utility",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            ),
--            GleanCrashReporterService.UNCAUGHT_EXCEPTION_KEY to Crash.UncaughtExceptionCrash(
--                0,
--                RuntimeException("Test"),
--                arrayListOf(),
--            ),
--            GleanCrashReporterService.CAUGHT_EXCEPTION_KEY to RuntimeException("Test"),
--        )
+-        val crashTypes =
+-            hashMapOf(
+-                GleanCrashReporterService.MAIN_PROCESS_NATIVE_CODE_CRASH_KEY to
+-                    Crash.NativeCodeCrash(
+-                        0,
+-                        "",
+-                        "",
+-                        Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                        processType = "main",
+-                        breadcrumbs = arrayListOf(),
+-                        remoteType = null,
+-                    ),
+-                GleanCrashReporterService.FOREGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY to
+-                    Crash.NativeCodeCrash(
+-                        0,
+-                        "",
+-                        "",
+-                        Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
+-                        processType = "content",
+-                        breadcrumbs = arrayListOf(),
+-                        remoteType = "web",
+-                    ),
+-                GleanCrashReporterService.BACKGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY to
+-                    Crash.NativeCodeCrash(
+-                        0,
+-                        "",
+-                        "",
+-                        Crash.NativeCodeCrash.PROCESS_VISIBILITY_BACKGROUND_CHILD,
+-                        processType = "utility",
+-                        breadcrumbs = arrayListOf(),
+-                        remoteType = null,
+-                    ),
+-                GleanCrashReporterService.UNCAUGHT_EXCEPTION_KEY to
+-                    Crash.UncaughtExceptionCrash(
+-                        0,
+-                        RuntimeException("Test"),
+-                        arrayListOf(),
+-                    ),
+-                GleanCrashReporterService.CAUGHT_EXCEPTION_KEY to RuntimeException("Test"),
+-            )
 -
 -        for ((type, crash) in crashTypes) {
 -            // Because of how Glean is implemented, it can potentially persist information between
 -            // tests or even between test classes, so we compensate by capturing the initial value
 -            // to compare to.
--            val initialValue = try {
--                CrashMetrics.crashCount[type].testGetValue()!!
--            } catch (e: NullPointerException) {
--                0
--            }
+-            val initialValue =
+-                try {
+-                    CrashMetrics.crashCount[type].testGetValue()!!
+-                } catch (e: NullPointerException) {
+-                    0
+-                }
 -
 -            run {
 -                val service = spy(GleanCrashReporterService(context))
@@ -2545,72 +2587,81 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `GleanCrashReporterService correctly handles multiple crashes in a single file`() {
--        val initialExceptionValue = try {
--            CrashMetrics.crashCount[GleanCrashReporterService.UNCAUGHT_EXCEPTION_KEY].testGetValue()!!
--        } catch (e: NullPointerException) {
--            0
--        }
--        val initialMainProcessNativeCrashValue = try {
--            CrashMetrics.crashCount[GleanCrashReporterService.MAIN_PROCESS_NATIVE_CODE_CRASH_KEY].testGetValue()!!
--        } catch (e: NullPointerException) {
--            0
--        }
+-        val initialExceptionValue =
+-            try {
+-                CrashMetrics.crashCount[GleanCrashReporterService.UNCAUGHT_EXCEPTION_KEY].testGetValue()!!
+-            } catch (e: NullPointerException) {
+-                0
+-            }
+-        val initialMainProcessNativeCrashValue =
+-            try {
+-                CrashMetrics.crashCount[GleanCrashReporterService.MAIN_PROCESS_NATIVE_CODE_CRASH_KEY].testGetValue()!!
+-            } catch (e: NullPointerException) {
+-                0
+-            }
 -
--        val initialForegroundChildProcessNativeCrashValue = try {
--            CrashMetrics.crashCount[GleanCrashReporterService.FOREGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY].testGetValue()!!
--        } catch (e: NullPointerException) {
--            0
--        }
+-        val initialForegroundChildProcessNativeCrashValue =
+-            try {
+-                CrashMetrics.crashCount[GleanCrashReporterService.FOREGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY]
+-                    .testGetValue()!!
+-            } catch (e: NullPointerException) {
+-                0
+-            }
 -
--        val initialBackgroundChildProcessNativeCrashValue = try {
--            CrashMetrics.crashCount[GleanCrashReporterService.BACKGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY].testGetValue()!!
--        } catch (e: NullPointerException) {
--            0
--        }
+-        val initialBackgroundChildProcessNativeCrashValue =
+-            try {
+-                CrashMetrics.crashCount[GleanCrashReporterService.BACKGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY]
+-                    .testGetValue()!!
+-            } catch (e: NullPointerException) {
+-                0
+-            }
 -
 -        run {
 -            val service = spy(GleanCrashReporterService(context))
 -
 -            assertFalse("No previous persisted crashes must exist", service.file.exists())
 -
--            val uncaughtExceptionCrash =
--                Crash.UncaughtExceptionCrash(0, RuntimeException("Test"), arrayListOf())
--            val mainProcessNativeCodeCrash = Crash.NativeCodeCrash(
--                0,
--                "",
--                "",
--                Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
--            val foregroundChildProcessNativeCodeCrash = Crash.NativeCodeCrash(
--                0,
--                "",
--                "",
--                Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
--                processType = "content",
--                breadcrumbs = arrayListOf(),
--                remoteType = "web",
--            )
--            val backgroundChildProcessNativeCodeCrash = Crash.NativeCodeCrash(
--                0,
--                "",
--                "",
--                Crash.NativeCodeCrash.PROCESS_VISIBILITY_BACKGROUND_CHILD,
--                processType = "utility",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
--            val extensionProcessNativeCodeCrash = Crash.NativeCodeCrash(
--                0,
--                "",
--                "",
--                Crash.NativeCodeCrash.PROCESS_VISIBILITY_BACKGROUND_CHILD,
--                processType = "content",
--                breadcrumbs = arrayListOf(),
--                remoteType = "extension",
--            )
+-            val uncaughtExceptionCrash = Crash.UncaughtExceptionCrash(0, RuntimeException("Test"), arrayListOf())
+-            val mainProcessNativeCodeCrash =
+-                Crash.NativeCodeCrash(
+-                    0,
+-                    "",
+-                    "",
+-                    Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
+-            val foregroundChildProcessNativeCodeCrash =
+-                Crash.NativeCodeCrash(
+-                    0,
+-                    "",
+-                    "",
+-                    Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
+-                    processType = "content",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = "web",
+-                )
+-            val backgroundChildProcessNativeCodeCrash =
+-                Crash.NativeCodeCrash(
+-                    0,
+-                    "",
+-                    "",
+-                    Crash.NativeCodeCrash.PROCESS_VISIBILITY_BACKGROUND_CHILD,
+-                    processType = "utility",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
+-            val extensionProcessNativeCodeCrash =
+-                Crash.NativeCodeCrash(
+-                    0,
+-                    "",
+-                    "",
+-                    Crash.NativeCodeCrash.PROCESS_VISIBILITY_BACKGROUND_CHILD,
+-                    processType = "content",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = "extension",
+-                )
 -
 -            // Record some crashes
 -            service.record(uncaughtExceptionCrash)
@@ -2665,30 +2716,33 @@ deleted file mode 100644
 -            assertEquals(
 -                "Glean must record correct value",
 -                2,
--                CrashMetrics.crashCount[GleanCrashReporterService.UNCAUGHT_EXCEPTION_KEY].testGetValue()!! - initialExceptionValue,
+-                CrashMetrics.crashCount[GleanCrashReporterService.UNCAUGHT_EXCEPTION_KEY].testGetValue()!! -
+-                    initialExceptionValue,
 -            )
 -            assertEquals(
 -                "Glean must record correct value",
 -                1,
--                CrashMetrics.crashCount[GleanCrashReporterService.MAIN_PROCESS_NATIVE_CODE_CRASH_KEY].testGetValue()!! - initialMainProcessNativeCrashValue,
+-                CrashMetrics.crashCount[GleanCrashReporterService.MAIN_PROCESS_NATIVE_CODE_CRASH_KEY].testGetValue()!! -
+-                    initialMainProcessNativeCrashValue,
 -            )
 -            assertEquals(
 -                "Glean must record correct value",
 -                1,
--                CrashMetrics.crashCount[GleanCrashReporterService.FOREGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY].testGetValue()!! - initialForegroundChildProcessNativeCrashValue,
+-                CrashMetrics.crashCount[GleanCrashReporterService.FOREGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY]
+-                    .testGetValue()!! - initialForegroundChildProcessNativeCrashValue,
 -            )
 -            assertEquals(
 -                "Glean must record correct value",
 -                2,
--                CrashMetrics.crashCount[GleanCrashReporterService.BACKGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY].testGetValue()!! - initialBackgroundChildProcessNativeCrashValue,
+-                CrashMetrics.crashCount[GleanCrashReporterService.BACKGROUND_CHILD_PROCESS_NATIVE_CODE_CRASH_KEY]
+-                    .testGetValue()!! - initialBackgroundChildProcessNativeCrashValue,
 -            )
 -        }
 -    }
 -
 -    @Test
 -    fun `GleanCrashReporterService does not crash if it can't write to it's file`() {
--        val file =
--            spy(File(context.applicationInfo.dataDir, GleanCrashReporterService.CRASH_FILE_NAME))
+-        val file = spy(File(context.applicationInfo.dataDir, GleanCrashReporterService.CRASH_FILE_NAME))
 -        whenever(file.canWrite()).thenReturn(false)
 -        val service = spy(GleanCrashReporterService(context, file))
 -
@@ -2707,22 +2761,24 @@ deleted file mode 100644
 -        // Because of how Glean is implemented, it can potentially persist information between
 -        // tests or even between test classes, so we compensate by capturing the initial value
 -        // to compare to.
--        val initialValue = try {
--            CrashMetrics.crashCount[GleanCrashReporterService.UNCAUGHT_EXCEPTION_KEY].testGetValue()!!
--        } catch (e: NullPointerException) {
--            0
--        }
+-        val initialValue =
+-            try {
+-                CrashMetrics.crashCount[GleanCrashReporterService.UNCAUGHT_EXCEPTION_KEY].testGetValue()!!
+-            } catch (e: NullPointerException) {
+-                0
+-            }
 -
 -        run {
 -            val service = spy(GleanCrashReporterService(context))
 -
 -            assertFalse("No previous persisted crashes must exist", service.file.exists())
 -
--            val crash = Crash.UncaughtExceptionCrash(
--                0,
--                RuntimeException("Test"),
--                arrayListOf(),
--            )
+-            val crash =
+-                Crash.UncaughtExceptionCrash(
+-                    0,
+-                    RuntimeException("Test"),
+-                    arrayListOf(),
+-                )
 -            service.record(crash)
 -
 -            assertTrue("Persistence file must exist", service.file.exists())
@@ -2745,16 +2801,18 @@ deleted file mode 100644
 -            assertEquals(
 -                "Glean must record correct value",
 -                1,
--                CrashMetrics.crashCount[GleanCrashReporterService.UNCAUGHT_EXCEPTION_KEY].testGetValue()!! - initialValue,
+-                CrashMetrics.crashCount[GleanCrashReporterService.UNCAUGHT_EXCEPTION_KEY].testGetValue()!! -
+-                    initialValue,
 -            )
 -        }
 -    }
 -}
 diff --git a/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/MozillaSocorroServiceTest.kt b/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/MozillaSocorroServiceTest.kt
 deleted file mode 100644
+index 5cf0a76..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/MozillaSocorroServiceTest.kt
 +++ /dev/null
-@@ -1,819 +0,0 @@
+@@ -1,852 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -2763,11 +2821,15 @@ deleted file mode 100644
 -
 -import androidx.test.ext.junit.runners.AndroidJUnit4
 -import com.google.common.io.Resources.getResource
+-import java.io.BufferedReader
+-import java.io.ByteArrayInputStream
+-import java.io.File
+-import java.io.InputStreamReader
+-import java.util.zip.GZIPInputStream
 -import mockwebserver3.MockResponse
 -import mockwebserver3.MockWebServer
 -import mozilla.components.concept.base.crash.Breadcrumb
 -import mozilla.components.lib.crash.Crash
--import mozilla.components.lib.crash.CrashReporter
 -import mozilla.components.lib.crash.RuntimeTag
 -import mozilla.components.support.ktx.kotlin.toDate
 -import mozilla.components.support.test.any
@@ -2786,11 +2848,6 @@ deleted file mode 100644
 -import org.mockito.Mockito.spy
 -import org.mockito.Mockito.times
 -import org.mockito.Mockito.verify
--import java.io.BufferedReader
--import java.io.ByteArrayInputStream
--import java.io.File
--import java.io.InputStreamReader
--import java.util.zip.GZIPInputStream
 -
 -@RunWith(AndroidJUnit4::class)
 -class MozillaSocorroServiceTest {
@@ -2803,23 +2860,25 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService sends native code crashes to GeckoView crash reporter`() {
--        val service = spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        doReturn("").`when`(service).sendReport(any(), any(), any(), any(), anyBoolean(), anyBoolean())
 -
--        val crash = Crash.NativeCodeCrash(
--            123,
--            "",
--            "",
--            Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
--            processType = "content",
--            breadcrumbs = arrayListOf(),
--            remoteType = null,
--        )
+-        val crash =
+-            Crash.NativeCodeCrash(
+-                123,
+-                "",
+-                "",
+-                Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
+-                processType = "content",
+-                breadcrumbs = arrayListOf(),
+-                remoteType = null,
+-            )
 -        service.report(crash)
 -
 -        verify(service).report(crash)
@@ -2829,11 +2888,12 @@ deleted file mode 100644
 -    @Test
 -    fun `MozillaSocorroService generated server URL have no spaces`() {
 -        val versionName = "test version name"
--        val service = MozillaSocorroService(
--            testContext,
--            "Test App",
--            versionName = versionName,
--        )
+-        val service =
+-            MozillaSocorroService(
+-                testContext,
+-                "Test App",
+-                versionName = versionName,
+-            )
 -
 -        assertFalse(service.buildServerUrl(versionName).contains(" "))
 -        assertFalse(service.buildServerUrl(versionName).contains("}"))
@@ -2842,12 +2902,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService send uncaught exception crashes`() {
--        val service = spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        doReturn("").`when`(service).sendReport(any(), any(), any(), any(), anyBoolean(), anyBoolean())
 -
 -        val crash = Crash.UncaughtExceptionCrash(123, RuntimeException("Test"), arrayListOf())
@@ -2859,12 +2920,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService do not send caught exception`() {
--        val service = spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        doReturn("").`when`(service).sendReport(any(), any(), any(), any(), anyBoolean(), anyBoolean())
 -        val throwable = RuntimeException("Test")
 -        val breadcrumbs: ArrayList<Breadcrumb> = arrayListOf()
@@ -2880,34 +2942,39 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "dump.path",
--                "extras.path",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(Breadcrumb(message = "Hello World", date = "2018-06-12T19:30+00:00".toDate("yyyy-MM-dd'T'HH:mmXXX"))),
--                remoteType = null,
--                uuid = "f6aa9fc0-75f5-4677-b90d-7b481909365a",
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "dump.path",
+-                    "extras.path",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs =
+-                        arrayListOf(
+-                            Breadcrumb(
+-                                message = "Hello World",
+-                                date = "2018-06-12T19:30+00:00".toDate("yyyy-MM-dd'T'HH:mmXXX"),
+-                            )
+-                        ),
+-                    remoteType = null,
+-                    uuid = "f6aa9fc0-75f5-4677-b90d-7b481909365a",
+-                )
 -            service.report(crash)
 -
--            val fileInputStream =
--                ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val fileInputStream = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
 -            val inputStream = GZIPInputStream(fileInputStream)
 -            val reader = InputStreamReader(inputStream)
 -            val bufferedReader = BufferedReader(reader)
@@ -2922,8 +2989,15 @@ deleted file mode 100644
 -            assert(request.contains("name=CrashEventID\r\n\r\nf6aa9fc0-75f5-4677-b90d-7b481909365a"))
 -            assert(request.contains("name=CrashType\r\n\r\n$FATAL_NATIVE_CRASH_TYPE"))
 -            assert(request.contains("name=CrashTime\r\n\r\n123"))
+-            assert(request.contains("name=OS\r\n\r\nAndroid"))
+-            assert(request.contains("name=OSVersion\r\n\r\n"))
+-            assert(request.contains("name=CPUArchitecture\r\n\r\n"))
 -            assert(request.contains("name=useragent_locale\r\n\r\nen-US"))
--            assert(request.contains("name=Breadcrumbs\r\n\r\n[{\"timestamp\":\"2018-06-12T19:30:00\",\"message\":\"Hello World\",\"category\":\"\",\"level\":\"Debug\",\"type\":\"Default\",\"data\":{}}]"))
+-            assert(
+-                request.contains(
+-                    "name=Breadcrumbs\r\n\r\n[{\"timestamp\":\"2018-06-12T19:30:00\",\"message\":\"Hello World\",\"category\":\"\",\"level\":\"Debug\",\"type\":\"Default\",\"data\":{}}]"
+-                )
+-            )
 -
 -            verify(service).report(crash)
 -            verify(service).sendReport(crash, null, "dump.path", "extras.path", true, true)
@@ -2937,29 +3011,29 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.ini",
--                "test/file/66dd8af2-643c-ca11-5178-e61c6819f827",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.ini",
+-                    "test/file/66dd8af2-643c-ca11-5178-e61c6819f827",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -
 -            doReturn(HashMap<String, String>()).`when`(service).readExtrasFromFile(any())
 -            val formDataWriter = mockFormDataWriter(service)
@@ -2978,29 +3052,29 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "test/minidumps/test.dmp",
--                "test/file/test.extra",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "test/minidumps/test.dmp",
+-                    "test/file/test.extra",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -
 -            doReturn(HashMap<String, String>()).`when`(service).readExtrasFromFile(any())
 -            val formDataWriter = mockFormDataWriter(service)
@@ -3019,29 +3093,29 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.dmp",
--                "test/file/66dd8af2-643c-ca11-5178-e61c6819f827.extra",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.dmp",
+-                    "test/file/66dd8af2-643c-ca11-5178-e61c6819f827.extra",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -
 -            doReturn(HashMap<String, String>()).`when`(service).readExtrasFromFile(any())
 -            val formDataWriter = mockFormDataWriter(service)
@@ -3062,29 +3136,29 @@ deleted file mode 100644
 -        val fileCaptor = argumentCaptor<File>()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.dmp",
--                "test/file/66dd8af2-643c-ca11-5178-e61c6819f827.extra",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.dmp",
+-                    "test/file/66dd8af2-643c-ca11-5178-e61c6819f827.extra",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -
 -            doReturn(hashMapOf("additional_minidumps" to "browser,content")).`when`(service).readExtrasFromFile(any())
 -            val formDataWriter = mockFormDataWriter(service)
@@ -3092,12 +3166,16 @@ deleted file mode 100644
 -
 -            verify(service).report(crash)
 -            verify(service).readExtrasFromFile(any())
--            verify(formDataWriter, times(3)).sendFile(
--                nameCaptor.capture(),
--                fileCaptor.capture(),
--            )
+-            verify(formDataWriter, times(3))
+-                .sendFile(
+-                    nameCaptor.capture(),
+-                    fileCaptor.capture(),
+-                )
 -
--            assertEquals(listOf("upload_file_minidump", "upload_file_minidump_browser", "upload_file_minidump_content"), nameCaptor.allValues)
+-            assertEquals(
+-                listOf("upload_file_minidump", "upload_file_minidump_browser", "upload_file_minidump_content"),
+-                nameCaptor.allValues,
+-            )
 -            val files = fileCaptor.allValues
 -            assertEquals("test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.dmp", files.get(0).path)
 -            assertEquals("test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e-browser.dmp", files.get(1).path)
@@ -3112,40 +3190,39 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    version = "test version",
--                    buildId = "test build id",
--                    vendor = "test vendor",
--                    serverUrl = serverUrl.toString(),
--                    versionName = "1.0.1",
--                    versionCode = "1000",
--                    releaseChannel = "test channel",
--                    distributionId = "test distribution id",
--                ),
--            )
+-            val service =
+-                spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        version = "test version",
+-                        buildId = "test build id",
+-                        vendor = "test vendor",
+-                        serverUrl = serverUrl.toString(),
+-                        versionName = "1.0.1",
+-                        versionCode = "1000",
+-                        releaseChannel = "test channel",
+-                        distributionId = "test distribution id",
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "dump.path",
--                "extras.path",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "dump.path",
+-                    "extras.path",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -            service.report(crash)
 -
--            val fileInputStream =
--                ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val fileInputStream = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
 -            val inputStream = GZIPInputStream(fileInputStream)
 -            val reader = InputStreamReader(inputStream)
 -            val bufferedReader = BufferedReader(reader)
@@ -3178,35 +3255,34 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    vendor = "Mozilla",
--                    releaseChannel = "nightly",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        vendor = "Mozilla",
+-                        releaseChannel = "nightly",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "dump.path",
--                "extras.path",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
--                processType = "content",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "dump.path",
+-                    "extras.path",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
+-                    processType = "content",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -            service.report(crash)
 -
--            val fileInputStream =
--                ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val fileInputStream = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
 -            val inputStream = GZIPInputStream(fileInputStream)
 -            val reader = InputStreamReader(inputStream)
 -            val bufferedReader = BufferedReader(reader)
@@ -3234,34 +3310,42 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    vendor = "Mozilla",
--                    releaseChannel = "nightly",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        vendor = "Mozilla",
+-                        releaseChannel = "nightly",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.UncaughtExceptionCrash(123456, RuntimeException("Test"), arrayListOf(), uuid = "13b041a0-3958-4d11-b3b6-194c973d8d58")
+-            val crash =
+-                Crash.UncaughtExceptionCrash(
+-                    123456,
+-                    RuntimeException("Test"),
+-                    arrayListOf(),
+-                    uuid = "13b041a0-3958-4d11-b3b6-194c973d8d58",
+-                )
 -            service.report(crash)
 -
--            val fileInputStream =
--                ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val fileInputStream = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
 -            val inputStream = GZIPInputStream(fileInputStream)
 -            val reader = InputStreamReader(inputStream)
 -            val bufferedReader = BufferedReader(reader)
 -            val request = bufferedReader.readText()
 -
 -            assert(request.contains("name=JavaStackTrace\r\n\r\njava.lang.RuntimeException: Test"))
--            assert(request.contains("name=JavaException\r\n\r\n{\"exception\":{\"values\":[{\"stacktrace\":{\"frames\":[{\"module\":\"mozilla.components.lib.crash.service.MozillaSocorroServiceTest\",\"function\":\"MozillaSocorroService uncaught exception request is correct\",\"in_app\":true"))
+-            assert(
+-                request.contains(
+-                    "name=JavaException\r\n\r\n{\"exception\":{\"values\":[{\"stacktrace\":{\"frames\":[{\"module\":\"mozilla.components.lib.crash.service.MozillaSocorroServiceTest\",\"function\":\"MozillaSocorroService uncaught exception request is correct\",\"in_app\":true"
+-                )
+-            )
 -            assert(request.contains("name=Android_ProcessName\r\n\r\nmozilla.components.lib.crash.test"))
 -            assert(request.contains("name=ProductID\r\n\r\n{aa3c5121-dab2-40e2-81ca-7ea25febc110}"))
 -            assert(request.contains("name=Vendor\r\n\r\nMozilla"))
@@ -3271,6 +3355,9 @@ deleted file mode 100644
 -            assert(request.contains("name=CrashEventID\r\n\r\n13b041a0-3958-4d11-b3b6-194c973d8d58"))
 -            assert(request.contains("name=CrashType\r\n\r\n$UNCAUGHT_EXCEPTION_TYPE"))
 -            assert(request.contains("name=CrashTime\r\n\r\n123"))
+-            assert(request.contains("name=OS\r\n\r\nAndroid"))
+-            assert(request.contains("name=OSVersion\r\n\r\n"))
+-            assert(request.contains("name=CPUArchitecture\r\n\r\n"))
 -            assert(request.contains("name=useragent_locale\r\n\r\nen-US"))
 -
 -            verify(service).report(crash)
@@ -3285,18 +3372,17 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
 -            val crash = Crash.UncaughtExceptionCrash(123, RuntimeException("Test"), arrayListOf())
 -            service.report(crash)
@@ -3317,23 +3403,25 @@ deleted file mode 100644
 -            mockWebServer.enqueue(MockResponse(code = 404, body = "error"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123,
--                null,
--                null,
--                Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
--                processType = "content",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123,
+-                    null,
+-                    null,
+-                    Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
+-                    processType = "content",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -            service.report(crash)
 -            mockWebServer.close()
 -
@@ -3346,12 +3434,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService parses extrasFile correctly`() {
--        val service = spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        val file = File(getResource("TestExtrasFile").file)
 -        val extrasMap = service.readExtrasFromFile(file)
 -
@@ -3387,12 +3476,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService parses legacyExtraFile correctly`() {
--        val service = spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        val file = File(getResource("TestLegacyExtrasFile").file)
 -        val extrasMap = service.readExtrasFromFile(file)
 -
@@ -3428,12 +3518,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService handles bad extrasFile correctly`() {
--        val service = spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        val file = File(getResource("BadTestExtrasFile").file)
 -        val extrasMap = service.readExtrasFromFile(file)
 -
@@ -3442,12 +3533,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService unescape strings correctly`() {
--        val service = spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        val test1 = "\\\\\\\\"
 -        val expected1 = "\\"
 -        assert(service.unescape(test1) == expected1)
@@ -3470,34 +3562,34 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -
--            val service = MozillaSocorroService(
--                testContext,
--                "Test App",
--                "{1234-1234-1234}",
--                "0.1",
--                "1.0",
--                "Mozilla Test",
--                mockWebServer.url("/").toString(),
--                "0.0.1",
--                "123",
--                "test channel",
--                "test distribution id",
--            )
+-            val service =
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                    "{1234-1234-1234}",
+-                    "0.1",
+-                    "1.0",
+-                    "Mozilla Test",
+-                    mockWebServer.url("/").toString(),
+-                    "0.0.1",
+-                    "123",
+-                    "test channel",
+-                    "test distribution id",
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                0,
--                "dump.path",
--                "extras.path",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    0,
+-                    "dump.path",
+-                    "extras.path",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -            val id = service.report(crash)
 -
 -            assertEquals("bp-924121d3-4de3-4b32-ab12-026fc0190928", id)
@@ -3511,42 +3603,41 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    version = "test version",
--                    buildId = "test build id",
--                    vendor = "test vendor",
--                    serverUrl = serverUrl.toString(),
--                    versionName = "1.0.1",
--                    versionCode = "1000",
--                    releaseChannel = "test channel",
--                    distributionId = "test distribution id",
--                ),
--            )
+-            val service =
+-                spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        version = "test version",
+-                        buildId = "test build id",
+-                        vendor = "test vendor",
+-                        serverUrl = serverUrl.toString(),
+-                        versionName = "1.0.1",
+-                        versionCode = "1000",
+-                        releaseChannel = "test channel",
+-                        distributionId = "test distribution id",
+-                    )
+-                )
 -
 -            val version = "136.0.1"
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "dump.path",
--                "extras.path",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--                runtimeTags = mapOf(RuntimeTag.RELEASE to version),
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "dump.path",
+-                    "extras.path",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                    runtimeTags = mapOf(RuntimeTag.RELEASE to version),
+-                )
 -            service.report(crash)
 -
--            val fileInputStream =
--                ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val fileInputStream = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
 -            val inputStream = GZIPInputStream(fileInputStream)
 -            val reader = InputStreamReader(inputStream)
 -            val bufferedReader = BufferedReader(reader)
@@ -3576,9 +3667,10 @@ deleted file mode 100644
 -}
 diff --git a/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroServiceTest.kt b/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroServiceTest.kt
 deleted file mode 100644
+index d3528e1..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroServiceTest.kt
 +++ /dev/null
-@@ -1,823 +0,0 @@
+@@ -1,848 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -3587,6 +3679,11 @@ deleted file mode 100644
 -
 -import androidx.test.ext.junit.runners.AndroidJUnit4
 -import com.google.common.io.Resources.getResource
+-import java.io.BufferedReader
+-import java.io.ByteArrayInputStream
+-import java.io.File
+-import java.io.InputStreamReader
+-import java.util.zip.GZIPInputStream
 -import mockwebserver3.MockResponse
 -import mockwebserver3.MockWebServer
 -import mozilla.components.concept.base.crash.Breadcrumb
@@ -3608,11 +3705,6 @@ deleted file mode 100644
 -import org.mockito.Mockito.never
 -import org.mockito.Mockito.times
 -import org.mockito.Mockito.verify
--import java.io.BufferedReader
--import java.io.ByteArrayInputStream
--import java.io.File
--import java.io.InputStreamReader
--import java.util.zip.GZIPInputStream
 -
 -@RunWith(AndroidJUnit4::class)
 -class MozillaSocorroServiceTest {
@@ -3625,23 +3717,25 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService sends native code crashes to GeckoView crash reporter`() {
--        val service = Mockito.spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            Mockito.spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        doReturn("").`when`(service).sendReport(any())
 -
--        val crash = Crash.NativeCodeCrash(
--            123,
--            "",
--            "",
--            Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
--            processType = "content",
--            breadcrumbs = arrayListOf(),
--            remoteType = null,
--        )
+-        val crash =
+-            Crash.NativeCodeCrash(
+-                123,
+-                "",
+-                "",
+-                Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
+-                processType = "content",
+-                breadcrumbs = arrayListOf(),
+-                remoteType = null,
+-            )
 -        service.report(crash)
 -
 -        verify(service).report(crash)
@@ -3650,24 +3744,26 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService generated server URL have no spaces`() {
--        val versionName = "test version name"
--        val service = MozillaSocorroService(
--            testContext,
--            "Test App",
--        )
--        val crash = Crash.NativeCodeCrash(
--            123456,
--            "dump.path",
--            "extras.path",
--            processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--            processType = "main",
--            breadcrumbs = arrayListOf(),
--            remoteType = null,
--            runtimeTags = mapOf(
--                RuntimeTag.VERSION_NAME to "1.0.1",
--                RuntimeTag.VERSION_CODE to "1000",
--            ),
--        )
+-        val service =
+-            MozillaSocorroService(
+-                testContext,
+-                "Test App",
+-            )
+-        val crash =
+-            Crash.NativeCodeCrash(
+-                123456,
+-                "dump.path",
+-                "extras.path",
+-                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                processType = "main",
+-                breadcrumbs = arrayListOf(),
+-                remoteType = null,
+-                runtimeTags =
+-                    mapOf(
+-                        RuntimeTag.VERSION_NAME to "1.0.1",
+-                        RuntimeTag.VERSION_CODE to "1000",
+-                    ),
+-            )
 -
 -        assertFalse(service.buildServerUrl(crash).contains(" "))
 -        assertFalse(service.buildServerUrl(crash).contains("}"))
@@ -3676,12 +3772,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService send uncaught exception crashes`() {
--        val service = Mockito.spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            Mockito.spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        doReturn("").`when`(service).sendReport(any())
 -
 -        val crash = Crash.UncaughtExceptionCrash(123, RuntimeException("Test"), arrayListOf())
@@ -3693,12 +3790,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService do not send caught exception`() {
--        val service = Mockito.spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            Mockito.spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        doReturn("").`when`(service).sendReport(any())
 -        val throwable = RuntimeException("Test")
 -        val breadcrumbs: ArrayList<Breadcrumb> = arrayListOf()
@@ -3714,33 +3812,38 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = Mockito.spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                Mockito.spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "dump.path",
--                "extras.path",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(Breadcrumb(message = "Hello World", date = "2018-06-12T19:30+00:00".toDate("yyyy-MM-dd'T'HH:mmXXX"))),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "dump.path",
+-                    "extras.path",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs =
+-                        arrayListOf(
+-                            Breadcrumb(
+-                                message = "Hello World",
+-                                date = "2018-06-12T19:30+00:00".toDate("yyyy-MM-dd'T'HH:mmXXX"),
+-                            )
+-                        ),
+-                    remoteType = null,
+-                )
 -            service.report(crash)
 -
--            val fileInputStream =
--                ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val fileInputStream = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
 -            val inputStream = GZIPInputStream(fileInputStream)
 -            val reader = InputStreamReader(inputStream)
 -            val bufferedReader = BufferedReader(reader)
@@ -3755,7 +3858,11 @@ deleted file mode 100644
 -            assert(request.contains("name=CrashType\r\n\r\n$FATAL_NATIVE_CRASH_TYPE"))
 -            assert(request.contains("name=CrashTime\r\n\r\n123"))
 -            assert(request.contains("name=useragent_locale\r\n\r\nen-US"))
--            assert(request.contains("name=Breadcrumbs\r\n\r\n[{\"timestamp\":\"2018-06-12T19:30:00\",\"message\":\"Hello World\",\"category\":\"\",\"level\":\"Debug\",\"type\":\"Default\",\"data\":{}}]"))
+-            assert(
+-                request.contains(
+-                    "name=Breadcrumbs\r\n\r\n[{\"timestamp\":\"2018-06-12T19:30:00\",\"message\":\"Hello World\",\"category\":\"\",\"level\":\"Debug\",\"type\":\"Default\",\"data\":{}}]"
+-                )
+-            )
 -
 -            verify(service).report(crash)
 -            verify(service).sendReport(crash)
@@ -3769,29 +3876,29 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = Mockito.spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                Mockito.spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.ini",
--                "test/file/66dd8af2-643c-ca11-5178-e61c6819f827",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.ini",
+-                    "test/file/66dd8af2-643c-ca11-5178-e61c6819f827",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -
 -            doReturn(HashMap<String, String>()).`when`(service).readExtrasFromFile(any())
 -            val formDataWriter = mockFormDataWriter(service)
@@ -3810,29 +3917,29 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = Mockito.spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                Mockito.spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "test/minidumps/test.dmp",
--                "test/file/test.extra",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "test/minidumps/test.dmp",
+-                    "test/file/test.extra",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -
 -            doReturn(HashMap<String, String>()).`when`(service).readExtrasFromFile(any())
 -            val formDataWriter = mockFormDataWriter(service)
@@ -3851,29 +3958,29 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = Mockito.spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                Mockito.spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.dmp",
--                "test/file/66dd8af2-643c-ca11-5178-e61c6819f827.extra",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.dmp",
+-                    "test/file/66dd8af2-643c-ca11-5178-e61c6819f827.extra",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -
 -            doReturn(HashMap<String, String>()).`when`(service).readExtrasFromFile(any())
 -            val formDataWriter = mockFormDataWriter(service)
@@ -3894,29 +4001,29 @@ deleted file mode 100644
 -        val fileCaptor = argumentCaptor<File>()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = Mockito.spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                Mockito.spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.dmp",
--                "test/file/66dd8af2-643c-ca11-5178-e61c6819f827.extra",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.dmp",
+-                    "test/file/66dd8af2-643c-ca11-5178-e61c6819f827.extra",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -
 -            doReturn(hashMapOf("additional_minidumps" to "browser,content")).`when`(service).readExtrasFromFile(any())
 -            val formDataWriter = mockFormDataWriter(service)
@@ -3924,12 +4031,16 @@ deleted file mode 100644
 -
 -            verify(service).report(crash)
 -            verify(service).readExtrasFromFile(any())
--            verify(formDataWriter, times(3)).sendFile(
--                nameCaptor.capture(),
--                fileCaptor.capture(),
--            )
+-            verify(formDataWriter, times(3))
+-                .sendFile(
+-                    nameCaptor.capture(),
+-                    fileCaptor.capture(),
+-                )
 -
--            assertEquals(listOf("upload_file_minidump", "upload_file_minidump_browser", "upload_file_minidump_content"), nameCaptor.allValues)
+-            assertEquals(
+-                listOf("upload_file_minidump", "upload_file_minidump_browser", "upload_file_minidump_content"),
+-                nameCaptor.allValues,
+-            )
 -            val files = fileCaptor.allValues
 -            assertEquals("test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e.dmp", files.get(0).path)
 -            assertEquals("test/minidumps/3fa772dc-dc89-c08d-c03e-7f441c50821e-browser.dmp", files.get(1).path)
@@ -3944,41 +4055,41 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = Mockito.spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    vendor = "test vendor",
--                    serverUrl = serverUrl.toString(),
--                    releaseChannel = "test channel",
--                    distributionId = "test distribution id",
--                ),
--            )
+-            val service =
+-                Mockito.spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        vendor = "test vendor",
+-                        serverUrl = serverUrl.toString(),
+-                        releaseChannel = "test channel",
+-                        distributionId = "test distribution id",
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "dump.path",
--                "extras.path",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--                runtimeTags = mapOf(
--                    RuntimeTag.VERSION_NAME to "1.0.1",
--                    RuntimeTag.VERSION_CODE to "1000",
--                    RuntimeTag.BUILD_ID to "test build id",
--                ),
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "dump.path",
+-                    "extras.path",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                    runtimeTags =
+-                        mapOf(
+-                            RuntimeTag.VERSION_NAME to "1.0.1",
+-                            RuntimeTag.VERSION_CODE to "1000",
+-                            RuntimeTag.BUILD_ID to "test build id",
+-                        ),
+-                )
 -            service.report(crash)
 -
--            val fileInputStream =
--                ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val fileInputStream = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
 -            val inputStream = GZIPInputStream(fileInputStream)
 -            val reader = InputStreamReader(inputStream)
 -            val bufferedReader = BufferedReader(reader)
@@ -4011,35 +4122,34 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = Mockito.spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    vendor = "Mozilla",
--                    releaseChannel = "nightly",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                Mockito.spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        vendor = "Mozilla",
+-                        releaseChannel = "nightly",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "dump.path",
--                "extras.path",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
--                processType = "content",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "dump.path",
+-                    "extras.path",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
+-                    processType = "content",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -            service.report(crash)
 -
--            val fileInputStream =
--                ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val fileInputStream = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
 -            val inputStream = GZIPInputStream(fileInputStream)
 -            val reader = InputStreamReader(inputStream)
 -            val bufferedReader = BufferedReader(reader)
@@ -4067,34 +4177,36 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = Mockito.spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    vendor = "Mozilla",
--                    releaseChannel = "nightly",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                Mockito.spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        vendor = "Mozilla",
+-                        releaseChannel = "nightly",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
 -            val crash = Crash.UncaughtExceptionCrash(123456, RuntimeException("Test"), arrayListOf())
 -            service.report(crash)
 -
--            val fileInputStream =
--                ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val fileInputStream = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
 -            val inputStream = GZIPInputStream(fileInputStream)
 -            val reader = InputStreamReader(inputStream)
 -            val bufferedReader = BufferedReader(reader)
 -            val request = bufferedReader.readText()
 -
 -            assert(request.contains("name=JavaStackTrace\r\n\r\njava.lang.RuntimeException: Test"))
--            assert(request.contains("name=JavaException\r\n\r\n{\"exception\":{\"values\":[{\"stacktrace\":{\"frames\":[{\"module\":\"mozilla.components.lib.crash.service.socorro.MozillaSocorroServiceTest\",\"function\":\"MozillaSocorroService uncaught exception request is correct\",\"in_app\":true"))
+-            assert(
+-                request.contains(
+-                    "name=JavaException\r\n\r\n{\"exception\":{\"values\":[{\"stacktrace\":{\"frames\":[{\"module\":\"mozilla.components.lib.crash.service.socorro.MozillaSocorroServiceTest\",\"function\":\"MozillaSocorroService uncaught exception request is correct\",\"in_app\":true"
+-                )
+-            )
 -            assert(request.contains("name=Android_ProcessName\r\n\r\nmozilla.components.lib.crash.test"))
 -            assert(request.contains("name=ProductID\r\n\r\n{aa3c5121-dab2-40e2-81ca-7ea25febc110}"))
 -            assert(request.contains("name=Vendor\r\n\r\nMozilla"))
@@ -4117,18 +4229,17 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = Mockito.spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                Mockito.spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
 -            val crash = Crash.UncaughtExceptionCrash(123, RuntimeException("Test"), arrayListOf())
 -            service.report(crash)
@@ -4149,23 +4260,25 @@ deleted file mode 100644
 -            mockWebServer.enqueue(MockResponse(code = 404, body = "error"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = Mockito.spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    serverUrl = serverUrl.toString(),
--                ),
--            )
+-            val service =
+-                Mockito.spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        serverUrl = serverUrl.toString(),
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123,
--                null,
--                null,
--                Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
--                processType = "content",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123,
+-                    null,
+-                    null,
+-                    Crash.NativeCodeCrash.PROCESS_VISIBILITY_FOREGROUND_CHILD,
+-                    processType = "content",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -            service.report(crash)
 -            mockWebServer.close()
 -
@@ -4178,12 +4291,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService parses extrasFile correctly`() {
--        val service = Mockito.spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            Mockito.spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        val file = File(getResource("TestExtrasFile").file)
 -        val extrasMap = service.readExtrasFromFile(file)
 -
@@ -4219,12 +4333,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService parses legacyExtraFile correctly`() {
--        val service = Mockito.spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            Mockito.spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        val file = File(getResource("TestLegacyExtrasFile").file)
 -        val extrasMap = service.readExtrasFromFile(file)
 -
@@ -4260,12 +4375,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService handles bad extrasFile correctly`() {
--        val service = Mockito.spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            Mockito.spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        val file = File(getResource("BadTestExtrasFile").file)
 -        val extrasMap = service.readExtrasFromFile(file)
 -
@@ -4274,12 +4390,13 @@ deleted file mode 100644
 -
 -    @Test
 -    fun `MozillaSocorroService unescape strings correctly`() {
--        val service = Mockito.spy(
--            MozillaSocorroService(
--                testContext,
--                "Test App",
--            ),
--        )
+-        val service =
+-            Mockito.spy(
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                )
+-            )
 -        val test1 = "\\\\\\\\"
 -        val expected1 = "\\"
 -        assert(service.unescape(test1) == expected1)
@@ -4302,30 +4419,30 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -
--            val service = MozillaSocorroService(
--                testContext,
--                "Test App",
--                "{1234-1234-1234}",
--                "Mozilla Test",
--                mockWebServer.url("/").toString(),
--                "test channel",
--                "test distribution id",
--            )
+-            val service =
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                    "{1234-1234-1234}",
+-                    "Mozilla Test",
+-                    mockWebServer.url("/").toString(),
+-                    "test channel",
+-                    "test distribution id",
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                0,
--                "dump.path",
--                "extras.path",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    0,
+-                    "dump.path",
+-                    "extras.path",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                )
 -            val id = service.report(crash)
 -
 -            assertEquals("bp-924121d3-4de3-4b32-ab12-026fc0190928", id)
@@ -4339,42 +4456,42 @@ deleted file mode 100644
 -        val mockWebServer = MockWebServer()
 -
 -        try {
--            mockWebServer.enqueue(
--                MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"),
--            )
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-924121d3-4de3-4b32-ab12-026fc0190928"))
 -            mockWebServer.start()
 -            val serverUrl = mockWebServer.url("/")
--            val service = Mockito.spy(
--                MozillaSocorroService(
--                    testContext,
--                    "Test App",
--                    appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
--                    vendor = "test vendor",
--                    serverUrl = serverUrl.toString(),
--                    releaseChannel = "test channel",
--                    distributionId = "test distribution id",
--                ),
--            )
+-            val service =
+-                Mockito.spy(
+-                    MozillaSocorroService(
+-                        testContext,
+-                        "Test App",
+-                        appId = "{aa3c5121-dab2-40e2-81ca-7ea25febc110}",
+-                        vendor = "test vendor",
+-                        serverUrl = serverUrl.toString(),
+-                        releaseChannel = "test channel",
+-                        distributionId = "test distribution id",
+-                    )
+-                )
 -
--            val crash = Crash.NativeCodeCrash(
--                123456,
--                "dump.path",
--                "extras.path",
--                processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
--                processType = "main",
--                breadcrumbs = arrayListOf(),
--                remoteType = null,
--                runtimeTags = mapOf(
--                    RuntimeTag.GECKOVIEW_VERSION to "test version",
--                    RuntimeTag.VERSION_NAME to "136.0.1",
--                    RuntimeTag.VERSION_CODE to "1000",
--                    RuntimeTag.BUILD_ID to "test build id",
--                ),
--            )
+-            val crash =
+-                Crash.NativeCodeCrash(
+-                    123456,
+-                    "dump.path",
+-                    "extras.path",
+-                    processVisibility = Crash.NativeCodeCrash.PROCESS_VISIBILITY_MAIN,
+-                    processType = "main",
+-                    breadcrumbs = arrayListOf(),
+-                    remoteType = null,
+-                    runtimeTags =
+-                        mapOf(
+-                            RuntimeTag.GECKOVIEW_VERSION to "test version",
+-                            RuntimeTag.VERSION_NAME to "136.0.1",
+-                            RuntimeTag.VERSION_CODE to "1000",
+-                            RuntimeTag.BUILD_ID to "test build id",
+-                        ),
+-                )
 -            service.report(crash)
 -
--            val fileInputStream =
--                ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val fileInputStream = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
 -            val inputStream = GZIPInputStream(fileInputStream)
 -            val reader = InputStreamReader(inputStream)
 -            val bufferedReader = BufferedReader(reader)
@@ -4403,9 +4520,10 @@ deleted file mode 100644
 -    }
 -}
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
+index 5221015..068ddfb 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -334,15 +334,15 @@ androidComponents {
+@@ -318,15 +318,15 @@ androidComponents {
  // -------------------------------------------------------------------------------------------------
  
  android.defaultConfig.with {
@@ -4428,7 +4546,7 @@ diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/bu
  
      // Setting buildDate with every build ID changes the generated BuildConfig and slows down the
      // build, so debug builds (overridden below) use a fixed string instead.
-@@ -391,7 +391,6 @@ android.buildTypes.debug.with {
+@@ -376,7 +376,6 @@ android.buildTypes.debug.with {
      buildConfigField 'boolean', 'CRASH_REPORTING', 'false'
      buildConfigField 'boolean', 'TELEMETRY', 'false'
      buildConfigField 'String', 'BUILD_DATE', '"debug build"'
@@ -4436,7 +4554,7 @@ diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/bu
  
      if (gradle.hasProperty("localProperties.nimbus.remote-settings.url")) {
          def url = gradle.getProperty("localProperties.nimbus.remote-settings.url")
-@@ -530,7 +529,11 @@ dependencies {
+@@ -523,7 +522,11 @@ dependencies {
      implementation project(':components:lib-bookmark-parser-jsoup')
      implementation project(':components:lib-passwords-file')
      implementation project(':components:lib-crash')
@@ -4449,7 +4567,7 @@ diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/bu
      implementation project(':components:lib-dataprotect')
      implementation project(':components:lib-state')
      implementation project(':components:lib-accelerometer-sensormanager')
-@@ -593,7 +596,9 @@ dependencies {
+@@ -585,7 +588,9 @@ dependencies {
      implementation libs.kotlinx.serialization.json
      implementation libs.mozilla.glean
      implementation libs.protobuf.javalite
@@ -4461,6 +4579,7 @@ diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/bu
      implementation libs.zxing
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+index c0d0511..80c661d 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
 @@ -13,21 +13,9 @@ import mozilla.components.lib.crash.runtimetagproviders.BuildRuntimeTagProvider
@@ -4485,7 +4604,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
  import org.mozilla.fenix.components.metrics.DefaultMetricsStorage
  import org.mozilla.fenix.components.metrics.FirstSessionMetricsService
  import org.mozilla.fenix.components.metrics.MetricController
-@@ -35,13 +23,8 @@ import org.mozilla.fenix.components.metrics.MetricsStorage
+@@ -35,65 +23,28 @@ import org.mozilla.fenix.components.metrics.MetricsStorage
  import org.mozilla.fenix.crashes.CrashFactCollector
  import org.mozilla.fenix.crashes.NimbusExperimentDataProvider
  import org.mozilla.fenix.crashes.ReleaseRuntimeTagProvider
@@ -4497,9 +4616,8 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
 -import org.mozilla.geckoview.BuildConfig.MOZ_APP_VERSION
 -import org.mozilla.geckoview.BuildConfig.MOZ_UPDATE_CHANNEL
  
- /**
-  * Component group for all functionality related to analytics e.g. crash reporting and telemetry.
-@@ -50,55 +33,21 @@ class Analytics(
+ /** Component group for all functionality related to analytics e.g. crash reporting and telemetry. */
+ class Analytics(
      private val context: Context,
      private val settings: Settings,
      private val nimbusComponents: NimbusComponents,
@@ -4508,41 +4626,36 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
 +    /**
 +     * The crash reporter.
 +     *
-+     * LibreWolf ships NO crash-reporting service at all: patches/android/no-crashreporter.patch
-+     * deletes the Socorro upload, the Sentry integration and the Glean crash ping, so both service
-+     * lists below are empty and nothing a crash produces ever leaves the device.  What is kept is
-+     * the *local* record -- CrashReporter.onCrash() still writes every crash it sees into the
-+     * on-device Room database, which is what the crash list (Settings > About > Crashes, also
-+     * reachable by typing "about:crashes") shows and lets the user share into a bug report.
++     * LibreWolf ships NO crash-reporting service at all: patches/android/no-crashreporter.patch deletes the Socorro
++     * upload, the Sentry integration and the Glean crash ping, so both service lists below are empty and nothing a
++     * crash produces ever leaves the device. What is kept is the *local* record -- CrashReporter.onCrash() still writes
++     * every crash it sees into the on-device Room database, which is what the crash list (Settings > About > Crashes,
++     * also reachable by typing "about:crashes") shows and lets the user share into a bug report.
 +     *
-+     * shouldPrompt is NEVER and useLegacyReporting is false for the same reason: with no service
-+     * to submit to, a prompt or notification offering to send a report would be a lie.
++     * shouldPrompt is NEVER and useLegacyReporting is false for the same reason: with no service to submit to, a prompt
++     * or notification offering to send a report would be a lie.
 +     */
      val crashReporter: CrashReporter by lazyMonitored {
 -        val services = mutableListOf<CrashReporterService>()
 -        val distributionId = "Mozilla"
 -
 -        if (isSentryEnabled()) {
--            // We treat caught exceptions similar to debug logging.
--            // On the release channel volume of these is too high for our Sentry instances, and
--            // we get most value out of nightly/beta logging anyway.
--            val shouldSendCaughtExceptions = when (Config.channel) {
--                ReleaseChannel.Release -> false
--                else -> true
--            }
--            val sentryService = SentryService(
--                context,
--                BuildConfig.SENTRY_TOKEN,
--                tags = mapOf(
--                    "geckoview" to "$MOZ_APP_VERSION-$MOZ_APP_BUILDID",
--                    "fenix.git" to BuildConfig.VCS_HASH,
--                ),
--                environment = BuildConfig.BUILD_TYPE,
--                sendEventForNativeCrashes = false, // Do not send native crashes to Sentry
--                sendCaughtExceptions = shouldSendCaughtExceptions,
--                sentryProjectUrl = getSentryProjectUrl(),
--                crashMetadataEventProcessor = CrashMetadataEventProcessor(),
--            )
+-            val sentryService =
+-                SentryService(
+-                    context,
+-                    BuildConfig.SENTRY_TOKEN,
+-                    tags =
+-                        mapOf(
+-                            "geckoview" to "$MOZ_APP_VERSION-$MOZ_APP_BUILDID",
+-                            "fenix.git" to BuildConfig.VCS_HASH,
+-                        ),
+-                    environment = BuildConfig.BUILD_TYPE,
+-                    sendEventForNativeCrashes = false, // Do not send native crashes to Sentry
+-                    // Do not send diagnostic logs until we have a better way to toggle this from user settings.
+-                    sendCaughtExceptions = false,
+-                    sentryProjectUrl = getSentryProjectUrl(),
+-                    crashMetadataEventProcessor = CrashMetadataEventProcessor(),
+-                )
 -
 -            // We only want to initialize Sentry on startup on the main process.
 -            if (context.isMainProcess()) {
@@ -4556,50 +4669,51 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
 -
 -        // The name "Fenix" here matches the product name on Socorro and is unrelated to the actual app name:
 -        // https://bugzilla.mozilla.org/show_bug.cgi?id=1523284
--        val socorroService = MozillaSocorroService(
--            context,
--            appName = "Fenix",
--            vendor = MOZ_APP_VENDOR,
--            releaseChannel = MOZ_UPDATE_CHANNEL,
--            distributionId = distributionId,
--        )
+-        val socorroService =
+-            MozillaSocorroService(
+-                context,
+-                appName = "Fenix",
+-                vendor = MOZ_APP_VENDOR,
+-                releaseChannel = MOZ_UPDATE_CHANNEL,
+-                distributionId = distributionId,
+-            )
 -        services.add(socorroService)
 -
-         val intent = Intent(context, HomeActivity::class.java).apply {
-             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-         }
-@@ -116,26 +65,12 @@ class Analytics(
+         val intent =
+             Intent(context, HomeActivity::class.java).apply {
+                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+@@ -114,26 +65,12 @@ class Analytics(
  
          CrashReporter(
              context = context,
 -            services = services,
--            telemetryServices = listOf(
--                GleanCrashReporterService(
--                    context,
--                    appChannel = MOZ_UPDATE_CHANNEL,
--                    appVersion = MOZ_APP_VERSION,
--                    appBuildId = MOZ_APP_BUILDID,
--                    isUploadEnabled = settings.isTelemetryEnabled,
+-            telemetryServices =
+-                listOf(
+-                    GleanCrashReporterService(
+-                        context,
+-                        appChannel = MOZ_UPDATE_CHANNEL,
+-                        appVersion = MOZ_APP_VERSION,
+-                        appBuildId = MOZ_APP_BUILDID,
+-                        isUploadEnabled = settings.isTelemetryEnabled,
+-                    )
 -                ),
--            ),
 -            shouldPrompt = CrashReporter.Prompt.ALWAYS,
--            promptConfiguration = CrashReporter.PromptConfiguration(
--                appName = context.getString(R.string.app_name),
--                organizationName = "Mozilla",
--            ),
+-            promptConfiguration =
+-                CrashReporter.PromptConfiguration(
+-                    appName = context.getString(R.string.app_name),
+-                    organizationName = "Mozilla",
+-                ),
 +            services = emptyList(),
 +            telemetryServices = emptyList(),
 +            shouldPrompt = CrashReporter.Prompt.NEVER,
              enabled = true,
              nonFatalCrashIntent = pendingIntent,
--            useLegacyReporting =
--                settings.crashReportOption() != CrashReportOption.Auto &&
--                !settings.useNewCrashReporterFlow,
+-            useLegacyReporting = settings.crashReportOption() != CrashReportOption.Auto,
 +            useLegacyReporting = false,
-             runtimeTagProviders = listOf(
-                 ReleaseRuntimeTagProvider(),
-                 BuildRuntimeTagProvider(context.versionInfoProvider),
-@@ -176,18 +111,6 @@ class Analytics(
+             runtimeTagProviders =
+                 listOf(
+                     ReleaseRuntimeTagProvider(),
+@@ -173,18 +110,6 @@ class Analytics(
      }
  }
  
@@ -4617,11 +4731,12 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
 -
  private val Context.versionInfoProvider: VersionInfoProvider
      get() {
-         val packageInfo = applicationContext.packageManagerCompatHelper.getPackageInfoCompat(
+         val packageInfo =
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+index 2a66311..d9554ff 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-@@ -239,7 +239,7 @@ class Components(private val context: Context) {
+@@ -233,7 +233,7 @@ class Components(
          AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
      }
  
@@ -4631,11 +4746,12 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
      val remoteSettingsService = lazyMonitored {
          RemoteSettingsService(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt
+index fd02710..266f4ad 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt
-@@ -72,17 +72,20 @@ class CrashContentView @JvmOverloads constructor(
-         binding.title.text =
-             context.getString(R.string.tab_crash_title_2, context.getString(R.string.app_name))
+@@ -69,17 +69,20 @@ constructor(
+     internal fun bindViews() {
+         binding.title.text = context.getString(R.string.tab_crash_title_2, context.getString(R.string.app_name))
  
 +        // LibreWolf (patches/android/no-crashreporter.patch): the "Send crash report to Mozilla"
 +        // checkbox is gone from view_crash_reporter.xml because there is no crash-reporting
@@ -4657,47 +4773,50 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/Cr
          }
      }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/SettingsCrashReportCache.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/SettingsCrashReportCache.kt
+index 256b98f..53df7cf 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/SettingsCrashReportCache.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/SettingsCrashReportCache.kt
-@@ -45,19 +45,22 @@ class SettingsCrashReportCache(private val settings: Settings) : CrashReportCach
+@@ -43,17 +43,21 @@ class SettingsCrashReportCache(private val settings: Settings) : CrashReportCach
              settings.crashPullDontShowBefore
          }
  
--    override suspend fun getReportOption(): CrashReportOption = try {
--        CrashReportOption.fromLabel(settings.crashReportChoice)
--    } catch (e: IllegalArgumentException) {
--        CrashReportOption.Never
--    }
-+    /**
-+     * LibreWolf (patches/android/no-crashreporter.patch) has no crash-reporting service, so the
-+     * only honest answer is [CrashReportOption.Never].  This is the single choke point that keeps
-+     * CrashMiddleware from ever asking the user to send a report that could not be sent: its
-+     * Initialize handler returns immediately on Never, so no prompt is shown, no submit is
-+     * attempted, and no crash is left marked "unsent" to be re-offered on the next launch.
-+     * The stored preference is deliberately ignored rather than migrated.
-+     */
-+    override suspend fun getReportOption(): CrashReportOption = CrashReportOption.Never
- 
+-    override suspend fun getReportOption(): CrashReportOption =
+-        try {
+-            CrashReportOption.fromLabel(settings.crashReportChoice)
+-        } catch (e: IllegalArgumentException) {
+-            CrashReportOption.Never
+-        }
+-
 -    override suspend fun setReportOption(option: CrashReportOption) {
 -        settings.crashReportChoice = option.toString()
 -    }
++    /**
++     * LibreWolf (patches/android/no-crashreporter.patch) has no crash-reporting service, so the only honest answer is
++     * [CrashReportOption.Never]. This is the single choke point that keeps CrashMiddleware from ever asking the user to
++     * send a report that could not be sent: its Initialize handler returns immediately on Never, so no prompt is shown,
++     * no submit is attempted, and no crash is left marked "unsent" to be re-offered on the next launch. The stored
++     * preference is deliberately ignored rather than migrated.
++     */
++    override suspend fun getReportOption(): CrashReportOption = CrashReportOption.Never
++
 +    override suspend fun setReportOption(option: CrashReportOption) = Unit
  }
  
- /**
-  * Extension function to convert the crash report choice from settings to a [CrashReportOption].
+-/** Extension function to convert the crash report choice from settings to a [CrashReportOption]. */
+-fun Settings.crashReportOption(): CrashReportOption = CrashReportOption.fromLabel(crashReportChoice)
++/**
++ * Extension function to convert the crash report choice from settings to a [CrashReportOption].
 + *
 + * LibreWolf: always [CrashReportOption.Never] -- see [SettingsCrashReportCache.getReportOption].
-  */
--fun Settings.crashReportOption(): CrashReportOption =
--    CrashReportOption.fromLabel(crashReportChoice)
++ */
 +fun Settings.crashReportOption(): CrashReportOption = CrashReportOption.Never
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+index e0edd5e..893cc16 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
-@@ -7,18 +7,15 @@ package org.mozilla.fenix.gecko
- import android.content.Context
+@@ -8,18 +8,15 @@ import android.content.Context
  import androidx.annotation.VisibleForTesting
+ import kotlinx.coroutines.CoroutineScope
  import mozilla.components.browser.engine.gecko.autofill.GeckoAutocompleteStorageDelegate
 -import mozilla.components.browser.engine.gecko.crash.GeckoCrashPullDelegate
  import mozilla.components.browser.engine.gecko.ext.toContentBlockingSetting
@@ -4714,32 +4833,33 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/Geck
  import org.mozilla.fenix.ext.components
  import org.mozilla.fenix.nimbus.FxNimbus
  import org.mozilla.geckoview.GeckoRuntime
-@@ -71,13 +68,14 @@ object GeckoProvider {
-             ),
-         )
+@@ -86,14 +83,13 @@ object GeckoProvider {
+                 applicationScope = applicationScope,
+             )
  
--        geckoRuntime.crashPullDelegate = GeckoCrashPullDelegate(
--            dispatcher = { crashIDs ->
--                context.components.appStore.dispatch(
--                    AppAction.CrashActionWrapper(CrashAction.CheckDeferred(crashIDs.toList())),
--                )
--            },
--        )
-+        // LibreWolf (patches/android/no-crashreporter.patch): no crashPullDelegate.  Setting one
-+        // makes GeckoView send "GeckoView:CrashPullController.Delegate:Attached", which is what
-+        // starts RemoteSettingsCrashPull -- the Remote Settings channel by which Mozilla asks a
-+        // particular user to upload particular pending minidumps.  We have no upload path and no
-+        // minidumps (--disable-crashreporter), and RemoteSettingsCrashPull.sys.mjs is not even
-+        // packaged (toolkit/components/crashes/moz.build gates it on MOZ_CRASHREPORTER, and the
-+        // built omni.ja does not contain it), so the delegate could only ever have re-opened the
-+        // solicitation if the crash reporter were re-enabled.
+-        geckoRuntime.crashPullDelegate =
+-            GeckoCrashPullDelegate(
+-                dispatcher = { crashIDs ->
+-                    context.components.appStore.dispatch(
+-                        AppAction.CrashActionWrapper(CrashAction.CheckDeferred(crashIDs.toList()))
+-                    )
+-                }
+-            )
++        // LibreWolf (patches/android/no-crashreporter.patch): no crashPullDelegate. Setting one makes GeckoView send
++        // "GeckoView:CrashPullController.Delegate:Attached", which is what starts RemoteSettingsCrashPull -- the Remote
++        // Settings channel by which Mozilla asks a particular user to upload particular pending minidumps. We have no
++        // upload path and no minidumps (--disable-crashreporter), and RemoteSettingsCrashPull.sys.mjs is not even
++        // packaged (toolkit/components/crashes/moz.build gates it on MOZ_CRASHREPORTER, and the built omni.ja does not
++        // contain it), so the delegate could only ever have re-opened the solicitation if the crash reporter were
++        // re-enabled.
  
          return geckoRuntime
      }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/store/PrivacyPreferencesRepository.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/store/PrivacyPreferencesRepository.kt
+index 55458ce..0a8353e 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/store/PrivacyPreferencesRepository.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/store/PrivacyPreferencesRepository.kt
-@@ -71,11 +71,12 @@ class DefaultPrivacyPreferencesRepository(
+@@ -68,11 +68,11 @@ class DefaultPrivacyPreferencesRepository(
      ) {
          when (type) {
              PreferenceType.CrashReporting -> {
@@ -4753,14 +4873,14 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding
 +                // Never, and getPreference() above therefore always reports false.  Writing the
 +                // stored choice back would only leave a value that nothing reads -- and, worse,
 +                // would let the onboarding ToS screen record a consent that cannot be honoured.
-+                Unit
              }
              PreferenceType.UsageData -> {
                  settings.isTelemetryEnabled = enabled
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/datachoices/DataChoicesScreen.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/datachoices/DataChoicesScreen.kt
+index a7e5877..8b2e788 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/datachoices/DataChoicesScreen.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/datachoices/DataChoicesScreen.kt
-@@ -199,7 +199,10 @@ private fun buildDataChoicesItems(state: DataChoicesState): List<DataChoicesSect
+@@ -201,7 +201,10 @@ private fun buildDataChoicesItems(state: DataChoicesState): List<DataChoicesSect
              add(DataChoicesSectionKey.TECHNICAL_DATA)
              add(DataChoicesSectionKey.STUDIES)
              add(DataChoicesSectionKey.USAGE_DATA)
@@ -4772,9 +4892,9 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/d
              if (state.showMeasurementDataSection) {
                  add(DataChoicesSectionKey.CAMPAIGN_MEASUREMENT)
              }
-@@ -460,14 +463,6 @@ object DataChoicesSearchProvider : SettingsSearchProvider {
+@@ -452,14 +455,6 @@ object DataChoicesSearchProvider : SettingsSearchProvider {
                      key = DataChoicesSectionKey.USAGE_DATA,
-                 ),
+                 )
              )
 -            add(
 -                buildSearchItem(
@@ -4782,46 +4902,49 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/d
 -                    titleRes = R.string.crash_reports_data_category,
 -                    summaryRes = R.string.crash_reporting_description,
 -                    key = DataChoicesSectionKey.CRASH_REPORTS,
--                ),
+-                )
 -            )
              if (context.components.settings.hasMadeMarketingTelemetrySelection) {
                  add(
                      buildSearchItem(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashActivity.kt
+index a5c8df7..dad3ba6 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashActivity.kt
-@@ -30,7 +30,13 @@ class StartupCrashActivity : AppCompatActivity() {
-             FirefoxTheme {
+@@ -31,7 +31,12 @@ class StartupCrashActivity : AppCompatActivity() {
                  StartupCrashScreen(
-                     store = StartupCrashStore(
--                        initialState = StartupCrashState(UiState.Idle),
-+                        // LibreWolf (patches/android/no-crashreporter.patch): start in Finished,
-+                        // not Idle.  Idle is the state that shows the "Send crash report" /
-+                        // "No thanks" pair, and there is no crash-reporting service for
-+                        // StartupCrashMiddleware to submit to, so that question cannot be
-+                        // answered honestly.  Finished shows only the "Reopen" button; the crash
-+                        // itself is still recorded locally and listed by about:crashes.
-+                        initialState = StartupCrashState(UiState.Finished),
-                         middleware = listOf(
-                             StartupCrashMiddleware(
-                                 settings = components.settings,
+                     store =
+                         StartupCrashStore(
+-                            initialState = StartupCrashState(UiState.Idle),
++                            // LibreWolf (patches/android/no-crashreporter.patch): start in Finished, not Idle. Idle is
++                            // the state that shows the "Send crash report" / "No thanks" pair, and there is no
++                            // crash-reporting service for StartupCrashMiddleware to submit to, so that question cannot
++                            // be answered honestly. Finished shows only the "Reopen" button; the crash itself is still
++                            // recorded locally and listed by about:crashes.
++                            initialState = StartupCrashState(UiState.Finished),
+                             middleware =
+                                 listOf(
+                                     StartupCrashMiddleware(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashScreen.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashScreen.kt
+index 04b35ed..3a5b537 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashScreen.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashScreen.kt
-@@ -155,8 +155,11 @@ private fun ScreenText() {
+@@ -155,9 +155,12 @@ private fun ScreenText() {
          )
  
          Text(
-+            // LibreWolf (patches/android/no-crashreporter.patch): startup_crash_body promises that
-+            // "Sending a crash report helps us diagnose and fix problems".  Nothing is sent from
-+            // this build, so a LibreWolf-specific body string is used instead.
-             text = stringResource(
--                R.string.startup_crash_body,
-+                R.string.librewolf_startup_crash_body,
-                 stringResource(R.string.firefox),
-             ),
++            // LibreWolf (patches/android/no-crashreporter.patch): startup_crash_body promises that "Sending a crash
++            // report helps us diagnose and fix problems". Nothing is sent from this build, so a LibreWolf-specific body
++            // string is used instead.
+             text =
+                 stringResource(
+-                    R.string.startup_crash_body,
++                    R.string.librewolf_startup_crash_body,
+                     stringResource(R.string.firefox),
+                 ),
              color = MaterialTheme.colorScheme.onSurfaceVariant,
 diff --git a/mobile/android/fenix/app/src/main/res/layout/view_crash_reporter.xml b/mobile/android/fenix/app/src/main/res/layout/view_crash_reporter.xml
+index fd94e64..ebc73e6 100644
 --- a/mobile/android/fenix/app/src/main/res/layout/view_crash_reporter.xml
 +++ b/mobile/android/fenix/app/src/main/res/layout/view_crash_reporter.xml
 @@ -37,21 +37,10 @@
@@ -4851,9 +4974,10 @@ diff --git a/mobile/android/fenix/app/src/main/res/layout/view_crash_reporter.xm
      <com.google.android.material.button.MaterialButton
          style="@style/PositiveButton"
 diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/android/fenix/app/src/main/res/values/strings.xml
+index e279f53..4466534 100644
 --- a/mobile/android/fenix/app/src/main/res/values/strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
-@@ -410,6 +410,12 @@
+@@ -400,6 +400,12 @@
      <string name="startup_crash_title">%s needs to restart</string>
      <!-- Body text for the startup crash page. %s is the name of the app (for example "Firefox") -->
      <string name="startup_crash_body">There was a problem opening %s.\n\nSending a crash report helps us diagnose and fix problems with the browser. Reports may include personal or sensitive data.</string>
@@ -4867,6 +4991,7 @@ diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/a
      <string name="startup_crash_positive">Send crash report</string>
      <!-- Button text to continue and not send a startup crash report -->
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt
+index 5a17712..99cc001 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt
 @@ -73,11 +73,11 @@ class CrashContentViewTest {
@@ -4885,6 +5010,7 @@ diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/Cr
          verify { controller.handleCloseAndRemove(false) }
      }
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/store/DefaultPrivacyPreferencesRepositoryTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/store/DefaultPrivacyPreferencesRepositoryTest.kt
+index 2ba6927..0567bcc 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/store/DefaultPrivacyPreferencesRepositoryTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/store/DefaultPrivacyPreferencesRepositoryTest.kt
 @@ -27,16 +27,22 @@ import org.mozilla.fenix.utils.Settings
@@ -4949,10 +5075,43 @@ diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding
      }
  
      @Test
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/datachoices/DataChoicesSearchProviderTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/datachoices/DataChoicesSearchProviderTest.kt
+index 997de24..507d3bc 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/datachoices/DataChoicesSearchProviderTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/datachoices/DataChoicesSearchProviderTest.kt
+@@ -14,6 +14,9 @@ import org.mozilla.fenix.ext.components
+ 
+ @RunWith(AndroidJUnit4::class)
+ class DataChoicesSearchProviderTest {
++    // LibreWolf (patches/android/no-crashreporter.patch, 157 rebase): upstream's 157 test expected a CRASH_REPORTS
++    // search item. DataChoicesSearchProvider no longer offers one, because the section it would navigate to is not
++    // rendered (there is no crash-reporting service), so it is dropped from both expectations below.
+ 
+     @Test
+     fun `GIVEN no marketing telemetry selection has been made WHEN getting search items THEN the base data choices are returned`() {
+@@ -22,7 +25,7 @@ class DataChoicesSearchProviderTest {
+         val keys = DataChoicesSearchProvider.getSearchItems(testContext).map { it.preferenceKey }
+ 
+         assertEquals(
+-            expected = listOf("TECHNICAL_DATA", "STUDIES", "USAGE_DATA", "CRASH_REPORTS"),
++            expected = listOf("TECHNICAL_DATA", "STUDIES", "USAGE_DATA"),
+             actual = keys,
+             message = "Expected the base data choices without the campaign measurement item",
+         )
+@@ -35,7 +38,7 @@ class DataChoicesSearchProviderTest {
+         val keys = DataChoicesSearchProvider.getSearchItems(testContext).map { it.preferenceKey }
+ 
+         assertEquals(
+-            expected = listOf("TECHNICAL_DATA", "STUDIES", "USAGE_DATA", "CRASH_REPORTS", "CAMPAIGN_MEASUREMENT"),
++            expected = listOf("TECHNICAL_DATA", "STUDIES", "USAGE_DATA", "CAMPAIGN_MEASUREMENT"),
+             actual = keys,
+             message = "Expected the campaign measurement item once a marketing telemetry selection has been made",
+         )
 diff --git a/mobile/android/focus-android/app/build.gradle b/mobile/android/focus-android/app/build.gradle
+index 0ba5b3b..27e7d62 100644
 --- a/mobile/android/focus-android/app/build.gradle
 +++ b/mobile/android/focus-android/app/build.gradle
-@@ -266,7 +266,10 @@ dependencies {
+@@ -259,7 +259,10 @@ dependencies {
      implementation project(':components:feature-webcompat-reporter')
      implementation project(':components:lib-auth')
      implementation project(':components:lib-crash')
@@ -4964,7 +5123,7 @@ diff --git a/mobile/android/focus-android/app/build.gradle b/mobile/android/focu
      implementation project(':components:lib-publicsuffixlist')
      implementation project(':components:lib-state')
      implementation project(":components:service-glean")
-@@ -315,7 +318,8 @@ dependencies {
+@@ -307,7 +310,8 @@ dependencies {
      implementation libs.google.material
      implementation libs.kotlinx.coroutines
      implementation libs.mozilla.glean
@@ -4975,9 +5134,18 @@ diff --git a/mobile/android/focus-android/app/build.gradle b/mobile/android/focu
      debugImplementation libs.leakcanary
  
 diff --git a/mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Components.kt b/mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Components.kt
+index 167246d..64f402c 100644
 --- a/mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Components.kt
 +++ b/mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Components.kt
-@@ -54,10 +54,6 @@ import mozilla.components.feature.top.sites.TopSitesUseCases
+@@ -12,7 +12,6 @@ import android.os.Environment
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.core.app.NotificationManagerCompat
+-import java.util.Locale
+ import java.util.concurrent.TimeUnit
+ import kotlinx.coroutines.CoroutineScope
+ import mozilla.components.browser.engine.gecko.util.EngineDownloadDelegate
+@@ -56,10 +55,6 @@ import mozilla.components.feature.top.sites.TopSitesUseCases
  import mozilla.components.feature.webcompat.WebCompatFeature
  import mozilla.components.feature.webcompat.reporter.WebCompatReporterFeature
  import mozilla.components.lib.crash.CrashReporter
@@ -4988,7 +5156,7 @@ diff --git a/mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Co
  import mozilla.components.lib.publicsuffixlist.PublicSuffixList
  import mozilla.components.service.location.LocationService
  import mozilla.components.service.location.MozillaLocationService
-@@ -65,7 +61,6 @@ import mozilla.components.service.nimbus.NimbusApi
+@@ -67,7 +62,6 @@ import mozilla.components.service.nimbus.NimbusApi
  import mozilla.components.support.base.android.NotificationsDelegate
  import mozilla.components.support.base.worker.Frequency
  import mozilla.components.support.ktx.android.content.appVersionName
@@ -4996,74 +5164,70 @@ diff --git a/mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Co
  import mozilla.components.support.remotesettings.DefaultRemoteSettingsSyncScheduler
  import mozilla.components.support.remotesettings.RemoteSettingsServer
  import mozilla.components.support.remotesettings.RemoteSettingsService
-@@ -101,7 +96,6 @@ import org.mozilla.focus.telemetry.startuptelemetry.StartupActivityLog
- import org.mozilla.focus.telemetry.startuptelemetry.StartupStateProvider
- import org.mozilla.focus.topsites.DefaultTopSitesStorage
- import org.mozilla.focus.utils.Settings
--import java.util.Locale
- import java.util.concurrent.TimeUnit
- 
- /**
-@@ -325,35 +319,10 @@ class Components(
+@@ -320,39 +314,10 @@ class Components(
      val downloadEstimator: DownloadEstimator by lazy { DownloadEstimator(dateTimeProvider = dateTimeProvider) }
  }
  
-+// LibreWolf (patches/android/no-crashreporter.patch): no crash-reporting service.  The Sentry,
-+// Socorro and Glean-crash-ping services this used to build are deleted from lib-crash; crashes are
-+// recorded locally and never uploaded.  See the fenix Analytics.kt hunk for the reasoning.
++// LibreWolf (patches/android/no-crashreporter.patch): no crash-reporting service. The Sentry, Socorro and
++// Glean-crash-ping services this used to build are deleted from lib-crash; crashes are recorded locally and never
++// uploaded. See the fenix Analytics.kt hunk for the reasoning.
  private fun createCrashReporter(context: Context): CrashReporter {
 -    val services = mutableListOf<CrashReporterService>()
 -
 -    if (BuildConfig.SENTRY_TOKEN.isNotEmpty()) {
--        val sentryService = SentryService(
--            context,
--            BuildConfig.SENTRY_TOKEN,
--            tags = mapOf(
--                "build_flavor" to BuildConfig.FLAVOR,
--                "build_type" to BuildConfig.BUILD_TYPE,
--                "locale_lang_tag" to getLocaleTag(context),
--            ),
--            environment = BuildConfig.BUILD_TYPE,
--            sendEventForNativeCrashes = false, // Do not send native crashes to Sentry
--        )
+-        val sentryService =
+-            SentryService(
+-                context,
+-                BuildConfig.SENTRY_TOKEN,
+-                tags =
+-                    mapOf(
+-                        "build_flavor" to BuildConfig.FLAVOR,
+-                        "build_type" to BuildConfig.BUILD_TYPE,
+-                        "locale_lang_tag" to getLocaleTag(context),
+-                    ),
+-                environment = BuildConfig.BUILD_TYPE,
+-                sendEventForNativeCrashes = false, // Do not send native crashes to Sentry
+-                sendCaughtExceptions = false, // Do not send diagnostic logs
+-            )
 -
 -        services.add(sentryService)
 -    }
 -
--    val socorroService = MozillaSocorroService(
--        context,
--        appName = "Focus",
--        version = org.mozilla.geckoview.BuildConfig.MOZ_APP_VERSION,
--        buildId = org.mozilla.geckoview.BuildConfig.MOZ_APP_BUILDID,
--        vendor = org.mozilla.geckoview.BuildConfig.MOZ_APP_VENDOR,
--        releaseChannel = org.mozilla.geckoview.BuildConfig.MOZ_UPDATE_CHANNEL,
--    )
+-    val socorroService =
+-        MozillaSocorroService(
+-            context,
+-            appName = "Focus",
+-            version = org.mozilla.geckoview.BuildConfig.MOZ_APP_VERSION,
+-            buildId = org.mozilla.geckoview.BuildConfig.MOZ_APP_BUILDID,
+-            vendor = org.mozilla.geckoview.BuildConfig.MOZ_APP_VENDOR,
+-            releaseChannel = org.mozilla.geckoview.BuildConfig.MOZ_UPDATE_CHANNEL,
+-        )
 -    services.add(socorroService)
 -
-     val intent = Intent(context, MainActivity::class.java).apply {
-         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-     }
-@@ -373,36 +342,17 @@ private fun createCrashReporter(context: Context): CrashReporter {
+     val intent =
+         Intent(context, MainActivity::class.java).apply {
+             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+@@ -375,36 +340,16 @@ private fun createCrashReporter(context: Context): CrashReporter {
  
      return CrashReporter(
          context = context,
 -        services = services,
--        telemetryServices = listOf(
--            GleanCrashReporterService(
--                context,
--                appChannel = org.mozilla.geckoview.BuildConfig.MOZ_UPDATE_CHANNEL,
--                appVersion = org.mozilla.geckoview.BuildConfig.MOZ_APP_VERSION,
--                appBuildId = org.mozilla.geckoview.BuildConfig.MOZ_APP_BUILDID,
--                // There's no need to call `CrashReporter.setTelemetryEnabled`: there's no path for the telemetry
--                // setting to change (it is always false).
--                isUploadEnabled = GleanMetricsService.isTelemetryEnabled(context),
+-        telemetryServices =
+-            listOf(
+-                GleanCrashReporterService(
+-                    context,
+-                    appChannel = org.mozilla.geckoview.BuildConfig.MOZ_UPDATE_CHANNEL,
+-                    appVersion = org.mozilla.geckoview.BuildConfig.MOZ_APP_VERSION,
+-                    appBuildId = org.mozilla.geckoview.BuildConfig.MOZ_APP_BUILDID,
+-                    // There's no need to call `CrashReporter.setTelemetryEnabled`: there's no path for the telemetry
+-                    // setting to change (it is always false).
+-                    isUploadEnabled = GleanMetricsService.isTelemetryEnabled(context),
+-                )
 -            ),
--        ),
 +        services = emptyList(),
 +        telemetryServices = emptyList(),
-         promptConfiguration = CrashReporter.PromptConfiguration(
-             appName = context.resources.getString(R.string.app_name),
-         ),
+         promptConfiguration =
+             CrashReporter.PromptConfiguration(appName = context.resources.getString(R.string.app_name)),
 -        shouldPrompt = CrashReporter.Prompt.ALWAYS,
 +        shouldPrompt = CrashReporter.Prompt.NEVER,
          enabled = true,
@@ -5080,6 +5244,6 @@ diff --git a/mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Co
 -    }
 -}
 -
- /**
-  * Gets a [SearchEngineSelectorConfig] for the app and device.
-  */
+ /** Gets a [SearchEngineSelectorConfig] for the app and device. */
+ private fun getSearchEngineSelectorConfig(context: Context): SearchEngineSelectorConfig? {
+     if (!context.settings.useRemoteSearchConfiguration) {

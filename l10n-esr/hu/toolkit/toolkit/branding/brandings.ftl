@@ -1,8 +1,0 @@
--screenshots-brand-name = Képernyőképek
--profiler-brand-name = Profiler
--translations-brand-name = Fordítások
--firefox-suggest-brand-name = Javaslatok
--firefox-home-brand-name = Kezdőoldal
--firefoxview-brand-name = Lapnézet
--firefoxlabs-brand-name = Firefox Labs a Mozillától
--relay-brand-name = Relay a Mozillától

@@ -121,25 +121,47 @@
 # reads the engine names off the screen (Mojeek present, DuckDuckGo No-AI
 # selected), then types a query into the toolbar and inspects the URL it lands
 # on for partner/attribution parameters. Evidence: docs/android/evidence/lw-m4-06/.
+#
+#
+# 157 rebase (2026-10-02, Firefox 153.4.0esr -> 157.0)
+# -----------------------------------------------------
+# Same change, nothing dropped. The line numbers above are 153's. What moved:
+#   * client.rs: unchanged context; the packaged_collections! list (now
+#     ~:95-103) still holds search-config-v2 and search-config-icons, and 157
+#     still ships Startpage's acae3d3c... file and sidecar in
+#     dumps/main/attachments/search-config-icons/ without listing the id, so
+#     both ids are still needed.
+#   * Settings.kt was reformatted upstream (ktfmt) and useRemoteSearchConfiguration
+#     moved to ~:2465 with a one-line KDoc; it becomes the same constant `true`.
+#     The only reader on 157 is Core.getSearchEngineSelectorConfig()
+#     (Core.kt:724); no code or test assigns it.
+#   * SecretSettingsFragment.kt: the listener object was reformatted
+#     (`onPreferenceChangeListener =` on its own line); the same block is
+#     removed. Preference, SwitchPreferenceCompat and SharedPreferenceUpdater
+#     are still used elsewhere in the file. FenixApplication still registers
+#     the Remote Settings sync worker unconditionally (FenixApplication.kt:825),
+#     as on 153; rs-blocker-android makes that sync a no-op.
+#   * secret_settings_preferences.xml: same row, 11 lines further down.
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-@@ -317,20 +317,9 @@
+@@ -313,21 +313,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
              summary = settings.getRemoteSettingsServerString()
          }
  
 -        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_use_remote_search_configuration).apply {
 -            isVisible = true
 -            isChecked = settings.useRemoteSearchConfiguration
--            onPreferenceChangeListener = object : SharedPreferenceUpdater() {
--                override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
--                    if (newValue as? Boolean == true) {
--                        context.components.remoteSettingsSyncScheduler.registerForSync()
--                    } else {
--                        context.components.remoteSettingsSyncScheduler.unregisterForSync()
+-            onPreferenceChangeListener =
+-                object : SharedPreferenceUpdater() {
+-                    override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+-                        if (newValue as? Boolean == true) {
+-                            context.components.remoteSettingsSyncScheduler.registerForSync()
+-                        } else {
+-                            context.components.remoteSettingsSyncScheduler.unregisterForSync()
+-                        }
+-                        return super.onPreferenceChange(preference, newValue)
 -                    }
--                    return super.onPreferenceChange(preference, newValue)
 -                }
--            }
 -        }
 +        // LibreWolf (LW-M4-06): the "remote search configuration" debug switch is
 +        // gone -- Settings.useRemoteSearchConfiguration is a constant `true`, so
@@ -149,10 +171,18 @@
              isVisible = true
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2276,11 +2276,22 @@
+@@ -2461,12 +2461,24 @@ class Settings(
+             default = { FxNimbus.features.minimalAddressbar.value().atBottomWhileEnteringText },
+         )
  
-     /**
-      * Indicates whether or not to use remote server search configuration.
+-    /** Indicates whether or not to use remote server search configuration. */
+-    var useRemoteSearchConfiguration by
+-        booleanPreference(
+-            key = appContext.getPreferenceKey(R.string.pref_key_use_remote_search_configuration),
+-            default = { FxNimbus.features.remoteSearchConfiguration.value().enabled },
+-        )
++    /**
++     * Indicates whether or not to use remote server search configuration.
 +     *
 +     * LibreWolf (LW-M4-06): pinned to `true`. The LibreWolf engine set (DuckDuckGo
 +     * No-AI default, Startpage, Mojeek, Wikipedia) is delivered through the
@@ -166,19 +196,15 @@
 +     * cannot guarantee across a rebase. A constant can. The hidden debug switch
 +     * that flipped this is removed from SecretSettingsFragment for the same
 +     * reason: a toggle that does nothing is worse than none.
-      */
--    var useRemoteSearchConfiguration by booleanPreference(
--        key = appContext.getPreferenceKey(R.string.pref_key_use_remote_search_configuration),
--        default = { FxNimbus.features.remoteSearchConfiguration.value().enabled },
--    )
++     */
 +    val useRemoteSearchConfiguration: Boolean
 +        get() = true
  
-     /**
-      * Indicates if the menu CFR should be displayed to the user.
+     /** Get the current mode for how https-only is enabled. */
+     fun getHttpsOnlyMode(): HttpsOnlyMode {
 --- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
-@@ -45,10 +45,8 @@
+@@ -56,10 +56,8 @@
        android:key="@string/pref_key_enable_fxsuggest"
        android:title="@string/preferences_debug_settings_fxsuggest"
        app:iconSpaceReserved="false" />
@@ -193,7 +219,7 @@
        android:title="@string/preferences_debug_settings_search_optimization"
 --- a/third_party/application-services/components/remote_settings/src/client.rs
 +++ b/third_party/application-services/components/remote_settings/src/client.rs
-@@ -127,6 +127,18 @@
+@@ -127,6 +127,18 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
              "177aba42-9bed-4078-e36b-580e8794cd7f",
              "25de0352-aabb-d31f-15f7-bf9299fb004c",
              "2bbe48f4-d3b8-c9e0-86e3-a54c37ec3335",

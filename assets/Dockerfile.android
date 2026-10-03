@@ -6,7 +6,11 @@
 # EVERY VERSION IN THIS FILE IS PINNED AND CARRIES THE FILE:LINE IN THE FIREFOX
 # SOURCE TREE IT WAS READ FROM. Re-check them on every rebase — an NDK or SDK
 # mismatch produces a tree that configures fine and then fails deep in the link.
-# The line numbers below are from the Firefox 153.0.4 tree.
+# The line numbers below are from the Firefox 153.0.4 tree, except the two SDK
+# rows marked (157), which were re-read on firefox-157.0 when Android moved to
+# Firefox release: 157's configure dies with "Android cmdline-tools 21.0 not
+# found" on a 153 image, and asks for platform android-37.1. The other rows
+# still need their 157 re-check.
 #
 #   pin                       value              read from
 #   ------------------------  -----------------  ---------------------------------------------
@@ -15,10 +19,10 @@
 #                                                gradle/gradle-daemon-jvm.properties:8
 #   Android NDK               r29                python/mozboot/mozboot/android.py:28
 #                                                build/moz.configure/android-ndk.configure:8-13,114-119
-#   SDK cmdline-tools         20.0 / 14742923    python/mozboot/mozboot/android.py:29-30
+#   SDK cmdline-tools (157)   21.0 / 15641748    python/mozboot/mozboot/android.py:31-32
 #   SDK build-tools           37.0.0             build/moz.configure/android-sdk.configure:154-156
 #                                                python/mozboot/mozboot/android-packages.txt:3
-#   SDK platform              android-37.0       build/moz.configure/android-sdk.configure:154,157-158,228
+#   SDK platform (157)        android-37.1       build/moz.configure/android-sdk.configure:154,227-228
 #                                                python/mozboot/mozboot/android-packages.txt:4
 #   SDK platform-tools        latest             python/mozboot/mozboot/android-packages.txt:2
 #   SDK emulator              latest             python/mozboot/mozboot/android-packages.txt:1
@@ -99,10 +103,10 @@ ENV LW_JAVA_MAJOR=17
 ENV LW_JDK_VERSION=17.0.18
 ENV LW_JDK_BUILD=8
 ENV LW_ANDROID_NDK_VERSION=r29
-ENV LW_ANDROID_CMDLINE_TOOLS_VERSION=20.0
-ENV LW_ANDROID_CMDLINE_TOOLS_BUILD=14742923
+ENV LW_ANDROID_CMDLINE_TOOLS_VERSION=21.0
+ENV LW_ANDROID_CMDLINE_TOOLS_BUILD=15641748
 ENV LW_ANDROID_BUILD_TOOLS_VERSION=37.0.0
-ENV LW_ANDROID_PLATFORM=android-37.0
+ENV LW_ANDROID_PLATFORM=android-37.1
 ENV LW_BUNDLETOOL_VERSION=1.18.3
 ENV LW_RUST_VERSION=1.94.1
 
@@ -162,7 +166,7 @@ RUN mkdir -p /root/.gradle \
  && echo "org.gradle.java.installations.paths=${JAVA_HOME}" > /root/.gradle/gradle.properties
 
 # ---------------------------------------------------------------------------
-# Android SDK command-line tools — 20.0, build 14742923.
+# Android SDK command-line tools — 21.0, build 15641748.
 # URL and the cmdline-tools/<version-string>/ relayout are both from
 # python/mozboot/mozboot/android.py:422-450 (ensure_android_sdk); configure
 # looks for the tool at that exact path (android.py:285-293).

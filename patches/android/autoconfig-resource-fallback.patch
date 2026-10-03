@@ -151,9 +151,13 @@
 # gap is reported to the board rather than edited here, exactly as
 # check-patch-order.py already records for the webgl pair.
 #
+# 157 rebase: same change; regenerated on the 157 tree as patched by every
+# entry before it, because nsReadConfig.cpp's hunk context moved and the 153
+# hunk applied only with fuzz 1.
+#
 --- a/extensions/pref/autoconfig/src/nsReadConfig.cpp
 +++ b/extensions/pref/autoconfig/src/nsReadConfig.cpp
-@@ -241,7 +241,38 @@
+@@ -241,7 +241,38 @@ nsresult nsReadConfig::openAndEvaluateJSFile(const char* aFileName,
    nsresult rv;
  
    nsCOMPtr<nsIInputStream> inStr;
@@ -191,9 +195,9 @@
 +#endif  // defined(MOZ_WIDGET_ANDROID)
 +  if (!fromResourceURI) {
      nsCOMPtr<nsIFile> jsFile;
- #if defined(MOZ_WIDGET_GTK)
+ #if defined(MOZ_WIDGET_GTK) && defined(MOZ_SYSTEM_PREFERENCES)
      bool exists;
-@@ -286,6 +317,9 @@
+@@ -286,6 +317,9 @@ nsresult nsReadConfig::openAndEvaluateJSFile(const char* aFileName,
      NS_ENSURE_SUCCESS(rv, rv);
  
      rv = channel->Open(getter_AddRefs(inStr));
@@ -203,10 +207,9 @@
      NS_ENSURE_SUCCESS(rv, rv);
    }
  
-
 --- a/lw/moz.build
 +++ b/lw/moz.build
-@@ -10,3 +10,12 @@
+@@ -10,3 +10,12 @@ FINAL_TARGET_FILES.distribution += [
  FINAL_TARGET_FILES.defaults.pref += [
    "local-settings.js",
  ]
@@ -219,10 +222,9 @@
 +FINAL_TARGET_FILES.defaults.autoconfig += [
 +  "librewolf.cfg",
 +]
-
 --- a/mobile/android/installer/package-manifest.in
 +++ b/mobile/android/installer/package-manifest.in
-@@ -134,6 +134,13 @@
+@@ -135,6 +135,13 @@
  
  #ifdef MOZ_PREF_EXTENSIONS
  @BINPATH@/defaults/autoconfig/prefcalls.js
@@ -236,4 +238,3 @@
  #endif
  
  ; [Layout Engine Resources]
-

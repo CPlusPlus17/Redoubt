@@ -1,8 +1,30 @@
+# LW-M7-29: explicit pinned language/region downloads and atomic local Suggest
+# cache import. 157 rebase: no intent change. The 153 file applied to 157 only
+# with fuzz 1-2 (FxSuggestStorage.kt, SearchEngineFragment.kt), so it was
+# regenerated from the 157 tree as patched by every entry before it.
+#
+# 157 release build (2026-10-02): the Kotlin bindings. On 153 the
+# application-services Gradle build ran uniffi-bindgen against the megazord, so
+# the Rust exports below (install_pinned_suggest_data,
+# installed_pinned_suggest_data, PinnedSuggestAttachment,
+# SuggestDataInstallToken) reached Kotlin by themselves. 157 compiles the
+# checked-in bindings under toolkit/components/uniffi-bindgen-gecko-js/android
+# instead (component-common.gradle, when gradle.mozconfig is set), so without a
+# hunk for remote_settings.kt SuggestDataInstaller.kt fails with unresolved
+# references. The last hunk below is that file regenerated the way
+# `mach uniffi generate` does it: embedded-uniffi-bindgen (built from this tree,
+# uniffi 0.31) `generate --no-format --language kotlin` over the x86_64
+# release-megazord libmegazord.a of a build with this patch applied. Run over
+# the same library, the generator reproduced the other 22 checked-in binding
+# files byte for byte, and remote_settings.kt differs only by these 395 added
+# lines. If the Rust API in this patch changes, regenerate this hunk the same
+# way; never edit it by hand (the scaffolding checksums must match).
+
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
-index 91dd137..6fe90ac 100644
+index 8e710f699c..383aa629a6 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
-@@ -17,6 +17,7 @@ import mozilla.appservices.suggest.SuggestStore
+@@ -18,6 +18,7 @@ import mozilla.appservices.suggest.SuggestStore
  import mozilla.appservices.suggest.SuggestStoreBuilder
  import mozilla.appservices.suggest.Suggestion
  import mozilla.appservices.suggest.SuggestionQuery
@@ -10,7 +32,7 @@ index 91dd137..6fe90ac 100644
  import mozilla.components.concept.base.crash.CrashReporting
  import mozilla.components.feature.fxsuggest.facts.emitSuggestionQueryCountFact
  import mozilla.components.support.base.log.logger.Logger
-@@ -35,6 +36,7 @@ class FxSuggestStorage(
+@@ -34,6 +35,7 @@ class FxSuggestStorage(
      context: Context,
      remoteSettingsService: RemoteSettingsService,
      private val crashReporter: CrashReporting? = null,
@@ -18,7 +40,7 @@ index 91dd137..6fe90ac 100644
  ) {
      // Lazily initializes the store on first use. `cacheDir` and using the `File` constructor
      // does I/O, so `store.value` should only be accessed from the read or write scope.
-@@ -90,7 +92,7 @@ class FxSuggestStorage(
+@@ -89,7 +91,7 @@ class FxSuggestStorage(
       * @param constraints Optional limits on suggestions to ingest.
       * @return `true` if ingestion succeeded; `false` if ingestion failed and should be retried.
       */
@@ -27,18 +49,18 @@ index 91dd137..6fe90ac 100644
          withContext(writeScope.coroutineContext) {
              val admission = FxSuggestAdmission.snapshot()
              if (!admission.choices.localEnabled) return@withContext true
-@@ -111,7 +113,7 @@ class FxSuggestStorage(
+@@ -110,7 +112,7 @@ class FxSuggestStorage(
       */
      suspend fun runStartupIngestion() {
          logger.info("runStartupIngestion")
 -        ingest(SuggestIngestionConstraints(emptyOnly = true))
 +        ingest(SuggestIngestionConstraints(providers = defaultIngestionProviders, emptyOnly = true))
      }
-
-     /**
+ 
+     /** Interrupts any ongoing queries for suggestions. */
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
 new file mode 100644
-index 0000000..f94002c
+index 0000000000..f94002c82b
 --- /dev/null
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
 @@ -0,0 +1,73 @@
@@ -116,9 +138,10 @@ index 0000000..f94002c
 +    }
 +}
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
+index 67f98ca842..7339a10b0a 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -545,6 +545,13 @@ dependencies {
+@@ -538,6 +538,13 @@ dependencies {
  
      implementation ComponentsDependencies.mozilla_appservices_syncmanager
      implementation ComponentsDependencies.mozilla_appservices_merino
@@ -133,12 +156,12 @@ diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/bu
      implementation libs.accompanist.drawablepainter
      implementation libs.androidx.activity
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
-index 8c68bab..c7baedc 100644
+index 8c68bab6d0..c7baedcc65 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
 @@ -5,6 +5,7 @@
  package org.mozilla.fenix.components
-
+ 
  import android.content.Context
 +import mozilla.appservices.suggest.SuggestionProvider
  import mozilla.components.concept.base.crash.CrashReporting
@@ -151,28 +174,28 @@ index 8c68bab..c7baedc 100644
 +            defaultIngestionProviders = listOf(SuggestionProvider.AMP, SuggestionProvider.WIKIPEDIA),
          )
      }
-
+ 
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
-index b908196..a764ffd 100644
+index f27235623c..403dcddf19 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
-@@ -37,6 +37,7 @@ import org.mozilla.gecko.search.SearchWidgetProvider
-  * Settings screen allowing users to configure the browser search functionality.
-  */
+@@ -36,6 +36,7 @@ import org.mozilla.gecko.search.SearchWidgetProvider
+ 
+ /** Settings screen allowing users to configure the browser search functionality. */
  class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment {
 +    private var suggestDataPreferences: SuggestDataPreferences? = null
-
+ 
      override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
          setPreferencesFromResource(
-@@ -60,6 +61,7 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -59,6 +60,7 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
              isVisible = canShowAddSearchWidgetPrompt(AppWidgetManager.getInstance(requireContext()))
          }
-
+ 
 +        suggestDataPreferences = SuggestDataPreferences(this)
          view?.hideKeyboard()
      }
-
-@@ -205,6 +207,12 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+ 
+@@ -209,6 +211,12 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
          listOf(suggestMaster, showSponsoredSuggestionsPreference, showNonSponsoredSuggestionsPreference, showSuggestionCardsPreference)
              .forEach { it.isPersistent = false }
          updateSuggestControls()
@@ -183,11 +206,11 @@ index b908196..a764ffd 100644
 +        suggestDataPreferences?.onStop()
 +        super.onStop()
      }
-
+ 
      /**
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt
 new file mode 100644
-index 0000000..ded8a5e
+index 0000000000..ded8a5ebff
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt
 @@ -0,0 +1,80 @@
@@ -273,7 +296,7 @@ index 0000000..ded8a5e
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt
 new file mode 100644
-index 0000000..0e57841
+index 0000000000..0e578412fe
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt
 @@ -0,0 +1,113 @@
@@ -392,7 +415,7 @@ index 0000000..0e57841
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt
 new file mode 100644
-index 0000000..d42ebe6
+index 0000000000..d42ebe61c5
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt
 @@ -0,0 +1,231 @@
@@ -629,7 +652,7 @@ index 0000000..d42ebe6
 +}
 diff --git a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml
 new file mode 100644
-index 0000000..2f98202
+index 0000000000..2f98202063
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml
 @@ -0,0 +1,19 @@
@@ -653,7 +676,7 @@ index 0000000..2f98202
 +    <string name="suggest_data_status_failed">Could not check installed data. Select to download data.</string>
 +</resources>
 diff --git a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
-index e5c6bb8..5de2b37 100644
+index e5c6bb829d..5de2b37ad9 100644
 --- a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
 @@ -6,8 +6,8 @@
@@ -668,10 +691,10 @@ index e5c6bb8..5de2b37 100644
      <string name="firefox_suggest_online_summary">Send text as you type to Mozilla’s suggestion service for online cards, such as flights, sports and stocks. Turning this off stops new requests; a request already sent may finish.</string>
      <string name="firefox_suggest_stocks_title">Stock cards</string>
 diff --git a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
-index 7aa8322..0bd3871 100644
+index 497fe2a000..e32e437bb7 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
-@@ -86,6 +86,16 @@
+@@ -92,6 +92,16 @@
              android:selectable="false"
              android:title="@string/firefox_suggest_local_data_title"
              android:summary="@string/firefox_suggest_local_data_summary" />
@@ -690,7 +713,7 @@ index 7aa8322..0bd3871 100644
              android:key="@string/pref_key_show_nonsponsored_suggestions"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt
 new file mode 100644
-index 0000000..08d0dc9
+index 0000000000..08d0dc92f0
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt
 @@ -0,0 +1,49 @@
@@ -745,7 +768,7 @@ index 0000000..08d0dc9
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt
 new file mode 100644
-index 0000000..178a61b
+index 0000000000..178a61b936
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt
 @@ -0,0 +1,170 @@
@@ -920,7 +943,7 @@ index 0000000..178a61b
 +
 +}
 diff --git a/third_party/application-services/components/remote_settings/src/client.rs b/third_party/application-services/components/remote_settings/src/client.rs
-index 7d7ec68..88245a5 100644
+index ebc942a6fe..7d1773ffc8 100644
 --- a/third_party/application-services/components/remote_settings/src/client.rs
 +++ b/third_party/application-services/components/remote_settings/src/client.rs
 @@ -13,6 +13,7 @@ use crate::{packaged_attachments, packaged_collections, RemoteSettingsServer};
@@ -937,14 +960,14 @@ index 7d7ec68..88245a5 100644
      pending_config: Mutex<Option<RemoteSettingsClientConfig>>,
 +    issued_config_generation: AtomicU64,
  }
-
+ 
  struct RemoteSettingsClientInner<C> {
 +    applied_config_generation: u64,
      storage: Storage,
      api_client: C,
      jexl_filter: JexlFilter,
  }
-
+ 
  struct RemoteSettingsClientConfig {
 +    generation: u64,
      server_url: BaseUrl,
@@ -972,7 +995,7 @@ index 7d7ec68..88245a5 100644
 +            issued_config_generation: AtomicU64::new(0),
          }
      }
-
+ 
 @@ -233,18 +241,138 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
          let pending_config = self.get_pending_config();
          let mut inner = self.inner.lock();
@@ -985,7 +1008,7 @@ index 7d7ec68..88245a5 100644
          }
          Ok(inner)
      }
-
+ 
 +    fn apply_taken_config(
 +        &self,
 +        inner: &mut RemoteSettingsClientInner<C>,
@@ -1014,7 +1037,7 @@ index 7d7ec68..88245a5 100644
      fn get_pending_config(&self) -> Option<RemoteSettingsClientConfig> {
          self.pending_config.lock().take()
      }
-
+ 
 +    pub(crate) fn install_pinned_suggest_data(
 +        &self,
 +        dataset_id: &str,
@@ -1116,7 +1139,7 @@ index 7d7ec68..88245a5 100644
      pub fn collection_name(&self) -> &str {
          &self.collection_name
      }
-@@ -571,6 +699,7 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
+@@ -579,6 +707,7 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
      ) {
          let mut pending_config = self.pending_config.lock();
          *pending_config = Some(RemoteSettingsClientConfig {
@@ -1124,7 +1147,7 @@ index 7d7ec68..88245a5 100644
              server_url,
              bucket_name,
              context,
-@@ -1678,3 +1807,130 @@ mod test_reset_storage {
+@@ -1827,3 +1956,130 @@ mod test_reset_storage {
          );
      }
  }
@@ -1256,7 +1279,7 @@ index 7d7ec68..88245a5 100644
 +    }
 +}
 diff --git a/third_party/application-services/components/remote_settings/src/lib.rs b/third_party/application-services/components/remote_settings/src/lib.rs
-index 9c5f80b..4db50a8 100644
+index 9c5f80b194..4db50a8b70 100644
 --- a/third_party/application-services/components/remote_settings/src/lib.rs
 +++ b/third_party/application-services/components/remote_settings/src/lib.rs
 @@ -10,11 +10,13 @@ pub mod client;
@@ -1271,12 +1294,12 @@ index 9c5f80b..4db50a8 100644
  pub mod storage;
 +pub use pinned_suggest::{PinnedSuggestAttachment, SuggestDataInstallToken};
  pub mod telemetry;
-
+ 
  pub(crate) mod jexl_filter;
 @@ -197,6 +199,24 @@ impl RemoteSettingsClient {
          self.internal.reset_storage()
      }
-
+ 
 +    /// Install one complete release-pinned Suggest dataset without network access.
 +    #[handle_error(Error)]
 +    pub fn install_pinned_suggest_data(
@@ -1300,7 +1323,7 @@ index 9c5f80b..4db50a8 100644
          self.internal.shutdown()
 diff --git a/third_party/application-services/components/remote_settings/src/pinned_suggest.rs b/third_party/application-services/components/remote_settings/src/pinned_suggest.rs
 new file mode 100644
-index 0000000..2b304a1
+index 0000000000..2b304a1d9c
 --- /dev/null
 +++ b/third_party/application-services/components/remote_settings/src/pinned_suggest.rs
 @@ -0,0 +1,467 @@
@@ -1772,13 +1795,13 @@ index 0000000..2b304a1
 +    }
 +}
 diff --git a/third_party/application-services/components/remote_settings/src/storage.rs b/third_party/application-services/components/remote_settings/src/storage.rs
-index 8677980..a5f27e8 100644
+index 0c5b56f70c..fb6eb68361 100644
 --- a/third_party/application-services/components/remote_settings/src/storage.rs
 +++ b/third_party/application-services/components/remote_settings/src/storage.rs
-@@ -316,6 +316,49 @@ impl Storage {
+@@ -322,6 +322,49 @@ impl Storage {
          Ok(())
      }
-
+ 
 +    /// Replace only this Suggest collection in one transaction. Validation was
 +    /// completed before opening the transaction; any write/cancellation failure
 +    /// rolls back the old records and attachments together.
@@ -1825,7 +1848,7 @@ index 8677980..a5f27e8 100644
      /// Empty out all cached values and start from scratch.  This is called when
      /// RemoteSettingsService::update_config() is called, since that could change the remote
      /// settings server which would invalidate all cached data.
-@@ -1142,3 +1185,183 @@ mod tests {
+@@ -1152,3 +1195,183 @@ mod tests {
          Ok(())
      }
  }
@@ -2011,7 +2034,7 @@ index 8677980..a5f27e8 100644
 +}
 diff --git a/third_party/application-services/components/suggest/tests/pinned_suggest.rs b/third_party/application-services/components/suggest/tests/pinned_suggest.rs
 new file mode 100644
-index 0000000..4f7aa24
+index 0000000000..4f7aa24ef5
 --- /dev/null
 +++ b/third_party/application-services/components/suggest/tests/pinned_suggest.rs
 @@ -0,0 +1,153 @@
@@ -2168,3 +2191,468 @@ index 0000000..4f7aa24
 +        Some("sponsored-suggestions-de-phone")
 +    );
 +}
+diff --git a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt b/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
+--- a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
++++ b/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
+@@ -668,6 +668,10 @@
+     ): Short
+     external fun uniffi_remote_settings_checksum_method_remotesettingsclient_get_records_map(
+     ): Short
++    external fun uniffi_remote_settings_checksum_method_remotesettingsclient_install_pinned_suggest_data(
++    ): Short
++    external fun uniffi_remote_settings_checksum_method_remotesettingsclient_installed_pinned_suggest_data(
++    ): Short
+     external fun uniffi_remote_settings_checksum_method_remotesettingsclient_reset_storage(
+     ): Short
+     external fun uniffi_remote_settings_checksum_method_remotesettingsclient_shutdown(
+@@ -684,10 +688,14 @@
+     ): Short
+     external fun uniffi_remote_settings_checksum_method_remotesettingsservice_update_config(
+     ): Short
++    external fun uniffi_remote_settings_checksum_method_suggestdatainstalltoken_cancel(
++    ): Short
+     external fun uniffi_remote_settings_checksum_method_remotesettingstelemetry_report_uptake(
+     ): Short
+     external fun uniffi_remote_settings_checksum_constructor_remotesettingsservice_new(
+     ): Short
++    external fun uniffi_remote_settings_checksum_constructor_suggestdatainstalltoken_new(
++    ): Short
+     external fun ffi_remote_settings_uniffi_contract_version(
+     ): Int
+ 
+@@ -721,6 +729,10 @@
+     ): RustBuffer.ByValue
+     external fun uniffi_remote_settings_fn_method_remotesettingsclient_get_records_map(`ptr`: Long,`syncIfEmpty`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+     ): RustBuffer.ByValue
++    external fun uniffi_remote_settings_fn_method_remotesettingsclient_install_pinned_suggest_data(`ptr`: Long,`datasetId`: RustBuffer.ByValue,`attachments`: RustBuffer.ByValue,`token`: Long,uniffi_out_err: UniffiRustCallStatus, 
++    ): Unit
++    external fun uniffi_remote_settings_fn_method_remotesettingsclient_installed_pinned_suggest_data(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
++    ): RustBuffer.ByValue
+     external fun uniffi_remote_settings_fn_method_remotesettingsclient_reset_storage(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+     ): Unit
+     external fun uniffi_remote_settings_fn_method_remotesettingsclient_shutdown(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+@@ -743,6 +755,14 @@
+     ): RustBuffer.ByValue
+     external fun uniffi_remote_settings_fn_method_remotesettingsservice_update_config(`ptr`: Long,`config`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+     ): Unit
++    external fun uniffi_remote_settings_fn_clone_suggestdatainstalltoken(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
++    ): Long
++    external fun uniffi_remote_settings_fn_free_suggestdatainstalltoken(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
++    ): Unit
++    external fun uniffi_remote_settings_fn_constructor_suggestdatainstalltoken_new(uniffi_out_err: UniffiRustCallStatus, 
++    ): Long
++    external fun uniffi_remote_settings_fn_method_suggestdatainstalltoken_cancel(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
++    ): Byte
+     external fun uniffi_remote_settings_fn_clone_remotesettingstelemetry(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+     ): Long
+     external fun uniffi_remote_settings_fn_free_remotesettingstelemetry(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+@@ -1331,6 +1351,16 @@
+      */
+     fun `getRecordsMap`(`syncIfEmpty`: kotlin.Boolean = false): Map<kotlin.String, RemoteSettingsRecord>?
+     
++    /**
++     * Install one complete release-pinned Suggest dataset without network access.
++     */
++    fun `installPinnedSuggestData`(`datasetId`: kotlin.String, `attachments`: List<PinnedSuggestAttachment>, `token`: SuggestDataInstallToken)
++    
++    /**
++     * Return an installed dataset only after validating all cached attachments.
++     */
++    fun `installedPinnedSuggestData`(): kotlin.String?
++    
+     fun `resetStorage`()
+     
+     /**
+@@ -1552,6 +1582,39 @@
+     
+ 
+     
++    /**
++     * Install one complete release-pinned Suggest dataset without network access.
++     */
++    @Throws(RemoteSettingsException::class)override fun `installPinnedSuggestData`(`datasetId`: kotlin.String, `attachments`: List<PinnedSuggestAttachment>, `token`: SuggestDataInstallToken)
++        = 
++    callWithHandle {
++    uniffiRustCallWithError(RemoteSettingsException) { _status ->
++    UniffiLib.uniffi_remote_settings_fn_method_remotesettingsclient_install_pinned_suggest_data(
++        it,
++        FfiConverterString.lower(`datasetId`),FfiConverterSequenceTypePinnedSuggestAttachment.lower(`attachments`),FfiConverterTypeSuggestDataInstallToken.lower(`token`),_status)
++}
++    }
++    
++    
++
++    
++    /**
++     * Return an installed dataset only after validating all cached attachments.
++     */
++    @Throws(RemoteSettingsException::class)override fun `installedPinnedSuggestData`(): kotlin.String? {
++            return FfiConverterOptionalString.lift(
++    callWithHandle {
++    uniffiRustCallWithError(RemoteSettingsException) { _status ->
++    UniffiLib.uniffi_remote_settings_fn_method_remotesettingsclient_installed_pinned_suggest_data(
++        it,
++        _status)
++}
++    }
++    )
++    }
++    
++
++    
+     @Throws(RemoteSettingsException::class)override fun `resetStorage`()
+         = 
+     callWithHandle {
+@@ -2380,6 +2443,272 @@
+ }
+ 
+ 
++// This template implements a class for working with a Rust struct via a handle
++// to the live Rust struct on the other side of the FFI.
++//
++// There's some subtlety here, because we have to be careful not to operate on a Rust
++// struct after it has been dropped, and because we must expose a public API for freeing
++// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
++//
++//   * Each instance holds an opaque handle to the underlying Rust struct.
++//     Method calls need to read this handle from the object's state and pass it in to
++//     the Rust FFI.
++//
++//   * When an instance is no longer needed, its handle should be passed to a
++//     special destructor function provided by the Rust FFI, which will drop the
++//     underlying Rust struct.
++//
++//   * Given an instance, calling code is expected to call the special
++//     `destroy` method in order to free it after use, either by calling it explicitly
++//     or by using a higher-level helper like the `use` method. Failing to do so risks
++//     leaking the underlying Rust struct.
++//
++//   * We can't assume that calling code will do the right thing, and must be prepared
++//     to handle Kotlin method calls executing concurrently with or even after a call to
++//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
++//
++//   * We must never allow Rust code to operate on the underlying Rust struct after
++//     the destructor has been called, and must never call the destructor more than once.
++//     Doing so may trigger memory unsafety.
++//
++//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
++//     is implemented to call the destructor when the Kotlin object becomes unreachable.
++//     This is done in a background thread. This is not a panacea, and client code should be aware that
++//      1. the thread may starve if some there are objects that have poorly performing
++//     `drop` methods or do significant work in their `drop` methods.
++//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
++//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
++//
++// If we try to implement this with mutual exclusion on access to the handle, there is the
++// possibility of a race between a method call and a concurrent call to `destroy`:
++//
++//    * Thread A starts a method call, reads the value of the handle, but is interrupted
++//      before it can pass the handle over the FFI to Rust.
++//    * Thread B calls `destroy` and frees the underlying Rust struct.
++//    * Thread A resumes, passing the already-read handle value to Rust and triggering
++//      a use-after-free.
++//
++// One possible solution would be to use a `ReadWriteLock`, with each method call taking
++// a read lock (and thus allowed to run concurrently) and the special `destroy` method
++// taking a write lock (and thus blocking on live method calls). However, we aim not to
++// generate methods with any hidden blocking semantics, and a `destroy` method that might
++// block if called incorrectly seems to meet that bar.
++//
++// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
++// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
++// has been called. These are updated according to the following rules:
++//
++//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
++//      The initial value for the flag is false.
++//
++//    * At the start of each method call, we atomically check the counter.
++//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
++//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
++//
++//    * At the end of each method call, we atomically decrement and check the counter.
++//      If it has reached zero then we destroy the underlying Rust struct.
++//
++//    * When `destroy` is called, we atomically flip the flag from false to true.
++//      If the flag was already true we silently fail.
++//      Otherwise we atomically decrement and check the counter.
++//      If it has reached zero then we destroy the underlying Rust struct.
++//
++// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
++// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
++//
++// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
++// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
++// of the underlying Rust code.
++//
++// This makes a cleaner a better alternative to _not_ calling `destroy()` as
++// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
++// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
++// thread may be starved, and the app will leak memory.
++//
++// In this case, `destroy`ing manually may be a better solution.
++//
++// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
++// with Rust peers are reclaimed:
++//
++// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
++// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
++// 3. The memory is reclaimed when the process terminates.
++//
++// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
++//
++
++
++public interface SuggestDataInstallTokenInterface {
++    
++    /**
++     * True means cancellation won before publication. False means publication
++     * already began or this operation ended; callers must not claim rollback.
++     */
++    fun `cancel`(): kotlin.Boolean
++    
++    companion object
++}
++
++open class SuggestDataInstallToken: Disposable, AutoCloseable, SuggestDataInstallTokenInterface
++{
++
++    @Suppress("UNUSED_PARAMETER")
++    /**
++     * @suppress
++     */
++    constructor(withHandle: UniffiWithHandle, handle: Long) {
++        this.handle = handle
++        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
++    }
++
++    /**
++     * @suppress
++     *
++     * This constructor can be used to instantiate a fake object. Only used for tests. Any
++     * attempt to actually use an object constructed this way will fail as there is no
++     * connected Rust object.
++     */
++    @Suppress("UNUSED_PARAMETER")
++    constructor(noHandle: NoHandle) {
++        this.handle = 0
++        this.cleanable = null
++    }
++    constructor() :
++        this(UniffiWithHandle, 
++    uniffiRustCall() { _status ->
++    UniffiLib.uniffi_remote_settings_fn_constructor_suggestdatainstalltoken_new(
++    
++        _status)
++}
++    )
++
++    protected val handle: Long
++    protected val cleanable: UniffiCleaner.Cleanable?
++
++    private val wasDestroyed = AtomicBoolean(false)
++    private val callCounter = AtomicLong(1)
++
++    override fun destroy() {
++        // Only allow a single call to this method.
++        // TODO: maybe we should log a warning if called more than once?
++        if (this.wasDestroyed.compareAndSet(false, true)) {
++            // This decrement always matches the initial count of 1 given at creation time.
++            if (this.callCounter.decrementAndGet() == 0L) {
++                cleanable?.clean()
++            }
++        }
++    }
++
++    @Synchronized
++    override fun close() {
++        this.destroy()
++    }
++
++    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
++        // Check and increment the call counter, to keep the object alive.
++        // This needs a compare-and-set retry loop in case of concurrent updates.
++        do {
++            val c = this.callCounter.get()
++            if (c == 0L) {
++                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
++            }
++            if (c == Long.MAX_VALUE) {
++                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
++            }
++        } while (! this.callCounter.compareAndSet(c, c + 1L))
++        // Now we can safely do the method call without the handle being freed concurrently.
++        try {
++            return block(this.uniffiCloneHandle())
++        } finally {
++            // This decrement always matches the increment we performed above.
++            if (this.callCounter.decrementAndGet() == 0L) {
++                cleanable?.clean()
++            }
++        }
++    }
++
++    // Use a static inner class instead of a closure so as not to accidentally
++    // capture `this` as part of the cleanable's action.
++    private class UniffiCleanAction(private val handle: Long) : Runnable {
++        override fun run() {
++            if (handle == 0.toLong()) {
++                // Fake object created with `NoHandle`, don't try to free.
++                return;
++            }
++            uniffiRustCall { status ->
++                UniffiLib.uniffi_remote_settings_fn_free_suggestdatainstalltoken(handle, status)
++            }
++        }
++    }
++
++    /**
++     * @suppress
++     */
++    fun uniffiCloneHandle(): Long {
++        if (handle == 0.toLong()) {
++            throw InternalException("uniffiCloneHandle() called on NoHandle object");
++        }
++        return uniffiRustCall() { status ->
++            UniffiLib.uniffi_remote_settings_fn_clone_suggestdatainstalltoken(handle, status)
++        }
++    }
++
++    
++    /**
++     * True means cancellation won before publication. False means publication
++     * already began or this operation ended; callers must not claim rollback.
++     */override fun `cancel`(): kotlin.Boolean {
++            return FfiConverterBoolean.lift(
++    callWithHandle {
++    uniffiRustCall() { _status ->
++    UniffiLib.uniffi_remote_settings_fn_method_suggestdatainstalltoken_cancel(
++        it,
++        _status)
++}
++    }
++    )
++    }
++    
++
++    
++
++    
++
++
++    
++    
++    /**
++     * @suppress
++     */
++    companion object
++    
++}
++
++
++/**
++ * @suppress
++ */
++public object FfiConverterTypeSuggestDataInstallToken: FfiConverter<SuggestDataInstallToken, Long> {
++    override fun lower(value: SuggestDataInstallToken): Long {
++        return value.uniffiCloneHandle()
++    }
++
++    override fun lift(value: Long): SuggestDataInstallToken {
++        return SuggestDataInstallToken(UniffiWithHandle, value)
++    }
++
++    override fun read(buf: ByteBuffer): SuggestDataInstallToken {
++        return lift(buf.getLong())
++    }
++
++    override fun allocationSize(value: SuggestDataInstallToken) = 8UL
++
++    override fun write(value: SuggestDataInstallToken, buf: ByteBuffer) {
++        buf.putLong(lower(value))
++    }
++}
++
++
+ 
+ /**
+  * Attachment metadata that can be optionally attached to a [Record]. The [location] should
+@@ -2438,6 +2767,44 @@
+ 
+ 
+ 
++data class PinnedSuggestAttachment (
++    var `recordId`: kotlin.String
++    , 
++    var `data`: kotlin.ByteArray
++    
++){
++    
++
++    
++
++    
++    companion object
++}
++
++/**
++ * @suppress
++ */
++public object FfiConverterTypePinnedSuggestAttachment: FfiConverterRustBuffer<PinnedSuggestAttachment> {
++    override fun read(buf: ByteBuffer): PinnedSuggestAttachment {
++        return PinnedSuggestAttachment(
++            FfiConverterString.read(buf),
++            FfiConverterByteArray.read(buf),
++        )
++    }
++
++    override fun allocationSize(value: PinnedSuggestAttachment) = (
++            FfiConverterString.allocationSize(value.`recordId`) +
++            FfiConverterByteArray.allocationSize(value.`data`)
++    )
++
++    override fun write(value: PinnedSuggestAttachment, buf: ByteBuffer) {
++            FfiConverterString.write(value.`recordId`, buf)
++            FfiConverterByteArray.write(value.`data`, buf)
++    }
++}
++
++
++
+ /**
+  * Remote settings configuration
+  */
+@@ -3317,6 +3684,34 @@
+         }
+     }
+ }
++
++
++
++
++/**
++ * @suppress
++ */
++public object FfiConverterSequenceTypePinnedSuggestAttachment: FfiConverterRustBuffer<List<PinnedSuggestAttachment>> {
++    override fun read(buf: ByteBuffer): List<PinnedSuggestAttachment> {
++        val len = buf.getInt()
++        return List<PinnedSuggestAttachment>(len) {
++            FfiConverterTypePinnedSuggestAttachment.read(buf)
++        }
++    }
++
++    override fun allocationSize(value: List<PinnedSuggestAttachment>): ULong {
++        val sizeForLength = 4UL
++        val sizeForItems = value.map { FfiConverterTypePinnedSuggestAttachment.allocationSize(it) }.sum()
++        return sizeForLength + sizeForItems
++    }
++
++    override fun write(value: List<PinnedSuggestAttachment>, buf: ByteBuffer) {
++        buf.putInt(value.size)
++        value.iterator().forEach {
++            FfiConverterTypePinnedSuggestAttachment.write(it, buf)
++        }
++    }
++}
+ 
+ 
+ 

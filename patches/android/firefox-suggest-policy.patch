@@ -3,10 +3,16 @@
 # Ordinary search-engine query suggestions, history/bookmarks and home content are separate.
 # Local Suggest dataset availability is still open; the UI discloses the missing fresh data.
 # Generic Remote Settings blockers remain intact. Target compilation/runtime are pending.
+#
+# 157 rebase: same mechanism, re-applied to the ktfmt-reformatted android-components
+# and Fenix sources. FenixApplication's startup ingestion now runs on
+# applicationScope/ioDispatcher instead of GlobalScope; SecretSettingsFragment loses
+# its now-unused androidx.core.content.edit import. Not applied on top of
+# cookie-banner-controls (retired for 157: Firefox removed the cookie banner service).
 
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt
 new file mode 100644
-index 0000000..7a59dc1
+index 0000000000..7a59dc1aea
 --- /dev/null
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt
 @@ -0,0 +1,55 @@
@@ -66,19 +72,19 @@ index 0000000..7a59dc1
 +    fun isCurrent(snapshot: Snapshot): Boolean = snapshot == this.snapshot()
 +}
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionScheduler.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionScheduler.kt
-index 849db47..9a681a3 100644
+index 8be80c098c..c1d777d00b 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionScheduler.kt
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionScheduler.kt
-@@ -33,6 +33,7 @@ class FxSuggestIngestionScheduler(
-      * already scheduled.
+@@ -31,6 +31,7 @@ class FxSuggestIngestionScheduler(
+      * Schedules a periodic background task to ingest new suggestions. Does nothing if the task is already scheduled.
       */
      fun startPeriodicIngestion() {
 +        if (!FxSuggestAdmission.snapshot().choices.localEnabled) return
          logger.info("Scheduling periodic ingestion for new suggestions")
-         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-             FxSuggestIngestionWorker.WORK_TAG,
+         WorkManager.getInstance(context)
+             .enqueueUniquePeriodicWork(
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionWorker.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionWorker.kt
-index b30f8b0..5ad5fdb 100644
+index b30f8b0f4b..5ad5fdbe3a 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionWorker.kt
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionWorker.kt
 @@ -22,9 +22,13 @@ internal class FxSuggestIngestionWorker(
@@ -97,10 +103,10 @@ index b30f8b0..5ad5fdb 100644
              logger.info("Successfully ingested new suggestions")
              Result.success()
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
-index c8df3ab..91dd137 100644
+index 88d4a110bc..8e710f699c 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
-@@ -62,8 +62,21 @@ class FxSuggestStorage(
+@@ -61,8 +61,21 @@ class FxSuggestStorage(
       */
      suspend fun query(query: SuggestionQuery): List<Suggestion> =
          withContext(readScope.coroutineContext) {
@@ -123,7 +129,7 @@ index c8df3ab..91dd137 100644
                  if (result.isNotEmpty()) {
                      emitSuggestionQueryCountFact(queryCount = result.size)
                  }
-@@ -79,8 +92,12 @@ class FxSuggestStorage(
+@@ -78,8 +91,12 @@ class FxSuggestStorage(
       */
      suspend fun ingest(constraints: SuggestIngestionConstraints = SuggestIngestionConstraints()): Boolean =
          withContext(writeScope.coroutineContext) {
@@ -138,10 +144,10 @@ index c8df3ab..91dd137 100644
              }
          }
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProvider.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProvider.kt
-index ca98e45..90a7b33 100644
+index 29eebbe83e..e01974778e 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProvider.kt
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProvider.kt
-@@ -47,35 +47,39 @@ class FxSuggestSuggestionProvider(
+@@ -45,35 +45,50 @@ class FxSuggestSuggestionProvider(
      override fun groupTitle(): String? = suggestionsHeader
  
      override suspend fun onInputChanged(text: String): List<AwesomeBar.Suggestion> =
@@ -151,33 +157,46 @@ index ca98e45..90a7b33 100644
          } else {
 +            val admission = FxSuggestAdmission.snapshot()
              val providers = buildList {
-                 val availableSuggestionTypes = FxSuggestNimbus.features
-                     .awesomebarSuggestionProvider
-                     .value()
-                     .availableSuggestionTypes
+                 val availableSuggestionTypes =
+                     FxSuggestNimbus.features.awesomebarSuggestionProvider.value().availableSuggestionTypes
 -                if (includeSponsoredSuggestions && availableSuggestionTypes[SuggestionType.AMP] == true) {
-+                if (includeSponsoredSuggestions && admission.choices.sponsored && availableSuggestionTypes[SuggestionType.AMP] == true) {
++                if (
++                    includeSponsoredSuggestions &&
++                        admission.choices.sponsored &&
++                        availableSuggestionTypes[SuggestionType.AMP] == true
++                ) {
                      add(SuggestionProvider.AMP)
                  }
 -                if (includeSponsoredSuggestions && availableSuggestionTypes[SuggestionType.AMP_MOBILE] == true) {
-+                if (includeSponsoredSuggestions && admission.choices.sponsored && availableSuggestionTypes[SuggestionType.AMP_MOBILE] == true) {
++                if (
++                    includeSponsoredSuggestions &&
++                        admission.choices.sponsored &&
++                        availableSuggestionTypes[SuggestionType.AMP_MOBILE] == true
++                ) {
                      add(SuggestionProvider.AMP)
                  }
 -                if (includeNonSponsoredSuggestions && availableSuggestionTypes[SuggestionType.WIKIPEDIA] == true) {
-+                if (includeNonSponsoredSuggestions && admission.choices.web && availableSuggestionTypes[SuggestionType.WIKIPEDIA] == true) {
++                if (
++                    includeNonSponsoredSuggestions &&
++                        admission.choices.web &&
++                        availableSuggestionTypes[SuggestionType.WIKIPEDIA] == true
++                ) {
                      add(SuggestionProvider.WIKIPEDIA)
                  }
              }
--            GlobalFxSuggestDependencyProvider.requireStorage().query(
+-            GlobalFxSuggestDependencyProvider.requireStorage()
+-                .query(
 +            val storage = if (providers.isEmpty()) null else GlobalFxSuggestDependencyProvider.storageIfEnabled()
-+            val results = storage?.query(
-                 SuggestionQuery(
-                     keyword = text,
-                     providers = providers,
-                     limit = MAX_NUM_OF_FIREFOX_SUGGESTIONS,
-                 ),
--            ).into()
-+            ) ?: emptyList()
++            val results =
++                storage?.query(
+                     SuggestionQuery(
+                         keyword = text,
+                         providers = providers,
+                         limit = MAX_NUM_OF_FIREFOX_SUGGESTIONS,
+                     )
+-                )
+-                .into()
++                ) ?: emptyList()
 +            val suggestions = if (FxSuggestAdmission.isCurrent(admission)) results.into() else emptyList()
 +            if (FxSuggestAdmission.isCurrent(admission)) suggestions else emptyList()
          }
@@ -187,14 +206,14 @@ index ca98e45..90a7b33 100644
 +        GlobalFxSuggestDependencyProvider.cancelActiveReads()
      }
  
-     private suspend fun List<Suggestion>.into(): List<AwesomeBar.Suggestion> =
+     private suspend fun List<Suggestion>.into(): List<AwesomeBar.Suggestion> = mapNotNull { suggestion ->
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/GlobalFxSuggestDependencyProvider.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/GlobalFxSuggestDependencyProvider.kt
-index faddb79..870c01c 100644
+index 8b77955a31..71baaf9502 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/GlobalFxSuggestDependencyProvider.kt
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/GlobalFxSuggestDependencyProvider.kt
-@@ -8,7 +8,9 @@ package mozilla.components.feature.fxsuggest
-  * Provides global access to the dependencies needed to access Firefox Suggest search suggestions.
-  */
+@@ -6,7 +6,9 @@ package mozilla.components.feature.fxsuggest
+ 
+ /** Provides global access to the dependencies needed to access Firefox Suggest search suggestions. */
  object GlobalFxSuggestDependencyProvider {
 +    @Volatile
      internal var storage: FxSuggestStorage? = null
@@ -202,7 +221,7 @@ index faddb79..870c01c 100644
  
      /**
       * Initializes this provider with a wrapped Suggest store.
-@@ -18,12 +20,32 @@ object GlobalFxSuggestDependencyProvider {
+@@ -15,12 +17,32 @@ object GlobalFxSuggestDependencyProvider {
       *
       * @param storage The wrapped Suggest store.
       */
@@ -237,7 +256,7 @@ index faddb79..870c01c 100644
          }
      }
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/client/SuggestMerinoClient.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/client/SuggestMerinoClient.kt
-index 5d951c4..135815e 100644
+index cb4f4764a8..5cecb2194b 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/client/SuggestMerinoClient.kt
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/client/SuggestMerinoClient.kt
 @@ -10,6 +10,7 @@ import mozilla.appservices.merino.SuggestConfig
@@ -248,7 +267,7 @@ index 5d951c4..135815e 100644
  import mozilla.components.support.base.log.logger.Logger
  
  /**
-@@ -33,35 +34,42 @@ interface MerinoClient {
+@@ -32,31 +33,37 @@ interface MerinoClient {
   */
  class SuggestMerinoClient : MerinoClient {
      private val logger = Logger("SuggestMerinoClient")
@@ -263,69 +282,69 @@ index 5d951c4..135815e 100644
 +        SuggestClient(SuggestConfig(baseHost = null))
      }
  
--    override fun makeRequest(query: String): String? = try {
--        suggestClient.getSuggestions(
--            query = query,
--            options = SuggestOptions(
--                providers = listOf(PROVIDERS),
--                source = null,
--                country = null,
--                region = null,
--                city = null,
--                clientVariants = null,
--                requestType = null,
--                acceptLanguage = null,
--            ),
--        )
--    } catch (e: MerinoSuggestApiException) {
--        when (e) {
--            is MerinoSuggestApiException.Network -> logger.error(message = "$NETWORK_ERROR_MESSAGE - ${e.message}")
--            is MerinoSuggestApiException.Other -> logger.error(message = "$UNEXPECTED_ERROR_MESSAGE - ${e.message}")
+-    override fun makeRequest(query: String): String? =
+-        try {
+-            suggestClient.getSuggestions(
+-                query = query,
+-                options =
+-                    SuggestOptions(
+-                        providers = listOf(PROVIDERS),
+-                        source = null,
+-                        country = null,
+-                        region = null,
+-                        city = null,
+-                        clientVariants = null,
+-                        requestType = null,
+-                        acceptLanguage = null,
+-                    ),
+-            )
 +    override fun makeRequest(query: String): String? {
 +        val admission = FxSuggestAdmission.snapshot()
 +        if (!admission.choices.onlineEnabled) return null
 +        return try {
 +            val client = suggestClient
 +            if (!FxSuggestAdmission.isCurrent(admission)) return null
-+            val response = client.getSuggestions(
-+                query = query,
-+                options = SuggestOptions(
-+                    providers = listOf(PROVIDERS),
-+                    source = null,
-+                    country = null,
-+                    region = null,
-+                    city = null,
-+                    clientVariants = null,
-+                    requestType = null,
-+                    acceptLanguage = null,
-+                ),
-+            )
++            val response =
++                client.getSuggestions(
++                    query = query,
++                    options =
++                        SuggestOptions(
++                            providers = listOf(PROVIDERS),
++                            source = null,
++                            country = null,
++                            region = null,
++                            city = null,
++                            clientVariants = null,
++                            requestType = null,
++                            acceptLanguage = null,
++                        ),
++                )
 +            // A request already sent may finish, as on desktop. Do not publish its late result.
 +            response.takeIf { FxSuggestAdmission.isCurrent(admission) }
-+        } catch (e: MerinoSuggestApiException) {
-+            when (e) {
-+                is MerinoSuggestApiException.Network -> logger.error(message = "$NETWORK_ERROR_MESSAGE - ${e.message}")
-+                is MerinoSuggestApiException.Other -> logger.error(message = "$UNEXPECTED_ERROR_MESSAGE - ${e.message}")
-+            }
-+            null
+         } catch (e: MerinoSuggestApiException) {
+             when (e) {
+                 is MerinoSuggestApiException.Network -> logger.error(message = "$NETWORK_ERROR_MESSAGE - ${e.message}")
+@@ -64,6 +71,7 @@ class SuggestMerinoClient : MerinoClient {
+             }
+             null
          }
--        null
-     }
++    }
  
      companion object {
+         private const val NETWORK_ERROR_MESSAGE = "Network error when fetching Online Suggestions"
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/datasource/CombinedOnlineSuggestionDataSource.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/datasource/CombinedOnlineSuggestionDataSource.kt
-index 7e35c90..966d90b 100644
+index 083711aa1d..a87d1db700 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/datasource/CombinedOnlineSuggestionDataSource.kt
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/datasource/CombinedOnlineSuggestionDataSource.kt
-@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
- import kotlinx.serialization.json.Json
- import mozilla.components.concept.awesomebar.AwesomeBar
- import mozilla.components.concept.awesomebar.AwesomeBar.CombinedSuggestionsDataSource
+@@ -19,6 +19,7 @@ import mozilla.components.feature.awesomebar.optimizedsuggestions.CombinedSugges
+ import mozilla.components.feature.awesomebar.optimizedsuggestions.FlightItem
+ import mozilla.components.feature.awesomebar.optimizedsuggestions.SportItem
+ import mozilla.components.feature.awesomebar.optimizedsuggestions.StockItem
 +import mozilla.components.feature.fxsuggest.FxSuggestAdmission
  import mozilla.components.feature.fxsuggest.client.MerinoClient
  import mozilla.components.feature.fxsuggest.client.SuggestMerinoClient
  import mozilla.components.feature.fxsuggest.dto.CombinedSuggestionResponseDto
-@@ -79,11 +80,14 @@ sealed class CombinedResults {
+@@ -79,11 +80,16 @@ sealed class CombinedResults {
  @OptIn(FlowPreview::class)
  class CombinedOnlineSuggestionDataSource(
      private val scope: CoroutineScope,
@@ -337,23 +356,25 @@ index 7e35c90..966d90b 100644
 -    private val queryFlow = MutableSharedFlow<String>(replay = 1)
 -    private val resultsFlow = MutableStateFlow(Pair("", CombinedResults.Empty as CombinedResults))
 +    private val client by lazy { client ?: SuggestMerinoClient() }
++
 +    private data class Request(val query: String, val admission: FxSuggestAdmission.Snapshot)
++
 +    private val queryFlow = MutableSharedFlow<Request>(replay = 1)
 +    private val resultsFlow = MutableStateFlow(Pair<Request?, CombinedResults>(null, CombinedResults.Empty))
      private val json = Json { ignoreUnknownKeys = true }
      private val stocksParser = StocksSuggestionParser()
      private val sportsParser = SportsSuggestionParser()
-@@ -93,17 +97,20 @@ class CombinedOnlineSuggestionDataSource(
+@@ -91,17 +97,22 @@ class CombinedOnlineSuggestionDataSource(
+ 
+     init {
          scope.launch {
-             queryFlow
-                 .debounce(debounceMs)
--                .collectLatest { query ->
--                    val results = fetchAndParse(query)
--                    resultsFlow.value = query to results
-+                .collectLatest { request ->
-+                    val results = fetchAndParse(request)
-+                    resultsFlow.value = request to results
-                 }
+-            queryFlow.debounce(debounceMs).collectLatest { query ->
+-                val results = fetchAndParse(query)
+-                resultsFlow.value = query to results
++            queryFlow.debounce(debounceMs).collectLatest { request ->
++                val results = fetchAndParse(request)
++                resultsFlow.value = request to results
+             }
          }
      }
  
@@ -362,32 +383,41 @@ index 7e35c90..966d90b 100644
 -        queryFlow.emit(query)
 -        return resultsFlow.first { it.first == query }.second
 +        val admission = FxSuggestAdmission.snapshot()
-+        if (query.length < MIN_QUERY_LENGTH || !admission.choices.onlineEnabled || !isRequestAllowed()) return CombinedResults.Empty
++        if (query.length < MIN_QUERY_LENGTH || !admission.choices.onlineEnabled || !isRequestAllowed()) {
++            return CombinedResults.Empty
++        }
 +        val request = Request(query, admission)
 +        queryFlow.emit(request)
 +        val result = resultsFlow.first { it.first == request }.second
 +        return if (FxSuggestAdmission.isCurrent(admission) && isRequestAllowed()) result else CombinedResults.Empty
      }
  
-     override suspend fun fetchStocks(query: String): List<AwesomeBar.StockItem> =
-@@ -115,8 +122,12 @@ class CombinedOnlineSuggestionDataSource(
-     override suspend fun fetchFlights(query: String): List<AwesomeBar.FlightItem> =
+     override suspend fun fetchStocks(query: String): List<StockItem> =
+@@ -113,9 +124,19 @@ class CombinedOnlineSuggestionDataSource(
+     override suspend fun fetchFlights(query: String): List<FlightItem> =
          (fetch(query) as? CombinedResults.Flights)?.items ?: emptyList()
  
--    private suspend fun fetchAndParse(query: String): CombinedResults = withContext(Dispatchers.IO) {
--        val body = client.makeRequest(query) ?: return@withContext CombinedResults.Empty
-+    private suspend fun fetchAndParse(request: Request): CombinedResults = withContext(Dispatchers.IO) {
-+        if (!FxSuggestAdmission.isCurrent(request.admission) || !request.admission.choices.onlineEnabled || !isRequestAllowed()) {
-+            return@withContext CombinedResults.Empty
-+        }
-+        val body = client.makeRequest(request.query) ?: return@withContext CombinedResults.Empty
-+        if (!FxSuggestAdmission.isCurrent(request.admission) || !isRequestAllowed()) return@withContext CombinedResults.Empty
-         parseResponse(body)
-     }
+-    private suspend fun fetchAndParse(query: String): CombinedResults =
++    private suspend fun fetchAndParse(request: Request): CombinedResults =
+         withContext(Dispatchers.IO) {
+-            val body = client.makeRequest(query) ?: return@withContext CombinedResults.Empty
++            if (
++                !FxSuggestAdmission.isCurrent(request.admission) ||
++                    !request.admission.choices.onlineEnabled ||
++                    !isRequestAllowed()
++            ) {
++                return@withContext CombinedResults.Empty
++            }
++            val body = client.makeRequest(request.query) ?: return@withContext CombinedResults.Empty
++            if (!FxSuggestAdmission.isCurrent(request.admission) || !isRequestAllowed()) {
++                return@withContext CombinedResults.Empty
++            }
+             parseResponse(body)
+         }
  
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt
 new file mode 100644
-index 0000000..2774af1
+index 0000000000..2774af10b9
 --- /dev/null
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt
 @@ -0,0 +1,121 @@
@@ -513,22 +543,23 @@ index 0000000..2774af1
 +    }
 +}
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProviderTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProviderTest.kt
-index 53e55c7..699c409 100644
+index 12b8660c83..625dd52888 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProviderTest.kt
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProviderTest.kt
-@@ -359,15 +359,11 @@ class FxSuggestSuggestionProviderTest {
+@@ -514,16 +514,11 @@ class FxSuggestSuggestionProviderTest {
  
          val suggestions = provider.onInputChanged("la")
  
--        verify(storage).query(
--            eq(
--                SuggestionQuery(
--                    keyword = "la",
--                    providers = emptyList(),
--                    limit = 1,
--                ),
--            ),
--        )
+-        verify(storage)
+-            .query(
+-                eq(
+-                    SuggestionQuery(
+-                        keyword = "la",
+-                        providers = emptyList(),
+-                        limit = 1,
+-                    )
+-                )
+-            )
 +        // LW-M7-26 (firefox-suggest-policy): with no provider admitted there is
 +        // nothing to ask the store for, so FxSuggestSuggestionProvider does not
 +        // query it at all. Upstream sent a query with providers = [], which
@@ -537,19 +568,20 @@ index 53e55c7..699c409 100644
          assertTrue(suggestions.isEmpty())
      }
  
-@@ -388,15 +384,11 @@ class FxSuggestSuggestionProviderTest {
+@@ -545,16 +540,11 @@ class FxSuggestSuggestionProviderTest {
  
          val suggestions = provider.onInputChanged("la")
  
--        verify(storage).query(
--            eq(
--                SuggestionQuery(
--                    keyword = "la",
--                    providers = emptyList(),
--                    limit = 1,
--                ),
--            ),
--        )
+-        verify(storage)
+-            .query(
+-                eq(
+-                    SuggestionQuery(
+-                        keyword = "la",
+-                        providers = emptyList(),
+-                        limit = 1,
+-                    )
+-                )
+-            )
 +        // LW-M7-26 (firefox-suggest-policy): with no provider admitted there is
 +        // nothing to ask the store for, so FxSuggestSuggestionProvider does not
 +        // query it at all. Upstream sent a query with providers = [], which
@@ -560,7 +592,7 @@ index 53e55c7..699c409 100644
  }
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/datasource/OnlineSuggestionAdmissionTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/datasource/OnlineSuggestionAdmissionTest.kt
 new file mode 100644
-index 0000000..5bab389
+index 0000000000..5bab38926d
 --- /dev/null
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/datasource/OnlineSuggestionAdmissionTest.kt
 @@ -0,0 +1,127 @@
@@ -692,9 +724,10 @@ index 0000000..5bab389
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+index 9270268471..cf0d9105d2 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -53,6 +53,9 @@
+@@ -58,6 +58,9 @@ import mozilla.components.concept.storage.FrecencyThresholdOption
  import mozilla.components.feature.addons.migration.DefaultSupportedAddonsChecker
  import mozilla.components.feature.addons.update.GlobalAddonDependencyProvider
  import mozilla.components.feature.autofill.AutofillUseCases
@@ -704,15 +737,15 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixAppli
  import mozilla.components.feature.fxsuggest.GlobalFxSuggestDependencyProvider
  import mozilla.components.feature.search.ext.buildSearchUrl
  import mozilla.components.feature.search.ext.waitForSelectedOrDefaultSearchEngine
-@@ -129,6 +132,7 @@
+@@ -140,6 +143,7 @@ import org.mozilla.fenix.push.WebPushEngineIntegration
  import org.mozilla.fenix.session.VisibilityLifecycleCallback
  import org.mozilla.fenix.settings.doh.DefaultDohSettingsProvider
  import org.mozilla.fenix.settings.doh.DohSettingsProvider
 +import org.mozilla.fenix.settings.search.FirefoxSuggestPolicy
  import org.mozilla.fenix.startupCrash.StartupCrashActivity
  import org.mozilla.fenix.theme.DefaultThemeProvider
- import org.mozilla.fenix.theme.Theme
-@@ -189,14 +193,21 @@
+ import org.mozilla.fenix.theme.ThemeProvider
+@@ -210,16 +214,23 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          // Isolated Gecko processes cannot read app preferences. Use the existing
          // process check before account admission or locale code accesses storage.
          if (base.isMainProcess()) {
@@ -726,15 +759,17 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixAppli
              AccountServices.disableForProcess()
              super.attachBaseContext(base)
          }
-+    }
-+
+     }
+ 
 +    /** Separate from ordinary query suggestions and initialized before providers. */
 +    protected open fun initializeFirefoxSuggest(context: Context) {
 +        FirefoxSuggestPolicy.initialize(context)
-     }
- 
++    }
++
      /** Account-service defaults are independent of the Gecko preference store. */
-@@ -372,7 +383,10 @@
+     protected open fun initializeAccountServices(context: Context) {
+         AccountServices.initialize(context, defaultEnabled = false)
+@@ -444,7 +455,10 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
  
          maybeSetupIPProtection()
  
@@ -746,7 +781,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixAppli
  
          visibilityLifecycleCallback = VisibilityLifecycleCallback(getSystemService())
          registerActivityLifecycleCallbacks(visibilityLifecycleCallback)
-@@ -432,7 +446,7 @@
+@@ -507,7 +521,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          queueNimbusFetchInForeground(queue)
          queueDownloadWallpapers(queue)
  
@@ -755,7 +790,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixAppli
              queueSuggestIngest(queue)
          }
  
-@@ -493,10 +507,10 @@
+@@ -566,10 +580,10 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
                      // new search suggestions. The worker requires us to have called
                      // `GlobalFxSuggestDependencyProvider.initialize`, which we did before
                      // scheduling these tasks. When disabled we stop the periodic work.
@@ -767,23 +802,23 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixAppli
 +                        FxSuggestIngestionScheduler(this@FenixApplication).stopPeriodicIngestion()
                      }
                  }
-                 components.core.fileUploadsDirCleaner.cleanUploadsDirectory()
-@@ -572,7 +586,9 @@
-     @OptIn(DelicateCoroutinesApi::class) // GlobalScope usage
-     private fun queueSuggestIngest(queue: RunWhenReadyQueue) = runOnVisualCompleteness(queue) {
-         GlobalScope.launch(IO) {
--            components.fxSuggest.storage.runStartupIngestion()
-+            if (FxSuggestAdmission.snapshot().choices.localEnabled) {
-+                GlobalFxSuggestDependencyProvider.storageIfEnabled()?.runStartupIngestion()
-+            }
+ 
+@@ -664,7 +678,9 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+     private fun queueSuggestIngest(queue: RunWhenReadyQueue) =
+         runOnVisualCompleteness(queue) {
+             applicationScope.launch(ioDispatcher) {
+-                components.fxSuggest.storage.runStartupIngestion()
++                if (FxSuggestAdmission.snapshot().choices.localEnabled) {
++                    GlobalFxSuggestDependencyProvider.storageIfEnabled()?.runStartupIngestion()
++                }
+             }
          }
-     }
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt
-index 0d75659..1af857f 100644
+index fdc69df2af..ced791a1ee 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt
-@@ -67,7 +67,12 @@ class SearchSuggestionsProvidersBuilder(
+@@ -65,7 +65,12 @@ class SearchSuggestionsProvidersBuilder(
      val defaultSearchActionProvider: SearchActionProvider
      var searchEngineSuggestionProvider: SearchEngineSuggestionProvider?
      val searchSuggestionProviderMap: MutableMap<SearchEngine, List<AwesomeBar.SuggestionProvider>>
@@ -796,8 +831,8 @@ index 0d75659..1af857f 100644
 +    }
  
      init {
-         engineForSpeculativeConnects = when (browsingModeManager.mode) {
-@@ -257,7 +262,7 @@ class SearchSuggestionsProvidersBuilder(
+         engineForSpeculativeConnects =
+@@ -244,7 +249,7 @@ class SearchSuggestionsProvidersBuilder(
              )
          }
  
@@ -806,7 +841,7 @@ index 0d75659..1af857f 100644
              providersToAdd.add(
                  StocksOnlineSuggestionProvider(
                      searchUseCase = searchUseCase,
-@@ -267,7 +272,7 @@ class SearchSuggestionsProvidersBuilder(
+@@ -254,7 +259,7 @@ class SearchSuggestionsProvidersBuilder(
              )
          }
  
@@ -815,7 +850,7 @@ index 0d75659..1af857f 100644
              providersToAdd.add(
                  SportsOnlineSuggestionProvider(
                      icons = components.core.icons,
-@@ -278,7 +283,7 @@ class SearchSuggestionsProvidersBuilder(
+@@ -265,7 +270,7 @@ class SearchSuggestionsProvidersBuilder(
              )
          }
  
@@ -825,44 +860,52 @@ index 0d75659..1af857f 100644
                  FlightsOnlineSuggestionProvider(
                      loadUrlUseCase = loadUrlUseCase,
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index 17f299e..2a04198 100644
+index b0975f46b4..9628b5207e 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-@@ -41,6 +41,7 @@ import org.mozilla.fenix.ext.showToolbar
+@@ -17,7 +17,6 @@ import androidx.compose.ui.platform.ComposeView
+ import androidx.compose.ui.platform.ViewCompositionStrategy
+ import androidx.compose.ui.res.stringResource
+ import androidx.compose.ui.unit.dp
+-import androidx.core.content.edit
+ import androidx.lifecycle.lifecycleScope
+ import androidx.navigation.NavDirections
+ import androidx.navigation.findNavController
+@@ -42,6 +41,7 @@ import org.mozilla.fenix.ext.components
+ import org.mozilla.fenix.ext.requireComponents
+ import org.mozilla.fenix.ext.showToolbar
  import org.mozilla.fenix.ext.showToolbarWithIconButton
- import org.mozilla.fenix.home.sports.hasWorldCupEnded
- import org.mozilla.fenix.theme.FirefoxTheme
 +import org.mozilla.fenix.settings.search.FirefoxSuggestPolicy
+ import org.mozilla.fenix.theme.FirefoxTheme
  import org.mozilla.fenix.utils.SecretSettingsPrefDefaults
- import mozilla.components.ui.icons.R as iconsR
  
-@@ -266,22 +267,7 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+@@ -268,22 +268,7 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_fxsuggest).apply {
              isVisible = FeatureFlags.FX_SUGGEST
              isChecked = settings.enableFxSuggest
--            onPreferenceChangeListener = object : Preference.OnPreferenceChangeListener {
--                override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
--                    val newBooleanValue = newValue as? Boolean ?: return false
--                    val ingestionScheduler =
--                        requireContext().components.fxSuggest.ingestionScheduler
--                    if (newBooleanValue) {
--                        ingestionScheduler.startPeriodicIngestion()
--                    } else {
--                        ingestionScheduler.stopPeriodicIngestion()
+-            onPreferenceChangeListener =
+-                object : Preference.OnPreferenceChangeListener {
+-                    override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+-                        val newBooleanValue = newValue as? Boolean ?: return false
+-                        val ingestionScheduler = requireContext().components.fxSuggest.ingestionScheduler
+-                        if (newBooleanValue) {
+-                            ingestionScheduler.startPeriodicIngestion()
+-                        } else {
+-                            ingestionScheduler.stopPeriodicIngestion()
+-                        }
+-                        requireComponents.settings.preferences.edit {
+-                            putBoolean(preference.key, newBooleanValue)
+-                        }
+-                        return true
 -                    }
--                    requireComponents.settings.preferences.edit {
--                        putBoolean(preference.key, newBooleanValue)
--                    }
--                    return true
 -                }
--            }
 +            onPreferenceChangeListener = FirefoxSuggestPolicy.updater()
          }
  
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_doh_settings_enabled).apply {
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicy.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicy.kt
 new file mode 100644
-index 0000000..72f4662
+index 0000000000..72f4662414
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicy.kt
 @@ -0,0 +1,88 @@
@@ -955,10 +998,10 @@ index 0000000..72f4662
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
-index e714787..b908196 100644
+index 2f7cc0a2b9..f27235623c 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
-@@ -45,17 +45,16 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -44,17 +44,16 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
          )
  
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_sponsored_suggestions).apply {
@@ -970,8 +1013,8 @@ index e714787..b908196 100644
 +            isVisible = true
          }
          requirePreference<CheckBoxPreference>(R.string.pref_key_search_optimization_cards).apply {
--            isVisible = context.components.settings.enableFxSuggest &&
--                    context.components.settings.isSearchOptimizationEnabled
+-            isVisible =
+-                context.components.settings.enableFxSuggest && context.components.settings.isSearchOptimizationEnabled
 +            isVisible = true
          }
          requirePreference<Preference>(R.string.pref_key_learn_about_fx_suggest).apply {
@@ -980,7 +1023,7 @@ index e714787..b908196 100644
          }
          requirePreference<Preference>(R.string.pref_key_search_widget_installed_2).apply {
              isVisible = canShowAddSearchWidgetPrompt(AppWidgetManager.getInstance(requireContext()))
-@@ -131,13 +130,13 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -133,14 +132,13 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
                  isChecked = context.components.settings.shouldShowClipboardSuggestions
              }
  
@@ -990,15 +1033,16 @@ index e714787..b908196 100644
          val showSponsoredSuggestionsPreference =
              requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_sponsored_suggestions).apply {
                  isChecked = context.components.settings.showSponsoredSuggestions
--                summary = getString(
--                    R.string.preferences_show_sponsored_suggestions_summary,
--                    getString(R.string.app_name),
--                )
+-                summary =
+-                    getString(
+-                        R.string.preferences_show_sponsored_suggestions_summary,
+-                        getString(R.string.app_name),
+-                    )
 +                summary = getString(R.string.firefox_suggest_local_data_required)
              }
  
          val showNonSponsoredSuggestionsPreference =
-@@ -150,8 +149,20 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -154,8 +152,20 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
              }
          val showSuggestionCardsPreference =
              requirePreference<CheckBoxPreference>(R.string.pref_key_search_optimization_cards).apply {
@@ -1018,9 +1062,9 @@ index e714787..b908196 100644
 +            }
 +        }
  
-         searchWidgetPreference.onPreferenceChangeListener = object : SharedPreferenceUpdater() {
-             override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
-@@ -177,13 +188,23 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+         searchWidgetPreference.onPreferenceChangeListener =
+             object : SharedPreferenceUpdater() {
+@@ -182,13 +192,23 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
              true
          }
  
@@ -1051,83 +1095,91 @@ index e714787..b908196 100644
  
      /**
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index d0a0563..7f06f9c 100644
+index 7881995e29..e92eb958a5 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2080,27 +2080,27 @@ class Settings(
+@@ -2190,31 +2190,31 @@ class Settings(
+     var isSearchOptimizationEnabled by
+         booleanPreference(
+             key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_feature),
+-            default = { FxNimbus.features.searchOptimizationOption.value().enabled },
++            default = true,
+         )
  
-     var isSearchOptimizationEnabled by booleanPreference(
-         key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_feature),
--        default = { FxNimbus.features.searchOptimizationOption.value().enabled },
-+        default = true,
-     )
+     var shouldShowSearchOptimizationCards by
+         booleanPreference(
+             key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_cards),
+-            default = { isSearchOptimizationEnabled },
++            default = false,
+         )
  
-     var shouldShowSearchOptimizationCards by booleanPreference(
-         key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_cards),
--        default = { isSearchOptimizationEnabled },
-+        default = false,
-     )
+     var shouldShowSearchOptimizationStockCard by
+         booleanPreference(
+             key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_stocks),
+-            default = { FxNimbus.features.searchOptimizationOption.value().showStocksCard },
++            default = true,
+         )
  
-     var shouldShowSearchOptimizationStockCard by booleanPreference(
-         key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_stocks),
--        default = { FxNimbus.features.searchOptimizationOption.value().showStocksCard },
-+        default = true,
-     )
+     var shouldShowSearchOptimizationFlightCard by
+         booleanPreference(
+             key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_flights),
+-            default = { FxNimbus.features.searchOptimizationOption.value().showFlightsCard },
++            default = true,
+         )
  
-     var shouldShowSearchOptimizationFlightCard by booleanPreference(
-         key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_flights),
--        default = { FxNimbus.features.searchOptimizationOption.value().showFlightsCard },
-+        default = true,
-     )
+     var shouldShowSearchOptimizationSportCard by
+         booleanPreference(
+             key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_sports),
+-            default = { FxNimbus.features.searchOptimizationOption.value().showSportsCard },
++            default = true,
+         )
  
-     var shouldShowSearchOptimizationSportCard by booleanPreference(
-         key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_sports),
--        default = { FxNimbus.features.searchOptimizationOption.value().showSportsCard },
-+        default = true,
-     )
+     var isTabStripEnabled by
+@@ -2645,7 +2645,7 @@ class Settings(
+     var enableFxSuggest by
+         lazyFeatureFlagBooleanPreference(
+             key = appContext.getPreferenceKey(R.string.pref_key_enable_fxsuggest),
+-            defaultValue = { FxNimbus.features.fxSuggest.value().enabled },
++            defaultValue = { false },
+             featureFlag = FeatureFlags.FX_SUGGEST,
+         )
  
-     var isTabStripEnabled by booleanPreference(
-@@ -2637,7 +2637,7 @@ class Settings(
-     @Suppress("DEPRECATION")
-     var enableFxSuggest by lazyFeatureFlagBooleanPreference(
-         key = appContext.getPreferenceKey(R.string.pref_key_enable_fxsuggest),
--        defaultValue = { FxNimbus.features.fxSuggest.value().enabled },
-+        defaultValue = { false },
-         featureFlag = FeatureFlags.FX_SUGGEST,
-     )
- 
-@@ -2657,24 +2657,23 @@ class Settings(
- 
-     /**
-      * Indicates if the user has chosen to show sponsored search suggestions in the awesomebar.
--     * The default value is computed lazily, and based on whether Firefox Suggest is enabled.
-+     * Disabled by default on every channel; an explicit saved choice is preserved.
-      */
-     @Suppress("DEPRECATION")
-     var showSponsoredSuggestions by lazyFeatureFlagBooleanPreference(
-         key = appContext.getPreferenceKey(R.string.pref_key_show_sponsored_suggestions),
--        defaultValue = { enableFxSuggest },
-+        defaultValue = { false },
-         featureFlag = FeatureFlags.FX_SUGGEST,
-     )
+@@ -2661,26 +2661,26 @@ class Settings(
+         )
  
      /**
-      * Indicates if the user has chosen to show search suggestions for web content in the
--     * awesomebar. The default value is computed lazily, and based on whether Firefox Suggest
--     * is enabled.
-+     * awesomebar. Disabled by default on every channel; explicit choices are preserved.
+-     * Indicates if the user has chosen to show sponsored search suggestions in the awesomebar. The default value is
+-     * computed lazily, and based on whether Firefox Suggest is enabled.
++     * Indicates if the user has chosen to show sponsored search suggestions in the awesomebar. Disabled by default on
++     * every channel; an explicit saved choice is preserved.
       */
      @Suppress("DEPRECATION")
-     var showNonSponsoredSuggestions by lazyFeatureFlagBooleanPreference(
-         key = appContext.getPreferenceKey(R.string.pref_key_show_nonsponsored_suggestions),
--        defaultValue = { enableFxSuggest },
-+        defaultValue = { false },
-         featureFlag = FeatureFlags.FX_SUGGEST,
-     )
+     var showSponsoredSuggestions by
+         lazyFeatureFlagBooleanPreference(
+             key = appContext.getPreferenceKey(R.string.pref_key_show_sponsored_suggestions),
+-            defaultValue = { enableFxSuggest },
++            defaultValue = { false },
+             featureFlag = FeatureFlags.FX_SUGGEST,
+         )
+ 
+     /**
+-     * Indicates if the user has chosen to show search suggestions for web content in the awesomebar. The default value
+-     * is computed lazily, and based on whether Firefox Suggest is enabled.
++     * Indicates if the user has chosen to show search suggestions for web content in the awesomebar. Disabled by
++     * default on every channel; explicit choices are preserved.
+      */
+     @Suppress("DEPRECATION")
+     var showNonSponsoredSuggestions by
+         lazyFeatureFlagBooleanPreference(
+             key = appContext.getPreferenceKey(R.string.pref_key_show_nonsponsored_suggestions),
+-            defaultValue = { enableFxSuggest },
++            defaultValue = { false },
+             featureFlag = FeatureFlags.FX_SUGGEST,
+         )
  
 diff --git a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
 new file mode 100644
-index 0000000..e5c6bb8
+index 0000000000..e5c6bb829d
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
 @@ -0,0 +1,16 @@
@@ -1148,10 +1200,10 @@ index 0000000..e5c6bb8
 +    <string name="firefox_suggest_flights_title">Flight cards</string>
 +</resources>
 diff --git a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
-index 1f3dabf..7aa8322 100644
+index 1549c8de6d..497fe2a000 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
-@@ -75,18 +75,45 @@
+@@ -81,18 +81,45 @@
              android:defaultValue="true"
              android:key="@string/pref_key_search_synced_tabs"
              android:title='@string/preferences_search_synced_tabs' />
@@ -1199,10 +1251,24 @@ index 1f3dabf..7aa8322 100644
          <SwitchPreferenceCompat
              app:iconSpaceReserved="false"
              android:key="@string/pref_key_show_sponsored_suggestions"
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
+index fb18b0a5a3..680b88d818 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
+@@ -171,6 +171,8 @@ class FenixApplicationTest {
+         every { settings.getTabViewPingString() } returns "test"
+         every { settings.getTabTimeoutPingString() } returns "test"
+         every { settings.shouldShowSearchSuggestions } returns true
++        every { settings.showSponsoredSuggestions } returns true
++        every { settings.showNonSponsoredSuggestions } returns true
+         every { settings.shouldUseTrackingProtection } returns true
+         every { settings.isRemoteDebuggingEnabled } returns true
+         every { settings.isTelemetryEnabled } returns true
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
+index a4fca45bc1..11b44cd9be 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
-@@ -6,6 +6,8 @@
+@@ -6,6 +6,8 @@ package org.mozilla.fenix.helpers
  
  import android.content.Context
  import io.mockk.mockk
@@ -1211,7 +1277,7 @@ diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/Fe
  import mozilla.components.service.fxa.AccountServices
  import org.mozilla.fenix.FenixApplication
  import org.mozilla.fenix.R
-@@ -37,9 +39,12 @@
+@@ -37,10 +39,13 @@ class FenixRobolectricTestApplication : FenixApplication() {
          // simulated process name before per-test mocks are installed. Policy
          // tests attach a plain FenixApplication to exercise production admission.
          AccountServices.initialize(base, defaultEnabled = true)
@@ -1219,13 +1285,15 @@ diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/Fe
      }
  
      override fun initializeAccountServices(context: Context) = Unit
-+
-+    override fun initializeFirefoxSuggest(context: Context) = Unit
  
++    override fun initializeFirefoxSuggest(context: Context) = Unit
++
      private fun setApplicationTheme() {
          // According to the Robolectric devs, the application context will not have the <application>'s
+         // theme but will use the platform's default team so we set our theme here. We change it here
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt
 new file mode 100644
+index 0000000000..0cce198397
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt
 @@ -0,0 +1,161 @@
@@ -1390,14 +1458,3 @@ new file mode 100644
 +        fun attachProductionContext(context: Context) = super.attachBaseContext(context)
 +    }
 +}
---- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
-+++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
-@@ -162,6 +162,8 @@
-         every { settings.getTabViewPingString() } returns "test"
-         every { settings.getTabTimeoutPingString() } returns "test"
-         every { settings.shouldShowSearchSuggestions } returns true
-+        every { settings.showSponsoredSuggestions } returns true
-+        every { settings.showNonSponsoredSuggestions } returns true
-         every { settings.shouldUseTrackingProtection } returns true
-         every { settings.isRemoteDebuggingEnabled } returns true
-         every { settings.isTelemetryEnabled } returns true

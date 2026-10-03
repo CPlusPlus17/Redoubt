@@ -1,8 +1,20 @@
+# Redoubt global-privacy-controls.patch  (Android, LW-M7-36)
+#
+# 157 rebase (Firefox 157.0, was 153.4.0esr). What moved upstream:
+#   - GeckoViewStartup.sys.mjs: 157 registers GeckoViewPreferences on the
+#     global EventDispatcher inside the parent-process guard (the global
+#     instance does not exist in content processes). The
+#     GeckoView:GlobalPrivacy:Operation listener moves into the same guard,
+#     just before it.
+#   - Engine.kt: the interface header is one line in 157; the
+#     globalPrivacyController default follows it. GeckoEngine.kt: the property
+#     sits before the reformatted Engine.profiler KDoc.
+#
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
-index 8b3e821..0c3d447 100644
+index 3e62feb785..00af08e1cc 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
-@@ -29,6 +29,7 @@ import mozilla.components.browser.engine.gecko.ipprotection.GeckoIPProtectionHan
+@@ -30,6 +30,7 @@ import mozilla.components.browser.engine.gecko.ipprotection.GeckoIPProtectionHan
  import mozilla.components.browser.engine.gecko.mediaquery.from
  import mozilla.components.browser.engine.gecko.mediaquery.toGeckoValue
  import mozilla.components.browser.engine.gecko.preferences.DefaultGeckoPreferenceAccessor
@@ -18,18 +30,18 @@ index 8b3e821..0c3d447 100644
  import mozilla.components.concept.engine.preferences.SetBrowserPreference
  import mozilla.components.concept.engine.serviceworker.ServiceWorkerDelegate
  import mozilla.components.concept.engine.translate.LanguageModel
-@@ -1478,6 +1480,8 @@ class GeckoEngine(
-         addressStructureAccessor.getAddressStructure(countryCode, onSuccess, onError)
+@@ -1434,6 +1436,8 @@ class GeckoEngine(
+         return addressStructureAccessor.getAddressStructure(countryCode, onSuccess, onError)
      }
-
+ 
 +    override val globalPrivacyController: GlobalPrivacyController by lazy { GeckoGlobalPrivacyController() }
 +
-     /**
-      * See [Engine.profiler].
-      */
+     /** See [Engine.profiler]. */
+     override val profiler: Profiler = Profiler()
+ 
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt
 new file mode 100644
-index 0000000..8e97e24
+index 0000000000..8e97e240c3
 --- /dev/null
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt
 @@ -0,0 +1,105 @@
@@ -140,7 +152,7 @@ index 0000000..8e97e24
 +}
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt
 new file mode 100644
-index 0000000..6c5f87c
+index 0000000000..6c5f87caf7
 --- /dev/null
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt
 @@ -0,0 +1,92 @@
@@ -237,7 +249,7 @@ index 0000000..6c5f87c
 +    }
 +}
 diff --git a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt
-index b825c01..d84d7f1 100644
+index 0a846d6f6b..11c0214d42 100644
 --- a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt
 +++ b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt
 @@ -21,6 +21,7 @@ import mozilla.components.concept.engine.content.blocking.TrackingProtectionExce
@@ -248,19 +260,20 @@ index b825c01..d84d7f1 100644
  import mozilla.components.concept.engine.serviceworker.ServiceWorkerDelegate
  import mozilla.components.concept.engine.translate.TranslationsRuntime
  import mozilla.components.concept.engine.utils.EngineVersion
-@@ -39,6 +40,9 @@ interface Engine :
-     BrowserPreferencesRuntime,
-     AddressStructureRuntime,
-     DataCleanable {
+@@ -33,6 +34,10 @@ import org.json.JSONObject
+ /** Entry point for interacting with the engine implementation. */
+ interface Engine :
+     WebExtensionRuntime, TranslationsRuntime, BrowserPreferencesRuntime, AddressStructureRuntime, DataCleanable {
 +    /** Authoritative global privacy controls, or null when an engine does not support them. */
-+    val globalPrivacyController: GlobalPrivacyController? get() = null
++    val globalPrivacyController: GlobalPrivacyController?
++        get() = null
 +
-     /**
-      * Describes a combination of browsing data types stored by the engine.
-      */
+     /** Describes a combination of browsing data types stored by the engine. */
+     class BrowsingData internal constructor(val types: Int) {
+         companion object {
 diff --git a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt
 new file mode 100644
-index 0000000..d9608c6
+index 0000000000..d9608c6fc4
 --- /dev/null
 +++ b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt
 @@ -0,0 +1,67 @@
@@ -333,7 +346,7 @@ index 0000000..d9608c6
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt
 new file mode 100644
-index 0000000..212fb58
+index 0000000000..f779cb8c15
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt
 @@ -0,0 +1,176 @@
@@ -515,7 +528,7 @@ index 0000000..212fb58
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt
 new file mode 100644
-index 0000000..36d6736
+index 0000000000..36d6736281
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt
 @@ -0,0 +1,113 @@
@@ -633,11 +646,11 @@ index 0000000..36d6736
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
-index 9dbc79c..1e0e7b0 100644
+index 3d572cea2e..70bfda89f3 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
-@@ -215,6 +215,11 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
-
+@@ -225,6 +225,11 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+ 
      override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
          setPreferencesFromResource(R.xml.preferences, rootKey)
 +        findPreference<Preference>("global_privacy_controls")?.setOnPreferenceClickListener {
@@ -646,13 +659,13 @@ index 9dbc79c..1e0e7b0 100644
 +        }
 +
      }
-
+ 
      override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
 diff --git a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
-index b94d1f9..617afff 100644
+index 4bb43c1d50..34e0c36e31 100644
 --- a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
 +++ b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
-@@ -577,6 +577,9 @@
+@@ -576,6 +576,9 @@
              android:name="search_in_progress"
              android:defaultValue="false"
              app:argType="boolean" />
@@ -662,7 +675,7 @@ index b94d1f9..617afff 100644
          <action
              android:id="@+id/action_settingsFragment_to_settingsSearchFragment"
              app:destination="@id/settingsSearchFragment"
-@@ -2011,4 +2014,8 @@
+@@ -1904,4 +1907,8 @@
      <dialog
          android:id="@+id/customReviewPromptDialogFragment"
          android:name="org.mozilla.fenix.reviewprompt.CustomReviewPromptBottomSheetFragment" />
@@ -673,7 +686,7 @@ index b94d1f9..617afff 100644
  </navigation>
 diff --git a/mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml b/mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml
 new file mode 100644
-index 0000000..2ffca35
+index 0000000000..2ffca35bd9
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml
 @@ -0,0 +1,47 @@
@@ -726,7 +739,7 @@ index 0000000..2ffca35
 +</resources>
 diff --git a/mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml b/mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml
 new file mode 100644
-index 0000000..1a9b0e5
+index 0000000000..1a9b0e5382
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml
 @@ -0,0 +1,12 @@
@@ -743,7 +756,7 @@ index 0000000..1a9b0e5
 +    <Preference android:key="global_privacy_context" android:title="@string/global_privacy_context" android:selectable="false" android:persistent="false" />
 +</PreferenceScreen>
 diff --git a/mobile/android/fenix/app/src/main/res/xml/preferences.xml b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
-index 24621c9..8d61f46 100644
+index 10b64886d1..2f0926ff68 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
 @@ -117,6 +117,10 @@
@@ -754,12 +767,12 @@ index 24621c9..8d61f46 100644
 +            android:title="@string/global_privacy_title"
 +            android:persistent="false" />
 +
-
+ 
          <androidx.preference.Preference
              android:key="@string/pref_key_private_browsing"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt
 new file mode 100644
-index 0000000..9116453
+index 0000000000..911645351b
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt
 @@ -0,0 +1,172 @@
@@ -936,21 +949,21 @@ index 0000000..9116453
 +
 +}
 diff --git a/mobile/android/geckoview/api.txt b/mobile/android/geckoview/api.txt
-index 2f154fd..3f05b8c 100644
+index c0a71a126e..10693432a7 100644
 --- a/mobile/android/geckoview/api.txt
 +++ b/mobile/android/geckoview/api.txt
-@@ -96,6 +96,7 @@ import org.mozilla.geckoview.CrashPullController;
- import org.mozilla.geckoview.DeprecationSchedule;
+@@ -94,6 +94,7 @@ import org.mozilla.geckoview.CrashHandler;
+ import org.mozilla.geckoview.CrashPullController;
  import org.mozilla.geckoview.ExperimentDelegate;
  import org.mozilla.geckoview.GeckoDisplay;
 +import org.mozilla.geckoview.GeckoGlobalPrivacyController;
  import org.mozilla.geckoview.GeckoPreferenceController;
  import org.mozilla.geckoview.GeckoResult;
  import org.mozilla.geckoview.GeckoRuntime;
-@@ -906,6 +907,56 @@ package org.mozilla.geckoview {
+@@ -881,6 +882,56 @@ package org.mozilla.geckoview {
      method @NonNull @UiThread public GeckoDisplay.SurfaceInfo.Builder surfaceControl(@Nullable SurfaceControl);
    }
-
+ 
 +  public final class GeckoGlobalPrivacyController {
 +    method @NonNull @UiThread public static GeckoResult<GeckoGlobalPrivacyController.State> getState();
 +    method @NonNull @UiThread public static GeckoResult<GeckoGlobalPrivacyController.ChangeResult> reset(@NonNull String);
@@ -1006,7 +1019,7 @@ index 2f154fd..3f05b8c 100644
      method @HandlerThread @NonNull public static GeckoResult<Void> clearGeckoUserPref(@NonNull String);
 diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt
 new file mode 100644
-index 0000000..48dba90
+index 0000000000..48dba90d8c
 --- /dev/null
 +++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt
 @@ -0,0 +1,64 @@
@@ -1076,7 +1089,7 @@ index 0000000..48dba90
 +}
 diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java
 new file mode 100644
-index 0000000..c2d6e7e
+index 0000000000..c2d6e7e641
 --- /dev/null
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java
 @@ -0,0 +1,217 @@
@@ -1299,7 +1312,7 @@ index 0000000..c2d6e7e
 +}
 diff --git a/mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs b/mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs
 new file mode 100644
-index 0000000..092a419
+index 0000000000..092a4199f3
 --- /dev/null
 +++ b/mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs
 @@ -0,0 +1,187 @@
@@ -1491,31 +1504,34 @@ index 0000000..092a419
 +  },
 +};
 diff --git a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
-index 25434a8..754c6ef 100644
+index 43b0c5e41e..9aa46154cc 100644
 --- a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
 +++ b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
-@@ -14,6 +14,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
-   NimbusGeckoViewQATelemetry:
-     "resource://gre/modules/NimbusGeckoViewQATelemetry.sys.mjs",
+@@ -12,6 +12,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
+   DoHController: "moz-src:///toolkit/components/doh/DoHController.sys.mjs",
+   EventDispatcher: "resource://gre/modules/Messaging.sys.mjs",
    PdfJs: "resource://pdf.js/PdfJs.sys.mjs",
 +  GeckoViewGlobalPrivacy: "resource://gre/modules/GeckoViewGlobalPrivacy.sys.mjs",
    GeckoViewPreferences: "resource://gre/modules/GeckoViewPreferences.sys.mjs",
  });
-
-@@ -280,6 +281,11 @@ export class GeckoViewStartup {
-           ged: ["GeckoView:Autofill:GetAddressStructure"],
-         });
-
-+        lazy.EventDispatcher.instance.registerListener(
-+          lazy.GeckoViewGlobalPrivacy,
-+          ["GeckoView:GlobalPrivacy:Operation"]
-+        );
+ 
+@@ -291,6 +292,14 @@ export class GeckoViewStartup {
+             "GeckoView:CrashPullController.Delegate:Attached",
+           ]);
+ 
++          // LibreWolf: authoritative global privacy controls. Parent process
++          // only, like GeckoViewPreferences below: the global EventDispatcher
++          // instance does not exist in content processes.
++          lazy.EventDispatcher.instance.registerListener(
++            lazy.GeckoViewGlobalPrivacy,
++            ["GeckoView:GlobalPrivacy:Operation"]
++          );
 +
-         // We don't register this using the LazyGetter because it needs to be ready before
-         // the first call to the listener is received.
-         lazy.EventDispatcher.instance.registerListener(
+           // We don't register this using the LazyGetter because it needs to be
+           // ready before the first call to the listener is received. The global
+           // EventDispatcher instance is only available in the parent process, so
 diff --git a/mobile/shared/components/geckoview/moz.build b/mobile/shared/components/geckoview/moz.build
-index 88778c5..926bb12 100644
+index 88778c59bb..926bb1292a 100644
 --- a/mobile/shared/components/geckoview/moz.build
 +++ b/mobile/shared/components/geckoview/moz.build
 @@ -22,6 +22,7 @@ EXTRA_COMPONENTS += [
@@ -1528,7 +1544,7 @@ index 88778c5..926bb12 100644
      "GeckoViewPrompt.sys.mjs",
 diff --git a/mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js b/mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js
 new file mode 100644
-index 0000000..45ba0b7
+index 0000000000..45ba0b7746
 --- /dev/null
 +++ b/mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js
 @@ -0,0 +1,89 @@
@@ -1622,12 +1638,12 @@ index 0000000..45ba0b7
 +  Assert.equal(entry(result.state, "rfp").value, 1);
 +});
 diff --git a/mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml b/mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml
-index a051366..d0b21aa 100644
+index a0513661c6..d0b21aac45 100644
 --- a/mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml
 +++ b/mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml
 @@ -14,3 +14,5 @@ prefs = "browser.crashReports.onDemand=true"
  ["test_GeckoViewTrackingDB.js"]
-
+ 
  ["test_RemoteSettingsCrashPull.js"]
 +
 +["test_global_privacy_settings.js"]

@@ -1,5 +1,13 @@
 # LW-M7-22 real cookie-banner behavior
 
+> **Retired 2026-10-02.** Firefox 156 removed the cookie banner service, so
+> the packaged rules and controls this runner exercised cannot exist on
+> Firefox 157 (LW-M7-13 and LW-M7-23 are retired too). Since LW-M7-41,
+> `scripts/android-cookie-banner-smoke.py` checks uBlock Origin's
+> cookie-notice lists instead. The runner described below, and the one
+> `test-cookie-banner-smoke.py` in this directory tests, is the version before
+> that change in git history.
+
 Implementation candidate; **live installed-APK acceptance is pending**. This
 subtask has not run real adb, installed or built an APK, changed a guest, or
 modified the frozen Gecko source. Host tests exercise the actual grader,

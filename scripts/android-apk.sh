@@ -69,7 +69,7 @@
 # objdir that also carries --enable-android-subproject=fenix.
 #
 # fat_aar.py unpacks all three, checks them against each other, and writes
-# dist/fat-aar/output/jni; `mobile/android/geckoview/build.gradle:130-136` then
+# dist/fat-aar/output/geckoview/jni (output/jni before 157); `mobile/android/geckoview/build.gradle:130-136` then
 # points the AAR's jniLibs at that directory instead of this objdir's own
 # dist/geckoview/lib.  So the APK's native libraries are the three per-ABI
 # builds', and `mobile/android/fenix/app/build.gradle:230-246` splits them into
@@ -118,8 +118,9 @@
 # --variant=release is the first thing in this project that runs R8
 # (releaseTemplate: minifyEnabled = !disableOptimization).  It needs
 # third_party/application-services/proguard-rules-consumer-jna.pro in the tree
-# (patches/android/r8-keep-rules.patch, LW-M6-07), which the ESR tarball does
-# not ship; without it the APK crashes on launch.  The preflight enforces that
+# (LW-M6-07). The 153 ESR tarball did not ship it and r8-keep-rules.patch
+# restored it; Firefox 157 ships it upstream, so the patch is retired. Without
+# it the APK crashes on launch.  The preflight enforces that
 # for release only.
 #
 # ---------------------------------------------------------------------------
@@ -217,7 +218,7 @@ is the fat AAR built by scripts/android-fat-aar.sh.
                     debug-signed in this configuration (see the header), but
                     only release runs R8, and release refuses to build without
                     third_party/application-services/proguard-rules-consumer-
-                    jna.pro in the tree (patches/android/r8-keep-rules.patch,
+                    jna.pro in the tree (upstream ships it from 157;
                     LW-M6-07) -- without it the APK crashes on launch.
   --srcdir DIR      extracted, patched source tree to build in (required).
                     It gets one objdir; give it its own copy.
@@ -372,15 +373,16 @@ grep -q "include ':fenix'" "$SRCDIR/settings.gradle" ||
 # launch (LW-M6-07; the LW-M4-09 crash, reproduced in
 # ~/lw-m4-09/evidence/release-r8-crash.logcat).  Debug is immune because it
 # never minifies, which is exactly how the crash stayed invisible until now.
-# patches/android/r8-keep-rules.patch (LW-M6-07) restores the file; check the
-# tree, not the patch list, because that is what the build reads.
+# Firefox 157 ships the file upstream (on 153 ESR r8-keep-rules.patch, LW-M6-07,
+# restored it; retired for 157). Check the tree, because that is what the build
+# reads.
 if [ "$VARIANT" = "release" ]; then
     [ -f "$SRCDIR/third_party/application-services/proguard-rules-consumer-jna.pro" ] ||
         die "release: '$SRCDIR/third_party/application-services/proguard-rules-consumer-jna.pro' is missing.
        component-common.gradle declares it as the AAR's consumerProguardFiles, but the
-       ESR tarball does not ship it, so R8 would strip @Structure.FieldOrder from the
+       tree does not have it, so R8 would strip @Structure.FieldOrder from the
        uniffi RustBuffer classes and the APK would crash on launch (LW-M6-07).
-       Apply patches/android/r8-keep-rules.patch to the tree and re-run."
+       Firefox 157 ships it upstream; is --srcdir an extracted 157 tree?"
 fi
 
 [ -n "$AARDIR" ] || { usage >&2; die "--aar-dir is required"; }
@@ -961,8 +963,8 @@ fi
 # The merge really ran, and produced every ABI.  Checked in the objdir rather
 # than inferred from the log.
 for abi in $abi_list; do
-    [ -f "$objdir/dist/fat-aar/output/jni/$abi/libxul.so" ] ||
-        die "gecko: '$objdir/dist/fat-aar/output/jni/$abi/libxul.so' is missing; the
+    [ -f "$objdir/dist/fat-aar/output/geckoview/jni/$abi/libxul.so" ] ||
+        die "gecko: '$objdir/dist/fat-aar/output/geckoview/jni/$abi/libxul.so' is missing; the
        android-fat-aar-artifact tier did not unpack $abi"
 done
 

@@ -113,6 +113,8 @@ def check(doc, tasks):
         for dep in t.get("depends_on") or []:
             if dep not in tasks:
                 errs.append(f"{tid}: depends_on unknown task {dep}")
+        if "retired" in t and not (isinstance(t["retired"], str) and t["retired"].strip()):
+            errs.append(f"{tid}: retired must say when and why, got {t['retired']!r}")
 
     if errs:
         return errs, warns
@@ -174,7 +176,7 @@ def cmd_waves(doc, tasks):
         print(f"\nwave {w}  ({len(members)} tasks can run in parallel)")
         for tid in members:
             t = tasks[tid]
-            flag = "" if t["agent_safe"] else "  [needs a human]"
+            flag = "  [retired]" if t.get("retired") else "" if t["agent_safe"] else "  [needs a human]"
             print(f"    {tid}  {t['title']}{flag}")
     print(f"\nmax useful concurrency: {max(len(m) for m in by_wave.values())} agents")
     return 0
@@ -186,6 +188,9 @@ def cmd_ready(doc, tasks, done):
     if unknown:
         print(f"error: unknown task id(s): {', '.join(sorted(unknown))}")
         return 1
+    # A retired task (the code it targets is gone) is never startable and
+    # counts as done for whatever depends on it.
+    done = done | {tid for tid, t in tasks.items() if t.get("retired")}
     ready = [t for tid, t in tasks.items()
              if tid not in done and all(d in done for d in (t.get("depends_on") or []))]
     if not ready:

@@ -8,6 +8,10 @@ arrive; §7 stays blank until the owner makes the stable-release decision.
 The owner changed the original closed-beta channel to a public GitHub prerelease
 on 2026-09-08; see §3 and the [publication record](evidence/lw-m6-11/README.md).
 
+> **Track note (2026-10-02):** Betas 1-3 were built from Firefox ESR 153. Android has
+> since moved to Firefox release 157.0 ([`TRACK.md`](TRACK.md#decision-reversed-2026-10-02));
+> "the pinned ESR tarball" below describes those betas.
+
 The beta exists for one reason above all others: the memory cost of site
 isolation (LW-M5-01) plus `isolatedProcess` (LW-M5-02) is invisible on a flagship
 and decisive on a budget phone. Every design choice here is weighted toward

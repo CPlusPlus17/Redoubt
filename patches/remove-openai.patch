@@ -27,20 +27,18 @@ nightly-channel build reaches it and would fail packaging on a file
 delete_from_tree() has already removed. Commenting it out costs nothing on
 release and extends the rename tripwire to the -dev path.
 
-Firefox 157 desktop merge - this file is now the DESKTOP (Firefox 157) text,
-listed in assets/patches/desktop.txt. Android stays on firefox-153.0esr and
-keeps the text it was built and verified against, byte-identical, as
-patches/android/remove-openai-esr.patch (android.txt). The two cannot share
-one file: on 157, toolkit/components/ml/jar.mn lost the wllama-module-dev.mjs
-line and the content/global/ml/security/* entries that the 153 text quotes as
-context, so the 153 jar.mn hunk 2 rejects and hunk 1 only lands at fuzz 2.
+Firefox 157: this text was regenerated for the firefox-157.0 tree, which both
+targets build (docs/android/TRACK.md, "Decision reversed 2026-10-02"). On 157,
+toolkit/components/ml/jar.mn lost the wllama-module-dev.mjs line and the
+content/global/ml/security/* entries that the 153 text quoted as context.
 This text was regenerated with diff -u from the real firefox-157.0 source
 files, not by loosening context: jar.mn is again a single hunk at fuzz 0, every
 `-` line still names an OpenAI path in full (OpenAIPipeline.mjs,
 vendor/openai/dist/openai.mjs, vendor/openai/dist/openai-dev.mjs in both
 jar.mn and license.html), and the set of files referencing those paths is the
-same five on 157 as on 153. Fold the two back into one common.txt entry when
-Android moves to an ESR >= 157.
+same five on 157 as on 153. MANDATORY on every target: librewolf-patches.py
+deletes the OpenAI paths for every target and toolkit/components/moz.build
+traverses ml/ on Android.
 ---
  toolkit/components/aboutinference/content/aboutInference.js | 4 ++--
  toolkit/components/ml/content/EngineProcess.sys.mjs         | 2 +-

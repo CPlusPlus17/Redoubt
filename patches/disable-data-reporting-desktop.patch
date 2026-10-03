@@ -1,11 +1,9 @@
 Disable data reporting at compile time -- DESKTOP half (LW-M1-02).
 
 Split out of upstream's patches/disable-data-reporting-at-compile-time.patch.
-The hunks below are the ones that only exist in a desktop build, or only in the
-desktop Firefox version (firefox-157.0; Android builds firefox-153.0esr, see
-version.android). Everything else in the upstream patch is in
-patches/disable-data-reporting-common.patch; common + desktop together are
-byte-for-byte upstream's current patch.
+The hunk below is the one that only exists in a desktop build. Everything else
+in the upstream patch is in patches/disable-data-reporting-common.patch; common
++ desktop together are byte-for-byte upstream's current patch.
 
   browser/moz.configure
       MOZ_SERVICES_HEALTHREPORT and MOZ_NORMANDY -> False. These are the two
@@ -19,22 +17,9 @@ byte-for-byte upstream's current patch.
       equivalent of this hunk is
       patches/android/disable-data-reporting-android.patch.
 
-  python/sites/mach.txt
-      Comments out the glean-sdk pypi requirement. The pinned version is part of
-      the context (68.0.1 on 157), so the hunk is version-specific; the 153esr
-      variant (67.3.2) is in patches/android/disable-data-reporting-common-esr.patch.
-
-  third_party/rust/glean-core/src/lib.rs, third_party/rust/glean-core/src/core/mod.rs
-      Glean upload/collection forced off inside glean-core (upstream 77f8fcd8,
-      which replaced the old toolkit/components/glean/src/init/mod.rs hunk --
-      on 157 build_configuration() uses a builder and that hunk rejects).
-      glean-core is a vendored crate: scripts/librewolf-patches.py rewrites the
-      two affected hashes in third_party/rust/glean-core/.cargo-checksum.json
-      (upstream f072d15c). Those hashes are the 157 file hashes, which is why
-      these hunks cannot be common: they apply to 153esr too, but there the
-      checksum rewrite does not match and the vendored crate fails its check.
-      The 153esr equivalent (init/mod.rs) is in
-      patches/android/disable-data-reporting-common-esr.patch.
+  (The python/sites/mach.txt and third_party/rust/glean-core hunks sat here
+  while Android was on 153esr, because their context is version-specific. Both
+  targets build 157 now, so they are back in the common half.)
 
   (Gone: the browser/components/tabbrowser/content/tabbrowser.js hunk that
   removed the UserInteraction "browser.tabs.opening" probes. Upstream dropped it
@@ -60,51 +45,3 @@ index 3ea3d88..c55951b 100644
  imply_option("MOZ_PROFILE_MIGRATOR", True)
  
 
-diff --git a/python/sites/mach.txt b/python/sites/mach.txt
-index d5cdce8..f4f38c1 100644
---- a/python/sites/mach.txt
-+++ b/python/sites/mach.txt
-@@ -58,7 +58,7 @@ pth:xpcom/geckoprocesstypes_generator
- pth:xpcom/idl-parser
- # glean-sdk may not be installable if a wheel isn't available
- # and it has to be built from source.
--pypi-optional:glean-sdk==68.0.1:telemetry will not be collected
-+# pypi-optional:glean-sdk==68.0.1:telemetry will not be collected
- pypi-optional:orjson>=3.10:json operations will be slower in various tools
- # Mach gracefully handles the case where `psutil` is unavailable.
- # We aren't (yet) able to pin packages in automation, so we have to
-diff --git a/third_party/rust/glean-core/src/lib.rs b/third_party/rust/glean-core/src/lib.rs
-index c401c3d..d6c744a 100644
---- a/third_party/rust/glean-core/src/lib.rs
-+++ b/third_party/rust/glean-core/src/lib.rs
-@@ -916,6 +916,7 @@ pub extern "C" fn glean_enable_logging() {
- /// **DEPRECATION NOTICE**:
- /// This API is deprecated. Use `set_collection_enabled` instead.
- pub fn glean_set_upload_enabled(enabled: bool) {
-+    let enabled = false;
-     if !was_initialize_called() {
-         return;
-     }
-@@ -951,6 +952,8 @@ pub fn glean_set_upload_enabled(enabled: bool) {
- ///
- /// This replaces `set_upload_enabled`.
- pub fn glean_set_collection_enabled(enabled: bool) {
-+    // Redundant currently
-+    let enabled = false;
-     glean_set_upload_enabled(enabled)
- }
- 
-diff --git a/third_party/rust/glean-core/src/core/mod.rs b/third_party/rust/glean-core/src/core/mod.rs
-index 0130646..1370f08 100644
---- a/third_party/rust/glean-core/src/core/mod.rs
-+++ b/third_party/rust/glean-core/src/core/mod.rs
-@@ -813,7 +813,8 @@ impl Glean {
-     ///
-     /// When upload is disabled, no data will be recorded.
-     pub fn is_upload_enabled(&self) -> bool {
--        self.upload_enabled
-+        _ = self.upload_enabled;
-+       false
-     }
- 
-     /// Check if a ping is enabled.

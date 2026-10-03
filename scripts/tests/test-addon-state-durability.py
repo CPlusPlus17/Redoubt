@@ -2,6 +2,7 @@
 """Replay actual add-on state JavaScript with pinned source; no target-runtime claim."""
 import argparse
 import hashlib
+import importlib.util
 import io
 import json
 from pathlib import Path
@@ -19,16 +20,43 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def receipt_module():
+    """The rebase receipt replayer for ./version.android, or None for the 153.0esr baseline.
+
+    The task's own source-files.json and source-baseline.tar.gz pin the
+    153.0esr source and patch bytes. A rebase re-captures the before tree from
+    the signed tarball plus the Android patch stack; see
+    docs/android/evidence/lw-m7-01/{esr,release}-<version>/receipts/README.md.
+    """
+    version = (ROOT / 'version.android').read_text().strip()
+    name = f"esr-{version.removesuffix('esr')}" if version.endswith('esr') else f'release-{version}'
+    path = ROOT / 'docs/android/evidence/lw-m7-01' / name / 'receipts/replay.py'
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location('android_receipt_replay', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, help='verify actual patched source instead of reconstructing baseline')
     parser.add_argument('--apk', type=Path, help='also compare exact packaged production JavaScript')
     args = parser.parse_args()
-    entries = json.loads((EVIDENCE / 'source-files.json').read_text())['files']
+    receipts = receipt_module()
+    if receipts is not None:
+        entries = receipts.receipt('addon-state-durability')['files']
+    else:
+        entries = json.loads((EVIDENCE / 'source-files.json').read_text())['files']
     originals = {item['path']: item for item in entries if item['before_sha256']}
     with tempfile.TemporaryDirectory(prefix='lw-m7-19-source-') as scratch:
         source = args.source.resolve() if args.source else Path(scratch)
-        if not args.source:
+        if not args.source and receipts is not None:
+            data = receipts.replay('addon-state-durability', source)
+            print(f"PASS {data['firefox_version']} before tree (tarball + Android stack); exact --fuzz=0 replay; "
+                  f"{len(entries)} after hashes", flush=True)
+        elif not args.source:
             with tarfile.open(EVIDENCE / 'source-baseline.tar.gz') as archive:
                 assert {member.name for member in archive} == set(originals)
                 for member in archive:
@@ -42,6 +70,9 @@ def main():
             assert 'offset' not in result.stdout and 'fuzz' not in result.stdout, result.stdout
             print('PASS patch applies with zero fuzz and no offsets', flush=True)
         for item in entries:
+            if item['after_sha256'] is None:
+                assert not (source / item['path']).exists(), item['path']
+                continue
             data = (source / item['path']).read_bytes()
             assert sha(data) == item['after_sha256'], item['path']
             if item['path'].endswith(('.js', '.mjs')):

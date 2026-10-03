@@ -150,15 +150,43 @@ class GraderTests(unittest.TestCase):
 
 def sha(data): return hashlib.sha256(data).hexdigest()
 
+
+def receipt_module():
+    """The rebase receipt replayer for ./version.android, or None for the 153.0esr baseline.
+
+    The task's own source-files.json and source-baseline.tar.gz pin the
+    153.0esr source and patch bytes. A rebase re-captures the before tree from
+    the signed tarball plus the Android patch stack; see
+    docs/android/evidence/lw-m7-01/{esr,release}-<version>/receipts/README.md.
+    """
+    version = (ROOT / 'version.android').read_text().strip()
+    name = f"esr-{version.removesuffix('esr')}" if version.endswith('esr') else f'release-{version}'
+    path = ROOT / 'docs/android/evidence/lw-m7-01' / name / 'receipts/replay.py'
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location('android_receipt_replay', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',type=Path);parser.add_argument('--apk',type=Path)
     args=parser.parse_args()
-    manifest=json.loads((EVIDENCE/'source-files.json').read_text())
+    receipts=receipt_module()
+    if receipts is not None:
+        manifest=receipts.receipt('extension-permission-durability')
+        baseline_archive=receipts.HERE/manifest['before_archive']
+    else:
+        manifest=json.loads((EVIDENCE/'source-files.json').read_text())
+        baseline_archive=EVIDENCE/'source-baseline.tar.gz'
     entries={item['path']:item for item in manifest['files']}
     with tempfile.TemporaryDirectory(prefix='lw-m7-31-source-') as work:
         source=args.source.resolve() if args.source else Path(work)
-        if not args.source:
+        if not args.source and receipts is not None:
+            data=receipts.replay('extension-permission-durability',source)
+            print(f"PASS {data['firefox_version']} before tree (tarball + Android stack); exact --fuzz=0 replay; {len(entries)} after hashes",flush=True)
+        elif not args.source:
             with tarfile.open(EVIDENCE/'source-baseline.tar.gz') as archive:
                 assert {m.name for m in archive}=={name for name,item in entries.items() if item['before_sha256']}
                 for member in archive:
@@ -169,13 +197,15 @@ def main():
             assert 'offset' not in result.stdout and 'fuzz' not in result.stdout,result.stdout
             print('PASS source patch replay: zero fuzz, no offsets',flush=True)
         for name,item in entries.items():
+            if item['after_sha256'] is None:
+                assert not (source/name).exists(),name;continue
             assert sha((source/name).read_bytes())==item['after_sha256'],name
             if name.endswith(('.js','.mjs')):subprocess.run(['node','--check',str(source/name)],check=True)
         subprocess.run(['node',str(ROOT/'scripts/tests/test-extension-permission-durability.js'),str(source)],check=True,timeout=60)
         # Prove the public-completion tests detect the original delayed write.
         if not args.source:
             ep=source/'toolkit/components/extensions/ExtensionPermissions.sys.mjs';candidate=ep.read_bytes()
-            with tarfile.open(EVIDENCE/'source-baseline.tar.gz') as archive: ep.write_bytes(archive.extractfile(entries[next(k for k in entries if k.endswith('/ExtensionPermissions.sys.mjs'))]['path']).read())
+            with tarfile.open(baseline_archive) as archive: ep.write_bytes(archive.extractfile(entries[next(k for k in entries if k.endswith('/ExtensionPermissions.sys.mjs'))]['path']).read())
             negative=subprocess.run(['node',str(ROOT/'scripts/tests/test-extension-permission-durability.js'),str(source)],text=True,capture_output=True,timeout=60)
             assert negative.returncode != 0 and 'AssertionError' in negative.stderr,negative.stderr
             ep.write_bytes(candidate);print('PASS original delayed-write source is rejected by the same completion test',flush=True)

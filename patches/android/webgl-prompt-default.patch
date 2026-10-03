@@ -1,13 +1,8 @@
 # LibreWolf webgl-prompt-default.patch
 #
 # Upstream file touched: modules/libpref/init/StaticPrefList.yaml
-#   (the `librewolf.webgl.prompt` entry that
-#   patches/android/webgl-permission-common-esr.patch adds to it — this patch
-#   applies AFTER that one, which is listed above it in android.txt.
-#   Until the Firefox 157 desktop merge that predecessor was
-#   patches/webgl-permission-common.patch in common.txt; the -esr file is its
-#   byte-identical pre-merge text, kept for Android's 153.0esr tree while the
-#   157 rewrite of webgl-permission-common.patch moved to desktop.txt)
+#   (the `librewolf.webgl.prompt` entry that patches/webgl-permission-common.patch
+#   adds to it — this patch applies AFTER that one, i.e. after common.txt)
 #
 # What LibreWolf wants instead, and why
 # -------------------------------------
@@ -45,17 +40,15 @@
 # ("the librewolf.webgl.prompt default that landmine L1 requires").
 #
 # The README's drift hazard does not apply: the context below is LibreWolf's own
-# pref block, not upstream text, so if webgl-permission-common-esr.patch ever stops
+# pref block, not upstream text, so if webgl-permission-common.patch ever stops
 # applying this patch rejects loudly too rather than applying against something
 # it did not mean.
 #
 # Ordering (load-bearing)
 # -----------------------
-# Requires patches/android/webgl-permission-common-esr.patch to have been
-# applied first. Both are android.txt entries since the Firefox 157 desktop
-# merge, so the order is their position in that list (the -esr entry comes
-# first; scripts/check-patch-order.py enforces it). Before the merge the
-# predecessor was in common.txt, which is always applied before android.txt.
+# Requires patches/webgl-permission-common.patch to have been applied first.
+# assets/patches/common.txt is always applied before android.txt, so listing this
+# in android.txt is enough.
 #
 # Nothing happens outside this diff (landmine L4): no file copies, no rm, no
 # generated file is edited by hand. The value reaches the binary through

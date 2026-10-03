@@ -5,8 +5,40 @@
 # GeckoView, Android Components and Fenix bridge. Desktop behavior is unchanged.
 # Integration status and required ABI/runtime checks: docs/android/evidence/lw-m7-14/README.md.
 
+#
+# 157 rebase (2026-10-02, Firefox release 157.0):
+#   * ClientWebGLContext.cpp: webgl-permission-common on 157 checks the
+#     permission at the top of CreateHostContext and covers OffscreenCanvas
+#     itself (two IsWebGLAllowed overloads). The Android branch now replaces
+#     that whole canvas/offscreen/else block, and #ifndef MOZ_WIDGET_ANDROID
+#     wraps GetWebGLPermission through both IsWebGLAllowed overloads, as it
+#     wrapped the single overload on 153. Same gate, same error string.
+#   * QuickSettingsSheetDialogFragment.kt: deleted upstream in 157 (the trust
+#     panel is Fenix's only site-information sheet). Its hunk is dropped; the
+#     ProtectionPanel/TrustPanelFragment entry is the remaining way in, as it
+#     already was wherever the trust panel was enabled. The
+#     origin_permissions_entry id stays (the Compose test tag uses it).
+#   * GeckoEngineSession, GeckoPermissionRequest, GeckoSitePermissionsStorage
+#     (+Test), browser-state PermissionRequest ext, concept Permission,
+#     SitePermissionsFeature, BaseBrowserFragment, ProtectionPanel,
+#     GeckoViewStartup, api.txt: re-applied by hand to upstream's reformatted
+#     (ktfmt) 157 sources. Imports placed in 157's ASCII order. Code unchanged.
+#   * api.txt: StorageController no longer has the cookie-banner methods that
+#     framed the setPermissionWithLifetime hunk; the line sits between
+#     setPermission and setPrivateBrowsingPermanentPermission as before.
+#   * Everything else (CanvasUtils, GeckoView Java/JS, Fenix dialog/feature,
+#     resources, tests): context offsets only.
+#
+# 157 acceptance fix (2026-10-03, OriginBoundPermissionsDialogFragment.kt + test):
+#   the permissions list loads one GeckoView:GetAllPermissions at a time
+#   (SerialRefresh) and retries a failed load twice (retryTransient). On 157 the
+#   quiet notice's Review right after a cold start sent two overlapping queries;
+#   the second found no Gecko listener while GeckoViewUtils' lazy listener was
+#   loading GeckoViewStorageController, so the list stayed empty behind an error
+#   toast and graphics acceptance failed after its process restart (3 of 3 runs).
+#   Evidence: docs/android/evidence/lw-m7-01/release-157.0/acceptance/.
 diff --git a/dom/canvas/CanvasUtils.cpp b/dom/canvas/CanvasUtils.cpp
-index f68c6df..ac55bb7 100644
+index 17bfd46974..be755270f7 100644
 --- a/dom/canvas/CanvasUtils.cpp
 +++ b/dom/canvas/CanvasUtils.cpp
 @@ -12,6 +12,7 @@
@@ -228,7 +260,7 @@ index f68c6df..ac55bb7 100644
        return;
      }
 diff --git a/dom/canvas/CanvasUtils.h b/dom/canvas/CanvasUtils.h
-index ff8d4fd..cdfc084 100644
+index ff8d4fd4c2..cdfc0843f5 100644
 --- a/dom/canvas/CanvasUtils.h
 +++ b/dom/canvas/CanvasUtils.h
 @@ -60,6 +60,12 @@ bool IsOffscreenCanvasEnabled(JSContext* aCx, JSObject* aObj);
@@ -245,7 +277,7 @@ index ff8d4fd..cdfc084 100644
  bool IsImageExtractionAllowed(dom::Document* aDocument, JSContext* aCx,
                                nsIPrincipal* aPrincipal);
 diff --git a/dom/canvas/ClientWebGLContext.cpp b/dom/canvas/ClientWebGLContext.cpp
-index 103f191..252a816 100644
+index 9146e54ebc..3d26cd6d41 100644
 --- a/dom/canvas/ClientWebGLContext.cpp
 +++ b/dom/canvas/ClientWebGLContext.cpp
 @@ -8,6 +8,7 @@
@@ -256,7 +288,7 @@ index 103f191..252a816 100644
  #include "ClientWebGLExtensions.h"
  #include "HostWebGLContext.h"
  #include "TexUnpackBlob.h"
-@@ -842,6 +843,7 @@ void ClientWebGLContext::ResetBitmap() {
+@@ -867,6 +868,7 @@ void ClientWebGLContext::ResetBitmap() {
    Run<RPROC(Resize)>(size);  // No-change resize still clears/resets everything.
  }
  
@@ -264,8 +296,8 @@ index 103f191..252a816 100644
  static uint32_t GetWebGLPermission(nsIPrincipal* aPrincipal) {
    if (!aPrincipal) {
      return nsIPermissionManager::UNKNOWN_ACTION;
-@@ -967,6 +969,8 @@ static bool IsWebGLAllowed(dom::Document* aDocument, JSContext* aCx,
-       reportToConsole, prompt);
+@@ -1096,6 +1098,8 @@ static bool IsWebGLAllowed(dom::OffscreenCanvas* aOffscreenCanvas,
+                              reportToConsole, prompt);
  }
  
 +#endif
@@ -273,64 +305,66 @@ index 103f191..252a816 100644
  bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
    const auto pNotLost = MakeRefPtr<webgl::NotLostData>(*this);
    auto& notLost = *pNotLost;
-@@ -1005,6 +1009,11 @@ bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
-         .options = options,
-     };
+@@ -1105,6 +1109,12 @@ bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
+       return Err("WebGL disabled, see about:support for why");
+     }
  
 +#ifdef MOZ_WIDGET_ANDROID
-+    if (!CanvasUtils::IsWebGLAllowedOnAndroid(mCanvasElement, mOffscreenCanvas)) {
++    if (!CanvasUtils::IsWebGLAllowedOnAndroid(mCanvasElement,
++                                              mOffscreenCanvas)) {
 +      return Err("WebGL requires permission for this site.");
 +    }
 +#else
-        if (mCanvasElement && !StaticPrefs::webgl_disabled()) {
-                if(!IsWebGLAllowed(mCanvasElement->OwnerDoc(),
-                                   nsContentUtils::GetCurrentJSContext(),
-@@ -1013,6 +1022,7 @@ bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
-                        return Err("WebGL is currently disabled.");
-                }
-        }
+     if (mCanvasElement && !StaticPrefs::webgl_disabled()) {
+       if (!NS_IsMainThread()) {
+         return Err("HTMLCanvasElement used off the main thread.");
+@@ -1129,6 +1139,7 @@ bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
+     } else {
+       return Err("WebGL is currently disabled.");
+     }
 +#endif
  
- 
- 
+     auto options = *mInitialOptions;
+     if (StaticPrefs::webgl_disable_fail_if_major_performance_caveat()) {
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt
-index 7036cf8..553b649 100644
+index fa923ec77f..8f01479928 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt
-@@ -1574,6 +1574,16 @@ class GeckoEngineSession(
-     }
+@@ -1644,6 +1644,16 @@ class GeckoEngineSession(
  
-     private fun createPermissionDelegate() = object : GeckoSession.PermissionDelegate {
-+        override fun onContentPermissionRequestWithOptions(
-+            session: GeckoSession,
-+            geckoContentPermission: ContentPermission,
-+        ): GeckoResult<GeckoSession.PermissionDelegate.PermissionDecision> {
-+            val result = GeckoResult<GeckoSession.PermissionDelegate.PermissionDecision>()
-+            val request = GeckoPermissionRequest.OriginBoundContent(geckoContentPermission, result)
-+            notifyObservers { onContentPermissionRequest(request) }
-+            return result
-+        }
+     private fun createPermissionDelegate() =
+         object : GeckoSession.PermissionDelegate {
++            override fun onContentPermissionRequestWithOptions(
++                session: GeckoSession,
++                geckoContentPermission: ContentPermission,
++            ): GeckoResult<GeckoSession.PermissionDelegate.PermissionDecision> {
++                val result = GeckoResult<GeckoSession.PermissionDelegate.PermissionDecision>()
++                val request = GeckoPermissionRequest.OriginBoundContent(geckoContentPermission, result)
++                notifyObservers { onContentPermissionRequest(request) }
++                return result
++            }
 +
-         override fun onContentPermissionRequest(
-             session: GeckoSession,
-             geckoContentPermission: ContentPermission,
+             override fun onContentPermissionRequest(
+                 session: GeckoSession,
+                 geckoContentPermission: ContentPermission,
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoPermissionRequest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoPermissionRequest.kt
-index c00ac3b..83794b8 100644
+index 84ca7e5822..363e7ab6f3 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoPermissionRequest.kt
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoPermissionRequest.kt
-@@ -11,7 +11,11 @@ import android.Manifest.permission.RECORD_AUDIO
- import androidx.annotation.OptIn
+@@ -14,8 +14,12 @@ import androidx.annotation.OptIn
  import androidx.annotation.VisibleForTesting
+ import java.util.UUID
  import mozilla.components.ExperimentalAndroidComponentsApi
 +import mozilla.components.browser.engine.gecko.await
 +import mozilla.components.concept.engine.permission.OriginBoundPermission
 +import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
  import mozilla.components.concept.engine.permission.Permission
-+import mozilla.components.concept.engine.permission.SitePermissions
  import mozilla.components.concept.engine.permission.PermissionRequest
++import mozilla.components.concept.engine.permission.SitePermissions
  import org.mozilla.geckoview.ExperimentalGeckoViewApi
  import org.mozilla.geckoview.GeckoResult
-@@ -136,6 +140,47 @@ sealed class GeckoPermissionRequest constructor(
+ import org.mozilla.geckoview.GeckoSession.PermissionDelegate
+@@ -139,6 +143,53 @@ constructor(
          }
      }
  
@@ -338,15 +372,17 @@ index c00ac3b..83794b8 100644
 +    class OriginBoundContent(
 +        internal val geckoPermission: PermissionDelegate.ContentPermission,
 +        private val result: GeckoResult<PermissionDelegate.PermissionDecision>,
-+    ) : GeckoPermissionRequest(
-+        listOf(
-+            when (geckoPermission.permission) {
-+                PermissionDelegate.PERMISSION_WEBGL -> Permission.ContentWebGL()
-+                PermissionDelegate.PERMISSION_CANVAS -> Permission.ContentCanvas()
-+                else -> error("Unsupported origin-bound permission")
-+            },
++    ) :
++        GeckoPermissionRequest(
++            listOf(
++                when (geckoPermission.permission) {
++                    PermissionDelegate.PERMISSION_WEBGL -> Permission.ContentWebGL()
++                    PermissionDelegate.PERMISSION_CANVAS -> Permission.ContentCanvas()
++                    else -> error("Unsupported origin-bound permission")
++                },
++            ),
 +        ),
-+    ), OriginBoundPermissionRequest {
++        OriginBoundPermissionRequest {
 +        override val uri = geckoPermission.uri
 +        override val permission = requireNotNull(geckoPermission.toOriginBoundPermission()).copy(permanent = false)
 +        override val topLevelOrigin = geckoPermission.topLevelOrigin
@@ -365,9 +401,13 @@ index c00ac3b..83794b8 100644
 +        }
 +
 +        override fun grant(permissions: List<Permission>) = decide(SitePermissions.Status.ALLOWED)
++
 +        override fun reject() = decide(SitePermissions.Status.NO_DECISION)
++
 +        override fun merge(permissionRequest: PermissionRequest) = Unit
++
 +        override suspend fun awaitDecisionApplied() = geckoPermission.awaitDecisionApplied().await() == true
++
 +        override suspend fun reloadIfCurrent() = geckoPermission.reloadIfCurrent().await() == true
 +
 +        @OptIn(ExperimentalGeckoViewApi::class)
@@ -379,7 +419,7 @@ index c00ac3b..83794b8 100644
       * Represents a gecko-based application permission request.
       *
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorage.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorage.kt
-index 9cce5e4..e2e1e08 100644
+index eb6068e0ad..ea3a946ae9 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorage.kt
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorage.kt
 @@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
@@ -390,18 +430,25 @@ index 9cce5e4..e2e1e08 100644
  import mozilla.components.concept.engine.permission.PermissionRequest
  import mozilla.components.concept.engine.permission.SitePermissions
  import mozilla.components.concept.engine.permission.SitePermissions.AutoplayStatus
-@@ -35,6 +36,8 @@ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KE
+@@ -27,6 +28,7 @@ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.ContentPermission.V
+ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.ContentPermission.VALUE_PROMPT
+ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE
+ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE
++import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_CANVAS
+ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION
+ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION
+ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_LOCAL_DEVICE_ACCESS
+@@ -35,6 +37,7 @@ import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KE
  import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_PERSISTENT_STORAGE
  import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_STORAGE_ACCESS
  import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_TRACKING
 +import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_WEBGL
-+import org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_CANVAS
  import org.mozilla.geckoview.StorageController
  import org.mozilla.geckoview.StorageController.ClearFlags
  
-@@ -61,6 +64,36 @@ class GeckoSitePermissionsStorage(
-     @VisibleForTesting
-     internal val geckoTemporaryPermissions = mutableListOf<ContentPermission>()
+@@ -58,6 +61,40 @@ class GeckoSitePermissionsStorage(
+      */
+     @VisibleForTesting internal val geckoTemporaryPermissions = mutableListOf<ContentPermission>()
  
 +    /** Lists engine-owned exceptions, including records without any Room row. */
 +    suspend fun listOriginBoundPermissions(privateMode: Boolean, contextId: String?): List<OriginBoundPermission> =
@@ -413,30 +460,34 @@ index 9cce5e4..e2e1e08 100644
 +        }
 +
 +    /**
-+     * Updates one exact principal/type and waits for Gecko to acknowledge it. The snapshot must still
-+     * match, so an old settings dialog cannot overwrite a newer permission choice or recreate a
-+     * permission removed when the private session ended. Room is never consulted or written.
++     * Updates one exact principal/type and waits for Gecko to acknowledge it. The snapshot must still match, so an
++     * old settings dialog cannot overwrite a newer permission choice or recreate a permission removed when the
++     * private session ended. Room is never consulted or written.
 +     */
 +    suspend fun updateOriginBoundPermission(
 +        permission: OriginBoundPermission,
 +        status: Status,
 +        permanent: Boolean = permission.permanent,
-+    ): Boolean = withContext(mainScope.coroutineContext) {
-+        val current = requireNotNull(geckoStorage.allPermissions.await()).firstOrNull {
-+            it.toOriginBoundPermission() == permission
-+        } ?: return@withContext false
-+        geckoStorage.setPermissionWithLifetime(
-+            current,
-+            status.toGeckoStatus(),
-+            permanent && !permission.privateMode,
-+        ).await()
-+        true
-+    }
++    ): Boolean =
++        withContext(mainScope.coroutineContext) {
++            val current =
++                requireNotNull(geckoStorage.allPermissions.await()).firstOrNull {
++                    it.toOriginBoundPermission() == permission
++                } ?: return@withContext false
++            geckoStorage
++                .setPermissionWithLifetime(
++                    current,
++                    status.toGeckoStatus(),
++                    permanent && !permission.privateMode,
++                )
++                .await()
++            true
++        }
 +
      override suspend fun save(sitePermissions: SitePermissions, request: PermissionRequest?, private: Boolean) {
          val geckoSavedPermissions = updateGeckoPermissionIfNeeded(sitePermissions, request, private)
          onDiskStorage.save(geckoSavedPermissions, request, private)
-@@ -170,11 +203,20 @@ class GeckoSitePermissionsStorage(
+@@ -164,11 +201,20 @@ class GeckoSitePermissionsStorage(
              val geckoLocalDeviceAccess = geckoPermissionsByType[PERMISSION_LOCAL_DEVICE_ACCESS]?.firstOrNull()
              val geckoLocalNetworkAccess = geckoPermissionsByType[PERMISSION_LOCAL_NETWORK_ACCESS]?.firstOrNull()
  
@@ -462,16 +513,15 @@ index 9cce5e4..e2e1e08 100644
  
              if (geckoNotification != null) {
                  removeTemporaryPermissionIfAny(geckoNotification)
-@@ -399,7 +441,7 @@ class GeckoSitePermissionsStorage(
-         findGeckoContentPermissionBy(
-             origin = origin,
-             private = private,
--        )?.forEach { geckoPermissions ->
-+        )?.filter { it.toOriginBoundPermission() == null }?.forEach { geckoPermissions ->
-             removeGeckoContentPermission(geckoPermissions)
-         }
-     }
-@@ -496,3 +538,22 @@ internal fun AutoplayStatus.toGeckoStatus(): Int {
+@@ -379,6 +425,7 @@ class GeckoSitePermissionsStorage(
+                 origin = origin,
+                 private = private,
+             )
++            ?.filter { it.toOriginBoundPermission() == null }
+             ?.forEach { geckoPermissions ->
+                 removeGeckoContentPermission(geckoPermissions)
+             }
+@@ -480,3 +527,22 @@ internal fun AutoplayStatus.toGeckoStatus(): Int {
          AutoplayStatus.ALLOWED -> VALUE_ALLOW
      }
  }
@@ -495,12 +545,12 @@ index 9cce5e4..e2e1e08 100644
 +    )
 +}
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorageTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorageTest.kt
-index a6a9c7a..f677f72 100644
+index cb0ef42d61..52b4e0b054 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorageTest.kt
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorageTest.kt
-@@ -714,6 +714,25 @@ class GeckoSitePermissionsStorageTest {
-         assertEquals(VALUE_ALLOW, AutoplayStatus.ALLOWED.toGeckoStatus())
-     }
+@@ -789,6 +789,26 @@ class GeckoSitePermissionsStorageTest {
+             assertEquals(VALUE_ALLOW, AutoplayStatus.ALLOWED.toGeckoStatus())
+         }
  
 +    @Test
 +    fun `changing a legacy permission preserves engine-only canvas and WebGL records without a host clear`() = runTest {
@@ -508,7 +558,8 @@ index a6a9c7a..f677f72 100644
 +        val location = geckoContentPermission(type = PERMISSION_GEOLOCATION)
 +        val webgl = originPermission()
 +        val canvas = originPermission(type = org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_CANVAS)
-+        doReturn(listOf(location, webgl, canvas)).`when`(geckoStorage)
++        doReturn(listOf(location, webgl, canvas))
++            .`when`(geckoStorage)
 +            .findGeckoContentPermissionBy(site.origin, includeTemporary = true, private = false)
 +
 +        geckoStorage.updateGeckoPermissionIfNeeded(site, private = false)
@@ -526,7 +577,7 @@ index a6a9c7a..f677f72 100644
              origin = "mozilla.dev",
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionRequestTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionRequestTest.kt
 new file mode 100644
-index 0000000..37c1e65
+index 0000000000..37c1e6504a
 --- /dev/null
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionRequestTest.kt
 @@ -0,0 +1,101 @@
@@ -633,7 +684,7 @@ index 0000000..37c1e65
 +}
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt
 new file mode 100644
-index 0000000..b00192a
+index 0000000000..b00192adf1
 --- /dev/null
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt
 @@ -0,0 +1,128 @@
@@ -766,28 +817,25 @@ index 0000000..b00192a
 +    }
 +}
 diff --git a/mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/ext/PermissionRequest.kt b/mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/ext/PermissionRequest.kt
-index 037c8f6..b4678db 100644
+index deeee6f423..a88e9cea6e 100644
 --- a/mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/ext/PermissionRequest.kt
 +++ b/mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/ext/PermissionRequest.kt
-@@ -3,6 +3,7 @@
-  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+@@ -4,12 +4,13 @@
  
  package mozilla.components.browser.state.ext
+ 
 +import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
  import mozilla.components.concept.engine.permission.PermissionRequest
  
- /**
-@@ -10,8 +11,7 @@ import mozilla.components.concept.engine.permission.PermissionRequest
-  * */
+ /** @returns true if the given [permissionRequest] is contained in this list otherwise false */
  fun List<PermissionRequest>.containsPermission(permissionRequest: PermissionRequest): Boolean {
      return this.any {
--        it.uri == permissionRequest.uri &&
--            it.permissions == permissionRequest.permissions
+-        it.uri == permissionRequest.uri && it.permissions == permissionRequest.permissions
 +        it.matchesPermissionRequest(permissionRequest)
      }
  }
  
-@@ -21,10 +21,17 @@ fun List<PermissionRequest>.containsPermission(permissionRequest: PermissionRequ
+@@ -17,10 +18,17 @@ fun List<PermissionRequest>.containsPermission(permissionRequest: PermissionRequ
  fun List<PermissionRequest>.mergePermissions(permissionRequest: PermissionRequest) {
      run loop@{
          this.forEach {
@@ -808,7 +856,7 @@ index 037c8f6..b4678db 100644
 +    }
 diff --git a/mobile/android/android-components/components/browser/state/src/test/java/mozilla/components/browser/state/ext/PermissionRequestTest.kt b/mobile/android/android-components/components/browser/state/src/test/java/mozilla/components/browser/state/ext/PermissionRequestTest.kt
 new file mode 100644
-index 0000000..fd8c3b8
+index 0000000000..fd8c3b89db
 --- /dev/null
 +++ b/mobile/android/android-components/components/browser/state/src/test/java/mozilla/components/browser/state/ext/PermissionRequestTest.kt
 @@ -0,0 +1,48 @@
@@ -862,7 +910,7 @@ index 0000000..fd8c3b8
 +}
 diff --git a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/OriginBoundPermission.kt b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/OriginBoundPermission.kt
 new file mode 100644
-index 0000000..b7eb46b
+index 0000000000..b7eb46b2df
 --- /dev/null
 +++ b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/OriginBoundPermission.kt
 @@ -0,0 +1,38 @@
@@ -905,17 +953,18 @@ index 0000000..b7eb46b
 +    suspend fun reloadIfCurrent(): Boolean
 +}
 diff --git a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/PermissionRequest.kt b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/PermissionRequest.kt
-index 820c47e..8fb76ed 100644
+index 6fbe3699b9..2c64e8aa87 100644
 --- a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/PermissionRequest.kt
 +++ b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/PermissionRequest.kt
-@@ -90,6 +90,15 @@ sealed class Permission {
-         canonicalName?.substringAfterLast('.') ?: simpleName
-     }
+@@ -80,6 +80,16 @@ sealed class Permission {
+             canonicalName?.substringAfterLast('.') ?: simpleName
+         }
  
 +    data class ContentWebGL(
 +        override val id: String? = "ContentWebGL",
 +        override val desc: String? = "",
 +    ) : Permission()
++
 +    data class ContentCanvas(
 +        override val id: String? = "ContentCanvas",
 +        override val desc: String? = "",
@@ -925,19 +974,19 @@ index 820c47e..8fb76ed 100644
          override val id: String? = "ContentAudioCapture",
          override val desc: String? = "",
 diff --git a/mobile/android/android-components/components/feature/sitepermissions/src/main/java/mozilla/components/feature/sitepermissions/SitePermissionsFeature.kt b/mobile/android/android-components/components/feature/sitepermissions/src/main/java/mozilla/components/feature/sitepermissions/SitePermissionsFeature.kt
-index e5f336d..42ff186 100644
+index 27b1513678..7b9ed5eb41 100644
 --- a/mobile/android/android-components/components/feature/sitepermissions/src/main/java/mozilla/components/feature/sitepermissions/SitePermissionsFeature.kt
 +++ b/mobile/android/android-components/components/feature/sitepermissions/src/main/java/mozilla/components/feature/sitepermissions/SitePermissionsFeature.kt
-@@ -61,6 +61,7 @@ import mozilla.components.concept.engine.permission.Permission.ContentNotificati
- import mozilla.components.concept.engine.permission.Permission.ContentPersistentStorage
- import mozilla.components.concept.engine.permission.Permission.ContentVideoCamera
- import mozilla.components.concept.engine.permission.Permission.ContentVideoCapture
+@@ -45,6 +45,7 @@ import mozilla.components.browser.state.selector.findTabOrCustomTabOrSelectedTab
+ import mozilla.components.browser.state.state.ContentState
+ import mozilla.components.browser.state.state.SessionState
+ import mozilla.components.browser.state.store.BrowserStore
 +import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
- import mozilla.components.concept.engine.permission.PermissionRequest
- import mozilla.components.concept.engine.permission.SitePermissions
- import mozilla.components.concept.engine.permission.SitePermissions.Status.ALLOWED
-@@ -216,6 +217,9 @@ class SitePermissionsFeature(
-                 }
+ import mozilla.components.concept.engine.permission.Permission
+ import mozilla.components.concept.engine.permission.Permission.AppAudio
+ import mozilla.components.concept.engine.permission.Permission.AppCamera
+@@ -218,6 +219,9 @@ class SitePermissionsFeature(
+                     }
                      .filterChanged { it }
                      .collect { permissionRequest ->
 +                        // The embedder's origin-bound feature owns these requests, their quiet UI,
@@ -947,11 +996,11 @@ index e5f336d..42ff186 100644
  
                          if (origin.isEmpty()) {
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
-index c3bd0a4..4fac9b3 100644
+index 93c75093cb..17a0fc820e 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
-@@ -310,6 +310,8 @@ abstract class BaseBrowserFragment :
-     internal val findInPageIntegration = ViewBoundFeatureWrapper<FindInPageIntegration>()
+@@ -306,6 +306,8 @@ abstract class BaseBrowserFragment :
+     @VisibleForTesting internal val findInPageIntegration = ViewBoundFeatureWrapper<FindInPageIntegration>()
      private val toolbarsIntegration = ViewBoundFeatureWrapper<ToolbarsIntegration>()
      private val bottomToolbarContainerIntegration = ViewBoundFeatureWrapper<BottomToolbarContainerIntegration>()
 +    private val originBoundPermissionsFeature =
@@ -959,52 +1008,57 @@ index c3bd0a4..4fac9b3 100644
      private val sitePermissionsFeature = ViewBoundFeatureWrapper<SitePermissionsFeature>()
      private val fullScreenFeature = ViewBoundFeatureWrapper<FullScreenFeature>()
      protected val hideToolbarFeature = ViewBoundFeatureWrapper<WebAppHideToolbarFeature>()
-@@ -1227,6 +1229,39 @@ abstract class BaseBrowserFragment :
+@@ -1266,6 +1268,44 @@ abstract class BaseBrowserFragment :
              view = view,
          )
  
 +        originBoundPermissionsFeature.set(
-+            feature = org.mozilla.fenix.browser.permissions.OriginBoundPermissionsFeature(
-+                store = store,
-+                sessionId = customTabSessionId,
-+                shouldHide = {
-+                    val state = requireComponents.appStore.state
-+                    state.isPrivateScreenLocked && state.mode.isPrivate
-+                },
-+                onQuietRequest = { tabId, _ ->
-+                    com.google.android.material.snackbar.Snackbar.make(
-+                        view,
-+                        R.string.origin_permissions_quiet_notice,
-+                        com.google.android.material.snackbar.Snackbar.LENGTH_LONG,
-+                    ).setAction(R.string.origin_permissions_review) {
++            feature =
++                org.mozilla.fenix.browser.permissions.OriginBoundPermissionsFeature(
++                    store = store,
++                    sessionId = customTabSessionId,
++                    shouldHide = {
++                        val state = requireComponents.appStore.state
++                        state.isPrivateScreenLocked && state.mode.isPrivate
++                    },
++                    onQuietRequest = { tabId, _ ->
++                        com.google.android.material.snackbar.Snackbar.make(
++                                view,
++                                R.string.origin_permissions_quiet_notice,
++                                com.google.android.material.snackbar.Snackbar.LENGTH_LONG,
++                            )
++                            .setAction(R.string.origin_permissions_review) {
++                                store.state.findTabOrCustomTab(tabId)?.let { tab ->
++                                    org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.show(
++                                        parentFragmentManager,
++                                        tab,
++                                    )
++                                }
++                            }
++                            .show()
++                    },
++                    onPromptRequest = { tabId, _ ->
 +                        store.state.findTabOrCustomTab(tabId)?.let { tab ->
 +                            org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.show(
-+                                parentFragmentManager, tab,
++                                parentFragmentManager,
++                                tab,
 +                            )
 +                        }
-+                    }.show()
-+                },
-+                onPromptRequest = { tabId, _ ->
-+                    store.state.findTabOrCustomTab(tabId)?.let { tab ->
-+                        org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.show(
-+                            parentFragmentManager, tab,
-+                        )
-+                    }
-+                },
-+            ),
++                    },
++                ),
 +            owner = this,
 +            view = view,
 +        )
 +
          sitePermissionsFeature.set(
-             feature = SitePermissionsFeature(
-                 context = context,
+             feature =
+                 SitePermissionsFeature(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt
 new file mode 100644
-index 0000000..59722d5
+index 0000000000..be56b0d2b4
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt
-@@ -0,0 +1,342 @@
+@@ -0,0 +1,401 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1027,7 +1081,10 @@ index 0000000..59722d5
 +import androidx.fragment.app.FragmentManager
 +import androidx.lifecycle.lifecycleScope
 +import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.CoroutineStart
 +import kotlinx.coroutines.Job
++import kotlinx.coroutines.delay
 +import kotlinx.coroutines.flow.distinctUntilChanged
 +import kotlinx.coroutines.flow.map
 +import kotlinx.coroutines.launch
@@ -1044,7 +1101,7 @@ index 0000000..59722d5
 +/** Shared controls for pending requests and real engine-only persistent/session/private exceptions. */
 +class OriginBoundPermissionsDialogFragment : DialogFragment() {
 +    private lateinit var content: LinearLayout
-+    private var refreshJob: Job? = null
++    private val refresher by lazy { SerialRefresh(lifecycleScope) { loadAndRender() } }
 +    private var requestsJob: Job? = null
 +    private var lockJob: Job? = null
 +    private var decisionDialog: AlertDialog? = null
@@ -1089,7 +1146,7 @@ index 0000000..59722d5
 +    override fun onStop() {
 +        requestsJob?.cancel()
 +        lockJob?.cancel()
-+        refreshJob?.cancel()
++        refresher.cancel()
 +        super.onStop()
 +    }
 +
@@ -1099,54 +1156,56 @@ index 0000000..59722d5
 +    }
 +
 +    override fun onDestroyView() {
-+        refreshJob?.cancel()
++        refresher.cancel()
 +        decisionDialog?.dismiss()
 +        decisionDialog = null
 +        super.onDestroyView()
 +    }
 +
-+    private fun refresh() {
-+        refreshJob?.cancel()
-+        refreshJob = lifecycleScope.launch {
-+            try {
-+                val records = requireComponents.core.geckoSitePermissionsStorage
++    // One load at a time: see SerialRefresh. A refresh requested meanwhile reloads once afterwards.
++    private fun refresh() = refresher.request()
++
++    private suspend fun loadAndRender() {
++        try {
++            val records = retryTransient(LOAD_ATTEMPTS, LOAD_RETRY_DELAY_MS) {
++                requireComponents.core.geckoSitePermissionsStorage
 +                    .listOriginBoundPermissions(privateMode, contextId)
-+                if (!isAdded) return@launch
-+                content.removeAllViews()
-+                addText(getString(R.string.origin_permissions_default))
-+                addText(getString(if (privateMode) R.string.origin_permissions_private_scope else R.string.origin_permissions_scope))
-+                val state = requireComponents.core.store.state
-+                val pending = originBoundRequests(state, tabId, privateMode, contextId)
-+                pending.forEach { (requestTabId, request) ->
-+                    addButton(
-+                        getString(R.string.origin_permissions_blocked_attempt, kindLabel(request.permission.kind), request.uri),
-+                        if (request.permission.kind == OriginBoundPermission.Kind.WEBGL) {
-+                            R.id.origin_permission_pending_webgl
-+                        } else {
-+                            R.id.origin_permission_pending_canvas
-+                        },
-+                    ) { showDecision(request.permission, request.topLevelOrigin, isRequest = true) { status, permanent ->
-+                        applyRequest(requestTabId, request, status, permanent)
-+                    } }
-+                }
-+                if (records.isEmpty() && pending.isEmpty()) addText(getString(R.string.origin_permissions_empty))
-+                records.forEach { record ->
-+                    addButton(
-+                        recordLabel(record),
-+                        if (record.kind == OriginBoundPermission.Kind.WEBGL) {
-+                            R.id.origin_permission_saved_webgl
-+                        } else {
-+                            R.id.origin_permission_saved_canvas
-+                        },
-+                    ) {
-+                        showDecision(record, null) { status, permanent -> applyStored(record, status, permanent) }
-+                    }
-+                }
-+            } catch (error: CancellationException) {
-+                throw error
-+            } catch (_: Exception) {
-+                showError()
 +            }
++            if (!isAdded) return
++            content.removeAllViews()
++            addText(getString(R.string.origin_permissions_default))
++            addText(getString(if (privateMode) R.string.origin_permissions_private_scope else R.string.origin_permissions_scope))
++            val state = requireComponents.core.store.state
++            val pending = originBoundRequests(state, tabId, privateMode, contextId)
++            pending.forEach { (requestTabId, request) ->
++                addButton(
++                    getString(R.string.origin_permissions_blocked_attempt, kindLabel(request.permission.kind), request.uri),
++                    if (request.permission.kind == OriginBoundPermission.Kind.WEBGL) {
++                        R.id.origin_permission_pending_webgl
++                    } else {
++                        R.id.origin_permission_pending_canvas
++                    },
++                ) { showDecision(request.permission, request.topLevelOrigin, isRequest = true) { status, permanent ->
++                    applyRequest(requestTabId, request, status, permanent)
++                } }
++            }
++            if (records.isEmpty() && pending.isEmpty()) addText(getString(R.string.origin_permissions_empty))
++            records.forEach { record ->
++                addButton(
++                    recordLabel(record),
++                    if (record.kind == OriginBoundPermission.Kind.WEBGL) {
++                        R.id.origin_permission_saved_webgl
++                    } else {
++                        R.id.origin_permission_saved_canvas
++                    },
++                ) {
++                    showDecision(record, null) { status, permanent -> applyStored(record, status, permanent) }
++                }
++            }
++        } catch (error: CancellationException) {
++            throw error
++        } catch (_: Exception) {
++            showError()
 +        }
 +    }
 +
@@ -1300,6 +1359,8 @@ index 0000000..59722d5
 +        private const val PRIVATE = "privateMode"
 +        private const val CONTEXT_ID = "contextId"
 +        private const val PADDING_DP = 16
++        private const val LOAD_ATTEMPTS = 3
++        private const val LOAD_RETRY_DELAY_MS = 250L
 +        internal const val TAG = "origin-bound-permissions"
 +
 +        /** Opens permissions for this browsing context; private records never enter normal UI. */
@@ -1347,9 +1408,61 @@ index 0000000..59722d5
 +    isChecked = record.permanent && !record.privateMode
 +    visibility = if (record.privateMode) View.GONE else View.VISIBLE
 +}
++
++/**
++ * Runs [block] for each [request], never two at once; a request made while [block] runs schedules
++ * exactly one more run after it. GeckoView answers the first GeckoView:GetAllPermissions of a process
++ * through GeckoViewUtils' lazy listener, which unregisters itself, loads GeckoViewStorageController and
++ * only then registers the real handler. A second query sent in that window finds no Gecko listener and
++ * fails at once ("No listener for GeckoView:GetAllPermissions"). On 157 that module is not loaded yet
++ * when a cold-started page's quiet notice offers Review, so the dialog's two overlapping loads hit the
++ * window every time and the list stayed empty with an error toast.
++ */
++internal class SerialRefresh(private val scope: CoroutineScope, private val block: suspend () -> Unit) {
++    private var job: Job? = null
++    private var again = false
++
++    fun request() {
++        if (job?.isActive == true) {
++            again = true
++            return
++        }
++        // Assign the job before it runs: on an immediate dispatcher the block starts inside launch.
++        val next = scope.launch(start = CoroutineStart.LAZY) {
++            do {
++                again = false
++                block()
++            } while (again)
++        }
++        job = next
++        next.start()
++    }
++
++    fun cancel() {
++        again = false
++        job?.cancel()
++        job = null
++    }
++}
++
++/** Runs [block] up to [attempts] times while it fails with anything but cancellation. */
++internal suspend fun <T> retryTransient(attempts: Int, delayMs: Long, block: suspend () -> T): T {
++    var failures = 0
++    while (true) {
++        try {
++            return block()
++        } catch (error: CancellationException) {
++            throw error
++        } catch (error: Exception) {
++            failures += 1
++            if (failures >= attempts) throw error
++            delay(delayMs)
++        }
++    }
++}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt
 new file mode 100644
-index 0000000..ddcf570
+index 0000000000..ddcf570f80
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt
 @@ -0,0 +1,102 @@
@@ -1455,50 +1568,11 @@ index 0000000..ddcf570
 +    // An iframe decision reloads that frame, never a newly selected tab or a new document.
 +    return applied && request.reloadIfCurrent()
 +}
-diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt
-index 7b1665b..eda0101 100644
---- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt
-+++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/quicksettings/QuickSettingsSheetDialogFragment.kt
-@@ -115,8 +115,11 @@ class QuickSettingsSheetDialogFragment : FenixDialogFragment() {
- 
-         interactor = QuickSettingsInteractor(quickSettingsController)
-         websiteInfoView = WebsiteInfoView(binding.websiteInfoLayout, interactor = interactor)
--        websitePermissionsView =
--            WebsitePermissionsView(binding.websitePermissionsLayout, interactor)
-+        val permissionsContainer = android.widget.LinearLayout(context).apply {
-+            orientation = android.widget.LinearLayout.VERTICAL
-+        }
-+        binding.websitePermissionsLayout.addView(permissionsContainer)
-+        websitePermissionsView = WebsitePermissionsView(permissionsContainer, interactor)
-         protectionsView =
-             ProtectionsView(
-                 binding.trackingProtectionLayout,
-@@ -133,6 +136,20 @@ class QuickSettingsSheetDialogFragment : FenixDialogFragment() {
-             navController = navController,
-         )
- 
-+        permissionsContainer.addView(android.widget.Button(context).apply {
-+            id = R.id.origin_permissions_entry
-+            setText(R.string.origin_permissions_title)
-+            isAllCaps = false
-+            setOnClickListener {
-+                components.core.store.state.findTabOrCustomTab(args.sessionId)?.let { tab ->
-+                    org.mozilla.fenix.browser.permissions.OriginBoundPermissionsDialogFragment.show(
-+                        parentFragmentManager, tab,
-+                    )
-+                }
-+            }
-+        })
-+        showPermissionsView()
-+
-         return rootView
-     }
- 
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SiteSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SiteSettingsFragment.kt
-index fbf92fa..4e56a0f 100644
+index f3db19efd6..5e45e1355a 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SiteSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SiteSettingsFragment.kt
-@@ -54,6 +54,10 @@ class SiteSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -52,6 +52,10 @@ class SiteSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
      private fun setupPreferences() {
          bindCategoryPhoneFeatures()
          bindExceptions()
@@ -1510,10 +1584,10 @@ index fbf92fa..4e56a0f 100644
  
      private fun bindDesktopMode() {
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt
-index 13adc16..7baebff 100644
+index 17afce0537..9d9ed76497 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt
-@@ -327,6 +327,13 @@ class TrustPanelFragment : BottomSheetDialogFragment() {
+@@ -337,6 +337,13 @@ class TrustPanelFragment : BottomSheetDialogFragment() {
                          Route.ProtectionPanel -> {
                              ProtectionPanel(
                                  websiteInfoState = websiteInfoState,
@@ -1528,26 +1602,24 @@ index 13adc16..7baebff 100644
                                  icon = sessionState?.content?.icon,
                                  isTrackingProtectionEnabled = isTrackingProtectionEnabled,
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt
-index 965905e..40e7c31 100644
+index 0db33ca597..bd4d20a2ad 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt
-@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
- import androidx.compose.ui.graphics.Color
+@@ -26,11 +26,13 @@ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
  import androidx.compose.ui.layout.onGloballyPositioned
  import androidx.compose.ui.platform.LocalDensity
 +import androidx.compose.ui.platform.testTag
  import androidx.compose.ui.res.painterResource
- import androidx.compose.ui.res.pluralStringResource
  import androidx.compose.ui.res.stringResource
-@@ -48,6 +49,7 @@ import androidx.compose.ui.semantics.contentDescription
- import androidx.compose.ui.semantics.onClick
+ import androidx.compose.ui.semantics.Role
  import androidx.compose.ui.semantics.role
  import androidx.compose.ui.semantics.semantics
 +import androidx.compose.ui.semantics.testTagsAsResourceId
  import androidx.compose.ui.text.style.TextAlign
  import androidx.compose.ui.text.style.TextDecoration
  import androidx.compose.ui.tooling.preview.PreviewLightDark
-@@ -113,6 +115,7 @@ internal fun ProtectionPanel(
+@@ -84,6 +86,7 @@ internal fun ProtectionPanel(
      onViewQWACClick: () -> Unit,
      onIPProtectionToggle: () -> Unit,
      onIPProtectionNavigate: () -> Unit,
@@ -1555,7 +1627,7 @@ index 965905e..40e7c31 100644
  ) {
      val isSiteProtectionEnabled = isTrackingProtectionEnabled && isGlobalTrackingProtectionEnabled
      MenuScaffold(
-@@ -163,6 +166,19 @@ internal fun ProtectionPanel(
+@@ -134,6 +137,17 @@ internal fun ProtectionPanel(
              }
          }
  
@@ -1563,9 +1635,7 @@ index 965905e..40e7c31 100644
 +            MenuGroup {
 +                MenuItem(
 +                    label = stringResource(R.string.origin_permissions_title),
-+                    modifier = Modifier.testTag("origin_permissions_entry").semantics {
-+                        testTagsAsResourceId = true
-+                    },
++                    modifier = Modifier.testTag("origin_permissions_entry").semantics { testTagsAsResourceId = true },
 +                    onClick = onOriginPermissionsClick,
 +                    beforeIconPainter = painterResource(iconsR.drawable.mozac_ic_globe_24),
 +                )
@@ -1577,7 +1647,7 @@ index 965905e..40e7c31 100644
                  websitePermissions = websitePermissions,
 diff --git a/mobile/android/fenix/app/src/main/res/values/origin_bound_permissions_ids.xml b/mobile/android/fenix/app/src/main/res/values/origin_bound_permissions_ids.xml
 new file mode 100644
-index 0000000..403ffeb
+index 0000000000..403ffeba51
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/res/values/origin_bound_permissions_ids.xml
 @@ -0,0 +1,19 @@
@@ -1601,10 +1671,10 @@ index 0000000..403ffeb
 +    <item name="origin_permissions_entry" type="id" />
 +</resources>
 diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/android/fenix/app/src/main/res/values/strings.xml
-index 70da8ea..805984e 100644
+index 291c0c3a6c..ff2f7a9185 100644
 --- a/mobile/android/fenix/app/src/main/res/values/strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
-@@ -4278,4 +4278,34 @@
+@@ -4193,4 +4193,34 @@
      <string name="librewolf_ubo_setup_failed_message">Browsing is paused because uBlock Origin could not be prepared. Retry setup or close Redoubt.</string>
      <string name="librewolf_ubo_setup_retry">Retry</string>
      <string name="librewolf_ubo_setup_close">Close Redoubt</string>
@@ -1640,7 +1710,7 @@ index 70da8ea..805984e 100644
 +    <string name="origin_permissions_error">Could not update permissions. The site remains protected unless an existing exception allows it.</string>
  </resources>
 diff --git a/mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml
-index 805a058..62d5e03 100644
+index 805a05886c..62d5e03849 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml
 @@ -91,6 +91,12 @@
@@ -1658,10 +1728,10 @@ index 805a058..62d5e03 100644
              android:key="@string/pref_key_show_site_exceptions"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt
 new file mode 100644
-index 0000000..895f831
+index 0000000000..8ba69910bc
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,166 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1669,6 +1739,13 @@ index 0000000..895f831
 +package org.mozilla.fenix.browser.permissions
 +
 +import android.view.View
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.test.advanceUntilIdle
++import kotlinx.coroutines.test.currentTime
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.runTest
 +import mozilla.components.browser.state.state.BrowserState
 +import mozilla.components.browser.state.state.ContentState
 +import mozilla.components.browser.state.state.TabSessionState
@@ -1676,10 +1753,12 @@ index 0000000..895f831
 +import org.junit.Assert.assertEquals
 +import org.junit.Assert.assertFalse
 +import org.junit.Assert.assertTrue
++import org.junit.Assert.fail
 +import org.junit.Test
 +import org.junit.runner.RunWith
 +import org.robolectric.RobolectricTestRunner
 +
++@OptIn(ExperimentalCoroutinesApi::class)
 +@RunWith(RobolectricTestRunner::class)
 +class OriginBoundPermissionsDialogFragmentTest {
 +    @Test
@@ -1724,10 +1803,104 @@ index 0000000..895f831
 +        assertEquals(listOf("container"), originBoundRequests(state, null, false, "other").map { it.second.id })
 +        assertTrue(originBoundRequests(state, "normal", true, null).isEmpty())
 +    }
++
++    @Test
++    fun `refreshes never overlap and requests made meanwhile collapse into one more run`() = runTest {
++        val firstRunMayFinish = CompletableDeferred<Unit>()
++        var runs = 0
++        var running = 0
++        var mostAtOnce = 0
++        val refresh = SerialRefresh(this) {
++            runs += 1
++            running += 1
++            mostAtOnce = maxOf(mostAtOnce, running)
++            if (runs == 1) firstRunMayFinish.await()
++            running -= 1
++        }
++
++        refresh.request()
++        runCurrent()
++        refresh.request()
++        refresh.request()
++        runCurrent()
++        assertEquals(1, runs)
++
++        firstRunMayFinish.complete(Unit)
++        advanceUntilIdle()
++        assertEquals(2, runs)
++        assertEquals(1, mostAtOnce)
++
++        refresh.request()
++        advanceUntilIdle()
++        assertEquals(3, runs)
++    }
++
++    @Test
++    fun `cancel drops the pending rerun and a later request starts a fresh run`() = runTest {
++        val never = CompletableDeferred<Unit>()
++        var runs = 0
++        val refresh = SerialRefresh(this) {
++            runs += 1
++            if (runs == 1) never.await()
++        }
++
++        refresh.request()
++        runCurrent()
++        refresh.request()
++        refresh.cancel()
++        advanceUntilIdle()
++        assertEquals(1, runs)
++
++        refresh.request()
++        advanceUntilIdle()
++        assertEquals(2, runs)
++    }
++
++    @Test
++    fun `a load that fails while Gecko registers its listener is retried`() = runTest {
++        var calls = 0
++        val records = retryTransient(attempts = 3, delayMs = 250) {
++            calls += 1
++            if (calls < 3) throw IllegalStateException("No listener for GeckoView:GetAllPermissions")
++            listOf("record")
++        }
++        assertEquals(listOf("record"), records)
++        assertEquals(3, calls)
++        assertEquals(500, currentTime)
++    }
++
++    @Test
++    fun `a load that keeps failing reports the last error after the allowed attempts`() = runTest {
++        var calls = 0
++        try {
++            retryTransient(attempts = 3, delayMs = 250) {
++                calls += 1
++                throw IllegalStateException("failure $calls")
++            }
++            fail("retryTransient returned after three failures")
++        } catch (error: IllegalStateException) {
++            assertEquals("failure 3", error.message)
++        }
++        assertEquals(3, calls)
++    }
++
++    @Test
++    fun `cancellation is never retried`() = runTest {
++        var calls = 0
++        try {
++            retryTransient(attempts = 3, delayMs = 250) {
++                calls += 1
++                throw CancellationException("dialog stopped")
++            }
++            fail("retryTransient swallowed a cancellation")
++        } catch (_: CancellationException) {
++        }
++        assertEquals(1, calls)
++    }
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt
 new file mode 100644
-index 0000000..2989067
+index 0000000000..29890673ff
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt
 @@ -0,0 +1,174 @@
@@ -1906,10 +2079,10 @@ index 0000000..2989067
 +    ),
 +)
 diff --git a/mobile/android/geckoview/api.txt b/mobile/android/geckoview/api.txt
-index 96ce621..e49eaf6 100644
+index c80602a0c8..03151fc3f2 100644
 --- a/mobile/android/geckoview/api.txt
 +++ b/mobile/android/geckoview/api.txt
-@@ -1604,9 +1604,11 @@ package org.mozilla.geckoview {
+@@ -1585,9 +1585,11 @@ package org.mozilla.geckoview {
    public static interface GeckoSession.PermissionDelegate {
      method @UiThread default public void onAndroidPermissionsRequest(@NonNull GeckoSession, @Nullable String[], @NonNull GeckoSession.PermissionDelegate.Callback);
      method @Nullable @UiThread default public GeckoResult<Integer> onContentPermissionRequest(@NonNull GeckoSession, @NonNull GeckoSession.PermissionDelegate.ContentPermission);
@@ -1921,7 +2094,7 @@ index 96ce621..e49eaf6 100644
      field public static final int PERMISSION_DESKTOP_NOTIFICATION = 1;
      field public static final int PERMISSION_GEOLOCATION = 0;
      field public static final int PERMISSION_LOCAL_DEVICE_ACCESS = 9;
-@@ -1615,6 +1617,7 @@ package org.mozilla.geckoview {
+@@ -1596,6 +1598,7 @@ package org.mozilla.geckoview {
      field public static final int PERMISSION_PERSISTENT_STORAGE = 2;
      field public static final int PERMISSION_STORAGE_ACCESS = 8;
      field public static final int PERMISSION_TRACKING = 7;
@@ -1929,7 +2102,7 @@ index 96ce621..e49eaf6 100644
      field public static final int PERMISSION_XR = 3;
    }
  
-@@ -1625,16 +1628,22 @@ package org.mozilla.geckoview {
+@@ -1606,16 +1609,22 @@ package org.mozilla.geckoview {
  
    public static class GeckoSession.PermissionDelegate.ContentPermission {
      ctor protected ContentPermission();
@@ -1952,7 +2125,7 @@ index 96ce621..e49eaf6 100644
      field @NonNull public final String uri;
      field public final int value;
    }
-@@ -1669,6 +1678,12 @@ package org.mozilla.geckoview {
+@@ -1650,6 +1659,12 @@ package org.mozilla.geckoview {
    @Retention(value=RetentionPolicy.SOURCE) public static interface GeckoSession.PermissionDelegate.MediaSource.Type {
    }
  
@@ -1965,9 +2138,9 @@ index 96ce621..e49eaf6 100644
    @AnyThread public static interface GeckoSession.PrintDelegate {
      method default public void onPrint(@NonNull GeckoSession);
      method default public void onPrint(@NonNull InputStream);
-@@ -2641,6 +2656,7 @@ package org.mozilla.geckoview {
-     method @HandlerThread @NonNull public GeckoResult<Void> setCookieBannerModeAndPersistInPrivateBrowsingForDomain(@NonNull String, int);
-     method @HandlerThread @NonNull public GeckoResult<Void> setCookieBannerModeForDomain(@NonNull String, int, boolean);
+@@ -2678,6 +2693,7 @@ package org.mozilla.geckoview {
+     method @HandlerThread @NonNull public GeckoResult<List<GeckoSession.PermissionDelegate.ContentPermission>> getPermissions(@NonNull String, boolean);
+     method @HandlerThread @NonNull public GeckoResult<List<GeckoSession.PermissionDelegate.ContentPermission>> getPermissions(@NonNull String, @Nullable String, boolean);
      method @AnyThread public void setPermission(@NonNull GeckoSession.PermissionDelegate.ContentPermission, int);
 +    method @AnyThread @NonNull public GeckoResult<Void> setPermissionWithLifetime(@NonNull GeckoSession.PermissionDelegate.ContentPermission, int, boolean);
      method @AnyThread public void setPrivateBrowsingPermanentPermission(@NonNull GeckoSession.PermissionDelegate.ContentPermission, int);
@@ -1975,7 +2148,7 @@ index 96ce621..e49eaf6 100644
  
 diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CanvasPermissionTest.kt b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CanvasPermissionTest.kt
 new file mode 100644
-index 0000000..d748d6f
+index 0000000000..fd5f3e3761
 --- /dev/null
 +++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CanvasPermissionTest.kt
 @@ -0,0 +1,325 @@
@@ -2305,10 +2478,10 @@ index 0000000..d748d6f
 +    }
 +}
 diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-index ef2510d..ea9ff55 100644
+index 7b196689af..775cdecfd1 100644
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-@@ -1108,6 +1108,7 @@ public class GeckoSession {
+@@ -1128,6 +1128,7 @@ public class GeckoSession {
            new String[] {
              "GeckoView:AndroidPermission",
              "GeckoView:ContentPermission",
@@ -2316,7 +2489,7 @@ index ef2510d..ea9ff55 100644
              "GeckoView:MediaPermission"
            }) {
          @Override
-@@ -1136,6 +1137,25 @@ public class GeckoSession {
+@@ -1156,6 +1157,25 @@ public class GeckoSession {
                  GeckoSession.this,
                  permsList.toArray(new String[0]),
                  new PermissionCallback("android", callback));
@@ -2342,7 +2515,7 @@ index ef2510d..ea9ff55 100644
            } else if ("GeckoView:ContentPermission".equals(event)) {
              final GeckoResult<Integer> res =
                  delegate.onContentPermissionRequest(
-@@ -7212,6 +7232,44 @@ public class GeckoSession {
+@@ -7292,6 +7312,44 @@ public class GeckoSession {
      /** Permission for local network access */
      int PERMISSION_LOCAL_NETWORK_ACCESS = 10;
  
@@ -2387,7 +2560,7 @@ index ef2510d..ea9ff55 100644
      /**
       * Represents a content permission -- including the type of permission, the present value of the
       * permission, the URL the permission pertains to, and other information.
-@@ -7245,6 +7303,20 @@ public class GeckoSession {
+@@ -7325,6 +7383,20 @@ public class GeckoSession {
         */
        public final boolean privateMode;
  
@@ -2408,7 +2581,7 @@ index ef2510d..ea9ff55 100644
        /** The type of this permission; one of {@link #PERMISSION_GEOLOCATION PERMISSION_*}. */
        public final int permission;
  
-@@ -7274,6 +7346,11 @@ public class GeckoSession {
+@@ -7354,6 +7426,11 @@ public class GeckoSession {
          this.uri = "";
          this.thirdPartyOrigin = null;
          this.privateMode = false;
@@ -2420,7 +2593,7 @@ index ef2510d..ea9ff55 100644
          this.permission = PERMISSION_GEOLOCATION;
          this.value = VALUE_ALLOW;
          this.mPrincipal = "";
-@@ -7285,6 +7362,11 @@ public class GeckoSession {
+@@ -7365,6 +7442,11 @@ public class GeckoSession {
          this.uri = bundle.getString("uri");
          this.mPrincipal = bundle.getString("principal");
          this.privateMode = bundle.getBoolean("privateMode");
@@ -2432,7 +2605,7 @@ index ef2510d..ea9ff55 100644
          this.mRequestId = bundle.getString("requestId");
  
          final String permission = bundle.getString("perm");
-@@ -7363,6 +7445,10 @@ public class GeckoSession {
+@@ -7443,6 +7525,10 @@ public class GeckoSession {
            return PERMISSION_LOCAL_DEVICE_ACCESS;
          } else if ("local-network".equals(type)) {
            return PERMISSION_LOCAL_NETWORK_ACCESS;
@@ -2443,7 +2616,7 @@ index ef2510d..ea9ff55 100644
          } else {
            return -1;
          }
-@@ -7393,6 +7479,10 @@ public class GeckoSession {
+@@ -7473,6 +7559,10 @@ public class GeckoSession {
              return "loopback-network";
            case PERMISSION_LOCAL_NETWORK_ACCESS:
              return "local-network";
@@ -2454,7 +2627,7 @@ index ef2510d..ea9ff55 100644
            default:
              return "";
          }
-@@ -7437,6 +7527,42 @@ public class GeckoSession {
+@@ -7517,6 +7607,42 @@ public class GeckoSession {
          EventDispatcher.getInstance().dispatch("GeckoView:ContentPermissionShown", data);
        }
  
@@ -2497,7 +2670,7 @@ index ef2510d..ea9ff55 100644
        /* package */ @NonNull
        GeckoBundle toGeckoBundle() {
          final GeckoBundle res = new GeckoBundle(7);
-@@ -7444,6 +7570,11 @@ public class GeckoSession {
+@@ -7524,6 +7650,11 @@ public class GeckoSession {
          res.putString("thirdPartyOrigin", thirdPartyOrigin);
          res.putString("principal", mPrincipal);
          res.putBoolean("privateMode", privateMode);
@@ -2509,7 +2682,7 @@ index ef2510d..ea9ff55 100644
          res.putString("perm", convertType(permission, privateMode));
          res.putInt("value", value);
          res.putString("contextId", contextId);
-@@ -7507,6 +7638,27 @@ public class GeckoSession {
+@@ -7587,6 +7718,27 @@ public class GeckoSession {
        return GeckoResult.fromValue(ContentPermission.VALUE_PROMPT);
      }
  
@@ -2537,7 +2710,7 @@ index ef2510d..ea9ff55 100644
      /** Defines the set of media source categories and types used for media capture. */
      class MediaSource {
        /** Media source type definitions for media device sources. */
-@@ -7684,7 +7836,11 @@ public class GeckoSession {
+@@ -7764,7 +7916,11 @@ public class GeckoSession {
      PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE,
      PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS,
      PermissionDelegate.PERMISSION_TRACKING,
@@ -2551,7 +2724,7 @@ index ef2510d..ea9ff55 100644
    public @interface Permission {}
  
 diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
-index e26abea..39a107a 100644
+index 6e78545bd5..d0dd49540b 100644
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
 @@ -286,6 +286,33 @@ public final class StorageController {
@@ -2589,7 +2762,7 @@ index e26abea..39a107a 100644
     * Set a permanent value for a permission in a private browsing session.
     *
 diff --git a/mobile/shared/actors/GeckoViewPermissionChild.sys.mjs b/mobile/shared/actors/GeckoViewPermissionChild.sys.mjs
-index 6ca281f..0a70d5a 100644
+index 6ca281f084..0a70d5a499 100644
 --- a/mobile/shared/actors/GeckoViewPermissionChild.sys.mjs
 +++ b/mobile/shared/actors/GeckoViewPermissionChild.sys.mjs
 @@ -5,6 +5,30 @@
@@ -2624,7 +2797,7 @@ index 6ca281f..0a70d5a 100644
      return this.sendQuery("GeckoView:MediaPermission", {
        ...aPermission,
 diff --git a/mobile/shared/actors/GeckoViewPermissionParent.sys.mjs b/mobile/shared/actors/GeckoViewPermissionParent.sys.mjs
-index 294db7c..a836fd7 100644
+index 294db7c113..a836fd7fee 100644
 --- a/mobile/shared/actors/GeckoViewPermissionParent.sys.mjs
 +++ b/mobile/shared/actors/GeckoViewPermissionParent.sys.mjs
 @@ -8,6 +8,18 @@ import { GeckoViewActorParent } from "resource://gre/modules/GeckoViewActorParen
@@ -2677,7 +2850,7 @@ index 294db7c..a836fd7 100644
          return this.addCameraPermission();
        }
 diff --git a/mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs b/mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs
-index 316bafd..2df9cb2 100644
+index 316bafd2b2..2df9cb2631 100644
 --- a/mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs
 +++ b/mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs
 @@ -29,10 +29,26 @@ export class GeckoViewPermission {
@@ -2887,10 +3060,10 @@ index 316bafd..2df9cb2 100644
      const result = await this.promptPermission(aRequest);
      if (!result.allow) {
 diff --git a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
-index 42bba85..6448b6a 100644
+index 6295d840a8..c3a120e2b8 100644
 --- a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
 +++ b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
-@@ -63,6 +63,8 @@ const JSWINDOWACTORS = {
+@@ -64,6 +64,8 @@ const JSWINDOWACTORS = {
      },
      child: {
        esModuleURI: "resource:///actors/GeckoViewPermissionChild.sys.mjs",
@@ -2899,19 +3072,19 @@ index 42bba85..6448b6a 100644
      },
      allFrames: true,
      includeChrome: true,
-@@ -127,6 +129,7 @@ export class GeckoViewStartup {
+@@ -177,6 +179,7 @@ export class GeckoViewStartup {
              "GeckoView:GetAllPermissions",
              "GeckoView:GetPermissionsByURI",
              "GeckoView:SetPermission",
 +            "GeckoView:SetOriginPermission",
              "GeckoView:SetPermissionByURI",
-             "GeckoView:GetCookieBannerModeForDomain",
-             "GeckoView:SetCookieBannerModeForDomain",
+           ],
+         });
 diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
-index 3e93dbc..90e5b99 100644
+index 1be98f6b31..881314baf4 100644
 --- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
 +++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
-@@ -134,9 +134,14 @@ export const GeckoViewStorageController = {
+@@ -117,9 +117,14 @@ export const GeckoViewStorageController = {
          const rawPerms = Services.perms.all;
          const permissions = rawPerms.map(p => {
            return {
@@ -2927,7 +3100,7 @@ index 3e93dbc..90e5b99 100644
              value: p.capability,
              contextId: p.principal.originAttributes.geckoViewSessionContextId,
              privateMode: p.principal.privateBrowsingId != 0,
-@@ -159,9 +164,14 @@ export const GeckoViewStorageController = {
+@@ -142,9 +147,14 @@ export const GeckoViewStorageController = {
          const rawPerms = Services.perms.getAllForPrincipal(principal);
          const permissions = rawPerms.map(p => {
            return {
@@ -2943,7 +3116,7 @@ index 3e93dbc..90e5b99 100644
              value: p.capability,
              contextId: p.principal.originAttributes.geckoViewSessionContextId,
              privateMode: p.principal.privateBrowsingId != 0,
-@@ -170,6 +180,60 @@ export const GeckoViewStorageController = {
+@@ -153,6 +163,60 @@ export const GeckoViewStorageController = {
          aCallback.onSuccess({ permissions });
          break;
        }
@@ -3005,10 +3178,10 @@ index 3e93dbc..90e5b99 100644
          const principal = lazy.E10SUtils.deserializePrincipal(aData.principal);
          let key = aData.perm;
 diff --git a/modules/libpref/init/StaticPrefList.yaml b/modules/libpref/init/StaticPrefList.yaml
-index a4c98b7..6ed7456 100644
+index 2e070f3752..174967968b 100644
 --- a/modules/libpref/init/StaticPrefList.yaml
 +++ b/modules/libpref/init/StaticPrefList.yaml
-@@ -11810,21 +11810,13 @@
+@@ -12064,21 +12064,13 @@
  # Prefs starting with "librewolf."
  #---------------------------------------------------------------------------
  

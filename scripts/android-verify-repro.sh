@@ -31,8 +31,9 @@
 # R8-minified release build crashed on launch (LW-M4-09: JNA field-order
 # reflection vs R8 renaming) and "the fix is LW-M6-07, not applied here", so
 # testing it would have measured the determinism of a build nobody ships.
-# THAT REASON HAS EXPIRED: r8-keep-rules.patch (LW-M6-07) is in
-# assets/patches/android.txt, and the release APKs built on 2026-09-06 ran R8
+# THAT REASON HAS EXPIRED: r8-keep-rules.patch (LW-M6-07) was in
+# assets/patches/android.txt (Firefox 157 ships the file upstream, so the patch
+# is retired), and the release APKs built on 2026-09-06 ran R8
 # and booted -- the smoke harness drove searches, about:config and a settings
 # walk against them.  The configuration nobody ships is now the R8-off one, so
 # --r8 is what a release-representative run wants.  The default stays off only

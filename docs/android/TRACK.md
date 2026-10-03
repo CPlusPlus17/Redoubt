@@ -1,5 +1,169 @@
 # Release track — Redoubt
 
+## Decision reversed 2026-10-02
+
+**Android leaves ESR. It moves to Firefox release 157.0 now and follows Firefox
+release from here on, the same track as desktop.** Decided 2026-10-02 by the
+maintainer, Manuel Gysin:
+
+> "we do the jump to 157 now and then follow mainstream from firefoxx, move fast and forward, its the timeage of ai."
+
+(Quoted verbatim, spelling included.)
+
+This supersedes the decision below (LW-M0-07, 2026-08-15). Everything from
+"Decision" down is the original analysis, kept unedited as the record of what
+was weighed. It is no longer the policy.
+
+### What changes
+
+- **No ESR.** `version.android` = `157.0` and `release.android` = `1`. That is
+  archive.mozilla.org's name for the release
+  (`releases/157.0/source/firefox-157.0.source.tar.xz`, the tarball desktop
+  already builds). `make help TARGETS=android` shows `157.0-1`. Android and
+  desktop now name the same Firefox version. The two-pair mechanism of §6 stays:
+  Android's `version.txt` is still `<version>-<release>` (the shipped
+  `MOZ_APP_VERSION` contract, see `scripts/librewolf-patches.py`), and the files
+  let the tracks diverge for a release if a rebase lands on one target first.
+- **No `-esr` copies.** The Firefox 157 desktop merge had parked eight
+  `patches/android/*-esr.patch` byte copies, `patches/android/pack_vs-esr.py`
+  and `l10n-esr/` so that the Android tree stayed byte-identical on 153. They
+  are deleted. Every patch now has one text for both targets, and the seven
+  entries the merge had moved to `desktop.txt` are back in `common.txt`. The
+  accounting is in `PATCH-SCOPE.md`, at the top.
+- **A rebase every release.** Android now rebases on each Firefox major (every
+  two weeks since Firefox 155, §2) and on each dot release, together with
+  desktop. `REBASE.md` still describes an ESR dot rebase. Its mechanics
+  (tarball, `check-patchfail`, pref audit, smoke) carry over unchanged. Its
+  framing that a major comes once a year does not.
+- **Android-only Firefox for Android fixes now come from upstream.** §3c's
+  standing obligation goes away: someone had to read every "Firefox for Android"
+  MFSA and backport by hand because no ESR `mobile/android` existed. A release
+  tarball carries Mozilla's own `mobile/android` fixes, and out-of-band Gecko
+  security dots reach us the day Mozilla ships them, without §3a's ESR lag
+  (median 14 days, worst 21). The LW-M7-05 statement drafted in §3 has to be
+  rewritten for the release track.
+- **The `MOZ_ESR`-dependent sites of §1 and §5.3 need re-validation**, above all
+  the search-configuration channel (`toolkit/components/search/SearchUtils.sys.mjs:357`
+  on 157: `AppConstants.IS_ESR ? "esr" : AppConstants.MOZ_UPDATE_CHANNEL`) and
+  the Remote Settings channel
+  (`toolkit/modules/RustSharedRemoteSettingsService.sys.mjs:44`, same
+  expression). One correction to how §1 framed this: Redoubt's Android builds
+  never actually had `MOZ_ESR` set. `version_display.txt` was `153.0esr-1` /
+  `153.4.0esr-1`, which does not end in `esr`, so `is_esr` was false
+  (`patches/android/build-fixes.patch`, "MOZ_ESR is not set"). Both channels
+  were already the update channel, and `.jnlp` was already in the
+  dangerous-extension list. What changes is the tree behind them: the search
+  config dump (LW-M4-06), the Remote Settings collections and allowlist
+  (LW-M4-08) and `--enable-appservices-in-tree` (M2) now come from a release
+  tree that moves every two weeks. Re-validate them on 157, then at every
+  rebase.
+- **Settings.** `android.cfg` no longer restates the 153-era values that the
+  Firefox 157 settings port had taken out of `common.cfg` on Android's behalf.
+  Android takes `common.cfg`, apart from its own decisions (Redoubt-settings,
+  branch `android-release-157`).
+
+- **Cookie banners: the Firefox service is gone, uBlock Origin's lists
+  replace it.** Firefox 156 removed the cookie banner service: 157 has no
+  `toolkit/components/cookiebanners`, no `cookie-banner-rules-list` dump, no
+  `cookiebanners.*` prefs, and GeckoView's Cookie Banner Handling API is gone
+  ("there is no replacement", bug 2058143). The 153 betas carried the service
+  with packaged rules (LW-M7-13) and controls (LW-M7-23); both patches are
+  retired, and LW-M7-13, -22 and -23 with them. Owner decision 2026-10-02: uBlock
+  Origin's cookie-notice lists take over, on by default, opt-out in uBO's
+  own "Filter lists" pane like any other list. `settings/android.cfg` points
+  `librewolf.uBO.assetsBootstrapLocation` at `assets/uBOAssets.android.json`,
+  LibreWolf's uBO catalog with exactly two lists switched on
+  (`fanboy-cookiemonster` and `ublock-cookies-easylist`, uBO's "EasyList/uBO
+  – Cookie Notices" group) and no self-update URL
+  (`scripts/gen-ubo-assets-android.py`, LW-M7-41). This is not the same
+  thing: the Firefox service clicked a site's own "reject" button, so the site
+  recorded a refusal. A filter list hides the banner or blocks its script, so
+  the site may record nothing at all, and a site that requires an answer may
+  break until the list is turned off for it. The lists reach fresh installs
+  only; a profile that ran a beta keeps its uBO catalog and selection. Until
+  the catalog URL resolves, uBO falls back to the catalog in its own XPI
+  (stock defaults, cookie lists off).
+
+  **The catalog URL is pinned to a commit** (owner decision 2026-10-02: a
+  branch URL is a mutable trust anchor). uBO 1.75.0 reads the bootstrap
+  location only when it has no catalog yet; afterwards it refreshes the
+  catalog every 13 days from the catalog's own `assets.json` entry, so that
+  entry is the long-term anchor. It cannot name the pinned commit (a file
+  cannot carry the hash of the commit that contains it), a branch is what the
+  owner rejected, and upstream's or LibreWolf's catalog keep the cookie lists
+  "off", which on refresh makes uBO drop them from the user's selection
+  (`js/storage.js`, `assets.json-updated`). So the Android catalog's
+  `assets.json` entry has `"contentURL": []`: uBO never refreshes the catalog
+  and keeps the one it bootstrapped. The filter lists themselves keep updating
+  from their upstream URLs. Cost: a catalog change reaches fresh installs only.
+
+  Re-pinning, whenever `assets/uBOAssets.android.json` changes (a
+  `scripts/update-ubo-assets.sh` run, a generator change):
+  1. commit the regenerated catalog (commit A) -- nothing else needs to be in
+     it, and it must reach `CPlusPlus17/Redoubt` unchanged (no rebase, no
+     squash), because its hash is the URL;
+  2. set `CATALOG_COMMIT` in `scripts/gen-ubo-assets-android.py` to A's full
+     hash, and `librewolf.uBO.assetsBootstrapLocation` in Redoubt-settings'
+     `android.cfg` to
+     `https://raw.githubusercontent.com/CPlusPlus17/Redoubt/<A>/assets/uBOAssets.android.json`;
+     commit settings, then the gitlink and the generator together (commit B).
+  `scripts/tests/test-ubo-cookie-lists.py` fails between the two steps (the
+  pinned commit no longer serves the current catalog, or the cfg and the
+  generator disagree): that is the reminder.
+  Current pin: `612fac026e238ebac8745b6b9ed0922790473f21` (Redoubt-settings
+  `8a69936`).
+- **Four 157 features that send browsing data to Mozilla or Google are off
+  for good** (owner decision 2026-10-02, `patches/android/disable-157-cloud-features.patch`,
+  LW-M7-40): Shake to Summarize (page text to Mozilla's MLPA service), IP
+  Protection (Mozilla's hosted proxy, never initialised), the "Add shortcut"
+  sheet's Merino image-CDN icons, and the Google Lens image upload. Each
+  switch is a constant, not a default.
+- **Local Network Access on top-level navigations stays on.** The settings
+  move to 157 had let Android follow upstream on
+  `network.lna.allow_top_level_navigation` (157 defaults it to true;
+  LibreWolf stopped setting it false because OAuth flows to local addresses
+  broke). Owner decision the same day: restored to false in
+  `settings/android.cfg`, as the betas shipped. Desktop follows upstream.
+
+### What the earlier analysis said this costs
+
+The original analysis argued against this move. It now applies as a cost
+estimate, not as a veto.
+
+- **§2: 26 hard rebases a year instead of 1** (two-week cadence since
+  2026-09-01), about 46 releases a year in total. Each major means re-deriving
+  the patch set, the Fenix Kotlin removals and the pref delivery against a moved
+  tree. The analysis called this "where the port dies" for a one-person team.
+  The maintainer's answer is to accept the per-release cost and automate it
+  ("move fast and forward").
+- **§5.1: the jump is paid in one go.** 153.4.0esr → 157.0 spans four majors
+  (154 to 157) with no intermediate green build to bisect against. When the
+  decision was taken, `check-patchfail --targets=android` on 157.0 failed 29
+  of the then 44 Android patches. That port is done: three patches were
+  retired because 157 has nothing left for them to patch (`r8-keep-rules`,
+  `cookie-banner-rules`, `cookie-banner-controls`; `PATCH-SCOPE.md`), the
+  other 41 were rebased and apply at fuzz 0 in list order, and
+  `disable-157-cloud-features` was added, so `android.txt` has 42 entries and
+  `check-patchfail --targets=android` and `--targets=desktop` both pass on
+  157.0. Applying is not building. A first scratch x86_64 APK was linked on
+  2026-10-02 only after local workarounds for several 157 build defects in
+  the patcher, the pregenerated UniFFI bindings and three patches
+  (`docs/android/evidence/lw-m7-40/README.md`); a clean 157 build is the
+  next gate.
+- **§4: Tor Browser stops being a co-maintainer.** Tor Browser Stable stays on
+  ESR, and its Alpha is on rapid release. Nobody shares our exact base any more.
+- **§5.4: users see a version jump**, 153.4.0esr-1 → 157.0-1. This is cosmetic.
+  The Android versionCode is unaffected: `deterministic-version-code.patch`
+  derives it from `MOZ_BUILD_DATE`, not from the version string.
+- **§5.6 still holds, and is why this can be reversed**: the track was never
+  coupled to the `applicationId` or the signing key, so the move needs no new
+  identity and no re-install.
+
+---
+
+**SUPERSEDED 2026-10-02.** Everything below is the original LW-M0-07 analysis
+and decision. It is kept for the record and is no longer the policy.
+
 **Task:** LW-M0-07 · **Status:** decided, pending maintainer sign-off (see the last
 section) · **Written:** 2026-08-15 against the stock Firefox 153.0.4 tree and the
 Mozilla release calendar as of that date.

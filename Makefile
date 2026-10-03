@@ -64,7 +64,8 @@ endif
 
 # --- Release track ----------------------------------------------------------
 #
-# Desktop tracks Firefox release; Android tracks Firefox ESR. The decision, the
+# Desktop and Android both track Firefox release (Android left ESR on
+# 2026-10-02, docs/android/TRACK.md "Decision reversed"). The decision, the
 # numbers behind it, and the divergence model are in docs/android/TRACK.md.
 #
 # ./version + ./release name the desktop tree, ./version.android +
@@ -320,7 +321,7 @@ help:
 	@echo "Release track (docs/android/TRACK.md):"
 	@echo ""
 	@echo "  desktop tracks Firefox release : ./version ./release"
-	@echo "  android tracks Firefox ESR     : ./version.android ./release.android"
+	@echo "  android tracks Firefox release : ./version.android ./release.android"
 	@echo "                                   ($(android_version)-$(android_release))"
 	@echo "  in effect for this invocation  : $(version)-$(release)"
 	@echo ""

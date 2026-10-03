@@ -40,14 +40,25 @@ add_filter_list "LegitimateURLShortener" '{
 echo "-> Writing to assets/uBOAssets.json"
 echo $assets | jq . >./assets/uBOAssets.json
 
-git diff assets/uBOAssets.json
+# Redoubt: Android's catalog is derived from this one (cookie-notice lists on
+# by default, no self-update URL). Regenerate it in the same change. Android
+# bootstraps uBO from a COMMIT-PINNED URL of that file, so after this commit
+# lands, re-pin in a second commit: CATALOG_COMMIT in
+# scripts/gen-ubo-assets-android.py and librewolf.uBO.assetsBootstrapLocation
+# in settings/android.cfg (+ the settings gitlink) name this commit's full
+# hash. scripts/tests/test-ubo-cookie-lists.py fails until you do. See
+# docs/android/TRACK.md, "The catalog URL is pinned to a commit".
+echo "-> Regenerating assets/uBOAssets.android.json"
+python3 ./scripts/gen-ubo-assets-android.py
+
+git diff assets/uBOAssets.json assets/uBOAssets.android.json
 
 if [[ "$(
   read -e -p '-? Commit changes? [y/N] '
   echo $REPLY
 )" == [Yy]* ]]; then
   echo "-> Committing changes"
-  git add assets/uBOAssets.json
+  git add assets/uBOAssets.json assets/uBOAssets.android.json
   git commit -m "Update uBOAssets.json with latest changes"
 fi
 

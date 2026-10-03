@@ -1,0 +1,21 @@
+157.0-1 rc2 (2026-10-03), source 751f5950 (settings gitlink 8a69936 unchanged).
+
+Why: device acceptance of rc1 (d3bff1a2) failed graphics acceptance 3/3 at
+"Visible Fenix control did not appear: origin_permission_pending_webgl" after
+the process restart. Product defect in canvas-webgl-permissions.patch
+(OriginBoundPermissionsDialogFragment); fixed in 751f5950.
+
+How built: the fix is Kotlin-only. A fresh `make dir TARGETS=android` at
+751f5950 differs from rc/librewolf-157.0-1 (with the two Kotlin files edited
+in place) only in build byproducts (acceptance/fix/tree-diff-751f5950-vs-rc.txt),
+and d3bff1a2 -> 751f5950 changes no Gecko input, so the rc1 fat AAR
+(build date 20261002210000) is reused and only `make android-package` ran
+(apk-cmd.txt, commands.log: 5 min, MemAvailable min 18.9 GB, no memguard pause).
+
+Result: in all four APKs only classes.dex, classes2.dex and the derived
+assets/dexopt/baseline.prof(m) differ from rc1 (rc1-vs-rc2-entries.txt);
+omni.ja, native libs and resources are byte-identical. SerialRefresh and
+retryTransient are present in rc2's dex and absent from rc1's.
+verify_apks.py on rc2: identical to rc1 apart from APK sizes and hashes.
+versionName/versionCode are identical to rc1 (same build date): 2016188072/
+74/78/79. rc1 never left the build host; rc2 supersedes it.

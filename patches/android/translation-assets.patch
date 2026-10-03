@@ -1,12 +1,21 @@
+# LW-M7-16: Android packaged translation catalog/WASM, explicit cancellable
+# pinned model downloads, cache-only passive translation.
+#
+# 157 rebase: TranslationsChild no longer registers DOMContentLoaded/load and is
+# created on demand, so the Android pagehide listener is kept in actorCreated()
+# and TranslationsParent.translateFromUser() now creates the child with a no-op
+# "Translations:WatchPageHide" message before downloading. Parent DOMContentLoaded
+# /Load handling (removed upstream) is not reintroduced. translate() keeps 157's
+# didStartDocumentTranslation flow and didDestroy() keeps the top-level guard.
+
 diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt
+index 4d68622..9e28731 100644
 --- a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt
 +++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt
-@@ -229,6 +229,33 @@
-                 te.code == ERROR_MODEL_DOWNLOAD_REQUIRED,
-             )
+@@ -289,6 +289,33 @@ class TranslationsTest : BaseSessionTest() {
          }
-+    }
-+
+     }
+ 
 +    @Test
 +    fun cacheOnlyTranslationUsesRealCatalogAndPreservesMissingModels() {
 +        // This exercises the packaged catalog and real parent boundary, not the
@@ -32,13 +41,16 @@ diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview
 +        }
 +        val after = sessionRule.waitForResult(RuntimeTranslation.checkPairDownloadSize("es", "en"))
 +        assertEquals("No model became cached by a cache-only request", before, after)
-     }
- 
++    }
++
      @Test
+     fun testInvalidLanguageCode() {
+         sessionRule.setPrefsUntilTestEnd(mapOf("browser.translations.geckoview.enableAllTestMocks" to false))
 diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java
+index 9b74fb6..3ccb59b 100644
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java
-@@ -19,6 +19,7 @@
+@@ -19,6 +19,7 @@ import java.util.List;
  import java.util.Locale;
  import java.util.Map;
  import java.util.Objects;
@@ -46,11 +58,10 @@ diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/Transl
  import org.mozilla.gecko.EventDispatcher;
  import org.mozilla.gecko.util.EventCallback;
  import org.mozilla.gecko.util.GeckoBundle;
-@@ -31,6 +32,27 @@
- public class TranslationsController {
+@@ -32,6 +33,27 @@ public class TranslationsController {
    private static final boolean DEBUG = false;
    private static final String LOGTAG = "TranslationsController";
-+
+ 
 +  // Private protocol identity scopes cancellation to this one operation. It is
 +  // never a reusable permission for subsequent or automatic translations.
 +  private static @NonNull GeckoResult<Void> cancellableTranslationQuery(
@@ -71,10 +82,11 @@ diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/Transl
 +        });
 +    return result;
 +  }
- 
++
    /**
     * Runtime translation coordinates runtime messaging between the translations toolkit actor and
-@@ -145,8 +167,8 @@
+    * GeckoView.
+@@ -145,8 +167,8 @@ public class TranslationsController {
        if (DEBUG) {
          Log.d(LOGTAG, "Requesting management of the language model.");
        }
@@ -85,7 +97,7 @@ diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/Transl
            .map(
                result -> result,
                exception -> {
-@@ -766,26 +788,11 @@
+@@ -766,26 +788,11 @@ public class TranslationsController {
                  + options);
        }
  
@@ -107,17 +119,16 @@ diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/Transl
 -                    });
 -        return translateResult;
 -      }
--
--      return this.baseTranslate(fromLanguage, toLanguage);
 +      // Enforce cache-only requests in the parent operation itself, not a
 +      // separate size precheck that can race deletion or cancellation.
 +      return this.baseTranslate(
 +          fromLanguage, toLanguage, options == null || options.downloadModel);
-+
+ 
+-      return this.baseTranslate(fromLanguage, toLanguage);
      }
  
      /**
-@@ -817,18 +824,24 @@
+@@ -817,18 +824,24 @@ public class TranslationsController {
       */
      @HandlerThread
      private @NonNull GeckoResult<Void> baseTranslate(
@@ -148,9 +159,10 @@ diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/Transl
                    return new TranslationsException(TranslationsException.ERROR_ENGINE_DEACTIVATED);
                  }
 diff --git a/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs
+index c445ca1..5e8a848 100644
 --- a/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs
 +++ b/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs
-@@ -12,7 +12,30 @@
+@@ -12,7 +12,30 @@ ChromeUtils.defineESModuleGetters(lazy, {
  
  import { GeckoViewModule } from "resource://gre/modules/GeckoViewModule.sys.mjs";
  
@@ -181,7 +193,7 @@ diff --git a/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs b/mob
    onInit() {
      debug`onInit`;
      this.registerListener([
-@@ -30,6 +53,9 @@
+@@ -30,6 +53,9 @@ export class GeckoViewTranslations extends GeckoViewModule {
    }
  
    onDisable() {
@@ -191,7 +203,7 @@ diff --git a/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs b/mob
      debug`onDisable`;
      this.window.removeEventListener(
        "TranslationsParent:OfferTranslation",
-@@ -42,6 +68,10 @@
+@@ -42,6 +68,10 @@ export class GeckoViewTranslations extends GeckoViewModule {
      debug`onEvent: event=${aEvent}, data=${aData}`;
      switch (aEvent) {
        case "GeckoView:Translations:Translate": {
@@ -202,7 +214,7 @@ diff --git a/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs b/mob
          try {
            const { sourceLanguage, targetLanguage } = aData;
  
-@@ -49,15 +79,14 @@
+@@ -49,15 +79,14 @@ export class GeckoViewTranslations extends GeckoViewModule {
              lazy.TranslationsUtils.isLangTagValid(sourceLanguage) &&
              lazy.TranslationsUtils.isLangTagValid(targetLanguage)
            ) {
@@ -225,7 +237,7 @@ diff --git a/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs b/mob
                .then(
                  () => aCallback.onSuccess(),
                  error => aCallback.onError(`Could not translate: ${error}`)
-@@ -184,7 +213,30 @@
+@@ -184,7 +213,30 @@ export const GeckoViewTranslationsSettings = {
          return;
        }
        case "GeckoView:Translations:ManageModel": {
@@ -256,12 +268,10 @@ diff --git a/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs b/mob
          if (operation === "delete") {
            if (operationLevel === "all") {
              lazy.TranslationsUtils.deleteAllLanguageFiles().then(
-@@ -227,44 +279,6 @@
-                   `COULD_NOT_DELETE - An issue occurred while deleting the cache: ${error}`
-                 );
+@@ -229,44 +281,6 @@ export const GeckoViewTranslationsSettings = {
                }
--            );
--          }
+             );
+           }
 -        } else if (operation === "download") {
 -          if (operationLevel === "all") {
 -            lazy.TranslationsParent.downloadAllFiles().then(
@@ -298,11 +308,14 @@ diff --git a/mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs b/mob
 -            aCallback.onError(
 -              `COULD_NOT_DOWNLOAD - Downloading the cache is not a valid option. Please check the parameters and try again.
 -               Language: ${language}, Operation: ${operation}, Operation Level: ${operationLevel}`
-             );
-           }
+-            );
+-          }
          } else {
+           aCallback.onError(
+             `ERROR_UNKNOWN - The request to manage models appears to be malformed. Please check the parameters and try again.
 diff --git a/toolkit/components/translations/AndroidTranslationAssets.sys.mjs b/toolkit/components/translations/AndroidTranslationAssets.sys.mjs
 new file mode 100644
+index 0000000..4577c8e
 --- /dev/null
 +++ b/toolkit/components/translations/AndroidTranslationAssets.sys.mjs
 @@ -0,0 +1,435 @@
@@ -742,9 +755,10 @@ new file mode 100644
 +  }
 +}
 diff --git a/toolkit/components/translations/TranslationsUtils.mjs b/toolkit/components/translations/TranslationsUtils.mjs
+index c972ac3..c7598d1 100644
 --- a/toolkit/components/translations/TranslationsUtils.mjs
 +++ b/toolkit/components/translations/TranslationsUtils.mjs
-@@ -169,6 +169,15 @@
+@@ -180,6 +180,15 @@ export class TranslationsUtils {
     * @returns {Promise<string[]>} - A list of record IDs.
     */
    static async deleteAllLanguageFiles() {
@@ -761,40 +775,38 @@ diff --git a/toolkit/components/translations/TranslationsUtils.mjs b/toolkit/com
        "resource://services-settings/remote-settings.sys.mjs"
      );
 diff --git a/toolkit/components/translations/actors/TranslationsChild.sys.mjs b/toolkit/components/translations/actors/TranslationsChild.sys.mjs
+index a16e41d..b8436a7 100644
 --- a/toolkit/components/translations/actors/TranslationsChild.sys.mjs
 +++ b/toolkit/components/translations/actors/TranslationsChild.sys.mjs
-@@ -1,6 +1,8 @@
- /* This Source Code Form is subject to the terms of the Mozilla Public
+@@ -2,6 +2,8 @@
   * License, v. 2.0. If a copy of the MPL was not distributed with this
   * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-+
-+import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
  
++import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
++
  const lazy = {};
  ChromeUtils.defineESModuleGetters(lazy, {
-@@ -33,12 +35,20 @@
- 
-   #isDestroyed = false;
- 
-+  actorCreated() {
+   TranslationsDocument:
+@@ -48,9 +50,28 @@ export class TranslationsChild extends JSWindowActorChild {
+       `Created ${isTopLevelActor ? "top-level" : "sub-frame"} TranslationsChild actor.`,
+       { innerWindowId }
+     );
++
++    // The actor is created on demand; TranslationsParent.translateFromUser
++    // creates it with Translations:WatchPageHide before any Android download.
 +    if (AppConstants.platform === "android") {
-+      this.contentWindow.addEventListener("pagehide", this, { capture: true });
++      this.contentWindow?.addEventListener("pagehide", this, { capture: true });
 +    }
 +  }
 +
-   handleEvent(event) {
-     if (this.#isDestroyed) {
-       return;
-     }
- 
--    if (event.type === "DOMContentLoaded") {
++  handleEvent(event) {
++    if (this.#isDestroyed) {
++      return;
++    }
++
 +    if (event.type === "pagehide") {
 +      this.sendAsyncMessage("Translations:PageHidden");
-+    } else if (event.type === "DOMContentLoaded") {
-       this.sendAsyncMessage("Translations:DOMContentLoaded", {
-         htmlLangAttribute: this.document.documentElement.lang,
-       });
-@@ -48,6 +58,9 @@
++    }
    }
  
    didDestroy() {
@@ -804,27 +816,39 @@ diff --git a/toolkit/components/translations/actors/TranslationsChild.sys.mjs b/
      this.#isDestroyed = true;
      this.#translatedDoc?.destroy();
      this.#translatedDoc = null;
+@@ -127,6 +148,10 @@ export class TranslationsChild extends JSWindowActorChild {
+         this.#translatedDoc?.handleEngineTerminated();
+         return undefined;
+       }
++      case "Translations:WatchPageHide": {
++        // Receiving any message created this actor and its pagehide listener.
++        return undefined;
++      }
+       default:
+         throw new Error("Unknown message.", name);
+     }
 diff --git a/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs b/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs
+index 5467f20..3895af6 100644
 --- a/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs
 +++ b/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs
-@@ -1,6 +1,8 @@
- /* This Source Code Form is subject to the terms of the Mozilla Public
+@@ -2,6 +2,8 @@
   * License, v. 2.0. If a copy of the MPL was not distributed with this
   * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-+
-+import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
  
++import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
++
  const lazy = {};
  
-@@ -12,6 +14,7 @@
+ ChromeUtils.defineLazyGetter(lazy, "console", () => {
+@@ -12,6 +14,7 @@ ChromeUtils.defineLazyGetter(lazy, "console", () => {
  });
  
  ChromeUtils.defineESModuleGetters(lazy, {
 +  decompressAndroidTranslationAsset: "resource://gre/modules/translations/AndroidTranslationAssets.sys.mjs",
-   handleActorMessage:
+   getEngineStateForTests:
      "chrome://global/content/translations/translations-engine.sys.mjs",
- });
-@@ -31,9 +34,13 @@
+   handleActorMessage:
+@@ -35,11 +38,15 @@ ChromeUtils.defineESModuleGetters(lazy, {
   * @param {boolean} isMocked - Whether the TranslationsEngine payload is mocked for testing.
   * @returns {ArrayBuffer}
   */
@@ -832,14 +856,16 @@ diff --git a/toolkit/components/translations/actors/TranslationsEngineChild.sys.
 +async function decompressFromZstdBlob(blob, isMocked, record) {
    if (isMocked) {
      return new ArrayBuffer();
-+  }
-+
-+  if (AppConstants.platform === "android") {
-+    return lazy.decompressAndroidTranslationAsset(blob, record);
    }
  
++  if (AppConstants.platform === "android") {
++    return lazy.decompressAndroidTranslationAsset(blob, record);
++  }
++
    /* global DecompressionStream */
-@@ -198,13 +205,14 @@
+   const decompressionStream = new DecompressionStream("zstd");
+   const buffer = await new Response(
+@@ -213,13 +220,14 @@ export class TranslationsEngineChild extends JSProcessActorChild {
  
      const wasmPromise = decompressFromZstdBlob(
        payload.bergamotWasmBlob,
@@ -856,7 +882,7 @@ diff --git a/toolkit/components/translations/actors/TranslationsEngineChild.sys.
        payload.translationModelPayloads.map(async modelPayload => {
          const entries = Object.values(modelPayload.languageModelFiles);
  
-@@ -212,7 +220,8 @@
+@@ -227,7 +235,8 @@ export class TranslationsEngineChild extends JSProcessActorChild {
            entries.map(async entry => {
              entry.buffer = await decompressFromZstdBlob(
                entry.blob,
@@ -866,7 +892,7 @@ diff --git a/toolkit/components/translations/actors/TranslationsEngineChild.sys.
              );
              entry.blob = null;
            })
-@@ -222,7 +231,8 @@
+@@ -237,7 +246,8 @@ export class TranslationsEngineChild extends JSProcessActorChild {
        })
      );
  
@@ -877,9 +903,10 @@ diff --git a/toolkit/components/translations/actors/TranslationsEngineChild.sys.
      return payload;
    }
 diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b/toolkit/components/translations/actors/TranslationsParent.sys.mjs
+index 85f45c2..7686f72 100644
 --- a/toolkit/components/translations/actors/TranslationsParent.sys.mjs
 +++ b/toolkit/components/translations/actors/TranslationsParent.sys.mjs
-@@ -98,6 +98,7 @@
+@@ -422,6 +422,7 @@ XPCOMUtils.defineLazyServiceGetters(lazy, {
  });
  
  ChromeUtils.defineESModuleGetters(lazy, {
@@ -887,7 +914,7 @@ diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b
    LanguageDetector:
      "resource://gre/modules/translations/LanguageDetector.sys.mjs",
    RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
-@@ -1869,6 +1870,10 @@
+@@ -2811,6 +2812,10 @@ export class TranslationsParent extends JSWindowActorParent {
      }
  
      switch (name) {
@@ -895,10 +922,10 @@ diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b
 +        this.#androidDownloadController?.abort();
 +        return undefined;
 +      }
-       case "Translations:DOMContentLoaded": {
-         if (
-           this.languageState?.detectedLanguages ||
-@@ -2029,6 +2034,9 @@
+       case "Translations:RequestPort": {
+         if (!this.languageState) {
+           lazy.console.error(
+@@ -2951,6 +2956,9 @@ export class TranslationsParent extends JSWindowActorParent {
  
      return {
        bergamotWasmBlob,
@@ -908,7 +935,7 @@ diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b
        bergamotWasmArrayBuffer: null,
        translationModelPayloads,
        isMocked: TranslationsParent.#isTranslationsEngineMocked,
-@@ -2499,6 +2507,11 @@
+@@ -3421,6 +3429,11 @@ export class TranslationsParent extends JSWindowActorParent {
        return TranslationsParent.#translationModelsRemoteClient;
      }
  
@@ -920,7 +947,7 @@ diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b
      /** @type {RemoteSettingsClient} */
      const client = lazy.RemoteSettings(
        lazy.TranslationsUtils.translationsModelsCollectionName
-@@ -2860,6 +2873,11 @@
+@@ -3782,6 +3795,11 @@ export class TranslationsParent extends JSWindowActorParent {
        return TranslationsParent.#translationsWasmRemoteClient;
      }
  
@@ -932,7 +959,7 @@ diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b
      /** @type {RemoteSettingsClient} */
      const client = lazy.RemoteSettings(
        lazy.TranslationsUtils.translationsWasmCollectionName
-@@ -2985,6 +3003,11 @@
+@@ -3907,6 +3925,11 @@ export class TranslationsParent extends JSWindowActorParent {
     * @returns {Promise<Blob>}
     */
    static async #getBergamotWasmBlob() {
@@ -944,7 +971,7 @@ diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b
      const start = Date.now();
      const client = TranslationsParent.#getTranslationsWasmRemoteClient();
  
-@@ -3069,7 +3092,19 @@
+@@ -3991,7 +4014,19 @@ export class TranslationsParent extends JSWindowActorParent {
     *
     * @param {string} language The BCP 47 language tag.
     */
@@ -965,7 +992,7 @@ diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b
      const client = TranslationsParent.#getTranslationModelsRemoteClient();
  
      const queue = [];
-@@ -3092,7 +3127,14 @@
+@@ -4014,7 +4049,14 @@ export class TranslationsParent extends JSWindowActorParent {
    /**
     * Download all files used for translations.
     */
@@ -981,7 +1008,7 @@ diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b
      const client = TranslationsParent.#getTranslationModelsRemoteClient();
  
      const queue = [];
-@@ -3652,6 +3694,82 @@
+@@ -4574,6 +4616,87 @@ export class TranslationsParent extends JSWindowActorParent {
     * @param {boolean} reportAsAutoTranslate - In telemetry, report this as
     *   an auto-translate.
     */
@@ -1007,6 +1034,11 @@ diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b
 +            languagePair.sourceLanguage, languagePair.targetLanguage
 +          )) {
 +        throw new Error("Invalid translation language pair");
++      }
++      if (AppConstants.platform === "android") {
++        // The child actor has no DOM events since 157 and is created on
++        // demand; create it now so its pagehide listener cancels downloads.
++        this.sendAsyncMessage("Translations:WatchPageHide");
 +      }
 +      if (AppConstants.platform === "android" && allowDownload === true &&
 +          !TranslationsParent.#isTranslationsEngineMocked) {
@@ -1062,11 +1094,11 @@ diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b
 +  }
 +
    async translate(languagePair, reportAsAutoTranslate) {
-     const { sourceLanguage, targetLanguage } = languagePair;
-     if (!sourceLanguage || !targetLanguage) {
-@@ -3703,7 +3821,8 @@
-     const detectedLanguages =
-       await this.#ensureDetectedLanguagesForTranslation();
+     if (!this.isTopLevelActor()) {
+       lazy.console.error(
+@@ -4631,7 +4754,8 @@ export class TranslationsParent extends JSWindowActorParent {
+ 
+     const langTags = await this.#ensureLangTagsForTranslation();
  
 -    if (this.#isDestroyed) {
 +    if (this.#isDestroyed || (AppConstants.platform === "android" &&
@@ -1074,28 +1106,33 @@ diff --git a/toolkit/components/translations/actors/TranslationsParent.sys.mjs b
        return;
      }
  
-@@ -3726,7 +3845,8 @@
-       this
+@@ -4645,7 +4769,12 @@ export class TranslationsParent extends JSWindowActorParent {
+       this.#isFindBarOpen()
      );
  
--    if (this.#isDestroyed) {
+-    if (!didStartDocumentTranslation || this.#isDestroyed) {
 +    if (this.#isDestroyed || (AppConstants.platform === "android" &&
 +        this.browsingContext.currentWindowGlobal !== this.manager)) {
++      return;
++    }
++
++    if (!didStartDocumentTranslation) {
        return;
      }
  
-@@ -4704,6 +4824,7 @@
+@@ -5635,6 +5764,7 @@ export class TranslationsParent extends JSWindowActorParent {
    }
  
    didDestroy() {
 +    this.#androidDownloadController?.abort();
-     if (!TranslationsParent.AIFeature.isEnabled) {
+     if (this.isTopLevelActor() && !TranslationsParent.AIFeature.isEnabled) {
        // If the actor is getting destroyed due to the feature becoming disabled,
        // we have a few things we need to cache in case the user re-enables Translations.
 diff --git a/toolkit/components/translations/jar.mn b/toolkit/components/translations/jar.mn
+index ed20ce2..f31b95e 100644
 --- a/toolkit/components/translations/jar.mn
 +++ b/toolkit/components/translations/jar.mn
-@@ -17,3 +17,8 @@
+@@ -17,3 +17,8 @@ toolkit.jar:
  
      # Uncomment the following line to test a local build of Bergamot. It will automatically be loaded in.
      # content/global/translations/bergamot-translator.wasm.zst   (bergamot-translator/thirdparty/translations/inference/build-wasm/bergamot-translator.wasm.zst)
@@ -1105,9 +1142,10 @@ diff --git a/toolkit/components/translations/jar.mn b/toolkit/components/transla
 +    content/global/translations/android-data/bergamot-translator.wasm.zst (android-data/bergamot-translator.wasm.zst)
 +#endif
 diff --git a/toolkit/components/translations/moz.build b/toolkit/components/translations/moz.build
+index 08c587a..a68cf8b 100644
 --- a/toolkit/components/translations/moz.build
 +++ b/toolkit/components/translations/moz.build
-@@ -23,3 +23,6 @@
+@@ -23,3 +23,6 @@ EXTRA_JS_MODULES.translations = [
  
  with Files("docs/**"):
      SCHEDULES.exclusive = ["docs"]
@@ -1116,6 +1154,7 @@ diff --git a/toolkit/components/translations/moz.build b/toolkit/components/tran
 +    EXTRA_JS_MODULES.translations += ["AndroidTranslationAssets.sys.mjs"]
 diff --git a/toolkit/components/translations/tests/unit/test_android_translation_assets.js b/toolkit/components/translations/tests/unit/test_android_translation_assets.js
 new file mode 100644
+index 0000000..e976217
 --- /dev/null
 +++ b/toolkit/components/translations/tests/unit/test_android_translation_assets.js
 @@ -0,0 +1,50 @@
@@ -1170,18 +1209,20 @@ new file mode 100644
 +  Assert.ok(!(await assets.client("models").attachments.isDownloaded(model)));
 +});
 diff --git a/toolkit/components/translations/tests/unit/xpcshell.toml b/toolkit/components/translations/tests/unit/xpcshell.toml
+index c4ac610..3764d0e 100644
 --- a/toolkit/components/translations/tests/unit/xpcshell.toml
 +++ b/toolkit/components/translations/tests/unit/xpcshell.toml
-@@ -6,3 +6,5 @@
+@@ -6,3 +6,5 @@ firefox-appdir = "browser"
  
  ["test_telemetry_sampling.js"]
  requesttimeoutfactor = 4
 +
 +["test_android_translation_assets.js"]
 diff --git a/toolkit/components/translations/translations.d.ts b/toolkit/components/translations/translations.d.ts
+index 67b34e2..2f77e52 100644
 --- a/toolkit/components/translations/translations.d.ts
 +++ b/toolkit/components/translations/translations.d.ts
-@@ -279,6 +279,7 @@
+@@ -279,6 +279,7 @@ type LanguageTranslationModelFilesAligned = {
   */
  interface TranslationsEnginePayload {
    bergamotWasmBlob: Blob | null;

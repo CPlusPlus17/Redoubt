@@ -1,8 +1,0 @@
--screenshots-brand-name = Screenshots
--profiler-brand-name = Profiler
--translations-brand-name = Translations
--firefox-suggest-brand-name = Suggestions
--firefox-home-brand-name = Homepage
--firefoxview-brand-name = Tab View
--firefoxlabs-brand-name = Firefox Labs by Mozilla
--relay-brand-name = Relay by Mozilla

@@ -110,53 +110,79 @@
 # emulator's own packet capture -- a pref read would pass on a build that still
 # calls the suggestion endpoint, which is the failure this gate exists to catch.
 # See docs/android/evidence/lw-m4-11/ for the measured runs.
-diff -ur a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+#
+#
+# 157 rebase (2026-10-02, Firefox 153.4.0esr -> 157.0)
+# -----------------------------------------------------
+# Same change, nothing dropped. The line numbers above are 153's. What moved:
+#   * Settings.kt was reformatted upstream (ktfmt: `val x by` on its own
+#     line, booleanPreference(...) indented below it). The three properties
+#     are edited in the new layout; shouldShowSearchSuggestions is now at
+#     ~:1742, trendingSearchSuggestionsEnabled ~:1767, showContileFeature
+#     ~:2321, and its KDoc became a one-liner that is expanded again here.
+#   * HomeActivity.kt: upstream dropped the MARS client; TopSitesRefresher
+#     now always takes core.macTopSitesProvider, and contileTopSitesUpdater
+#     was renamed core.macTopSitesUpdater. The same three call sites are
+#     removed (lifecycle observer, startPeriodicWork, stopPeriodicWork).
+#     The TopSitesRefresher import is left in place, as on 153 (kotlinc does
+#     not report unused imports), so that this patch does not touch the
+#     import block the other HomeActivity patches edit.
+#   * Readers of showContileFeature on 157: TopSitesConfigCreator.kt:50,
+#     FenixApplication.kt:535 and :1231, DefaultTopSitesView.kt:22,
+#     TermsOfUseDataProvider.kt:54, RecordedNimbusContext.kt:250,
+#     TopSitesRefresher.kt:43. None assigns it.
+#   * Core.kt: topSitesStorage is now always built with macTopSitesProvider,
+#     so the provider object is constructed; DefaultTopSitesStorage only
+#     queries it when providerConfig.showProviderTopSites is true
+#     (DefaultTopSitesStorage.kt:129-136), and both configs set that from
+#     showContileFeature, which is constant false. Core.kt is still not
+#     edited.
+#   * Unit tests on 157 that touch these settings mock them (mockk
+#     `every { ... }`, which works on a val), so only SettingsTest needs the
+#     flipped assertion.
+# Order-freedom vs no-adjust/no-nimbus/no-onboarding/no-gms was not
+# re-measured: those patches were still being rebased when this was cut.
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -592,16 +592,9 @@
-             aboutHomeBinding,
+@@ -632,12 +632,9 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+             serviceWorkerSupport,
              crashReporterBinding,
              defaultTopSitesBinding,
 -            TopSitesRefresher(
 -                settings = components.settings,
--                topSitesProvider = if (components.settings.enableMozillaAdsClient) {
--                    components.core.macTopSitesProvider
--                } else {
--                    components.core.marsTopSitesProvider
--                },
+-                topSitesProvider = components.core.macTopSitesProvider,
 -                startupPathProvider = startupPathProvider,
 -                visualCompletenessQueue = components.performance.visualCompletenessQueue,
 -            ),
 +            // LibreWolf (LW-M4-11): no TopSitesRefresher. It refreshed the sponsored
-+            // tile feed (MARS / Mozilla ads client -> ads.mozilla.org) on every
++            // tile feed (Mozilla ads client -> ads.mozilla.org) on every
 +            // resume; the feed is removed, not disabled.
              downloadSnackbar,
              privateBrowsingLockFeature,
              externalAppLinkStatusBinding,
-@@ -635,9 +628,8 @@
+@@ -691,9 +688,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              true,
          )
  
 -        if (components.settings.showContileFeature) {
--            components.core.contileTopSitesUpdater.startPeriodicWork()
+-            components.core.macTopSitesUpdater.startPeriodicWork()
 -        }
 +        // LibreWolf (LW-M4-11): the periodic sponsored-tile refresh
-+        // (ContileTopSitesUpdater -> ads.mozilla.org) is removed with the feed.
++        // (macTopSitesUpdater -> ads.mozilla.org) is removed with the feed.
  
          if (!components.settings.hiddenEnginesRestored) {
              components.settings.hiddenEnginesRestored = true
-@@ -913,7 +905,6 @@
-             ),
+@@ -993,7 +989,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+             data = mapOf("finishing" to isFinishing.toString()),
          )
  
--        components.core.contileTopSitesUpdater.stopPeriodicWork()
+-        components.core.macTopSitesUpdater.stopPeriodicWork()
          components.core.pocketStoriesService.stopPeriodicContentRecommendationsRefresh()
          components.core.pocketStoriesService.stopPeriodicSponsoredContentsRefresh()
          privateNotificationObserver?.stop()
-diff -ur a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/HomeSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/HomeSettingsFragment.kt
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/HomeSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/HomeSettingsFragment.kt
-@@ -79,10 +79,8 @@
+@@ -75,10 +75,8 @@ class HomeSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
              onPreferenceChangeListener = createMetricPreferenceChangeListener("most_visited_sites")
          }
  
@@ -169,10 +195,9 @@ diff -ur a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/Hom
  
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_privacy_report).apply {
              if (fenixSettings.longfoxEnabled) title = resources.getString(R.string.help_catch_trackers)
-diff -ur a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -1625,9 +1625,15 @@
+@@ -1739,10 +1739,16 @@ class Settings(
  
      fun incrementShowLoginsSecureWarningSyncCount() = loginsSecureWarningSyncCount.increment()
  
@@ -182,55 +207,60 @@ diff -ur a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settin
 +    // before the user presses Enter. The setting stays in Settings > Search,
 +    // so a user who wants suggestions can turn them on -- this is a default,
 +    // not a lock.
-     val shouldShowSearchSuggestions by booleanPreference(
-         appContext.getPreferenceKey(R.string.pref_key_show_search_suggestions),
--        default = true,
-+        default = false,
-     )
+     val shouldShowSearchSuggestions by
+         booleanPreference(
+             appContext.getPreferenceKey(R.string.pref_key_show_search_suggestions),
+-            default = true,
++            default = false,
+         )
  
-     val shouldAutocompleteInAwesomebar by booleanPreference(
-@@ -1648,9 +1654,13 @@
-     /**
-      * Indicates if the user have enabled trending search in search suggestions.
-      */
+     val shouldAutocompleteInAwesomebar by
+@@ -1764,10 +1770,14 @@ class Settings(
+         )
+ 
+     /** Indicates if the user have enabled trending search in search suggestions. */
 +    // LibreWolf (LW-M4-11): trending searches are a second per-keystroke fetch
 +    // (TrendingSearchProvider hits the engine's trending URL with an empty
 +    // query as soon as the toolbar is focused). Same posture as above: off by
 +    // default, user-toggleable under the search-suggestions switch.
-     internal var trendingSearchSuggestionsEnabled by booleanPreference(
-         appContext.getPreferenceKey(R.string.pref_key_show_trending_search_suggestions),
--        default = true,
-+        default = false,
-     )
+     internal var trendingSearchSuggestionsEnabled by
+         booleanPreference(
+             appContext.getPreferenceKey(R.string.pref_key_show_trending_search_suggestions),
+-            default = true,
++            default = false,
+         )
  
-     /**
-@@ -2178,11 +2188,18 @@
+     /** Indicates if the user have enabled recent search in the search suggestions setting preference. */
+@@ -2317,12 +2327,20 @@ class Settings(
+             default = true,
+         )
  
-     /**
-      * Indicates if the Contile functionality should be visible.
+-    /** Indicates if the Contile functionality should be visible. */
+-    var showContileFeature by
+-        booleanPreference(
+-            key = appContext.getPreferenceKey(R.string.pref_key_enable_contile),
+-            default = true,
+-        )
++    /**
++     * Indicates if the Contile functionality should be visible.
 +     *
 +     * LibreWolf (LW-M4-11): sponsored top sites are REMOVED, not switched off.
 +     * This is a constant rather than a preference so that no settings write,
 +     * no Nimbus experiment and no upstream default flip can bring the
-+     * ads.mozilla.org / MARS tile feed back. The scheduling call sites in
-+     * HomeActivity (TopSitesRefresher, ContileTopSitesUpdater) are gone as
++     * ads.mozilla.org tile feed back. The scheduling call sites in
++     * HomeActivity (TopSitesRefresher, macTopSitesUpdater) are gone as
 +     * well; this constant is what the remaining readers see. The
 +     * "Sponsored shortcuts" row is removed from Settings > Homepage, because a
 +     * visible toggle that does nothing is worse than none.
-      */
--    var showContileFeature by booleanPreference(
--        key = appContext.getPreferenceKey(R.string.pref_key_enable_contile),
--        default = true,
--    )
++     */
 +    val showContileFeature: Boolean
 +        get() = false
  
-     /**
-      * Blocklist used to filter items from the home screen that have previously been removed.
-diff -ur a/mobile/android/fenix/app/src/main/res/xml/home_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/home_preferences.xml
+     /** Blocklist used to filter items from the home screen that have previously been removed. */
+     var homescreenBlocklist by
 --- a/mobile/android/fenix/app/src/main/res/xml/home_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/home_preferences.xml
-@@ -9,11 +9,8 @@
+@@ -13,11 +13,8 @@
          android:key="@string/pref_key_show_top_sites"
          android:title="@string/top_sites_toggle_top_recent_sites_4" />
  
@@ -243,11 +273,10 @@ diff -ur a/mobile/android/fenix/app/src/main/res/xml/home_preferences.xml b/mobi
 +         removed together with the sponsored tile feed it controlled. -->
  
      <androidx.preference.SwitchPreferenceCompat
-         android:key="@string/pref_key_privacy_report"
-diff -ur a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+       android:key="@string/pref_key_show_homepage_weather_widget"
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
-@@ -440,7 +440,8 @@
+@@ -455,7 +455,8 @@ class SettingsTest {
      fun showSearchSuggestions() {
          // When just created
          // Then

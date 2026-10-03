@@ -569,45 +569,18 @@ def leave_srcdir():
 #
 
 #
-# Android keeps the pre-157 bytes. The MOZ_PKG_VERSION rewrite is upstream 157
-# desktop packaging; Android is built from assets/mozconfig.android (Makefile
-# --mozconfig), and an android run is held to the pre-merge output
-# (docs/android/REBASE.md, the -esr rule). So the rewrite is gated exactly like
-# the version.txt semantics further down: any run with "android" in --targets
-# writes the template WITHOUT its `export MOZ_PKG_VERSION=` line - the one line
-# the 157 merge added to assets/mozconfig.new - which is byte for byte the file
-# the pre-merge `cp` produced; a desktop-only run writes the version. (A
-# desktop+android run is never built; it takes the android branch for the same
-# reason the version.txt one does.) Drop the strip when Android moves to an
-# ESR >= 157.
+# Every target gets the same file: Android builds from
+# assets/mozconfig.android (Makefile --mozconfig), so the MOZ_PKG_VERSION line
+# in the tree's copy is inert there. The android-only strip that held the
+# 153.0esr tree byte-identical to the pre-157 output went with the ESR track
+# (docs/android/TRACK.md, "Decision reversed 2026-10-02").
 #
 
 def install_mozconfig(targets, dest):
-    if "android" in targets:
-        write_android_mozconfig(dest)
-    else:
-        write_desktop_mozconfig(dest)
+    write_mozconfig(dest)
 
 
-def write_android_mozconfig(dest):
-    template = ASSETS_DIR / "mozconfig.new"
-    print("write {} <- {} (without its 'export MOZ_PKG_VERSION=' line)".format(dest, template))
-    sys.stdout.flush()
-    if options.no_execute:
-        return
-    with open(template, "r") as f:
-        lines = f.read().splitlines(keepends=True)
-    kept = [l for l in lines if not re.match(r"export MOZ_PKG_VERSION=", l)]
-    if len(lines) - len(kept) != 1:
-        print("fatal error: expected exactly one 'export MOZ_PKG_VERSION=' line in {}, found {}".format(
-            template, len(lines) - len(kept)))
-        sys.stdout.flush()
-        script_exit(1)
-    with open(dest, "w") as f:
-        f.write("".join(kept))
-
-
-def write_desktop_mozconfig(dest):
+def write_mozconfig(dest):
     template = ASSETS_DIR / "mozconfig.new"
     print("write {} <- {} (MOZ_PKG_VERSION={}-{})".format(dest, template, version, release))
     sys.stdout.flush()
@@ -627,12 +600,12 @@ def write_desktop_mozconfig(dest):
 
 
 #
-# glean-core .cargo-checksum.json fix-up (desktop only; see the call site).
+# glean-core .cargo-checksum.json fix-up (every target; see the call site).
 #
 
 GLEAN_CORE_CHECKSUMS = "third_party/rust/glean-core/.cargo-checksum.json"
 GLEAN_CORE_HASH_FIXUPS = [
-    # (file in the crate, pristine 157.0 sha256, sha256 after the -desktop hunks)
+    # (file in the crate, pristine 157.0 sha256, sha256 after the glean-core hunks)
     ("src/core/mod.rs",
      "5bc8c9bbe8c0eabe408d9a7cd7a8e6e09eee0ead817607643882b38a36d07c91",
      "bddacbe056ce7458663a39dc99d5bb3434099aa69cae793cf0c57d4e54f5a6a4"),
@@ -653,7 +626,7 @@ def fix_glean_core_checksums():
     if missing:
         print("fatal error: {} was not rewritten for {}: the pristine hash was not found "
               "(vendored glean-core changed?). Recompute the hashes against "
-              "patches/disable-data-reporting-desktop.patch.".format(
+              "patches/disable-data-reporting-common.patch.".format(
                   GLEAN_CORE_CHECKSUMS, ", ".join(missing)))
         sys.stdout.flush()
         script_exit(1)
@@ -675,19 +648,16 @@ def librewolf_patches():
     # glean-core's .cargo-checksum.json vouches for, so cargo would refuse the
     # vendored crate. In Redoubt those hunks (third_party/rust/glean-core/
     # src/lib.rs and src/core/mod.rs) live in
-    # patches/disable-data-reporting-desktop.patch, which only desktop.txt
-    # lists - so this is gated on desktop exactly as that list entry is. On an
-    # android run the files are unpatched and the recorded hashes are already
-    # right; rewriting them there would break the crate. (Checked: the
-    # 153.0esr tarball does not carry either original hash at all.)
+    # patches/disable-data-reporting-common.patch (common.txt), so this runs
+    # for every target. (While Android was on 153esr they sat in the -desktop
+    # half and this was desktop-only; both targets build 157 now.)
     #
-    # The replacement hashes are the sha256 of the two files after the -desktop
+    # The replacement hashes are the sha256 of the two files after those
     # hunks are applied to a pristine 157.0 tree (verified for 157.0). If the
     # hunks or the vendored glean-core change, these change with them. sed
     # exits 0 whether or not it matched, so the result is checked afterwards
     # and a miss is fatal (landmine L4: an out-of-patch mutation fails closed).
-    if "desktop" in targets:
-        fix_glean_core_checksums()
+    fix_glean_core_checksums()
 
     # remove OpenAI integration. patches/remove-openai.patch removes every
     # reference to these two paths; the patch and these deletions are one
@@ -782,14 +752,9 @@ def librewolf_patches():
     # assets/patches.txt shim they used to be pointed at is gone (LW-M7-01).
     # Both halves are in the lists above; patches/xmas.patch itself is gone.
 
-    # vs_pack.py issue... should be temporary. Upstream removed this copy and
-    # patches/pack_vs.py for 157, so desktop no longer gets it. An android run
-    # keeps the pre-merge behaviour (the 153.0esr tree is held byte-identical to
-    # what Android was built from), so the pre-merge file lives on, verbatim, as
-    # patches/android/pack_vs-esr.py. Drop it with the other -esr files when
-    # Android moves to an ESR >= 157.
-    if "android" in targets:
-        exec('cp -v ../patches/android/pack_vs-esr.py build/vs/pack_vs.py')
+    # vs_pack.py issue: upstream removed this copy and patches/pack_vs.py for
+    # 157, so no target gets it any more (Android's pack_vs-esr.py copy went
+    # with the ESR track).
 
     #
     # Apply most recent `settings` repository files.
@@ -886,15 +851,19 @@ def librewolf_patches():
     #   targets         get "<version>-<release>". Android has no
     #                   mobile/android/config/version.txt, so init.configure
     #                   falls back to browser/config/version.txt and the shipped
-    #                   Gecko reports MOZ_APP_VERSION 153.0esr-1
+    #                   Gecko reports MOZ_APP_VERSION <version>-<release>
     #                   (docs/android/SMOKE.md, "What was measured"). The
     #                   build.gradle versionCode fix in
     #                   patches/android/build-fixes.patch, the absence of MOZ_ESR
     #                   it documents, and about:buildconfig / GeckoView's
     #                   BuildConfig.MOZ_APP_VERSION all rest on that string;
     #                   build-fixes.patch rejected exactly this change for
-    #                   Android (its alternative "a"). The android track stays
-    #                   on 153.0esr and must not move with desktop.
+    #                   Android (its alternative "a"). This is a shipped
+    #                   contract (Beta 1-3 reported 153.0esr-1 / 153.4.0esr-1),
+    #                   kept unchanged when Android moved to Firefox release
+    #                   157.0 (docs/android/TRACK.md, "Decision reversed
+    #                   2026-10-02"): same Firefox version as desktop, but a
+    #                   different version.txt.
     #
     #   desktop+android (never built - desktop and android are separate
     #                   tarballs, each patched for one target) takes the android
@@ -947,23 +916,11 @@ def librewolf_patches():
     # Why is "Firefox" hardcoded there???
     exec("find . -path '*/appstrings.properties' -exec sed -i s/Firefox/LibreWolf/ {} \\;")
 
-    # The overlay is per target, like librewolf.cfg above. l10n/ is the
-    # current (Firefox 157) overlay; the 157 merge added desktop-only strings to
-    # it (pip-hide-ui, mullvad-dns-migration, canvas-permission, the
-    # settings-redesign rows) and upstream corrected existing translations in
-    # files Android also receives (toolkit brandings.ftl among them), so no
-    # per-file gate can reproduce the old result. An android-only run therefore
-    # applies l10n-esr/, a byte copy of l10n/ as it was before the merge
-    # (c72764c4), and gets exactly the overlay it got then. Same rule and same
-    # lifetime as the -esr patches and pack_vs-esr.py: drop l10n-esr/ when
-    # Android moves to an ESR >= 157. A desktop+android run takes l10n/ - the
-    # desktop patches reference the new strings, and the combined tree is never
-    # built (same choice as the librewolf.cfg composition).
+    # One overlay for every target: l10n/ is the Firefox 157 overlay, and
+    # Android builds 157 too (the android-only l10n-esr/ copy went with the ESR
+    # track, docs/android/TRACK.md "Decision reversed 2026-10-02").
     print("-> Applying LibreWolf locales")
-    if "android" in targets and "desktop" not in targets:
-        l10n_dir = Path("..", "l10n-esr")
-    else:
-        l10n_dir = Path("..", "l10n")
+    l10n_dir = Path("..", "l10n")
     # Same reason as the version.txt write above: this loop copies files
     # directly rather than through exec(), so it needs its own guard. Under -n
     # we never entered the tree, so '../l10n' points at whatever happens to sit

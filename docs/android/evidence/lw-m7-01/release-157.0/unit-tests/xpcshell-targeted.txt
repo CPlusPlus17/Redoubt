@@ -1,0 +1,60 @@
+# ./mach xpcshell-test --verbose --deviceSerial emulator-5570 --sequential <8 tests>  (test-enabled x86_64 157 objdir, android-30 default x86_64 emulator)
+# first run of all eight; the cookie test already had its two fixes (its unfixed runs failed, see README.md):
+TEST_START: mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js
+TEST_END: Test PASS. Subtests passed 31/31. Unexpected 0
+TEST_START: modules/libpref/test/unit/test_savePrefFileAsync.js
+TEST_END: Test PASS. Subtests passed 14/14. Unexpected 0
+TEST_START: netwerk/cookie/test/unit/test_cookie_session_cleanup.js
+TEST_END: Test PASS. Subtests passed 55/55. Unexpected 0
+TEST_START: xpcshell.toml:toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js
+TEST_END: Test FAIL, expected PASS. Subtests passed 14/14. Unexpected 0 - xpcshell return code: 0
+TEST_START: xpcshell.toml:toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js
+TEST_END: Test FAIL, expected PASS. Subtests passed 6/7. Unexpected 1
+TEST_START: toolkit/components/translations/tests/unit/test_android_translation_assets.js
+TEST_END: Test PASS. Subtests passed 12/12. Unexpected 0
+TEST_START: xpcshell.toml:toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_failures.js
+TEST_END: Test FAIL, expected PASS. Subtests passed 0/1. Unexpected 1
+TEST_START: xpcshell.toml:toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js
+TEST_END: Test FAIL, expected PASS. Subtests passed 8/9. Unexpected 1
+INFO INFO | Passed: 4
+INFO INFO | Failed: 4
+
+# after the first round of fixes:
+TEST_START: mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js
+TEST_END: Test PASS. Subtests passed 31/31. Unexpected 0
+TEST_START: modules/libpref/test/unit/test_savePrefFileAsync.js
+TEST_END: Test PASS. Subtests passed 14/14. Unexpected 0
+TEST_START: netwerk/cookie/test/unit/test_cookie_session_cleanup.js
+TEST_END: Test PASS. Subtests passed 55/55. Unexpected 0
+TEST_START: xpcshell.toml:toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js
+TEST_END: Test PASS. Subtests passed 22/22. Unexpected 0
+TEST_START: xpcshell.toml:toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js
+TEST_END: Test PASS. Subtests passed 19/19. Unexpected 0
+TEST_START: toolkit/components/translations/tests/unit/test_android_translation_assets.js
+TEST_END: Test PASS. Subtests passed 12/12. Unexpected 0
+TEST_START: xpcshell.toml:toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_failures.js
+TEST_END: Test PASS. Subtests passed 15/15. Unexpected 0
+TEST_START: xpcshell.toml:toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js
+TEST_END: Test PASS. Subtests passed 80/80. Unexpected 0
+INFO INFO | Passed: 8
+INFO INFO | Failed: 0
+
+# re-run after the startInstall fix (patches as committed in this commit):
+TEST_START: mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js
+TEST_END: Test PASS. Subtests passed 31/31. Unexpected 0
+TEST_START: modules/libpref/test/unit/test_savePrefFileAsync.js
+TEST_END: Test PASS. Subtests passed 14/14. Unexpected 0
+TEST_START: netwerk/cookie/test/unit/test_cookie_session_cleanup.js
+TEST_END: Test PASS. Subtests passed 55/55. Unexpected 0
+TEST_START: xpcshell.toml:toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js
+TEST_END: Test PASS. Subtests passed 22/22. Unexpected 0
+TEST_START: xpcshell.toml:toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js
+TEST_END: Test PASS. Subtests passed 19/19. Unexpected 0
+TEST_START: toolkit/components/translations/tests/unit/test_android_translation_assets.js
+TEST_END: Test PASS. Subtests passed 12/12. Unexpected 0
+TEST_START: xpcshell.toml:toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_failures.js
+TEST_END: Test PASS. Subtests passed 15/15. Unexpected 0
+TEST_START: xpcshell.toml:toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js
+TEST_END: Test PASS. Subtests passed 80/80. Unexpected 0
+INFO INFO | Passed: 8
+INFO INFO | Failed: 0

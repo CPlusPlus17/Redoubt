@@ -1,5 +1,9 @@
 # Rebasing Redoubt onto a new Firefox ESR
 
+> **Track reversed 2026-10-02:** Android now follows Firefox release (157.0 onward),
+> not ESR; read "ESR" below as "the Firefox release `version.android` names". See
+> [`TRACK.md`](TRACK.md#decision-reversed-2026-10-02).
+
 **Owner: LW-M7-01.** This file is the procedure for moving the Android track from
 one Firefox ESR version to the next — normally a dot release (`153.0esr` →
 `153.1esr`), once a year a major one (`153.x` → the next ESR series).
@@ -123,7 +127,7 @@ Confirm the Makefile picked both up:
 make help TARGETS=android | grep -A5 'Release track'
 ```
 
-Expected: the `android tracks Firefox ESR` line shows the new pair, and
+Expected: the `android tracks Firefox release` line shows the new pair, and
 `in effect for this invocation` shows the same pair. If it shows the desktop pair,
 `TARGETS` did not reach the Makefile.
 

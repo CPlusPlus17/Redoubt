@@ -293,18 +293,19 @@ concurrently and never touches a shared tree.
 
 ## Patch ordering constraints
 
-The table lists **twelve** of the pairs that share a file and only apply in one
-order. This said "four", then "five", then "nine", then "eleven";
+The table lists **eleven** of the pairs that share a file and only apply in one
+order. This said "four", then "five", then "nine", then "eleven", then "twelve"
+(while Android was on 153 ESR);
 `scripts/check-patch-order.py`'s `CONSTRAINTS` is the authority the CI gate
-actually runs and holds more than this table (29 rows after the Firefox 157
-merge). Do not reorder the lists by hand.
+actually runs and holds more than this table (30 rows since the Firefox 157
+integration re-measured every Android pair on 157 and promoted four of them).
+Do not reorder the lists by hand.
 
 | `autoconfig-setEnv` | `profile-directory` | `prefcalls.js` |
 | `firefox-in-ua` | `moz-configure` | `toolkit/moz.configure` |
-| `fpp-canvas-fix` | `webgl-permission-common` (desktop since the 157 merge) | `dom/canvas/ClientWebGLContext.cpp` |
-| `fpp-canvas-fix` | `android/webgl-permission-common-esr` | `dom/canvas/ClientWebGLContext.cpp` |
+| `fpp-canvas-fix` | `webgl-permission-common` | `dom/canvas/ClientWebGLContext.cpp` |
 | `mozilla_dirs` | `xdg-dir` | `toolkit/xre/nsXREDirProvider.cpp` |
-| `android/webgl-permission-common-esr` | `android/webgl-prompt-default` | `modules/libpref/init/StaticPrefList.yaml` |
+| `webgl-permission-common` | `android/webgl-prompt-default` | `modules/libpref/init/StaticPrefList.yaml` |
 | `xmas-common` | `android/autoconfig-resource-fallback` | `lw/moz.build` |
 | `android/no-adjust` | `android/no-glean` | `app/build.gradle` + 4 more |
 | `android/no-adjust` | `android/no-gms` | `gradle/libs.versions.toml` + more |
@@ -312,9 +313,8 @@ merge). Do not reorder the lists by hand.
 | `android/no-adjust` | `android/no-crashreporter` | `app/build.gradle`, `Analytics.kt` (+ `Components.kt`, order-free) |
 | `android/no-gms` | `android/no-crashreporter` | `focus-android/app/build.gradle` (+ 2 more, order-free) |
 
-Four of the first seven rows are **cross-list** (two common→desktop, two
-common→android; the `fpp-canvas-fix` pair became two cross-list rows in the
-Firefox 157 merge). They hold
+Three of the first six rows are **cross-list** (one common→desktop, two
+common→android). They hold
 because common is applied first, but a checker comparing positions *within* one
 list cannot see them at all — after swapping `mozilla_dirs`/`xdg-dir`, no single
 list holds both patches, so there is literally nothing to compare. Model the apply
