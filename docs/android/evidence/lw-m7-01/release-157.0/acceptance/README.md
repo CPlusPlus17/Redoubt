@@ -16,7 +16,7 @@ Also on the branch is `4efb050b`, the regenerated pref baseline (part (c)). It c
 
 | | |
 | --- | --- |
-| Source commit | `6202ee6d4e7f8ce49b4ed35d4ef7ac93c6c9d67d` (settings gitlink `8a69936`, unchanged since `d3bff1a2`). Every run recorded this HEAD with 0 uncommitted changes under `scripts/` (`rc3/smoke/exit-status.jsonl`) |
+| Source commit | `6202ee6d16bdc5cf9d9f2df4b5c311817fce1a8c` (settings gitlink `8a69936`, unchanged since `d3bff1a2`). Every run recorded this HEAD with 0 uncommitted changes under `scripts/` (`rc3/smoke/exit-status.jsonl`) |
 | x86_64 unsigned | `2a7d279fdf4e05b4260ed55ee9d79d488718a54290ff83b9505f6cb70d70308f` |
 | x86_64 installed | `0af21064df36b5b966ef7a60f6214fdba207b2f2fa7dac8a471e44dd2fcabff0`. Signed with the throwaway key (cert `31e9a40f…b760`, `CN=Redoubt throwaway test key 2026-10-02, O=NOT A RELEASE KEY`, v2+v3), not the release key. All 3,131 non-META-INF entries equal the unsigned APK's (`rc3/apk-identity.txt`) |
 | Other rc3 APKs | arm64-v8a `0eabc358…a666`, armeabi-v7a `9d7bb192…c6c9`, universal `c653b7aa…122b` (`build-rc3/SHA256SUMS.apk`). versionName `157.0-1-default`, versionCode 2016188072/74/78/79 |
