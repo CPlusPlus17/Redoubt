@@ -1,0 +1,20 @@
+157.0-1 rc3 (2026-10-03), source 6202ee6d (settings gitlink 8a69936 unchanged). Supersedes rc2 (751f5950)
+and rc1 (d3bff1a2); neither left the build host.
+
+Product fixes since rc1, both found by device acceptance and fixed in their owning patches:
+  751f5950 canvas-webgl-permissions.patch: the WebGL/canvas permissions list loads one
+           GeckoView:GetAllPermissions at a time (graphics acceptance failed 3/3 on rc1).
+  6202ee6d no-onboarding.patch: no default-browser system prompt on the 4th cold start
+           (also present in Beta 3; seen on the first launch after the upgrade test on rc2).
+Also on the branch: 4efb050b, the regenerated pref baseline (docs only).
+
+How built: both fixes are Kotlin-only. A fresh `make dir TARGETS=android` of the 6202ee6d tree
+differs from rc/librewolf-157.0-1 (into which the changed files were copied) only in build
+byproducts (acceptance/fix/tree-diff-noonb-vs-rc.txt; earlier step tree-diff-751f5950-vs-rc.txt),
+and no Gecko input changed since d3bff1a2, so the rc1 fat AAR (build date 20261002210000) is
+reused and only `make android-package` ran (apk-cmd.txt, commands.log).
+
+Result: in all four APKs only classes.dex, classes2.dex and the derived assets/dexopt/baseline.prof(m)
+differ from rc1 (rc1-vs-rc3-entries.txt); omni.ja, native libs and resources are byte-identical.
+verify_apks.py on rc3: identical to rc1 apart from APK sizes and hashes. versionName/versionCode
+are identical to rc1/rc2 (same build date): 2016188072/74/78/79.
