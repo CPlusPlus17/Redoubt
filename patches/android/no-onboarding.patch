@@ -173,9 +173,16 @@
 # card, an add-search-widget card, a sync-sign-in card (the Mozilla account
 # pitch), a notification-permission card and a toolbar-placement card. All six are
 # OnboardingFragment pages, so all six go with the flow. The default-browser
-# SYSTEM prompt in particular is only ever raised from
+# SYSTEM prompt is raised from
 # DefaultBrowserPromptManager.maybePromptToSetAsDefaultBrowser(), called from
-# OnboardingFragment and nowhere else.
+# OnboardingFragment, and -- missed until the 157.0-1 device acceptance
+# (2026-10-03) -- from HomeActivity.maybeShowSetAsDefaultBrowserPrompt() on a
+# cold start into a tab, gated only by the default-browser-prompt FML defaults
+# (enabled, 4 cold starts, 14 days, 3 times). Beta 3 and the 157.0-1 rc showed
+# it on the 4th launcher cold start of a fresh profile, and on the first launch
+# after the Beta 3 -> 157 upgrade test. Settings.shouldShowSetAsDefaultPrompt()
+# is now constant false, and SettingsTest's four upstream "true" cases are
+# inverted. Settings > Set as default browser still works (a user action).
 #
 # ContinuousOnboardingFeature is the same product spread over days instead of
 # cards: day 2 and day 3 request the default-browser role, day 7 shows a Firefox
@@ -1047,7 +1054,7 @@ index 420b369..831813d 100644
          settings.hasAcceptedTermsOfService = true
          settings.termsOfUseAcceptedVersion = TOU_VERSION
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index 7881995..2d6b98a 100644
+index 7881995..a5be9d7 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 @@ -2340,25 +2340,12 @@ class Settings(
@@ -1087,6 +1094,47 @@ index 7881995..2d6b98a 100644
  
      /** The current onboarding page index. */
      var onboardingCurrentPageIndex by
+@@ -2950,31 +2937,17 @@ class Settings(
+             default = false,
+         )
+ 
+-    /** Indicates if the Set as default Browser prompt should be displayed to the user. */
++    /**
++     * Indicates if the Set as default Browser prompt should be displayed to the user.
++     *
++     * LibreWolf (LW-M4-10): never. Upstream raised the system default-browser prompt from HomeActivity on the 4th
++     * cold start into a tab and again every 14 days, up to 3 times, governed only by the default-browser-prompt FML
++     * defaults. The user can still choose Settings > Set as default browser.
++     */
++    @Suppress("UNUSED_PARAMETER")
+     fun shouldShowSetAsDefaultPrompt(
+         nimbusFeature: DefaultBrowserPrompt = FxNimbus.features.defaultBrowserPrompt.value()
+-    ): Boolean {
+-        if (!nimbusFeature.enabled) return false
+-
+-        val now = currentTimeMillis()
+-
+-        val daysOk =
+-            nimbusFeature.daysBetweenPrompts?.let { intervalDays ->
+-                (now - lastSetAsDefaultPromptShownTimeInMillis) > intervalDays * ONE_DAY_MS
+-            } ?: true
+-
+-        val maxOk =
+-            nimbusFeature.maxPromptsShown?.let { max ->
+-                numberOfSetAsDefaultPromptShownTimes < max
+-            } ?: true
+-
+-        val coldStartsOk =
+-            nimbusFeature.coldStartsBetweenPrompts?.let { minColdStarts ->
+-                coldStartsBetweenSetAsDefaultPrompts >= minColdStarts
+-            } ?: true
+-
+-        return daysOk && maxOk && coldStartsOk
+-    }
++    ): Boolean = false
+ 
+     /**
+      * Updates the relevant settings when the "Set as Default Browser" prompt is shown.
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/PocketMiddlewareTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/PocketMiddlewareTest.kt
 index fd8d751..9c31a4f 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/PocketMiddlewareTest.kt
@@ -1654,7 +1702,7 @@ index 373735a..d57cd69 100644
  
      @Test
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
-index 9a8a93f..5918d33 100644
+index 9a8a93f..e6f7670 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
 @@ -841,8 +841,14 @@ class SettingsTest {
@@ -1680,10 +1728,9 @@ index 9a8a93f..5918d33 100644
  
 -        assertTrue(actual)
 +        assertFalse(actual)
-     }
- 
-     @Test
--    fun `GIVEN should not show by default WHEN enablePersistentOnboarding is true THEN shouldShowOnboarding returns true`() {
++    }
++
++    @Test
 +    fun `GIVEN the feature flag default WHEN the user has not been onboarded THEN shouldShowOnboarding is false`() {
 +        val settings = spyk(settings)
 +
@@ -1694,9 +1741,10 @@ index 9a8a93f..5918d33 100644
 +        val actual = settings.shouldShowOnboarding(hasUserBeenOnboarded = false)
 +
 +        assertFalse(actual)
-+    }
-+
-+    @Test
+     }
+ 
+     @Test
+-    fun `GIVEN should not show by default WHEN enablePersistentOnboarding is true THEN shouldShowOnboarding returns true`() {
 +    fun `GIVEN enablePersistentOnboarding is true THEN shouldShowOnboarding still returns false`() {
          val settings = spyk(settings)
          every { settings.enablePersistentOnboarding } returns true
@@ -1727,3 +1775,61 @@ index 9a8a93f..5918d33 100644
              settings.shouldShowOnboarding(
                  featureEnabled = true,
                  hasUserBeenOnboarded = false,
+@@ -1184,13 +1206,18 @@ class SettingsTest {
+         assertFalse(settings.shouldShowSetAsDefaultPrompt())
+     }
+ 
++    // LibreWolf (LW-M4-10): upstream returned true for the four cases below, each a state in which
++    // HomeActivity raised the system default-browser prompt on a cold start. shouldShowSetAsDefaultPrompt
++    // is now constant false, so they are inverted rather than deleted: these are exactly the states an
++    // upstream rebase would silently bring the prompt back in.
+     @Test
+-    fun `GIVEN enough cold starts and conditions met WHEN checking prompt eligibility THEN shouldShowSetAsDefaultPrompt is true`() {
++    fun `GIVEN enough cold starts and conditions met WHEN checking prompt eligibility THEN shouldShowSetAsDefaultPrompt is still false`() {
+         settings.numberOfSetAsDefaultPromptShownTimes = 1
+         settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
+         settings.coldStartsBetweenSetAsDefaultPrompts = 5 // More than required cold starts
+ 
+-        assertTrue(settings.shouldShowSetAsDefaultPrompt())
++        assertFalse(settings.shouldShowSetAsDefaultPrompt())
++        assertFalse(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(enabled = true)))
+     }
+ 
+     @Test
+@@ -1203,30 +1230,30 @@ class SettingsTest {
+     }
+ 
+     @Test
+-    fun `GIVEN other conditions are valid WHEN the days between prompts is null THEN the value is ignored`() {
++    fun `GIVEN other conditions are valid WHEN the days between prompts is null THEN the prompt is still never shown`() {
+         settings.numberOfSetAsDefaultPromptShownTimes = 1
+         settings.lastSetAsDefaultPromptShownTimeInMillis = System.currentTimeMillis()
+         settings.coldStartsBetweenSetAsDefaultPrompts = 5
+ 
+-        assertTrue(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(daysBetweenPrompts = null)))
++        assertFalse(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(daysBetweenPrompts = null)))
+     }
+ 
+     @Test
+-    fun `GIVEN other conditions are valid WHEN max prompts shown is null THEN the value is ignored`() {
++    fun `GIVEN other conditions are valid WHEN max prompts shown is null THEN the prompt is still never shown`() {
+         settings.numberOfSetAsDefaultPromptShownTimes = 10
+         settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
+         settings.coldStartsBetweenSetAsDefaultPrompts = 5
+ 
+-        assertTrue(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(maxPromptsShown = null)))
++        assertFalse(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(maxPromptsShown = null)))
+     }
+ 
+     @Test
+-    fun `GIVEN other conditions are valid WHEN cold starts between prompts is null THEN the value is ignored`() {
++    fun `GIVEN other conditions are valid WHEN cold starts between prompts is null THEN the prompt is still never shown`() {
+         settings.numberOfSetAsDefaultPromptShownTimes = 1
+         settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
+         settings.coldStartsBetweenSetAsDefaultPrompts = 0
+ 
+-        assertTrue(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(coldStartsBetweenPrompts = null)))
++        assertFalse(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(coldStartsBetweenPrompts = null)))
+     }
+ 
+     @Test
