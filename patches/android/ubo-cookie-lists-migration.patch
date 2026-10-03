@@ -1,0 +1,203 @@
+# Redoubt LW-M7-41: turn uBlock Origin's cookie-notice lists on ONCE in
+# existing profiles, then leave them to the user for good.
+#
+# Owner decision: profiles upgraded from Beta 3 or earlier, and profiles whose
+# first run was offline, get uBO's "EasyList/uBO - Cookie Notices" lists
+# (fanboy-cookiemonster, ublock-cookies-easylist; keys from the bundled uBO
+# 1.75.0 assets/assets.json) turned on one time. Fresh online installs already
+# get them from Android's pinned catalog (assets/uBOAssets.android.json).
+#
+# Mechanism: the main-process half of ExtensionStorageIDB.selectBackend. Each
+# start of an extension, its first storage.local call waits on that promise
+# before any of its contexts learns the backend, so for uBO this is a point
+# where uBO is installed, enabled and its storage is open, but it has not yet
+# read "selectedFilterLists". There the patch reads uBO's selection and, if it
+# names neither list, writes it back with both appended (nothing else in it
+# changes, no other key is touched), then sets librewolf.uBO.cookieListsMigrated
+# after the write's transaction completed. Once the pref is set the hook is a
+# pref read and nothing else, so a later opt-out holds across starts, uBO
+# updates and Redoubt updates.
+#
+#   * selection names one or both lists -> "done": uBO offered them, what is
+#     there is the user's choice; set the pref, write nothing;
+#   * selection names neither -> "apply" (once);
+#   * no selection yet (fresh profile) -> watch uBO's first write of it in
+#     this session; if it already has the lists, the catalog worked: "done".
+#     If not (offline first run), leave the pref unset and the next start
+#     applies. A fresh user's opt-out after the first write is thus kept;
+#   * anything not a string array -> leave it, look again next start;
+#   * any error -> logged, pref unset, uBO starts exactly as before.
+#
+# Rejected: uBO's managed storage (custom-ubo-assets-bootstrap-location
+# already feeds it). restoreAdminSettings runs on every start, so it is not
+# one-shot; its list keys (toOverwrite.filterLists, adminSettings
+# .selectedFilterLists) REPLACE the whole selection, and toAdd only knows
+# trustedSiteDirectives; and vAPI.adminStorage serves a cached copy, so a
+# change lands one start late and its removal another start later. Calling
+# uBO's own applyFilterListSelection needs a port from a moz-extension page of
+# uBO (vAPI.messaging only accepts privileged ports), which privileged code
+# can only fake by spoofing a ProxyMessenger sender.
+#
+# Activation: the selection is uBO's input, not its compiled engine. On the
+# start the lists are added uBO may still load its filter selfie, which lacks
+# them; they show ticked in "Filter lists" and become active when uBO next
+# compiles its lists. With auto-update on (uBO's default) that is seconds
+# later: a selected list with no cached copy is past due, so uBO schedules its
+# emergency update ~2 s after launch, fetches the two lists from their own
+# URLs (its normal list fetch, no other network) and reloads all filters.
+# Offline, it happens on the first start with network. With auto-update off
+# it happens at the user's next "Update now" or list change.
+#
+# Catalogs: every catalog a Redoubt profile can hold (uBO 1.75.0's bundled
+# one, LibreWolf's, upstream uAssets, Android's) has both keys, so uBO resolves
+# them. A key a catalog lacked would sit inert in the selection (uBO keeps
+# unknown keys and loads only lists it knows) and take effect if a later
+# catalog named it.
+#
+# Residual: a profile whose user had both lists on and turned BOTH off before
+# this migration first ran (a Beta 4 install that got the Android catalog, or
+# a user who had ticked them by hand) gets them on once more. uBO keeps its
+# catalog in its own serialised cache, so "never offered" and "turned off" are
+# not distinguishable from the selection alone. Needs the storage.local IDB
+# backend (extensions.webextensions.ExtensionStorageIDB.enabled, true in
+# all.js); under the old JSONFile backend nothing runs.
+#
+# Android only (assets/patches/android.txt); the code itself is generic Gecko.
+#
+diff --git a/toolkit/components/extensions/ExtensionStorageIDB.sys.mjs b/toolkit/components/extensions/ExtensionStorageIDB.sys.mjs
+--- a/toolkit/components/extensions/ExtensionStorageIDB.sys.mjs
++++ b/toolkit/components/extensions/ExtensionStorageIDB.sys.mjs
+@@ -741,6 +741,121 @@
+   });
+ }
+ 
++// Redoubt LW-M7-41 BEGIN: turn uBlock Origin's cookie-notice lists on once.
++//
++// Android's uBO catalog selects "fanboy-cookiemonster" and
++// "ublock-cookies-easylist" on uBO's first run. A profile whose uBO chose its
++// lists before that catalog shipped (Beta 3 or earlier), or whose first run
++// had no network (uBO then falls back to the catalog in its XPI, where both
++// lists are "off"), never got them. This adds both to uBO's stored selection
++// exactly once, before uBO reads it, and records that in a pref after the
++// write committed. It never runs again, so a user who turns them off keeps
++// them off. Only "selectedFilterLists" is written; every entry already in it
++// stays. uBO fetches and compiles the two lists with its normal updater.
++const REDOUBT_UBO_ID = "uBlock0@raymondhill.net";
++const REDOUBT_UBO_COOKIE_LISTS = [
++  "fanboy-cookiemonster",
++  "ublock-cookies-easylist",
++];
++const REDOUBT_UBO_COOKIE_LISTS_PREF = "librewolf.uBO.cookieListsMigrated";
++
++// What to do with uBO's stored selection:
++//   "wait":  uBO has not chosen its lists yet (a fresh profile);
++//   "skip":  not a list of strings, leave it alone and look again next start;
++//   "done":  at least one of the two is selected, so uBO offered them and the
++//            selection is the user's choice;
++//   "apply": neither is selected; add both after everything already there.
++function redoubtUboCookieListsPlan(selected) {
++  if (selected === undefined) {
++    return { action: "wait" };
++  }
++  if (
++    !Array.isArray(selected) ||
++    !selected.every(key => typeof key === "string")
++  ) {
++    return { action: "skip" };
++  }
++  if (REDOUBT_UBO_COOKIE_LISTS.some(key => selected.includes(key))) {
++    return { action: "done" };
++  }
++  return {
++    action: "apply",
++    selected: [...selected, ...REDOUBT_UBO_COOKIE_LISTS],
++  };
++}
++
++async function redoubtUboCookieListsStep(
++  extension,
++  storagePrincipal,
++  mayWrite
++) {
++  const db = await ExtensionStorageIDB.open(
++    storagePrincipal,
++    extension.hasPermission("unlimitedStorage")
++  );
++  try {
++    const { selectedFilterLists } = await db.get(["selectedFilterLists"]);
++    const plan = redoubtUboCookieListsPlan(selectedFilterLists);
++    if (plan.action === "apply" && !mayWrite) {
++      // uBO is running and owns its selection; the next start applies it.
++      return plan.action;
++    }
++    if (plan.action === "apply") {
++      // Resolves once the readwrite transaction has completed.
++      await db.set({ selectedFilterLists: plan.selected });
++    }
++    if (plan.action === "apply" || plan.action === "done") {
++      Services.prefs.setBoolPref(REDOUBT_UBO_COOKIE_LISTS_PREF, true);
++    }
++    return plan.action;
++  } finally {
++    db.close();
++  }
++}
++
++// A fresh profile: uBO picks its lists from whichever catalog it got. Look
++// at that first selection once it is written. If it has the lists, the
++// catalog offered them and the migration is done for good; if it has
++// neither (no network on the first run), the next start adds them.
++function redoubtWatchFirstUboSelection(extension, storagePrincipal) {
++  const stop = () => {
++    ExtensionStorageIDB.removeOnChangedListener(extension.id, onChanged);
++    extension.off("shutdown", stop);
++  };
++  const onChanged = changes => {
++    if (!changes || !Object.hasOwn(changes, "selectedFilterLists")) {
++      return;
++    }
++    stop();
++    redoubtUboCookieListsStep(extension, storagePrincipal, false).catch(err =>
++      Cu.reportError(err)
++    );
++  };
++  ExtensionStorageIDB.addOnChangedListener(extension.id, onChanged);
++  extension.on("shutdown", stop);
++}
++
++// Runs inside uBO's first storage.local access of each start, so uBO has not
++// read its selection yet. Never rejects: a failure leaves the pref unset and
++// uBO starts as it would have.
++function redoubtMigrateUboCookieLists(extension, storagePrincipal) {
++  if (
++    extension.id !== REDOUBT_UBO_ID ||
++    extension.temporarilyInstalled ||
++    Services.prefs.getBoolPref(REDOUBT_UBO_COOKIE_LISTS_PREF, false)
++  ) {
++    return Promise.resolve();
++  }
++  return redoubtUboCookieListsStep(extension, storagePrincipal, true)
++    .then(action => {
++      if (action === "wait") {
++        redoubtWatchFirstUboSelection(extension, storagePrincipal);
++      }
++    })
++    .catch(err => Cu.reportError(err));
++}
++// Redoubt LW-M7-41 END
++
+ /**
+  * This ExtensionStorage class implements a backend for the storage.local API which
+  * uses IndexedDB to store the data.
+@@ -880,6 +995,9 @@
+         );
+ 
+         promise = migrateJSONFileData(extension, storagePrincipal)
++          // Redoubt LW-M7-41: before any context of this extension learns the
++          // backend, so uBO cannot read its selection ahead of the migration.
++          .then(() => redoubtMigrateUboCookieLists(extension, storagePrincipal))
+           .then(() => {
+             extension.setSharedData("storageIDBBackend", true);
+             extension.setSharedData("storageIDBPrincipal", storagePrincipal);
+
+# End of patch.

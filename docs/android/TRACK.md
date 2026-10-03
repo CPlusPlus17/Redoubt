@@ -88,10 +88,29 @@ was weighed. It is no longer the policy.
   thing: the Firefox service clicked a site's own "reject" button, so the site
   recorded a refusal. A filter list hides the banner or blocks its script, so
   the site may record nothing at all, and a site that requires an answer may
-  break until the list is turned off for it. The lists reach fresh installs
-  only; a profile that ran a beta keeps its uBO catalog and selection. Until
-  the catalog URL resolves, uBO falls back to the catalog in its own XPI
-  (stock defaults, cookie lists off).
+  break until the list is turned off for it. Until the catalog URL resolves,
+  uBO falls back to the catalog in its own XPI (stock defaults, cookie lists
+  off).
+
+  **Existing profiles get the lists once** (owner decision for Beta 5). A
+  profile that ran Beta 3 or earlier keeps its uBO catalog and selection, and
+  an offline first run keeps the XPI's; neither ever saw the lists on.
+  `patches/android/ubo-cookie-lists-migration.patch` turns them on one time:
+  it hooks the storage backend selection that uBO's first `storage.local`
+  call of each start waits on, so it acts before uBO reads its selection. If
+  `selectedFilterLists` names neither list, both are appended (nothing else
+  changes) and, once that write committed, `librewolf.uBO.cookieListsMigrated`
+  is set; from then on the hook does nothing, so turning the lists off sticks.
+  A selection that already names one or both is taken as the user's choice
+  and only sets the pref. A fresh profile is not written to: its first
+  selection is inspected when uBO saves it, and only an offline first run
+  (neither list) is migrated, on the next start. uBO's managed storage was
+  not used: it re-applies at every start and replaces the whole selection.
+  On the start that adds them, the lists show ticked at once and filter after
+  uBO's own updater fetches them (seconds, with network and auto-update on;
+  otherwise at the next update or list change). Residual: a user who had
+  both on and turned both off before this ran (a Beta 4 install that got the
+  Android catalog) sees them on once more.
 
   **The catalog URL is pinned to a commit** (owner decision 2026-10-02: a
   branch URL is a mutable trust anchor). uBO 1.75.0 reads the bootstrap

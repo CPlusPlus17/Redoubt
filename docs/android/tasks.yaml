@@ -5264,20 +5264,26 @@ tasks:
   - id: LW-M7-41
     title: Enable uBlock Origin's cookie-notice lists by default on Android
     milestone: M7
-    depends_on: [LW-M7-12, LW-M7-13, LW-M7-22, LW-M7-23]
+    depends_on: [LW-M7-12, LW-M7-13, LW-M7-22, LW-M7-23, LW-M3-07]
     submodule: settings
     owns:
       - assets/uBOAssets.android.json
       - scripts/gen-ubo-assets-android.py
       - scripts/android-cookie-banner-smoke.py
       - scripts/tests/test-ubo-cookie-lists.py
+      - scripts/tests/test-ubo-cookie-lists-migration.js
+      - patches/android/ubo-cookie-lists-migration.patch
       - settings/android.cfg
       - docs/android/evidence/lw-m7-41/
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - toolkit/components/extensions/ExtensionStorageIDB.sys.mjs
     reads:
       - assets/uBOAssets.json
       - assets/ubo-extension.json
       - scripts/update-ubo-assets.sh
       - patches/custom-ubo-assets-bootstrap-location.patch
+      - patches/android/ubo-preinstall.patch
     what: |
       Firefox 156 removed the cookie banner service; owner decision 2026-10-02
       replaces it on Android with uBlock Origin's "EasyList/uBO - Cookie Notices"
@@ -5292,6 +5298,15 @@ tasks:
       and keep the lists on, so the entry has no remote URL and uBO keeps the
       catalog it bootstrapped; re-pin procedure in docs/android/TRACK.md.
       scripts/android-cookie-banner-smoke.py checks the built APK or tree.
+      Owner decision for Beta 5: existing profiles (upgraded from Beta 3 or
+      earlier, or whose first run was offline and so fell back to the catalog
+      in uBO's XPI) get both lists turned on ONCE, after which the user's
+      choice holds for good. patches/android/ubo-cookie-lists-migration.patch
+      hooks ExtensionStorageIDB.selectBackend, which uBO's first storage.local
+      call of every start waits on: if uBO's stored selectedFilterLists names
+      neither list it appends both, and only after that write committed sets
+      librewolf.uBO.cookieListsMigrated; a selection naming one or both, or a
+      fresh profile whose first selection already has them, only sets the pref.
     acceptance:
       - "the Android catalog differs from assets/uBOAssets.json only in the two lists' off flag and its self-entry, which names no remote URL"
       - "librewolf.uBO.assetsBootstrapLocation names a Redoubt commit, not a branch, and that commit serves the current catalog"
@@ -5299,9 +5314,13 @@ tasks:
       - "the packaged librewolf.cfg leaves librewolf.uBO.assetsBootstrapLocation at the Android catalog URL"
       - "the lists stay ordinary uBO lists: no managed setting re-applies them, so a user who turns one off keeps it off"
       - "a fresh install shows both lists ticked in uBO's Filter lists pane"
-    verify: "python3 scripts/tests/test-ubo-cookie-lists.py && python3 scripts/gen-ubo-assets-android.py --check && python3 docs/android/board.py --check-cfg-split"
+      - "a profile whose stored uBO selection names neither list has both appended once, before uBO reads its selection; no other entry or uBO key changes"
+      - "librewolf.uBO.cookieListsMigrated is set only after that write committed (or when the selection already names one of the lists), and once set nothing re-applies the lists"
+      - "a fresh profile is not written to while uBO runs: its first selection is only inspected, and an offline first run is migrated on the next start"
+      - "the migration patch applies at fuzz 0 in list order and compiles in a real Android build"
+    verify: "python3 scripts/tests/test-ubo-cookie-lists.py && python3 scripts/gen-ubo-assets-android.py --check && python3 docs/android/board.py --check-cfg-split && ./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py"
     effort_h: "3-6"
     skills: [python, js, android]
     agent_safe: yes
-    isolation: none
-    risk: Turning lists on through uBO's managed settings would re-apply them at every start and make the choice impossible to undo.
+    isolation: worktree
+    risk: Turning lists on through uBO's managed settings would re-apply them at every start and make the choice impossible to undo. The migration writes uBO's storage from outside uBO; doing it anywhere uBO may already have read its selection would be overwritten or race it, which is why it runs inside the storage backend selection and never while uBO runs.

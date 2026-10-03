@@ -11,6 +11,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -71,6 +72,12 @@ defaultPref(
   "%s"
 );
 """ % gen.ANDROID_CATALOG_URL
+
+
+# ExtensionStorageIDB.sys.mjs as the migration patch leaves it: its added lines.
+MODULE = "\n".join(line[1:] for line in
+                   (ROOT / "patches/android/ubo-cookie-lists-migration.patch").read_text().splitlines()
+                   if line.startswith("+") and not line.startswith("+++"))
 
 
 class DeriveTests(unittest.TestCase):
@@ -154,10 +161,11 @@ class SmokeTests(unittest.TestCase):
         locked = CFG + 'lockPref("librewolf.uBO.assetsBootstrapLocation", "https://other.invalid/");\n'
         self.assertEqual(smoke.effective_pref(locked, smoke.PREF), ("lockPref", "https://other.invalid/"))
 
-    def apk(self, scratch, cfg, assets):
+    def apk(self, scratch, cfg, assets, module=None):
         omni = io.BytesIO()
         with zipfile.ZipFile(omni, "w") as archive:
             archive.writestr(smoke.CFG_IN_OMNI, cfg)
+            archive.writestr(smoke.MIGRATION_IN_OMNI, MODULE if module is None else module)
         path = Path(scratch, "redoubt.apk")
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("assets/omni.ja", omni.getvalue())
@@ -174,7 +182,15 @@ class SmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             code, out = self.run_main(["--apk", str(self.apk(scratch, CFG, catalog()))])
         self.assertEqual(code, 0, out)
-        self.assertEqual(out.count("PASS"), 3, out)
+        self.assertEqual(out.count("PASS"), 4, out)
+
+    def test_apk_without_the_migration_fails(self):
+        for module in ("export var ExtensionStorageIDB = {};\n",
+                       MODULE.replace('"ublock-cookies-easylist"', '"other"')):
+            with tempfile.TemporaryDirectory() as scratch:
+                code, out = self.run_main(["--apk", str(self.apk(scratch, CFG, catalog(), module))])
+            self.assertEqual(code, 1, out)
+            self.assertIn("FAIL    migration", out)
 
     def test_apk_with_librewolf_catalog_fails(self):
         cfg = CFG.replace(gen.ANDROID_CATALOG_URL, "https://librewolf.invalid/raw/uBOAssets.json")
@@ -198,6 +214,8 @@ class SmokeTests(unittest.TestCase):
             (tree / smoke.CFG_IN_TREE).write_text(CFG)
             (tree / smoke.XPI_IN_TREE).parent.mkdir(parents=True)
             (tree / smoke.XPI_IN_TREE).write_bytes(xpi_bytes(catalog()))
+            (tree / smoke.MIGRATION_IN_TREE).parent.mkdir(parents=True)
+            (tree / smoke.MIGRATION_IN_TREE).write_text(MODULE)
             code, out = self.run_main(["--tree", str(tree)])
         self.assertEqual(code, 0, out)
 
@@ -234,6 +252,31 @@ class SmokeTests(unittest.TestCase):
             code, out = self.run_main(["--apk", apk, "--fetch"],
                                       lambda url, timeout: Response(json.dumps(served).encode()))
         self.assertEqual(code, 1, out)
+
+
+class MigrationTests(unittest.TestCase):
+    """patches/android/ubo-cookie-lists-migration.patch: the one-time switch-on."""
+
+    PATCH = ROOT / "patches/android/ubo-cookie-lists-migration.patch"
+
+    def test_patch_names_the_generator_lists(self):
+        text = self.PATCH.read_text()
+        start = text.index("+const REDOUBT_UBO_COOKIE_LISTS = [")
+        block = text[start:text.index("+];", start)]
+        self.assertEqual(tuple(re.findall(r'"([^"]+)"', block)), gen.COOKIE_LISTS)
+
+    def test_registered_once_after_ubo_patches(self):
+        lines = [line.split("#", 1)[0].strip()
+                 for line in (ROOT / "assets/patches/android.txt").read_text().splitlines()]
+        lines = [line for line in lines if line]
+        name = "patches/android/ubo-cookie-lists-migration.patch"
+        self.assertEqual(lines.count(name), 1)
+        self.assertGreater(lines.index(name), lines.index("patches/android/ubo-preinstall.patch"))
+
+    def test_migration_javascript(self):
+        result = subprocess.run(["node", str(ROOT / "scripts/tests/test-ubo-cookie-lists-migration.js"),
+                                 str(self.PATCH)], capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
