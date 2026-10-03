@@ -97,7 +97,10 @@ was weighed. It is no longer the policy.
   an offline first run keeps the XPI's; neither ever saw the lists on.
   `patches/android/ubo-cookie-lists-migration.patch` turns them on one time:
   it hooks the storage backend selection that uBO's first `storage.local`
-  call of each start waits on, so it acts before uBO reads its selection. If
+  call of each start waits on, so it acts before uBO reads its selection
+  (while the migration is pending, startup leaves uBO's backend unannounced
+  so that call really goes through it; upstream announces it for every
+  migrated extension, which made the first version of the hook dead code). If
   `selectedFilterLists` names neither list, both are appended (nothing else
   changes) and, once that write committed, `librewolf.uBO.cookieListsMigrated`
   is set; from then on the hook does nothing, so turning the lists off sticks.
@@ -110,7 +113,10 @@ was weighed. It is no longer the policy.
   uBO's own updater fetches them (seconds, with network and auto-update on;
   otherwise at the next update or list change). Residual: a user who had
   both on and turned both off before this ran (a Beta 4 install that got the
-  Android catalog) sees them on once more.
+  Android catalog) sees them on once more. Verified on an emulator with the
+  Beta 5 candidate (`evidence/lw-m7-41/migration/`): Beta 4 offline and Beta 3
+  profiles get both once, active on that first start, and an opt-out survives
+  restarts and a reinstall; a fresh install is a no-op.
 
   **The catalog URL is pinned to a commit** (owner decision 2026-10-02: a
   branch URL is a mutable trust anchor). uBO 1.75.0 reads the bootstrap

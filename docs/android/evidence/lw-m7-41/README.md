@@ -37,3 +37,11 @@ the packaged `ExtensionStorageIDB.sys.mjs` (`omni.ja!/modules/` in an APK)
 must carry the hook, both list keys and the pref. On the Beta 4 rc3 x86_64
 APK it FAILs (catalog, pref and bundled PASS), as it must for a build without
 the patch; on the patched file it PASSes. A build is still owed.
+
+**Built and run on a device: `migration/README.md` (2026-10-03).** The hook
+as committed in `fc846c48` could not run on a device: upstream
+`Extension.sys.mjs` announces uBO's storage backend at startup, so
+`selectBackend` is never called for it (measured on Beta 4). Fixed in
+`cdeadd6c` (the backend stays unannounced for uBO while the migration is
+pending); the Beta 5 candidate built from it passes the upgrade, opt-out,
+Beta 3, fresh and offline scenarios and the regression smoke.
