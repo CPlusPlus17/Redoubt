@@ -28,6 +28,15 @@
 #     setPermission and setPrivateBrowsingPermanentPermission as before.
 #   * Everything else (CanvasUtils, GeckoView Java/JS, Fenix dialog/feature,
 #     resources, tests): context offsets only.
+#
+# 157 acceptance fix (2026-10-03, OriginBoundPermissionsDialogFragment.kt + test):
+#   the permissions list loads one GeckoView:GetAllPermissions at a time
+#   (SerialRefresh) and retries a failed load twice (retryTransient). On 157 the
+#   quiet notice's Review right after a cold start sent two overlapping queries;
+#   the second found no Gecko listener while GeckoViewUtils' lazy listener was
+#   loading GeckoViewStorageController, so the list stayed empty behind an error
+#   toast and graphics acceptance failed after its process restart (3 of 3 runs).
+#   Evidence: docs/android/evidence/lw-m7-01/release-157.0/acceptance/.
 diff --git a/dom/canvas/CanvasUtils.cpp b/dom/canvas/CanvasUtils.cpp
 index 17bfd46974..be755270f7 100644
 --- a/dom/canvas/CanvasUtils.cpp
@@ -1046,10 +1055,10 @@ index 93c75093cb..17a0fc820e 100644
                  SitePermissionsFeature(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt
 new file mode 100644
-index 0000000000..59722d562b
+index 0000000000..be56b0d2b4
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt
-@@ -0,0 +1,342 @@
+@@ -0,0 +1,401 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1072,7 +1081,10 @@ index 0000000000..59722d562b
 +import androidx.fragment.app.FragmentManager
 +import androidx.lifecycle.lifecycleScope
 +import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.CoroutineStart
 +import kotlinx.coroutines.Job
++import kotlinx.coroutines.delay
 +import kotlinx.coroutines.flow.distinctUntilChanged
 +import kotlinx.coroutines.flow.map
 +import kotlinx.coroutines.launch
@@ -1089,7 +1101,7 @@ index 0000000000..59722d562b
 +/** Shared controls for pending requests and real engine-only persistent/session/private exceptions. */
 +class OriginBoundPermissionsDialogFragment : DialogFragment() {
 +    private lateinit var content: LinearLayout
-+    private var refreshJob: Job? = null
++    private val refresher by lazy { SerialRefresh(lifecycleScope) { loadAndRender() } }
 +    private var requestsJob: Job? = null
 +    private var lockJob: Job? = null
 +    private var decisionDialog: AlertDialog? = null
@@ -1134,7 +1146,7 @@ index 0000000000..59722d562b
 +    override fun onStop() {
 +        requestsJob?.cancel()
 +        lockJob?.cancel()
-+        refreshJob?.cancel()
++        refresher.cancel()
 +        super.onStop()
 +    }
 +
@@ -1144,54 +1156,56 @@ index 0000000000..59722d562b
 +    }
 +
 +    override fun onDestroyView() {
-+        refreshJob?.cancel()
++        refresher.cancel()
 +        decisionDialog?.dismiss()
 +        decisionDialog = null
 +        super.onDestroyView()
 +    }
 +
-+    private fun refresh() {
-+        refreshJob?.cancel()
-+        refreshJob = lifecycleScope.launch {
-+            try {
-+                val records = requireComponents.core.geckoSitePermissionsStorage
++    // One load at a time: see SerialRefresh. A refresh requested meanwhile reloads once afterwards.
++    private fun refresh() = refresher.request()
++
++    private suspend fun loadAndRender() {
++        try {
++            val records = retryTransient(LOAD_ATTEMPTS, LOAD_RETRY_DELAY_MS) {
++                requireComponents.core.geckoSitePermissionsStorage
 +                    .listOriginBoundPermissions(privateMode, contextId)
-+                if (!isAdded) return@launch
-+                content.removeAllViews()
-+                addText(getString(R.string.origin_permissions_default))
-+                addText(getString(if (privateMode) R.string.origin_permissions_private_scope else R.string.origin_permissions_scope))
-+                val state = requireComponents.core.store.state
-+                val pending = originBoundRequests(state, tabId, privateMode, contextId)
-+                pending.forEach { (requestTabId, request) ->
-+                    addButton(
-+                        getString(R.string.origin_permissions_blocked_attempt, kindLabel(request.permission.kind), request.uri),
-+                        if (request.permission.kind == OriginBoundPermission.Kind.WEBGL) {
-+                            R.id.origin_permission_pending_webgl
-+                        } else {
-+                            R.id.origin_permission_pending_canvas
-+                        },
-+                    ) { showDecision(request.permission, request.topLevelOrigin, isRequest = true) { status, permanent ->
-+                        applyRequest(requestTabId, request, status, permanent)
-+                    } }
-+                }
-+                if (records.isEmpty() && pending.isEmpty()) addText(getString(R.string.origin_permissions_empty))
-+                records.forEach { record ->
-+                    addButton(
-+                        recordLabel(record),
-+                        if (record.kind == OriginBoundPermission.Kind.WEBGL) {
-+                            R.id.origin_permission_saved_webgl
-+                        } else {
-+                            R.id.origin_permission_saved_canvas
-+                        },
-+                    ) {
-+                        showDecision(record, null) { status, permanent -> applyStored(record, status, permanent) }
-+                    }
-+                }
-+            } catch (error: CancellationException) {
-+                throw error
-+            } catch (_: Exception) {
-+                showError()
 +            }
++            if (!isAdded) return
++            content.removeAllViews()
++            addText(getString(R.string.origin_permissions_default))
++            addText(getString(if (privateMode) R.string.origin_permissions_private_scope else R.string.origin_permissions_scope))
++            val state = requireComponents.core.store.state
++            val pending = originBoundRequests(state, tabId, privateMode, contextId)
++            pending.forEach { (requestTabId, request) ->
++                addButton(
++                    getString(R.string.origin_permissions_blocked_attempt, kindLabel(request.permission.kind), request.uri),
++                    if (request.permission.kind == OriginBoundPermission.Kind.WEBGL) {
++                        R.id.origin_permission_pending_webgl
++                    } else {
++                        R.id.origin_permission_pending_canvas
++                    },
++                ) { showDecision(request.permission, request.topLevelOrigin, isRequest = true) { status, permanent ->
++                    applyRequest(requestTabId, request, status, permanent)
++                } }
++            }
++            if (records.isEmpty() && pending.isEmpty()) addText(getString(R.string.origin_permissions_empty))
++            records.forEach { record ->
++                addButton(
++                    recordLabel(record),
++                    if (record.kind == OriginBoundPermission.Kind.WEBGL) {
++                        R.id.origin_permission_saved_webgl
++                    } else {
++                        R.id.origin_permission_saved_canvas
++                    },
++                ) {
++                    showDecision(record, null) { status, permanent -> applyStored(record, status, permanent) }
++                }
++            }
++        } catch (error: CancellationException) {
++            throw error
++        } catch (_: Exception) {
++            showError()
 +        }
 +    }
 +
@@ -1345,6 +1359,8 @@ index 0000000000..59722d562b
 +        private const val PRIVATE = "privateMode"
 +        private const val CONTEXT_ID = "contextId"
 +        private const val PADDING_DP = 16
++        private const val LOAD_ATTEMPTS = 3
++        private const val LOAD_RETRY_DELAY_MS = 250L
 +        internal const val TAG = "origin-bound-permissions"
 +
 +        /** Opens permissions for this browsing context; private records never enter normal UI. */
@@ -1391,6 +1407,58 @@ index 0000000000..59722d562b
 +    setText(R.string.origin_permissions_remember)
 +    isChecked = record.permanent && !record.privateMode
 +    visibility = if (record.privateMode) View.GONE else View.VISIBLE
++}
++
++/**
++ * Runs [block] for each [request], never two at once; a request made while [block] runs schedules
++ * exactly one more run after it. GeckoView answers the first GeckoView:GetAllPermissions of a process
++ * through GeckoViewUtils' lazy listener, which unregisters itself, loads GeckoViewStorageController and
++ * only then registers the real handler. A second query sent in that window finds no Gecko listener and
++ * fails at once ("No listener for GeckoView:GetAllPermissions"). On 157 that module is not loaded yet
++ * when a cold-started page's quiet notice offers Review, so the dialog's two overlapping loads hit the
++ * window every time and the list stayed empty with an error toast.
++ */
++internal class SerialRefresh(private val scope: CoroutineScope, private val block: suspend () -> Unit) {
++    private var job: Job? = null
++    private var again = false
++
++    fun request() {
++        if (job?.isActive == true) {
++            again = true
++            return
++        }
++        // Assign the job before it runs: on an immediate dispatcher the block starts inside launch.
++        val next = scope.launch(start = CoroutineStart.LAZY) {
++            do {
++                again = false
++                block()
++            } while (again)
++        }
++        job = next
++        next.start()
++    }
++
++    fun cancel() {
++        again = false
++        job?.cancel()
++        job = null
++    }
++}
++
++/** Runs [block] up to [attempts] times while it fails with anything but cancellation. */
++internal suspend fun <T> retryTransient(attempts: Int, delayMs: Long, block: suspend () -> T): T {
++    var failures = 0
++    while (true) {
++        try {
++            return block()
++        } catch (error: CancellationException) {
++            throw error
++        } catch (error: Exception) {
++            failures += 1
++            if (failures >= attempts) throw error
++            delay(delayMs)
++        }
++    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt
 new file mode 100644
@@ -1660,10 +1728,10 @@ index 805a05886c..62d5e03849 100644
              android:key="@string/pref_key_show_site_exceptions"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt
 new file mode 100644
-index 0000000000..895f831fb7
+index 0000000000..8ba69910bc
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,166 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1671,6 +1739,13 @@ index 0000000000..895f831fb7
 +package org.mozilla.fenix.browser.permissions
 +
 +import android.view.View
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.test.advanceUntilIdle
++import kotlinx.coroutines.test.currentTime
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.runTest
 +import mozilla.components.browser.state.state.BrowserState
 +import mozilla.components.browser.state.state.ContentState
 +import mozilla.components.browser.state.state.TabSessionState
@@ -1678,10 +1753,12 @@ index 0000000000..895f831fb7
 +import org.junit.Assert.assertEquals
 +import org.junit.Assert.assertFalse
 +import org.junit.Assert.assertTrue
++import org.junit.Assert.fail
 +import org.junit.Test
 +import org.junit.runner.RunWith
 +import org.robolectric.RobolectricTestRunner
 +
++@OptIn(ExperimentalCoroutinesApi::class)
 +@RunWith(RobolectricTestRunner::class)
 +class OriginBoundPermissionsDialogFragmentTest {
 +    @Test
@@ -1725,6 +1802,100 @@ index 0000000000..895f831fb7
 +        assertEquals(listOf("private"), originBoundRequests(state, null, true, null).map { it.second.id })
 +        assertEquals(listOf("container"), originBoundRequests(state, null, false, "other").map { it.second.id })
 +        assertTrue(originBoundRequests(state, "normal", true, null).isEmpty())
++    }
++
++    @Test
++    fun `refreshes never overlap and requests made meanwhile collapse into one more run`() = runTest {
++        val firstRunMayFinish = CompletableDeferred<Unit>()
++        var runs = 0
++        var running = 0
++        var mostAtOnce = 0
++        val refresh = SerialRefresh(this) {
++            runs += 1
++            running += 1
++            mostAtOnce = maxOf(mostAtOnce, running)
++            if (runs == 1) firstRunMayFinish.await()
++            running -= 1
++        }
++
++        refresh.request()
++        runCurrent()
++        refresh.request()
++        refresh.request()
++        runCurrent()
++        assertEquals(1, runs)
++
++        firstRunMayFinish.complete(Unit)
++        advanceUntilIdle()
++        assertEquals(2, runs)
++        assertEquals(1, mostAtOnce)
++
++        refresh.request()
++        advanceUntilIdle()
++        assertEquals(3, runs)
++    }
++
++    @Test
++    fun `cancel drops the pending rerun and a later request starts a fresh run`() = runTest {
++        val never = CompletableDeferred<Unit>()
++        var runs = 0
++        val refresh = SerialRefresh(this) {
++            runs += 1
++            if (runs == 1) never.await()
++        }
++
++        refresh.request()
++        runCurrent()
++        refresh.request()
++        refresh.cancel()
++        advanceUntilIdle()
++        assertEquals(1, runs)
++
++        refresh.request()
++        advanceUntilIdle()
++        assertEquals(2, runs)
++    }
++
++    @Test
++    fun `a load that fails while Gecko registers its listener is retried`() = runTest {
++        var calls = 0
++        val records = retryTransient(attempts = 3, delayMs = 250) {
++            calls += 1
++            if (calls < 3) throw IllegalStateException("No listener for GeckoView:GetAllPermissions")
++            listOf("record")
++        }
++        assertEquals(listOf("record"), records)
++        assertEquals(3, calls)
++        assertEquals(500, currentTime)
++    }
++
++    @Test
++    fun `a load that keeps failing reports the last error after the allowed attempts`() = runTest {
++        var calls = 0
++        try {
++            retryTransient(attempts = 3, delayMs = 250) {
++                calls += 1
++                throw IllegalStateException("failure $calls")
++            }
++            fail("retryTransient returned after three failures")
++        } catch (error: IllegalStateException) {
++            assertEquals("failure 3", error.message)
++        }
++        assertEquals(3, calls)
++    }
++
++    @Test
++    fun `cancellation is never retried`() = runTest {
++        var calls = 0
++        try {
++            retryTransient(attempts = 3, delayMs = 250) {
++                calls += 1
++                throw CancellationException("dialog stopped")
++            }
++            fail("retryTransient swallowed a cancellation")
++        } catch (_: CancellationException) {
++        }
++        assertEquals(1, calls)
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt
