@@ -35,6 +35,15 @@ was weighed. It is no longer the policy.
   desktop. `REBASE.md` still describes an ESR dot rebase. Its mechanics
   (tarball, `check-patchfail`, pref audit, smoke) carry over unchanged. Its
   framing that a major comes once a year does not.
+- **Every Firefox release is flagged automatically.** A rebase per release
+  cannot depend on someone remembering to look. `.github/workflows/firefox-release-watch.yaml`
+  runs `scripts/firefox-release-watch.py` daily on a GitHub-hosted runner: when
+  product-details' `LATEST_FIREFOX_VERSION` is newer than `version.android` or
+  `version` and its source tarball is on archive.mozilla.org, it opens one
+  issue, `Firefox <v> released: rebase Android and desktop` (label
+  `firefox-release`), with the release notes, the advisories and the
+  `REBASE.md` steps. The cadence and what the issue does not cover are in
+  [`REBASE.md`](REBASE.md#release-track-cadence).
 - **Android-only Firefox for Android fixes now come from upstream.** §3c's
   standing obligation goes away: someone had to read every "Firefox for Android"
   MFSA and backport by hand because no ESR `mobile/android` existed. A release

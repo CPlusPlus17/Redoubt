@@ -1,0 +1,74 @@
+# Firefox release watch.
+#
+# Since 2026-10-02 the Android track follows Firefox release, the same track as
+# desktop (docs/android/TRACK.md, "Decision reversed"), so every Firefox release
+# -- major or dot -- is a rebase for both. This flags each one with ONE issue
+# ("Firefox <v> released: rebase Android and desktop", label firefox-release),
+# once the source tarball is actually on archive.mozilla.org. The procedure it
+# points at is docs/android/REBASE.md; the cadence is its "Release-track
+# cadence" section.
+#
+# Unlike the other workflows here this runs on a GitHub-hosted runner, not the
+# self-hosted librewolf-android one: it builds nothing, needs no secret beyond
+# GITHUB_TOKEN, and should not queue behind (or occupy) the build machine.
+#
+# A schedule only fires from the default branch, so this starts watching once
+# it is on main. workflow_dispatch runs it by hand from the Actions tab; with
+# dry_run it opens nothing and prints the issue it would open.
+#
+# android-test.yaml lists this file, the script and its test under push
+# paths-ignore, so a push that touches only the watcher does not start the
+# self-hosted Android build. The watcher's own tests run here instead.
+
+name: Firefox release watch
+
+on:
+  schedule:
+    # Daily, at an off-minute: GitHub delays, and under load drops, scheduled
+    # runs that start on the hour.
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Open nothing; print the issue that would be opened."
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches:
+      - main
+      - android/**
+    paths:
+      - .github/workflows/firefox-release-watch.yaml
+      - scripts/firefox-release-watch.py
+      - scripts/tests/test-firefox-release-watch.py
+      - scripts/tests/fixtures/firefox-release-watch/**
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  # Two overlapping runs could both miss each other's issue and open two.
+  group: firefox-release-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        # No submodules: the script reads only version and version.android.
+
+      - name: Test the watcher (offline)
+        run: python3 scripts/tests/test-firefox-release-watch.py -v
+
+      # A push only proves the watcher works; it never opens an issue.
+      - name: Check for a new Firefox release
+        if: ${{ github.event_name != 'push' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
+        run: python3 scripts/firefox-release-watch.py $DRY_RUN
