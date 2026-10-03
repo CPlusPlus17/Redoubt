@@ -5278,6 +5278,7 @@ tasks:
     shared_edit: [assets/patches/android.txt]
     tree_paths:
       - toolkit/components/extensions/ExtensionStorageIDB.sys.mjs
+      - toolkit/components/extensions/Extension.sys.mjs
     reads:
       - assets/uBOAssets.json
       - assets/ubo-extension.json
@@ -5302,8 +5303,11 @@ tasks:
       earlier, or whose first run was offline and so fell back to the catalog
       in uBO's XPI) get both lists turned on ONCE, after which the user's
       choice holds for good. patches/android/ubo-cookie-lists-migration.patch
-      hooks ExtensionStorageIDB.selectBackend, which uBO's first storage.local
-      call of every start waits on: if uBO's stored selectedFilterLists names
+      hooks ExtensionStorageIDB.selectBackend, and while the migration is
+      pending Extension.sys.mjs leaves uBO's backend unannounced at startup so
+      that uBO's first storage.local call of the session waits on it (upstream
+      announces it for every migrated extension, and then selectBackend is never
+      called: measured on Beta 4): if uBO's stored selectedFilterLists names
       neither list it appends both, and only after that write committed sets
       librewolf.uBO.cookieListsMigrated; a selection naming one or both, or a
       fresh profile whose first selection already has them, only sets the pref.
@@ -5318,6 +5322,7 @@ tasks:
       - "librewolf.uBO.cookieListsMigrated is set only after that write committed (or when the selection already names one of the lists), and once set nothing re-applies the lists"
       - "a fresh profile is not written to while uBO runs: its first selection is only inspected, and an offline first run is migrated on the next start"
       - "the migration patch applies at fuzz 0 in list order and compiles in a real Android build"
+      - "on a device, an upgraded profile whose uBO selection names neither list has both selected and ticked in uBO's Filter lists pane after its first start, and a later opt-out survives restarts and a reinstall of the same build"
     verify: "python3 scripts/tests/test-ubo-cookie-lists.py && python3 scripts/gen-ubo-assets-android.py --check && python3 docs/android/board.py --check-cfg-split && ./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py"
     effort_h: "3-6"
     skills: [python, js, android]

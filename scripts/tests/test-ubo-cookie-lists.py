@@ -161,11 +161,12 @@ class SmokeTests(unittest.TestCase):
         locked = CFG + 'lockPref("librewolf.uBO.assetsBootstrapLocation", "https://other.invalid/");\n'
         self.assertEqual(smoke.effective_pref(locked, smoke.PREF), ("lockPref", "https://other.invalid/"))
 
-    def apk(self, scratch, cfg, assets, module=None):
+    def apk(self, scratch, cfg, assets, module=None, startup=None):
         omni = io.BytesIO()
         with zipfile.ZipFile(omni, "w") as archive:
             archive.writestr(smoke.CFG_IN_OMNI, cfg)
             archive.writestr(smoke.MIGRATION_IN_OMNI, MODULE if module is None else module)
+            archive.writestr(smoke.STARTUP_IN_OMNI, MODULE if startup is None else startup)
         path = Path(scratch, "redoubt.apk")
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("assets/omni.ja", omni.getvalue())
@@ -192,6 +193,16 @@ class SmokeTests(unittest.TestCase):
             self.assertEqual(code, 1, out)
             self.assertIn("FAIL    migration", out)
 
+    def test_apk_without_the_startup_branch_fails(self):
+        # The hook alone is dead code on a device: upstream Extension.sys.mjs
+        # announces uBO's backend at startup and selectBackend is never called.
+        with tempfile.TemporaryDirectory() as scratch:
+            code, out = self.run_main(["--apk", str(self.apk(scratch, CFG, catalog(),
+                                                              startup="export class Extension {}\n"))])
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL    migration", out)
+        self.assertIn("startup branch", out)
+
     def test_apk_with_librewolf_catalog_fails(self):
         cfg = CFG.replace(gen.ANDROID_CATALOG_URL, "https://librewolf.invalid/raw/uBOAssets.json")
         with tempfile.TemporaryDirectory() as scratch:
@@ -216,6 +227,7 @@ class SmokeTests(unittest.TestCase):
             (tree / smoke.XPI_IN_TREE).write_bytes(xpi_bytes(catalog()))
             (tree / smoke.MIGRATION_IN_TREE).parent.mkdir(parents=True)
             (tree / smoke.MIGRATION_IN_TREE).write_text(MODULE)
+            (tree / smoke.STARTUP_IN_TREE).write_text(MODULE)
             code, out = self.run_main(["--tree", str(tree)])
         self.assertEqual(code, 0, out)
 

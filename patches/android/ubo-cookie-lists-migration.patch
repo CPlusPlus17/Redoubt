@@ -7,16 +7,26 @@
 # 1.75.0 assets/assets.json) turned on one time. Fresh online installs already
 # get them from Android's pinned catalog (assets/uBOAssets.android.json).
 #
-# Mechanism: the main-process half of ExtensionStorageIDB.selectBackend. Each
-# start of an extension, its first storage.local call waits on that promise
-# before any of its contexts learns the backend, so for uBO this is a point
-# where uBO is installed, enabled and its storage is open, but it has not yet
-# read "selectedFilterLists". There the patch reads uBO's selection and, if it
+# Mechanism: the main-process half of ExtensionStorageIDB.selectBackend, which
+# a child context calls when it does not know the extension's storage.local
+# backend yet, and waits on before its first storage.local call. Upstream,
+# Extension.sys.mjs tells the children the backend at startup for every
+# extension already migrated to IndexedDB, or just installed with it, which is
+# every Redoubt uBO: selectBackend is then never called and a hook there never
+# runs (measured on Beta 4: migrated pref true, sharedData storageIDBBackend
+# true, no selectBackend promise for uBO 30 s into a session). So, while the
+# migration is pending for uBO (and only then), Extension.sys.mjs leaves the
+# backend unannounced (redoubtMustSelectBackend; an install still sets the
+# migrated pref as upstream does), and uBO's first storage.local call of the
+# session goes through selectBackend. That is a point where uBO is installed,
+# enabled and its storage is open, but it has not yet read
+# "selectedFilterLists". There the patch reads uBO's selection and, if it
 # names neither list, writes it back with both appended (nothing else in it
 # changes, no other key is touched), then sets librewolf.uBO.cookieListsMigrated
 # after the write's transaction completed. Once the pref is set the hook is a
-# pref read and nothing else, so a later opt-out holds across starts, uBO
-# updates and Redoubt updates.
+# pref read and nothing else, and Extension.sys.mjs announces the backend
+# exactly as upstream, so a later opt-out holds across starts, uBO updates and
+# Redoubt updates.
 #
 #   * selection names one or both lists -> "done": uBO offered them, what is
 #     there is the user's choice; set the pref, write nothing;
@@ -64,10 +74,34 @@
 #
 # Android only (assets/patches/android.txt); the code itself is generic Gecko.
 #
+diff --git a/toolkit/components/extensions/Extension.sys.mjs b/toolkit/components/extensions/Extension.sys.mjs
+--- a/toolkit/components/extensions/Extension.sys.mjs
++++ b/toolkit/components/extensions/Extension.sys.mjs
+@@ -4223,6 +4223,20 @@
+       if (this.hasPermission("storage")) {
+         if (!lazy.ExtensionStorageIDB.isBackendEnabled) {
+           this.setSharedData("storageIDBBackend", false);
++        } else if (lazy.ExtensionStorageIDB.redoubtMustSelectBackend(this)) {
++          // Redoubt LW-M7-41: leave the backend unselected so the extension's
++          // first storage.local call goes through ExtensionStorageIDB
++          // .selectBackend, where the one-time uBO cookie-list migration runs
++          // before uBO can read its settings. selectBackend then chooses the
++          // backend as it does for any extension whose backend is not known
++          // yet (the IDB one, for an extension already migrated to it).
++          if (
++            !lazy.ExtensionStorageIDB.isMigratedExtension(this) &&
++            this.startupReason === "ADDON_INSTALL" &&
++            !Services.prefs.getBoolPref(LEAVE_STORAGE_PREF, false)
++          ) {
++            lazy.ExtensionStorageIDB.setMigratedExtensionPref(this, true);
++          }
+         } else if (lazy.ExtensionStorageIDB.isMigratedExtension(this)) {
+           this.setSharedData("storageIDBBackend", true);
+           this.setSharedData(
 diff --git a/toolkit/components/extensions/ExtensionStorageIDB.sys.mjs b/toolkit/components/extensions/ExtensionStorageIDB.sys.mjs
 --- a/toolkit/components/extensions/ExtensionStorageIDB.sys.mjs
 +++ b/toolkit/components/extensions/ExtensionStorageIDB.sys.mjs
-@@ -741,6 +741,121 @@
+@@ -741,6 +741,130 @@
    });
  }
  
@@ -165,15 +199,24 @@ diff --git a/toolkit/components/extensions/ExtensionStorageIDB.sys.mjs b/toolkit
 +  extension.on("shutdown", stop);
 +}
 +
++// True until the migration has run to completion for uBO. While it is true,
++// Extension.sys.mjs does not preselect the storage.local backend for uBO at
++// startup, so uBO's first storage.local call of the session has to come
++// through selectBackend below, which runs the migration first. Without that,
++// a migrated extension (every Redoubt uBO) never calls selectBackend at all.
++function redoubtUboCookieListsPending(extension) {
++  return (
++    extension.id === REDOUBT_UBO_ID &&
++    !extension.temporarilyInstalled &&
++    !Services.prefs.getBoolPref(REDOUBT_UBO_COOKIE_LISTS_PREF, false)
++  );
++}
++
 +// Runs inside uBO's first storage.local access of each start, so uBO has not
 +// read its selection yet. Never rejects: a failure leaves the pref unset and
 +// uBO starts as it would have.
 +function redoubtMigrateUboCookieLists(extension, storagePrincipal) {
-+  if (
-+    extension.id !== REDOUBT_UBO_ID ||
-+    extension.temporarilyInstalled ||
-+    Services.prefs.getBoolPref(REDOUBT_UBO_COOKIE_LISTS_PREF, false)
-+  ) {
++  if (!redoubtUboCookieListsPending(extension)) {
 +    return Promise.resolve();
 +  }
 +  return redoubtUboCookieListsStep(extension, storagePrincipal, true)
@@ -189,7 +232,19 @@ diff --git a/toolkit/components/extensions/ExtensionStorageIDB.sys.mjs b/toolkit
  /**
   * This ExtensionStorage class implements a backend for the storage.local API which
   * uses IndexedDB to store the data.
-@@ -880,6 +995,9 @@
+@@ -768,6 +892,11 @@
+     );
+   },
+ 
++  // Redoubt LW-M7-41: see redoubtUboCookieListsPending.
++  redoubtMustSelectBackend(extension) {
++    return redoubtUboCookieListsPending(extension);
++  },
++
+   isMigratedExtension(extension) {
+     return Services.prefs.getBoolPref(
+       `${IDB_MIGRATED_PREF_BRANCH}.${extension.id}`,
+@@ -880,6 +1009,9 @@
          );
  
          promise = migrateJSONFileData(extension, storagePrincipal)

@@ -36,6 +36,26 @@ assert.ok(hook > 0 && shared > hook, 'hook is not chained ahead of setSharedData
 assert.ok(text.slice(0, hook).includes(' promise = migrateJSONFileData(extension, storagePrincipal)'),
   'hook is not on the migrateJSONFileData chain');
 
+// Upstream Extension.sys.mjs announces the backend at startup for every
+// migrated or just-installed extension, and a child context that has it never
+// calls selectBackend: the hook above would never run (measured on Beta 4).
+// While the migration is pending for uBO, the patch's Extension.sys.mjs hunk
+// must take a branch ahead of those two that announces nothing.
+const extHunk = text.slice(
+  text.indexOf('diff --git a/toolkit/components/extensions/Extension.sys.mjs'),
+  text.indexOf('diff --git a/toolkit/components/extensions/ExtensionStorageIDB.sys.mjs'));
+assert.ok(extHunk.length > 0, 'no Extension.sys.mjs hunk in the patch');
+const mustSelect = extHunk.indexOf('+        } else if (lazy.ExtensionStorageIDB.redoubtMustSelectBackend(this)) {');
+const migratedBranch = extHunk.indexOf(' } else if (lazy.ExtensionStorageIDB.isMigratedExtension(this)) {');
+const disabledBranch = extHunk.indexOf(' if (!lazy.ExtensionStorageIDB.isBackendEnabled) {');
+assert.ok(disabledBranch > 0 && mustSelect > disabledBranch && migratedBranch > mustSelect,
+  'redoubtMustSelectBackend branch is not between the backend-disabled and migrated branches');
+const branchBody = extHunk.slice(mustSelect, migratedBranch);
+assert.ok(!branchBody.includes('setSharedData'), 'the pending branch must not announce a backend');
+assert.ok(branchBody.includes('setMigratedExtensionPref(this, true)'), 'an install must still set the migrated pref');
+assert.ok(text.includes('+  redoubtMustSelectBackend(extension) {\n+    return redoubtUboCookieListsPending(extension);'),
+  'ExtensionStorageIDB.redoubtMustSelectBackend does not use the migration predicate');
+
 const UBO = 'uBlock0@raymondhill.net';
 const PREF = 'librewolf.uBO.cookieListsMigrated';
 const LISTS = ['fanboy-cookiemonster', 'ublock-cookies-easylist'];
@@ -100,17 +120,32 @@ function fixture({ stored = {}, id = UBO, temporary = false, prefs = {}, failOpe
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
   const run = () => vm.runInContext('redoubtMigrateUboCookieLists', sandbox)(extension, principal);
+  const pending = () => vm.runInContext('redoubtUboCookieListsPending', sandbox)(extension);
   const fire = async changes => {
     for (const fn of [...(listeners.get(extension.id) || [])]) fn(changes);
     await settle();
   };
-  return { run, fire, log, store, listeners, errors, prefMap, extension };
+  return { run, pending, fire, log, store, listeners, errors, prefMap, extension };
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 10));
 const watching = f => (f.listeners.get(f.extension.id)?.size || 0);
 
 const tests = {
+  async 'pending (backend left unannounced) only for uBO until the pref is set'() {
+    assert.equal(fixture().pending(), true);
+    assert.equal(fixture({ prefs: { [PREF]: true } }).pending(), false);
+    assert.equal(fixture({ prefs: { [PREF]: false } }).pending(), true);
+    assert.equal(fixture({ id: 'other@example.invalid' }).pending(), false);
+    assert.equal(fixture({ temporary: true }).pending(), false);
+    const f = fixture({ stored: { selectedFilterLists: ['easylist'] } });
+    await f.run();
+    assert.equal(f.pending(), false, 'still pending after the lists were applied');
+    const g = fixture({ stored: { selectedFilterLists: ['easylist'] }, failSet: true });
+    await g.run();
+    assert.equal(g.pending(), true, 'a failed write must leave the migration pending');
+  },
+
   async 'upgraded profile: both appended once, everything else kept, pref after commit'() {
     const before = ['user-filters', 'ublock-filters', 'easylist', 'https://example.invalid/my.txt'];
     const f = fixture({ stored: { selectedFilterLists: before, hiddenSettings: { x: 1 } } });

@@ -25,10 +25,13 @@ settings. This script checks that chain in what the build actually ships:
             naming the pref wins, as autoconfig evaluates it;
   bundled   the uBO XPI the build packages knows both list keys, in uBO's
             "EasyList/uBO - Cookie Notices" group;
-  migration the ExtensionStorageIDB.sys.mjs the build packages (omni.ja
-            modules/ in an APK, toolkit/components/extensions/ in a tree)
-            carries patches/android/ubo-cookie-lists-migration.patch: the
-            hook, both list keys and its librewolf.uBO.cookieListsMigrated pref;
+  migration the ExtensionStorageIDB.sys.mjs and Extension.sys.mjs the build
+            packages (omni.ja modules/ in an APK, toolkit/components/extensions/
+            in a tree) carry patches/android/ubo-cookie-lists-migration.patch:
+            the hook, both list keys and its librewolf.uBO.cookieListsMigrated
+            pref, and the startup branch that leaves uBO's storage backend
+            unannounced while the migration is pending (without it the hook is
+            never reached: upstream announces it for every migrated extension);
   hosted    (--fetch only, needs the network) the URL serves the same catalog.
             Until the pinned commit is on CPlusPlus17/Redoubt this is PENDING:
             uBO then falls back to the catalog inside its XPI, stock defaults.
@@ -70,6 +73,9 @@ CFG_IN_TREE = "lw/librewolf.cfg"
 MIGRATION_IN_OMNI = "modules/ExtensionStorageIDB.sys.mjs"
 MIGRATION_IN_TREE = "toolkit/components/extensions/ExtensionStorageIDB.sys.mjs"
 MIGRATION_PREF = "librewolf.uBO.cookieListsMigrated"
+STARTUP_IN_OMNI = "modules/Extension.sys.mjs"
+STARTUP_IN_TREE = "toolkit/components/extensions/Extension.sys.mjs"
+_STARTUP_BRANCH = re.compile(r"else\s+if\s*\(\s*lazy\.ExtensionStorageIDB\.redoubtMustSelectBackend\(\s*this\s*\)\s*\)")
 # Whitespace-tolerant: the packager may reflow JavaScript.
 _MIGRATION_HOOK = re.compile(r"\.then\(\s*\(\)\s*=>\s*redoubtMigrateUboCookieLists\(\s*extension\s*,\s*storagePrincipal\s*\)\s*\)")
 PASS, FAIL, PENDING = "PASS", "FAIL", "PENDING"
@@ -103,7 +109,8 @@ def read_apk(apk):
             raise ValueError(f"{apk} has no omni.ja")
         with zipfile.ZipFile(io.BytesIO(archive.read(omni))) as inner:
             cfg = inner.read(CFG_IN_OMNI).decode("utf-8")
-            migration = inner.read(MIGRATION_IN_OMNI).decode("utf-8")
+            migration = (inner.read(MIGRATION_IN_OMNI).decode("utf-8"),
+                         inner.read(STARTUP_IN_OMNI).decode("utf-8"))
         if XPI_IN_APK not in names:
             raise ValueError(f"{apk} has no {XPI_IN_APK}")
         return cfg, io.BytesIO(archive.read(XPI_IN_APK)), migration
@@ -111,7 +118,8 @@ def read_apk(apk):
 
 def read_tree(tree):
     return (Path(tree, CFG_IN_TREE).read_text(encoding="utf-8"), Path(tree, XPI_IN_TREE),
-            Path(tree, MIGRATION_IN_TREE).read_text(encoding="utf-8"))
+            (Path(tree, MIGRATION_IN_TREE).read_text(encoding="utf-8"),
+             Path(tree, STARTUP_IN_TREE).read_text(encoding="utf-8")))
 
 
 def check_catalog(results):
@@ -150,17 +158,20 @@ def check_bundled(results, xpi):
     results.append((PASS, "bundled", "bundled uBO knows " + "; ".join(f"{k} ({t})" for k, t in titles.items())))
 
 
-def check_migration(results, module_text):
+def check_migration(results, modules):
+    module_text, startup_text = modules
     missing = [what for what, ok in (
         ("the selectBackend hook", _MIGRATION_HOOK.search(module_text)),
+        ("redoubtMustSelectBackend", "redoubtMustSelectBackend(extension)" in module_text),
+        ("Extension.sys.mjs's startup branch", _STARTUP_BRANCH.search(startup_text)),
         (f'"{MIGRATION_PREF}"', f'"{MIGRATION_PREF}"' in module_text),
         *((f'"{key}"', f'"{key}"' in module_text) for key in gen.COOKIE_LISTS),
     ) if not ok]
     if missing:
-        results.append((FAIL, "migration", "ExtensionStorageIDB.sys.mjs lacks " + ", ".join(missing)
+        results.append((FAIL, "migration", "the packaged modules lack " + ", ".join(missing)
                         + ": profiles that predate the Android catalog never get the lists"))
     else:
-        results.append((PASS, "migration", "ExtensionStorageIDB.sys.mjs turns the lists on once in "
+        results.append((PASS, "migration", "ExtensionStorageIDB.sys.mjs + Extension.sys.mjs turn the lists on once in "
                         f"older profiles ({MIGRATION_PREF})"))
 
 
