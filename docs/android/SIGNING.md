@@ -277,10 +277,12 @@ Everything above is about the **APK release key**. The in-app update check
     private key file       redoubt-update-signing.pem  (PKCS#8, passphrase-encrypted)
     public key, committed  assets/update-check.android.pubkey
                            (base64 DER SubjectPublicKeyInfo, one line)
-    generated              NOT YET -- owner action, below
-    SHA-256 of public DER  (record here when generated)
-    copies / holders       (record here when generated, as for the APK key)
-    restore tested         (record here when generated)
+    generated              2026-10-04, by the owner (Manuel Gysin), on the Fedora host
+    SHA-256 of public DER  ecba7d19ada187d18cb6df84230ec90b40c6de7ed41e2f674f0958f715551d62
+    copies / holders       1 holder (the owner); private key in ~/redoubt-update-key/ on the
+                           Fedora host (same host-custody exception class as the APK key);
+                           offline backup: owner to confirm
+    restore tested         owner to confirm (repeat the self-test from the backup copy)
 
 Record the public-key digest as plain lowercase hex (what `openssl dgst -sha256`
 prints), not in the colon form or under the words "SHA-256 fingerprint":
