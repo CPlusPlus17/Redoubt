@@ -95,6 +95,14 @@ That "where" is [`docs/android/PARITY.md`](docs/android/PARITY.md). In short:
   is the browser LibreWolf itself recommends to Android users. How Redoubt differs
   is in [`docs/android/POSITIONING.md`](docs/android/POSITIONING.md).
 
+## Sync with LibreWolf desktop
+
+Sync is off by default. You can turn on Firefox Sync with a Mozilla account on
+both Redoubt and LibreWolf desktop to share bookmarks, passwords, history and
+open tabs. The maintainer tested this on 2026-10-04. There is no instant push,
+because Redoubt has no Google services. See
+[`docs/android/SYNC.md`](docs/android/SYNC.md).
+
 ## Attribution
 
 **Redoubt is built on LibreWolf's work.** The privacy configuration that is the
