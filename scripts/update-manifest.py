@@ -20,8 +20,10 @@ The verification mirrors org.mozilla.fenix.lw.UpdateChecker: ECDSA P-256 with
 SHA-256 over the exact bytes of latest.json, DER signature in base64 in the
 .sig file (whitespace trimmed), public key as base64 DER SubjectPublicKeyInfo;
 then `latest_version` non-empty, `download_url` https, and the decision
-`UpdateChecker.offers`: the versionCode decides when both sides have one, else
-the version strings. The signature itself is checked with the openssl CLI so
+`UpdateChecker.offers`: when the document carries a version_code, the
+versionCode decides, and an install that cannot read its own code is told it
+is up to date; only a document without a version_code falls back to the
+version strings. The signature itself is checked with the openssl CLI so
 the result does not depend on a Python crypto package being installed.
 """
 
@@ -118,8 +120,10 @@ def parse(document_bytes):
 
 def offers(parsed, current_version, current_code):
     """UpdateChecker.offers."""
-    if parsed["version_code"] > 0 and current_code > 0:
-        return parsed["version_code"] > current_code
+    if parsed["version_code"] > 0:
+        # Unknown own code (0): up to date. The strings cannot tell betas apart
+        # and would offer an install its own release.
+        return current_code > 0 and parsed["version_code"] > current_code
     return is_newer(parsed["latest_version"], current_version)
 
 

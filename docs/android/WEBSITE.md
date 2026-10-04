@@ -154,9 +154,10 @@ with the sha256 of what you have.
 
 - **F-Droid / Accrescent:** the repository notifies you. Nothing in the app is needed.
 - **direct APK:** there is no store. The app has an **opt-in** version check — **off by
-  default**, foreground-only, at most once a day, and it sends **only the current version
-  string**, nothing that identifies the device (`docs/android/DISTRIBUTION.md`, the full
-  contract). The page says: this APK has no store; here is how to turn the check on if you
+  default**, foreground-only, at most once a day, and it sends nothing that identifies
+  you beyond the request itself, not even the version string. The request is answered by
+  GitHub Pages, so GitHub sees the IP address and the time (`docs/android/DISTRIBUTION.md`,
+  the full contract). The page says: this APK has no store; here is how to turn the check on if you
   want a nudge, or how to use Obtainium instead. It does **not** say the app phones home,
   and it does **not** say the check is on by default.
 

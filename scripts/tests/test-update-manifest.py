@@ -280,7 +280,10 @@ class Mirror(unittest.TestCase):
         self.assertTrue(um.offers(doc, "157.0-1-default", 2016188263))
         self.assertFalse(um.offers(doc, "157.0-1-default", 2016188448))
         self.assertFalse(um.offers(doc, "1-default", 2016190000))
-        self.assertTrue(um.offers(doc, "153.4.0esr-1-default", 0))
+        # A document with a code and an install without one: up to date, even
+        # where the strings alone would say otherwise.
+        self.assertFalse(um.offers(doc, "153.4.0esr-1-default", 0))
+        self.assertFalse(um.offers(doc, "157.0-1-default", 0))
         self.assertTrue(um.offers(dict(doc, version_code=0), "157.0-1", 2016188263))
 
     def test_parse(self):

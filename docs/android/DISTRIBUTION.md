@@ -59,8 +59,8 @@ Two lines from the task bound everything below:
   exists and links to the download. It does not download, install, or apply
   anything.
 - **Do not add a phone-home that runs without consent.** The check is off by
-  default and, when on, sends nothing that identifies the client — not even the
-  version string.
+  default and, when on, sends nothing that identifies the client beyond the
+  request itself — not even the version string.
 
 The risk the task names is the one that sets the defaults: *"an always-on update
 ping is a periodic beacon with an IP address attached — exactly what users came
@@ -74,7 +74,8 @@ These are LW-M6-06's acceptance criteria, restated as things that must hold:
 1. **The check sends no identifier beyond the version string.** No device id, no
    install id, no user id, no telemetry, no per-install value in any header. As
    implemented it sends less than the acceptance wording allows: not even the
-   version string (see "What the client sends").
+   version string (see "What the client sends"). What no client can hide is the
+   request itself: the host that answers it sees the IP address and the time.
 2. **It is disclosed in the UI and can be turned off.** A visible setting, a
    plain description of what it sends and where, and a switch that stops it
    entirely.
@@ -92,7 +93,10 @@ host:
     in the repository: site/update/android/latest.json and latest.json.sig
 
 `redoubtbrowser.org` is the decided domain (`docs/android/IDENTITY.md`, 2026-08-23).
-The site is a GitHub Page built from `site/` (`.github/workflows/pages.yaml`), which
+The site is a GitHub Page built from `site/` (`.github/workflows/pages.yaml`), so
+**GitHub answers the update check**: GitHub sees the requesting IP address and the
+time, once a day per install while the switch is on. The setting's description and
+the install page say so. The workflow
 publishes `site/update/**` verbatim and never generates or rewrites it; the files
 there are written only by the release procedure below. The path changed on
 2026-10-04 from `/updates/android/` to `/update/android/`, the URL agreed for the
@@ -138,8 +142,10 @@ build's.)
   dialog title ("Redoubt 157.0-1-beta.6 is available") and remembered so each
   release is offered once. It decides "newer" only when `version_code` is absent.
 - **version_code** (added 2026-10-04) — the **lowest** versionCode among the
-  release's APKs. When it and the install's own versionCode are both known, the
-  client offers the update **iff `version_code` > its own code**. Why not the
+  release's APKs. When it is present the client offers the update **iff the
+  install's own versionCode is known and `version_code` is greater**; an install
+  that cannot read its own code (0) is told it is up to date, never handed to the
+  string comparison, which would offer a beta its own release. Why not the
   version string: every Redoubt APK's versionName is `<firefox>-<release>-default`
   and betas share it (beta.4 and beta.5 are both `157.0-1-default`), so a string
   comparison could never announce the next beta; and the string comparison reads
@@ -276,21 +282,25 @@ grep returning 0 is the check for those.
   <a Fenix build's gradle-home> --android-jar <android.jar>` — compiles the
   patch's own `UpdateCheck.kt` with `-Werror` on the host JVM (Kotlin compiler from
   the gradle-home, real concept-fetch sources from the tree, compile-only stubs
-  for the Fenix classes it touches), runs `UpdateCheckerTest` (10 tests), and
+  for the Fenix classes it touches), runs `UpdateCheckerTest` (11 tests), and
   cross-checks the patch's `UpdateChecker` against documents made by the tools
   above: same verdict from the Kotlin and from `update-manifest.py` for older
-  installs, every APK of the same build, tampering, another key and a malformed
-  signature. Run 2026-10-04 against the pristine 157 tree with Kotlin 2.3.20 and
-  2.4.0: 10/10 tests, 13/13 cross-checks. It does not replace
+  installs, every APK of the same build, an install that cannot read its own
+  versionCode, tampering, another key and a malformed signature. Run 2026-10-04 against the pristine 157 tree with Kotlin 2.3.20 and
+  2.4.0: 10/10 tests, 13/13 cross-checks; re-run the same day after the
+  unknown-own-code fix with Kotlin 2.3.20: 11/11 tests, 14/14 cross-checks (the
+  new test fails against the previous `offers`). It does not replace
   `./mach gradle fenix:testDebugUnitTest` or a build of the Fenix module.
 - `./scripts/android-smoke.sh --check-update-privacy` on a device, with a build
   made with a key, is still the only measurement of the request itself.
 
 ## What the client sends
 
-Nothing that identifies the client — and, as implemented, not even the version
-string: the comparison happens on the device, so the server learns only that some
-Redoubt asked.
+Nothing that identifies the client beyond the request itself — and, as
+implemented, not even the version string: the comparison happens on the device, so
+the server learns only that some Redoubt asked, from the connection's IP address,
+at that time. The server is GitHub Pages: that is what GitHub sees, once a day
+while the switch is on.
 
     GET <ENDPOINT>        User-Agent: Redoubt-UpdateCheck/1
     GET <ENDPOINT>.sig    User-Agent: Redoubt-UpdateCheck/1
@@ -331,9 +341,10 @@ Redoubt asked.
 - **A visible setting.** "Check for updates" as its own row in Settings, with a
   switch. Not buried, and not only on the About screen.
 - **A plain-language description** beside it, stating exactly: what is sent (the
-  nothing that identifies the device — not even the version string), where it goes (the endpoint on the distribution
-  host), what it does (tells you a newer version exists and links to it), and what
-  it never does (downloads, installs, or sends anything that identifies the device).
+  nothing that identifies you beyond the request itself — not even the version
+  string), where it goes (`redoubtbrowser.org`, hosted on GitHub Pages, so GitHub
+  sees the IP address and the time), what it does (tells you a newer version exists and links to it), and what
+  it never does (downloads, installs, or sends anything else about you).
 - **The off switch stops everything.** Turning it off makes no request at all —
   not a suppressed one, a made-none one. There is no "still check but do not show
   it" mode, because that is a phone-home with the label taken off.

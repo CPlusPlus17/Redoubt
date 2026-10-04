@@ -156,7 +156,8 @@ check() {  # doc versionName versionCode expected-verdict
 # Beta 5's real codes (lw-m7-41 apk-badging) against the Beta 6 fixture.
 for code in 2016188256 2016188258 2016188262 2016188263; do check latest.json 157.0-1-default "$code" update; done
 for code in 2016188448 2016188450 2016188454 2016188455; do check latest.json 157.0-1-default "$code" uptodate; done
-check latest.json 157.0-1-default 0 update          # no own code: string fallback, beta.6 > -default
+check latest.json 157.0-1-default 0 uptodate        # own code unknown: never the string fallback
+check latest.json 153.4.0esr-1-default 0 uptodate   # ... even where the strings say newer
 check latest.json 158.0-1-default 2016190000 uptodate
 check tampered.json 157.0-1-default 2016188262 noresult
 check other.json 157.0-1-default 2016188262 noresult

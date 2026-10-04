@@ -39,10 +39,13 @@
 #     If-Modified-Since that could act as a per-install token), follows no
 #     redirects, and is a private load. It sends NOT EVEN the version string:
 #     the comparison happens on the device, so the server learns only that
-#     some Redoubt asked. UpdateCheckerTest pins every one of those request
+#     some Redoubt asked -- from the connection's IP address, at that time.
+#     The server is GitHub Pages (redoubtbrowser.org is hosted there), so that
+#     is what GitHub sees, once a day while the switch is on. UpdateCheckerTest pins every one of those request
 #     fields, because a packet capture cannot see inside TLS.
 #   * Off by default, opt-in, disclosed. android:defaultValue="false"; the
-#     summary names the host, the cadence, what is and is not sent.
+#     summary names the host and who runs it (GitHub Pages), the cadence,
+#     what is and is not sent.
 #   * Foreground only, rate-limited. The only caller is onResume; there is no
 #     WorkManager job, timer or service. UpdateCheck.MIN_INTERVAL_MS = 24 h,
 #     tracked in its own SharedPreferences file (lw_update_check).
@@ -105,8 +108,8 @@
 #
 # Verification
 # -------------
-#   ./mach gradle fenix:testDebugUnitTest  -> UpdateCheckerTest (10 tests)
-#   scripts/tests/test-update-check-jvm.sh  -> the same 10 tests plus a
+#   ./mach gradle fenix:testDebugUnitTest  -> UpdateCheckerTest (11 tests)
+#   scripts/tests/test-update-check-jvm.sh  -> the same 11 tests plus a
 #     cross-check against openssl-signed scripts/update-manifest.py output,
 #     on the host JVM with -Werror and stubbed Fenix classes (no tree build)
 #   ./scripts/android-smoke.sh --check-update-privacy --serial <dev> --apk <apk>
@@ -148,11 +151,16 @@
 #     Android requires to increase on every update); when both it and the
 #     install's own code (PackageInfoCompat.getLongVersionCode, as upstream's
 #     AboutFragment reads it) are known, an update is offered iff the
-#     document's code is greater. The string comparison remains the fallback.
+#     document's code is greater. A document with a code and an install whose
+#     own code reads 0 is "up to date" (the strings would offer a beta its own
+#     release); only a document without a code falls back to the strings.
 #     Nothing new is sent: the comparison is still on the device.
 #   * Default endpoint moved from /updates/android/ to /update/android/, the
 #     path the website publishes (docs/android/WEBSITE.md, DISTRIBUTION.md).
-#   * UpdateCheckerTest: two versionCode cases (10 tests).
+#   * UpdateCheckerTest: three versionCode cases (11 tests).
+#   * Disclosure: the switch summary says who answers the request -- GitHub
+#     Pages serves redoubtbrowser.org, so GitHub sees the requesting IP address
+#     and the time, once a day while the switch is on.
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
 index c2c48d376a..0dfabf1537 100644
 --- a/mobile/android/fenix/app/build.gradle
@@ -197,7 +205,7 @@ new file mode 100644
 index 0000000000..17ae9ed5e4
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt
-@@ -0,0 +1,345 @@
+@@ -0,0 +1,348 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -416,12 +424,15 @@ index 0000000000..17ae9ed5e4
 +         * versionCode is Fenix's build-hour code, which Android itself requires
 +         * to increase on every update, and the document carries the LOWEST
 +         * code of the release's APKs, so any APK of an older build is below it
-+         * and any APK of the same build is not. [isNewer] on the strings is the
-+         * fallback for a document without a code.
++         * and any APK of the same build is not. When the document has a code
++         * but the install could not read its own (0), the answer is "up to
++         * date": the strings cannot tell betas apart and would offer a build
++         * its own release. [isNewer] on the strings is the fallback only for a
++         * document without a code.
 +         */
 +        fun offers(latest: UpdateCheckResult.UpdateAvailable, currentVersion: String, currentVersionCode: Long): Boolean =
-+            if (latest.versionCode > 0L && currentVersionCode > 0L) {
-+                latest.versionCode > currentVersionCode
++            if (latest.versionCode > 0L) {
++                currentVersionCode > 0L && latest.versionCode > currentVersionCode
 +            } else {
 +                isNewer(latest.latestVersion, currentVersion)
 +            }
@@ -574,7 +585,7 @@ index 0000000000..b0de6fdd1b
 +    <string name="pref_key_lw_update_check" translatable="false">pref_key_lw_update_check</string>
 +
 +    <string name="lw_update_check_title">Check for updates</string>
-+    <string name="lw_update_check_summary">Off by default. When on, Redoubt asks redoubtbrowser.org at most once a day whether a newer version exists. It sends nothing that identifies you or this device — not even the version, which is compared on the device — and it never downloads or installs anything. Not needed if you installed from F-Droid or Accrescent.</string>
++    <string name="lw_update_check_summary">Off by default. When on, Redoubt asks redoubtbrowser.org at most once a day whether a newer version exists. That site is hosted on GitHub Pages, so GitHub sees your IP address and the time of the request. It sends nothing that identifies you beyond the request itself — not even the version, which is compared on the device — and it never downloads or installs anything. Not needed if you installed from F-Droid or Accrescent.</string>
 +    <string name="lw_update_check_available_title">Redoubt %1$s is available</string>
 +    <string name="lw_update_check_available_message">A newer version was published at %1$s. Nothing has been downloaded; open the page to get it.</string>
 +    <string name="lw_update_check_open_download">Open download page</string>
@@ -606,7 +617,7 @@ new file mode 100644
 index 0000000000..98ecaf41f0
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,197 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -766,16 +777,25 @@ index 0000000000..98ecaf41f0
 +    }
 +
 +    @Test
-+    fun `without a version code on either side the version strings decide`() {
++    fun `without a version code in the document the version strings decide`() {
 +        val kp = keyPair()
 +        // The document has no version_code: string comparison, as before.
 +        assertTrue(UpdateChecker(signed(document, kp), endpoint, pub(kp), "157.0-1", 2016188263L).check() is UpdateCheckResult.UpdateAvailable)
-+        // The install could not read its own code: string comparison.
-+        assertTrue(UpdateChecker(signed(coded, kp), endpoint, pub(kp), "153.4.0esr-1-default", 0L).check() is UpdateCheckResult.UpdateAvailable)
++        assertTrue(UpdateChecker(signed(document, kp), endpoint, pub(kp), "157.0-1", 0L).check() is UpdateCheckResult.UpdateAvailable)
 +        // A non-numeric or negative version_code counts as absent.
 +        val bogus = String(coded).replace("2016188448", "-5").toByteArray()
 +        val parsed = UpdateChecker.parse(String(bogus))
 +        assertEquals(0L, parsed!!.versionCode)
++    }
++
++    @Test
++    fun `a coded document is never offered to an install that cannot read its own code`() {
++        val kp = keyPair()
++        // beta.5 and beta.6 both read 157.0-1-default: a string fallback would
++        // offer beta.6 to itself. Unknown own code means up to date.
++        assertEquals(UpdateCheckResult.UpToDate, UpdateChecker(signed(coded, kp), endpoint, pub(kp), "157.0-1-default", 0L).check())
++        // Even where the strings alone would say "newer".
++        assertEquals(UpdateCheckResult.UpToDate, UpdateChecker(signed(coded, kp), endpoint, pub(kp), "153.4.0esr-1-default", 0L).check())
 +    }
 +
 +    @Test
