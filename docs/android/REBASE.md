@@ -58,11 +58,46 @@ the Actions tab, optionally as a dry run). It:
    when the rebase lands (§10).
 
 The issue carries the release notes (desktop and Android), the MFSA index and
-known-vulnerabilities page, and the step list of this file. Run it locally to
-see what it would do — read-only, nothing is opened without a token:
+known-vulnerabilities page, and the step list of this file.
+
+**§4 is pre-run on the issue.** When the watch job has opened the issue, or
+finds it still open, a second job (`patchcheck`, also GitHub-hosted, never the
+self-hosted Android runner) runs `scripts/firefox-release-watch.py patchcheck`:
+
+1. if the issue already carries a patch-check comment for this version **and
+   this commit** (a hidden `<!-- redoubt-patchcheck version=… sha=… -->`
+   marker), it stops before downloading anything. A new commit on the default
+   branch while the issue is open (patches fixed, say) gets a fresh comment
+   on the next daily run; a re-run on the same commit posts nothing;
+2. downloads `firefox-<v>.source.tar.xz` and its `.asc`, fetches Mozilla's
+   release key the way §3 / the Makefile does (keys.openpgp.org, by
+   fingerprint) into a throwaway keyring, and refuses unless the key is
+   exactly `14F26682D0916CDD81E37B6D61B7B526D98F0353` and gpg's `VALIDSIG`
+   names it as the primary key;
+3. runs `./scripts/check-patchfail.sh --targets=desktop`, then
+   `--targets=android`, in a scratch root whose `version` and
+   `version.android` both say `<v>` and whose everything else is a symlink
+   into the checkout. Nothing is bumped or committed. The two runs are
+   sequential, so the ~800 MB tarball and one ~5 GB extraction are all that
+   sit on the runner's disk at once;
+4. posts **one** comment: per target pass / FAIL / ERROR, patch count, the
+   failing patches with the reason (hunks failed, target file missing,
+   reversed), fuzzed and offset hunk counts, the fuzzed patches (for §5a), and
+   a link to the run. The full reports are kept as the run's
+   `patchfail-<v>` artifact for 30 days.
+
+The comment is a head start, not §4: it tests the patch lists as they are on
+the default branch, against the pristine tarball. Re-run §4 yourself on the
+rebase branch.
+
+Run either part locally to see what it would do — read-only, nothing is
+opened or posted without a token:
 
 ```sh
 python3 scripts/firefox-release-watch.py --dry-run
+# patch check, printed not posted; --tarball skips the download (still verified)
+python3 scripts/firefox-release-watch.py patchcheck --version 157.0 --dry-run \
+    --tarball firefox-157.0.source.tar.xz
 python3 scripts/tests/test-firefox-release-watch.py      # offline, fixtures only
 ```
 
@@ -71,8 +106,12 @@ What it does **not** do:
 - **It flags only the latest release.** If two releases land between two runs
   (rare on a daily schedule), only the newer one gets an issue; rebase straight
   to it.
-- **It does not bump, fetch or rebase anything.** It opens an issue; §1 onward
-  is still a human (or an agent) working through this file.
+- **It does not bump or rebase anything.** It opens an issue and pre-runs
+  §3–§4 into a comment; §1 onward is still a human (or an agent) working
+  through this file. It never pushes, never commits, and does not start the
+  self-hosted Android build.
+- **It does not re-check a closed issue.** Once the rebase lands and the
+  issue is closed, the patch check stops for that version.
 - **It reads the default branch.** A rebase sitting on a branch does not
   silence it; the issue stays open until the bump reaches the default branch
   and someone closes it.

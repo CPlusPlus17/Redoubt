@@ -6,16 +6,29 @@ No network: product-details comes from fixtures
 the real document as served on 2026-10-03, the other two are derived from it),
 and the end-to-end cases run the script as a subprocess against a fake
 archive.mozilla.org + GitHub API on 127.0.0.1.
+
+The patchcheck fixtures are real too: patchfail-157.0-desktop.out and
+patchfail-153.4.0esr-desktop.out are check-patchfail.sh reports from
+2026-10-04 (main at 39d159ca, against the 157.0 and 153.4.0esr tarballs;
+scratch paths rewritten), patchfail-error.out is its output with no tarball,
+and the gpg-*.txt files are gpg's output for Mozilla's release key and the
+157.0 tarball signature. The patchcheck end-to-end case builds a tiny
+"Firefox" tarball, signs it with a throwaway key, and runs the real
+check-patchfail.sh against it; it needs gpg, xz and patch, and is skipped
+without them.
 """
 
 import http.server
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
+import tarfile
 import threading
 import unittest
 import urllib.parse
@@ -35,14 +48,17 @@ def fixture(version):
 
 
 class FakeGitHub:
-    def __init__(self, titles=()):
-        self.titles = list(titles)
+    def __init__(self, titles=(), closed=()):
+        # [title, number, state]; numbers are 1-based positions
+        self.items = [{'title': t, 'number': n, 'state': 'closed' if t in closed else 'open'}
+                      for n, t in enumerate(titles, 1)]
         self.created = []
         self.labels = []
+        self.posted = {}  # number -> [comment bodies]
 
-    def issue_titles(self, label):
+    def issues(self, label):
         assert label == watch.LABEL
-        return list(self.titles)
+        return [dict(i) for i in self.items]
 
     def ensure_label(self, label):
         self.labels.append(label)
@@ -50,8 +66,16 @@ class FakeGitHub:
 
     def create_issue(self, title, body, label):
         self.created.append((title, body, label))
-        self.titles.append(title)
-        return f'https://github.invalid/issues/{len(self.created)}'
+        number = len(self.items) + 1
+        self.items.append({'title': title, 'number': number, 'state': 'open'})
+        return f'https://github.invalid/issues/{number}', number
+
+    def comments(self, number):
+        return list(self.posted.get(number, []))
+
+    def create_comment(self, number, body):
+        self.posted.setdefault(number, []).append(body)
+        return f'https://github.invalid/issues/{number}#c{len(self.posted[number])}'
 
 
 class Versions(unittest.TestCase):
@@ -98,9 +122,10 @@ class Run(unittest.TestCase):
             return answer
         return f
 
-    def go(self, version, gh, tarball=True, dry_run=False):
+    def go(self, version, gh, tarball=True, dry_run=False, found=None):
         return watch.run(self.root, fixture(version), self.exists(tarball), gh,
-                         'CPlusPlus17/Redoubt', dry_run, log=self.log.append)
+                         'CPlusPlus17/Redoubt', dry_run, log=self.log.append,
+                         found=found)
 
     def test_current_is_quiet(self):
         gh = FakeGitHub()
@@ -164,6 +189,49 @@ class Run(unittest.TestCase):
                          'Firefox 158.0.1 released: rebase Android and desktop'])
         self.assertEqual(self.go('158.0', gh), 'opened')
 
+    def test_found_drives_the_patchcheck_job(self):
+        found = {}
+        self.assertEqual(self.go('157.0', FakeGitHub(), found=found), 'current')
+        self.assertEqual(found, {})
+        self.assertFalse(watch.wants_patchcheck('current', found))
+
+        found = {}
+        self.assertEqual(self.go('158.0', FakeGitHub(), tarball=False, found=found),
+                         'no-tarball')
+        self.assertFalse(watch.wants_patchcheck('no-tarball', found))
+
+        gh, found = FakeGitHub(['unrelated']), {}
+        self.assertEqual(self.go('158.0', gh, found=found), 'opened')
+        self.assertEqual(found, {'version': '158.0', 'issue': 2, 'state': 'open'})
+        self.assertTrue(watch.wants_patchcheck('opened', found))
+
+        # The next day: still open, so the check runs again (and the comment
+        # marker decides whether anything is posted).
+        found = {}
+        self.assertEqual(self.go('158.0', gh, found=found), 'duplicate')
+        self.assertEqual(found, {'version': '158.0', 'issue': 2, 'state': 'open'})
+        self.assertTrue(watch.wants_patchcheck('duplicate', found))
+
+        # Closed: the rebase is done; no check.
+        title = 'Firefox 158.0 released: rebase Android and desktop'
+        found = {}
+        self.assertEqual(self.go('158.0', FakeGitHub([title], closed=[title]),
+                                 found=found), 'duplicate')
+        self.assertEqual(found['state'], 'closed')
+        self.assertFalse(watch.wants_patchcheck('duplicate', found))
+
+        # A closed and an open copy: the open one wins.
+        found = {}
+        gh = FakeGitHub([title, title])
+        gh.items[0]['state'] = 'closed'
+        self.go('158.0', gh, found=found)
+        self.assertEqual((found['issue'], found['state']), (2, 'open'))
+
+        found = {}
+        self.assertEqual(self.go('158.0', None, dry_run=True, found=found), 'would-open')
+        self.assertTrue(watch.wants_patchcheck('would-open', found))
+        self.assertNotIn('issue', found)
+
     def test_tarball_missing_opens_nothing(self):
         gh = FakeGitHub()
         self.assertEqual(self.go('158.0', gh, tarball=False), 'no-tarball')
@@ -186,6 +254,14 @@ class Run(unittest.TestCase):
         self.track('garbage', '157.0')
         with self.assertRaises(ValueError):
             self.go('158.0', FakeGitHub())
+
+
+def clean_env(token=None):
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith('GITHUB_') and k not in ('RUNNER_TEMP', 'GNUPGHOME')}
+    if token:
+        env['GITHUB_TOKEN'] = token
+    return env
 
 
 class FakeServer(http.server.BaseHTTPRequestHandler):
@@ -214,12 +290,27 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
+        files = self.state.get('files', {})
+        if url.path in files:  # archive.mozilla.org / keys.openpgp.org
+            self.state['gets'].append(url.path)
+            raw = files[url.path]
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
         if self.headers.get('Authorization') != 'Bearer test-token':
             return self.reply(401, {'message': 'Bad credentials'})
         if url.path == '/repos/o/r/issues':
             assert q['state'] == ['all'] and q['labels'] == ['firefox-release'], q
             page = int(q['page'][0])
-            items = [{'title': t} for t in self.state['issues']]
+            items = [{'title': t, 'number': n, 'state': 'open'}
+                     for n, t in enumerate(self.state['issues'], 1)]
+            return self.reply(200, items[(page - 1) * 100:page * 100])
+        if url.path.startswith('/repos/o/r/issues/') and url.path.endswith('/comments'):
+            number = int(url.path.split('/')[5])
+            page = int(q['page'][0])
+            items = [{'body': b} for b in self.state['comments'].get(number, [])]
             return self.reply(200, items[(page - 1) * 100:page * 100])
         self.reply(404)
 
@@ -233,13 +324,22 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
         if self.path == '/repos/o/r/issues':
             self.state['issues'].append(data['title'])
             self.state['bodies'].append(data)
-            return self.reply(201, {'html_url': f'http://x/{len(self.state["issues"])}'})
+            n = len(self.state['issues'])
+            return self.reply(201, {'html_url': f'http://x/{n}', 'number': n})
+        if self.path.startswith('/repos/o/r/issues/') and self.path.endswith('/comments'):
+            if self.headers.get('Authorization') != 'Bearer test-token':
+                return self.reply(401, {'message': 'Bad credentials'})
+            number = int(self.path.split('/')[5])
+            posted = self.state['comments'].setdefault(number, [])
+            posted.append(data['body'])
+            return self.reply(201, {'html_url': f'http://x/{number}#c{len(posted)}'})
         self.reply(404)
 
 
 class EndToEnd(unittest.TestCase):
     def setUp(self):
-        FakeServer.state = {'heads': [], 'tarballs': set(), 'labels': [],
+        FakeServer.state = {'heads': [], 'gets': [], 'tarballs': set(), 'labels': [],
+                            'files': {}, 'comments': {},
                             # 150 unrelated issues forces a second page
                             'issues': [f'Firefox 1.{i} released: rebase Android and desktop'
                                        for i in range(150)],
@@ -255,18 +355,32 @@ class EndToEnd(unittest.TestCase):
         (self.root / 'version.android').write_text('157.0\n')
         (self.root / 'version').write_text('157.0')
 
-    def script(self, version, *extra, token='test-token'):
-        env = {k: v for k, v in os.environ.items()
-               if k not in ('GITHUB_TOKEN', 'GITHUB_REPOSITORY', 'GITHUB_STEP_SUMMARY',
-                            'GITHUB_API_URL')}
-        if token:
-            env['GITHUB_TOKEN'] = token
+    def script(self, version, *extra, token='test-token', output=None):
+        env = clean_env(token)
+        if output:
+            env['GITHUB_OUTPUT'] = str(output)
         return subprocess.run(
             [sys.executable, str(SCRIPT), '--root', str(self.root),
              '--versions-file', str(FIXTURES / f'product-details-{version}.json'),
              '--archive-base', f'{self.base}/releases', '--api', self.base,
              '--repo', 'o/r', *extra],
             env=env, capture_output=True, text=True, timeout=60)
+
+    def test_job_outputs(self):
+        out = self.root / 'github-output'
+        FakeServer.state['tarballs'].add('158.0')
+        r = self.script('158.0', output=out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(out.read_text(),
+                         'outcome=opened\nversion=158.0\nissue=151\npatchcheck=true\n')
+        out.unlink()
+        r = self.script('158.0', output=out)
+        self.assertEqual(out.read_text(),
+                         'outcome=duplicate\nversion=158.0\nissue=151\npatchcheck=true\n')
+        out.unlink()
+        r = self.script('157.0', output=out)
+        self.assertEqual(out.read_text(),
+                         'outcome=current\nversion=\nissue=\npatchcheck=false\n')
 
     def test_lifecycle(self):
         r = self.script('158.0')
@@ -320,6 +434,347 @@ class EndToEnd(unittest.TestCase):
         r = self.script('158.0', '--archive-base', 'http://127.0.0.1:9/releases')
         self.assertEqual(r.returncode, 1)
         self.assertIn('HEAD', r.stderr)
+
+def report(name):
+    return (FIXTURES / name).read_text()
+
+
+SHA = '0123456789abcdef0123456789abcdef01234567'
+RUN = 'https://github.com/o/r/actions/runs/42'
+
+
+class ParseReport(unittest.TestCase):
+    def test_real_pass(self):
+        r = watch.parse_report(report('patchfail-157.0-desktop.out'), 0)
+        self.assertEqual(r['status'], 'pass')
+        self.assertEqual(r['patches'], 68)
+        self.assertEqual(r['failing'], [])
+        self.assertEqual(r['fuzz_hunks'], 27)
+        self.assertEqual(len(r['fuzzed']), 22)
+        self.assertIn(('patches/firefox-in-ua.patch', 1, 2), r['fuzzed'])
+        self.assertIn(('patches/fullpage-translations-customization.patch', 2, 1),
+                      r['fuzzed'])
+        self.assertEqual(r['offset_hunks'], 144)
+
+    def test_real_fail(self):
+        r = watch.parse_report(report('patchfail-153.4.0esr-desktop.out'), 1)
+        self.assertEqual(r['status'], 'fail')
+        self.assertEqual(r['patches'], 68)
+        failing = dict(r['failing'])
+        self.assertEqual(len(failing), 20)
+        # in list order, matching the script's own summary line
+        self.assertEqual(r['failing'][0][0], 'patches/always-fetch-latest-toolchain-artifact.patch')
+        self.assertEqual(failing['patches/remove-openai.patch'], '1 hunk failed')
+        self.assertEqual(failing['patches/xdg-dir.patch'], '2 hunks failed')
+        self.assertEqual(failing['patches/ui-patches/privacy-preferences.patch'],
+                         'reversed or already applied')
+        self.assertEqual(r['fuzz_hunks'], 32)
+
+    def test_summary_line_is_a_cross_check(self):
+        # A failure the per-section parse cannot see is still reported.
+        text = report('patchfail-157.0-desktop.out').replace(
+            'success: All patches where applied successfully.',
+            '[patches/ghost.patch]\n\nerror: Some patches failed!')
+        r = watch.parse_report(text, 1)
+        self.assertEqual(r['status'], 'fail')
+        self.assertEqual(r['failing'], [('patches/ghost.patch', 'reported failing')])
+
+    def test_missing_target_file(self):
+        text = '\n'.join([
+            'Patches: 1', '', 'Testing patches...', '', '==> patches/gone.patch:', '',
+            "can't find file to patch at input line 3",
+            'Perhaps you used the wrong -p or --strip option?',
+            'File to patch: ', 'Skip this patch? [y] ', 'Skipping patch.',
+            '1 out of 1 hunk ignored',
+            '---> patch exited 1', '', "Removing '/x/tmpdir92.a'...", '',
+            '[patches/gone.patch]', '', 'error: Some patches failed!'])
+        r = watch.parse_report(text, 1)
+        self.assertEqual(r['failing'], [('patches/gone.patch', '1 target file missing')])
+
+    def test_error(self):
+        r = watch.parse_report(report('patchfail-error.out'), 1)
+        self.assertEqual(r['status'], 'error')
+        self.assertIsNone(r['patches'])
+        self.assertEqual(r['failing'], [])
+        self.assertIn('does not exist', r['tail'])
+        # exit 0 without the success line is not a pass either
+        self.assertEqual(watch.parse_report('', 0)['status'], 'error')
+
+
+class Comment(unittest.TestCase):
+    def results(self):
+        return {'desktop': watch.parse_report(report('patchfail-157.0-desktop.out'), 0),
+                'android': watch.parse_report(report('patchfail-153.4.0esr-desktop.out'), 1)}
+
+    def test_body(self):
+        body = watch.patchcheck_comment('158.0', SHA, self.results(), RUN, 'ab' * 32)
+        self.assertTrue(body.startswith(watch.patchcheck_marker('158.0', SHA) + '\n'))
+        self.assertEqual(body.count('<!-- redoubt-patchcheck'), 1)
+        self.assertIn('### Patch check against Firefox 158.0', body)
+        self.assertIn('| desktop | pass | 68 | 0 | 27 (22 patches) | 144 |', body)
+        self.assertIn('| android | **FAIL** | 68 | 20 | 32 (25 patches) | 165 |', body)
+        self.assertIn('#### Failing patches', body)
+        self.assertIn('- `patches/xdg-dir.patch`: 2 hunks failed', body)
+        failing = body.split('#### Failing patches')[1].split('<details>')[0]
+        self.assertNotIn('**desktop**', failing)  # nothing failed there
+        self.assertIn('- `patches/firefox-in-ua.patch`: 1 hunk, max fuzz 2', body)
+        self.assertIn(f'Run, with the full reports: {RUN}', body)
+        self.assertIn('14F2 6682 D091 6CDD 81E3 7B6D 61B7 B526 D98F 0353', body)
+        self.assertIn('sha256 `' + 'ab' * 32 + '`', body)
+        self.assertIn('Redoubt `0123456789ab`', body)
+
+    def test_all_pass_has_no_failing_section(self):
+        r = watch.parse_report(report('patchfail-157.0-desktop.out'), 0)
+        body = watch.patchcheck_comment('158.0', SHA, {'desktop': r, 'android': r}, RUN)
+        self.assertNotIn('Failing patches', body)
+        self.assertNotIn('did not finish', body)
+
+    def test_error_row_shows_the_tail(self):
+        res = self.results()
+        res['android'] = watch.parse_report(report('patchfail-error.out'), 1)
+        body = watch.patchcheck_comment('158.0', SHA, res, RUN)
+        self.assertIn('| android | **ERROR** | ? | 0 | 0 | 0 |', body)
+        self.assertIn('#### android: check-patchfail.sh did not finish (exit 1)', body)
+        self.assertIn('make fetch TARGETS=android', body)
+
+    def test_no_run_link_outside_actions(self):
+        self.assertEqual(watch.run_url({}), '')
+        self.assertEqual(watch.run_url({'GITHUB_REPOSITORY': 'o/r', 'GITHUB_RUN_ID': '42'}),
+                         RUN)
+        body = watch.patchcheck_comment('158.0', SHA, self.results(), '')
+        self.assertNotIn('Run, with', body)
+
+    def test_truncated_keeps_marker(self):
+        r = watch.parse_report(report('patchfail-153.4.0esr-desktop.out'), 1)
+        r['failing'] = [(f'patches/p{i}.patch', '1 hunk failed') for i in range(3000)]
+        body = watch.patchcheck_comment('158.0', SHA, {'desktop': r}, RUN)
+        self.assertLessEqual(len(body), watch.COMMENT_LIMIT)
+        self.assertTrue(body.startswith(watch.patchcheck_marker('158.0', SHA)))
+        self.assertIn('(truncated; the run has the full reports: ' + RUN, body)
+
+    def test_idempotency_marker(self):
+        body = watch.patchcheck_comment('158.0', SHA, self.results(), RUN)
+        self.assertTrue(watch.already_posted(['hello', body], '158.0', SHA))
+        self.assertFalse(watch.already_posted([body], '158.0.1', SHA))
+        self.assertFalse(watch.already_posted([body], '158.0', 'f' * 40))
+        self.assertFalse(watch.already_posted([], '158.0', SHA))
+        # 158.0 is not a prefix match for 158.0.1, nor the reverse
+        other = watch.patchcheck_comment('158.0.1', SHA, self.results(), RUN)
+        self.assertFalse(watch.already_posted([other], '158.0', SHA))
+
+
+class Gpg(unittest.TestCase):
+    FPR = watch.MOZILLA_KEY_FINGERPRINT
+
+    def test_validsig_is_the_primary(self):
+        status = report('gpg-status-157.0.txt')
+        # signed by a subkey; the primary is the last VALIDSIG field
+        self.assertIn('VALIDSIG 827E658608679618CD349F93678E455D76767AA3', status)
+        self.assertEqual(watch.validsig_primary(status), self.FPR)
+
+    def test_bad_signatures(self):
+        self.assertIsNone(watch.validsig_primary(''))
+        bad = report('gpg-status-157.0.txt').replace(
+            '[GNUPG:] GOODSIG', '[GNUPG:] BADSIG')
+        self.assertIsNone(watch.validsig_primary(bad))
+        self.assertIsNone(watch.validsig_primary(
+            '[GNUPG:] ERRSIG 678E455D76767AA3 1 10 00 1790247115 9 -\\n'))
+
+    def test_imported_primaries(self):
+        self.assertEqual(watch.imported_primaries(report('gpg-colons-mozilla-key.txt')),
+                         [self.FPR])
+        self.assertEqual(watch.imported_primaries(''), [])
+
+
+def have_tools():
+    return all(shutil.which(t) for t in ('gpg', 'xz', 'patch', 'sh'))
+
+
+@unittest.skipUnless(have_tools(), 'needs gpg, xz and patch')
+class PatchcheckEndToEnd(unittest.TestCase):
+    """The real check-patchfail.sh against a tiny signed "Firefox" tarball."""
+
+    VERSION = '158.0'
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(prefix='redoubt-patchcheck-test-')
+        base = Path(cls.tmp.name)
+        cls.gnupg = base / 'gnupg'
+        cls.gnupg.mkdir(mode=0o700)
+        cls.fprs = [cls.genkey(f'Redoubt test {i} <test{i}@invalid>') for i in (1, 2)]
+        cls.pubkey = {f: cls.gpg('--armor', '--export', f).stdout for f in cls.fprs}
+
+        # The "upstream" tree: three files; b.txt has drifted under fuzz.
+        name = f'firefox-{cls.VERSION}'
+        cls.tarball = base / f'{name}.source.tar.xz'
+        files = {'a.txt': 'one\ntwo\nthree\n',
+                 'b.txt': 'l1\nl2\nl3 upstream changed\nl4\nl5\nl6\nl7\nl8\n',
+                 'c.txt': 'desktop\n'}
+        with tarfile.open(cls.tarball, 'w:xz') as t:
+            d = tarfile.TarInfo(name)
+            d.type, d.mode = tarfile.DIRTYPE, 0o755
+            t.addfile(d)
+            for fn, text in files.items():
+                info = tarfile.TarInfo(f'{name}/{fn}')
+                info.size = len(text.encode())
+                t.addfile(info, io.BytesIO(text.encode()))
+        cls.sigs = {}
+        for f in cls.fprs:
+            sig = base / f'sig-{f}.asc'
+            cls.gpg('--armor', '--local-user', f, '--output', str(sig),
+                    '--detach-sign', str(cls.tarball))
+            cls.sigs[f] = sig.read_bytes()
+
+        # The "repository": patch lists and patches.
+        cls.repo = base / 'repo'
+        (cls.repo / 'assets' / 'patches').mkdir(parents=True)
+        (cls.repo / 'patches').mkdir()
+        lists = {'common': 'patches/ok.patch\npatches/fuzzy.patch  # inline comment\n',
+                 'desktop': 'patches/desktop.patch\n',
+                 'android': '# android only\npatches/gone.patch\n'}
+        for k, v in lists.items():
+            (cls.repo / 'assets' / 'patches' / f'{k}.txt').write_text(v)
+        patches = {
+            'ok': '--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n',
+            'fuzzy': '--- a/b.txt\n+++ b/b.txt\n@@ -2,6 +2,6 @@\n l2\n l3\n l4\n'
+                     '-l5\n+l5 redoubt\n l6\n l7\n',
+            'desktop': '--- a/c.txt\n+++ b/c.txt\n@@ -1 +1 @@\n-desktop\n+redoubt\n',
+            'gone': '--- a/mobile/gone.kt\n+++ b/mobile/gone.kt\n@@ -1 +1 @@\n-x\n+y\n',
+        }
+        for k, v in patches.items():
+            (cls.repo / 'patches' / f'{k}.patch').write_text(v)
+        # The checkout's own version files must not matter (nor change).
+        (cls.repo / 'version').write_text('1.0\n')
+        (cls.repo / 'version.android').write_text('1.0\n')
+
+    @classmethod
+    def tearDownClass(cls):
+        subprocess.run(['gpgconf', '--kill', 'all'],
+                       env={**os.environ, 'GNUPGHOME': str(cls.gnupg)},
+                       capture_output=True)
+        cls.tmp.cleanup()
+
+    @classmethod
+    def gpg(cls, *args):
+        r = subprocess.run(['gpg', '--batch', '--no-tty', '--pinentry-mode', 'loopback',
+                            '--passphrase', '', *args],
+                           env={**os.environ, 'GNUPGHOME': str(cls.gnupg)},
+                           capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        return r
+
+    @classmethod
+    def genkey(cls, uid):
+        cls.gpg('--quick-gen-key', uid, 'ed25519', 'sign', 'never')
+        colons = cls.gpg('--with-colons', '--fingerprint', uid).stdout
+        return watch.imported_primaries(colons)[0]
+
+    def setUp(self):
+        FakeServer.state = {'heads': [], 'gets': [], 'tarballs': set(), 'labels': [],
+                            'issues': [], 'bodies': [], 'comments': {}, 'files': {}}
+        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), FakeServer)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.base = f'http://127.0.0.1:{self.server.server_address[1]}'
+        work = tempfile.TemporaryDirectory(prefix='redoubt-patchcheck-run-')
+        self.addCleanup(work.cleanup)
+        self.work = Path(work.name)
+        self.serve(signed_by=self.fprs[0], key=self.fprs[0])
+
+    def serve(self, signed_by, key):
+        rel = f'/releases/{self.VERSION}/source/firefox-{self.VERSION}.source.tar.xz'
+        FakeServer.state['files'] = {
+            rel: self.tarball.read_bytes(),
+            rel + '.asc': self.sigs[signed_by],
+            '/key.asc': self.pubkey[key].encode(),
+        }
+        self.tarball_path = rel
+
+    def patchcheck(self, *extra, sha=SHA, token='test-token', fpr=None):
+        env = clean_env(token)
+        env.update({'GITHUB_REPOSITORY': 'o/r', 'GITHUB_RUN_ID': '42',
+                    'RUNNER_TEMP': str(self.work)})
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), 'patchcheck', '--version', self.VERSION,
+             '--root', str(self.repo), '--sha', sha,
+             '--archive-base', f'{self.base}/releases', '--key-url', f'{self.base}/key.asc',
+             '--fingerprint', fpr or self.fprs[0],
+             '--check-script', str(ROOT / 'scripts' / 'check-patchfail.sh'),
+             '--api', self.base, '--repo', 'o/r', *extra],
+            env=env, capture_output=True, text=True, timeout=120)
+
+    def test_posts_once_per_version_and_commit(self):
+        r = self.patchcheck('--issue', '7')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('outcome: posted', r.stdout)
+        body, = FakeServer.state['comments'][7]
+        self.assertIn(watch.patchcheck_marker(self.VERSION, SHA), body)
+        self.assertIn('| desktop | pass | 3 | 0 | 1 (1 patch) | 0 |', body)
+        self.assertIn('| android | **FAIL** | 3 | 1 | 1 (1 patch) | 0 |', body)
+        self.assertIn('- `patches/gone.patch`: 1 target file missing', body)
+        self.assertIn('- `patches/fuzzy.patch`: 1 hunk, max fuzz 2', body)
+        self.assertIn(f'Run, with the full reports: {RUN}', body)
+        self.assertEqual(sorted(FakeServer.state['gets']),
+                         sorted(['/key.asc', self.tarball_path, self.tarball_path + '.asc']))
+        # Nothing in the checkout changed, nothing was left behind.
+        self.assertEqual((self.repo / 'version').read_text(), '1.0\n')
+        self.assertEqual((self.repo / 'version.android').read_text(), '1.0\n')
+        self.assertEqual(sorted(p.name for p in self.repo.iterdir()),
+                         ['assets', 'patches', 'version', 'version.android'])
+        self.assertEqual(list(self.work.iterdir()), [])
+
+        # Same version, same commit: nothing downloaded, nothing posted.
+        FakeServer.state['gets'].clear()
+        r = self.patchcheck('--issue', '7')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('outcome: already-posted', r.stdout)
+        self.assertEqual(len(FakeServer.state['comments'][7]), 1)
+        self.assertEqual(FakeServer.state['gets'], [])
+
+        # A new commit is a new check.
+        r = self.patchcheck('--issue', '7', sha='f' * 40)
+        self.assertIn('outcome: posted', r.stdout)
+        self.assertEqual(len(FakeServer.state['comments'][7]), 2)
+
+    def test_dry_run_prints_and_posts_nothing(self):
+        r = self.patchcheck('--dry-run', token='')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('outcome: would-post', r.stdout)
+        self.assertIn(watch.patchcheck_marker(self.VERSION, SHA), r.stdout)
+        self.assertIn('| android | **FAIL**', r.stdout)
+        self.assertEqual(FakeServer.state['comments'], {})
+
+    def test_no_token_refuses_unless_dry_run(self):
+        r = self.patchcheck('--issue', '7', token='')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('posting needs GitHub access', r.stderr)
+
+    def test_key_must_be_the_pinned_one(self):
+        # The key server hands out a different key than the one pinned.
+        self.serve(signed_by=self.fprs[1], key=self.fprs[1])
+        r = self.patchcheck('--issue', '7')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(f'not exactly the pinned {self.fprs[0]}', r.stderr)
+        self.assertEqual(FakeServer.state['comments'], {})
+
+    def test_signature_must_be_by_the_pinned_key(self):
+        # The pinned key is served, but someone else signed the tarball.
+        self.serve(signed_by=self.fprs[1], key=self.fprs[0])
+        r = self.patchcheck('--issue', '7')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('signature check failed', r.stderr)
+        self.assertEqual(FakeServer.state['comments'], {})
+
+    def test_tampered_tarball(self):
+        self.serve(signed_by=self.fprs[0], key=self.fprs[0])
+        FakeServer.state['files'][self.tarball_path] += b'\\0'
+        r = self.patchcheck('--issue', '7')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('signature check failed', r.stderr)
+        self.assertEqual(FakeServer.state['comments'], {})
+
 
 if __name__ == '__main__':
     unittest.main()
