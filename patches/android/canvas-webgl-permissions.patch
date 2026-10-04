@@ -37,6 +37,12 @@
 #   loading GeckoViewStorageController, so the list stayed empty behind an error
 #   toast and graphics acceptance failed after its process restart (3 of 3 runs).
 #   Evidence: docs/android/evidence/lw-m7-01/release-157.0/acceptance/.
+#
+# 158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3): unchanged
+# lines, new hunk positions only. On 158 this patch applied at fuzz 0 but with
+# an offset in a res/ file, and GNU patch then leaves a .orig backup there that
+# packageReleaseResources rejects; so it is regenerated at its exact in-order
+# line numbers (git diff of its own step in the in-order 158 replay).
 diff --git a/dom/canvas/CanvasUtils.cpp b/dom/canvas/CanvasUtils.cpp
 index 17bfd46974..be755270f7 100644
 --- a/dom/canvas/CanvasUtils.cpp
@@ -330,7 +336,7 @@ diff --git a/mobile/android/android-components/components/browser/engine-gecko/s
 index fa923ec77f..8f01479928 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt
-@@ -1644,6 +1644,16 @@ class GeckoEngineSession(
+@@ -1664,6 +1664,16 @@ class GeckoEngineSession(
  
      private fun createPermissionDelegate() =
          object : GeckoSession.PermissionDelegate {
@@ -999,7 +1005,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/Ba
 index 93c75093cb..17a0fc820e 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
-@@ -306,6 +306,8 @@ abstract class BaseBrowserFragment :
+@@ -314,6 +314,8 @@ abstract class BaseBrowserFragment :
      @VisibleForTesting internal val findInPageIntegration = ViewBoundFeatureWrapper<FindInPageIntegration>()
      private val toolbarsIntegration = ViewBoundFeatureWrapper<ToolbarsIntegration>()
      private val bottomToolbarContainerIntegration = ViewBoundFeatureWrapper<BottomToolbarContainerIntegration>()
@@ -1008,7 +1014,7 @@ index 93c75093cb..17a0fc820e 100644
      private val sitePermissionsFeature = ViewBoundFeatureWrapper<SitePermissionsFeature>()
      private val fullScreenFeature = ViewBoundFeatureWrapper<FullScreenFeature>()
      protected val hideToolbarFeature = ViewBoundFeatureWrapper<WebAppHideToolbarFeature>()
-@@ -1266,6 +1268,44 @@ abstract class BaseBrowserFragment :
+@@ -1315,6 +1317,44 @@ abstract class BaseBrowserFragment :
              view = view,
          )
  
@@ -1674,7 +1680,7 @@ diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/a
 index 291c0c3a6c..ff2f7a9185 100644
 --- a/mobile/android/fenix/app/src/main/res/values/strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
-@@ -4193,4 +4193,34 @@
+@@ -4221,4 +4221,34 @@
      <string name="librewolf_ubo_setup_failed_message">Browsing is paused because uBlock Origin could not be prepared. Retry setup or close Redoubt.</string>
      <string name="librewolf_ubo_setup_retry">Retry</string>
      <string name="librewolf_ubo_setup_close">Close Redoubt</string>
@@ -2082,7 +2088,7 @@ diff --git a/mobile/android/geckoview/api.txt b/mobile/android/geckoview/api.txt
 index c80602a0c8..03151fc3f2 100644
 --- a/mobile/android/geckoview/api.txt
 +++ b/mobile/android/geckoview/api.txt
-@@ -1585,9 +1585,11 @@ package org.mozilla.geckoview {
+@@ -1587,9 +1587,11 @@ package org.mozilla.geckoview {
    public static interface GeckoSession.PermissionDelegate {
      method @UiThread default public void onAndroidPermissionsRequest(@NonNull GeckoSession, @Nullable String[], @NonNull GeckoSession.PermissionDelegate.Callback);
      method @Nullable @UiThread default public GeckoResult<Integer> onContentPermissionRequest(@NonNull GeckoSession, @NonNull GeckoSession.PermissionDelegate.ContentPermission);
@@ -2094,7 +2100,7 @@ index c80602a0c8..03151fc3f2 100644
      field public static final int PERMISSION_DESKTOP_NOTIFICATION = 1;
      field public static final int PERMISSION_GEOLOCATION = 0;
      field public static final int PERMISSION_LOCAL_DEVICE_ACCESS = 9;
-@@ -1596,6 +1598,7 @@ package org.mozilla.geckoview {
+@@ -1598,6 +1600,7 @@ package org.mozilla.geckoview {
      field public static final int PERMISSION_PERSISTENT_STORAGE = 2;
      field public static final int PERMISSION_STORAGE_ACCESS = 8;
      field public static final int PERMISSION_TRACKING = 7;
@@ -2102,7 +2108,7 @@ index c80602a0c8..03151fc3f2 100644
      field public static final int PERMISSION_XR = 3;
    }
  
-@@ -1606,16 +1609,22 @@ package org.mozilla.geckoview {
+@@ -1608,16 +1611,22 @@ package org.mozilla.geckoview {
  
    public static class GeckoSession.PermissionDelegate.ContentPermission {
      ctor protected ContentPermission();
@@ -2125,7 +2131,7 @@ index c80602a0c8..03151fc3f2 100644
      field @NonNull public final String uri;
      field public final int value;
    }
-@@ -1650,6 +1659,12 @@ package org.mozilla.geckoview {
+@@ -1652,6 +1661,12 @@ package org.mozilla.geckoview {
    @Retention(value=RetentionPolicy.SOURCE) public static interface GeckoSession.PermissionDelegate.MediaSource.Type {
    }
  
@@ -2138,7 +2144,7 @@ index c80602a0c8..03151fc3f2 100644
    @AnyThread public static interface GeckoSession.PrintDelegate {
      method default public void onPrint(@NonNull GeckoSession);
      method default public void onPrint(@NonNull InputStream);
-@@ -2678,6 +2693,7 @@ package org.mozilla.geckoview {
+@@ -2681,6 +2696,7 @@ package org.mozilla.geckoview {
      method @HandlerThread @NonNull public GeckoResult<List<GeckoSession.PermissionDelegate.ContentPermission>> getPermissions(@NonNull String, boolean);
      method @HandlerThread @NonNull public GeckoResult<List<GeckoSession.PermissionDelegate.ContentPermission>> getPermissions(@NonNull String, @Nullable String, boolean);
      method @AnyThread public void setPermission(@NonNull GeckoSession.PermissionDelegate.ContentPermission, int);
@@ -2481,7 +2487,7 @@ diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoS
 index 7b196689af..775cdecfd1 100644
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-@@ -1128,6 +1128,7 @@ public class GeckoSession {
+@@ -1125,6 +1125,7 @@ public class GeckoSession {
            new String[] {
              "GeckoView:AndroidPermission",
              "GeckoView:ContentPermission",
@@ -2489,7 +2495,7 @@ index 7b196689af..775cdecfd1 100644
              "GeckoView:MediaPermission"
            }) {
          @Override
-@@ -1156,6 +1157,25 @@ public class GeckoSession {
+@@ -1153,6 +1154,25 @@ public class GeckoSession {
                  GeckoSession.this,
                  permsList.toArray(new String[0]),
                  new PermissionCallback("android", callback));
@@ -2515,7 +2521,7 @@ index 7b196689af..775cdecfd1 100644
            } else if ("GeckoView:ContentPermission".equals(event)) {
              final GeckoResult<Integer> res =
                  delegate.onContentPermissionRequest(
-@@ -7292,6 +7312,44 @@ public class GeckoSession {
+@@ -7319,6 +7339,44 @@ public class GeckoSession {
      /** Permission for local network access */
      int PERMISSION_LOCAL_NETWORK_ACCESS = 10;
  
@@ -2560,7 +2566,7 @@ index 7b196689af..775cdecfd1 100644
      /**
       * Represents a content permission -- including the type of permission, the present value of the
       * permission, the URL the permission pertains to, and other information.
-@@ -7325,6 +7383,20 @@ public class GeckoSession {
+@@ -7352,6 +7410,20 @@ public class GeckoSession {
         */
        public final boolean privateMode;
  
@@ -2581,7 +2587,7 @@ index 7b196689af..775cdecfd1 100644
        /** The type of this permission; one of {@link #PERMISSION_GEOLOCATION PERMISSION_*}. */
        public final int permission;
  
-@@ -7354,6 +7426,11 @@ public class GeckoSession {
+@@ -7381,6 +7453,11 @@ public class GeckoSession {
          this.uri = "";
          this.thirdPartyOrigin = null;
          this.privateMode = false;
@@ -2593,7 +2599,7 @@ index 7b196689af..775cdecfd1 100644
          this.permission = PERMISSION_GEOLOCATION;
          this.value = VALUE_ALLOW;
          this.mPrincipal = "";
-@@ -7365,6 +7442,11 @@ public class GeckoSession {
+@@ -7392,6 +7469,11 @@ public class GeckoSession {
          this.uri = bundle.getString("uri");
          this.mPrincipal = bundle.getString("principal");
          this.privateMode = bundle.getBoolean("privateMode");
@@ -2605,7 +2611,7 @@ index 7b196689af..775cdecfd1 100644
          this.mRequestId = bundle.getString("requestId");
  
          final String permission = bundle.getString("perm");
-@@ -7443,6 +7525,10 @@ public class GeckoSession {
+@@ -7470,6 +7552,10 @@ public class GeckoSession {
            return PERMISSION_LOCAL_DEVICE_ACCESS;
          } else if ("local-network".equals(type)) {
            return PERMISSION_LOCAL_NETWORK_ACCESS;
@@ -2616,7 +2622,7 @@ index 7b196689af..775cdecfd1 100644
          } else {
            return -1;
          }
-@@ -7473,6 +7559,10 @@ public class GeckoSession {
+@@ -7500,6 +7586,10 @@ public class GeckoSession {
              return "loopback-network";
            case PERMISSION_LOCAL_NETWORK_ACCESS:
              return "local-network";
@@ -2627,7 +2633,7 @@ index 7b196689af..775cdecfd1 100644
            default:
              return "";
          }
-@@ -7517,6 +7607,42 @@ public class GeckoSession {
+@@ -7544,6 +7634,42 @@ public class GeckoSession {
          EventDispatcher.getInstance().dispatch("GeckoView:ContentPermissionShown", data);
        }
  
@@ -2670,7 +2676,7 @@ index 7b196689af..775cdecfd1 100644
        /* package */ @NonNull
        GeckoBundle toGeckoBundle() {
          final GeckoBundle res = new GeckoBundle(7);
-@@ -7524,6 +7650,11 @@ public class GeckoSession {
+@@ -7551,6 +7677,11 @@ public class GeckoSession {
          res.putString("thirdPartyOrigin", thirdPartyOrigin);
          res.putString("principal", mPrincipal);
          res.putBoolean("privateMode", privateMode);
@@ -2682,7 +2688,7 @@ index 7b196689af..775cdecfd1 100644
          res.putString("perm", convertType(permission, privateMode));
          res.putInt("value", value);
          res.putString("contextId", contextId);
-@@ -7587,6 +7718,27 @@ public class GeckoSession {
+@@ -7614,6 +7745,27 @@ public class GeckoSession {
        return GeckoResult.fromValue(ContentPermission.VALUE_PROMPT);
      }
  
@@ -2710,7 +2716,7 @@ index 7b196689af..775cdecfd1 100644
      /** Defines the set of media source categories and types used for media capture. */
      class MediaSource {
        /** Media source type definitions for media device sources. */
-@@ -7764,7 +7916,11 @@ public class GeckoSession {
+@@ -7791,7 +7943,11 @@ public class GeckoSession {
      PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE,
      PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS,
      PermissionDelegate.PERMISSION_TRACKING,
@@ -3181,7 +3187,7 @@ diff --git a/modules/libpref/init/StaticPrefList.yaml b/modules/libpref/init/Sta
 index 2e070f3752..174967968b 100644
 --- a/modules/libpref/init/StaticPrefList.yaml
 +++ b/modules/libpref/init/StaticPrefList.yaml
-@@ -12064,21 +12064,13 @@
+@@ -12144,21 +12144,13 @@
  # Prefs starting with "librewolf."
  #---------------------------------------------------------------------------
  

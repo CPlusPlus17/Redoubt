@@ -16,6 +16,11 @@
 #     switch lookup names it fully qualified so no import line is contested
 #     with other patches.
 #
+# 158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3): unchanged
+# lines, new hunk positions only. It applied on 158 with offsets
+# (geckoview/api.txt and others); the receipt replay for this hash-pinned
+# patch refuses an offset, so its hunk headers now carry the in-order 158 line
+# numbers.
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
 index 5e621c92fb..3e62feb785 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
@@ -719,7 +724,7 @@ diff --git a/mobile/android/geckoview/api.txt b/mobile/android/geckoview/api.txt
 index c80602a0c8..c0a71a126e 100644
 --- a/mobile/android/geckoview/api.txt
 +++ b/mobile/android/geckoview/api.txt
-@@ -3219,6 +3219,7 @@ package org.mozilla.geckoview {
+@@ -3222,6 +3222,7 @@ package org.mozilla.geckoview {
      method @HandlerThread @NonNull public GeckoResult<WebExtension> enable(@NonNull WebExtension, int);
      method @AnyThread public void enableExtensionProcessSpawning();
      method @HandlerThread @NonNull public GeckoResult<WebExtension> ensureBuiltIn(@NonNull String, @Nullable String);
@@ -727,7 +732,7 @@ index c80602a0c8..c0a71a126e 100644
      method @Nullable @UiThread public WebExtensionController.PromptDelegate getPromptDelegate();
      method @HandlerThread @NonNull public GeckoResult<WebExtension> install(@NonNull String, @Nullable String);
      method @HandlerThread @NonNull public GeckoResult<WebExtension> install(@NonNull String);
-@@ -3227,12 +3228,14 @@ package org.mozilla.geckoview {
+@@ -3230,12 +3231,14 @@ package org.mozilla.geckoview {
      method @HandlerThread @NonNull public GeckoResult<WebExtension> removeOptionalPermissions(@NonNull String, @NonNull String[], @NonNull String[], @NonNull String[]);
      method @UiThread public void setAddonManagerDelegate(@Nullable WebExtensionController.AddonManagerDelegate);
      method @HandlerThread @NonNull public GeckoResult<WebExtension> setAllowedInPrivateBrowsing(@NonNull WebExtension, boolean);
@@ -742,7 +747,7 @@ index c80602a0c8..c0a71a126e 100644
      field public static final String INSTALLATION_METHOD_FROM_FILE = "install-from-file";
      field public static final String INSTALLATION_METHOD_MANAGER = "manager";
      field public static final String INSTALLATION_METHOD_ONBOARDING = "onboarding";
-@@ -3253,6 +3256,14 @@ package org.mozilla.geckoview {
+@@ -3256,6 +3259,14 @@ package org.mozilla.geckoview {
      method @UiThread default public void onUninstalling(@NonNull WebExtension);
    }
  
@@ -1487,7 +1492,7 @@ diff --git a/modules/libpref/Preferences.cpp b/modules/libpref/Preferences.cpp
 index aeb7e7bc9c..c42e450189 100644
 --- a/modules/libpref/Preferences.cpp
 +++ b/modules/libpref/Preferences.cpp
-@@ -2041,11 +2041,10 @@ class PreferencesImpl {
+@@ -2053,11 +2053,10 @@ class PreferencesImpl {
    nsresult MakeBackupPrefFile(nsIFile* aFile);
    // Off main thread is only respected for the default aFile value (nullptr).
    nsresult SavePrefFileInternal(nsIFile* aFile, SaveMethod aSaveMethod);
@@ -1503,7 +1508,7 @@ index aeb7e7bc9c..c42e450189 100644
    nsresult WritePrefFile(
        nsIFile* aFile, SaveMethod aSaveMethod,
        UniquePtr<MozPromiseHolder<WritePrefFilePromise>> aPromise = nullptr,
-@@ -4137,11 +4136,6 @@ class PreferencesWriter final {
+@@ -4152,11 +4151,6 @@ class PreferencesWriter final {
                                  []() { return sPendingWriteCount <= 0; });
    }
  
@@ -1515,7 +1520,7 @@ index aeb7e7bc9c..c42e450189 100644
    // This is the number of writes via PWRunnables which have been dispatched
    // but not yet completed. This is intended to be used by Flush to ensure
    // that there are no outstanding writes left incomplete, and thus our prefs
-@@ -4152,133 +4146,86 @@ class PreferencesWriter final {
+@@ -4167,133 +4161,86 @@ class PreferencesWriter final {
    static StaticMutex sWritingToFile MOZ_UNANNOTATED;
  };
  
@@ -1700,7 +1705,7 @@ index aeb7e7bc9c..c42e450189 100644
  };
  
  // Although this is a member of Preferences, it measures sPreferences and
-@@ -5034,9 +4981,11 @@ Preferences::Observe(nsISupports* aSubject, const char* aTopic,
+@@ -5056,9 +5003,11 @@ Preferences::Observe(nsISupports* aSubject, const char* aTopic,
      // It's possible that a profile-before-change observer after ours
      // set a pref. A blocking save here re-saves if necessary and also waits
      // for any pending saves to complete.
@@ -1715,7 +1720,7 @@ index aeb7e7bc9c..c42e450189 100644
  
    } else if (!nsCRT::strcmp(aTopic, "suspend_process_notification")) {
      // Our process is being suspended. The OS may wake our process later,
-@@ -5130,22 +5079,28 @@ bool Preferences::AllowOffMainThreadSave() {
+@@ -5152,22 +5101,28 @@ bool Preferences::AllowOffMainThreadSave() {
  }
  
  nsresult Preferences::SavePrefFileBlocking() {
@@ -1758,7 +1763,7 @@ index aeb7e7bc9c..c42e450189 100644
  }
  
  nsresult Preferences::SavePrefFileAsynchronous() {
-@@ -5160,6 +5115,43 @@ Preferences::SavePrefFile(nsIFile* aFile) {
+@@ -5182,6 +5137,43 @@ Preferences::SavePrefFile(nsIFile* aFile) {
        aFile, PreferencesImpl::SaveMethod::Asynchronous);
  }
  
@@ -1802,7 +1807,7 @@ index aeb7e7bc9c..c42e450189 100644
  NS_IMETHODIMP
  Preferences::BackupPrefFile(nsIFile* aFile, nsIPrefOverrideMap* aJSOverrideMap,
                              JSContext* aCx, Promise** aPromise) {
-@@ -5601,11 +5593,9 @@ nsresult PreferencesImpl::WritePrefFile(
+@@ -5623,11 +5615,9 @@ nsresult PreferencesImpl::WritePrefFile(
      UniquePtr<PrefSaveData> prefs =
          MakeUnique<PrefSaveData>(SavePrefs(aPrefOverrideMap));
  
@@ -1816,7 +1821,7 @@ index aeb7e7bc9c..c42e450189 100644
      if (!mAsyncTarget) {
        rv = NS_CreateBackgroundTaskQueue("WritePrefFile",
                                          getter_AddRefs(mAsyncTarget));
-@@ -5613,75 +5603,21 @@ nsresult PreferencesImpl::WritePrefFile(
+@@ -5635,75 +5625,21 @@ nsresult PreferencesImpl::WritePrefFile(
          REJECT_IF_PROMISE_HOLDER_EXISTS(rv);
        }
      }
@@ -2039,7 +2044,7 @@ diff --git a/modules/libpref/test/unit/xpcshell.toml b/modules/libpref/test/unit
 index c03e7dedff..dda12148a1 100644
 --- a/modules/libpref/test/unit/xpcshell.toml
 +++ b/modules/libpref/test/unit/xpcshell.toml
-@@ -43,6 +43,10 @@ head = ""
+@@ -39,6 +39,10 @@ head = ""
  ["test_parser.js"]
  support-files = ["data/testParser.js"]
  

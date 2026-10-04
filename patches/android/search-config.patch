@@ -142,9 +142,15 @@
 #     the Remote Settings sync worker unconditionally (FenixApplication.kt:825),
 #     as on 153; rs-blocker-android makes that sync a no-op.
 #   * secret_settings_preferences.xml: same row, 11 lines further down.
+#
+# 158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3): unchanged
+# lines, new hunk positions only. On 158 this patch applied at fuzz 0 but with
+# an offset in a res/ file, and GNU patch then leaves a .orig backup there that
+# packageReleaseResources rejects; so it is regenerated at its exact in-order
+# line numbers (git diff of its own step in the in-order 158 replay).
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-@@ -313,21 +313,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+@@ -301,21 +301,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
              summary = settings.getRemoteSettingsServerString()
          }
  
@@ -171,7 +177,7 @@
              isVisible = true
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2461,12 +2461,24 @@ class Settings(
+@@ -2462,12 +2462,24 @@ class Settings(
              default = { FxNimbus.features.minimalAddressbar.value().atBottomWhileEnteringText },
          )
  
@@ -204,7 +210,7 @@
      fun getHttpsOnlyMode(): HttpsOnlyMode {
 --- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
-@@ -56,10 +56,8 @@
+@@ -61,10 +61,8 @@
        android:key="@string/pref_key_enable_fxsuggest"
        android:title="@string/preferences_debug_settings_fxsuggest"
        app:iconSpaceReserved="false" />

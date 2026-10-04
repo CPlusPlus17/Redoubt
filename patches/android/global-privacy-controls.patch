@@ -10,6 +10,11 @@
 #     globalPrivacyController default follows it. GeckoEngine.kt: the property
 #     sits before the reformatted Engine.profiler KDoc.
 #
+# 158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3): unchanged
+# lines, new hunk positions only. On 158 this patch applied at fuzz 0 but with
+# an offset in a res/ file, and GNU patch then leaves a .orig backup there that
+# packageReleaseResources rejects; so it is regenerated at its exact in-order
+# line numbers (git diff of its own step in the in-order 158 replay).
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
 index 3e62feb785..00af08e1cc 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
@@ -665,7 +670,7 @@ diff --git a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml b/mo
 index 4bb43c1d50..34e0c36e31 100644
 --- a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
 +++ b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
-@@ -576,6 +576,9 @@
+@@ -579,6 +579,9 @@
              android:name="search_in_progress"
              android:defaultValue="false"
              app:argType="boolean" />
@@ -675,7 +680,7 @@ index 4bb43c1d50..34e0c36e31 100644
          <action
              android:id="@+id/action_settingsFragment_to_settingsSearchFragment"
              app:destination="@id/settingsSearchFragment"
-@@ -1904,4 +1907,8 @@
+@@ -1935,4 +1938,8 @@
      <dialog
          android:id="@+id/customReviewPromptDialogFragment"
          android:name="org.mozilla.fenix.reviewprompt.CustomReviewPromptBottomSheetFragment" />
@@ -960,7 +965,7 @@ index c0a71a126e..10693432a7 100644
  import org.mozilla.geckoview.GeckoPreferenceController;
  import org.mozilla.geckoview.GeckoResult;
  import org.mozilla.geckoview.GeckoRuntime;
-@@ -881,6 +882,56 @@ package org.mozilla.geckoview {
+@@ -883,6 +884,56 @@ package org.mozilla.geckoview {
      method @NonNull @UiThread public GeckoDisplay.SurfaceInfo.Builder surfaceControl(@Nullable SurfaceControl);
    }
  
