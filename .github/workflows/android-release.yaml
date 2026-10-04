@@ -47,7 +47,9 @@ on:
   # Changes to this pipeline preflight themselves. A workflow that has never
   # executed is not a pipeline; this makes "it runs" observable on every edit.
   push:
-    branches: [android-port, main]
+    # main only: android-port is pushed at the same commit, and a second
+    # preflight would only start the box B VM twice for one edit.
+    branches: [main]
     paths: ['.github/workflows/android-release.yaml']
   workflow_dispatch:
     inputs:
@@ -60,7 +62,10 @@ on:
 
 jobs:
   build-unsigned:
-    runs-on: librewolf-android
+    # Box B's on-demand VM (docs/android/CI-VM.md, "Box B"): 16 vCPUs, 24 GiB.
+    # A preflight starts it too; box B's memory gate may defer the start while
+    # the host is busy, and the job then waits in GitHub's queue.
+    runs-on: [self-hosted, redoubt-boxb]
     env:
       # `inputs` only exists for workflow_dispatch; a push always preflights.
       MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'preflight' }}
@@ -125,6 +130,19 @@ jobs:
           test -x "librewolf-$(cat version.android)-$(cat release.android)/mach" \
             || { echo "FATAL: mach not found in the extracted tree" >&2; exit 1; }
 
+      - name: Build image from this commit's Dockerfile
+        if: ${{ env.MODE == 'full' }}
+        run: |
+          set -eu
+          # Same rule as android-test.yaml build-android: rebuild when the
+          # Dockerfile changed, not only when the image is missing.
+          want=$(sha256sum assets/Dockerfile.android | cut -c1-64)
+          have=$(podman image inspect --format '{{ index .Labels "org.redoubt.dockerfile-sha256" }}' librewolf-android-build 2>/dev/null || true)
+          if [ "$have" != "$want" ]; then
+            podman build --no-cache --label "org.redoubt.dockerfile-sha256=$want" \
+              -t librewolf-android-build - < assets/Dockerfile.android
+          fi
+
       - name: "Build the unsigned release APK (Gecko/AAR pass, then Fenix)"
         if: ${{ env.MODE == 'full' }}
         run: |
@@ -151,10 +169,13 @@ jobs:
           # calling it directly without that (as the previous revision did) dies
           # with 'fatal: --aar-dir is required'. ANDROID_APK_FLAGS carries the
           # variant + the unsigned flag through to the script.
+          # -j8: at the default min(16, nproc) = 16 a Gecko pass peaks at ~31 GB,
+          # more than box B's 24 GiB VM; at -j8 it peaks at 17-25 GB.
           make android-package \
             TARGETS=android \
             CONTAINER_ENGINE=podman \
-            ANDROID_APK_FLAGS="--variant=release --disable-debug-signing"
+            ANDROID_AAR_FLAGS="--jobs=8" \
+            ANDROID_APK_FLAGS="--variant=release --disable-debug-signing --jobs=8"
           APKDIR="librewolf-android-apk-$(cat version.android)-$(cat release.android)/apk"
           ls "$APKDIR"/*.apk >/dev/null 2>&1 \
             || { echo "FATAL: no release APK produced under $APKDIR/" >&2; exit 1; }
