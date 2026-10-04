@@ -7,14 +7,22 @@ umask 022
 
 die() { printf 'guest-provision: %s\n' "$*" >&2; exit 1; }
 usage() {
-    printf 'Usage: %s [--deny-ipv4 PUBLIC-HOST-LAN-CIDR ...]\n' "$0"
+    printf 'Usage: %s [--deny-ipv4 PUBLIC-HOST-LAN-CIDR ...] [--runner-mem-max SIZE] [--runner-swap-max SIZE]\n' "$0"
 }
 deny_extra=()
+# The runner slice's ceiling. 18G/6G suits box A's 20 GiB guest; box B's 24 GiB
+# guest passes 22G/8G. Sizes are systemd values with a G suffix.
+runner_mem_max=18G
+runner_swap_max=6G
 while (($#)); do
     case "$1" in
         --deny-ipv4)
             (($# >= 2)) || die '--deny-ipv4 requires an IPv4 CIDR'
             deny_extra+=("$2"); shift 2 ;;
+        --runner-mem-max|--runner-swap-max)
+            (($# >= 2)) && [[ $2 =~ ^[1-9][0-9]?G$ ]] || die "$1 requires a size like 22G"
+            if [[ $1 == --runner-mem-max ]]; then runner_mem_max=$2; else runner_swap_max=$2; fi
+            shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) usage >&2; die "unknown argument: $1" ;;
     esac
@@ -238,7 +246,7 @@ install -d -o runner -g "$(id -gn runner)" -m 0700 \
 loginctl enable-linger runner
 # Rootless Podman uses sibling scopes below this user slice. Limiting only a
 # driver service does not bound its containers; reserve RAM for administration.
-systemctl set-property "user-${runner_uid}.slice" MemoryMax=18G MemorySwapMax=6G
+systemctl set-property "user-${runner_uid}.slice" MemoryMax="$runner_mem_max" MemorySwapMax="$runner_swap_max"
 systemctl start "user@${runner_uid}.service"
 runuser -u runner -- env XDG_RUNTIME_DIR="/run/user/$runner_uid" \
     DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$runner_uid/bus" \

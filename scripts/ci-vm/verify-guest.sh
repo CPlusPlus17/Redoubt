@@ -8,8 +8,40 @@ umask 077
 
 die() { printf 'FAIL %s\n' "$*" >&2; exit 1; }
 pass() { printf 'PASS %s\n' "$*"; }
-[[ ${1:-} == --host-canary-confirmed && $# == 1 ]] ||
-    die 'usage: verify-guest.sh --host-canary-confirmed (host must check TCP 8765 first)'
+usage='usage: verify-guest.sh --host-canary-confirmed [--cpus N] [--mem-gib N]
+       [--runner-mem-max BYTES] [--runner-swap-max BYTES] [--canary-host IPv4]
+       [--image-id SHA256|none]
+       (host must check TCP 8765 first; defaults are box A: 8 CPUs, 20 GiB,
+       18 GiB / 6 GiB runner slice, canary 10.0.0.135, the transferred image;
+       "none" = no image yet, CI builds it from assets/Dockerfile.android)'
+expected_image=c5b57d94cf9e0ed1de7061cee9e0dbfde19d5651e3e2f3824b0e1466116fd687
+canary_confirmed=0
+expect_cpus=8 expect_mem_gib=20
+expect_slice_mem=19327352832 expect_slice_swap=6442450944
+canary_host=10.0.0.135
+while (($#)); do
+    case $1 in
+        --host-canary-confirmed) canary_confirmed=1; shift ;;
+        --cpus|--mem-gib|--runner-mem-max|--runner-swap-max)
+            (($# >= 2)) && [[ $2 =~ ^[1-9][0-9]*$ ]] || die "$usage"
+            case $1 in
+                --cpus) expect_cpus=$2 ;;
+                --mem-gib) expect_mem_gib=$2 ;;
+                --runner-mem-max) expect_slice_mem=$2 ;;
+                --runner-swap-max) expect_slice_swap=$2 ;;
+            esac
+            shift 2 ;;
+        --image-id)
+            (($# >= 2)) && [[ $2 =~ ^([0-9a-f]{64}|none)$ ]] || die "$usage"
+            expected_image=$2; shift 2 ;;
+        --canary-host)
+            (($# >= 2)) && [[ $2 =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || die "$usage"
+            canary_host=$2; shift 2 ;;
+        *) die "$usage" ;;
+    esac
+done
+((canary_confirmed)) || die "$usage"
+export expect_cpus expect_mem_gib canary_host
 virt=$(systemd-detect-virt --vm) || die 'requires the KVM guest; never run on the host'
 [[ $virt == kvm ]] || die "expected KVM, found $virt"
 pass "virtualization=$virt"
@@ -45,9 +77,11 @@ cpus = os.cpu_count()
 disk = os.statvfs('/home')
 free = disk.f_bavail * disk.f_frsize
 gib = 1024**3
-require(cpus == 8, f'expected 8 CPUs, found {cpus}')
-require(19*gib <= mem['MemTotal'] <= 20*gib,
-        f'RAM outside the 20 GiB guest allocation: {mem["MemTotal"]} bytes')
+want_cpus = int(os.environ['expect_cpus'])
+want_gib = int(os.environ['expect_mem_gib'])
+require(cpus == want_cpus, f'expected {want_cpus} CPUs, found {cpus}')
+require((want_gib - 1)*gib <= mem['MemTotal'] <= want_gib*gib,
+        f'RAM outside the {want_gib} GiB guest allocation: {mem["MemTotal"]} bytes')
 require(free >= 150*gib, f'/home free space below 150 GiB: {free} bytes')
 # A 16 GiB swap file reserves one page for its header.
 require(mem['SwapTotal'] >= 16*gib-os.sysconf('SC_PAGE_SIZE'),
@@ -60,9 +94,9 @@ swap_file=/var/lib/redoubt-swap/swapfile
 "${as_root[@]}" swapon --show=NAME --noheadings | grep -Fxq "$swap_file" || die '16 GiB swap file is inactive'
 pass '16 GiB swap file active'
 
-[[ $("${as_root[@]}" systemctl show "user-${runner_uid}.slice" -p MemoryMax --value) == 19327352832 ]] || die 'runner slice memory limit is not 18 GiB'
-[[ $("${as_root[@]}" systemctl show "user-${runner_uid}.slice" -p MemorySwapMax --value) == 6442450944 ]] || die 'runner slice swap limit is not 6 GiB'
-pass 'runner slice bounds all driver and rootless container scopes at 18 GiB RAM / 6 GiB swap'
+[[ $("${as_root[@]}" systemctl show "user-${runner_uid}.slice" -p MemoryMax --value) == "$expect_slice_mem" ]] || die "runner slice memory limit is not $expect_slice_mem bytes"
+[[ $("${as_root[@]}" systemctl show "user-${runner_uid}.slice" -p MemorySwapMax --value) == "$expect_slice_swap" ]] || die "runner slice swap limit is not $expect_slice_swap bytes"
+pass "runner slice bounds all driver and rootless container scopes at $((expect_slice_mem >> 30)) GiB RAM / $((expect_slice_swap >> 30)) GiB swap"
 
 if sudo_policy=$("${as_root[@]}" env LC_ALL=C sudo -l -U runner 2>&1); then
     policy_status=0
@@ -166,7 +200,7 @@ bad = [r for r in rows if r.get("fstype") in {"9p", "virtiofs"}]
 if bad: raise SystemExit("FAIL host filesystem mounts present: " + repr(bad))
 print("PASS no 9p or virtiofs mounts")
 '
-for absent in /home/mgysin /home/mgysin/redoubt-release.p12; do
+for absent in /home/mgysin /home/mgysin/redoubt-release.p12 /home/user; do
     "${as_root[@]}" test ! -e "$absent" && "${as_root[@]}" test ! -L "$absent" ||
         die "host path exists in guest: $absent"
     pass "host path absent (existence check only): $absent"
@@ -180,7 +214,13 @@ if info.get("host", {}).get("security", {}).get("rootless") is not True:
     raise SystemExit("FAIL Podman is not rootless")
 print("PASS runner Podman rootless")
 '
-expected_image=c5b57d94cf9e0ed1de7061cee9e0dbfde19d5651e3e2f3824b0e1466116fd687
+if [[ $expected_image == none ]]; then
+    printf 'SKIP Android image and container toolchain probe (--image-id none)\n'
+    status=$(as_runner curl --fail --silent --show-error --connect-timeout 10 --max-time 25 \
+        --output /dev/null --write-out '%{http_code}' https://api.github.com) || die 'runner GitHub HTTPS failed'
+    [[ $status == 200 ]] || die "runner GitHub HTTPS status=$status"
+    pass 'runner GitHub HTTPS=200 (public egress)'
+else
 image_id=$(as_runner timeout 20 podman image inspect --format '{{.Id}}' librewolf-android-build) || die 'Android image missing'
 [[ ${image_id#sha256:} == "$expected_image" ]] || die "Android image ID differs: $image_id"
 pass "Android image=$expected_image"
@@ -201,14 +241,16 @@ as_runner timeout --kill-after=5 90 podman run --rm --pull=never "$expected_imag
     [[ $status == 200 ]] || { echo "FAIL GitHub HTTPS status=$status" >&2; exit 1; }
     echo "PASS image compiler tools, Java 17 and GitHub HTTPS=200"
 ' || die 'Android container toolchain/HTTPS probe failed'
+fi
 
-as_runner python3 - <<'PY'
+as_runner env canary_host="$canary_host" python3 - <<'PY'
 import errno
+import os
 import socket
 import struct
 import time
 
-for host in ('10.0.0.135', '10.77.0.1'):
+for host in (os.environ['canary_host'], '10.77.0.1'):
     start = time.monotonic()
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as connection:
         recverr = getattr(socket, 'IP_RECVERR', 11)

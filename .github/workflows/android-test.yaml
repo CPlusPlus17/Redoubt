@@ -172,20 +172,34 @@ jobs:
   # ---------------------------------------------------------------------------
   # LW-M2-08: the real build, with the runner-side caches described at the top.
   #
-  # Pushes and workflow_dispatch only. A pull request from a fork must not be
-  # able to spend an hour of the self-hosted runner, and the patch-set job above
-  # already answers the question a PR needs answered.
+  # Pushes to main and workflow_dispatch only. A pull request from a fork must
+  # not be able to spend an hour of the self-hosted runner, and the patch-set
+  # job above already answers the question a PR needs answered. Pushes to the
+  # other branches (android-port is pushed at the same commit as main) would
+  # only queue a second build of the same tree.
+  #
+  # Runs on box B's on-demand VM (docs/android/CI-VM.md, "Box B": 16 vCPUs,
+  # 24 GiB, runner slice 22 GiB + 8 GiB swap), not on box A's runner, whose
+  # memory gate defers for hours while box A is busy. It used to `need`
+  # test-android: that job runs on box A, so the build was skipped every time
+  # test-android failed (2026-09-24: check-patch-order) and waited on box A
+  # otherwise. The cheap board/scope/order checks run here instead; the tree
+  # cache miss re-applies the patch set, and test-android still reports on its
+  # own.
   #
   # One build at a time, globally: the tree cache is shared, the runner is one
-  # machine, and a Gecko compile peaks at ~34 GB of memory (build-times.txt).
-  # cancel-in-progress is off so a half-finished objdir is never left behind by
-  # this workflow; a stamp is written only after a build succeeds, so a torn tree
-  # from any other cause is treated as a miss and rebuilt.
+  # machine. mach runs at -j8: at -j16 a Gecko pass peaks at ~31 GB, at -j8 it
+  # stays at 17-25 GB, inside the VM. cancel-in-progress is off so a
+  # half-finished objdir is never left behind by this workflow; a stamp is
+  # written only after a build succeeds, so a torn tree from any other cause is
+  # treated as a miss and rebuilt.
+  #
+  # Output: the UNSIGNED release APKs (--disable-debug-signing; LW-M6-01: no
+  # signing in CI, no secrets) plus SHA256SUMS, uploaded as a workflow artifact.
   # ---------------------------------------------------------------------------
   build-android:
-    needs: test-android
-    if: ${{ github.event_name != 'pull_request' }}
-    runs-on: librewolf-android
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    runs-on: [self-hosted, redoubt-boxb]
     concurrency:
       group: redoubt-android-build
       cancel-in-progress: false
@@ -213,15 +227,29 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Board, patch scope and patch order (seconds; test-android runs elsewhere)
+        run: |
+          python3 docs/android/board.py --check
+          python3 scripts/lint-patch-scope.py
+          python3 scripts/check-patch-order.py
+
       - name: Preflight — engine, image, disk, cache root
         run: |
           set -eu
           command -v podman >/dev/null || { echo "FATAL: podman is required" >&2; exit 1; }
           command -v adb >/dev/null || { echo "FATAL: adb is required by the smoke harness's static checks" >&2; exit 1; }
-          podman image exists librewolf-android-build || {
-            echo "build image missing on this runner; building it from assets/Dockerfile.android"
-            make android-build-image CONTAINER_ENGINE=podman
-          }
+          # The image is built here, from this commit's Dockerfile, and labelled
+          # with its hash: a Dockerfile change (e.g. bd3cb07e's SDK pins) rebuilds
+          # it instead of reusing a stale image that merely exists.
+          want=$(sha256sum assets/Dockerfile.android | cut -c1-64)
+          have=$(podman image inspect --format '{{ index .Labels "org.redoubt.dockerfile-sha256" }}' librewolf-android-build 2>/dev/null || true)
+          if [ "$have" != "$want" ]; then
+            echo "build image missing or built from another Dockerfile (${have:-none}); building it from assets/Dockerfile.android ($want)"
+            podman build --no-cache --label "org.redoubt.dockerfile-sha256=$want" \
+              -t librewolf-android-build - < assets/Dockerfile.android
+          else
+            echo "build image matches assets/Dockerfile.android ($want)"
+          fi
           avail=$(df -BG --output=avail "$HOME" | tail -1 | tr -dc '0-9')
           echo "${avail} GB free under $HOME"
           [ "${avail:-0}" -ge 120 ] || { echo "FATAL: a tree with one objdir is ~30 GB; refusing under 120 GB" >&2; exit 1; }
@@ -311,6 +339,8 @@ jobs:
           set -eu
           tree="${{ steps.stamp.outputs.tree }}"
           test -x "$tree/mach" || { echo "FATAL: no mach in $tree" >&2; exit 1; }
+          # Never let an APK from an earlier run reach the gates or the upload.
+          rm -f "$LW_CI_ROOT"/out/apk/apk/*.apk
           start=$(date +%s)
           make android-package \
             TARGETS=android \
@@ -318,8 +348,8 @@ jobs:
             LW_ANDROID_SRCDIR="$tree" \
             ANDROID_AAR_OUTDIR="$LW_CI_ROOT/out/aar" \
             ANDROID_APK_OUTDIR="$LW_CI_ROOT/out/apk" \
-            ANDROID_AAR_FLAGS="--abis=$LW_CI_ABIS --fat-host-abi=x86_64" \
-            ANDROID_APK_FLAGS="--variant=release --fat-host-abi=x86_64 --gradle-home $LW_CI_ROOT/gradle-home"
+            ANDROID_AAR_FLAGS="--abis=$LW_CI_ABIS --fat-host-abi=x86_64 --jobs=8" \
+            ANDROID_APK_FLAGS="--variant=release --disable-debug-signing --jobs=8 --fat-host-abi=x86_64 --gradle-home $LW_CI_ROOT/gradle-home"
           end=$(date +%s)
           # Keep the Gradle home warm for the next run (copied, never written through).
           rm -rf "$LW_CI_ROOT/gradle-home"
@@ -334,15 +364,27 @@ jobs:
         run: |
           set -eu
           tree="${{ steps.stamp.outputs.tree }}"
-          apk="$LW_CI_ROOT/out/apk/apk/fenix-x86_64-release.apk"
-          test -f "$apk" || { echo "FATAL: $apk was not produced" >&2; exit 1; }
+          apkdir="$LW_CI_ROOT/out/apk/apk"
+          # --disable-debug-signing names them fenix-<abi>-release-unsigned.apk.
+          apk=$(ls "$apkdir"/fenix-x86_64-release*.apk | head -1)
+          test -f "$apk" || { echo "FATAL: no x86_64 release APK in $apkdir" >&2; exit 1; }
+          # Hard gate, as in android-release.yaml: every APK must be UNSIGNED.
+          for f in "$apkdir"/*.apk; do
+            if unzip -l "$f" | grep -qiE 'META-INF/.*\.(RSA|DSA|EC)$'; then
+              echo "FATAL: $f carries a v1 JAR signature" >&2; exit 1
+            fi
+            if grep -qa 'APK Sig Block 42' "$f"; then
+              echo "FATAL: $f carries a v2/v3 APK Signing Block" >&2; exit 1
+            fi
+            echo "  unsigned: $(basename "$f")"
+          done
           LW_TREE="$tree" python3 docs/android/board.py --check-policies
           # Every ABI directory in the universal APK must carry the engine. The
           # build script already refuses otherwise; assert it here too, because a
           # universal APK that installs on an ABI it has no libxul.so for is
           # installable and dead on arrival, and that is the artifact a direct
           # download hands people.
-          uni="$LW_CI_ROOT/out/apk/apk/fenix-universal-release.apk"
+          uni=$(ls "$apkdir"/fenix-universal-release*.apk | head -1)
           for a in armeabi-v7a arm64-v8a x86_64; do
             unzip -l "$uni" "lib/$a/libxul.so" | grep -q libxul.so \
               || { echo "FATAL: $uni has no libxul.so for $a" >&2; exit 1; }
@@ -356,7 +398,10 @@ jobs:
           cp "$LW_CI_ROOT/out/apk/build-times.txt" ci-out/apk-build-times.txt
           cp "$LW_CI_ROOT/out/apk/apk/output-metadata.json" ci-out/
           cp ci-smoke-static.json ci-out/
-          ( cd "$LW_CI_ROOT/out/apk/apk" && sha256sum *.apk ) > ci-out/SHA256SUMS
+          mkdir -p ci-apk
+          cp "$apkdir"/*.apk ci-apk/
+          ( cd ci-apk && sha256sum *.apk > SHA256SUMS && cat SHA256SUMS )
+          cp ci-apk/SHA256SUMS ci-out/SHA256SUMS
 
       - name: Stamp the tree (only after a successful build and gates)
         run: |
@@ -368,4 +413,13 @@ jobs:
         with:
           name: redoubt-android-ci-build
           path: ci-out/
+          retention-days: 30
+
+      - name: Upload the unsigned APKs and their SHA256SUMS
+        uses: actions/upload-artifact@v4
+        with:
+          name: redoubt-android-unsigned-apks
+          path: |
+            ci-apk/*.apk
+            ci-apk/SHA256SUMS
           retention-days: 30

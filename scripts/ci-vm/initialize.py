@@ -4,11 +4,28 @@
 Refuses to replace an existing guest. No release keys or Actions credentials are
 used. The only host private key generated here stays outside the QEMU namespace.
 """
+import argparse
 import hashlib
+import re
 from pathlib import Path
 import shutil
 import subprocess
 import yaml
+
+parser = argparse.ArgumentParser(description=__doc__)
+# Defaults are box A's original allocation; box B passes its own (CI-VM.md, "Box B").
+parser.add_argument('--name', default='redoubt-ci',
+                    help='QEMU -name, guest hostname and instance-id prefix')
+parser.add_argument('--cpus', type=int, default=8)
+parser.add_argument('--mem-mib', type=int, default=20480)
+parser.add_argument('--disk', default='400G', help='thin qcow2 overlay size')
+parser.add_argument('--instance-date', default='20260908',
+                    help='cloud-init instance-id suffix; a new value means a new instance')
+args = parser.parse_args()
+if not (1 <= args.cpus <= 64 and 4096 <= args.mem_mib <= 262144):
+    raise SystemExit('cpus or mem-mib out of range')
+if not re.fullmatch(r'[a-z][a-z0-9-]{0,30}', args.name):
+    raise SystemExit('name must match [a-z][a-z0-9-]{0,30} (inside.sh parses it)')
 
 home = Path.home()
 state = home / '.local/share/redoubt-ci-vm'
@@ -31,7 +48,7 @@ admin_public = (control / 'admin_ed25519.pub').read_text().strip()
 guest_public = (control / 'guest_ed25519.pub').read_text().strip()
 (control / 'known_hosts').write_text('[127.0.0.1]:2222 ' + guest_public + '\n')
 config = {
-    'hostname': 'redoubt-ci', 'manage_etc_hosts': True,
+    'hostname': args.name, 'manage_etc_hosts': True,
     'disable_root': True, 'ssh_pwauth': False,
     'ssh_keys': {
         'ed25519_private': (control / 'guest_ed25519').read_text(),
@@ -48,12 +65,16 @@ config = {
 }
 (state / 'user-data').write_text('#cloud-config\n' + yaml.safe_dump(config))
 (state / 'user-data').chmod(0o600)
-(state / 'meta-data').write_text('instance-id: redoubt-ci-20260908\nlocal-hostname: redoubt-ci\n')
+(state / 'meta-data').write_text(
+    f'instance-id: {args.name}-{args.instance_date}\nlocal-hostname: {args.name}\n')
+# Parsed (never sourced) by inside.sh; without this file it keeps box A's sizing.
+(state / 'vm.conf').write_text(
+    f'VM_NAME={args.name}\nVM_CPUS={args.cpus}\nVM_MEM_MIB={args.mem_mib}\n')
 subprocess.run(['genisoimage', '-quiet', '-output', str(state / 'seed.iso'),
                 '-volid', 'cidata', '-joliet', '-rock',
                 str(state / 'user-data'), str(state / 'meta-data')], check=True)
 subprocess.run(['qemu-img', 'create', '-f', 'qcow2', '-F', 'qcow2',
-                '-b', base.name, str(state / 'system.qcow2'), '400G'], check=True)
+                '-b', base.name, str(state / 'system.qcow2'), args.disk], check=True)
 shutil.copyfile('/usr/share/edk2/ovmf/OVMF_VARS.fd', state / 'OVMF_VARS.fd')
 shutil.copyfile(source / 'inside.sh', state / 'inside.sh')
 installed = home / '.local/lib/redoubt-ci-vm'
