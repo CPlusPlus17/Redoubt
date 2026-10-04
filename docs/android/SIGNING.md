@@ -329,7 +329,7 @@ Everything above is about the **APK release key**. The in-app update check
     SHA-256 of public DER  ecba7d19ada187d18cb6df84230ec90b40c6de7ed41e2f674f0958f715551d62
     copies / holders       1 holder (the owner); working copy in ~/redoubt-update-key/ on the
                            Fedora host (box A), where it stays for the stable release (owner
-                           decision 2026-10-04, below); offline backup copies made (owner-
+                           decision 2026-10-04, above); offline backup copies made (owner-
                            reported 2026-10-04; location not recorded here)
     restore tested         2026-10-04, owner-reported: restore test done from the backup.
                            Not witnessed by the agent, which does not read either key.
