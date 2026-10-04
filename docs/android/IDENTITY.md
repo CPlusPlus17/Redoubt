@@ -75,9 +75,11 @@ and `.build` are all registered to other parties. `redoubt.foundation` was free
 and was rejected too: there is no foundation, and claiming one would be the same
 species of overclaim as "provably zero-GMS".
 
-**The domain is registered (2026-08-23, Namecheap) but serves no site yet.** It
-resolves, but nothing is published there, so the docs still treat it as a decision,
-not a live host. Do not link to it publicly until LW-M7-02 puts real pages on it.
+**The domain is live (since 2026-10-04).** Registered 2026-08-23 at Namecheap; it
+serves the project site (GitHub Pages, built from `site/`, HTTPS enforced, apex
+`redoubtbrowser.org` with `www` redirecting to it) and, from Beta 6, the update-check
+document at `/update/android/latest.json`. The domain is verified for the owner's
+GitHub account, so no one else can claim it on GitHub Pages.
 
 ## The space is occupied
 
