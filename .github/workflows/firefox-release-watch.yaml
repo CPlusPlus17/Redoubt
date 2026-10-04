@@ -16,6 +16,17 @@
 # it is on main. workflow_dispatch runs it by hand from the Actions tab; with
 # dry_run it opens nothing and prints the issue it would open.
 #
+# A second job, patchcheck, follows whenever the watch job opened the issue or
+# found it still open: on another GitHub-hosted runner it downloads the
+# release's source tarball and .asc, verifies them against Mozilla's release
+# key pinned by fingerprint, runs scripts/check-patchfail.sh for
+# --targets=desktop and then --targets=android (one ~5 GB extraction at a
+# time, in a scratch root; nothing in the checkout changes, nothing is
+# committed), and posts ONE comment on the issue: per-target pass/fail, the
+# failing patches, fuzz counts and a link to the run. The comment carries a
+# marker for the version and the commit tested, so a repeat run on the same
+# commit posts nothing; a new commit (patches fixed on main) gets a new one.
+#
 # android-test.yaml lists this file, the script and its test under push
 # paths-ignore, so a push that touches only the watcher does not start the
 # self-hosted Android build. The watcher's own tests run here instead.
@@ -30,7 +41,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Open nothing; print the issue that would be opened."
+        description: "Open and post nothing; print the issue and the patch-check comment that would be posted."
         required: false
         default: false
         type: boolean
@@ -49,7 +60,8 @@ permissions:
   issues: write
 
 concurrency:
-  # Two overlapping runs could both miss each other's issue and open two.
+  # Two overlapping runs could both miss each other's issue and open two, or
+  # each other's patch-check comment and post two.
   group: firefox-release-watch
   cancel-in-progress: false
 
@@ -57,6 +69,10 @@ jobs:
   watch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      patchcheck: ${{ steps.watch.outputs.patchcheck }}
+      version: ${{ steps.watch.outputs.version }}
+      issue: ${{ steps.watch.outputs.issue }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -67,8 +83,50 @@ jobs:
 
       # A push only proves the watcher works; it never opens an issue.
       - name: Check for a new Firefox release
+        id: watch
         if: ${{ github.event_name != 'push' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
         run: python3 scripts/firefox-release-watch.py $DRY_RUN
+
+  # Only after the watch step ran (never on push) and said so: the issue was
+  # just opened, is still open, or this is a dry run.
+  patchcheck:
+    needs: watch
+    if: ${{ needs.watch.outputs.patchcheck == 'true' }}
+    runs-on: ubuntu-latest
+    # Download ~800 MB, two extractions of ~5 GB and two patch runs.
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        # No submodules: check-patchfail.sh reads only patches/ and
+        # assets/patches/.
+
+      - name: Disk before
+        run: df -h "$RUNNER_TEMP" .
+
+      - name: Check the patches against the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.watch.outputs.version }}
+          ISSUE: ${{ needs.watch.outputs.issue }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
+        run: |
+          python3 scripts/firefox-release-watch.py patchcheck \
+            --version "$VERSION" ${ISSUE:+--issue "$ISSUE"} \
+            --reports-dir "$RUNNER_TEMP/patchfail-reports" $DRY_RUN
+
+      - name: Keep the full reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: patchfail-${{ needs.watch.outputs.version }}
+          path: ${{ runner.temp }}/patchfail-reports/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Disk after
+        if: ${{ always() }}
+        run: df -h "$RUNNER_TEMP" .

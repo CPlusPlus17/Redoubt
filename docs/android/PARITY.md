@@ -154,3 +154,122 @@ would make it false.
 - `docs/android/IDENTITY.md`, `docs/android/ROADMAP.md` — row 16, §3.2, §5
 - Gates: `scripts/android-network-check.sh` (LW-M5-05),
   `scripts/android-rfp-check.sh` (LW-M5-04) — both with passing `--self-test`
+- `docs/android/evidence/security-coverage-2026-10-04/` — §7 (advisory table,
+  fix-presence check)
+
+## 7. Security coverage on the release track (2026-10-04)
+
+Checked 2026-10-04 against Redoubt `157.0-1` (`version.android` = `157.0`,
+`main` at `39d159ca`; Beta 4 and Beta 5 were built from this tree). Android
+moved off ESR on 2026-10-02 ([`TRACK.md`](TRACK.md#decision-reversed-2026-10-02)),
+so this re-asks the question the ESR rebase left open: which Firefox for
+Android security fixes does the shipped tree lack?
+
+**Bottom line: as of 2026-10-04 there is no open gap.** All nine Firefox for
+Android CVEs that were open against the ESR tree are fixed in Firefox 157.0 or
+earlier, and each fix is in the 157.0 source Redoubt builds. Mozilla has
+published no Firefox for Android advisory fixed after 157.0.
+
+### 7.1 Sources and method
+
+- **Advisories.** The MFSA index, <https://www.mozilla.org/en-US/security/advisories/>,
+  fetched 2026-10-04: MFSA 2026-01 to 2026-103. Every Firefox release advisory
+  of 2026 (147 to 157, dot releases included), MFSA 2026-73 and the ESR 153.x
+  advisories (2026-77, -85, -93, -100) were downloaded and parsed per CVE.
+  Each advisory is at `https://www.mozilla.org/en-US/security/advisories/mfsa2026-NN/`.
+- **Android advisories.** In 2026 exactly **one** advisory is titled for
+  Firefox for Android: [MFSA 2026-73](https://www.mozilla.org/en-US/security/advisories/mfsa2026-73/)
+  (Firefox for Android 153.0.3). **None** is titled for Firefox Focus for
+  Android. Every other Android fix is a CVE inside a desktop release advisory
+  whose title names "Firefox for Android" or "Firefox Focus for Android". There
+  are 18 of those plus MFSA 2026-73's one, listed in
+  `evidence/security-coverage-2026-10-04/android-cves.tsv`.
+- **Firefox 154-157.** [MFSA 2026-74](https://www.mozilla.org/en-US/security/advisories/mfsa2026-74/)
+  (154, 58 CVEs), [2026-82](https://www.mozilla.org/en-US/security/advisories/mfsa2026-82/)
+  (155, 29), [2026-90](https://www.mozilla.org/en-US/security/advisories/mfsa2026-90/)
+  (156, 73), [2026-97](https://www.mozilla.org/en-US/security/advisories/mfsa2026-97/)
+  (157, 76): 236 CVEs, all "fixed in" a version <= 157.
+- **Where each fix lives.** The bug's product/component from the Bugzilla REST
+  API where the bug is public, and in every case the fix commit in Mozilla's
+  GitHub mirror (`mozilla-firefox/firefox`, searched by bug number) and the
+  files it touches.
+- **Is it in our tree.** Every added line of each fix commit was looked up in
+  the matching file of `firefox-157.0.source.tar.xz`; every Redoubt patch on
+  the Android list (`assets/patches/common.txt` + `android.txt`, 64 patches)
+  was checked for a `-` line that removes one. Output and caveats:
+  `evidence/security-coverage-2026-10-04/fix-presence.txt`. This checks
+  source, not a build.
+
+### 7.2 Closed gaps: the nine CVEs open against the ESR tree
+
+The list is the one in [`REBASE.md` Appendix D §1](REBASE.md#appendix-d--record-1530esr--15340esr-2026-10-02),
+"Step 1.3", and it matches the parse above exactly: the Android-titled CVEs
+fixed after Firefox 153 are these nine and no others.
+
+| CVE | MFSA | fixed in | impact | bug | fix lives in | in 157.0 tree | Redoubt |
+|---|---|---|---|---|---|---|---|
+| CVE-2026-18809 | [2026-73](https://www.mozilla.org/en-US/security/advisories/mfsa2026-73/) | Firefox for Android 153.0.3 | high | [2055683](https://bugzilla.mozilla.org/show_bug.cgi?id=2055683) | Gecko (GeckoView, `mobile/android/components/geckoview/GeckoViewContentChannelParent.cpp`) | yes | **closed** |
+| CVE-2026-74951 | [2026-74](https://www.mozilla.org/en-US/security/advisories/mfsa2026-74/) | 154 | moderate | 1978587 | android-components (`feature/sitepermissions`, `support/utils`) + Fenix (`ExternalAppBrowserActivity.kt`) | yes | **closed** |
+| CVE-2026-74975 | 2026-74 | 154 | low | [1842361](https://bugzilla.mozilla.org/show_bug.cgi?id=1842361) | android-components (`feature/downloads/DownloadsFeature.kt`) + Fenix | yes | **closed** |
+| CVE-2026-74980 | 2026-74 | 154 | low | 2049034 | Fenix (`downloads/RenameAndChangeLocationDialogFragment.kt`) | yes | **closed** |
+| CVE-2026-84117 | [2026-82](https://www.mozilla.org/en-US/security/advisories/mfsa2026-82/) | 155 | high | 2053320 | Fenix (Nimbus QA tooling moved out of `HomeActivity` into `QANimbusToolingReceiver`, guarded by `android.permission.DUMP`); part 2 is Focus-only | yes | **closed, and stricter** (below) |
+| CVE-2026-84127 | 2026-82 | 155 | moderate | [1699444](https://bugzilla.mozilla.org/show_bug.cgi?id=1699444) | android-components (`engine-gecko` `GeckoWebExtension.kt`, `support/webextensions`) + Fenix | yes | **closed** |
+| CVE-2026-84135 | 2026-82 | 155 | low | 2046661 | Firefox **Focus** for Android only (advisory title) | n/a | **not applicable**: Redoubt builds `fenix:assemble*` only, never `focus-android` |
+| CVE-2026-92033 | [2026-90](https://www.mozilla.org/en-US/security/advisories/mfsa2026-90/) | 156 | high | 2047339 | Gecko (`ipc/glue/GeckoChildProcessHost.cpp`, `widget/android/`, GeckoView process manager) | yes | **closed** |
+| CVE-2026-100823 | [2026-97](https://www.mozilla.org/en-US/security/advisories/mfsa2026-97/) | 157 | low | [2054384](https://bugzilla.mozilla.org/show_bug.cgi?id=2054384) | android-components (`feature/downloads/DownloadNotification.kt`, `support/ktx`) | yes | **closed** |
+
+Unlinked bugs are security-restricted on Bugzilla; the fix commits are public
+and named in `fix-presence.txt`. Bug 2046661 has no public commit, which
+changes nothing: no Focus code is built.
+
+**CVE-2026-84117.** Upstream's fix moves Nimbus QA tooling into an exported
+receiver that only holders of `android.permission.DUMP` (in practice the adb
+shell) can reach. Redoubt keeps the receiver and its permission, and
+`patches/android/no-nimbus.patch` additionally removes its
+`initializeTooling()` call, so on Redoubt the receiver applies no Nimbus
+command at all. The revert check flags that hunk; it is deliberate.
+
+**Who was exposed.** The nine were open in Beta 1 to Beta 3 (Beta 3 is
+`153.4.0esr-1`, published 2026-10-02). Beta 4 (`157.0-1`, 2026-10-03) is the
+first build that carries them; Beta 5 (2026-10-04) does too.
+
+### 7.3 The reverse check: ESR fixes missing from 157
+
+Leaving ESR could also lose a fix that only the ESR line got. Every CVE of the
+four ESR 153.x advisories was matched against the Firefox 147-157 advisories.
+One is absent from all of them: **CVE-2026-100832**, high, use-after-free in
+Graphics: Canvas2D, bug 2072467, listed only in
+[MFSA 2026-100](https://www.mozilla.org/en-US/security/advisories/mfsa2026-100/)
+(ESR 153.4). It is **not a gap**: the fix (`dom/canvas/OffscreenCanvas.cpp`) was
+uplifted to the release branch on 2026-09-21, is an ancestor of the
+`FIREFOX_157_0_RELEASE` tag in the GitHub mirror, and its lines are in the
+157.0 tarball. No Redoubt patch touches that file. MFSA 2026-97 just does not
+list it.
+
+### 7.4 Open gaps
+
+- **After 157.0: none.** As of 2026-10-04 there is no Firefox 157.0.x:
+  `https://archive.mozilla.org/pub/firefox/releases/157.0.1/` is a 404, and
+  product-details reports `LATEST_FIREFOX_VERSION` `157.0`
+  (`firefox_versions.json`) and Android `version` `157.0`
+  (`mobile_versions.json`). No advisory after MFSA 2026-97 covers Firefox or
+  Firefox for Android (2026-98 to -103 are ESR and Thunderbird).
+- **Next expected:** Firefox 158, `NEXT_RELEASE_DATE` 2026-10-09 in
+  product-details. Its advisory will open gaps against `157.0-1` until the
+  rebase ships. `firefox-release-watch` opens the rebase issue
+  ([`REBASE.md`](REBASE.md#release-track-cadence)); this section's check
+  should be repeated against each new advisory.
+- **Watch residual: Android-only dot releases.** `scripts/firefox-release-watch.py` (at `39d159ca`)
+  reads only `LATEST_FIREFOX_VERSION` from `firefox_versions.json`. Mozilla
+  sometimes ships a Firefox for Android dot release that desktop does not
+  get: 153.0.2 exists under `pub/fenix/releases/153.0.2/` but has no
+  `pub/firefox/releases/153.0.2/source/` tarball (404, checked 2026-10-04),
+  while the security one, 153.0.3 (MFSA 2026-73), had both. A future
+  Android-only security dot would therefore not be flagged by the watcher,
+  and might have no source tarball to rebase onto (its fix would have to be
+  taken from the release branch). Until the watcher also reads
+  `mobile_versions.json`, the MFSA index is the check: an advisory titled
+  "Firefox for Android" is the signal.
+- **Not covered by this section:** the platform gaps of §1 to §3 (no content
+  sandbox, DoH overridden) are unchanged. This section is about Mozilla
+  advisories only.

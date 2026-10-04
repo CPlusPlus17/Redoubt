@@ -75,8 +75,9 @@ and `.build` are all registered to other parties. `redoubt.foundation` was free
 and was rejected too: there is no foundation, and claiming one would be the same
 species of overclaim as "provably zero-GMS".
 
-**The domain is not registered yet.** It is written throughout the docs as a
-decision, not as a live host. Register it before anything links to it publicly.
+**The domain is registered (2026-08-23, Namecheap) but serves no site yet.** It
+resolves, but nothing is published there, so the docs still treat it as a decision,
+not a live host. Do not link to it publicly until LW-M7-02 puts real pages on it.
 
 ## The space is occupied
 

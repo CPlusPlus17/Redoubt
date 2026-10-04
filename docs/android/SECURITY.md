@@ -1,7 +1,8 @@
 # Security disclosure — Redoubt (Android)
 
-Redoubt is a fork that ships on the Firefox **ESR** track, so its security
-posture and its disclosure process differ from both desktop LibreWolf and from
+Redoubt is a fork that ships on the Firefox **release** track (since
+2026-10-02, `157.0-1` from Beta 4 on; Betas 1 to 3 were on ESR 153, see
+`docs/android/TRACK.md`), so its security posture and its disclosure process differ from both desktop LibreWolf and from
 the stock browser it is built from. This page is the disclosure process, and it
 is written for the three failure modes the Android port adds: an **APK
 signature** problem, a **distribution-channel** problem, and a **device-specific**
@@ -31,7 +32,7 @@ a Codeberg account.**
   report and the maintainer will give an out-of-band channel rather than ask you
   to create one first.
 
-Please include: the affected Redoubt version and the ESR version underneath it,
+Please include: the affected Redoubt version and the Firefox version underneath it,
 the device and Android version, where the APK came from (which channel, which
 build), and — for a suspected compromised build — the APK's sha256 and its
 signature. The triage template in `docs/android/TRIAGE.md` collects exactly this.
@@ -92,40 +93,45 @@ here.
 This is stated honestly, in two layers, because confusing the two is how a
 number that is not a promise starts to read like one.
 
-**Mozilla's layer (a fact, not a promise).** Redoubt is on the ESR track, so a
-Gecko security fix that Mozilla ships out of band to Firefox *release* reaches
-Redoubt only when it reaches Firefox ESR. Measured from Mozilla's advisory
-history (`docs/android/TRACK.md` §3a–3b): roughly half of release-channel fixes
-land in ESR the same day; the rest have a **median of 14 days, worst observed 21
-days**. Some fixes do not backport to ESR at all and wait for the next ESR major
-(up to ~13 months). And because **there is no Firefox for Android ESR channel**,
-an Android-only advisory has no ESR counterpart and is triaged individually — a
-named obligation, not an automatic uplift.
+**Mozilla's layer (a fact, not a promise).** Redoubt builds Firefox *release*
+source (`version.android`), the same tree Firefox for Android ships from. A
+Gecko security fix that Mozilla ships out of band as a Firefox dot release is
+in that dot's source tarball the day it ships, and Firefox for Android fixes
+(GeckoView, android-components, Fenix) are in the release tree like any other
+fix. The ESR latency this section used to quote (median 14 days, worst 21,
+`docs/android/TRACK.md` §3a-3b) no longer applies. One case is not covered by
+a tarball: Mozilla sometimes ships an Android-only dot release with no
+desktop source tarball (153.0.2 was one; see `docs/android/PARITY.md` §7.4).
 
-**Redoubt's layer (the target, ours to set and ours to meet).** On top of
-Mozilla's ESR latency, once the ESR security tarball is published:
+**Redoubt's layer (the target, ours to set and ours to meet).** Once Mozilla
+publishes the release source tarball carrying the fix:
 
 - **Critical (public exploit, or active in-the-wild):** target a published,
-  signed APK **within 72 hours** of the ESR security tarball landing on
+  signed APK **within 72 hours** of the security tarball landing on
   `archive.mozilla.org`, on a warm build environment. If that cannot be met, the
   expected date is published within the same window rather than left silent.
-- **High (no known exploitation):** the next scheduled ESR dot release, with the
-  backport decision documented.
-- **Android-only (no ESR counterpart):** triaged individually; the outcome
-  (backported / not applicable / not backported and why) is published.
+- **High (no known exploitation):** the next Firefox release rebase (every two
+  weeks since Firefox 155), or the dot release that carries it.
+- **Android-only with no source tarball:** the fix is taken from Mozilla's
+  release branch and the outcome is published.
 
 The 72-hour figure is a target to be met, not a guarantee, and it is the
-maintainer's to ratify; it is deliberately not folded together with Mozilla's
-14-day ESR latency into a single number, because that single number would look
-like a promise Redoubt does not control.
+maintainer's to ratify. It is ours alone: Mozilla's part is now the day the
+fix ships, not a separate ESR lag.
 
 ## The watch obligation
 
-Because there is no Firefox for Android ESR channel, the standing obligation is
-that **a named owner reads every "Firefox for Android" MFSA and decides per
-advisory whether to backport it into this tree** (`docs/android/TRACK.md` §3c).
-That owner is the same named triage owner in `docs/android/TRIAGE.md` — a
-placeholder until one is named; this page names the *role*, not a person.
+On the release track there is no backport obligation for Firefox for Android
+advisories: they arrive with the rebase (`docs/android/TRACK.md`, "Decision
+reversed 2026-10-02"). What remains is to rebase promptly and to check, per
+advisory, that the shipped build is not behind it.
+`scripts/firefox-release-watch.py` opens an issue for each new
+`LATEST_FIREFOX_VERSION`; it does not see Android-only dot releases, so every
+MFSA titled "Firefox for Android" is still read by the triage owner in
+`docs/android/TRIAGE.md` (a placeholder until one is named; this page names
+the *role*, not a person). The current coverage record, with the nine
+Android CVEs the ESR tree lacked and how the move to 157 closed them, is
+`docs/android/PARITY.md` §7.
 
 ## Disclosure timeline
 

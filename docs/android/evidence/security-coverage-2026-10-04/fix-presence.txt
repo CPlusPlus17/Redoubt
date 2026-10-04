@@ -1,0 +1,91 @@
+# Fix presence in firefox-157.0.source.tar.xz (the tarball version.android = 157.0 names)
+# Date: 2026-10-04
+# Method: each fix commit's diff was fetched from the GitHub mirror of mozilla-central
+# (mozilla-firefox/firefox, commit found by searching "Bug <n>"); for every added line of
+# 8+ characters the check reports whether the same line occurs in the 157.0 file.
+# "NOT EXTRACTED" = file not pulled out of the tarball (tests, samples, Focus); not checked.
+# Every line reported missing (the 15/16, 23/24, 8/9 and 3/4 rows) is a KDoc comment line
+# that reads differently in 157 (checked one by one); no code line of any fix is missing.
+#
+# commit -> bug -> CVE
+#   b6b18b911126  bug 2055683  CVE-2026-18809
+#   d29886aa0109  bug 1978587  CVE-2026-74951
+#   e90ea19c49fc  bug 1842361  CVE-2026-74975
+#   5bf9b39dde43  bug 2049034  CVE-2026-74980
+#   b216958be2dc  bug 2053320  CVE-2026-84117 (part 1, Fenix)
+#   b32d33cd05db  bug 2053320  CVE-2026-84117 (part 2, Focus only, not shipped)
+#   156251d663b4  bug 1699444  CVE-2026-84127
+#   07ee9c98e872  bug 1699444  CVE-2026-84127
+#   e8a4922ff2a8  bug 2047339  CVE-2026-92033 (relanding; c1d8ad3f29e2 was backed out)
+#   37969182a870  bug 2054384  CVE-2026-100823
+#   209d8930e0a8  bug 2072467  CVE-2026-100832 (release-branch uplift; in MFSA 2026-100 only)
+#   bug 2046661 (CVE-2026-84135, Focus only): no public commit found.
+diffs/07ee9c98e872.diff
+    mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/webextension/GeckoWebExtension.kt 2/2 added lines present
+    mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/webextension/GeckoWebExtensionTest.kt NOT EXTRACTED
+diffs/156251d663b4.diff
+    mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt NOT EXTRACTED
+    mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/webextension/GeckoWebExtension.kt 4/4 added lines present
+    mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt NOT EXTRACTED
+    mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/webextension/GeckoWebExtensionTest.kt NOT EXTRACTED
+    mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtension.kt NOT EXTRACTED
+    mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtensionDelegate.kt NOT EXTRACTED
+    mobile/android/android-components/components/concept/engine/src/test/java/mozilla/components/concept/engine/webextension/WebExtensionTest.kt NOT EXTRACTED
+    mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt 15/16 added lines present
+    mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt NOT EXTRACTED
+    mobile/android/android-components/samples/browser/src/main/java/org/mozilla/samples/browser/SampleApplication.kt NOT EXTRACTED
+    mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt NOT EXTRACTED
+    mobile/android/focus-android/app/src/main/java/org/mozilla/focus/FocusApplication.kt NOT EXTRACTED
+    mobile/android/test_runner/src/main/java/org/mozilla/geckoview/test_runner/TestRunnerActivity.java NOT EXTRACTED
+diffs/209d8930e0a8.diff
+    dom/canvas/OffscreenCanvas.cpp 3/3 added lines present
+diffs/37969182a870.diff
+    mobile/android/android-components/components/feature/downloads/src/main/java/mozilla/components/feature/downloads/DownloadNotification.kt 13/13 added lines present
+    mobile/android/android-components/components/feature/downloads/src/test/java/mozilla/components/feature/downloads/DownloadNotificationTest.kt NOT EXTRACTED
+    mobile/android/android-components/components/support/ktx/src/main/java/mozilla/components/support/ktx/kotlin/String.kt 13/13 added lines present
+    mobile/android/android-components/components/support/ktx/src/test/java/mozilla/components/support/ktx/kotlin/StringTest.kt NOT EXTRACTED
+diffs/5bf9b39dde43.diff
+    mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/ui/robots/DownloadRobot.kt NOT EXTRACTED
+    mobile/android/fenix/app/src/main/java/org/mozilla/fenix/downloads/RenameAndChangeLocationDialogFragment.kt 23/24 added lines present
+diffs/b216958be2dc.diff
+    mobile/android/fenix/app/src/main/AndroidManifest.xml 9/9 added lines present
+    mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt 0/0 added lines present
+    mobile/android/fenix/app/src/main/java/org/mozilla/fenix/experiments/QANimbusToolingReceiver.kt 34/34 added lines present
+    mobile/android/fenix/app/src/test/java/org/mozilla/fenix/experiments/QANimbusToolingReceiverTest.kt NOT EXTRACTED
+diffs/b32d33cd05db.diff
+    mobile/android/focus-android/app/src/main/java/org/mozilla/focus/activity/MainActivity.kt 0/0 added lines present
+diffs/b6b18b911126.diff
+    mobile/android/components/geckoview/GeckoViewContentChannelParent.cpp 3/3 added lines present
+diffs/d29886aa0109.diff
+    mobile/android/android-components/components/feature/sitepermissions/src/main/java/mozilla/components/feature/sitepermissions/SitePermissionsDialogFragment.kt 7/7 added lines present
+    mobile/android/android-components/components/support/utils/src/main/java/mozilla/components/support/utils/OnEnterAnimationCompleteListener.kt 8/9 added lines present
+    mobile/android/fenix/app/src/main/java/org/mozilla/fenix/customtabs/ExternalAppBrowserActivity.kt 7/7 added lines present
+diffs/e8a4922ff2a8.diff
+    ipc/glue/GeckoChildProcessHost.cpp 7/7 added lines present
+    mobile/android/geckoview/src/main/aidl/org/mozilla/gecko/process/IProcessManager.aidl 1/1 added lines present
+    mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java 76/76 added lines present
+    mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoServiceChildProcess.java 2/2 added lines present
+    widget/android/GeckoEditableSupport.cpp 6/6 added lines present
+    widget/android/GeckoEditableSupport.h NOT EXTRACTED
+    widget/android/GeckoProcessManager.cpp 1/1 added lines present
+    widget/android/GeckoProcessManager.h NOT EXTRACTED
+diffs/e90ea19c49fc.diff
+    mobile/android/android-components/components/feature/downloads/src/main/java/mozilla/components/feature/downloads/DownloadsFeature.kt 3/4 added lines present
+    mobile/android/android-components/components/feature/downloads/src/test/java/mozilla/components/feature/downloads/DownloadsFeatureTest.kt NOT EXTRACTED
+    mobile/android/fenix/app/src/main/java/org/mozilla/fenix/addons/AddonPopupBaseFragment.kt NOT EXTRACTED
+    mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt 3/3 added lines present
+
+# Redoubt patch interaction (assets/patches/common.txt + android.txt, 64 patches at 39d159ca):
+# every '-' line of every listed patch was compared with every added line of the fixes above,
+# per file. Matches:
+#   patches/android/no-nimbus.patch removes QANimbusToolingReceiver.onReceive()'s
+#     initializeTooling() call (CVE-2026-84117 / bug 2053320). Intentional and stricter than
+#     upstream: the receiver and its android:permission="android.permission.DUMP" manifest
+#     entry stay, and it no longer applies any Nimbus command (see the patch header,
+#     "THE TOOLING HOOK MOVED").
+#   patches/android/no-adjust.patch and no-gms.patch match only generic AndroidManifest.xml
+#     lines (<receiver>, <intent-filter>, android:exported="true") of their own receivers; no
+#     '-' line in either names QANimbusToolingReceiver or NIMBUS_TOOLING.
+# No other patch removes a fix line. No patch touches GeckoViewContentChannelParent.cpp,
+# GeckoProcessManager.*, GeckoChildProcessHost.cpp, GeckoServiceChildProcess.java,
+# DownloadNotification.kt, DownloadsFeature.kt, GeckoWebExtension.kt or OffscreenCanvas.cpp.

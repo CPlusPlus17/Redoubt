@@ -50,7 +50,14 @@ was weighed. It is no longer the policy.
   tarball carries Mozilla's own `mobile/android` fixes, and out-of-band Gecko
   security dots reach us the day Mozilla ships them, without §3a's ESR lag
   (median 14 days, worst 21). The LW-M7-05 statement drafted in §3 has to be
-  rewritten for the release track.
+  rewritten for the release track (`SECURITY.md` now is).
+  Checked 2026-10-04 (`PARITY.md` §7): the nine Firefox for Android CVEs
+  open against the 153.4.0esr tree (`REBASE.md` Appendix D) are all fixed in
+  Firefox <= 157.0 and present in the 157.0 source; eight are closed by
+  `157.0-1` (Beta 4 on), the ninth (CVE-2026-84135) is Focus-only and was
+  never shipped. One residual: Mozilla can ship an Android-only dot release
+  without a desktop source tarball, which `firefox-release-watch` does not
+  see.
 - **The `MOZ_ESR`-dependent sites of §1 and §5.3 need re-validation**, above all
   the search-configuration channel (`toolkit/components/search/SearchUtils.sys.mjs:357`
   on 157: `AppConstants.IS_ESR ? "esr" : AppConstants.MOZ_UPDATE_CHANNEL`) and
@@ -410,6 +417,9 @@ Android. It is Android-only, it names no ESR version, and as of 2026-08-15 no ES
 release has carried it. The next scheduled ESR 153 point release is 153.1 on
 2026-08-18 — 14 days after the release-channel fix, and whether it carries this
 CVE at all depends on whether the bug is in Gecko or in the Kotlin layer.
+
+*(Superseded 2026-10-02: on the release track these fixes arrive with the
+rebase. Outcome for the nine that were open against 153.4.0esr: `PARITY.md` §7.)*
 
 **Redoubt on ESR inherits this gap and must close it by hand.** That
 is a standing obligation, not a one-off: someone reads every "Firefox for Android"
