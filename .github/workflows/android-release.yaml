@@ -47,7 +47,9 @@ on:
   # Changes to this pipeline preflight themselves. A workflow that has never
   # executed is not a pipeline; this makes "it runs" observable on every edit.
   push:
-    branches: [android-port, main]
+    # main only: android-port is pushed at the same commit, and a second
+    # preflight would only start the box B VM twice for one edit.
+    branches: [main]
     paths: ['.github/workflows/android-release.yaml']
   workflow_dispatch:
     inputs:
