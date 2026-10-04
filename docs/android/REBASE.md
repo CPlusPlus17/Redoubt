@@ -89,7 +89,7 @@ self-hosted Android runner) runs `scripts/firefox-release-watch.py patchcheck`:
    branch while the issue is open (patches fixed, say) gets a fresh comment
    on the next daily run; a re-run on the same commit posts nothing;
 2. downloads `firefox-<v>.source.tar.xz` and its `.asc`, fetches Mozilla's
-   release key the way §3 / the Makefile does (keys.openpgp.org, by
+   release key the way §3 / the Makefile does (the pinned assets/mozilla-release-key.asc; formerly keys.openpgp.org, by
    fingerprint) into a throwaway keyring, and refuses unless the key is
    exactly `14F26682D0916CDD81E37B6D61B7B526D98F0353` and gpg's `VALIDSIG`
    names it as the primary key;
@@ -275,7 +275,7 @@ make -n fetch TARGETS=android
 which prints (verified today, with `version.android` = `153.0esr`):
 
 ```
-curl -so public_key.asc "https://keys.openpgp.org/vks/v1/by-fingerprint/14F26682D0916CDD81E37B6D61B7B526D98F0353"
+gpg --import assets/mozilla-release-key.asc   # pinned in the repo since 2026-10-04 (was: keys.openpgp.org)
 gpg --import public_key.asc
 rm -f public_key.asc
 curl -so firefox-153.0esr.source.tar.xz.asc "https://archive.mozilla.org/pub/firefox/releases/153.0esr/source/firefox-153.0esr.source.tar.xz.asc"
