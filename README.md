@@ -98,7 +98,8 @@ That "where" is [`docs/android/PARITY.md`](docs/android/PARITY.md). In short:
 ## Attribution
 
 **Redoubt is built on LibreWolf's work.** The privacy configuration that is the
-point of this browser (`settings/librewolf.cfg` and roughly 260 preference
+point of this browser (LibreWolf's `librewolf.cfg`, from which Redoubt's
+`settings/common.cfg` and `android.cfg` are derived, and the roughly 260 preference
 decisions behind it) and the patch set that enforces it were written by the
 [LibreWolf project](https://librewolf.net), and this repository is a fork of
 [LibreWolf's source](https://librewolf.dev/librewolf/source), used under MPL-2.0.
@@ -152,4 +153,4 @@ LibreWolf's own releases from [librewolf.net](https://librewolf.net).
 
 [Mozilla Public License 2.0](LICENSE), like the LibreWolf and Firefox code it is
 built from. The licence covers the code, not the LibreWolf or Firefox names and
-logos (MPL-2.0 §3.4).
+logos (MPL-2.0 §2.3).
