@@ -186,18 +186,20 @@ SKIP_GECKO=0
 # release build still carries the debug signature, exactly as before.
 DISABLE_DEBUG_SIGNING=""
 # LW-M6-06: the opt-in update check is compiled in only when the build is given
-# the base64 SubjectPublicKeyInfo of the key that signs the update document.
-# Read from the environment rather than a flag so the release workflow can pass
-# a checked-in PUBLIC key file without a new option; empty -> compiled out,
-# which is what the F-Droid and Accrescent builds want. The endpoint override is
-# for the smoke harness (docs/android/DISTRIBUTION.md).
+# the base64 SubjectPublicKeyInfo of the key that signs the update document;
+# without one it is compiled out (no row, no code path), which is what the
+# F-Droid and Accrescent builds want. Two ways to give it, both explicit:
+#   --update-check              the direct-APK release: use the committed PUBLIC
+#                               key, assets/update-check.android.pubkey (refuses
+#                               to build if the owner has not committed it yet);
+#   LW_UPDATE_CHECK_PUBKEY=...  any key, from the environment (smoke builds with
+#                               a throwaway key; LW_UPDATE_CHECK_ENDPOINT points
+#                               such a build at a test host).
+# The committed key is never picked up implicitly: a store build stays a store
+# build unless someone asks for the check. Validated in the preflight below;
+# docs/android/DISTRIBUTION.md is the contract.
+UPDATE_CHECK=0
 LW_UPDATE_CHECK_PROPS=""
-if [ -n "${LW_UPDATE_CHECK_PUBKEY:-}" ]; then
-    LW_UPDATE_CHECK_PROPS="-PlwUpdateCheckPubkey=${LW_UPDATE_CHECK_PUBKEY}"
-fi
-if [ -n "${LW_UPDATE_CHECK_ENDPOINT:-}" ]; then
-    LW_UPDATE_CHECK_PROPS="${LW_UPDATE_CHECK_PROPS} -PlwUpdateCheckEndpoint=${LW_UPDATE_CHECK_ENDPOINT}"
-fi
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -248,6 +250,11 @@ is the fat AAR built by scripts/android-fat-aar.sh.
   --mount-opt O     bind mount suffix, "z" on SELinux (default: $MOUNT_OPT; "" to disable)
   --skip-gecko      skip pass 1 and go straight to Gradle.  Only valid when the
                     objdir already exists and was built by a previous run.
+  --update-check    compile the opt-in update check in, with the committed
+                    public key assets/update-check.android.pubkey (direct-APK
+                    releases only; F-Droid/Accrescent builds never pass it).
+                    Fails if the key is not committed.  LW_UPDATE_CHECK_PUBKEY
+                    in the environment does the same with any key.
   -n, --dry-run     run every preflight check, print the plan, build nothing.
   -h, --help        this text.
 
@@ -326,6 +333,7 @@ while [ $# -gt 0 ]; do
         --mount-opt=*)    MOUNT_OPT=${1#*=}; shift ;;
         --skip-gecko)     SKIP_GECKO=1; shift ;;
         --disable-debug-signing) DISABLE_DEBUG_SIGNING="-PdisableDebugSigning"; shift ;;
+        --update-check)   UPDATE_CHECK=1; shift ;;
         -n|--dry-run)     DRY_RUN=1; shift ;;
         -h|--help)        usage; exit 0 ;;
         *)                usage >&2; die "unknown argument: $1" ;;
@@ -337,6 +345,53 @@ done
 # ---------------------------------------------------------------------------
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd) || die "cannot resolve the repository root"
+
+# LW-M6-06 update check (see LW_UPDATE_CHECK_PROPS above). A key that is not an
+# EC P-256 SubjectPublicKeyInfo compiles into an app whose every check fails
+# silently -- by design indistinguishable from "no update" -- so it is refused
+# here rather than discovered in the field. The endpoint is interpolated into
+# the container's shell script and into a Groovy string, hence the charset.
+update_check_pubkey="${LW_UPDATE_CHECK_PUBKEY:-}"
+update_check_source="LW_UPDATE_CHECK_PUBKEY"
+if [ "$UPDATE_CHECK" = "1" ]; then
+    pubkey_file="$repo_root/assets/update-check.android.pubkey"
+    [ -f "$pubkey_file" ] ||
+        die "--update-check: $pubkey_file does not exist. The owner commits the update-signing
+       PUBLIC key there once (docs/android/SIGNING.md, 'The update-signing key'); until
+       then every build has the check compiled out."
+    committed_key=$(tr -d ' \t\r\n' < "$pubkey_file")
+    [ -z "$update_check_pubkey" ] || [ "$update_check_pubkey" = "$committed_key" ] ||
+        die "--update-check and LW_UPDATE_CHECK_PUBKEY name different keys; use one"
+    update_check_pubkey=$committed_key
+    update_check_source="assets/update-check.android.pubkey"
+fi
+if [ -n "$update_check_pubkey" ]; then
+    # SEQUENCE { SEQUENCE { id-ecPublicKey, prime256v1 }, BIT STRING 04||X||Y }:
+    # 91 bytes, of which the first 27 are fixed for every P-256 key.
+    python3 -c '
+import base64, binascii, sys
+try:
+    der = base64.b64decode(sys.argv[1], validate=True)
+except (binascii.Error, ValueError):
+    sys.exit(1)
+sys.exit(0 if len(der) == 91 and der[:27] == bytes.fromhex(
+    "3059301306072a8648ce3d020106082a8648ce3d03010703420004") else 1)
+' "$update_check_pubkey" ||
+        die "$update_check_source is not the base64 DER SubjectPublicKeyInfo of an EC P-256 key"
+    LW_UPDATE_CHECK_PROPS="-PlwUpdateCheckPubkey=$update_check_pubkey"
+fi
+if [ -n "${LW_UPDATE_CHECK_ENDPOINT:-}" ]; then
+    case "$LW_UPDATE_CHECK_ENDPOINT" in
+        http://*|https://*) ;;
+        *) die "LW_UPDATE_CHECK_ENDPOINT must be an http(s) URL" ;;
+    esac
+    case "$LW_UPDATE_CHECK_ENDPOINT" in
+        *[!A-Za-z0-9._~:/-]*) die "LW_UPDATE_CHECK_ENDPOINT may contain only A-Z a-z 0-9 . _ ~ : / -" ;;
+    esac
+    [ -n "$update_check_pubkey" ] ||
+        warn "LW_UPDATE_CHECK_ENDPOINT has no effect without a key: the check is compiled out"
+    LW_UPDATE_CHECK_PROPS="$LW_UPDATE_CHECK_PROPS -PlwUpdateCheckEndpoint=$LW_UPDATE_CHECK_ENDPOINT"
+fi
 
 # The Gradle build types mobile/android/fenix/app/build.gradle defines are
 # debug, nightly, beta, release and benchmark; this script knows the output
@@ -877,6 +932,11 @@ if [ "$DRY_RUN" = "1" ]; then
         log "  would build $FAT_HOST_ABI ($(abi_to_target "$FAT_HOST_ABI")) in $objdir, merging in the fat AAR"
     fi
     log "  would run ./mach gradle fenix:assemble$VARIANT_CAP"
+    if [ -n "$update_check_pubkey" ]; then
+        log "  update check: COMPILED IN, key from $update_check_source${LW_UPDATE_CHECK_ENDPOINT:+, endpoint $LW_UPDATE_CHECK_ENDPOINT}"
+    else
+        log "  update check: compiled out (no key; store-build configuration)"
+    fi
     log "  would collect APKs into $OUTDIR"
     exit 0
 fi
