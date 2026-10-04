@@ -176,7 +176,55 @@ Cryptographic, exact-payload and current CI-isolation checks remain required and
 have passed. This is a dated custody exception, not an assertion that the original
 offline/physical-separation procedure was followed.
 
+### Decision: stable-release custody, both keys stay on the Fedora host (2026-10-04)
+
+    DECIDED       2026-10-04
+    DECIDED BY    Manuel Gysin (owner)
+    SCOPE         the first stable release, Redoubt 157.0-2, and later releases
+                  until the owner decides otherwise
+    CHOICE        the APK release key (~/redoubt-release.p12) and the update-signing
+                  key (~/redoubt-update-key/) both stay on the Fedora host (box A);
+                  offline backups of both exist and the restore test was done
+                  (owner-reported); builds run in CI on box B; the owner signs on
+                  box A
+
+This is a **standing owner decision for the stable release**, in the place of the
+candidate-by-candidate exceptions recorded for Betas 1-5 (above, and
+`evidence/lw-m7-01/release-157.0/beta*/custody-decision.md`). It is **explicitly
+not offline signing**: settled rule 3 ("the key does not live on the build
+machine") and the release procedure below describe an offline holder machine,
+and that is not what happens. What is true instead:
+
+- **Box B builds, box A signs.** The unsigned APKs come from
+  `.github/workflows/android-release.yaml` on box B's VM (`CI-VM.md`, "Box B"),
+  which has no copy of, path to or credential for either key. Box A's own runner
+  VM (`redoubt-ci-qemu`) has no host home directory (the 2026-09-08 QEMU
+  boundary above). The keys sit on the Fedora host itself, outside both VMs.
+- **The owner signs, by hand.** `sign.sh` and `sign-update-manifest.sh` run in the
+  owner's own terminal on box A, with the passphrases typed there. The agent does
+  not read, copy or operate either key, and verifies only the results (published
+  fingerprint, v2+v3/no v1, payload identical to the unsigned artifact, document
+  signature against `assets/update-check.android.pubkey`).
+- **Backups and restore are owner-reported**, for both keys, on 2026-10-04. The
+  agent has not seen them; this file records the owner's statement, not a
+  measurement. The APK key's 2026-08-23 table above (two copies, restore tested)
+  still describes that key's older copies.
+- **Single holder, unchanged.** The 2026-09-06 decision stands; backups reduce the
+  loss risk, not the compromise risk, and do not add a holder. For the update key
+  the owner's choice is the same single holder (custody rule 2 below: two
+  copies, restore-tested, one holder).
+
+The risk accepted is the one rule 3 exists for: a compromise of the Fedora host
+reaches both keys at once. Moving the keys to an offline machine remains open and
+does not require re-deciding anything else.
+
 ## Release procedure
+
+> **For the stable release (2026-10-04 decision above):** step 1 runs on box B;
+> steps 2-5 run on the Fedora host (box A), in the owner's terminal, not on an
+> offline machine. The steps and their checks are otherwise unchanged. The
+> GitHub-release and update-document steps are in `DISTRIBUTION.md`, "Stable
+> release".
 
 1. CI builds the release variant unsigned and publishes the APK plus
    `SHA256SUMS` as a workflow artifact.
@@ -279,10 +327,12 @@ Everything above is about the **APK release key**. The in-app update check
                            (base64 DER SubjectPublicKeyInfo, one line)
     generated              2026-10-04, by the owner (Manuel Gysin), on the Fedora host
     SHA-256 of public DER  ecba7d19ada187d18cb6df84230ec90b40c6de7ed41e2f674f0958f715551d62
-    copies / holders       1 holder (the owner); private key in ~/redoubt-update-key/ on the
-                           Fedora host (same host-custody exception class as the APK key);
-                           offline backup: owner to confirm
-    restore tested         owner to confirm (repeat the self-test from the backup copy)
+    copies / holders       1 holder (the owner); working copy in ~/redoubt-update-key/ on the
+                           Fedora host (box A), where it stays for the stable release (owner
+                           decision 2026-10-04, above); offline backup copies made (owner-
+                           reported 2026-10-04; location not recorded here)
+    restore tested         2026-10-04, owner-reported: restore test done from the backup.
+                           Not witnessed by the agent, which does not read either key.
 
 Record the public-key digest as plain lowercase hex (what `openssl dgst -sha256`
 prints), not in the colon form or under the words "SHA-256 fingerprint":
