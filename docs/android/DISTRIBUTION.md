@@ -33,9 +33,9 @@ publishing side now exists in the repository; what is still missing is owner-hel
 | build wiring (`scripts/android-apk.sh --update-check`) | implemented; refuses to build until the public key is committed |
 | tests (`scripts/tests/test-update-manifest.py`, `test-update-check-jvm.sh`) | implemented, throwaway keys only |
 | hosting (`site/update/android/` on `redoubtbrowser.org`, GitHub Pages) | the site publishes `site/update/**` verbatim; **nothing is there yet** |
-| update-signing key | **not generated** -- owner action, `SIGNING.md` "The update-signing key" |
-| `assets/update-check.android.pubkey` | **not committed** -- until it is, every build compiles the check out, exactly as before |
-| first signed document | published with the first build made with `--update-check` (planned: Beta 6) |
+| update-signing key | generated 2026-10-04 by the owner; custody in `SIGNING.md` "The update-signing key" (stays on the Fedora host, owner decision 2026-10-04) |
+| `assets/update-check.android.pubkey` | committed 2026-10-04 (merge `7c724f60`); builds made with `--update-check` carry it |
+| first signed document | published with the first build made with `--update-check`: the stable release **Redoubt 157.0-2** (see "Stable release" below), not a Beta 6 |
 
 Redoubt is a fork that ships on the Firefox **release** track (since 2026-10-02; see
 `TRACK.md`), and the direct-APK
@@ -49,8 +49,9 @@ It is the contract half of LW-M6-06. The code half is
 2026-09-02); the endpoint is served from `redoubtbrowser.org`
 (`docs/android/IDENTITY.md`), which the owner decided on 2026-10-04 to publish as a
 GitHub Page from `site/` (`docs/android/WEBSITE.md`). **No document is published
-yet**, and no verification key is checked in — a build made without one has the
-check compiled out (see "F-Droid and Accrescent do not double-notify").
+yet.** The verification key is checked in since 2026-10-04; a build made without
+`--update-check` still has the check compiled out (see "F-Droid and Accrescent do
+not double-notify").
 
 This page fixes the *shape* of the check and its privacy boundary so that the one
 thing a privacy browser must not do (a silent, always-on phone-home) is ruled out
@@ -277,6 +278,68 @@ higher versionCode, so a document naming an older build is simply ignored.
 compiled out (no key string in the dex, no Settings row). The same `classes*.dex`
 grep returning 0 is the check for those.
 
+## Stable release: Redoubt 157.0-2 (owner decision 2026-10-04)
+
+The owner decided GO on 2026-10-04 (`BETA.md` §7): the first stable release is
+**Redoubt 157.0-2**, Firefox 157 based, a new build from `main` with the update
+check compiled in; early adopters replace the beta's device slots. Builds run in
+CI on box B; the owner signs on box A (`SIGNING.md`, "Decision: stable-release
+custody"). The step list above applies unchanged; this is the delta.
+
+| | betas (above) | stable release |
+|---|---|---|
+| tag | `android-157.0-1-beta.N` | `android-157.0-2` |
+| title | "Redoubt 157.0-1 Beta N" | `Redoubt 157.0-2` |
+| flags | `--latest` (Betas 1-4: `--prerelease`) | `--latest`, **not** `--prerelease` |
+| versionName / release.android | `157.0-1-default` / 1 | `157.0-2-default` / 2 |
+| update check | compiled out | compiled in (`update_check=true`) |
+| update document | none | `site/update/android/latest.json` + `.sig`, after the GitHub release |
+
+1. **Build** on box B, from `main` after the release branch is merged, with a
+   pinned build date later than Beta 5's `20261003200000` (versionCodes
+   2016188256-63) and not in the future:
+
+       gh workflow run android-release.yaml --repo CPlusPlus17/Redoubt --ref main \
+           -f mode=full -f update_check=true -f build_date=20261004200000
+
+   The workflow refuses a malformed or future date, checks the AAR used it, and
+   fails unless every dex carries the committed update-check key and all four
+   APKs are unsigned. With `20261004200000` the versionCodes are
+   2016188448-2016188455, 24 hours (8 codes per hour) above Beta 5's. The artifact
+   `redoubt-android-unsigned` holds the four APKs, `output-metadata.json` and
+   `SHA256SUMS`. Record the run URL and the checked-out commit (`git rev-parse`).
+2. **Accept the exact payload** before signing: the emulator smoke on the x86_64
+   APK of this run, including `--check-update-privacy` with the switch on and the
+   document reachable (the opt-in half not measured so far, "Status" below), and
+   `scripts/android-brand-check.py`. Fill BETA.md §7's BUILD line with the commit
+   and MOZ_BUILD_DATE.
+3. **Generate, sign and verify** as in steps 2-5 above with `--tag android-157.0-2`;
+   the APKs are signed with `sign.sh` and the document with
+   `sign-update-manifest.sh`, both by the owner on box A.
+4. **Publish the GitHub release** (step 6 above) as the latest, full release:
+
+       gh release create android-157.0-2 --repo CPlusPlus17/Redoubt \
+           --title 'Redoubt 157.0-2' --latest --notes-file <notes.md> \
+           fenix-*-release.apk SHA256SUMS.signed
+
+   The notes carry the signing fingerprint and verification commands, the parity
+   sentence with its link to `PARITY.md`, and the known limits from `BETA.md` §7
+   (what was not tested on real devices). Verify the downloaded assets against
+   `SHA256SUMS.signed` and `scripts/android-verify-signature.sh`.
+5. **Publish the update document** (steps 7-8 above): commit `latest.json` and
+   `latest.json.sig` to `site/update/android/` only after the release page is
+   public, then `./scripts/update-manifest.py fetch --expect-tag android-157.0-2`.
+   Beta 1-5 installs have no update check and will not see it; the release notes
+   and the site tell them to install 157.0-2 over their beta.
+6. **Supersede the previous beta:** prepend a banner to Beta 5's notes, e.g.
+   `> **Superseded** by [Redoubt 157.0-2](https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0-2).
+   Install that release over this one; it keeps your data.` (`gh release edit
+   android-157.0-1-beta.5 --notes-file ...`). `--latest` on 157.0-2 already moves
+   the Latest marker; Beta 5 is not deleted.
+7. **Site:** `site/index.html` and `site/install.html` still say "beta" and "no
+   update check of their own"; update them for the stable release in the same
+   publishing pass. The parity sentence and the fingerprint stay verbatim.
+
 ## Testing it
 
 - `python3 scripts/tests/test-update-manifest.py` — generate → sign (with
@@ -405,11 +468,11 @@ pinning the request shape, the signature check and the version decision);
 `scripts/update-manifest.py`, `scripts/sign-update-manifest.sh` and
 `scripts/android-apk.sh --update-check` are the release side (table at the top);
 and `./scripts/android-smoke.sh --check-update-privacy` measures the network side on
-a running build. What still needs the owner is the update-signing key: until its
-public half is committed, every build is made without a key and the check is
-compiled out — no row, no reachable code path — which is exactly the store-build
-configuration. Then the site's DNS: until `redoubtbrowser.org` points at GitHub
-Pages, a build with the check compiled in gets NoResult and stays silent.
+a running build. The update-signing key exists and its public half is committed
+(2026-10-04); a build made without `--update-check` still has the check compiled
+out — no row, no reachable code path — which is exactly the store-build
+configuration. The first build with it compiled in is the stable release
+157.0-2 ("Stable release" above).
 
 Not yet measured on a device: the opt-in half of `--check-update-privacy` (the
 2026-09-06 run with a throwaway-key build saw no request to the update host after
