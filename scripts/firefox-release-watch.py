@@ -25,9 +25,28 @@ What it does, in order:
 5. otherwise opens that issue, with links to the release notes and the
    security advisories and the REBASE.md steps.
 
+Then the same for Firefox for Android, from product-details'
+mobile_versions.json (`run_android`). Its `version` is the Firefox for Android
+release; Mozilla sometimes ships an Android-only dot release (153.0.2) that
+desktop never gets, and that LATEST_FIREFOX_VERSION therefore never shows.
+When that `version` is newer than ./version.android, is not the desktop
+release above (that issue covers both targets), and is not older than it (the
+desktop rebase goes past it), it opens ONE issue, "Firefox for Android <v>
+released: rebase Android", deduplicated the same way. It does NOT wait for a
+source tarball: an Android-only dot can ship without one. The issue says
+whether archive.mozilla.org has firefox-<v>.source.tar.xz and, if not, what to
+do instead. The *_beta/alpha/nightly fields of the feed are never read.
+
+If mobile_versions.json cannot be read, the desktop part still runs and the
+run turns red; no issue is opened about the failure. If firefox_versions.json
+cannot be read, the Android part is skipped too: without the desktop release
+it cannot tell an Android-only release from one the desktop issue covers.
+
 `patchcheck` (the workflow's second job, see the section of that name below)
-then tests both patch lists against the release and comments the result on
-the issue, once per version and commit.
+then tests the patch lists against each flagged release that has a source
+tarball (both targets for a Firefox release, Android only for a Firefox for
+Android one) and comments the result on its issue, once per version and
+commit.
 
 Only the latest release is flagged. If two releases land between runs (a
 daily schedule makes that rare), the older one gets no issue of its own; the
@@ -54,7 +73,13 @@ import urllib.request
 
 
 PRODUCT_DETAILS_URL = 'https://product-details.mozilla.org/1.0/firefox_versions.json'
+MOBILE_PRODUCT_DETAILS_URL = 'https://product-details.mozilla.org/1.0/mobile_versions.json'
 ARCHIVE_BASE = 'https://archive.mozilla.org/pub/firefox/releases'
+FENIX_ARCHIVE_BASE = 'https://archive.mozilla.org/pub/fenix/releases'
+# Mozilla's GitHub mirror of mozilla-release / mozilla-central. Firefox for
+# Android releases are tagged FIREFOX-ANDROID_<v>_RELEASE there, Android-only
+# dots included (FIREFOX-ANDROID_153_0_2_RELEASE has no FIREFOX_ twin).
+FIREFOX_MIRROR = 'https://github.com/mozilla-firefox/firefox'
 GITHUB_API = 'https://api.github.com'
 LABEL = 'firefox-release'
 LABEL_COLOR = 'e66000'
@@ -97,6 +122,16 @@ def read_track(root, name):
 
 def issue_title(version):
     return f'Firefox {version} released: rebase Android and desktop'
+
+
+def android_issue_title(version):
+    return f'Firefox for Android {version} released: rebase Android'
+
+
+def android_tag(version):
+    """'157.0.1' -> 'FIREFOX-ANDROID_157_0_1_RELEASE'."""
+    parse_version(version)
+    return 'FIREFOX-ANDROID_' + version.replace('.', '_') + '_RELEASE'
 
 
 def tarball_url(version, archive_base=ARCHIVE_BASE):
@@ -168,6 +203,86 @@ def issue_body(version, android, desktop, esr, esr_next, repo, ref='main'):
         f'(.github/workflows/firefox-release-watch.yaml). One issue per version: '
         f'it will not reopen or duplicate this one, open or closed. Label: '
         f'`{LABEL}`.</sub>',
+    ]
+    return '\n'.join(lines) + '\n'
+
+
+def android_issue_body(version, android, latest, has_tarball, repo, ref='main'):
+    """The body of a Firefox for Android issue. Pure, like issue_body."""
+    rebase = f'https://github.com/{repo}/blob/{ref}/docs/android/REBASE.md'
+    tarball = tarball_url(version)
+    lines = [
+        f'Mozilla released **Firefox for Android {version}** (`version` in '
+        f'<{MOBILE_PRODUCT_DETAILS_URL}>). Desktop Firefox is at `{latest}` '
+        f'(`LATEST_FIREFOX_VERSION`), so this is an Android-only release: '
+        f'desktop has nothing to rebase.',
+        '',
+        f'Behind it: Android, `version.android` is `{android}`.',
+        '',
+        '## Read before rebasing',
+        '',
+        f'- Release notes (Android): {android_release_notes_url(version)}',
+        f'- Security advisories (look for a "Firefox for Android {version}" '
+        f'advisory; an Android-only dot often fixes a crash or a site and has '
+        f'none): {ADVISORIES_URL}',
+        f'- Known vulnerabilities fixed, by version: {KNOWN_VULNERABILITIES_URL}',
+        f'- What changed upstream: '
+        f'{FIREFOX_MIRROR}/compare/{android_tag(android)}...{android_tag(version)}',
+        f'- Mozilla\'s builds of it: {FENIX_ARCHIVE_BASE}/{version}/',
+        '',
+        '## Source tarball',
+        '',
+    ]
+    if has_tarball:
+        lines += [
+            f'archive.mozilla.org carries the source tarball for {version}:',
+            f'<{tarball}>',
+            '',
+            'so this is an ordinary rebase, Android only:',
+            '',
+            f'## Steps ([REBASE.md]({rebase}))',
+            '',
+            '1. §1 Decide: read the advisory above, if there is one.',
+            f'2. §2 Bump: `printf \'{version}\\n\' > version.android`, '
+            f'`printf \'1\\n\' > release.android`. Leave `version` / `release` '
+            f'(desktop) alone.',
+            '3. §3 Fetch and verify: `make fetch TARGETS=android` (GPG-verified).',
+            '4. §4 Check the patches: `./scripts/check-patchfail.sh --targets=android`.',
+            '5. §5 to §9 as for any rebase: rejects, pref drift, gates, build and '
+            'smoke, sign and publish.',
+            '6. §10 Record the rebase in the pull request and close this issue.',
+        ]
+    else:
+        lines += [
+            f'**archive.mozilla.org has no `firefox-{version}.source.tar.xz`** '
+            f'(<{tarball}> was a 404 when this issue was opened). Android dot '
+            f'releases can ship without a desktop source tarball (153.0.2 did), '
+            f'and then there is nothing for `make fetch` to rebase onto. What to '
+            f'do:',
+            '',
+            f'1. Read what changed: the compare link above, i.e. the '
+            f'`{android_tag(version)}` tag in Mozilla\'s Firefox repository '
+            f'(mozilla-release) against the tag Redoubt builds now, and the '
+            f'advisory.',
+            '2. If nothing in it reaches Redoubt (a fix in Fenix code Redoubt '
+            'removes, Google services, a crash Redoubt cannot hit), say so here '
+            'and close this issue; the next desktop release (`NEXT_RELEASE_DATE` '
+            'in firefox_versions.json) carries the change and gets its own issue.',
+            '3. If it does (a security fix in Gecko or in Android code Redoubt '
+            'ships), take the fix from the release branch as a patch, or wait for '
+            'the next desktop release if it is close; record which here '
+            '(docs/android/SECURITY.md, "Android-only with no source tarball"). '
+            'Building from the tag itself skips §3\'s signature check on the '
+            'tarball, so it is not the supported path.',
+            '4. If a tarball appears later, the next daily run notices it while '
+            'this issue is open and posts the patch check here.',
+        ]
+    lines += [
+        '',
+        f'<sub>Opened by `scripts/firefox-release-watch.py` '
+        f'(.github/workflows/firefox-release-watch.yaml) from mobile_versions.json. '
+        f'One issue per version: it will not reopen or duplicate this one, open or '
+        f'closed. Label: `{LABEL}`.</sub>',
     ]
     return '\n'.join(lines) + '\n'
 
@@ -315,7 +430,14 @@ def run(root, versions, exists, github, repo, dry_run=False, log=print, ref='mai
         return 'no-tarball'
 
     found['version'] = latest
-    title = issue_title(latest)
+    return _flag(issue_title(latest),
+                 lambda: issue_body(latest, android, desktop, esr, esr_next, repo, ref),
+                 github, dry_run, log, found)
+
+
+def _flag(title, body, github, dry_run, log, found):
+    """Open the issue `title` unless one exists, open or closed. `body` is
+    called only when the issue is about to be opened (or printed)."""
     if github is None:
         if not dry_run:
             raise WatchError('no GitHub access and not a dry run')
@@ -329,15 +451,58 @@ def run(root, versions, exists, github, repo, dry_run=False, log=print, ref='mai
             log(f'already flagged: {title!r} (#{found["issue"]}, {found["state"]})')
             return 'duplicate'
 
-    body = issue_body(latest, android, desktop, esr, esr_next, repo, ref)
+    text = body()
     if dry_run:
-        log(f'dry run: would open {title!r}:\n\n{body}')
+        log(f'dry run: would open {title!r}:\n\n{text}')
         return 'would-open'
     github.ensure_label(LABEL)
-    url, found['issue'] = github.create_issue(title, body, LABEL)
+    url, found['issue'] = github.create_issue(title, text, LABEL)
     found['state'] = 'open'
     log(f'opened {url}')
     return 'opened'
+
+
+def run_android(root, mobile, latest, exists, github, repo, dry_run=False, log=print,
+                ref='main', found=None):
+    """The Firefox for Android half. `mobile` is mobile_versions.json, `latest`
+    the desktop LATEST_FIREFOX_VERSION (`run` handles that one). Returns
+    'current', 'same-as-desktop', 'superseded', 'duplicate', 'would-open' or
+    'opened'.
+
+    `found` gets 'version', 'tarball' (whether firefox-<v>.source.tar.xz is
+    on archive.mozilla.org now) and, once there is an issue, 'issue' and
+    'state'. Only `version` is read from `mobile`: beta_version, alpha_version,
+    nightly_version and the iOS fields are not Android releases."""
+    found = {} if found is None else found
+    version = mobile.get('version')
+    if not version:
+        raise WatchError('mobile_versions.json has no version')
+    parse_version(version)
+    parse_version(latest)
+    android = read_track(root, 'version.android')
+    log(f'Firefox for Android release: {version}  (desktop {latest}, '
+        f'version.android={android})')
+
+    if not is_newer(version, android):
+        log(f'Android up to date: {version} is not newer than {android}')
+        return 'current'
+    if parse_version(version) == parse_version(latest):
+        log(f'Firefox for Android {version} is the desktop release: its issue '
+            f'covers Android')
+        return 'same-as-desktop'
+    if is_newer(latest, version):
+        log(f'Firefox for Android {version} is older than desktop {latest}: '
+            f'the desktop issue\'s rebase goes past it')
+        return 'superseded'
+
+    found['version'] = version
+    found['tarball'] = exists(tarball_url(version))
+    log(f'source tarball for {version}: '
+        + ('on archive.mozilla.org' if found['tarball'] else 'not on archive.mozilla.org'))
+    return _flag(android_issue_title(version),
+                 lambda: android_issue_body(version, android, latest, found['tarball'],
+                                            repo, ref),
+                 github, dry_run, log, found)
 
 
 def wants_patchcheck(outcome, found):
@@ -350,12 +515,37 @@ def wants_patchcheck(outcome, found):
     return outcome == 'duplicate' and found.get('state') == 'open'
 
 
+def wants_android_patchcheck(outcome, found):
+    """As wants_patchcheck, and only when the release has a source tarball to
+    check against: an Android-only dot may have none."""
+    return bool(found.get('tarball')) and wants_patchcheck(outcome, found)
+
+
+def patchcheck_jobs(desktop, android):
+    """The workflow's patch-check matrix: [{'version', 'issue', 'targets',
+    'label'}], one entry per flagged release that wants one. `desktop` and
+    `android` are (outcome, found) pairs, either may be None."""
+    jobs = []
+    if desktop and wants_patchcheck(*desktop):
+        f = desktop[1]
+        jobs.append({'version': f['version'], 'issue': str(f.get('issue') or ''),
+                     'targets': ','.join(PATCHCHECK_TARGETS), 'label': 'release'})
+    if android and wants_android_patchcheck(*android):
+        f = android[1]
+        jobs.append({'version': f['version'], 'issue': str(f.get('issue') or ''),
+                     'targets': 'android', 'label': 'android'})
+    return jobs
+
+
 # --------------------------------------------------------------------------
 # patchcheck: test both patch lists against the new release, report on the
 # issue. Run by the workflow's second job, only after `run` above opened (or
 # found open) the issue. Usage:
 #
-#   firefox-release-watch.py patchcheck --version 158.0 --issue 42 [--dry-run]
+#   firefox-release-watch.py patchcheck --version 158.0 --issue 42 \
+#       [--targets desktop,android] [--dry-run]
+#
+# (--targets android for a Firefox for Android issue: desktop is not rebasing.)
 #
 # 1. Idempotency first, before an 800 MB download: if the issue already has a
 #    comment carrying patchcheck_marker(version, sha) -- sha being the Redoubt
@@ -694,9 +884,13 @@ def run_check_patchfail(script, root, target, log=print):
 def patchcheck(version, issue, sha, github, repo_root, workdir, *, dry_run=False,
                archive_base=ARCHIVE_BASE, key_url=None,
                fingerprint=MOZILLA_KEY_FINGERPRINT, check_script=None,
-               local_tarball=None, run_link='', reports_dir=None, log=print):
+               local_tarball=None, run_link='', reports_dir=None, log=print,
+               targets=PATCHCHECK_TARGETS):
     """Returns 'already-posted', 'would-post' or 'posted'."""
     parse_version(version)
+    targets = tuple(targets)
+    if not targets or any(t not in PATCHCHECK_TARGETS for t in targets):
+        raise WatchError(f'targets must be among {PATCHCHECK_TARGETS}, got {targets}')
     if github is not None and issue:
         if already_posted(github.comments(issue), version, sha):
             log(f'#{issue} already has the patch check for {version} at {sha}')
@@ -734,7 +928,7 @@ def patchcheck(version, issue, sha, github, repo_root, workdir, *, dry_run=False
 
     script = check_script or Path(repo_root) / 'scripts' / 'check-patchfail.sh'
     results = {}
-    for target in PATCHCHECK_TARGETS:
+    for target in targets:
         out, code = run_check_patchfail(script, root, target, log)
         if reports_dir:
             Path(reports_dir).mkdir(parents=True, exist_ok=True)
@@ -795,6 +989,8 @@ def patchcheck_main(argv):
     p.add_argument('--check-script', type=Path, help=argparse.SUPPRESS)
     p.add_argument('--reports-dir', type=Path,
                    help='also write each target\'s full report here')
+    p.add_argument('--targets', default=','.join(PATCHCHECK_TARGETS),
+                   help='comma-separated, in order (default: %(default)s)')
     p.add_argument('--api', default=os.environ.get('GITHUB_API_URL', GITHUB_API))
     p.add_argument('--repo', default=os.environ.get('GITHUB_REPOSITORY', ''))
     p.add_argument('--dry-run', action='store_true',
@@ -812,7 +1008,8 @@ def patchcheck_main(argv):
                              dry_run=a.dry_run, archive_base=a.archive_base,
                              key_url=a.key_url, fingerprint=a.fingerprint.upper(),
                              check_script=a.check_script, local_tarball=a.tarball,
-                             run_link=run_url(), reports_dir=a.reports_dir)
+                             run_link=run_url(), reports_dir=a.reports_dir,
+                             targets=[t for t in a.targets.split(',') if t])
     except (WatchError, ValueError, OSError) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
@@ -832,8 +1029,11 @@ def main(argv=None):
     p.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1],
                    help='repository root holding version and version.android')
     p.add_argument('--versions-file', type=Path,
-                   help='read product-details from this file instead of the network')
+                   help='read firefox_versions.json from this file instead of the network')
+    p.add_argument('--mobile-versions-file', type=Path,
+                   help='read mobile_versions.json from this file instead of the network')
     p.add_argument('--product-details-url', default=PRODUCT_DETAILS_URL)
+    p.add_argument('--mobile-product-details-url', default=MOBILE_PRODUCT_DETAILS_URL)
     p.add_argument('--archive-base', default=ARCHIVE_BASE)
     p.add_argument('--api', default=os.environ.get('GITHUB_API_URL', GITHUB_API))
     p.add_argument('--repo', default=os.environ.get('GITHUB_REPOSITORY', ''),
@@ -847,38 +1047,83 @@ def main(argv=None):
         return patchcheck_main(argv[1:])
     a = p.parse_args(argv)
 
+    def load(path, url):
+        if path:
+            try:
+                return json.loads(path.read_text())
+            except (OSError, ValueError) as e:
+                raise WatchError(f'cannot read {path}: {e}') from e
+        return fetch_json(url)
+
     token = os.environ.get('GITHUB_TOKEN', '')
-    found = {}
-    try:
-        if a.versions_file:
-            versions = json.loads(a.versions_file.read_text())
-        else:
-            versions = fetch_json(a.product_details_url)
-        if not a.dry_run and not (a.repo and token):
-            raise WatchError('GITHUB_TOKEN and --repo/$GITHUB_REPOSITORY are required '
-                             '(or pass --dry-run)')
-        github = GitHub(a.repo, token, a.api) if (a.repo and token) else None
-        outcome = run(a.root, versions,
-                      lambda u: url_exists(u.replace(ARCHIVE_BASE, a.archive_base, 1)),
-                      github, a.repo or 'CPlusPlus17/Redoubt', a.dry_run, ref=a.ref,
-                      found=found)
-    except (WatchError, ValueError, OSError) as e:
-        print(f'error: {e}', file=sys.stderr)
+    if not a.dry_run and not (a.repo and token):
+        print('error: GITHUB_TOKEN and --repo/$GITHUB_REPOSITORY are required '
+              '(or pass --dry-run)', file=sys.stderr)
         return 1
+    github = GitHub(a.repo, token, a.api) if (a.repo and token) else None
+    exists = lambda u: url_exists(u.replace(ARCHIVE_BASE, a.archive_base, 1))
+    repo = a.repo or 'CPlusPlus17/Redoubt'
+    errors = []
+
+    # Each feed and each half fails on its own: a dead mobile feed must not
+    # stop the desktop issue, and neither may open an issue about a failure.
+    def attempt(what, f):
+        try:
+            return f()
+        except (WatchError, ValueError, OSError) as e:
+            print(f'error: {what}: {e}', file=sys.stderr)
+            errors.append(what)
+            return None
+
+    versions = attempt('firefox_versions.json',
+                       lambda: load(a.versions_file, a.product_details_url))
+    mobile = attempt('mobile_versions.json',
+                     lambda: load(a.mobile_versions_file, a.mobile_product_details_url))
+
+    found, outcome = {}, None
+    if versions is not None:
+        outcome = attempt('Firefox release', lambda: run(
+            a.root, versions, exists, github, repo, a.dry_run, ref=a.ref, found=found))
+
+    android_found, android_outcome = {}, None
+    latest = (versions or {}).get('LATEST_FIREFOX_VERSION') or ''
+    try:
+        parse_version(latest)
+    except ValueError:
+        latest = ''
+    if mobile is not None and not latest:
+        print('Firefox for Android: skipped, no usable desktop release to tell an '
+              'Android-only release from', file=sys.stderr)
+        errors.append('Firefox for Android (skipped)')
+    elif mobile is not None:
+        android_outcome = attempt('Firefox for Android', lambda: run_android(
+            a.root, mobile, latest, exists, github, repo, a.dry_run, ref=a.ref,
+            found=android_found))
+
+    jobs = patchcheck_jobs((outcome, found) if outcome else None,
+                           (android_outcome, android_found) if android_outcome else None)
     summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:
         with open(summary, 'a') as f:
-            f.write(f'firefox-release-watch: **{outcome}**\n')
-    # For the workflow's patch-check job (needs.watch.outputs.*).
+            f.write(f'firefox-release-watch: **{outcome or "error"}**; '
+                    f'Firefox for Android: **{android_outcome or "error"}**\n')
+    # For the workflow's patch-check job (needs.watch.outputs.*). Written even
+    # after an error, so a desktop issue opened before the Android half failed
+    # still gets its check.
     output = os.environ.get('GITHUB_OUTPUT')
     if output:
         with open(output, 'a') as f:
-            f.write(f'outcome={outcome}\n'
+            f.write(f'outcome={outcome or "error"}\n'
                     f'version={found.get("version", "")}\n'
                     f'issue={found.get("issue") or ""}\n'
-                    f'patchcheck={"true" if wants_patchcheck(outcome, found) else "false"}\n')
-    print(f'outcome: {outcome}')
-    return 0
+                    f'patchcheck={"true" if outcome and wants_patchcheck(outcome, found) else "false"}\n'
+                    f'android_outcome={android_outcome or "error"}\n'
+                    f'android_version={android_found.get("version", "")}\n'
+                    f'android_issue={android_found.get("issue") or ""}\n'
+                    f'checks={json.dumps(jobs, separators=(",", ":"))}\n')
+    print(f'outcome: {outcome or "error"}')
+    print(f'android outcome: {android_outcome or "error"}')
+    return 1 if errors else 0
 
 
 if __name__ == '__main__':
