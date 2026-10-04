@@ -2,7 +2,7 @@
 
 Owner: **LW-M7-02** ("Publish the Android pages on redoubtbrowser.org"). This file is the
 **content** of the download page, not a published site. `redoubtbrowser.org` is the decided
-domain (see `docs/android/IDENTITY.md`) but is **not registered**; nothing on this page is a
+domain (see `docs/android/IDENTITY.md`). It is registered but serves no site yet; nothing on this page is a
 live URL or a real address, and the page must not imply it is. The page is written to one
 rule above all: **it must not overclaim.** The whole point of putting the parity statement
 on the download page is that a user reads the honest version *before* they install.

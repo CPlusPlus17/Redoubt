@@ -704,9 +704,9 @@ Gecko rather than in anything Redoubt changes, and it needs to go to Mozilla:
 
   https://bugzilla.mozilla.org/enter_bug.cgi?product=Fenix
 
-One caveat worth knowing: Redoubt tracks Firefox ESR, so we are usually
-behind the Firefox release you compared against. If the version numbers differ a lot,
-the bug may already be fixed upstream and simply not have reached our branch yet.
+One caveat worth knowing: Redoubt follows Firefox release, but a new Firefox version
+reaches Redoubt only after our rebase. If your Firefox is newer than your Redoubt, the
+bug may already be fixed upstream and simply not have reached our build yet.
 
 Marking as upstream and closing here. If you file it with Mozilla, please link the
 Bugzilla bug in a comment so anyone who finds this issue can follow it.
@@ -832,11 +832,9 @@ or 2.
 
 **1. Does stock Firefox for Android do it too?**
 Yes → `Broken Upstream` + `Status Upstream`, boilerplate **B4**. This is the
-strongest single signal and it is why the template asks. Caveat: we track **esr153**
-and Firefox release runs far ahead, so a version mismatch weakens the comparison in
-both directions — something fixed upstream months ago can still be live for us. When
-it matters, compare against **Tor Browser for Android**, which shares our ESR base
-(ROADMAP.md, "Release track").
+strongest single signal and it is why the template asks. Caveat: we follow Firefox release
+(TRACK.md), so compare against the **same Firefox version** as the reporter's Redoubt;
+between a Firefox release and our rebase, stock Firefox can be one version ahead.
 
 **2. Does it survive a clean profile?**
 No → it is configuration, theirs or ours. Ask which prefs they changed; if flipping

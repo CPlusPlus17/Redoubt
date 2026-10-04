@@ -17,7 +17,8 @@ has not been verified. F-Droid and Accrescent publication remain separate work.
 The following sections describe the future signed-endpoint contract; no such
 endpoint is supplied by publishing a GitHub prerelease.
 
-Redoubt is a fork that ships on the Firefox **ESR** track, and the direct-APK
+Redoubt is a fork that ships on the Firefox **release** track (since 2026-10-02; see
+`TRACK.md`), and the direct-APK
 distribution has no app store to tell its users an update is out. This page is
 the contract for the one mechanism that fills that gap — an in-app version check
 against a signed, static endpoint — and for the two channels that already have
