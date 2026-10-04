@@ -368,6 +368,18 @@ class RunAndroid(unittest.TestCase):
         self.assertEqual(len(gh.created), 1)
         self.assertEqual(af, {})
 
+    def test_mobile_major_ahead_of_desktop_waits(self):
+        # Mobile feed reports 158.0 while desktop still says 157.0: no
+        # Android-only issue, and no second issue once desktop catches up.
+        gh = FakeGitHub()
+        (d, _), (a, af) = self.both('157.0', '158.0', gh, tarball=True)
+        self.assertEqual(a, 'ahead-of-desktop')
+        self.assertEqual(gh.created, [])
+        self.assertEqual(af, {})
+        (d, _), (a, _) = self.both('158.0', '158.0', gh, tarball=True)
+        self.assertEqual((d, a), ('opened', 'same-as-desktop'))
+        self.assertEqual(len(gh.created), 1)
+
     def test_android_already_there(self):
         self.track('157.0.1', '157.0')
         gh = FakeGitHub()

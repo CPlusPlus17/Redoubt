@@ -466,8 +466,9 @@ def run_android(root, mobile, latest, exists, github, repo, dry_run=False, log=p
                 ref='main', found=None):
     """The Firefox for Android half. `mobile` is mobile_versions.json, `latest`
     the desktop LATEST_FIREFOX_VERSION (`run` handles that one). Returns
-    'current', 'same-as-desktop', 'superseded', 'duplicate', 'would-open' or
-    'opened'.
+    'current', 'same-as-desktop', 'superseded', 'ahead-of-desktop',
+    'duplicate', 'would-open' or 'opened'. Only a dot release on desktop's
+    major (157.0.1 while desktop is 157.0) counts as Android-only.
 
     `found` gets 'version', 'tarball' (whether firefox-<v>.source.tar.xz is
     on archive.mozilla.org now) and, once there is an issue, 'issue' and
@@ -494,6 +495,15 @@ def run_android(root, mobile, latest, exists, github, repo, dry_run=False, log=p
         log(f'Firefox for Android {version} is older than desktop {latest}: '
             f'the desktop issue\'s rebase goes past it')
         return 'superseded'
+    v, d = parse_version(version), parse_version(latest)
+    if v[0] != d[0] or v[1:] == (0, 0):
+        # A newer major (158.0 while desktop says 157.0) is not an Android-only
+        # release: the mobile feed is simply ahead of the desktop one. Flagging
+        # it would open a wrong "desktop has nothing to rebase" issue, and a
+        # second issue for the same release once desktop catches up.
+        log(f'Firefox for Android {version} is a new major ahead of desktop '
+            f'{latest}: waiting for the desktop feed to report it')
+        return 'ahead-of-desktop'
 
     found['version'] = version
     found['tarball'] = exists(tarball_url(version))
