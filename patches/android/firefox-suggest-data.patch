@@ -25,11 +25,13 @@
 # through feature-fxsuggest/service-pocket), so the suggest dependency is
 # added after the syncmanager line instead. Firefox 158 vendors uniffi 0.32
 # (was 0.31): the checked-in bindings now declare the checksum functions as
-# Int instead of Short and use a different code layout. The four checksum
-# declarations this patch adds were placed by hand with the 0.32 type so the
-# patch applies; per the rule above, the remote_settings.kt hunk must be
-# regenerated with embedded-uniffi-bindgen from the 158 tree (see
-# docs/android/evidence/lw-m7-01/release-158.0/PREBASE.md for the state of that).
+# Int instead of Short and use a different code layout. The remote_settings.kt
+# hunk is regenerated the way the rule above says: embedded-uniffi-bindgen,
+# built from the 158.0b3 tree (uniffi 0.32), `generate --no-format --language
+# kotlin` over the x86_64 release-megazord libmegazord.a of the 158.0b3 build
+# with this patch applied. The generator reproduced the other 21 checked-in
+# binding files byte for byte, and its remote_settings.kt is the pristine 158
+# file plus additions only (no line removed).
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
 index 8e710f6..383aa62 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
@@ -2202,7 +2204,7 @@ index 0000000..4f7aa24
 +    );
 +}
 diff --git a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt b/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
-index 71be881..8a58b1a 100644
+index 71be881..83301bb 100644
 --- a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
 +++ b/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
 @@ -705,6 +705,10 @@ internal object IntegrityCheckingUniffiLib {
@@ -2274,7 +2276,7 @@ index 71be881..8a58b1a 100644
      fun `resetStorage`()
      
      /**
-@@ -1597,6 +1627,39 @@ open class RemoteSettingsClient: Disposable, AutoCloseable, RemoteSettingsClient
+@@ -1597,6 +1627,42 @@ open class RemoteSettingsClient: Disposable, AutoCloseable, RemoteSettingsClient
      
  
      
@@ -2287,7 +2289,10 @@ index 71be881..8a58b1a 100644
 +    uniffiRustCallWithError(RemoteSettingsException) { _status ->
 +    UniffiLib.uniffi_remote_settings_fn_method_remotesettingsclient_install_pinned_suggest_data(
 +        it,
-+        FfiConverterString.lower(`datasetId`),FfiConverterSequenceTypePinnedSuggestAttachment.lower(`attachments`),FfiConverterTypeSuggestDataInstallToken.lower(`token`),_status)
++        
++        FfiConverterString.lower(`datasetId`),
++        FfiConverterSequenceTypePinnedSuggestAttachment.lower(`attachments`),
++        FfiConverterTypeSuggestDataInstallToken.lower(`token`),_status)
 +}
 +    }
 +    
@@ -2314,7 +2319,7 @@ index 71be881..8a58b1a 100644
      @Throws(RemoteSettingsException::class)override fun `resetStorage`()
          = 
      callWithHandle {
-@@ -2441,6 +2504,272 @@ public object FfiConverterTypeRemoteSettingsTelemetry: FfiConverter<RemoteSettin
+@@ -2441,6 +2507,277 @@ public object FfiConverterTypeRemoteSettingsTelemetry: FfiConverter<RemoteSettin
  }
  
  
@@ -2463,6 +2468,11 @@ index 71be881..8a58b1a 100644
 +    private val wasDestroyed = AtomicBoolean(false)
 +    private val callCounter = AtomicLong(1)
 +
++    /**
++     * Whether the current object has been destroyed and its reference is gone in the Rust side.
++     */
++    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
++
 +    override fun destroy() {
 +        // Only allow a single call to this method.
 +        // TODO: maybe we should log a warning if called more than once?
@@ -2587,7 +2597,7 @@ index 71be881..8a58b1a 100644
  
  /**
   * Attachment metadata that can be optionally attached to a [Record]. The [location] should
-@@ -2499,6 +2828,44 @@ public object FfiConverterTypeAttachment: FfiConverterRustBuffer<Attachment> {
+@@ -2499,6 +2836,44 @@ public object FfiConverterTypeAttachment: FfiConverterRustBuffer<Attachment> {
  
  
  
@@ -2632,7 +2642,7 @@ index 71be881..8a58b1a 100644
  /**
   * Remote settings configuration
   */
-@@ -3382,6 +3749,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
+@@ -3382,6 +3757,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
  
  
  
