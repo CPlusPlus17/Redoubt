@@ -142,12 +142,18 @@
 #     flipped assertion.
 # Order-freedom vs no-adjust/no-nimbus/no-onboarding/no-gms was not
 # re-measured: those patches were still being rebased when this was cut.
+#
+# 158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3): HomeActivity's
+# lifecycle-observer list renamed defaultTopSitesBinding to
+# defaultPinnedSitesBinding, the line before the TopSitesRefresher this patch
+# removes. Same removal, same comment; the other hunks are the 157 ones at
+# their 158 offsets.
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -632,12 +632,9 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -634,12 +634,9 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              serviceWorkerSupport,
              crashReporterBinding,
-             defaultTopSitesBinding,
+             defaultPinnedSitesBinding,
 -            TopSitesRefresher(
 -                settings = components.settings,
 -                topSitesProvider = components.core.macTopSitesProvider,
@@ -160,7 +166,7 @@
              downloadSnackbar,
              privateBrowsingLockFeature,
              externalAppLinkStatusBinding,
-@@ -691,9 +688,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -693,9 +690,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              true,
          )
  
@@ -172,7 +178,7 @@
  
          if (!components.settings.hiddenEnginesRestored) {
              components.settings.hiddenEnginesRestored = true
-@@ -993,7 +989,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -995,7 +991,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              data = mapOf("finishing" to isFinishing.toString()),
          )
  
@@ -197,7 +203,7 @@
              if (fenixSettings.longfoxEnabled) title = resources.getString(R.string.help_catch_trackers)
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -1739,10 +1739,16 @@ class Settings(
+@@ -1759,10 +1759,16 @@ class Settings(
  
      fun incrementShowLoginsSecureWarningSyncCount() = loginsSecureWarningSyncCount.increment()
  
@@ -215,7 +221,7 @@
          )
  
      val shouldAutocompleteInAwesomebar by
-@@ -1764,10 +1770,14 @@ class Settings(
+@@ -1784,10 +1790,14 @@ class Settings(
          )
  
      /** Indicates if the user have enabled trending search in search suggestions. */
@@ -231,7 +237,7 @@
          )
  
      /** Indicates if the user have enabled recent search in the search suggestions setting preference. */
-@@ -2317,12 +2327,20 @@ class Settings(
+@@ -2331,12 +2341,20 @@ class Settings(
              default = true,
          )
  

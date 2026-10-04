@@ -1,7 +1,16 @@
+158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3): Firefox 158
+dropped "bookmarks" and "recent-explorations" from the homescreen
+sections-enabled map and hard-codes Settings.showBookmarksHomeFeature and
+historyMetadataUIFeature to default false. Only top-sites and jump-back-in
+are left to flip, in the default and in the nightly override; the two
+removed sections are off upstream now, so the intent (all four opt-in) holds
+and HomeSectionDefaultsTest is unchanged.
+
 diff --git a/mobile/android/fenix/app/nimbus.fml.yaml b/mobile/android/fenix/app/nimbus.fml.yaml
+index 8bef1a4..ca455f9 100644
 --- a/mobile/android/fenix/app/nimbus.fml.yaml
 +++ b/mobile/android/fenix/app/nimbus.fml.yaml
-@@ -41,12 +41,14 @@
+@@ -41,10 +41,12 @@ features:
          description: "This property provides a lookup table of whether or not the given section should be enabled.
          If the section is enabled, it should be toggleable in the settings screen, and on by default."
          type: Map<HomeScreenSection, Boolean>
@@ -11,31 +20,25 @@ diff --git a/mobile/android/fenix/app/nimbus.fml.yaml b/mobile/android/fenix/app
            {
 -            "top-sites": true,
 -            "jump-back-in": true,
--            "bookmarks": true,
--            "recent-explorations": true,
 +            "top-sites": false,
 +            "jump-back-in": false,
-+            "bookmarks": false,
-+            "recent-explorations": false,
              "pocket": true,
              "pocket-sponsored-stories": true,
              "synced-tabs": true,
-@@ -57,10 +59,10 @@
+@@ -55,8 +57,8 @@ features:
        - channel: nightly
          value: {
            "sections-enabled": {
 -            "top-sites": true,
 -            "jump-back-in": true,
--            "bookmarks": true,
--            "recent-explorations": true,
 +            "top-sites": false,
 +            "jump-back-in": false,
-+            "bookmarks": false,
-+            "recent-explorations": false,
              "pocket": true,
              "synced-tabs": true,
              "collections": true,
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/HomeSectionDefaultsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/HomeSectionDefaultsTest.kt
+new file mode 100644
+index 0000000..dfdab34
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/HomeSectionDefaultsTest.kt
 @@ -0,0 +1,84 @@

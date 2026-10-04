@@ -68,8 +68,13 @@
 # Applies last in android.txt, on top of no-gms.patch, no-glean.patch and
 # firefox-suggest-policy.patch, which also edit SecretSettingsFragment.kt and
 # Settings.kt (check-patch-order.py records the pairs).
+#
+# 158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3): no change of
+# intent. The Settings.kt shakeToSummarizeFeatureFlagEnabled hunk needed fuzz 2
+# on 158 (the new tabReloadCover settings follow it), so the patch is
+# regenerated at fuzz 0 on the in-order 158 tree.
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index fec92ff774..6837e893f3 100644
+index dffc035..3fc909e 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 @@ -427,8 +427,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
@@ -81,7 +86,7 @@ index fec92ff774..6837e893f3 100644
          GlobalFxSuggestDependencyProvider.initialize { components.fxSuggest.storage }
          if (!FxSuggestAdmission.snapshot().choices.localEnabled) {
              FxSuggestIngestionScheduler(this).stopPeriodicIngestion()
-@@ -678,11 +676,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -680,11 +678,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          (LeakCanarySetup as LeakCanarySetupInterface).updateState(isEnabled = isEnabled, components = components)
      }
  
@@ -94,7 +99,7 @@ index fec92ff774..6837e893f3 100644
          return components.analytics.crashReporter.install(this, ::handleCaughtException)
      }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
-index 99825f89bd..4f98e38c80 100644
+index 99825f8..4f98e38 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
 @@ -5,14 +5,17 @@
@@ -140,7 +145,7 @@ index 99825f89bd..4f98e38c80 100644
  
      val feature by lazy {
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt
-index 1b3937eed4..1ddf274696 100644
+index 1b3937e..1ddf274 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt
 @@ -88,7 +88,8 @@ class HomeDeepLinkIntentProcessor(
@@ -154,7 +159,7 @@ index 1b3937eed4..1ddf274696 100644
                  else -> return
              }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt
-index 1987e81c8a..ede1d7313d 100644
+index 1987e81..ede1d73 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt
 @@ -19,10 +19,16 @@ data class PopularSite(
@@ -177,7 +182,7 @@ index 1987e81c8a..ede1d7313d 100644
 +        iconUrl = null,
      )
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index 8e1bf091e7..624b658052 100644
+index c826902..59923da 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 @@ -202,11 +202,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
@@ -192,7 +197,7 @@ index 8e1bf091e7..624b658052 100644
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_more_shortcuts).apply {
              isChecked = settings.showMoreShortcuts
              onPreferenceChangeListener = SharedPreferenceUpdater()
-@@ -301,12 +296,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+@@ -296,12 +291,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
              onPreferenceChangeListener = SharedPreferenceUpdater()
          }
  
@@ -205,7 +210,7 @@ index 8e1bf091e7..624b658052 100644
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_listen_to_page).apply {
              isVisible = Config.channel.isNightlyOrDebug
              isChecked = settings.listenToPageFeatureFlagEnabled
-@@ -343,12 +332,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+@@ -338,12 +327,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
              onPreferenceChangeListener = SharedPreferenceUpdater()
          }
  
@@ -218,7 +223,7 @@ index 8e1bf091e7..624b658052 100644
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_ip_protection_locations).apply {
              isVisible = Config.channel.isNightlyOrDebug || Config.channel.isBeta
              isChecked = settings.isIPProtectionLocationsEnabled
-@@ -488,12 +471,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+@@ -519,12 +502,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
              onPreferenceChangeListener = SharedPreferenceUpdater()
          }
  
@@ -232,10 +237,10 @@ index 8e1bf091e7..624b658052 100644
              isVisible = Config.channel.isNightlyOrDebug
              isChecked = context.components.settings.showVoiceSearchInDisplayToolbar
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index 9c33a4e1a9..dd0513558d 100644
+index 47f9b74..9da90f6 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2604,12 +2604,18 @@ class Settings(
+@@ -2624,12 +2624,18 @@ class Settings(
              default = { FxNimbus.features.adsClientForStories.value().enabled },
          )
  
@@ -260,7 +265,7 @@ index 9c33a4e1a9..dd0513558d 100644
  
      /** Indicates if more shortcuts should be shown. */
      var showMoreShortcuts by
-@@ -2781,12 +2787,19 @@ class Settings(
+@@ -2794,12 +2800,19 @@ class Settings(
              default = { FxNimbus.features.microsurveys.value().enabled },
          )
  
@@ -284,9 +289,9 @@ index 9c33a4e1a9..dd0513558d 100644
 +        @Suppress("UNUSED_PARAMETER")
 +        set(value) = Unit
  
-     /** Nimbus controlled feature flag that indicates if the Listen to Page feature should be enabled */
-     var listenToPageFeatureFlagEnabled by
-@@ -2870,10 +2883,11 @@ class Settings(
+     /**
+      * Secret-settings override for the tab reload cover base feature. Defaults to the Nimbus `tab-reload-cover.enabled`
+@@ -2905,10 +2918,11 @@ class Settings(
      /**
       * Indicates if the IPProtection feature is available for the user.
       *
@@ -300,7 +305,7 @@ index 9c33a4e1a9..dd0513558d 100644
  
      /**
       * Persists IPProtection locations state set through Secret Settings.
-@@ -3296,11 +3310,18 @@ class Settings(
+@@ -3328,11 +3342,18 @@ class Settings(
              default = { FxNimbus.features.nativeShareSheet.value().enabled },
          )
  
@@ -325,7 +330,7 @@ index 9c33a4e1a9..dd0513558d 100644
      /**
       * User preference (local only) controlling whether the Google Lens integration is active when
 diff --git a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
-index 9713c72d34..d71fa877e1 100644
+index 50bf475..056dd10 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 @@ -30,11 +30,6 @@
@@ -340,7 +345,7 @@ index 9713c72d34..d71fa877e1 100644
      <SwitchPreferenceCompat
        android:defaultValue="false"
        android:key="@string/pref_key_show_voice_search_in_display_toolbar"
-@@ -92,10 +87,6 @@
+@@ -93,10 +88,6 @@
        android:key="@string/pref_key_private_mode_and_stories_entry_point"
        android:title="@string/preferences_debug_settings_private_mode_and_stories_entry_point"
        app:iconSpaceReserved="false" />
@@ -351,7 +356,7 @@ index 9713c72d34..d71fa877e1 100644
      <SwitchPreferenceCompat
        android:key="@string/pref_key_enable_homepage_weather_widget"
        android:title="@string/preferences_debug_settings_homepage_weather_widget"
-@@ -220,11 +211,6 @@
+@@ -234,11 +225,6 @@
        android:key="@string/pref_key_native_share_sheet"
        android:title="@string/preferences_debug_settings_native_android_share_sheet"
        app:iconSpaceReserved="false" />
@@ -363,7 +368,7 @@ index 9713c72d34..d71fa877e1 100644
      <SwitchPreferenceCompat
        android:defaultValue="false"
        android:key="@string/pref_key_enable_listen_to_page"
-@@ -261,10 +247,6 @@
+@@ -275,10 +261,6 @@
        android:key="@string/pref_key_enable_longfox"
        android:title="@string/preferences_debug_settings_enable_longfox"
        app:iconSpaceReserved="false" />
@@ -376,7 +381,7 @@ index 9713c72d34..d71fa877e1 100644
        android:title="@string/preferences_debug_settings_ip_protection_locations"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/LibreWolfCloudFeaturesTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/LibreWolfCloudFeaturesTest.kt
 new file mode 100644
-index 0000000000..972a1b3002
+index 0000000..972a1b3
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/LibreWolfCloudFeaturesTest.kt
 @@ -0,0 +1,102 @@
@@ -483,7 +488,7 @@ index 0000000000..972a1b3002
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt
-index 1ff7284d37..5ff3419c7c 100644
+index 1ff7284..5ff3419 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt
 @@ -424,18 +424,13 @@ class HomeDeepLinkIntentProcessorTest {
@@ -511,7 +516,7 @@ index 1ff7284d37..5ff3419c7c 100644
  
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ipprotection/store/IPProtectionPromptRepositoryTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ipprotection/store/IPProtectionPromptRepositoryTest.kt
 deleted file mode 100644
-index 7f5b3a1888..0000000000
+index 7f5b3a1..0000000
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ipprotection/store/IPProtectionPromptRepositoryTest.kt
 +++ /dev/null
 @@ -1,114 +0,0 @@
@@ -631,7 +636,7 @@ index 7f5b3a1888..0000000000
 -}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/summarization/onboarding/FenixSummarizationFeatureConfigurationTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/summarization/onboarding/FenixSummarizationFeatureConfigurationTest.kt
 deleted file mode 100644
-index 0fea6a986a..0000000000
+index 0fea6a9..0000000
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/summarization/onboarding/FenixSummarizationFeatureConfigurationTest.kt
 +++ /dev/null
 @@ -1,335 +0,0 @@

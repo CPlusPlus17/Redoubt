@@ -31,8 +31,14 @@
 #     CreateEngineSessionAction, listInstalledWebExtensions,
 #     speculativeCreateSession, AddonManager.installAddon, Metadata) were
 #     compared 153.4 -> 157 and are unchanged apart from formatting.
+#
+# 158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3): only the
+# strings.xml hunk moved. It appends the four librewolf_ubo_setup_* strings at
+# the end of Fenix's strings.xml, and 158 appended its own reader-mode strings
+# there, so the trailing context changed. Same strings, same place (last
+# before </resources>). Everything else is unchanged.
 diff --git a/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt b/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
-index 3d53e69b49..149635c2a1 100644
+index 3d53e69..149635c 100644
 --- a/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
 +++ b/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
 @@ -167,6 +167,13 @@ object WebExtensionSupport {
@@ -69,7 +75,7 @@ index 3d53e69b49..149635c2a1 100644
                          WebExtensionAction.UpdatePromptRequestWebExtensionAction(
                              WebExtensionPromptRequest.AfterInstallation.Permissions.Required(
 diff --git a/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt b/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
-index dc24f54a0f..11bf8519b1 100644
+index dc24f54..11bf851 100644
 --- a/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
 +++ b/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
 @@ -537,6 +537,73 @@ class WebExtensionSupportTest {
@@ -147,10 +153,10 @@ index dc24f54a0f..11bf8519b1 100644
      fun `reacts to install permission request`() {
          val store = BrowserStore(middleware = listOf(captureMiddleware))
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index 1481a79a7c..08d5cb2307 100644
+index efe5c56..e6066a1 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -813,10 +813,12 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -815,10 +815,12 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
                      subscribeForNewAddonsIfNeeded(components.supportedAddonsChecker, extensions)
                  },
                  onUpdatePermissionRequest = components.addonUpdater::onUpdatePermissionRequest,
@@ -164,7 +170,7 @@ index 1481a79a7c..08d5cb2307 100644
  
      @VisibleForTesting
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-index e2ae64706d..00dac37e3d 100644
+index 270b5fc..e8a04fe 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 @@ -31,6 +31,7 @@ import androidx.annotation.CallSuper
@@ -191,7 +197,7 @@ index e2ae64706d..00dac37e3d 100644
  import kotlinx.coroutines.flow.distinctUntilChanged
  import kotlinx.coroutines.launch
  import kotlinx.coroutines.withContext
-@@ -115,6 +118,7 @@ import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
+@@ -116,6 +119,7 @@ import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
  import org.mozilla.fenix.browser.browsingmode.DefaultBrowsingModeManager
  import org.mozilla.fenix.components.DefaultHomepageAsANewTabPreferenceRepository
  import org.mozilla.fenix.components.DefaultShortcutManagerCompatWrapper
@@ -199,7 +205,7 @@ index e2ae64706d..00dac37e3d 100644
  import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
  import org.mozilla.fenix.components.appstate.AppAction
  import org.mozilla.fenix.components.appstate.AppAction.ShareAction
-@@ -478,6 +482,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -483,6 +487,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          // the `setContent` starts attaching fragments.
          EdgeToEdgeFragmentLifecycleCallbacks.register(supportFragmentManager, window)
  
@@ -208,7 +214,7 @@ index e2ae64706d..00dac37e3d 100644
          // Checks if Activity is currently in PiP mode if launched from external intents, then exits it
          checkAndExitPiP()
  
-@@ -1300,6 +1306,35 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1307,6 +1313,35 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          return false
      }
  
@@ -245,10 +251,10 @@ index e2ae64706d..00dac37e3d 100644
          supportFragmentManager.primaryNavigationFragment?.childFragmentManager?.fragments?.forEach {
              if (it is OnLongPressedListener && it.onForwardLongPressed()) {
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-index 005bc7787f..7a07c7d249 100644
+index 5e909ee..09e2271 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-@@ -229,6 +229,8 @@ class Components(
+@@ -233,6 +233,8 @@ class Components(
          )
      }
  
@@ -258,10 +264,10 @@ index 005bc7787f..7a07c7d249 100644
          AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
      }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
-index 05e72f77cf..9bef31da6a 100644
+index 5495e5b..fee8b50 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
-@@ -345,6 +345,7 @@ class Core(
+@@ -344,6 +344,7 @@ class Core(
  
          val middlewareList =
              listOf(
@@ -271,7 +277,7 @@ index 05e72f77cf..9bef31da6a 100644
                  LastAccessMiddleware(),
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt
 new file mode 100644
-index 0000000000..a2e34771f3
+index 0000000..a2e3477
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt
 @@ -0,0 +1,77 @@
@@ -354,7 +360,7 @@ index 0000000000..a2e34771f3
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
 new file mode 100644
-index 0000000000..7d165065a6
+index 0000000..7d16506
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
 @@ -0,0 +1,403 @@
@@ -762,13 +768,13 @@ index 0000000000..7d165065a6
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/android/fenix/app/src/main/res/values/strings.xml
-index e279f53a62..291c0c3a6c 100644
+index 97ffa11..bd45316 100644
 --- a/mobile/android/fenix/app/src/main/res/values/strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
-@@ -4188,4 +4188,9 @@
-     <string name="pdf_tools_signature_clear_button">Clear</string>
-     <!-- The text for the button that adds the signature the user has typed to the PDF. -->
-     <string name="pdf_tools_signature_add_button">Add</string>
+@@ -4216,4 +4216,9 @@
+     <string name="reader_mode_panel_content_description">Reader Mode Options</string>
+     <!-- Content description for the button in reader mode panel that turns on the read aloud feature (playback of content begins when button is pressed) -->
+     <string name="reader_mode_panel_listen_content_description">Read Aloud</string>
 +    <!-- First-run signed uBlock Origin provisioning. Browsing stays paused on failure. -->
 +    <string name="librewolf_ubo_setup_failed_title">uBlock Origin setup failed</string>
 +    <string name="librewolf_ubo_setup_failed_message">Browsing is paused because uBlock Origin could not be prepared. Retry setup or close Redoubt.</string>
@@ -777,7 +783,7 @@ index e279f53a62..291c0c3a6c 100644
  </resources>
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt
 new file mode 100644
-index 0000000000..10bbe23169
+index 0000000..10bbe23
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt
 @@ -0,0 +1,138 @@
@@ -921,7 +927,7 @@ index 0000000000..10bbe23169
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
 new file mode 100644
-index 0000000000..d422ccbb6d
+index 0000000..d422ccb
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
 @@ -0,0 +1,659 @@

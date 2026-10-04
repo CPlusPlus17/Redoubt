@@ -20,8 +20,18 @@
 # lines. If the Rust API in this patch changes, regenerate this hunk the same
 # way; never edit it by hand (the scaffolding checksums must match).
 
+# 158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3): Fenix's
+# build.gradle lost its mozilla_appservices_merino line (158 uses Merino
+# through feature-fxsuggest/service-pocket), so the suggest dependency is
+# added after the syncmanager line instead. Firefox 158 vendors uniffi 0.32
+# (was 0.31): the checked-in bindings now declare the checksum functions as
+# Int instead of Short and use a different code layout. The four checksum
+# declarations this patch adds were placed by hand with the 0.32 type so the
+# patch applies; per the rule above, the remote_settings.kt hunk must be
+# regenerated with embedded-uniffi-bindgen from the 158 tree (see
+# docs/android/evidence/lw-m7-01/release-158.0/PREBASE.md for the state of that).
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
-index 8e710f699c..383aa629a6 100644
+index 8e710f6..383aa62 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
 @@ -18,6 +18,7 @@ import mozilla.appservices.suggest.SuggestStore
@@ -60,7 +70,7 @@ index 8e710f699c..383aa629a6 100644
      /** Interrupts any ongoing queries for suggestions. */
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
 new file mode 100644
-index 0000000000..f94002c82b
+index 0000000..f94002c
 --- /dev/null
 +++ b/mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
 @@ -0,0 +1,73 @@
@@ -138,13 +148,13 @@ index 0000000000..f94002c82b
 +    }
 +}
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
-index 67f98ca842..7339a10b0a 100644
+index df830ac..6e13729 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -538,6 +538,13 @@ dependencies {
+@@ -540,6 +540,13 @@ dependencies {
+     implementation project(':components:lib-ai-controls')
  
      implementation ComponentsDependencies.mozilla_appservices_syncmanager
-     implementation ComponentsDependencies.mozilla_appservices_merino
 +    // This patch makes Fenix itself reference mozilla.appservices.suggest
 +    // (FxSuggest.kt's defaultIngestionProviders, and the SuggestData* files it
 +    // adds). Upstream Fenix never names that package -- feature-fxsuggest wraps
@@ -156,7 +166,7 @@ index 67f98ca842..7339a10b0a 100644
      implementation libs.accompanist.drawablepainter
      implementation libs.androidx.activity
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
-index 8c68bab6d0..c7baedcc65 100644
+index 8c68bab..c7baedc 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
 @@ -5,6 +5,7 @@
@@ -176,7 +186,7 @@ index 8c68bab6d0..c7baedcc65 100644
      }
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
-index f27235623c..403dcddf19 100644
+index f272356..403dcdd 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
 @@ -36,6 +36,7 @@ import org.mozilla.gecko.search.SearchWidgetProvider
@@ -210,7 +220,7 @@ index f27235623c..403dcddf19 100644
      /**
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt
 new file mode 100644
-index 0000000000..ded8a5ebff
+index 0000000..ded8a5e
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt
 @@ -0,0 +1,80 @@
@@ -296,7 +306,7 @@ index 0000000000..ded8a5ebff
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt
 new file mode 100644
-index 0000000000..0e578412fe
+index 0000000..0e57841
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt
 @@ -0,0 +1,113 @@
@@ -415,7 +425,7 @@ index 0000000000..0e578412fe
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt
 new file mode 100644
-index 0000000000..d42ebe61c5
+index 0000000..d42ebe6
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt
 @@ -0,0 +1,231 @@
@@ -652,7 +662,7 @@ index 0000000000..d42ebe61c5
 +}
 diff --git a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml
 new file mode 100644
-index 0000000000..2f98202063
+index 0000000..2f98202
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml
 @@ -0,0 +1,19 @@
@@ -676,7 +686,7 @@ index 0000000000..2f98202063
 +    <string name="suggest_data_status_failed">Could not check installed data. Select to download data.</string>
 +</resources>
 diff --git a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
-index e5c6bb829d..5de2b37ad9 100644
+index e5c6bb8..5de2b37 100644
 --- a/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
 @@ -6,8 +6,8 @@
@@ -691,7 +701,7 @@ index e5c6bb829d..5de2b37ad9 100644
      <string name="firefox_suggest_online_summary">Send text as you type to Mozilla’s suggestion service for online cards, such as flights, sports and stocks. Turning this off stops new requests; a request already sent may finish.</string>
      <string name="firefox_suggest_stocks_title">Stock cards</string>
 diff --git a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
-index 497fe2a000..e32e437bb7 100644
+index 497fe2a..e32e437 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
 @@ -92,6 +92,16 @@
@@ -713,7 +723,7 @@ index 497fe2a000..e32e437bb7 100644
              android:key="@string/pref_key_show_nonsponsored_suggestions"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt
 new file mode 100644
-index 0000000000..08d0dc92f0
+index 0000000..08d0dc9
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt
 @@ -0,0 +1,49 @@
@@ -768,7 +778,7 @@ index 0000000000..08d0dc92f0
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt
 new file mode 100644
-index 0000000000..178a61b936
+index 0000000..178a61b
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt
 @@ -0,0 +1,170 @@
@@ -943,7 +953,7 @@ index 0000000000..178a61b936
 +
 +}
 diff --git a/third_party/application-services/components/remote_settings/src/client.rs b/third_party/application-services/components/remote_settings/src/client.rs
-index ebc942a6fe..7d1773ffc8 100644
+index 396d102..47be77d 100644
 --- a/third_party/application-services/components/remote_settings/src/client.rs
 +++ b/third_party/application-services/components/remote_settings/src/client.rs
 @@ -13,6 +13,7 @@ use crate::{packaged_attachments, packaged_collections, RemoteSettingsServer};
@@ -1147,7 +1157,7 @@ index ebc942a6fe..7d1773ffc8 100644
              server_url,
              bucket_name,
              context,
-@@ -1827,3 +1956,130 @@ mod test_reset_storage {
+@@ -1832,3 +1961,130 @@ mod test_reset_storage {
          );
      }
  }
@@ -1279,7 +1289,7 @@ index ebc942a6fe..7d1773ffc8 100644
 +    }
 +}
 diff --git a/third_party/application-services/components/remote_settings/src/lib.rs b/third_party/application-services/components/remote_settings/src/lib.rs
-index 9c5f80b194..4db50a8b70 100644
+index 9c5f80b..4db50a8 100644
 --- a/third_party/application-services/components/remote_settings/src/lib.rs
 +++ b/third_party/application-services/components/remote_settings/src/lib.rs
 @@ -10,11 +10,13 @@ pub mod client;
@@ -1323,7 +1333,7 @@ index 9c5f80b194..4db50a8b70 100644
          self.internal.shutdown()
 diff --git a/third_party/application-services/components/remote_settings/src/pinned_suggest.rs b/third_party/application-services/components/remote_settings/src/pinned_suggest.rs
 new file mode 100644
-index 0000000000..2b304a1d9c
+index 0000000..2b304a1
 --- /dev/null
 +++ b/third_party/application-services/components/remote_settings/src/pinned_suggest.rs
 @@ -0,0 +1,467 @@
@@ -1795,7 +1805,7 @@ index 0000000000..2b304a1d9c
 +    }
 +}
 diff --git a/third_party/application-services/components/remote_settings/src/storage.rs b/third_party/application-services/components/remote_settings/src/storage.rs
-index 0c5b56f70c..fb6eb68361 100644
+index 0c5b56f..fb6eb68 100644
 --- a/third_party/application-services/components/remote_settings/src/storage.rs
 +++ b/third_party/application-services/components/remote_settings/src/storage.rs
 @@ -322,6 +322,49 @@ impl Storage {
@@ -2034,7 +2044,7 @@ index 0c5b56f70c..fb6eb68361 100644
 +}
 diff --git a/third_party/application-services/components/suggest/tests/pinned_suggest.rs b/third_party/application-services/components/suggest/tests/pinned_suggest.rs
 new file mode 100644
-index 0000000000..4f7aa24ef5
+index 0000000..4f7aa24
 --- /dev/null
 +++ b/third_party/application-services/components/suggest/tests/pinned_suggest.rs
 @@ -0,0 +1,153 @@
@@ -2192,35 +2202,36 @@ index 0000000000..4f7aa24ef5
 +    );
 +}
 diff --git a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt b/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
+index 71be881..8a58b1a 100644
 --- a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
 +++ b/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
-@@ -668,6 +668,10 @@
-     ): Short
+@@ -705,6 +705,10 @@ internal object IntegrityCheckingUniffiLib {
+     ): Int
      external fun uniffi_remote_settings_checksum_method_remotesettingsclient_get_records_map(
-     ): Short
+     ): Int
 +    external fun uniffi_remote_settings_checksum_method_remotesettingsclient_install_pinned_suggest_data(
-+    ): Short
++    ): Int
 +    external fun uniffi_remote_settings_checksum_method_remotesettingsclient_installed_pinned_suggest_data(
-+    ): Short
++    ): Int
      external fun uniffi_remote_settings_checksum_method_remotesettingsclient_reset_storage(
-     ): Short
+     ): Int
      external fun uniffi_remote_settings_checksum_method_remotesettingsclient_shutdown(
-@@ -684,10 +688,14 @@
-     ): Short
+@@ -721,10 +725,14 @@ internal object IntegrityCheckingUniffiLib {
+     ): Int
      external fun uniffi_remote_settings_checksum_method_remotesettingsservice_update_config(
-     ): Short
+     ): Int
 +    external fun uniffi_remote_settings_checksum_method_suggestdatainstalltoken_cancel(
-+    ): Short
++    ): Int
      external fun uniffi_remote_settings_checksum_method_remotesettingstelemetry_report_uptake(
-     ): Short
+     ): Int
      external fun uniffi_remote_settings_checksum_constructor_remotesettingsservice_new(
-     ): Short
+     ): Int
 +    external fun uniffi_remote_settings_checksum_constructor_suggestdatainstalltoken_new(
-+    ): Short
++    ): Int
      external fun ffi_remote_settings_uniffi_contract_version(
      ): Int
  
-@@ -721,6 +729,10 @@
+@@ -758,6 +766,10 @@ internal object UniffiLib {
      ): RustBuffer.ByValue
      external fun uniffi_remote_settings_fn_method_remotesettingsclient_get_records_map(`ptr`: Long,`syncIfEmpty`: Byte,uniffi_out_err: UniffiRustCallStatus, 
      ): RustBuffer.ByValue
@@ -2231,7 +2242,7 @@ diff --git a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remot
      external fun uniffi_remote_settings_fn_method_remotesettingsclient_reset_storage(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
      ): Unit
      external fun uniffi_remote_settings_fn_method_remotesettingsclient_shutdown(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-@@ -743,6 +755,14 @@
+@@ -780,6 +792,14 @@ internal object UniffiLib {
      ): RustBuffer.ByValue
      external fun uniffi_remote_settings_fn_method_remotesettingsservice_update_config(`ptr`: Long,`config`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
      ): Unit
@@ -2246,7 +2257,7 @@ diff --git a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remot
      external fun uniffi_remote_settings_fn_clone_remotesettingstelemetry(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
      ): Long
      external fun uniffi_remote_settings_fn_free_remotesettingstelemetry(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-@@ -1331,6 +1351,16 @@
+@@ -1368,6 +1388,16 @@ public interface RemoteSettingsClientInterface {
       */
      fun `getRecordsMap`(`syncIfEmpty`: kotlin.Boolean = false): Map<kotlin.String, RemoteSettingsRecord>?
      
@@ -2263,7 +2274,7 @@ diff --git a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remot
      fun `resetStorage`()
      
      /**
-@@ -1552,6 +1582,39 @@
+@@ -1597,6 +1627,39 @@ open class RemoteSettingsClient: Disposable, AutoCloseable, RemoteSettingsClient
      
  
      
@@ -2303,7 +2314,7 @@ diff --git a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remot
      @Throws(RemoteSettingsException::class)override fun `resetStorage`()
          = 
      callWithHandle {
-@@ -2380,6 +2443,272 @@
+@@ -2441,6 +2504,272 @@ public object FfiConverterTypeRemoteSettingsTelemetry: FfiConverter<RemoteSettin
  }
  
  
@@ -2576,7 +2587,7 @@ diff --git a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remot
  
  /**
   * Attachment metadata that can be optionally attached to a [Record]. The [location] should
-@@ -2438,6 +2767,44 @@
+@@ -2499,6 +2828,44 @@ public object FfiConverterTypeAttachment: FfiConverterRustBuffer<Attachment> {
  
  
  
@@ -2621,14 +2632,10 @@ diff --git a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remot
  /**
   * Remote settings configuration
   */
-@@ -3317,6 +3684,34 @@
-         }
-     }
- }
-+
-+
-+
-+
+@@ -3382,6 +3749,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
+ 
+ 
+ 
 +/**
 + * @suppress
 + */
@@ -2653,6 +2660,10 @@ diff --git a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remot
 +        }
 +    }
 +}
- 
- 
- 
++
++
++
++
+ /**
+  * @suppress
+  */
