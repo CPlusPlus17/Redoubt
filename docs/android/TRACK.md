@@ -176,6 +176,13 @@ was weighed. It is no longer the policy.
   diff). `settings/android.cfg` pins it false (Redoubt-settings `990c367`)
   ahead of the 158 rebase, so the rebase does not turn it on. Desktop
   follows upstream.
+- **The recently-visited storage-access heuristic is pinned off** (owner
+  decision 2026-10-04). `privacy.restrict3rdpartystorage.heuristic.recently_visited`
+  grants a redirect-through tracker storage access when it was recently visited
+  as a first party. 157 ships it true on Android (`StaticPrefList.yaml:18296-18303`);
+  158 ships it false everywhere (158.0b3 `:18437-18440`). `settings/android.cfg`
+  pins it false (Redoubt-settings `008b87f`), so a later upstream flip back cannot
+  turn it on. On 158 this is a no-op. Desktop follows upstream.
 
 ### What the earlier analysis said this costs
 
