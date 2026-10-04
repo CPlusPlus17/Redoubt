@@ -36,6 +36,15 @@
 # marker for the version and the commit tested, so a repeat run on the same
 # commit posts nothing; a new commit (patches fixed on main) gets a new one.
 #
+# To exercise the patch check by hand before a real new release exists,
+# dispatch with dry_run=true and patchcheck_version=<a release, e.g. 157.0>
+# (patchcheck_targets picks the targets): the watch job adds one matrix entry
+# for that release, label "manual", newer than the repository or not, with no
+# issue. It downloads and verifies the tarball and runs the patch check like a
+# real one, then prints the comment to the log and the job summary; it posts
+# and opens nothing. Without dry_run, or with a beta or other non-release
+# version, the watch job refuses (red) and nothing runs.
+#
 # android-test.yaml lists this file, the script and its test under push
 # paths-ignore, so a push that touches only the watcher does not start the
 # self-hosted Android build. The watcher's own tests run here instead.
@@ -54,6 +63,20 @@ on:
         required: false
         default: false
         type: boolean
+      patchcheck_version:
+        description: "Dry run only: also patch-check this Firefox release (e.g. 157.0), newer or not. Prints the comment; posts nothing."
+        required: false
+        default: ''
+        type: string
+      patchcheck_targets:
+        description: "Targets for patchcheck_version."
+        required: false
+        default: desktop,android
+        type: choice
+        options:
+          - desktop,android
+          - desktop
+          - android
   push:
     branches:
       - main
@@ -99,10 +122,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
-        run: python3 scripts/firefox-release-watch.py $DRY_RUN
+          # Empty except on a dispatch that set it; the script refuses it
+          # without DRY_RUN, and refuses a non-release version.
+          PATCHCHECK_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.patchcheck_version || '' }}
+          PATCHCHECK_TARGETS: ${{ github.event_name == 'workflow_dispatch' && inputs.patchcheck_targets || 'desktop,android' }}
+        run: |
+          python3 scripts/firefox-release-watch.py $DRY_RUN \
+            ${PATCHCHECK_VERSION:+--patchcheck-version "$PATCHCHECK_VERSION" --patchcheck-targets "$PATCHCHECK_TARGETS"}
 
   # Only after the watch step ran (never on push) and said so: the issue was
-  # just opened, is still open, or this is a dry run; and the release has a
+  # just opened, is still open, or this is a dry run (or a manual check); and the release has a
   # source tarball. !cancelled() so a red watch step (a dead mobile feed) does not
   # cancel the check of a desktop release it did flag.
   patchcheck:
@@ -133,7 +162,9 @@ jobs:
           VERSION: ${{ matrix.version }}
           ISSUE: ${{ matrix.issue }}
           TARGETS: ${{ matrix.targets }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
+          # A manual entry exists only in a dry run; it is a dry run here too
+          # whatever the inputs say, so it can never post.
+          DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run || matrix.label == 'manual') && '--dry-run' || '' }}
         run: |
           python3 scripts/firefox-release-watch.py patchcheck \
             --version "$VERSION" ${ISSUE:+--issue "$ISSUE"} --targets "$TARGETS" \
