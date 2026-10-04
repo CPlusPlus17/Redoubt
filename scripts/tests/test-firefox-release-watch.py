@@ -3,7 +3,9 @@
 
 No network: product-details comes from fixtures
 (scripts/tests/fixtures/firefox-release-watch/; product-details-157.0.json is
-the real document as served on 2026-10-03, the other two are derived from it),
+the real document as served on 2026-10-03, the other two are derived from it;
+mobile-versions-157.0.json is mobile_versions.json as served on 2026-10-04,
+the 157.0.1 and 158.0 ones are derived from it),
 and the end-to-end cases run the script as a subprocess against a fake
 archive.mozilla.org + GitHub API on 127.0.0.1.
 
@@ -45,6 +47,10 @@ spec.loader.exec_module(watch)
 
 def fixture(version):
     return json.loads((FIXTURES / f'product-details-{version}.json').read_text())
+
+
+def mobile_fixture(version):
+    return json.loads((FIXTURES / f'mobile-versions-{version}.json').read_text())
 
 
 class FakeGitHub:
@@ -256,6 +262,192 @@ class Run(unittest.TestCase):
             self.go('158.0', FakeGitHub())
 
 
+class RunAndroid(unittest.TestCase):
+    """mobile_versions.json: Android-only releases get their own issue."""
+
+    DOT = 'Firefox for Android 157.0.1 released: rebase Android'
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix='redoubt-release-watch-android-')
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.track('157.0', '157.0')
+        self.log = []
+        self.asked = []
+
+    track = Run.track
+
+    def exists(self, answer):
+        def f(url):
+            self.asked.append(url)
+            return answer
+        return f
+
+    def both(self, desktop, mobile, gh, tarball=False, dry_run=False):
+        """One daily run: the desktop half, then the Android half, as main()
+        does. Returns ((outcome, found), (outcome, found))."""
+        df, af = {}, {}
+        versions = fixture(desktop) if isinstance(desktop, str) else desktop
+        mv = mobile_fixture(mobile) if isinstance(mobile, str) else mobile
+        d = watch.run(self.root, versions, self.exists(tarball), gh, 'CPlusPlus17/Redoubt',
+                      dry_run, log=self.log.append, found=df)
+        a = watch.run_android(self.root, mv, versions['LATEST_FIREFOX_VERSION'],
+                              self.exists(tarball), gh, 'CPlusPlus17/Redoubt', dry_run,
+                              log=self.log.append, found=af)
+        return (d, df), (a, af)
+
+    def test_real_feed_is_quiet(self):
+        gh = FakeGitHub()
+        (d, _), (a, af) = self.both('157.0', '157.0', gh)
+        self.assertEqual((d, a), ('current', 'current'))
+        self.assertEqual(gh.created, [])
+        self.assertEqual(self.asked, [])
+        self.assertEqual(af, {})
+
+    def test_android_only_dot_without_tarball(self):
+        gh = FakeGitHub()
+        (d, df), (a, af) = self.both('157.0', '157.0.1', gh, tarball=False)
+        self.assertEqual((d, a), ('current', 'opened'))
+        self.assertEqual(self.asked, [
+            'https://archive.mozilla.org/pub/firefox/releases/157.0.1/source/'
+            'firefox-157.0.1.source.tar.xz'])
+        (title, body, label), = gh.created
+        self.assertEqual(title, self.DOT)
+        self.assertEqual(label, 'firefox-release')
+        self.assertIn('https://www.mozilla.org/en-US/firefox/android/157.0.1/releasenotes/',
+                      body)
+        self.assertIn('https://www.mozilla.org/en-US/security/advisories/', body)
+        self.assertIn('Desktop Firefox is at `157.0`', body)
+        self.assertIn('`version.android` is `157.0`', body)
+        self.assertIn('**archive.mozilla.org has no `firefox-157.0.1.source.tar.xz`**', body)
+        self.assertIn('https://github.com/mozilla-firefox/firefox/compare/'
+                      'FIREFOX-ANDROID_157_0_RELEASE...FIREFOX-ANDROID_157_0_1_RELEASE', body)
+        self.assertIn('https://archive.mozilla.org/pub/fenix/releases/157.0.1/', body)
+        self.assertIn('NEXT_RELEASE_DATE', body)
+        self.assertNotIn('make fetch TARGETS', body)
+        self.assertEqual(af, {'version': '157.0.1', 'tarball': False, 'issue': 1,
+                              'state': 'open'})
+        # No tarball: nothing to check the patches against.
+        self.assertFalse(watch.wants_android_patchcheck(a, af))
+        self.assertEqual(watch.patchcheck_jobs((d, df), (a, af)), [])
+
+    def test_android_only_dot_with_tarball(self):
+        gh = FakeGitHub()
+        (d, df), (a, af) = self.both('157.0', '157.0.1', gh, tarball=True)
+        self.assertEqual(a, 'opened')
+        body = gh.created[0][1]
+        self.assertIn('<https://archive.mozilla.org/pub/firefox/releases/157.0.1/source/'
+                      'firefox-157.0.1.source.tar.xz>', body)
+        self.assertIn("printf '157.0.1\\n' > version.android", body)
+        self.assertIn('Leave `version` / `release`', body)
+        self.assertIn('make fetch TARGETS=android', body)
+        self.assertIn('check-patchfail.sh --targets=android', body)
+        self.assertNotIn('has no `firefox-', body)
+        self.assertEqual(watch.patchcheck_jobs((d, df), (a, af)), [
+            {'version': '157.0.1', 'issue': '1', 'targets': 'android',
+             'label': 'android'}])
+
+    def test_same_version_as_desktop_is_one_issue(self):
+        gh = FakeGitHub()
+        (d, df), (a, af) = self.both('157.0.1', '157.0.1', gh, tarball=True)
+        self.assertEqual((d, a), ('opened', 'same-as-desktop'))
+        self.assertEqual([t for t, _, _ in gh.created],
+                         ['Firefox 157.0.1 released: rebase Android and desktop'])
+        self.assertEqual(len(self.asked), 1, 'only the desktop half probes the archive')
+        self.assertEqual(watch.patchcheck_jobs((d, df), (a, af)), [
+            {'version': '157.0.1', 'issue': '1', 'targets': 'desktop,android',
+             'label': 'release'}])
+        # ...and the next day, still one issue.
+        self.both('157.0.1', '157.0.1', gh, tarball=True)
+        self.assertEqual(len(gh.created), 1)
+
+    def test_older_than_desktop_is_superseded(self):
+        gh = FakeGitHub()
+        (d, _), (a, af) = self.both('158.0', '157.0.1', gh, tarball=True)
+        self.assertEqual((d, a), ('opened', 'superseded'))
+        self.assertEqual(len(gh.created), 1)
+        self.assertEqual(af, {})
+
+    def test_mobile_major_ahead_of_desktop_waits(self):
+        # Mobile feed reports 158.0 while desktop still says 157.0: no
+        # Android-only issue, and no second issue once desktop catches up.
+        gh = FakeGitHub()
+        (d, _), (a, af) = self.both('157.0', '158.0', gh, tarball=True)
+        self.assertEqual(a, 'ahead-of-desktop')
+        self.assertEqual(gh.created, [])
+        self.assertEqual(af, {})
+        (d, _), (a, _) = self.both('158.0', '158.0', gh, tarball=True)
+        self.assertEqual((d, a), ('opened', 'same-as-desktop'))
+        self.assertEqual(len(gh.created), 1)
+
+    def test_android_already_there(self):
+        self.track('157.0.1', '157.0')
+        gh = FakeGitHub()
+        (_, _), (a, _) = self.both('157.0', '157.0.1', gh)
+        self.assertEqual(a, 'current')
+        self.assertEqual(gh.created, [])
+
+    def test_ahead_of_a_newer_desktop_release_too(self):
+        # Desktop 157.0.1 and an Android-only 157.0.2 on the same day: two
+        # releases, two issues, two checks.
+        gh = FakeGitHub()
+        mv = dict(mobile_fixture('157.0'), version='157.0.2')
+        (d, df), (a, af) = self.both('157.0.1', mv, gh, tarball=True)
+        self.assertEqual((d, a), ('opened', 'opened'))
+        self.assertEqual([t for t, _, _ in gh.created], [
+            'Firefox 157.0.1 released: rebase Android and desktop',
+            'Firefox for Android 157.0.2 released: rebase Android'])
+        self.assertEqual([j['targets'] for j in watch.patchcheck_jobs((d, df), (a, af))],
+                         ['desktop,android', 'android'])
+
+    def test_dedup(self):
+        gh = FakeGitHub()
+        self.both('157.0', '157.0.1', gh)
+        (_, _), (a, af) = self.both('157.0', '157.0.1', gh)
+        self.assertEqual(a, 'duplicate')
+        self.assertEqual(len(gh.created), 1)
+        # Still open, still no tarball: no check.
+        self.assertFalse(watch.wants_android_patchcheck(a, af))
+        # The tarball turns up later while the issue is open: now it is checked.
+        (_, _), (a, af) = self.both('157.0', '157.0.1', gh, tarball=True)
+        self.assertEqual(a, 'duplicate')
+        self.assertTrue(watch.wants_android_patchcheck(a, af))
+        self.assertEqual(len(gh.created), 1)
+        # Closed: done, never reopened, never checked.
+        gh = FakeGitHub([self.DOT], closed=[self.DOT])
+        (_, _), (a, af) = self.both('157.0', '157.0.1', gh, tarball=True)
+        self.assertEqual((a, af['state']), ('duplicate', 'closed'))
+        self.assertFalse(watch.wants_android_patchcheck(a, af))
+        self.assertEqual(gh.created, [])
+        # A desktop issue for the same number does not count, nor the reverse.
+        gh = FakeGitHub(['Firefox 157.0.1 released: rebase Android and desktop'])
+        (_, _), (a, _) = self.both('157.0', '157.0.1', gh)
+        self.assertEqual(a, 'opened')
+
+    def test_beta_value_is_ignored(self):
+        gh = FakeGitHub()
+        mv = dict(mobile_fixture('157.0'), beta_version='999.0b1',
+                  alpha_version='999.0a1', nightly_version='999.0a1',
+                  ios_version='999.0', ios_beta_version='999.0b1')
+        (_, _), (a, _) = self.both('157.0', mv, gh)
+        self.assertEqual(a, 'current')
+        self.assertEqual(self.asked, [])
+        self.assertEqual(gh.created, [])
+
+    def test_malformed_feed_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.both('157.0', dict(mobile_fixture('157.0'), version='158.0b3'),
+                      FakeGitHub())
+        with self.assertRaises(watch.WatchError):
+            self.both('157.0', {'beta_version': '158.0b3'}, FakeGitHub())
+
+    def test_dry_run(self):
+        (_, _), (a, af) = self.both('157.0', '157.0.1', None, dry_run=True)
+        self.assertEqual(a, 'would-open')
+        self.assertTrue(any('would open ' + repr(self.DOT) in l for l in self.log))
+        self.assertNotIn('issue', af)
+
+
 def clean_env(token=None):
     env = {k: v for k, v in os.environ.items()
            if not k.startswith('GITHUB_') and k not in ('RUNNER_TEMP', 'GNUPGHOME')}
@@ -355,16 +547,27 @@ class EndToEnd(unittest.TestCase):
         (self.root / 'version.android').write_text('157.0\n')
         (self.root / 'version').write_text('157.0')
 
-    def script(self, version, *extra, token='test-token', output=None):
+    def script(self, version, *extra, token='test-token', output=None, mobile='157.0'):
         env = clean_env(token)
         if output:
             env['GITHUB_OUTPUT'] = str(output)
+        # Never the network: without a mobile fixture the URL is a dead port.
+        feed = (['--mobile-versions-file', str(FIXTURES / f'mobile-versions-{mobile}.json')]
+                if mobile else
+                ['--mobile-product-details-url', 'http://127.0.0.1:9/mobile_versions.json'])
         return subprocess.run(
             [sys.executable, str(SCRIPT), '--root', str(self.root),
              '--versions-file', str(FIXTURES / f'product-details-{version}.json'),
+             *feed,
              '--archive-base', f'{self.base}/releases', '--api', self.base,
              '--repo', 'o/r', *extra],
             env=env, capture_output=True, text=True, timeout=60)
+
+    def outputs(self, path):
+        out = dict(l.split('=', 1) for l in path.read_text().splitlines())
+        out['checks'] = json.loads(out['checks'])
+        path.unlink()
+        return out
 
     def test_job_outputs(self):
         out = self.root / 'github-output'
@@ -372,15 +575,80 @@ class EndToEnd(unittest.TestCase):
         r = self.script('158.0', output=out)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(out.read_text(),
-                         'outcome=opened\nversion=158.0\nissue=151\npatchcheck=true\n')
+                         'outcome=opened\nversion=158.0\nissue=151\npatchcheck=true\n'
+                         'android_outcome=current\nandroid_version=\nandroid_issue=\n'
+                         'checks=[{"version":"158.0","issue":"151",'
+                         '"targets":"desktop,android","label":"release"}]\n')
         out.unlink()
         r = self.script('158.0', output=out)
-        self.assertEqual(out.read_text(),
-                         'outcome=duplicate\nversion=158.0\nissue=151\npatchcheck=true\n')
-        out.unlink()
+        o = self.outputs(out)
+        self.assertEqual((o['outcome'], o['issue'], o['patchcheck']),
+                         ('duplicate', '151', 'true'))
+        self.assertEqual(len(o['checks']), 1)
         r = self.script('157.0', output=out)
         self.assertEqual(out.read_text(),
-                         'outcome=current\nversion=\nissue=\npatchcheck=false\n')
+                         'outcome=current\nversion=\nissue=\npatchcheck=false\n'
+                         'android_outcome=current\nandroid_version=\nandroid_issue=\n'
+                         'checks=[]\n')
+
+    def test_android_only_dot_release(self):
+        out = self.root / 'github-output'
+        r = self.script('157.0', output=out, mobile='157.0.1')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        o = self.outputs(out)
+        self.assertEqual((o['outcome'], o['android_outcome'], o['android_version'],
+                          o['android_issue']), ('current', 'opened', '157.0.1', '151'))
+        self.assertEqual(o['checks'], [], 'no tarball, no patch check')
+        self.assertEqual(FakeServer.state['issues'][-1], RunAndroid.DOT)
+        self.assertIn('has no `firefox-157.0.1.source.tar.xz`',
+                      FakeServer.state['bodies'][-1]['body'])
+        # The tarball appears: same issue, now checked.
+        FakeServer.state['tarballs'].add('157.0.1')
+        r = self.script('157.0', output=out, mobile='157.0.1')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        o = self.outputs(out)
+        self.assertEqual(o['android_outcome'], 'duplicate')
+        self.assertEqual(o['checks'], [{'version': '157.0.1', 'issue': '151',
+                                        'targets': 'android', 'label': 'android'}])
+        self.assertEqual(FakeServer.state['issues'].count(RunAndroid.DOT), 1)
+
+    def test_same_version_both_feeds_one_issue(self):
+        FakeServer.state['tarballs'].add('158.0')
+        r = self.script('158.0', mobile='158.0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('android outcome: same-as-desktop', r.stdout)
+        self.assertEqual(FakeServer.state['issues'][150:],
+                         ['Firefox 158.0 released: rebase Android and desktop'])
+
+    def test_mobile_feed_down_is_red_without_spam(self):
+        out = self.root / 'github-output'
+        FakeServer.state['tarballs'].add('158.0')
+        for _ in range(3):
+            r = self.script('158.0', output=out, mobile=None)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn('mobile_versions.json', r.stderr)
+            o = self.outputs(out)
+            # The desktop half did its job and its check still runs.
+            self.assertIn(o['outcome'], ('opened', 'duplicate'))
+            self.assertEqual(o['android_outcome'], 'error')
+            self.assertEqual([c['label'] for c in o['checks']], ['release'])
+        # One issue over three runs, and none about the failure.
+        self.assertEqual(FakeServer.state['issues'][150:],
+                         ['Firefox 158.0 released: rebase Android and desktop'])
+
+    def test_desktop_feed_down_skips_android(self):
+        r = subprocess.run(
+            [sys.executable, str(SCRIPT), '--root', str(self.root),
+             '--product-details-url', 'http://127.0.0.1:9/firefox_versions.json',
+             '--mobile-versions-file', str(FIXTURES / 'mobile-versions-157.0.1.json'),
+             '--archive-base', f'{self.base}/releases', '--api', self.base,
+             '--repo', 'o/r'], env=clean_env('test-token'),
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('firefox_versions.json', r.stderr)
+        self.assertIn('Firefox for Android: skipped', r.stderr)
+        self.assertEqual(FakeServer.state['heads'], [])
+        self.assertEqual(len(FakeServer.state['issues']), 150)
 
     def test_lifecycle(self):
         r = self.script('158.0')
@@ -737,6 +1005,16 @@ class PatchcheckEndToEnd(unittest.TestCase):
         r = self.patchcheck('--issue', '7', sha='f' * 40)
         self.assertIn('outcome: posted', r.stdout)
         self.assertEqual(len(FakeServer.state['comments'][7]), 2)
+
+    def test_android_only_targets(self):
+        r = self.patchcheck('--issue', '7', '--targets', 'android')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        body, = FakeServer.state['comments'][7]
+        self.assertIn('| android | **FAIL** | 3 | 1 |', body)
+        self.assertNotIn('| desktop |', body)
+        r = self.patchcheck('--issue', '8', '--targets', 'ios', '--dry-run')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('targets must be among', r.stderr)
 
     def test_dry_run_prints_and_posts_nothing(self):
         r = self.patchcheck('--dry-run', token='')
