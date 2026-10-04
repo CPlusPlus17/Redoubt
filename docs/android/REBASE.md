@@ -1148,6 +1148,10 @@ our tree; none was backported in this rebase:
 | CVE-2026-92033 | 2026-90 (156) | high | Privilege escalation in Firefox for Android | 2047339 |
 | CVE-2026-100823 | 2026-97 (157) | low | Spoofing issue in the Downloads component | 2054384 |
 
+*Follow-up 2026-10-04:* closed by the move to Firefox release 157.0 (Beta 4
+on), CVE-2026-84135 aside (Focus-only, never shipped). Each fix was checked
+present in the 157.0 source: `PARITY.md` §7.
+
 Consistent with that: between the two tarballs only two files under `mobile/`
 differ at all (`GeckoAppShell.java`, HDR brightness getters;
 `fenix/app/nimbus.fml.yaml`, a Nimbus `gecko-pref` for
