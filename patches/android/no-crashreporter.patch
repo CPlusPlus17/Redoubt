@@ -490,6 +490,12 @@
 # view_crash_reporter.xml ("Unresolved reference 'sendCrashCheckbox'"). The
 # function and its call go, and so does CrashContentViewTest's new
 # "checkbox is re-checked" test that exercised it.
+# Test fix (found by the targeted fenix:testDebugUnitTest run on 158.0b3):
+# 158's CrashReporterControllerTest builds a real Settings and sets
+# crashReportChoice to Auto/Ask, expecting the checkbox shown and crashes
+# submitted. With this patch Settings.crashReportOption() is always Never,
+# so those four tests now assert the Redoubt behaviour instead: a stored
+# Auto/Ask choice still hides the checkbox, and nothing is submitted.
 diff --git a/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt b/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt
 deleted file mode 100644
 index bd45159..0000000
@@ -5241,6 +5247,86 @@ index 94050e0..39efd11 100644
 -
 -        assertTrue(view.binding.sendCrashCheckbox.isChecked)
 -    }
+ }
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashReporterControllerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashReporterControllerTest.kt
+index 48a614d..2caa224 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashReporterControllerTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashReporterControllerTest.kt
+@@ -11,6 +11,7 @@ import io.mockk.mockk
+ import io.mockk.spyk
+ import io.mockk.verify
+ import kotlin.test.assertFalse
++import kotlin.test.assertNull
+ import kotlin.test.assertTrue
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.test.StandardTestDispatcher
+@@ -132,25 +133,31 @@ class CrashReporterControllerTest {
+         assertTrue(appStore.state.nonFatalCrashes.isEmpty())
+     }
+ 
++    // LibreWolf (patches/android/no-crashreporter.patch): Settings.crashReportOption() is always
++    // Never, so a stored "Auto" choice enables nothing: no report is submitted, the crashes are
++    // only disposed off.
+     @Test
+-    fun `GIVEN reportCrashes true, crash reporting enabled, and crash report setting set to Auto WHEN trying to submit crashes THEN all crashes should be submitted and then disposed off`() {
++    fun `GIVEN reportCrashes true and a stored Auto choice WHEN trying to submit crashes THEN nothing is submitted and all are disposed off`() {
+         settings.crashReportChoice = CrashReportOption.Auto.label
+         controller = CrashReporterController(sessionId, 2, components, settings, navController, appStore)
+ 
+-        controller.submitPendingNonFatalCrashesIfNecessary(true)!!.joinBlocking()
++        assertNull(controller.submitPendingNonFatalCrashesIfNecessary(true))
+ 
+-        verify { components.analytics.crashReporter.submitReport(crash) }
++        verify(exactly = 0) { components.analytics.crashReporter.submitReport(crash) }
+         assertTrue(appStore.state.nonFatalCrashes.isEmpty())
+     }
+ 
++    // LibreWolf (patches/android/no-crashreporter.patch): Settings.crashReportOption() is always
++    // Never, so a stored "Ask" choice enables nothing: no report is submitted, the crashes are
++    // only disposed off.
+     @Test
+-    fun `GIVEN reportCrashes true, crash reporting enabled, and crash report setting set to Ask WHEN trying to submit crashes THEN all crashes should be submitted and then disposed off`() {
++    fun `GIVEN reportCrashes true and a stored Ask choice WHEN trying to submit crashes THEN nothing is submitted and all are disposed off`() {
+         settings.crashReportChoice = CrashReportOption.Ask.label
+         controller = CrashReporterController(sessionId, 2, components, settings, navController, appStore)
+ 
+-        controller.submitPendingNonFatalCrashesIfNecessary(true)!!.joinBlocking()
++        assertNull(controller.submitPendingNonFatalCrashesIfNecessary(true))
+ 
+-        verify { components.analytics.crashReporter.submitReport(crash) }
++        verify(exactly = 0) { components.analytics.crashReporter.submitReport(crash) }
+         assertTrue(appStore.state.nonFatalCrashes.isEmpty())
+     }
+ 
+@@ -181,21 +188,23 @@ class CrashReporterControllerTest {
+         assertFalse(controller.isCrashReportCheckboxInitiallyChecked())
+     }
+ 
++    // LibreWolf (patches/android/no-crashreporter.patch): crashReportOption() is always Never.
+     @Test
+-    fun `GIVEN crash report option is set to Ask, THEN reporting option is shown and initially checked`() {
++    fun `GIVEN a stored Ask crash report choice, THEN reporting option is still hidden and unchecked`() {
+         settings.crashReportChoice = CrashReportOption.Ask.label
+         controller = CrashReporterController(sessionId, 2, components, settings, navController, appStore)
+ 
+-        assertTrue(controller.isCrashReportCheckboxVisible())
+-        assertTrue(controller.isCrashReportCheckboxInitiallyChecked())
++        assertFalse(controller.isCrashReportCheckboxVisible())
++        assertFalse(controller.isCrashReportCheckboxInitiallyChecked())
+     }
+ 
++    // LibreWolf (patches/android/no-crashreporter.patch): crashReportOption() is always Never.
+     @Test
+-    fun `GIVEN crash report option is set to Auto, THEN reporting option is shown and initially checked`() {
++    fun `GIVEN a stored Auto crash report choice, THEN reporting option is still hidden and unchecked`() {
+         settings.crashReportChoice = CrashReportOption.Auto.label
+         controller = CrashReporterController(sessionId, 2, components, settings, navController, appStore)
+ 
+-        assertTrue(controller.isCrashReportCheckboxVisible())
+-        assertTrue(controller.isCrashReportCheckboxInitiallyChecked())
++        assertFalse(controller.isCrashReportCheckboxVisible())
++        assertFalse(controller.isCrashReportCheckboxInitiallyChecked())
+     }
  }
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/store/DefaultPrivacyPreferencesRepositoryTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/store/DefaultPrivacyPreferencesRepositoryTest.kt
 index 2ba6927..0567bcc 100644

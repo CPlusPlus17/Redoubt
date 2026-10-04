@@ -747,6 +747,11 @@
 #     after applicationScope; applicationScope still goes (unused without the
 #     push block). MetricsUtils.kt: 158 appended a TabGroupAccessPoint enum after
 #     the Advertising ID helpers; the helpers go, the enum stays.
+#   * BackgroundServicesTest.kt (new shared file): 158 added a
+#     createBackgroundServices() helper for its Android Automotive tests that
+#     passes push = and applicationScope =, the two constructor parameters this
+#     patch removes. Found by fenix:compileDebugUnitTestKotlin ("No parameter
+#     with name 'push' found"); both arguments and the CoroutineScope import go.
 # Re-checked on the 158 tree after the patch: no com.google.android.gms /
 # com.google.firebase / com.google.android.play reference in mobile/android
 # sources outside LibreWolf comments, and nothing names lib-integrity-googleplay
@@ -3831,6 +3836,34 @@ index 82aeef1..0f6c306 100644
      <androidx.preference.Preference
          android:key="@string/pref_key_sync_debug_quit"
          android:title="@string/preferences_sync_debug_quit_button_title"
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt
+index fe4a0d1..b18b434 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt
+@@ -13,7 +13,6 @@ import io.mockk.impl.annotations.MockK
+ import io.mockk.just
+ import io.mockk.mockk
+ import io.mockk.verify
+-import kotlinx.coroutines.CoroutineScope
+ import mozilla.components.concept.sync.AccountObserver
+ import mozilla.components.concept.sync.AuthType
+ import mozilla.components.concept.sync.OAuthAccount
+@@ -175,7 +174,6 @@ class BackgroundServicesTest {
+     private fun createBackgroundServices(isAndroidAutomotiveAvailable: Boolean) =
+         BackgroundServices(
+             context = testContext,
+-            push = mockk(relaxed = true),
+             settings = mockk(relaxed = true),
+             crashReporter = mockk(relaxed = true),
+             historyStorage = mockk(relaxed = true),
+@@ -184,7 +182,6 @@ class BackgroundServicesTest {
+             remoteTabsStorage = mockk(relaxed = true),
+             creditCardsStorage = mockk(relaxed = true),
+             strictMode = TestStrictModeManager(),
+-            applicationScope = mockk<CoroutineScope>(relaxed = true),
+             isAndroidAutomotiveAvailable = isAndroidAutomotiveAvailable,
+         )
+ }
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt
 index 7b440fb..9b195f1 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt
