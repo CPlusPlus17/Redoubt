@@ -484,6 +484,12 @@
 # service gone, the endpoint block and its import go too. The crashReporter is
 # otherwise the 157 one: no services, no telemetry services, Prompt.NEVER,
 # useLegacyReporting false, local Room record kept.
+# Compile fix (found by the 158.0b3 :fenix:compileReleaseKotlin): 158's
+# CrashContentView.show() calls a new bindCheckboxState() that reads
+# binding.sendCrashCheckbox, the checkbox this patch removes from
+# view_crash_reporter.xml ("Unresolved reference 'sendCrashCheckbox'"). The
+# function and its call go, and so does CrashContentViewTest's new
+# "checkbox is re-checked" test that exercised it.
 diff --git a/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt b/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt
 deleted file mode 100644
 index bd45159..0000000
@@ -4921,10 +4927,22 @@ index b8c0928..5e909ee 100644
      val remoteSettingsService = lazyMonitored {
          RemoteSettingsService(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt
-index 4dcb522..5a62678 100644
+index 4dcb522..b095e23 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt
-@@ -76,17 +76,20 @@ constructor(
+@@ -43,9 +43,8 @@ constructor(
+     fun show(controller: CrashReporterController) {
+         this.controller = controller
+         inflateViewIfNecessary()
+-        // Update the checkbox state on every show(), so that the preference does not
+-        // go stale for multiple crashes in the same session.
+-        bindCheckboxState()
++        // LibreWolf (patches/android/no-crashreporter.patch): no bindCheckboxState() --
++        // the "Send crash report" checkbox is removed from view_crash_reporter.xml.
+         visibility = VISIBLE
+     }
+ 
+@@ -76,28 +75,24 @@ constructor(
      internal fun bindViews() {
          binding.title.text = context.getString(R.string.tab_crash_title_2, context.getString(R.string.app_name))
  
@@ -4947,6 +4965,17 @@ index 4dcb522..5a62678 100644
              }
          }
      }
+ 
+-    private fun bindCheckboxState() {
+-        binding.sendCrashCheckbox.apply {
+-            visibility = if (controller.isCrashReportCheckboxVisible()) VISIBLE else GONE
+-            isChecked = controller.isCrashReportCheckboxInitiallyChecked()
+-        }
+-    }
+-
+     /**
+      * Increases the tap area of the current view by a predefined amount. This amount is defined by [TAP_INCREASE_DP].
+      */
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/SettingsCrashReportCache.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/SettingsCrashReportCache.kt
 index 256b98f..53df7cf 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/SettingsCrashReportCache.kt
@@ -5166,10 +5195,18 @@ index 912da64..97ffa11 100644
      <string name="startup_crash_positive">Send crash report</string>
      <!-- Button text to continue and not send a startup crash report -->
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt
-index 94050e0..d864d27 100644
+index 94050e0..39efd11 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt
-@@ -74,11 +74,11 @@ class CrashContentViewTest {
+@@ -7,7 +7,6 @@ package org.mozilla.fenix.crashes
+ import android.view.View
+ import android.view.View.GONE
+ import android.view.View.VISIBLE
+-import io.mockk.every
+ import io.mockk.mockk
+ import io.mockk.spyk
+ import io.mockk.verify
+@@ -74,11 +73,11 @@ class CrashContentViewTest {
          assertEquals(view.binding.restoreTabButton, viewArgumentCaptor[0])
          assertEquals(view.binding.closeTabButton, viewArgumentCaptor[1])
  
@@ -5184,6 +5221,27 @@ index 94050e0..d864d27 100644
          view.binding.closeTabButton.callOnClick()
          verify { controller.handleCloseAndRemove(false) }
      }
+@@ -105,20 +104,4 @@ class CrashContentViewTest {
+         verify(exactly = 1) { view.inflate() }
+         verify(exactly = 0) { view.bindViews() }
+     }
+-
+-    @Test
+-    fun `GIVEN Auto Setting WHEN show is called again THEN the checkbox is re-checked`() {
+-        val controller: CrashReporterController =
+-            mockk(relaxed = true) {
+-                every { isCrashReportCheckboxVisible() } returns true
+-                every { isCrashReportCheckboxInitiallyChecked() } returns true
+-            }
+-        val view = CrashContentView(testContext)
+-
+-        view.show(controller)
+-        view.binding.sendCrashCheckbox.isChecked = false
+-        view.show(controller)
+-
+-        assertTrue(view.binding.sendCrashCheckbox.isChecked)
+-    }
+ }
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/store/DefaultPrivacyPreferencesRepositoryTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/store/DefaultPrivacyPreferencesRepositoryTest.kt
 index 2ba6927..0567bcc 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/store/DefaultPrivacyPreferencesRepositoryTest.kt
