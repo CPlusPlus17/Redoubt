@@ -716,11 +716,46 @@
 # remaining project in either .buildconfig.yml depends on the two deleted modules.
 # taskcluster/config.yml still names both modules, deliberately, as before.
 # Not re-measured: the dex/manifest counts above (no 157 APK yet).
+#
+# 158 REBASE (2026-10-04, pre-rebase against Firefox 158.0b3)
+# ------------------------------------------------------------
+# Same removal on the 158 sources; every module, file and catalog entry of the
+# 157 text still goes. What changed upstream, and what that did to this patch:
+#   * RequestHashProvider moved from lib-integrity-googleplay into
+#     concept-integrity (mozilla.components.concept.integrity), and
+#     IntegrityClient gained a default warmUp(). ClientUUID was renamed
+#     ClientUuid (ClientUuid.kt, FakeClientUuid.kt, ClientUuidTest.kt) and now
+#     imports the concept-level RequestHashProvider. The 157 hunks that stripped
+#     RequestHashProvider/Hasher/generateHash() from ClientUUID existed only
+#     because the interface lived in the deleted module; on 158 it does not, so
+#     those three files are no longer touched. generateHash() stays, uncalled
+#     (its only caller was the deleted GooglePlayIntegrityClient.create()).
+#   * Llm.kt: 158 already takes a concept IntegrityClient and no longer calls
+#     forConsumer(); the three Llm.kt hunks are gone. Components.llm passes the
+#     no-op integrityClient directly (158 called
+#     integrityClient.forConsumer(IntegrityConsumer.Summarize), a Play-module API).
+#   * Components.kt: the same no-op IntegrityClient replaces
+#     GooglePlayIntegrityClient.create(); the imports moved (the ReviewManagerFactory,
+#     GooglePlayIntegrityClient and IntegrityConsumer imports go, the
+#     RequestHashProvider import becomes IntegrityClient).
+#   * GooglePlayIntegrityClient.kt, StandardIntegrityManager.kt,
+#     GooglePlayIntegrityClientTest.kt, Push.kt and
+#     Firebase-Cloud-Messaging-for-WebPush.md changed upstream (imports,
+#     @SuppressLint, Markdown reflow), so their deletion hunks are regenerated
+#     against the 158 text. Still deleted whole.
+#   * BackgroundServices.kt: 158 added an isAndroidAutomotiveAvailable parameter
+#     after applicationScope; applicationScope still goes (unused without the
+#     push block). MetricsUtils.kt: 158 appended a TabGroupAccessPoint enum after
+#     the Advertising ID helpers; the helpers go, the enum stays.
+# Re-checked on the 158 tree after the patch: no com.google.android.gms /
+# com.google.firebase / com.google.android.play reference in mobile/android
+# sources outside LibreWolf comments, and nothing names lib-integrity-googleplay
+# or lib-push-firebase.
 diff --git a/.prettierignore b/.prettierignore
-index 0546a81..1bec8e8 100644
+index fee0448..560290d 100644
 --- a/.prettierignore
 +++ b/.prettierignore
-@@ -1721,12 +1721,10 @@ mobile/android/android-components/components/lib/crash/lint-baseline.xml
+@@ -1723,12 +1723,10 @@ mobile/android/android-components/components/lib/crash/lint-baseline.xml
  mobile/android/android-components/components/lib/dataprotect/lint-baseline.xml
  mobile/android/android-components/components/lib/fetch-httpurlconnection/lint-baseline.xml
  mobile/android/android-components/components/lib/fetch-okhttp/lint-baseline.xml
@@ -734,7 +769,7 @@ index 0546a81..1bec8e8 100644
  mobile/android/android-components/components/lib/state/lint-baseline.xml
  mobile/android/android-components/components/service/digitalassetlinks/lint-baseline.xml
 diff --git a/build.gradle b/build.gradle
-index 3183b33..3a29a6c 100644
+index f993dc4..d11c39f 100644
 --- a/build.gradle
 +++ b/build.gradle
 @@ -22,7 +22,6 @@ buildscript {
@@ -745,8 +780,8 @@ index 3183b33..3a29a6c 100644
          classpath libs.mozilla.glean.gradle.plugin
      }
  }
-@@ -38,6 +37,62 @@ plugins {
-     alias(libs.plugins.ksp)
+@@ -48,6 +47,62 @@ idea {
+     }
  }
  
 +// --------------------------------------------------------------------------
@@ -809,7 +844,7 @@ index 3183b33..3a29a6c 100644
      if (string == null) {
          return string
 diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
-index 32f8727..03d73f3 100644
+index a924189..203a408 100644
 --- a/gradle/libs.versions.toml
 +++ b/gradle/libs.versions.toml
 @@ -55,16 +55,9 @@ work = "2.11.2"
@@ -859,10 +894,10 @@ index 32f8727..03d73f3 100644
  protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
  
 diff --git a/mobile/android/android-components/.buildconfig.yml b/mobile/android/android-components/.buildconfig.yml
-index f9a083a..1657676 100644
+index 0ba1f18..6a13091 100644
 --- a/mobile/android/android-components/.buildconfig.yml
 +++ b/mobile/android/android-components/.buildconfig.yml
-@@ -1204,7 +1204,6 @@ projects:
+@@ -1166,7 +1166,6 @@ projects:
      - components:feature-session
      - components:feature-tabs
      - components:lib-dataprotect
@@ -870,7 +905,7 @@ index f9a083a..1657676 100644
      - components:lib-publicsuffixlist
      - components:lib-state
      - components:service-firefox-accounts
-@@ -2134,18 +2133,6 @@ projects:
+@@ -2092,18 +2091,6 @@ projects:
      - components:support-test
      - components:tooling-fetch-tests
      - components:tooling-lint
@@ -889,7 +924,7 @@ index f9a083a..1657676 100644
    components:lib-jexl:
      description: 'Javascript Expression Language: Powerful context-based expression
        parser and evaluator.'
-@@ -2229,17 +2216,6 @@ projects:
+@@ -2185,17 +2172,6 @@ projects:
      - components:support-base
      - components:support-test
      - components:tooling-lint
@@ -1537,10 +1572,10 @@ index e16cda1..0000000
 -<manifest />
 diff --git a/mobile/android/android-components/components/lib/integrity-googleplay/src/main/java/mozilla/components/lib/integrity/googleplay/GooglePlayIntegrityClient.kt b/mobile/android/android-components/components/lib/integrity-googleplay/src/main/java/mozilla/components/lib/integrity/googleplay/GooglePlayIntegrityClient.kt
 deleted file mode 100644
-index 106e3b7..0000000
+index 2b98b13..0000000
 --- a/mobile/android/android-components/components/lib/integrity-googleplay/src/main/java/mozilla/components/lib/integrity/googleplay/GooglePlayIntegrityClient.kt
 +++ /dev/null
-@@ -1,250 +0,0 @@
+@@ -1,236 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1554,6 +1589,7 @@ index 106e3b7..0000000
 -import com.google.android.play.core.integrity.model.StandardIntegrityErrorCode.INTEGRITY_TOKEN_PROVIDER_INVALID
 -import mozilla.components.concept.integrity.IntegrityClient
 -import mozilla.components.concept.integrity.IntegrityToken
+-import mozilla.components.concept.integrity.RequestHashProvider
 -import mozilla.components.lib.integrity.googleplay.GleanMetrics.Integrity
 -import mozilla.components.lib.integrity.googleplay.ext.prepare
 -
@@ -1645,24 +1681,6 @@ index 106e3b7..0000000
 -    }
 -}
 -
--/**
-- * Generates a hash value to uniquely identify a request.
-- *
-- * This functional interface allows the hash generation strategy to be customized or mocked, making it suitable for
-- * dependency injection and testing.
-- */
--fun interface RequestHashProvider {
--
--    /**
--     * Generates a new request hash.
--     *
--     * Implementations should return a value that is sufficiently unique for the lifetime and scope of a request.
--     *
--     * @return A newly generated hash string.
--     */
--    fun generateHash(): String
--}
--
 -internal class GooglePlayTokenProviderFactory(
 -    integrityManagerProvider: IntegrityManagerProvider,
 -    private val projectNumber: Long,
@@ -1717,7 +1735,7 @@ index 106e3b7..0000000
 -     * This method is safe to call multiple times and will only attempt provider creation once unless the provider is
 -     * refreshed.
 -     */
--    suspend fun warmUp(): Boolean {
+-    override suspend fun warmUp(): Boolean {
 -        if (tokenProvider == null) {
 -            val start = currentTimeMillis()
 -            refreshTokenProvider()
@@ -1746,9 +1764,12 @@ index 106e3b7..0000000
 -     * The returned view delegates to this client and shares its token-provider state, so consumers share the same Phase
 -     * 1 warmup.
 -     */
--    fun forConsumer(consumer: IntegrityConsumer): IntegrityClient = IntegrityClient {
--        request(consumer = consumer, retries = 0)
--    }
+-    fun forConsumer(consumer: IntegrityConsumer): IntegrityClient =
+-        object : IntegrityClient {
+-            override suspend fun warmUp() = this@GooglePlayIntegrityClient.warmUp()
+-
+-            override suspend fun request() = request(consumer = consumer, retries = 0)
+-        }
 -
 -    private suspend fun request(consumer: IntegrityConsumer, retries: Int): Result<IntegrityToken> = runCatching {
 -        warmUp()
@@ -1793,7 +1814,7 @@ index 106e3b7..0000000
 -    get() = errorCode == INTEGRITY_TOKEN_PROVIDER_INVALID
 diff --git a/mobile/android/android-components/components/lib/integrity-googleplay/src/main/java/mozilla/components/lib/integrity/googleplay/ext/StandardIntegrityManager.kt b/mobile/android/android-components/components/lib/integrity-googleplay/src/main/java/mozilla/components/lib/integrity/googleplay/ext/StandardIntegrityManager.kt
 deleted file mode 100644
-index 0d02353..0000000
+index a85d3d0..0000000
 --- a/mobile/android/android-components/components/lib/integrity-googleplay/src/main/java/mozilla/components/lib/integrity/googleplay/ext/StandardIntegrityManager.kt
 +++ /dev/null
 @@ -1,44 +0,0 @@
@@ -1810,7 +1831,7 @@ index 0d02353..0000000
 -import kotlin.coroutines.resume
 -import kotlinx.coroutines.suspendCancellableCoroutine
 -import mozilla.components.concept.integrity.IntegrityToken
--import mozilla.components.lib.integrity.googleplay.RequestHashProvider
+-import mozilla.components.concept.integrity.RequestHashProvider
 -import mozilla.components.lib.integrity.googleplay.TokenProvider
 -
 -private val StandardIntegrityTokenProvider.tokenProvider
@@ -1843,10 +1864,10 @@ index 0d02353..0000000
 -    }
 diff --git a/mobile/android/android-components/components/lib/integrity-googleplay/src/test/java/mozilla/components/lib/integrity/googleplay/GooglePlayIntegrityClientTest.kt b/mobile/android/android-components/components/lib/integrity-googleplay/src/test/java/mozilla/components/lib/integrity/googleplay/GooglePlayIntegrityClientTest.kt
 deleted file mode 100644
-index 32c9df9..0000000
+index a202a4c..0000000
 --- a/mobile/android/android-components/components/lib/integrity-googleplay/src/test/java/mozilla/components/lib/integrity/googleplay/GooglePlayIntegrityClientTest.kt
 +++ /dev/null
-@@ -1,221 +0,0 @@
+@@ -1,236 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1926,6 +1947,21 @@ index 32c9df9..0000000
 -
 -            assertTrue(client.tokenProvider == null)
 -            client.warmUp()
+-            assertEquals(Result.success(tokenProvider), client.tokenProvider)
+-        }
+-
+-    @Test
+-    fun `GIVEN a forConsumer view WHEN warmUp is called THEN it shares the underlying client's tokenProvider`() =
+-        runTest {
+-            val tokenProvider = TokenProvider { _ -> Result.success(IntegrityToken("test-token")) }
+-            val client =
+-                GooglePlayIntegrityClient(
+-                    { Result.success(tokenProvider) },
+-                    { "test-hash" },
+-                )
+-
+-            assertTrue(client.tokenProvider == null)
+-            client.forConsumer(IntegrityConsumer.Summarize).warmUp()
 -            assertEquals(Result.success(tokenProvider), client.tokenProvider)
 -        }
 -
@@ -2519,10 +2555,10 @@ index 3f67ea5..0000000
 @@ -1 +0,0 @@
 -sdk=35
 diff --git a/mobile/android/fenix/.buildconfig.yml b/mobile/android/fenix/.buildconfig.yml
-index 5045a57..daaf0fa 100644
+index fd7e930..825a381 100644
 --- a/mobile/android/fenix/.buildconfig.yml
 +++ b/mobile/android/fenix/.buildconfig.yml
-@@ -86,12 +86,10 @@ projects:
+@@ -88,12 +88,10 @@ projects:
      - components:lib-crash
      - components:lib-crash-sentry
      - components:lib-dataprotect
@@ -2536,7 +2572,7 @@ index 5045a57..daaf0fa 100644
      - components:lib-state
      - components:service-digitalassetlinks
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
-index 4699b73..5221015 100644
+index 35fdfdb..5f4bff7 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
 @@ -19,11 +19,11 @@ plugins {
@@ -2570,7 +2606,7 @@ index 4699b73..5221015 100644
      if (gradle.hasProperty("localProperties.glean.custom.server.url")) {
          def url = gradle.getProperty("localProperties.glean.custom.server.url")
          buildConfigField 'String', 'GLEAN_CUSTOM_URL', url
-@@ -532,10 +525,8 @@ dependencies {
+@@ -535,10 +528,8 @@ dependencies {
      implementation project(':components:lib-crash')
      implementation project(':components:lib-crash-sentry')
      implementation project(':components:lib-dataprotect')
@@ -2581,7 +2617,7 @@ index 4699b73..5221015 100644
      implementation project(':components:lib-llm-mlpa')
      implementation project(':components:lib-shake')
      implementation project(':components:lib-ai-controls')
-@@ -593,9 +584,6 @@ dependencies {
+@@ -595,9 +586,6 @@ dependencies {
      implementation libs.kotlinx.coroutines
      implementation libs.kotlinx.serialization.json
      implementation libs.mozilla.glean
@@ -2592,10 +2628,10 @@ index 4699b73..5221015 100644
      implementation libs.sentry
      implementation libs.androidx.documentfile
 diff --git a/mobile/android/fenix/app/src/main/AndroidManifest.xml b/mobile/android/fenix/app/src/main/AndroidManifest.xml
-index b47c392..9a038f4 100644
+index f373af5..76eada0 100644
 --- a/mobile/android/fenix/app/src/main/AndroidManifest.xml
 +++ b/mobile/android/fenix/app/src/main/AndroidManifest.xml
-@@ -781,14 +781,6 @@
+@@ -797,14 +797,6 @@
              android:name=".messaging.NotificationDismissedService"
              android:exported="false" />
  
@@ -2610,7 +2646,7 @@ index b47c392..9a038f4 100644
          <service
              android:name=".perf.ProfilerService"
              android:foregroundServiceType="specialUse"
-@@ -815,15 +807,14 @@
+@@ -831,15 +823,14 @@
              android:readPermission="android.permission.DUMP"
              android:grantUriPermissions="false" />
  
@@ -2635,7 +2671,7 @@ index b47c392..9a038f4 100644
             - SDK's own AndroidManifest.xml, which the manifest merger would otherwise fold into
             - ours. It turns an "am start" intent carrying the string extras sendPing and
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index 1481a79..e6273c9 100644
+index 192dd00..efe5c56 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 @@ -53,7 +53,6 @@ import mozilla.components.concept.ai.controls.isEnabled
@@ -2664,7 +2700,7 @@ index 1481a79..e6273c9 100644
          maybeSetupIPProtection()
  
          GlobalFxSuggestDependencyProvider.initialize(components.fxSuggest.storage)
-@@ -464,7 +459,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -466,7 +461,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          queueIncrementNumberOfAppLaunches(queue)
          queueRestoreLocale(queue)
          queueStorageMaintenance(queue)
@@ -2672,7 +2708,7 @@ index 1481a79..e6273c9 100644
          queueNimbusFetchInForeground(queue)
          queueDownloadWallpapers(queue)
  
-@@ -598,19 +592,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -600,19 +594,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              components.core.autofillStorage.registerStorageMaintenanceWorker()
          }
  
@@ -2692,7 +2728,7 @@ index 1481a79..e6273c9 100644
      @OptIn(ExperimentalAndroidComponentsApi::class)
      private fun queueNimbusFetchInForeground(queue: RunWhenReadyQueue) =
          runOnVisualCompleteness(queue) {
-@@ -662,26 +643,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -664,26 +645,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          (LeakCanarySetup as LeakCanarySetupInterface).updateState(isEnabled = isEnabled, components = components)
      }
  
@@ -2720,7 +2756,7 @@ index 1481a79..e6273c9 100644
          components.ipProtection.feature.initialize()
          components.ipProtection.storageSynchronizer.initialize()
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
-index a70cd4d..e23d748 100644
+index 4cd0508..6f38035 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
 @@ -10,7 +10,6 @@ import androidx.annotation.VisibleForTesting
@@ -2737,9 +2773,9 @@ index a70cd4d..e23d748 100644
  import mozilla.components.feature.accounts.push.CloseTabsFeature
 -import mozilla.components.feature.accounts.push.FxaPushSupportFeature
  import mozilla.components.feature.accounts.push.SendTabFeature
+ import mozilla.components.feature.automotive.isAndroidAutomotiveAvailable
  import mozilla.components.feature.syncedtabs.SyncedTabsAutocompleteProvider
- import mozilla.components.feature.syncedtabs.commands.SyncedTabsCommands
-@@ -76,7 +74,6 @@ private val DEFAULT_SYNCED_TABS_COMMANDS_EXTRA_FLUSH_DELAY = 5.seconds
+@@ -77,7 +75,6 @@ private val DEFAULT_SYNCED_TABS_COMMANDS_EXTRA_FLUSH_DELAY = 5.seconds
  @Suppress("LongParameterList")
  class BackgroundServices(
      private val context: Context,
@@ -2747,15 +2783,15 @@ index a70cd4d..e23d748 100644
      settings: Settings,
      crashReporter: CrashReporter,
      historyStorage: Lazy<PlacesHistoryStorage>,
-@@ -85,7 +82,6 @@ class BackgroundServices(
+@@ -86,7 +83,6 @@ class BackgroundServices(
      remoteTabsStorage: Lazy<RemoteTabsStorage>,
      creditCardsStorage: Lazy<AutofillCreditCardsAddressesStorage>,
      strictMode: StrictModeManager,
 -    private val applicationScope: CoroutineScope,
+     isAndroidAutomotiveAvailable: Boolean = context.isAndroidAutomotiveAvailable(),
  ) {
      // Allows executing tasks which depend on the account manager, but do not need to eagerly initialize it.
-     val accountManagerAvailableQueue = RunWhenReadyQueue()
-@@ -225,17 +221,16 @@ class BackgroundServices(
+@@ -235,17 +231,16 @@ class BackgroundServices(
  
                  accountManager.register(AccountManagerReadyObserver(accountManagerAvailableQueue))
  
@@ -2783,75 +2819,11 @@ index a70cd4d..e23d748 100644
  
                  SendTabFeature(accountManager) { device, tabs ->
                      notificationManager.showReceivedTabs(context, device, tabs)
-diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ClientUUID.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ClientUUID.kt
-index d291c89..fcab740 100644
---- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ClientUUID.kt
-+++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ClientUUID.kt
-@@ -7,37 +7,18 @@ package org.mozilla.fenix.components
- import android.content.Context
- import android.content.SharedPreferences
- import androidx.core.content.edit
--import java.security.MessageDigest
- import java.util.UUID
--import mozilla.components.lib.integrity.googleplay.RequestHashProvider
- import mozilla.components.lib.llm.mlpa.UserIdProvider
- import mozilla.components.lib.llm.mlpa.service.UserId
--import mozilla.components.support.ktx.kotlin.toHexString
--
--/** Interface for providing a hashing function to [ClientUUID]. */
--fun interface Hasher {
--    /**
--     * Hash a value.
--     *
--     * @param value to be hashed
--     * @return the hashed value.
--     */
--    fun hash(value: String): String
--
--    companion object {
--        /** A [Hasher] implementation that hashes using SHA256. */
--        val sha256
--            get() = Hasher { value ->
--                MessageDigest.getInstance("SHA256").digest(value.toByteArray()).toHexString()
--            }
--    }
--}
- 
- /**
-  * Generates and persists a stable per-install UUID, used to identify this client consistently across [UserIdProvider]
-- * and [RequestHashProvider] consumers.
-+ * consumers.
-+ *
-+ * LibreWolf (LW-M4-05): this used to implement lib-integrity-googleplay's RequestHashProvider as well, to salt a Play
-+ * Integrity token request. That module is gone, and with it the only caller of generateHash().
-  */
--interface ClientUUID : UserIdProvider, RequestHashProvider {
-+interface ClientUUID : UserIdProvider {
-     companion object {
-         /**
-          * Convenience initializer that creates a [SharedPreferences] to be used by [ClientUUID].
-@@ -56,7 +37,6 @@ interface ClientUUID : UserIdProvider, RequestHashProvider {
- internal class PrefsBackedClientUUID(
-     private val getPrefs: () -> SharedPreferences,
-     private val generateUUID: () -> String = { UUID.randomUUID().toString() },
--    private val hasher: Hasher = Hasher.sha256,
- ) : ClientUUID {
-     private val uuid: String by lazy {
-         getPrefs().let { prefs ->
-@@ -69,8 +49,6 @@ internal class PrefsBackedClientUUID(
- 
-     override fun getUserId() = UserId(uuid)
- 
--    override fun generateHash() = hasher.hash(uuid)
--
-     companion object {
-         private const val KEY = "uuid"
-     }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-index 005bc77..2a66311 100644
+index ff14fb5..b8c0928 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-@@ -10,11 +10,11 @@ import androidx.compose.runtime.Composable
+@@ -10,12 +10,11 @@ import androidx.compose.runtime.Composable
  import androidx.compose.runtime.ReadOnlyComposable
  import androidx.compose.ui.platform.LocalContext
  import androidx.core.app.NotificationManagerCompat
@@ -2860,19 +2832,21 @@ index 005bc77..2a66311 100644
  import kotlinx.coroutines.CoroutineScope
  import mozilla.components.concept.ai.controls.AIFeatureBlock
  import mozilla.components.concept.ai.controls.AIFeatureRegistry
+-import mozilla.components.concept.integrity.RequestHashProvider
 +import mozilla.components.concept.integrity.IntegrityClient
  import mozilla.components.feature.addons.AddonManager
  import mozilla.components.feature.addons.amo.AMOAddonsProvider
  import mozilla.components.feature.addons.migration.DefaultSupportedAddonsChecker
-@@ -27,7 +27,6 @@ import mozilla.components.lib.ai.controls.dataStore
+@@ -30,8 +29,6 @@ import mozilla.components.lib.ai.controls.dataStore
  import mozilla.components.lib.ai.controls.default
  import mozilla.components.lib.crash.store.CrashAction
  import mozilla.components.lib.crash.store.CrashMiddleware
 -import mozilla.components.lib.integrity.googleplay.GooglePlayIntegrityClient
+-import mozilla.components.lib.integrity.googleplay.IntegrityConsumer
  import mozilla.components.lib.llm.mlpa.MlpaTokenStorage
  import mozilla.components.lib.publicsuffixlist.PublicSuffixList
  import mozilla.components.service.fxrelay.eligibility.RelayEligibilityStore
-@@ -128,7 +127,6 @@ class Components(
+@@ -134,7 +131,6 @@ class Components(
      val backgroundServices by lazyMonitored {
          BackgroundServices(
              context,
@@ -2880,7 +2854,7 @@ index 005bc77..2a66311 100644
              settings,
              analytics.crashReporter,
              core.lazyHistoryStorage,
-@@ -137,7 +135,6 @@ class Components(
+@@ -143,7 +139,6 @@ class Components(
              core.lazyRemoteTabsStorage,
              core.lazyAutofillStorage,
              strictMode,
@@ -2888,7 +2862,7 @@ index 005bc77..2a66311 100644
          )
      }
      val services by lazyMonitored { Services(context, core.store, backgroundServices.accountManager) }
-@@ -262,7 +259,6 @@ class Components(
+@@ -268,7 +263,6 @@ class Components(
      val publicSuffixList by lazyMonitored { PublicSuffixList(context) }
      val clipboardHandler by lazyMonitored { ClipboardHandler(context) }
      val performance by lazyMonitored { PerformanceComponent() }
@@ -2896,7 +2870,7 @@ index 005bc77..2a66311 100644
      val wifiConnectionMonitor by lazyMonitored { WifiConnectionMonitor(context as Application) }
  
      val strictMode by lazyMonitored {
-@@ -277,7 +273,6 @@ class Components(
+@@ -283,7 +277,6 @@ class Components(
  
      val playStoreReviewPromptController by lazyMonitored {
          PlayStoreReviewPromptController(
@@ -2904,7 +2878,7 @@ index 005bc77..2a66311 100644
              numberOfAppLaunches = { settings.numberOfAppLaunches },
          )
      }
-@@ -405,12 +400,25 @@ class Components(
+@@ -425,12 +418,25 @@ class Components(
          )
      }
  
@@ -2912,7 +2886,7 @@ index 005bc77..2a66311 100644
 -        GooglePlayIntegrityClient.create(
 -            context = context,
 -            projectNumberToken = BuildConfig.GPS_INTEGRITY_TOKEN,
--            requestHashProvider = clientUUID,
+-            requestHashProvider = RequestHashProvider { clientUUID.generateHash() },
 -        )
 +    // LibreWolf (LW-M4-05): the only IntegrityClient implementation that shipped
 +    // in this tree was mozilla.components.lib.integrity.googleplay.
@@ -2936,7 +2910,16 @@ index 005bc77..2a66311 100644
      }
  
      val termsOfUsePromptRepository by lazyMonitored {
-@@ -517,7 +525,6 @@ class Components(
+@@ -522,7 +528,7 @@ class Components(
+             client = core.client,
+             storage = MlpaTokenStorage.sharedPrefs(context),
+             fxaTokenProvider = backgroundServices.accountManager.accessTokenProvider,
+-            integrityClient = integrityClient.forConsumer(IntegrityConsumer.Summarize),
++            integrityClient = integrityClient,
+             userIdProvider = clientUUID,
+         )
+     }
+@@ -537,7 +543,6 @@ class Components(
              authSources =
                  IPProtectionAuthSources(
                      fxaAccountManager = lazy { backgroundServices.accountManager },
@@ -3080,16 +3063,17 @@ index 73a80dd..3787fc4 100644
  /** Records a [ReviewPrompt] with the required data. */
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Push.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Push.kt
 deleted file mode 100644
-index dd11013..0000000
+index 640d6d3..0000000
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Push.kt
 +++ /dev/null
-@@ -1,66 +0,0 @@
+@@ -1,68 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 -
 -package org.mozilla.fenix.components
 -
+-import android.annotation.SuppressLint
 -import android.content.Context
 -import androidx.core.net.toUri
 -import mozilla.components.feature.push.AutoPushFeature
@@ -3121,6 +3105,7 @@ index dd11013..0000000
 -    private val pushConfig: PushConfig? by lazyMonitored {
 -        val logger = Logger("PushConfig")
 -        val projectIdKey = context.getString(R.string.pref_key_push_project_id)
+-        @SuppressLint("DiscouragedApi")
 -        val resId = context.resources.getIdentifier(projectIdKey, "string", context.packageName)
 -        if (resId == 0) {
 -            logger.warn("No firebase configuration found; cannot support push service.")
@@ -3202,38 +3187,6 @@ index a2f3b58..99825f8 100644
          )
      }
  
-diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/llm/Llm.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/llm/Llm.kt
-index 23fb60e..30cd9f1 100644
---- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/llm/Llm.kt
-+++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/llm/Llm.kt
-@@ -5,8 +5,7 @@
- package org.mozilla.fenix.components.llm
- 
- import mozilla.components.concept.fetch.Client
--import mozilla.components.lib.integrity.googleplay.GooglePlayIntegrityClient
--import mozilla.components.lib.integrity.googleplay.IntegrityConsumer
-+import mozilla.components.concept.integrity.IntegrityClient
- import mozilla.components.lib.llm.mlpa.MlpaLlmProvider
- import mozilla.components.lib.llm.mlpa.MlpaTokenProvider
- import mozilla.components.lib.llm.mlpa.MlpaTokenStorage
-@@ -23,7 +22,7 @@ class Llm(
-     private val client: Client,
-     private val storage: MlpaTokenStorage,
-     private val fxaTokenProvider: FxaAccessTokenProvider,
--    private val integrityClient: GooglePlayIntegrityClient,
-+    private val integrityClient: IntegrityClient,
-     private val userIdProvider: UserIdProvider,
- ) {
- 
-@@ -34,7 +33,7 @@ class Llm(
-             MlpaTokenProvider.choose(
-                 MlpaTokenProvider.fxaTokenProvider(fxaTokenProvider),
-                 MlpaTokenProvider.mlpaIntegrityHandshake(
--                    integrityClient = integrityClient.forConsumer(IntegrityConsumer.Summarize),
-+                    integrityClient = integrityClient,
-                     authenticationService = fenixMlpaService,
-                     userIdProvider = userIdProvider,
-                     storage = storage,
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/ActivationPing.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/ActivationPing.kt
 deleted file mode 100644
 index f4c2df1..0000000
@@ -3332,7 +3285,7 @@ index f4c2df1..0000000
 -    }
 -}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt
-index 3d9fbfa..5130d10 100644
+index e3aa556..11c7b49 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt
 @@ -4,40 +4,26 @@
@@ -3382,11 +3335,10 @@ index 3d9fbfa..5130d10 100644
      /** Possible sources for a performed search. */
      enum class Source {
          ACTION,
-@@ -152,103 +138,4 @@ object MetricsUtils {
-     }
+@@ -153,105 +139,6 @@ object MetricsUtils {
  
      private fun BookmarkAction.Source.label() = name.lowercase()
--
+ 
 -    /** Get the default salt to use for hashing. This is a convenience function to help with unit tests. */
 -    @Suppress("FunctionOnlyReturningConstant")
 -    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
@@ -3485,18 +3437,10 @@ index 3d9fbfa..5130d10 100644
 -                }
 -            }
 -        }
- }
-diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/integrity/FakeClientUUID.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/integrity/FakeClientUUID.kt
-index c90bbd0..8179bd1 100644
---- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/integrity/FakeClientUUID.kt
-+++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/integrity/FakeClientUUID.kt
-@@ -11,6 +11,4 @@ import org.mozilla.fenix.components.ClientUUID
- /** A Fake [IntegrityClient] to be used in the debug drawer preview. */
- class FakeClientUUID : ClientUUID {
-     override fun getUserId() = UserId("fake-userid")
 -
--    override fun generateHash() = "generated-hash"
- }
+     /** Enum marking the access point of the Tab Groups feature, for telemetry. */
+     enum class TabGroupAccessPoint {
+         TABS_TRAY,
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/push/FirebasePushService.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/push/FirebasePushService.kt
 deleted file mode 100644
 index 9ca2be4..0000000
@@ -3764,10 +3708,10 @@ index 25990df..0000000
 -        appServerKey = null,
 -    )
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index 6c43f08..7b1f97d 100644
+index 3129559..3a9698b 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-@@ -383,7 +383,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+@@ -378,7 +378,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
          }
  
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_ip_protection_use_gpi).apply {
@@ -3823,10 +3767,10 @@ index f8580d7..5589a3b 100644
      )
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index 2d6b98a..4fcca05 100644
+index f7f89fc..c2f96d4 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2072,12 +2072,6 @@ class Settings(
+@@ -2092,12 +2092,6 @@ class Settings(
              default = "",
          )
  
@@ -3840,7 +3784,7 @@ index 2d6b98a..4fcca05 100644
          stringPreference(
              appContext.getPreferenceKey(R.string.pref_key_override_amo_user),
 diff --git a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
-index 6dff1ff..da79a1d 100644
+index da972b5..052dcfe 100644
 --- a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
 @@ -63,7 +63,6 @@
@@ -3851,7 +3795,7 @@ index 6dff1ff..da79a1d 100644
      <string name="pref_key_sync_debug_quit" translatable="false">pref_key_sync_debug_quit</string>
      <string name="pref_key_sync_debug_network_error" translatable="false">pref_key_sync_debug_network_error</string>
      <string name="pref_key_sync_debug_temporary_auth_error" translatable="false">pref_key_sync_debug_temporary_auth_error</string>
-@@ -156,7 +155,6 @@
+@@ -155,7 +154,6 @@
      <string name="pref_key_sync_tabs" translatable="false">pref_key_sync_tabs</string>
      <string name="pref_key_sign_out" translatable="false">pref_key_sign_out</string>
      <string name="pref_key_sync_sign_in" translatable="false">pref_key_sync_sign_in</string>
@@ -3860,7 +3804,7 @@ index 6dff1ff..da79a1d 100644
      <!-- Key for credit cards sync preference in the account settings fragment -->
      <string name="pref_key_sync_credit_cards" translatable="false">pref_key_sync_credit_cards</string>
 diff --git a/mobile/android/fenix/app/src/main/res/values/static_strings.xml b/mobile/android/fenix/app/src/main/res/values/static_strings.xml
-index 5dcc6f4..f64419a 100644
+index 9ad3181..5107927 100644
 --- a/mobile/android/fenix/app/src/main/res/values/static_strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/static_strings.xml
 @@ -75,7 +75,6 @@
@@ -3887,29 +3831,6 @@ index 82aeef1..0f6c306 100644
      <androidx.preference.Preference
          android:key="@string/pref_key_sync_debug_quit"
          android:title="@string/preferences_sync_debug_quit_button_title"
-diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/ClientUUIDTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/ClientUUIDTest.kt
-index 1fcbc7b..b75a171 100644
---- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/ClientUUIDTest.kt
-+++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/ClientUUIDTest.kt
-@@ -28,18 +28,4 @@ class ClientUUIDTest {
-         assertEquals(UserId("my-generated-uuid"), second.getUserId())
-         assertEquals(UserId("my-generated-uuid"), second.getUserId())
-     }
--
--    @Test
--    fun `that generateHash uses the provided hasher`() {
--        val prefs = FakeSharedPreferences()
--
--        val clientUUID =
--            PrefsBackedClientUUID(
--                getPrefs = { prefs },
--                generateUUID = { "my-generated-uuid" },
--                hasher = { "This is a hashed value: $it" },
--            )
--
--        assertEquals("This is a hashed value: my-generated-uuid", clientUUID.generateHash())
--    }
- }
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt
 index 7b440fb..9b195f1 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt
@@ -4578,10 +4499,10 @@ index bdae217..0cb22a3 100644
          // NOTE: Do not place your application dependencies here; they belong
          // in the individual module build.gradle files
 diff --git a/mobile/android/fenix/config/detekt-baseline.xml b/mobile/android/fenix/config/detekt-baseline.xml
-index e15d3f3..86d9feb 100644
+index 7f98aaf..187ecb0 100644
 --- a/mobile/android/fenix/config/detekt-baseline.xml
 +++ b/mobile/android/fenix/config/detekt-baseline.xml
-@@ -425,7 +425,6 @@
+@@ -424,7 +424,6 @@
      <ID>UndocumentedPublicClass:AccountSettingsInteractor.kt$AccountSettingsInteractor : AccountSettingsUserActions</ID>
      <ID>UndocumentedPublicClass:AccountSettingsInteractor.kt$AccountSettingsUserActions</ID>
      <ID>UndocumentedPublicClass:AccountUiView.kt$AccountUiView</ID>
@@ -4589,7 +4510,7 @@ index e15d3f3..86d9feb 100644
      <ID>UndocumentedPublicClass:AddonDetailsBindingDelegate.kt$AddonDetailsInteractor</ID>
      <ID>UndocumentedPublicClass:AppAction.kt$AppAction$AddNonFatalCrash : AppAction</ID>
      <ID>UndocumentedPublicClass:AppAction.kt$AppAction$Change : AppAction</ID>
-@@ -843,8 +842,6 @@
+@@ -841,8 +840,6 @@
      <ID>UndocumentedPublicFunction:Utils.kt$fun rootTitles(context: Context, withMobileRoot: Boolean): Map&lt;String, String&gt;</ID>
      <ID>UndocumentedPublicFunction:View.kt$fun View.increaseTapArea(@Dimension(unit = DP) extraDps: Int)</ID>
      <ID>UndocumentedPublicFunction:View.kt$fun View.removeTouchDelegate()</ID>
@@ -4600,7 +4521,7 @@ index e15d3f3..86d9feb 100644
      <ID>UndocumentedPublicFunction:WhatsNewStorage.kt$WhatsNewStorage$fun getWhatsNewHasBeenCleared(): Boolean</ID>
 diff --git a/mobile/android/fenix/docs/Firebase-Cloud-Messaging-for-WebPush.md b/mobile/android/fenix/docs/Firebase-Cloud-Messaging-for-WebPush.md
 deleted file mode 100644
-index e15906c..0000000
+index 6de67c5..0000000
 --- a/mobile/android/fenix/docs/Firebase-Cloud-Messaging-for-WebPush.md
 +++ /dev/null
 @@ -1,53 +0,0 @@
@@ -4640,23 +4561,23 @@ index e15906c..0000000
 -
 -**Q. Why are credentials stored in Google Drive?**
 -
--   * Firebase services require a credential file, typically named `google-services.json`, which are retrieved from the Firebase console for all the applications in that project. Our requirements are somewhat unique, so we generate our own XML file from `google-services.json` and use that.
--    According to [Firebase engineers](https://groups.google.com/forum/#!msg/firebase-talk/bamCgTDajkw/uVEJXjtiBwAJ), it should be safe to commit our `google-services.json` but we avoid doing that as there are other forks of Fenix that must not use these credentials.
--    For example, the Google I/O app commits [their release version](https://github.com/google/iosched/blob/b428d2be4bb96bd423e47cb709c906ce5d02150f/mobile/google-services.json) of the file to Github as well.
+-* Firebase services require a credential file, typically named `google-services.json`, which are retrieved from the Firebase console for all the applications in that project. Our requirements are somewhat unique, so we generate our own XML file from `google-services.json` and use that.
+-  According to [Firebase engineers](https://groups.google.com/forum/#!msg/firebase-talk/bamCgTDajkw/uVEJXjtiBwAJ), it should be safe to commit our `google-services.json` but we avoid doing that as there are other forks of Fenix that must not use these credentials.
+-  For example, the Google I/O app commits [their release version](https://github.com/google/iosched/blob/b428d2be4bb96bd423e47cb709c906ce5d02150f/mobile/google-services.json) of the file to Github as well.
 -
 -**Q. What are the special requirements which mean we can't directly use `google-services.json`?**
 -
--   * Following the 'Getting Started' Firebase instructions to initialize the service in Fenix would not work as we explicitly chose not to use the `com.google.gms.google-services` Gradle plugin as the Android service would be initialized with a [`ContentProvider`](https://firebase.blog/posts/2016/12/how-does-firebase-initialize-on-android) eagerly which reduces our control on how the application can start up in a performant way since the Browser startup sequence is quite unique.
+-* Following the 'Getting Started' Firebase instructions to initialize the service in Fenix would not work as we explicitly chose not to use the `com.google.gms.google-services` Gradle plugin as the Android service would be initialized with a [`ContentProvider`](https://firebase.blog/posts/2016/12/how-does-firebase-initialize-on-android) eagerly which reduces our control on how the application can start up in a performant way since the Browser startup sequence is quite unique.
 -
 -**Q. Where do we get the `google-services.json` file from?**
 -
--   * Ask your friendly Release Management teammate if they can access the Cloud Messaging console at `console.firebase.google.com`.
+-* Ask your friendly Release Management teammate if they can access the Cloud Messaging console at `console.firebase.google.com`.
 -
 -**Q. How do I generate the XML file from `google-services.json`?**
 -
--   * The easiest way is to use [this clever web app](https://dandar3.github.io/android/google-services-json-to-xml.html) that does this for you.
--   * The more official and tedious way, would be to do this manually by following [the instructions on the google services plugin](https://developers.google.com/android/guides/google-services-plugin#adding_the_json_file) site.
--   * Note that the `google-services.json` file may have the credentials for multiple applications, so ensure you are copying the instructions for the correct project.
+-* The easiest way is to use [this clever web app](https://dandar3.github.io/android/google-services-json-to-xml.html) that does this for you.
+-* The more official and tedious way, would be to do this manually by following [the instructions on the google services plugin](https://developers.google.com/android/guides/google-services-plugin#adding_the_json_file) site.
+-* Note that the `google-services.json` file may have the credentials for multiple applications, so ensure you are copying the instructions for the correct project.
 diff --git a/mobile/android/fenix/docs/index.md b/mobile/android/fenix/docs/index.md
 index ac74aeb..4d9b91b 100644
 --- a/mobile/android/fenix/docs/index.md
@@ -4670,7 +4591,7 @@ index ac74aeb..4d9b91b 100644
  Home <Home.md>
  Implementing Telemetry <Implementing-Telemetry.md>
 diff --git a/mobile/android/focus-android/app/build.gradle b/mobile/android/focus-android/app/build.gradle
-index 33a5ed8..0ba5b3b 100644
+index 4f03ad7..fb5fb3c 100644
 --- a/mobile/android/focus-android/app/build.gradle
 +++ b/mobile/android/focus-android/app/build.gradle
 @@ -8,10 +8,6 @@ plugins {
@@ -4684,7 +4605,7 @@ index 33a5ed8..0ba5b3b 100644
  def isAppBundle = gradle.startParameter.taskNames.any { it.toLowerCase().contains("bundle") }
  
  def versionCodeGradle = "$project.rootDir/tools/gradle/versionCode.gradle"
-@@ -311,8 +307,6 @@ dependencies {
+@@ -312,8 +308,6 @@ dependencies {
      implementation libs.google.material
      implementation libs.kotlinx.coroutines
      implementation libs.mozilla.glean
@@ -4763,10 +4684,10 @@ index ae0ea90..11ccac3 100644
          // NOTE: Do not place your application dependencies here; they belong
          // in the individual module build.gradle files
 diff --git a/mobile/android/geckoview/build.gradle b/mobile/android/geckoview/build.gradle
-index a8e645e..1bed7bf 100644
+index 149f21a..ce107a9 100644
 --- a/mobile/android/geckoview/build.gradle
 +++ b/mobile/android/geckoview/build.gradle
-@@ -194,7 +194,6 @@ dependencies {
+@@ -195,7 +195,6 @@ dependencies {
      implementation libs.androidx.core
      implementation libs.androidx.lifecycle.common
      implementation libs.androidx.lifecycle.process
@@ -5561,10 +5482,10 @@ index 85a42de..e44f424 100644
          new String[] {"usb", "nfc", "ble", "internal", "hybrid"};
      final JSONArray array = WebAuthnUtils.getJSONTransportsForByte(transports);
 diff --git a/tools/rewriting/Generated.txt b/tools/rewriting/Generated.txt
-index 1d71cb0..5784839 100644
+index 6701c05..a44edbf 100644
 --- a/tools/rewriting/Generated.txt
 +++ b/tools/rewriting/Generated.txt
-@@ -160,12 +160,10 @@ mobile/android/android-components/components/lib/crash/lint-baseline.xml
+@@ -159,12 +159,10 @@ mobile/android/android-components/components/lib/crash/lint-baseline.xml
  mobile/android/android-components/components/lib/dataprotect/lint-baseline.xml
  mobile/android/android-components/components/lib/fetch-httpurlconnection/lint-baseline.xml
  mobile/android/android-components/components/lib/fetch-okhttp/lint-baseline.xml

@@ -473,12 +473,23 @@
 #   * focus-android Components.kt createCrashReporter() and getLocaleTag() re-done on the
 #     157 text (still not compiler-verified; :focus-android is never configured here).
 # Not re-measured: the dex counts and the emulator A/B above (no 157 APK yet).
+#
+# 158 REBASE (2026-10-04, pre-rebase against Firefox 158.0b3)
+# ------------------------------------------------------------
+# Same removal, same files. Upstream edited all six deleted crash-service files
+# (GleanCrashReporterService, both MozillaSocorroService copies and their
+# tests), so their deletion hunks are regenerated against the 158 text. In
+# Analytics.kt, 158 builds a gleanServerEndpoint (getCustomGleanServerUrlIfAvailable,
+# Nightly/debug only) and passes it to GleanCrashReporterService; with that
+# service gone, the endpoint block and its import go too. The crashReporter is
+# otherwise the 157 one: no services, no telemetry services, Prompt.NEVER,
+# useLegacyReporting false, local Room record kept.
 diff --git a/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt b/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt
 deleted file mode 100644
-index b82ec60..0000000
+index bd45159..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt
 +++ /dev/null
-@@ -1,472 +0,0 @@
+@@ -1,464 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -883,24 +894,16 @@ index b82ec60..0000000
 -                assertEquals(2, arr.size)
 -                val first = arr.get(0).jsonObject.toMutableMap()
 -                val second = arr.get(1).jsonObject.toMutableMap()
+-
+-                // "message" fields should not be present and are intentionally omitted
 -                assertNotNull(first.remove("stack"))
 -                assertEquals(
--                    JsonObject(
--                        mapOf(
--                            "type_name" to JsonPrimitive("java.lang.RuntimeException"),
--                            "message" to JsonPrimitive("Test"),
--                        )
--                    ),
+-                    JsonObject(mapOf("type_name" to JsonPrimitive("java.lang.RuntimeException"))),
 -                    first,
 -                )
 -                assertNotNull(second.remove("stack"))
 -                assertEquals(
--                    JsonObject(
--                        mapOf(
--                            "type_name" to JsonPrimitive("java.io.IOException"),
--                            "message" to JsonPrimitive("IO"),
--                        )
--                    ),
+-                    JsonObject(mapOf("type_name" to JsonPrimitive("java.io.IOException"))),
 -                    second,
 -                )
 -            }
@@ -974,10 +977,10 @@ index 0038d4e..7361ecf 100644
      fun install(
 diff --git a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/GleanCrashReporterService.kt b/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/GleanCrashReporterService.kt
 deleted file mode 100644
-index b8f82ee..0000000
+index ee69887..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/GleanCrashReporterService.kt
 +++ /dev/null
-@@ -1,338 +0,0 @@
+@@ -1,346 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1025,6 +1028,7 @@ index b8f82ee..0000000
 -    private val appChannel: String? = null,
 -    private val appVersion: String? = null,
 -    private val appBuildId: String? = null,
+-    private val serverEndpoint: String? = null,
 -    private val isUploadEnabled: Boolean = true,
 -) : CrashTelemetryService {
 -    companion object {
@@ -1230,7 +1234,14 @@ index b8f82ee..0000000
 -        }
 -    }
 -
--    private fun getNativeCrashTools() = NativeCrashTools.load(context, appBuildId, appVersion, isUploadEnabled)
+-    private fun getNativeCrashTools() =
+-        NativeCrashTools.load(
+-            context,
+-            appBuildId,
+-            appVersion,
+-            serverEndpoint = serverEndpoint,
+-            pingUploadEnabled = isUploadEnabled,
+-        )
 -
 -    private fun getExtrasJson(path: String): JsonObject? {
 -        val extrasFile = File(path)
@@ -1318,10 +1329,10 @@ index b8f82ee..0000000
 -}
 diff --git a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/MozillaSocorroService.kt b/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/MozillaSocorroService.kt
 deleted file mode 100644
-index 85e0ea7..0000000
+index e33038f..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/MozillaSocorroService.kt
 +++ /dev/null
-@@ -1,608 +0,0 @@
+@@ -1,624 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1384,6 +1395,20 @@ index 85e0ea7..0000000
 -private const val MINI_DUMP_FILE_EXT = "dmp"
 -private const val EXTRAS_FILE_EXT = "extra"
 -private const val FILE_REGEX = "([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\."
+-
+-private const val MISSING_STACKTRACE_CLASS = "\$Missing"
+-private const val MISSING_STACKTRACE_METHOD = "<stackTrace>"
+-
+-/**
+- * Fills in a placeholder frame when a throwable has no stack trace so that Socorro can process it.
+- *
+- * These report similar to: `[@ kotlinx.coroutines.JobCancellationException: at $Missing.<stackTrace>(Unknown Source) ]`
+- */
+-private fun Throwable.withStacktraceIfMissing(): Throwable = also {
+-    if (stackTrace.isEmpty()) {
+-        stackTrace = arrayOf(StackTraceElement(MISSING_STACKTRACE_CLASS, MISSING_STACKTRACE_METHOD, null, -1))
+-    }
+-}
 -
 -/**
 - * A [CrashReporterService] implementation uploading crash reports to crash-stats.mozilla.com.
@@ -1627,16 +1652,16 @@ index 85e0ea7..0000000
 -
 -        sendIfMissing(Annotation.CrashEventID) { crashEventId }
 -
--        if (throwable?.stackTrace?.isEmpty() == false) {
+-        throwable?.withStacktraceIfMissing()?.also {
 -            formDataWriter.sendAnnotation(
 -                Annotation.JavaStackTrace,
 -                getExceptionStackTrace(
--                    throwable,
+-                    it,
 -                    !isNativeCodeCrash && !isFatalCrash,
 -                ),
 -            )
 -
--            formDataWriter.sendAnnotation(Annotation.JavaException, throwable.getStacktraceAsJsonString())
+-            formDataWriter.sendAnnotation(Annotation.JavaException, it.getStacktraceAsJsonString())
 -        }
 -
 -        miniDumpFilePath?.let {
@@ -1821,7 +1846,9 @@ index 85e0ea7..0000000
 -        }
 -
 -        fun finish() {
--            os.write(("\r\n--$boundary--\r\n").toByteArray())
+-            // The close delimiter's leading CRLF is already supplied by the trailing CRLF
+-            // every part writes; emitting another would land inside the last part's value.
+-            os.write(("--$boundary--\r\n").toByteArray())
 -            os.flush()
 -            os.close()
 -        }
@@ -1932,10 +1959,10 @@ index 85e0ea7..0000000
 -}
 diff --git a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroService.kt b/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroService.kt
 deleted file mode 100644
-index ead2e82..0000000
+index fa948a4..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroService.kt
 +++ /dev/null
-@@ -1,505 +0,0 @@
+@@ -1,539 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1992,6 +2019,20 @@ index ead2e82..0000000
 -private const val MINI_DUMP_FILE_EXT = "dmp"
 -private const val EXTRAS_FILE_EXT = "extra"
 -private const val FILE_REGEX = "([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\."
+-
+-private const val MISSING_STACKTRACE_CLASS = "\$Missing"
+-private const val MISSING_STACKTRACE_METHOD = "<stackTrace>"
+-
+-/**
+- * Fills in a placeholder frame when a throwable has no stack trace so that Socorro can process it.
+- *
+- * These report similar to: `[@ kotlinx.coroutines.JobCancellationException: at $Missing.<stackTrace>(Unknown Source) ]`
+- */
+-private fun Throwable.withStacktraceIfMissing(): Throwable = also {
+-    if (stackTrace.isEmpty()) {
+-        stackTrace = arrayOf(StackTraceElement(MISSING_STACKTRACE_CLASS, MISSING_STACKTRACE_METHOD, null, -1))
+-    }
+-}
 -
 -/**
 - * A [CrashReporterService] implementation uploading crash reports to crash-stats.mozilla.com.
@@ -2131,12 +2172,14 @@ index ead2e82..0000000
 -        formDataWriter.sendAnnotation(Annotation.DistributionID, distributionId)
 -
 -        var additionalDumps: FormDataWriter.AdditionalMinidumps? = null
+-        var extrasFileKeys = setOf<String>()
 -
 -        crash.extrasFilePath?.let {
 -            val regex = "$FILE_REGEX$EXTRAS_FILE_EXT".toRegex()
 -            if (regex.matchEntire(it.substringAfterLast("/")) != null) {
 -                val extrasFile = File(it)
 -                val extrasMap = readExtrasFromFile(extrasFile)
+-                extrasFileKeys = extrasMap.keys
 -                for (key in extrasMap.keys) {
 -                    formDataWriter.sendPart(key, extrasMap[key])
 -                }
@@ -2145,7 +2188,15 @@ index ead2e82..0000000
 -            }
 -        }
 -
--        val throwable = crash.javaThrowable?.takeIf { it.stackTrace.isNotEmpty() }
+-        val sendIfMissing = { a: Annotation, value: () -> String ->
+-            if (!extrasFileKeys.contains(a.toString())) {
+-                formDataWriter.sendAnnotation(a, value())
+-            }
+-        }
+-
+-        sendIfMissing(Annotation.CrashEventID) { crash.uuid }
+-
+-        val throwable = crash.javaThrowable?.withStacktraceIfMissing()
 -        throwable?.also {
 -            formDataWriter.sendAnnotation(
 -                Annotation.JavaStackTrace,
@@ -2173,25 +2224,11 @@ index ead2e82..0000000
 -        formDataWriter.sendAnnotation(Annotation.StartupTime, crash.startTime)
 -        formDataWriter.sendAnnotation(Annotation.CrashTime, crash.crashTime)
 -        formDataWriter.sendAnnotation(Annotation.Android_PackageName, applicationContext.packageName)
--        formDataWriter.sendAnnotation(Annotation.Android_Manufacturer, Build.MANUFACTURER)
--        formDataWriter.sendAnnotation(Annotation.Android_Model, Build.MODEL)
--        formDataWriter.sendAnnotation(Annotation.Android_Board, Build.BOARD)
--        formDataWriter.sendAnnotation(Annotation.Android_Brand, Build.BRAND)
--        formDataWriter.sendAnnotation(Annotation.Android_Device, Build.DEVICE)
--        formDataWriter.sendAnnotation(Annotation.Android_Display, Build.DISPLAY)
--        formDataWriter.sendAnnotation(Annotation.Android_Fingerprint, Build.FINGERPRINT)
--        formDataWriter.sendAnnotation(Annotation.Android_Hardware, Build.HARDWARE)
--        formDataWriter.sendAnnotation(
--            Annotation.Android_Version,
--            "${Build.VERSION.SDK_INT} (${Build.VERSION.CODENAME})",
--        )
+-        formDataWriter.sendPlatformAnnotations()
 -
--        if (Build.SUPPORTED_ABIS.isNotEmpty()) {
--            formDataWriter.sendAnnotation(Annotation.Android_CPU_ABI, Build.SUPPORTED_ABIS[0])
--            if (Build.SUPPORTED_ABIS.size >= 2) {
--                formDataWriter.sendAnnotation(Annotation.Android_CPU_ABI2, Build.SUPPORTED_ABIS[1])
--            }
--        }
+-        sendIfMissing(Annotation.OS) { "Android" }
+-        sendIfMissing(Annotation.OSVersion) { "${Build.VERSION.SDK_INT}" }
+-        sendIfMissing(Annotation.CPUArchitecture) { Crash.CPU_ARCH }
 -
 -        formDataWriter.finish()
 -    }
@@ -2322,8 +2359,32 @@ index ead2e82..0000000
 -            }
 -        }
 -
+-        fun sendPlatformAnnotations() {
+-            sendAnnotation(Annotation.Android_Manufacturer, Build.MANUFACTURER)
+-            sendAnnotation(Annotation.Android_Model, Build.MODEL)
+-            sendAnnotation(Annotation.Android_Board, Build.BOARD)
+-            sendAnnotation(Annotation.Android_Brand, Build.BRAND)
+-            sendAnnotation(Annotation.Android_Device, Build.DEVICE)
+-            sendAnnotation(Annotation.Android_Display, Build.DISPLAY)
+-            sendAnnotation(Annotation.Android_Fingerprint, Build.FINGERPRINT)
+-            sendAnnotation(Annotation.Android_Hardware, Build.HARDWARE)
+-            sendAnnotation(
+-                Annotation.Android_Version,
+-                "${Build.VERSION.SDK_INT} (${Build.VERSION.CODENAME})",
+-            )
+-
+-            if (Build.SUPPORTED_ABIS.isNotEmpty()) {
+-                sendAnnotation(Annotation.Android_CPU_ABI, Build.SUPPORTED_ABIS[0])
+-                if (Build.SUPPORTED_ABIS.size >= 2) {
+-                    sendAnnotation(Annotation.Android_CPU_ABI2, Build.SUPPORTED_ABIS[1])
+-                }
+-            }
+-        }
+-
 -        fun finish() {
--            os.write(("\r\n--$boundary--\r\n").toByteArray())
+-            // The close delimiter's leading CRLF is already supplied by the trailing CRLF
+-            // every part writes; emitting another would land inside the last part's value.
+-            os.write(("--$boundary--\r\n").toByteArray())
 -            os.flush()
 -            os.close()
 -        }
@@ -2809,10 +2870,10 @@ index 873888d..0000000
 -}
 diff --git a/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/MozillaSocorroServiceTest.kt b/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/MozillaSocorroServiceTest.kt
 deleted file mode 100644
-index 5cf0a76..0000000
+index ff74937..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/MozillaSocorroServiceTest.kt
 +++ /dev/null
-@@ -1,852 +0,0 @@
+@@ -1,900 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -2998,6 +3059,10 @@ index 5cf0a76..0000000
 -                    "name=Breadcrumbs\r\n\r\n[{\"timestamp\":\"2018-06-12T19:30:00\",\"message\":\"Hello World\",\"category\":\"\",\"level\":\"Debug\",\"type\":\"Default\",\"data\":{}}]"
 -                )
 -            )
+-
+-            val boundary = request.substringBefore("\r\n").removePrefix("--")
+-            assert(request.endsWith("\r\n--$boundary--\r\n"))
+-            assert(!request.contains("\r\n\r\n--$boundary--"))
 -
 -            verify(service).report(crash)
 -            verify(service).sendReport(crash, null, "dump.path", "extras.path", true, true)
@@ -3664,13 +3729,57 @@ index 5cf0a76..0000000
 -            mockWebServer.close()
 -        }
 -    }
+-
+-    @Test
+-    fun `MozillaSocorroService reports throwables that have no stack trace`() {
+-        val mockWebServer = MockWebServer()
+-
+-        try {
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-00000000-0000-0000-0000-000000000000"))
+-            mockWebServer.start()
+-            val service =
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                    serverUrl = mockWebServer.url("/").toString(),
+-                )
+-
+-            val throwable = StacklessException("Job was cancelled")
+-            assertEquals(0, throwable.stackTrace.size)
+-
+-            service.report(Crash.UncaughtExceptionCrash(123456, throwable, arrayListOf()))
+-
+-            val body = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val request = GZIPInputStream(body).reader().readText()
+-
+-            assert(
+-                request.contains("name=JavaStackTrace\r\n\r\n${StacklessException::class.java.name}: Job was cancelled")
+-            )
+-            assert(request.contains("\tat \$Missing.<stackTrace>(Unknown Source)"))
+-            assert(request.contains("\"type\":\"StacklessException\""))
+-            assert(request.contains("\"module\":\"\$Missing\""))
+-        } finally {
+-            mockWebServer.close()
+-        }
+-    }
+-}
+-
+-/**
+- * Mirrors kotlinx.coroutines' `JobCancellationException`, which clears its own stack trace unless the coroutines
+- * library is in debug mode.
+- */
+-private class StacklessException(message: String) : RuntimeException(message) {
+-    override fun fillInStackTrace(): Throwable {
+-        stackTrace = emptyArray()
+-        return this
+-    }
 -}
 diff --git a/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroServiceTest.kt b/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroServiceTest.kt
 deleted file mode 100644
-index d3528e1..0000000
+index 5587b2c..0000000
 --- a/mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroServiceTest.kt
 +++ /dev/null
-@@ -1,848 +0,0 @@
+@@ -1,902 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -3857,12 +3966,19 @@ index d3528e1..0000000
 -            assert(request.contains("name=Android_Device\r\n\r\nrobolectric"))
 -            assert(request.contains("name=CrashType\r\n\r\n$FATAL_NATIVE_CRASH_TYPE"))
 -            assert(request.contains("name=CrashTime\r\n\r\n123"))
+-            assert(request.contains("name=OS\r\n\r\nAndroid"))
+-            assert(request.contains("name=OSVersion\r\n\r\n"))
+-            assert(request.contains("name=CPUArchitecture\r\n\r\n"))
 -            assert(request.contains("name=useragent_locale\r\n\r\nen-US"))
 -            assert(
 -                request.contains(
 -                    "name=Breadcrumbs\r\n\r\n[{\"timestamp\":\"2018-06-12T19:30:00\",\"message\":\"Hello World\",\"category\":\"\",\"level\":\"Debug\",\"type\":\"Default\",\"data\":{}}]"
 -                )
 -            )
+-
+-            val boundary = request.substringBefore("\r\n").removePrefix("--")
+-            assert(request.endsWith("\r\n--$boundary--\r\n"))
+-            assert(!request.contains("\r\n\r\n--$boundary--"))
 -
 -            verify(service).report(crash)
 -            verify(service).sendReport(crash)
@@ -4215,6 +4331,9 @@ index d3528e1..0000000
 -            assert(request.contains("name=Android_Device\r\n\r\nrobolectric"))
 -            assert(request.contains("name=CrashType\r\n\r\n$UNCAUGHT_EXCEPTION_TYPE"))
 -            assert(request.contains("name=CrashTime\r\n\r\n123"))
+-            assert(request.contains("name=OS\r\n\r\nAndroid"))
+-            assert(request.contains("name=OSVersion\r\n\r\n"))
+-            assert(request.contains("name=CPUArchitecture\r\n\r\n"))
 -            assert(request.contains("name=useragent_locale\r\n\r\nen-US"))
 -
 -            verify(service).report(crash)
@@ -4518,9 +4637,53 @@ index d3528e1..0000000
 -            mockWebServer.close()
 -        }
 -    }
+-
+-    @Test
+-    fun `MozillaSocorroService reports throwables that have no stack trace`() {
+-        val mockWebServer = MockWebServer()
+-
+-        try {
+-            mockWebServer.enqueue(MockResponse(code = 200, body = "CrashID=bp-00000000-0000-0000-0000-000000000000"))
+-            mockWebServer.start()
+-            val service =
+-                MozillaSocorroService(
+-                    testContext,
+-                    "Test App",
+-                    serverUrl = mockWebServer.url("/").toString(),
+-                )
+-
+-            val throwable = StacklessException("Job was cancelled")
+-            assertEquals(0, throwable.stackTrace.size)
+-
+-            service.report(Crash.UncaughtExceptionCrash(123456, throwable, arrayListOf()))
+-
+-            val body = ByteArrayInputStream(mockWebServer.takeRequest().body!!.toByteArray())
+-            val request = GZIPInputStream(body).reader().readText()
+-
+-            assert(
+-                request.contains("name=JavaStackTrace\r\n\r\n${StacklessException::class.java.name}: Job was cancelled")
+-            )
+-            assert(request.contains("\tat \$Missing.<stackTrace>(Unknown Source)"))
+-            assert(request.contains("\"type\":\"StacklessException\""))
+-            assert(request.contains("\"module\":\"\$Missing\""))
+-        } finally {
+-            mockWebServer.close()
+-        }
+-    }
+-}
+-
+-/**
+- * Mirrors kotlinx.coroutines' `JobCancellationException`, which clears its own stack trace unless the coroutines
+- * library is in debug mode.
+- */
+-private class StacklessException(message: String) : RuntimeException(message) {
+-    override fun fillInStackTrace(): Throwable {
+-        stackTrace = emptyArray()
+-        return this
+-    }
 -}
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
-index 5221015..068ddfb 100644
+index 5f4bff7..064a647 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
 @@ -318,15 +318,15 @@ androidComponents {
@@ -4554,7 +4717,7 @@ index 5221015..068ddfb 100644
  
      if (gradle.hasProperty("localProperties.nimbus.remote-settings.url")) {
          def url = gradle.getProperty("localProperties.nimbus.remote-settings.url")
-@@ -523,7 +522,11 @@ dependencies {
+@@ -526,7 +525,11 @@ dependencies {
      implementation project(':components:lib-bookmark-parser-jsoup')
      implementation project(':components:lib-passwords-file')
      implementation project(':components:lib-crash')
@@ -4567,7 +4730,7 @@ index 5221015..068ddfb 100644
      implementation project(':components:lib-dataprotect')
      implementation project(':components:lib-state')
      implementation project(':components:lib-accelerometer-sensormanager')
-@@ -585,7 +588,9 @@ dependencies {
+@@ -587,7 +590,9 @@ dependencies {
      implementation libs.kotlinx.serialization.json
      implementation libs.mozilla.glean
      implementation libs.protobuf.javalite
@@ -4579,7 +4742,7 @@ index 5221015..068ddfb 100644
      implementation libs.zxing
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
-index c0d0511..80c661d 100644
+index 53decb7..80c661d 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
 @@ -13,21 +13,9 @@ import mozilla.components.lib.crash.runtimetagproviders.BuildRuntimeTagProvider
@@ -4604,11 +4767,12 @@ index c0d0511..80c661d 100644
  import org.mozilla.fenix.components.metrics.DefaultMetricsStorage
  import org.mozilla.fenix.components.metrics.FirstSessionMetricsService
  import org.mozilla.fenix.components.metrics.MetricController
-@@ -35,65 +23,28 @@ import org.mozilla.fenix.components.metrics.MetricsStorage
+@@ -35,66 +23,28 @@ import org.mozilla.fenix.components.metrics.MetricsStorage
  import org.mozilla.fenix.crashes.CrashFactCollector
  import org.mozilla.fenix.crashes.NimbusExperimentDataProvider
  import org.mozilla.fenix.crashes.ReleaseRuntimeTagProvider
 -import org.mozilla.fenix.crashes.crashReportOption
+-import org.mozilla.fenix.ext.getCustomGleanServerUrlIfAvailable
  import org.mozilla.fenix.perf.lazyMonitored
  import org.mozilla.fenix.utils.Settings
 -import org.mozilla.geckoview.BuildConfig.MOZ_APP_BUILDID
@@ -4682,8 +4846,18 @@ index c0d0511..80c661d 100644
          val intent =
              Intent(context, HomeActivity::class.java).apply {
                  flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-@@ -114,26 +65,12 @@ class Analytics(
+@@ -113,37 +63,14 @@ class Analytics(
+                 crashReportingIntentFlags,
+             )
  
+-        val gleanServerEndpoint =
+-            if (Config.channel.isNightlyOrDebug) {
+-                // for testing, if custom glean server url is set in the secret menu, use it to initialize Glean
+-                getCustomGleanServerUrlIfAvailable(context)
+-            } else {
+-                null
+-            }
+-
          CrashReporter(
              context = context,
 -            services = services,
@@ -4695,6 +4869,7 @@ index c0d0511..80c661d 100644
 -                        appVersion = MOZ_APP_VERSION,
 -                        appBuildId = MOZ_APP_BUILDID,
 -                        isUploadEnabled = settings.isTelemetryEnabled,
+-                        serverEndpoint = gleanServerEndpoint,
 -                    )
 -                ),
 -            shouldPrompt = CrashReporter.Prompt.ALWAYS,
@@ -4713,7 +4888,7 @@ index c0d0511..80c661d 100644
              runtimeTagProviders =
                  listOf(
                      ReleaseRuntimeTagProvider(),
-@@ -173,18 +110,6 @@ class Analytics(
+@@ -183,18 +110,6 @@ class Analytics(
      }
  }
  
@@ -4733,10 +4908,10 @@ index c0d0511..80c661d 100644
      get() {
          val packageInfo =
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-index 2a66311..d9554ff 100644
+index b8c0928..5e909ee 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-@@ -233,7 +233,7 @@ class Components(
+@@ -237,7 +237,7 @@ class Components(
          AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
      }
  
@@ -4746,10 +4921,10 @@ index 2a66311..d9554ff 100644
      val remoteSettingsService = lazyMonitored {
          RemoteSettingsService(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt
-index fd02710..266f4ad 100644
+index 4dcb522..5a62678 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt
-@@ -69,17 +69,20 @@ constructor(
+@@ -76,17 +76,20 @@ constructor(
      internal fun bindViews() {
          binding.title.text = context.getString(R.string.tab_crash_title_2, context.getString(R.string.app_name))
  
@@ -4856,7 +5031,7 @@ index e0edd5e..893cc16 100644
          return geckoRuntime
      }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/store/PrivacyPreferencesRepository.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/store/PrivacyPreferencesRepository.kt
-index 55458ce..0a8353e 100644
+index 55458ce..f669f41 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/store/PrivacyPreferencesRepository.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/store/PrivacyPreferencesRepository.kt
 @@ -68,11 +68,11 @@ class DefaultPrivacyPreferencesRepository(
@@ -4974,10 +5149,10 @@ index fd94e64..ebc73e6 100644
      <com.google.android.material.button.MaterialButton
          style="@style/PositiveButton"
 diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/android/fenix/app/src/main/res/values/strings.xml
-index e279f53..4466534 100644
+index 912da64..97ffa11 100644
 --- a/mobile/android/fenix/app/src/main/res/values/strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
-@@ -400,6 +400,12 @@
+@@ -408,6 +408,12 @@
      <string name="startup_crash_title">%s needs to restart</string>
      <!-- Body text for the startup crash page. %s is the name of the app (for example "Firefox") -->
      <string name="startup_crash_body">There was a problem opening %s.\n\nSending a crash report helps us diagnose and fix problems with the browser. Reports may include personal or sensitive data.</string>
@@ -4991,10 +5166,10 @@ index e279f53..4466534 100644
      <string name="startup_crash_positive">Send crash report</string>
      <!-- Button text to continue and not send a startup crash report -->
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt
-index 5a17712..99cc001 100644
+index 94050e0..d864d27 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt
-@@ -73,11 +73,11 @@ class CrashContentViewTest {
+@@ -74,11 +74,11 @@ class CrashContentViewTest {
          assertEquals(view.binding.restoreTabButton, viewArgumentCaptor[0])
          assertEquals(view.binding.closeTabButton, viewArgumentCaptor[1])
  
@@ -5108,7 +5283,7 @@ index 997de24..507d3bc 100644
              message = "Expected the campaign measurement item once a marketing telemetry selection has been made",
          )
 diff --git a/mobile/android/focus-android/app/build.gradle b/mobile/android/focus-android/app/build.gradle
-index 0ba5b3b..27e7d62 100644
+index fb5fb3c..a1a5047 100644
 --- a/mobile/android/focus-android/app/build.gradle
 +++ b/mobile/android/focus-android/app/build.gradle
 @@ -259,7 +259,10 @@ dependencies {
@@ -5123,7 +5298,7 @@ index 0ba5b3b..27e7d62 100644
      implementation project(':components:lib-publicsuffixlist')
      implementation project(':components:lib-state')
      implementation project(":components:service-glean")
-@@ -307,7 +310,8 @@ dependencies {
+@@ -308,7 +311,8 @@ dependencies {
      implementation libs.google.material
      implementation libs.kotlinx.coroutines
      implementation libs.mozilla.glean
