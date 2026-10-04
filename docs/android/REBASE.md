@@ -27,6 +27,63 @@ on **2026-08-17**; everything else dates from **2026-08-16**.
 
 ---
 
+## Release-track cadence
+
+Since 2026-10-02 both targets follow Firefox release, so the trigger for this
+file is every Firefox release: a major every two weeks (the cadence since
+2026-09-01, `TRACK.md` §2) and every dot release in between, which is where
+out-of-band security fixes arrive. Each one is a rebase of **both** targets
+onto the same version — `version.android` and `version` move together unless
+one target is deliberately held back for a release (`TRACK.md` §6).
+
+**The trigger is automatic.** `.github/workflows/firefox-release-watch.yaml`
+runs `scripts/firefox-release-watch.py` once a day (07:23 UTC, and by hand from
+the Actions tab, optionally as a dry run). It:
+
+1. reads `LATEST_FIREFOX_VERSION` from
+   <https://product-details.mozilla.org/1.0/firefox_versions.json> (and logs
+   `FIREFOX_ESR` / `FIREFOX_ESR_NEXT` for desktop information; Redoubt does not
+   track ESR);
+2. compares it numerically with `version.android` and `version` on the default
+   branch (`157.0` < `157.0.1` < `158.0`);
+3. if it is newer than either, checks that
+   `releases/<v>/source/firefox-<v>.source.tar.xz` is on archive.mozilla.org. A
+   release can be announced before the source tarball is published; until it
+   is there is nothing to rebase onto, so no issue is opened and the next day's
+   run tries again;
+4. opens **one** issue per version, titled exactly
+   `Firefox <v> released: rebase Android and desktop` with label
+   `firefox-release`. It looks for that title among every labelled issue, open
+   or closed, first, so it never duplicates or reopens one. Close the issue
+   when the rebase lands (§10).
+
+The issue carries the release notes (desktop and Android), the MFSA index and
+known-vulnerabilities page, and the step list of this file. Run it locally to
+see what it would do — read-only, nothing is opened without a token:
+
+```sh
+python3 scripts/firefox-release-watch.py --dry-run
+python3 scripts/tests/test-firefox-release-watch.py      # offline, fixtures only
+```
+
+What it does **not** do:
+
+- **It flags only the latest release.** If two releases land between two runs
+  (rare on a daily schedule), only the newer one gets an issue; rebase straight
+  to it.
+- **It does not bump, fetch or rebase anything.** It opens an issue; §1 onward
+  is still a human (or an agent) working through this file.
+- **It reads the default branch.** A rebase sitting on a branch does not
+  silence it; the issue stays open until the bump reaches the default branch
+  and someone closes it.
+- **It starts on `main`.** GitHub fires a schedule only from the default
+  branch, so the watcher is inert until the workflow file is merged there.
+  A push that touches only the watcher's files runs its tests on the hosted
+  runner and is excluded from `android-test.yaml` (`paths-ignore`), so it does
+  not start the self-hosted Android build.
+
+---
+
 ## 0. Before you start
 
 ### What a rebase actually costs
@@ -68,6 +125,12 @@ during the M1 wave. Re-measure rather than trusting either figure.)
 ---
 
 ## 1. Decide there is a rebase to do
+
+> **Since 2026-10-02 the trigger is automatic:** the Firefox release watcher
+> opens an issue for every new Firefox release once its tarball is published
+> ([Release-track cadence](#release-track-cadence)). That issue is the start of
+> this section. The paragraphs below describe the ESR era and `make check`,
+> which is still desktop-only and still must not be run during an Android rebase.
 
 **Nothing in this repository watches the ESR channel.** `make check` runs
 `scripts/update-version.py`, which walks the *desktop* Firefox release series

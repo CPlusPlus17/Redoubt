@@ -57,6 +57,16 @@ on:
       # would not run once during M0-M5, which is precisely when it is needed.
       - android-port
       - android/**
+    # The Firefox release watcher runs on a GitHub-hosted runner and tests
+    # itself (firefox-release-watch.yaml). A push that touches nothing else
+    # must not start the hour-long self-hosted build below. paths-ignore skips
+    # the run only when EVERY changed file matches, so any other change in the
+    # same push still runs it. pull_request is left unfiltered on purpose.
+    paths-ignore:
+      - .github/workflows/firefox-release-watch.yaml
+      - scripts/firefox-release-watch.py
+      - scripts/tests/test-firefox-release-watch.py
+      - scripts/tests/fixtures/firefox-release-watch/**
   workflow_dispatch:
   pull_request:
     types:
