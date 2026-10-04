@@ -41,8 +41,10 @@ at GitHub Pages and enabling Pages (source: GitHub Actions) and "Enforce HTTPS" 
 repository settings are owner actions. Until DNS is set the Page is reachable only at the
 repository's `github.io` address, and docs keep linking to GitHub rather than the domain.
 
-Download links point at the GitHub **Releases list**, not `releases/latest`: every build is a
-prerelease, and GitHub's `latest` shortcut skips prereleases.
+Download links point at `releases/latest`. Since 2026-10-04 (owner decision) each beta is
+published as a full GitHub release marked **Latest**, not as a prerelease, so that shortcut and
+Obtainium's default settings find it. "Beta" stays in the title and notes; this is not a
+stable-release declaration.
 
 ---
 
@@ -142,8 +144,7 @@ with the sha256 of what you have.
   install it. Accrescent handles updates; there is no in-app check to configure.
 - **direct APK.** Download the APK from `redoubtbrowser.org` (when it is live). In your
   browser, allow installs from that source when Android asks. Install. There is no store
-  behind this one: point Obtainium at the GitHub repository (with "Include prereleases",
-  since every build is a prerelease), or, once a build carries it, enable the opt-in in-app
+  behind this one: point Obtainium at the GitHub repository, or, once a build carries it, enable the opt-in in-app
   version check in Settings (see §6). Obtainium does not compare the signing certificate
   with ours, so the page tells the user to verify the first install themselves; Android's
   same-key rule then covers every update.

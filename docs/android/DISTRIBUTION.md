@@ -2,6 +2,12 @@
 
 ## First Android beta on GitHub
 
+**Release channel (owner decision 2026-10-04):** each beta is published as a full GitHub
+release marked **Latest** (`gh release create ... --latest`, not `--prerelease`), so
+`releases/latest` and Obtainium's defaults find it; "Beta" stays in the title and notes, and the
+superseded beta keeps its prerelease flag and gets a "superseded" banner. Beta 5
+(`android-157.0-1-beta.5`) was the first switched over.
+
 The owner requested GitHub Releases distribution on 2026-09-08 for the four
 approved signed beta APKs. They are published in the public prerelease
 [`android-153.0esr-1-beta.1`](https://github.com/CPlusPlus17/Redoubt/releases/tag/android-153.0esr-1-beta.1).
