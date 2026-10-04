@@ -55,9 +55,11 @@ was weighed. It is no longer the policy.
   open against the 153.4.0esr tree (`REBASE.md` Appendix D) are all fixed in
   Firefox <= 157.0 and present in the 157.0 source; eight are closed by
   `157.0-1` (Beta 4 on), the ninth (CVE-2026-84135) is Focus-only and was
-  never shipped. One residual: Mozilla can ship an Android-only dot release
-  without a desktop source tarball, which `firefox-release-watch` does not
-  see.
+  never shipped. Mozilla can also ship an Android-only dot release, possibly
+  without a desktop source tarball. Since 2026-10-04 `firefox-release-watch`
+  reads `mobile_versions.json` too and opens a `Firefox for Android <v>
+  released: rebase Android` issue for one (`REBASE.md`, "Release-track
+  cadence").
 - **The `MOZ_ESR`-dependent sites of §1 and §5.3 need re-validation**, above all
   the search-configuration channel (`toolkit/components/search/SearchUtils.sys.mjs:357`
   on 157: `AppConstants.IS_ESR ? "esr" : AppConstants.MOZ_UPDATE_CHANNEL`) and

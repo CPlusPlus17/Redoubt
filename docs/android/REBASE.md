@@ -60,8 +60,27 @@ the Actions tab, optionally as a dry run). It:
 The issue carries the release notes (desktop and Android), the MFSA index and
 known-vulnerabilities page, and the step list of this file.
 
+**Android-only releases are flagged too.** The same run reads `version` from
+<https://product-details.mozilla.org/1.0/mobile_versions.json> (the Firefox
+for Android release; the beta and nightly fields are ignored). When it is
+newer than `version.android` and is not the desktop release (that issue
+covers both targets) nor older than it (the desktop rebase goes past it), it
+is an Android-only dot such as 153.0.2, and the watcher opens **one** issue
+titled exactly `Firefox for Android <v> released: rebase Android`, same label,
+same open-or-closed dedup. It does not wait for a source tarball, because an
+Android-only dot may never get one (153.0.2 did not). The issue says whether
+`firefox-<v>.source.tar.xz` exists. With one, the rebase is the usual one for
+Android only (§2 bumps `version.android` / `release.android`, not `version`).
+Without one, there is nothing for §3 to verify. Compare the
+`FIREFOX-ANDROID_<v>_RELEASE` tag in Mozilla's Firefox repository with the one
+Redoubt builds, then either close the issue with a note (nothing reaches
+Redoubt; the next desktop release carries it) or take the fix from the
+release branch as a patch (`SECURITY.md`, "Android-only with no source
+tarball"). If `mobile_versions.json` is unreachable, the desktop half still
+runs and the workflow run turns red. No issue is opened about the failure.
+
 **§4 is pre-run on the issue.** When the watch job has opened the issue, or
-finds it still open, a second job (`patchcheck`, also GitHub-hosted, never the
+finds it still open, and the release has a source tarball, a second job (`patchcheck`, also GitHub-hosted, never the
 self-hosted Android runner) runs `scripts/firefox-release-watch.py patchcheck`:
 
 1. if the issue already carries a patch-check comment for this version **and
@@ -79,12 +98,13 @@ self-hosted Android runner) runs `scripts/firefox-release-watch.py patchcheck`:
    `version.android` both say `<v>` and whose everything else is a symlink
    into the checkout. Nothing is bumped or committed. The two runs are
    sequential, so the ~800 MB tarball and one ~5 GB extraction are all that
-   sit on the runner's disk at once;
+   sit on the runner's disk at once. For a Firefox for Android issue only
+   `--targets=android` runs;
 4. posts **one** comment: per target pass / FAIL / ERROR, patch count, the
    failing patches with the reason (hunks failed, target file missing,
    reversed), fuzzed and offset hunk counts, the fuzzed patches (for §5a), and
    a link to the run. The full reports are kept as the run's
-   `patchfail-<v>` artifact for 30 days.
+   `patchfail-<v>-release` (or `-android`) artifact for 30 days.
 
 The comment is a head start, not §4: it tests the patch lists as they are on
 the default branch, against the pristine tarball. Re-run §4 yourself on the

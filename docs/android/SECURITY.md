@@ -126,8 +126,9 @@ advisories: they arrive with the rebase (`docs/android/TRACK.md`, "Decision
 reversed 2026-10-02"). What remains is to rebase promptly and to check, per
 advisory, that the shipped build is not behind it.
 `scripts/firefox-release-watch.py` opens an issue for each new
-`LATEST_FIREFOX_VERSION`; it does not see Android-only dot releases, so every
-MFSA titled "Firefox for Android" is still read by the triage owner in
+`LATEST_FIREFOX_VERSION`, and one for each Android-only Firefox for Android
+release in `mobile_versions.json`, saying whether it has a source tarball.
+Every MFSA titled "Firefox for Android" is still read by the triage owner in
 `docs/android/TRIAGE.md` (a placeholder until one is named; this page names
 the *role*, not a person). The current coverage record, with the nine
 Android CVEs the ESR tree lacked and how the move to 157 closed them, is

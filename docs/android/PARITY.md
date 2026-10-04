@@ -259,17 +259,18 @@ list it.
   rebase ships. `firefox-release-watch` opens the rebase issue
   ([`REBASE.md`](REBASE.md#release-track-cadence)); this section's check
   should be repeated against each new advisory.
-- **Watch residual: Android-only dot releases.** `scripts/firefox-release-watch.py` (at `39d159ca`)
-  reads only `LATEST_FIREFOX_VERSION` from `firefox_versions.json`. Mozilla
+- **Android-only dot releases (watched since 2026-10-04).** `scripts/firefox-release-watch.py` (at `39d159ca`)
+  read only `LATEST_FIREFOX_VERSION` from `firefox_versions.json`. Mozilla
   sometimes ships a Firefox for Android dot release that desktop does not
   get: 153.0.2 exists under `pub/fenix/releases/153.0.2/` but has no
   `pub/firefox/releases/153.0.2/source/` tarball (404, checked 2026-10-04),
-  while the security one, 153.0.3 (MFSA 2026-73), had both. A future
-  Android-only security dot would therefore not be flagged by the watcher,
-  and might have no source tarball to rebase onto (its fix would have to be
-  taken from the release branch). Until the watcher also reads
-  `mobile_versions.json`, the MFSA index is the check: an advisory titled
-  "Firefox for Android" is the signal.
+  while the security one, 153.0.3 (MFSA 2026-73), had both. Such a dot was
+  not flagged by the watcher, and might have no source tarball to rebase onto
+  (its fix would have to be taken from the release branch). The watcher now
+  also reads
+  `mobile_versions.json` and opens a `Firefox for Android <v> released:
+  rebase Android` issue for such a release, noting whether a source tarball
+  exists. The MFSA index stays the check for what the release fixes.
 - **Not covered by this section:** the platform gaps of §1 to §3 (no content
   sandbox, DoH overridden) are unchanged. This section is about Mozilla
   advisories only.
