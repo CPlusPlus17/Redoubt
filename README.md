@@ -18,8 +18,8 @@ privacy configuration.
 
 ## Status
 
-**Beta.** Builds are published as prereleases on
-[GitHub Releases](https://github.com/CPlusPlus17/Redoubt/releases). The current
+**Beta.** Each beta is published as the **latest release** on
+[GitHub Releases](https://github.com/CPlusPlus17/Redoubt/releases/latest). The current
 betas are based on Firefox 157 (Firefox's regular release track), need Android 8.0
 or later, and install over the previous beta as an update.
 
@@ -29,7 +29,7 @@ update check: watch the Releases page and install new APKs over the old one.
 ## Install and verify
 
 Download from the latest release on the
-[Releases page](https://github.com/CPlusPlus17/Redoubt/releases):
+[latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest):
 
 | file | for |
 |---|---|
@@ -57,8 +57,7 @@ in [`docs/android/SIGNING.md`](docs/android/SIGNING.md).
 
 **Updates with Obtainium.** To be told about new betas, add
 `https://github.com/CPlusPlus17/Redoubt` as an app in
-[Obtainium](https://github.com/ImranR98/Obtainium), turn on **Include
-prereleases** (every build is a prerelease for now), and set **Filter APKs by
+[Obtainium](https://github.com/ImranR98/Obtainium) and set **Filter APKs by
 regular expression** to `arm64-v8a` (or your ABI). Obtainium does not check the
 signing certificate for you: verify the first install as above. After that,
 Android refuses any update not signed with the same key.

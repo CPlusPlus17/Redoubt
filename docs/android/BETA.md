@@ -98,7 +98,9 @@ asks for exactly this ("who holds which device").
 
 - **Length:** 14 days from the first install. The public-launch rotation in
   `TRIAGE.md` §5 starts separately when the public download page goes live.
-- **Channel:** direct signed APKs on a **public GitHub prerelease**. On
+- **Channel:** direct signed APKs on GitHub Releases. Since 2026-10-04 each beta is a full
+  release marked **Latest** (see `DISTRIBUTION.md`), still titled "Beta"; Betas 1-4 were
+  prereleases. Originally: a **public GitHub prerelease**. On
   2026-09-08, after approving the exact E7 beta candidate, the owner requested
   adding its APKs to GitHub Releases. That request supersedes the earlier
   private-link-only plan for this beta. The release is clearly marked as a
