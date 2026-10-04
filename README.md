@@ -53,6 +53,14 @@ If the digest differs, do not install it, and report it privately (see
 [Security](#security-and-bug-reports)). The key and its custody are documented
 in [`docs/android/SIGNING.md`](docs/android/SIGNING.md).
 
+**Updates with Obtainium.** To be told about new betas, add
+`https://github.com/CPlusPlus17/Redoubt` as an app in
+[Obtainium](https://github.com/ImranR98/Obtainium), turn on **Include
+prereleases** (every build is a prerelease for now), and set **Filter APKs by
+regular expression** to `arm64-v8a` (or your ABI). Obtainium does not check the
+signing certificate for you: verify the first install as above. After that,
+Android refuses any update not signed with the same key.
+
 ## What it changes compared with Firefox for Android
 
 The approved summary, and the full measured comparison behind it:
