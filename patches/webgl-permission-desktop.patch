@@ -1,8 +1,15 @@
+158 rebase (2026-10-04, against Firefox 158.0b3): 158 removed the
+contextual-feature-recommendation-notification that followed the canvas
+prompt in popup-notifications.inc.xhtml, so the WebGL prompt is inserted at
+the same place, directly after canvas-permissions-prompt-notification. The
+ObserverForwarder.sys.mjs and jar.inc.mn hunks needed fuzz 1-2 on 158 and are
+regenerated at fuzz 0 (same lines, verified in place). The rest is unchanged.
+
 diff --git a/browser/base/content/popup-notifications.inc.xhtml b/browser/base/content/popup-notifications.inc.xhtml
-index cb57017aa9..c982089198 100644
+index 43c2429..99b5c5a 100644
 --- a/browser/base/content/popup-notifications.inc.xhtml
 +++ b/browser/base/content/popup-notifications.inc.xhtml
-@@ -168,6 +168,13 @@
+@@ -196,6 +196,13 @@
        </popupnotificationcontent>
      </popupnotification>
  
@@ -13,11 +20,11 @@ index cb57017aa9..c982089198 100644
 +      </popupnotificationcontent>
 +    </popupnotification>
 +
-     <popupnotification id="contextual-feature-recommendation-notification"
-                        buttonhighlight="true"
-                        hidden="true">
+     <popupnotification id="credential-chooser-notification" hidden="true">
+       <popupnotificationheader id="credential-chooser-header" orient="horizontal">
+         <html:div id="credential-chooser-header-container">
 diff --git a/browser/modules/ObserverForwarder.sys.mjs b/browser/modules/ObserverForwarder.sys.mjs
-index 8cf14355f3..bdecc6c230 100644
+index b62b572..222765c 100644
 --- a/browser/modules/ObserverForwarder.sys.mjs
 +++ b/browser/modules/ObserverForwarder.sys.mjs
 @@ -14,6 +14,8 @@ let lazy = {};
@@ -28,20 +35,20 @@ index 8cf14355f3..bdecc6c230 100644
 +    "moz-src:///browser/modules/WebGLPermissionPromptHelper.sys.mjs",
    FilePickerCrashed: "resource:///modules/FilePickerCrashed.sys.mjs",
    PluginManager: "resource:///actors/PluginParent.sys.mjs",
-   UnexpectedScriptObserver:
-@@ -28,6 +30,9 @@ ChromeUtils.defineESModuleGetters(lazy, {
- let gObservers = {
+   SerialDeviceSharingHelper:
+@@ -29,6 +31,9 @@ let gObservers = {
    "canvas-permissions-prompt": ["CanvasPermissionPromptHelper"],
    "canvas-permissions-prompt-hide-doorhanger": ["CanvasPermissionPromptHelper"],
-+
+ 
 +  "webgl-permissions-prompt": ["WebGLPermissionPromptHelper"],
 +  "webgl-permissions-prompt-hide-doorhanger": ["WebGLPermissionPromptHelper"],
- 
-   "UnexpectedJavaScriptLoad-Live": ["UnexpectedScriptObserver"],
-   "UnexpectedJavaScriptLoad-UserTookAction": ["UnexpectedScriptObserver"],
++
+   "file-picker-crashed": ["FilePickerCrashed"],
+   "gmp-plugin-crash": ["PluginManager"],
+   "plugin-crashed": ["PluginManager"],
 diff --git a/browser/modules/WebGLPermissionPromptHelper.sys.mjs b/browser/modules/WebGLPermissionPromptHelper.sys.mjs
 new file mode 100644
-index 0000000..ead4eef
+index 0000000..7c647a1
 --- /dev/null
 +++ b/browser/modules/WebGLPermissionPromptHelper.sys.mjs
 @@ -0,0 +1,132 @@
@@ -178,12 +185,12 @@ index 0000000..ead4eef
 +  },
 +};
 diff --git a/browser/themes/shared/jar.inc.mn b/browser/themes/shared/jar.inc.mn
-index 907d188..f60a426 100644
+index 949f0f0..69b503b 100644
 --- a/browser/themes/shared/jar.inc.mn
 +++ b/browser/themes/shared/jar.inc.mn
-@@ -213,6 +213,8 @@
+@@ -220,6 +220,8 @@
    skin/classic/browser/calendar-24.svg                (../shared/icons/calendar-24.svg)
-   skin/classic/browser/canvas.svg                     (../shared/icons/canvas.svg)
+ % override chrome://browser/skin/canvas.svg chrome://global/skin/icons/canvas.svg
    skin/classic/browser/canvas-blocked.svg             (../shared/icons/canvas-blocked.svg)
 +  skin/classic/browser/webgl.svg                      (../shared/icons/webgl.svg)
 +  skin/classic/browser/webgl-blocked.svg              (../shared/icons/webgl-blocked.svg)
@@ -191,10 +198,10 @@ index 907d188..f60a426 100644
    skin/classic/browser/chevron-animation.svg          (../shared/icons/chevron-animation.svg)
    skin/classic/browser/circle-check-dotted.svg        (../shared/icons/circle-check-dotted.svg)
 diff --git a/browser/themes/shared/notification-icons.css b/browser/themes/shared/notification-icons.css
-index f65f6bb61a..e5bbe3f976 100644
+index fc4345e..73a7df9 100644
 --- a/browser/themes/shared/notification-icons.css
 +++ b/browser/themes/shared/notification-icons.css
-@@ -203,6 +203,15 @@
+@@ -211,6 +211,15 @@
    list-style-image: url(chrome://browser/skin/canvas-blocked.svg);
  }
  

@@ -15,7 +15,7 @@ read in full, every file it touches was traced to the `moz.build` / `jar.mn` /
 preprocessor guard that decides whether that file is built on Android, and the
 decision below follows from that guard rather than from the path.
 
-Current classification: **22 common / 42 android / 46 desktop-only / 0 straddlers = 110
+Current classification: **22 common / 42 android / 44 desktop-only / 0 straddlers = 108
 patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
@@ -117,6 +117,25 @@ So: android 42 − 1 = 41; total 110 − 1 = 109.
   `android.txt` entry.
 
 So: android 41 + 1 = 42; total 109 + 1 = 110.
+
+## Desktop patches retired in the Firefox 158 pre-rebase (2026-10-04, against 158.0b3)
+
+Two `desktop.txt` entries are upstream in Firefox 158 and are deleted with
+their list entries. Their 157 text stays in git history.
+
+- **`hide-disabled-urlbar-suggests`**. 158's
+  `browser/components/urlbar/QuickActionsLoaderDefault.sys.mjs` already has all
+  three hunks verbatim (the ExperimentAPI getter and the two `isUnsupported`
+  callbacks); `patch` refused them as "previously applied".
+- **`refresh`**. 158 keys the Firefox migrators on `AppConstants.MOZ_APP_NAME`
+  (all JS hunks, plus `Nightly`), and renamed the wizard's display-name string
+  to `migration-wizard-migrator-display-name-self = { -brand-product-name }`.
+
+Desktop-only, so no Android parity changes. The other rebases of this
+pre-rebase change text, not scope; the list is in
+`docs/android/evidence/lw-m7-01/release-158.0/PREBASE.md`.
+
+So: desktop-only 46 − 2 = 44; total 110 − 2 = 108.
 
 ## The Firefox 157 desktop merge — what moved, and why Android did not (history, superseded 2026-10-02)
 
@@ -408,7 +427,7 @@ back in `common.txt` at their 157 text.
 | `moz-configure` | `toolkit/moz.configure` | **Not inert on Android.** `MOZ_APP_PROFILE` is defined only by this `project_flag` (`toolkit/moz.configure:35`) — nothing under `mobile/` implies it — so the added `default="librewolf"` reaches the Android build and lands in `application.ini` via `build/moz.build:88-89`, i.e. `gAppData->profile`. |
 | `mozilla_dirs` | `NativeManifests.sys.mjs`, `toolkit/xre/nsXREDirProvider.cpp`, `xpcom/build/nsXULAppAPI.h` | **The heuristic guess ("native messaging is desktop-only") was wrong about the file, right about the feature.** `XP_UNIX` is set for every unix target including Android (`build/moz.configure/init.configure:867`), so the `#if defined(XP_UNIX) \|\| defined(XP_MACOSX)` blocks at `nsXULAppAPI.h:108-116`, `nsXREDirProvider.cpp:326-362` and `:416-430` all **compile on Android**, and the `AppendSysUserExtensionPath` `.mozilla` → `.librewolf` rename (`:1293-1302`, `#elif defined(XP_UNIX)`) takes effect there. Only the JS half is dead: `NativeManifests.init()` throws on Android before it reaches the patched `dirs` array. Dropping this would be a real Android branding regression. Must apply **before** `xdg-dir`. |
 | `profile-directory` | `extensions/pref/autoconfig/src/prefcalls.js` | Same file and same reasoning as `autoconfig-setEnv`; must apply **after** it. The `HOME`/`XDG_CONFIG_HOME` lookup resolves to a non-existent path on Android, which is harmless — the file ships, so the patch stays with its partner rather than splitting the pair across lists. |
-| `remove-openai` | `toolkit/components/ml/*`, `toolkit/content/license.html` | **157:** regenerated from the firefox-157.0 tree. **Mandatory on Android, not merely allowed.** `toolkit/components/moz.build:59` puts `ml` in the unconditional `DIRS`, and `scripts/librewolf-patches.py:325-328` deletes `OpenAIPipeline.mjs` and `vendor/openai/` for *every* target. Leaving the patch off an Android build would leave `toolkit/components/ml/jar.mn` referencing files that no longer exist. This is landmine L4 pointing at scope. (The `aboutinference` hunk is `NIGHTLY_BUILD`-only per `toolkit/components/moz.build:155-156`, on every platform; that does not change the classification.) |
+| `remove-openai` | `toolkit/components/ml/*` (`toolkit/content/license.html` before 158) | **158:** about:license is generated from `LICENSED_UNDER` declarations, so the license.html hunk became a `toolkit/components/ml/moz.build` hunk. **157:** regenerated from the firefox-157.0 tree. **Mandatory on Android, not merely allowed.** `toolkit/components/moz.build:59` puts `ml` in the unconditional `DIRS`, and `scripts/librewolf-patches.py:325-328` deletes `OpenAIPipeline.mjs` and `vendor/openai/` for *every* target. Leaving the patch off an Android build would leave `toolkit/components/ml/jar.mn` referencing files that no longer exist. This is landmine L4 pointing at scope. (The `aboutinference` hunk is `NIGHTLY_BUILD`-only per `toolkit/components/moz.build:155-156`, on every platform; that does not change the classification.) |
 | `rs-blocker` | `services/settings/*`, `toolkit/components/search/SearchEngineSelector.sys.mjs` (157 text also `services/settings/remote-settings.sys.mjs`, `toolkit/components/search/ConfigSearchEngine.sys.mjs`) | **157:** upstream's 157 text (5b4201be, 3536d182). `services/moz.build:12` traverses `settings` unconditionally; `toolkit/components/moz.build:79` traverses `search` and `search/moz.build:21` ships `SearchEngineSelector.sys.mjs`. Both halves are live on Android. **Caveat for LW-M4-08:** the allowlist defaults to the empty pref, and `"".split(",")` is `[""]`, i.e. deny-everything. Android must populate `librewolf.services.settings.allowedCollections{,FromDump}` with its own collections or remote settings is dead there — that is the LW-M4-08 work, and it is a configuration gap, not a reason to move this patch. |
 | `rust-gentoo-musl` | `build/moz.configure/rust.configure` | **Does not disturb the NDK path.** The added block sits between the existing vendor narrowing and the terminal `return None` in `find_candidate`, i.e. it only runs on the path that would otherwise `die("Don't know how to translate …")`. Android targets (`aarch64-linux-android` &c.) resolve earlier, at the `sub_configure_alias`/`raw_os` narrowing. It strictly widens; it can never displace a candidate that would otherwise have won. And `detect_rustc_target` runs for the **host** as well as the target, so a Gentoo/musl build host cross-compiling to Android needs it. |
 | `vendor-name` | `toolkit/components/extensions/parent/ext-runtime.js`, `toolkit/xre/nsAppRunner.cpp` | **157:** upstream 81e96593 (`version_display` in `getBrowserInfo()`). Both files are core and built on Android. |
@@ -483,7 +502,7 @@ one.
 
 …and, new with the Firefox 157 merge (file lists checked from the `+++` lines,
 the same rule applied): `delete-cookie-permission` · `eme-migrator` ·
-`hide-disabled-urlbar-suggests` · `mullvad-dns-migration` · `refresh` ·
+`mullvad-dns-migration` ·
 `ui-patches/eme-enable` · `ui-patches/newtab-wordmark-css` ·
 `ui-patches/remove-branding` · `ui-patches/wallpapers`. (`hide-passwordmgr`,
 `ui-patches/firefox-view`, `ui-patches/hide-default-browser` and
