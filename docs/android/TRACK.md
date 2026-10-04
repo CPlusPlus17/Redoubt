@@ -165,6 +165,15 @@ was weighed. It is no longer the policy.
   LibreWolf stopped setting it false because OAuth flows to local addresses
   broke). Owner decision the same day: restored to false in
   `settings/android.cfg`, as the betas shipped. Desktop follows upstream.
+- **The navigation storage-access heuristic stays off** (owner decision
+  2026-10-04). `privacy.restrict3rdpartystorage.heuristic.navigation` grants
+  unpartitioned third-party storage to sites the user interacted with during
+  a navigation that returns to the starting site. 157 ships it false on
+  Android only (`StaticPrefList.yaml:18242-18249`); 158 ships it true
+  everywhere (158.0b3 `:18387-18390`, found in the 158 pre-rebase StaticPref
+  diff). `settings/android.cfg` pins it false (Redoubt-settings `990c367`)
+  ahead of the 158 rebase, so the rebase does not turn it on. Desktop
+  follows upstream.
 
 ### What the earlier analysis said this costs
 
