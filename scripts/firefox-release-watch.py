@@ -46,7 +46,9 @@ it cannot tell an Android-only release from one the desktop issue covers.
 then tests the patch lists against each flagged release that has a source
 tarball (both targets for a Firefox release, Android only for a Firefox for
 Android one) and comments the result on its issue, once per version and
-commit.
+commit. `--dry-run --patchcheck-version <v>` also queues a check of <v> by
+hand, newer than the repository or not, with no issue; it prints the comment
+instead of posting it, and without --dry-run it is refused.
 
 Only the latest release is flagged. If two releases land between runs (a
 daily schedule makes that rare), the older one gets no issue of its own; the
@@ -547,6 +549,27 @@ def patchcheck_jobs(desktop, android):
     return jobs
 
 
+def manual_patchcheck_job(version, targets, dry_run):
+    """The matrix entry for a patch check asked for by hand (workflow_dispatch
+    input patchcheck_version), so the patchcheck job can be exercised before a
+    real new release exists. Checked whether or not `version` is newer than
+    the repository, and with no issue: it posts nothing, so it is allowed only
+    in a dry run. Raises WatchError (not a dry run, bad targets) or ValueError
+    (not a release version: a beta, a nightly, a typo)."""
+    if not dry_run:
+        raise WatchError('a manual patch check (--patchcheck-version) only runs '
+                         'as a dry run: it never posts a comment; pass --dry-run '
+                         '(dry_run=true)')
+    version = version.strip()
+    parse_version(version)
+    names = [t.strip() for t in targets.split(',') if t.strip()]
+    if not names or any(t not in PATCHCHECK_TARGETS for t in names):
+        raise WatchError(f'--patchcheck-targets must be among {PATCHCHECK_TARGETS}, '
+                         f'got {targets!r}')
+    return {'version': version, 'issue': '', 'targets': ','.join(names),
+            'label': 'manual'}
+
+
 # --------------------------------------------------------------------------
 # patchcheck: test both patch lists against the new release, report on the
 # issue. Run by the workflow's second job, only after `run` above opened (or
@@ -895,8 +918,9 @@ def patchcheck(version, issue, sha, github, repo_root, workdir, *, dry_run=False
                archive_base=ARCHIVE_BASE, key_url=None,
                fingerprint=MOZILLA_KEY_FINGERPRINT, check_script=None,
                local_tarball=None, run_link='', reports_dir=None, log=print,
-               targets=PATCHCHECK_TARGETS):
-    """Returns 'already-posted', 'would-post' or 'posted'."""
+               targets=PATCHCHECK_TARGETS, report=None):
+    """Returns 'already-posted', 'would-post' or 'posted'. `report`, when
+    given, is a dict that gets the comment as 'comment' once it is written."""
     parse_version(version)
     targets = tuple(targets)
     if not targets or any(t not in PATCHCHECK_TARGETS for t in targets):
@@ -951,6 +975,8 @@ def patchcheck(version, issue, sha, github, repo_root, workdir, *, dry_run=False
     tarball.unlink()
 
     body = patchcheck_comment(version, sha, results, run_link, digest, fingerprint)
+    if report is not None:
+        report['comment'] = body
     if dry_run:
         log(f'dry run: would comment on #{issue or "?"}:\n\n{body}')
         return 'would-post'
@@ -1012,6 +1038,7 @@ def patchcheck_main(argv):
     own_workdir = a.workdir is None
     workdir = a.workdir or Path(tempfile.mkdtemp(
         prefix='redoubt-patchcheck-', dir=os.environ.get('RUNNER_TEMP') or None))
+    report = {}
     try:
         sha = a.sha or head_sha(a.root)
         outcome = patchcheck(a.version, a.issue, sha, github, a.root, workdir,
@@ -1019,7 +1046,8 @@ def patchcheck_main(argv):
                              key_url=a.key_url, fingerprint=a.fingerprint.upper(),
                              check_script=a.check_script, local_tarball=a.tarball,
                              run_link=run_url(), reports_dir=a.reports_dir,
-                             targets=[t for t in a.targets.split(',') if t])
+                             targets=[t for t in a.targets.split(',') if t],
+                             report=report)
     except (WatchError, ValueError, OSError) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
@@ -1030,6 +1058,10 @@ def patchcheck_main(argv):
     if summary:
         with open(summary, 'a') as f:
             f.write(f'firefox-release-watch patchcheck {a.version}: **{outcome}**\n')
+            if outcome == 'would-post':
+                # A dry run's comment, rendered as it would appear on the issue.
+                f.write(f'\nDry run: the comment it would post on '
+                        f'#{a.issue or "?"}:\n\n---\n\n{report["comment"]}\n---\n')
     print(f'outcome: {outcome}')
     return 0
 
@@ -1051,6 +1083,11 @@ def main(argv=None):
     p.add_argument('--ref', default='main', help='branch the issue links REBASE.md on')
     p.add_argument('--dry-run', action='store_true',
                    help='open nothing; without GITHUB_TOKEN, also skip the duplicate check')
+    p.add_argument('--patchcheck-version',
+                   help='also emit a patch check of this release, newer than the '
+                        'repository or not, with no issue (dry run only)')
+    p.add_argument('--patchcheck-targets', default=','.join(PATCHCHECK_TARGETS),
+                   help='targets of that check (default: %(default)s)')
     if argv is None:
         argv = sys.argv[1:]
     if argv[:1] == ['patchcheck']:
@@ -1064,6 +1101,16 @@ def main(argv=None):
             except (OSError, ValueError) as e:
                 raise WatchError(f'cannot read {path}: {e}') from e
         return fetch_json(url)
+
+    manual = None
+    if a.patchcheck_version:
+        # Refused before anything is read: a bad input is not a feed failure.
+        try:
+            manual = manual_patchcheck_job(a.patchcheck_version,
+                                           a.patchcheck_targets, a.dry_run)
+        except (WatchError, ValueError) as e:
+            print(f'error: manual patch check: {e}', file=sys.stderr)
+            return 1
 
     token = os.environ.get('GITHUB_TOKEN', '')
     if not a.dry_run and not (a.repo and token):
@@ -1112,11 +1159,23 @@ def main(argv=None):
 
     jobs = patchcheck_jobs((outcome, found) if outcome else None,
                            (android_outcome, android_found) if android_outcome else None)
+    if manual:
+        if any((j['version'], j['targets']) == (manual['version'], manual['targets'])
+               for j in jobs):
+            print(f'manual patch check of {manual["version"]} ({manual["targets"]}): '
+                  f'already in the checks')
+        else:
+            jobs.append(manual)
+            print(f'manual patch check of {manual["version"]} ({manual["targets"]}): '
+                  f'queued, dry run')
     summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:
         with open(summary, 'a') as f:
             f.write(f'firefox-release-watch: **{outcome or "error"}**; '
                     f'Firefox for Android: **{android_outcome or "error"}**\n')
+            if manual:
+                f.write(f'manual patch check (dry run): **{manual["version"]}**, '
+                        f'targets {manual["targets"]}\n')
     # For the workflow's patch-check job (needs.watch.outputs.*). Written even
     # after an error, so a desktop issue opened before the Android half failed
     # still gets its check.

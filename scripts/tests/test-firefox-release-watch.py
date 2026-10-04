@@ -703,6 +703,104 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn('HEAD', r.stderr)
 
+    # A manual patch check (workflow_dispatch patchcheck_version): only in a
+    # dry run, whatever the feeds say, and never a beta.
+
+    def test_manual_patchcheck_emitted_in_dry_run(self):
+        out = self.root / 'github-output'
+        r = self.script('157.0', '--dry-run', '--patchcheck-version', '157.0',
+                        token='', output=out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        o = self.outputs(out)
+        # The repo is at 157.0: the watch itself has nothing to do ...
+        self.assertEqual((o['outcome'], o['android_outcome']), ('current', 'current'))
+        # ... and the manual check is queued anyway, with no issue.
+        self.assertEqual(o['checks'], [{'version': '157.0', 'issue': '',
+                                        'targets': 'desktop,android',
+                                        'label': 'manual'}])
+        r = self.script('157.0', '--dry-run', '--patchcheck-version', '157.0',
+                        '--patchcheck-targets', 'android', token='', output=out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.outputs(out)['checks'],
+                         [{'version': '157.0', 'issue': '', 'targets': 'android',
+                           'label': 'manual'}])
+        self.assertEqual(len(FakeServer.state['issues']), 150)
+
+    def test_manual_patchcheck_next_to_a_real_release(self):
+        out = self.root / 'github-output'
+        FakeServer.state['tarballs'].add('158.0')
+        # Same release and targets as the real entry: not checked twice.
+        r = self.script('158.0', '--dry-run', '--patchcheck-version', '158.0',
+                        output=out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([c['label'] for c in self.outputs(out)['checks']], ['release'])
+        # An older one: both, the real one first.
+        r = self.script('158.0', '--dry-run', '--patchcheck-version', '157.0',
+                        output=out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([(c['version'], c['label']) for c in self.outputs(out)['checks']],
+                         [('158.0', 'release'), ('157.0', 'manual')])
+        self.assertEqual(len(FakeServer.state['issues']), 150, 'a dry run opens nothing')
+
+    def test_manual_patchcheck_refused_without_dry_run(self):
+        out = self.root / 'github-output'
+        FakeServer.state['tarballs'].add('158.0')
+        r = self.script('158.0', '--patchcheck-version', '157.0', output=out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('only runs as a dry run', r.stderr)
+        # Refused before anything else: no outputs (so no patch-check job),
+        # no archive or GitHub request, no issue.
+        self.assertFalse(out.exists())
+        self.assertEqual(FakeServer.state['heads'], [])
+        self.assertEqual(len(FakeServer.state['issues']), 150)
+
+    def test_manual_patchcheck_refuses_non_releases(self):
+        out = self.root / 'github-output'
+        for bad in ('158.0b3', '159.0a1', 'latest', '157'):
+            r = self.script('157.0', '--dry-run', '--patchcheck-version', bad,
+                            token='', output=out)
+            self.assertEqual(r.returncode, 1, bad)
+            self.assertIn('not a Firefox release or ESR version', r.stderr)
+            self.assertFalse(out.exists())
+        r = self.script('157.0', '--dry-run', '--patchcheck-version', '157.0',
+                        '--patchcheck-targets', 'ios', token='', output=out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('--patchcheck-targets must be among', r.stderr)
+
+    def test_no_manual_patchcheck_without_the_flag(self):
+        # The scheduled path: no flag, so nothing manual even in a dry run,
+        # and an empty value (an unset dispatch input) is no flag.
+        out = self.root / 'github-output'
+        for extra in ((), ('--dry-run',), ('--dry-run', '--patchcheck-version', '')):
+            r = self.script('157.0', *extra, output=out)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self.outputs(out)['checks'], [], extra)
+            self.assertNotIn('manual', r.stdout)
+
+
+class ManualPatchcheck(unittest.TestCase):
+    def test_job(self):
+        self.assertEqual(watch.manual_patchcheck_job(' 157.0 ', 'desktop,android', True),
+                         {'version': '157.0', 'issue': '', 'targets': 'desktop,android',
+                          'label': 'manual'})
+        self.assertEqual(watch.manual_patchcheck_job('153.4.0esr', 'android', True)['targets'],
+                         'android')
+
+    def test_dry_run_only(self):
+        with self.assertRaisesRegex(watch.WatchError, 'only runs as a dry run'):
+            watch.manual_patchcheck_job('157.0', 'desktop,android', False)
+
+    def test_beta_rejected(self):
+        for bad in ('158.0b3', '159.0a1', '', 'v157.0'):
+            with self.assertRaises(ValueError, msg=bad):
+                watch.manual_patchcheck_job(bad, 'desktop,android', True)
+
+    def test_targets(self):
+        for bad in ('', ',', 'ios', 'desktop,ios'):
+            with self.assertRaises(watch.WatchError, msg=bad):
+                watch.manual_patchcheck_job('157.0', bad, True)
+
+
 def report(name):
     return (FIXTURES / name).read_text()
 
@@ -960,8 +1058,9 @@ class PatchcheckEndToEnd(unittest.TestCase):
         }
         self.tarball_path = rel
 
-    def patchcheck(self, *extra, sha=SHA, token='test-token', fpr=None):
+    def patchcheck(self, *extra, sha=SHA, token='test-token', fpr=None, env_extra=None):
         env = clean_env(token)
+        env.update(env_extra or {})
         env.update({'GITHUB_REPOSITORY': 'o/r', 'GITHUB_RUN_ID': '42',
                     'RUNNER_TEMP': str(self.work)})
         return subprocess.run(
@@ -1023,6 +1122,24 @@ class PatchcheckEndToEnd(unittest.TestCase):
         self.assertIn(watch.patchcheck_marker(self.VERSION, SHA), r.stdout)
         self.assertIn('| android | **FAIL**', r.stdout)
         self.assertEqual(FakeServer.state['comments'], {})
+
+    def test_manual_dry_run_puts_the_comment_in_the_summary(self):
+        # The workflow's manual entry: no --issue, --dry-run, token present.
+        summary = self.work / 'step-summary.md'
+        r = self.patchcheck('--dry-run', '--targets', 'desktop,android',
+                            env_extra={'GITHUB_STEP_SUMMARY': str(summary)})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('outcome: would-post', r.stdout)
+        self.assertIn('| desktop | pass |', r.stdout)
+        text = summary.read_text()
+        summary.unlink()
+        self.assertIn(f'patchcheck {self.VERSION}: **would-post**', text)
+        self.assertIn('the comment it would post on #?', text)
+        self.assertIn(watch.patchcheck_marker(self.VERSION, SHA), text)
+        self.assertIn('| android | **FAIL** | 3 | 1 |', text)
+        self.assertEqual(FakeServer.state['comments'], {})
+        self.assertEqual(sorted(FakeServer.state['gets']),
+                         sorted(['/key.asc', self.tarball_path, self.tarball_path + '.asc']))
 
     def test_no_token_refuses_unless_dry_run(self):
         r = self.patchcheck('--issue', '7', token='')
