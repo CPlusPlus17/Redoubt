@@ -15,16 +15,13 @@ What is here:
   python/mach/mach/telemetry.py                    mach telemetry, target-independent
   python/sites/mach.txt                            comments out the glean-sdk pypi
                                                    requirement (version in context:
-                                                   68.0.1 on 157)
+                                                   70.2.0 on 158, 68.0.1 on 157)
   toolkit/components/telemetry/core/Telemetry.cpp  TelemetryImpl never records
   toolkit/library/rust/gkrust-features.mozbuild    glean_disable_upload for official builds
-  toolkit/components/telemetry/core/Stopwatch.cpp,
-  toolkit/components/telemetry/core/TelemetryUserInteraction.{cpp,h}
-                                                   upstream fb4c7a32: with telemetry off,
-                                                   UserInteraction.* calls stop logging
-                                                   "cannot be recorded" errors. This
-                                                   replaces the old tabbrowser.js hunk
-                                                   (dropped upstream in a1bd18fa).
+  (Stopwatch.cpp, TelemetryUserInteraction.{cpp,h}: upstream fb4c7a32's
+   "no 'cannot be recorded' errors with telemetry off" hunks were dropped in the
+   158 rebase - Firefox 158 ships the identical change, IsRecordingEnabled()
+   included, so the hunks were already applied and patch refused them.)
   third_party/rust/glean-core/src/lib.rs, third_party/rust/glean-core/src/core/mod.rs
                                                    Glean upload/collection forced off
                                                    inside glean-core (upstream 77f8fcd8,
@@ -69,8 +66,17 @@ close it from the mozconfig: assets/mozconfig.android's
 never into configure's environment), and an `export` would make configure die on
 the implied/explicit conflict with mobile/android/moz.configure:132.
 
+158 rebase (2026-10-04, against Firefox 158.0b3): the Stopwatch.cpp and
+TelemetryUserInteraction.{cpp,h} hunks are gone because 158 already contains
+them verbatim (patch detected them as "previously applied"). mach.txt's
+glean-sdk pin is 70.2.0 on 158; the line is commented out as before. glean-core
+is 70.2.0 and the two glean-core hunks are unchanged apart from their position,
+so GLEAN_CORE_HASH_FIXUPS in scripts/librewolf-patches.py carries the 158.0b3
+pristine and patched sha256 of src/lib.rs and src/core/mod.rs. Telemetry.cpp,
+telemetry.py and gkrust-features.mozbuild are unchanged.
+
 diff --git a/python/mach/mach/telemetry.py b/python/mach/mach/telemetry.py
-index 2b70b3f..b111dac 100644
+index e3eb5f0..f61cf64 100644
 --- a/python/mach/mach/telemetry.py
 +++ b/python/mach/mach/telemetry.py
 @@ -82,10 +82,7 @@ def is_applicable_telemetry_environment():
@@ -84,12 +90,60 @@ index 2b70b3f..b111dac 100644
 +    return False
  
  
- def arcrc_path(): 
+ def arcrc_path():
+diff --git a/python/sites/mach.txt b/python/sites/mach.txt
+index d1f054b..f4129b4 100644
+--- a/python/sites/mach.txt
++++ b/python/sites/mach.txt
+@@ -58,7 +58,7 @@ pth:xpcom/geckoprocesstypes_generator
+ pth:xpcom/idl-parser
+ # glean-sdk may not be installable if a wheel isn't available
+ # and it has to be built from source.
+-pypi-optional:glean-sdk==70.2.0:telemetry will not be collected
++# pypi-optional:glean-sdk==70.2.0:telemetry will not be collected
+ pypi-optional:orjson>=3.10:json operations will be slower in various tools
+ # Mach gracefully handles the case where `psutil` is unavailable.
+ # We aren't (yet) able to pin packages in automation, so we have to
+diff --git a/third_party/rust/glean-core/src/core/mod.rs b/third_party/rust/glean-core/src/core/mod.rs
+index 53ee996..b07a23e 100644
+--- a/third_party/rust/glean-core/src/core/mod.rs
++++ b/third_party/rust/glean-core/src/core/mod.rs
+@@ -876,7 +876,8 @@ impl Glean {
+     ///
+     /// When upload is disabled, no data will be recorded.
+     pub fn is_upload_enabled(&self) -> bool {
+-        self.upload_enabled
++        _ = self.upload_enabled;
++       false
+     }
+ 
+     /// Check if a ping is enabled.
+diff --git a/third_party/rust/glean-core/src/lib.rs b/third_party/rust/glean-core/src/lib.rs
+index 9c2cce6..a87dcbf 100644
+--- a/third_party/rust/glean-core/src/lib.rs
++++ b/third_party/rust/glean-core/src/lib.rs
+@@ -933,6 +933,7 @@ pub extern "C" fn glean_enable_logging() {
+ /// **DEPRECATION NOTICE**:
+ /// This API is deprecated. Use `set_collection_enabled` instead.
+ pub fn glean_set_upload_enabled(enabled: bool) {
++    let enabled = false;
+     if !was_initialize_called() {
+         return;
+     }
+@@ -968,6 +969,8 @@ pub fn glean_set_upload_enabled(enabled: bool) {
+ ///
+ /// This replaces `set_upload_enabled`.
+ pub fn glean_set_collection_enabled(enabled: bool) {
++    // Redundant currently
++    let enabled = false;
+     glean_set_upload_enabled(enabled)
+ }
+ 
 diff --git a/toolkit/components/telemetry/core/Telemetry.cpp b/toolkit/components/telemetry/core/Telemetry.cpp
-index 1e83d34..474bc5c 100644
+index 9bfd2ed..797bcbf 100644
 --- a/toolkit/components/telemetry/core/Telemetry.cpp
 +++ b/toolkit/components/telemetry/core/Telemetry.cpp
-@@ -693,7 +693,7 @@ TelemetryImpl::GetCanRecordBase(bool* ret) {
+@@ -694,7 +694,7 @@ TelemetryImpl::GetCanRecordBase(bool* ret) {
  
  NS_IMETHODIMP
  TelemetryImpl::SetCanRecordBase(bool canRecord) {
@@ -98,7 +152,7 @@ index 1e83d34..474bc5c 100644
    if (canRecord != mCanRecordBase) {
      TelemetryHistogram::SetCanRecordBase(canRecord);
      TelemetryScalar::SetCanRecordBase(canRecord);
-@@ -719,7 +719,7 @@ TelemetryImpl::GetCanRecordExtended(bool* ret) {
+@@ -720,7 +720,7 @@ TelemetryImpl::GetCanRecordExtended(bool* ret) {
  
  NS_IMETHODIMP
  TelemetryImpl::SetCanRecordExtended(bool canRecord) {
@@ -107,7 +161,7 @@ index 1e83d34..474bc5c 100644
    if (canRecord != mCanRecordExtended) {
      TelemetryHistogram::SetCanRecordExtended(canRecord);
      TelemetryScalar::SetCanRecordExtended(canRecord);
-@@ -762,7 +762,7 @@ already_AddRefed<nsITelemetry> TelemetryImpl::CreateTelemetryInstance() {
+@@ -763,7 +763,7 @@ already_AddRefed<nsITelemetry> TelemetryImpl::CreateTelemetryInstance() {
    }
  
    bool useTelemetry = false;
@@ -117,7 +171,7 @@ index 1e83d34..474bc5c 100644
        XRE_IsRDDProcess() || XRE_IsSocketProcess() || XRE_IsUtilityProcess()) {
      useTelemetry = true;
 diff --git a/toolkit/library/rust/gkrust-features.mozbuild b/toolkit/library/rust/gkrust-features.mozbuild
-index a3f1cc3..715f58b 100644
+index 44206cc..333379b 100644
 --- a/toolkit/library/rust/gkrust-features.mozbuild
 +++ b/toolkit/library/rust/gkrust-features.mozbuild
 @@ -57,7 +57,7 @@ if CONFIG["MOZ_WEBRTC"]:
@@ -129,115 +183,3 @@ index a3f1cc3..715f58b 100644
      gkrust_features += ["glean_disable_upload"]
  
  if CONFIG["MOZ_ENABLE_DBUS"]:
-diff --git a/toolkit/components/telemetry/core/Stopwatch.cpp b/toolkit/components/telemetry/core/Stopwatch.cpp
-index 9fcd929d83..f5f02bb921 100644
---- a/toolkit/components/telemetry/core/Stopwatch.cpp
-+++ b/toolkit/components/telemetry/core/Stopwatch.cpp
-@@ -315,7 +315,7 @@ bool Timers::StartUserInteraction(JSContext* aCx,
-   // Ensure that this ID maps to a UserInteraction that can be recorded
-   // for this product.
-   if (!TelemetryUserInteraction::CanRecord(aUserInteraction)) {
--    if (!mSuppressErrors) {
-+    if (TelemetryUserInteraction::IsRecordingEnabled() && !mSuppressErrors) {
-       LogError(aCx, nsPrintfCString(
-                         "UserInteraction with name \"%s\" cannot be recorded.",
-                         NS_ConvertUTF16toUTF8(aUserInteraction).get()));
-@@ -383,7 +383,7 @@ bool Timers::UpdateUserInteraction(JSContext* aCx,
-   // Ensure that this ID maps to a UserInteraction that can be recorded
-   // for this product.
-   if (!TelemetryUserInteraction::CanRecord(aUserInteraction)) {
--    if (!mSuppressErrors) {
-+    if (TelemetryUserInteraction::IsRecordingEnabled() && !mSuppressErrors) {
-       LogError(aCx, nsPrintfCString(
-                         "UserInteraction with name \"%s\" cannot be recorded.",
-                         NS_ConvertUTF16toUTF8(aUserInteraction).get()));
-@@ -416,7 +416,7 @@ bool Timers::FinishUserInteraction(
-   // Ensure that this ID maps to a UserInteraction that can be recorded
-   // for this product.
-   if (!TelemetryUserInteraction::CanRecord(aUserInteraction)) {
--    if (!mSuppressErrors) {
-+    if (TelemetryUserInteraction::IsRecordingEnabled() && !mSuppressErrors) {
-       LogError(aCx, nsPrintfCString(
-                         "UserInteraction with id \"%s\" cannot be recorded.",
-                         NS_ConvertUTF16toUTF8(aUserInteraction).get()));
-@@ -467,7 +467,7 @@ bool Timers::CancelUserInteraction(JSContext* aCx,
-   // Ensure that this ID maps to a UserInteraction that can be recorded
-   // for this product.
-   if (!TelemetryUserInteraction::CanRecord(aUserInteraction)) {
--    if (!mSuppressErrors) {
-+    if (TelemetryUserInteraction::IsRecordingEnabled() && !mSuppressErrors) {
-       LogError(aCx, nsPrintfCString(
-                         "UserInteraction with id \"%s\" cannot be recorded.",
-                         NS_ConvertUTF16toUTF8(aUserInteraction).get()));
-diff --git a/toolkit/components/telemetry/core/TelemetryUserInteraction.cpp b/toolkit/components/telemetry/core/TelemetryUserInteraction.cpp
-index c71fe5b6c6..6ea3c93773 100644
---- a/toolkit/components/telemetry/core/TelemetryUserInteraction.cpp
-+++ b/toolkit/components/telemetry/core/TelemetryUserInteraction.cpp
-@@ -94,3 +94,7 @@ bool TelemetryUserInteraction::CanRecord(const nsAString& aName) {
- 
-   return false;
- }
-+
-+bool TelemetryUserInteraction::IsRecordingEnabled() {
-+  return gTelemetryUserInteractionCanRecord;
-+}
-diff --git a/toolkit/components/telemetry/core/TelemetryUserInteraction.h b/toolkit/components/telemetry/core/TelemetryUserInteraction.h
-index 0db315684f..39dcbc4cfa 100644
---- a/toolkit/components/telemetry/core/TelemetryUserInteraction.h
-+++ b/toolkit/components/telemetry/core/TelemetryUserInteraction.h
-@@ -13,6 +13,7 @@ void InitializeGlobalState(bool canRecord);
- void DeInitializeGlobalState();
- 
- bool CanRecord(const nsAString& aName);
-+bool IsRecordingEnabled();
- 
- }  // namespace TelemetryUserInteraction
- 
-diff --git a/python/sites/mach.txt b/python/sites/mach.txt
-index d5cdce8..f4f38c1 100644
---- a/python/sites/mach.txt
-+++ b/python/sites/mach.txt
-@@ -58,7 +58,7 @@ pth:xpcom/geckoprocesstypes_generator
- pth:xpcom/idl-parser
- # glean-sdk may not be installable if a wheel isn't available
- # and it has to be built from source.
--pypi-optional:glean-sdk==68.0.1:telemetry will not be collected
-+# pypi-optional:glean-sdk==68.0.1:telemetry will not be collected
- pypi-optional:orjson>=3.10:json operations will be slower in various tools
- # Mach gracefully handles the case where `psutil` is unavailable.
- # We aren't (yet) able to pin packages in automation, so we have to
-diff --git a/third_party/rust/glean-core/src/lib.rs b/third_party/rust/glean-core/src/lib.rs
-index c401c3d..d6c744a 100644
---- a/third_party/rust/glean-core/src/lib.rs
-+++ b/third_party/rust/glean-core/src/lib.rs
-@@ -916,6 +916,7 @@ pub extern "C" fn glean_enable_logging() {
- /// **DEPRECATION NOTICE**:
- /// This API is deprecated. Use `set_collection_enabled` instead.
- pub fn glean_set_upload_enabled(enabled: bool) {
-+    let enabled = false;
-     if !was_initialize_called() {
-         return;
-     }
-@@ -951,6 +952,8 @@ pub fn glean_set_upload_enabled(enabled: bool) {
- ///
- /// This replaces `set_upload_enabled`.
- pub fn glean_set_collection_enabled(enabled: bool) {
-+    // Redundant currently
-+    let enabled = false;
-     glean_set_upload_enabled(enabled)
- }
- 
-diff --git a/third_party/rust/glean-core/src/core/mod.rs b/third_party/rust/glean-core/src/core/mod.rs
-index 0130646..1370f08 100644
---- a/third_party/rust/glean-core/src/core/mod.rs
-+++ b/third_party/rust/glean-core/src/core/mod.rs
-@@ -813,7 +813,8 @@ impl Glean {
-     ///
-     /// When upload is disabled, no data will be recorded.
-     pub fn is_upload_enabled(&self) -> bool {
--        self.upload_enabled
-+        _ = self.upload_enabled;
-+       false
-     }
- 
-     /// Check if a ping is enabled.

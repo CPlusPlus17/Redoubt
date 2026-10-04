@@ -230,7 +230,8 @@ def verify_sha256(path, expected, description):
 #
 # The other half of the removal - every *reference* to these paths - lives in
 # patches/remove-openai.patch, whose toolkit/components/ml/jar.mn and
-# toolkit/content/license.html hunks quote both paths verbatim. Those hunks do
+# toolkit/components/ml/moz.build hunks (license.html before Firefox 158) quote
+# both paths verbatim. Those hunks do
 # reject when upstream moves the paths, so `make check-patchfail` is what
 # catches a rename ahead of a build; the assert below catches it again at patch
 # time and refuses to produce a tree that still contains the backend.
@@ -605,13 +606,14 @@ def write_mozconfig(dest):
 
 GLEAN_CORE_CHECKSUMS = "third_party/rust/glean-core/.cargo-checksum.json"
 GLEAN_CORE_HASH_FIXUPS = [
-    # (file in the crate, pristine 157.0 sha256, sha256 after the glean-core hunks)
+    # (file in the crate, pristine 158 sha256, sha256 after the glean-core hunks)
+    # glean-core 70.2.0 as vendored in Firefox 158.0b3 (was 68.0.1 on 157.0).
     ("src/core/mod.rs",
-     "5bc8c9bbe8c0eabe408d9a7cd7a8e6e09eee0ead817607643882b38a36d07c91",
-     "bddacbe056ce7458663a39dc99d5bb3434099aa69cae793cf0c57d4e54f5a6a4"),
+     "ada8f059f0fa8a3a82315606318429d3a70200bbb2886d1a1bcaad2856a6303b",
+     "70a4a176b6494fce419e590180bc9c631945282ded0ab05bc1591bdd37b65093"),
     ("src/lib.rs",
-     "c20989b1aa336b0849e96ec1b2beea1eab825ffd192c2c3a636e20f830b811d0",
-     "0b43fbc5f86c6c247c5189af58be425a829c3b09018c6b26589661eec9a5ad24"),
+     "1753c69b71ae24a9b339d98e9b71166740a15506cfc46245251eb63c0222568f",
+     "af3ae3d026bd2e26fd9cc7c710847ac4f853b0c899412ddc9ee7e0ef1027de87"),
 ]
 
 def fix_glean_core_checksums():
@@ -653,7 +655,7 @@ def librewolf_patches():
     # half and this was desktop-only; both targets build 157 now.)
     #
     # The replacement hashes are the sha256 of the two files after those
-    # hunks are applied to a pristine 157.0 tree (verified for 157.0). If the
+    # hunks are applied to a pristine 158 tree (verified for 158.0b3). If the
     # hunks or the vendored glean-core change, these change with them. sed
     # exits 0 whether or not it matched, so the result is checked afterwards
     # and a miss is fatal (landmine L4: an out-of-patch mutation fails closed).

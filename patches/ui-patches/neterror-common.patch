@@ -1,3 +1,10 @@
+158 rebase (2026-10-04, against Firefox 158.0b3): net-error-card.mjs now wraps
+the illustration in `${ILLUSTRATION_ENABLED ? ... : null}` (pref
+browser.netError.illustration.enabled). The same change is made inside it: the
+<img> is rendered only when the illustration has a src (noConnection has none)
+and its alt text is localised through data-l10n-id. aboutNetError.css and the
+other files are unchanged (context only).
+
 diff --git a/toolkit/content/errors/net-error-illustrations.mjs b/toolkit/content/errors/net-error-illustrations.mjs
 index d785e43..24e6026 100644
 --- a/toolkit/content/errors/net-error-illustrations.mjs
@@ -17,33 +24,29 @@ index d785e43..24e6026 100644
    },
  };
 diff --git a/toolkit/content/net-error-card.mjs b/toolkit/content/net-error-card.mjs
-index 29ada4d..a1d289a 100644
+index 64792c7..7243cfa 100644
 --- a/toolkit/content/net-error-card.mjs
 +++ b/toolkit/content/net-error-card.mjs
-@@ -1421,9 +1421,15 @@ export class NetErrorCard extends MozLitElement {
+@@ -1425,9 +1425,12 @@ export class NetErrorCard extends MozLitElement {
          aria-labelledby="error-title"
          aria-describedby="error-intro whatCanYouDo"
        >
--        <div class="img-container">
--          <img src=${src} class=${ifDefined(className)} alt=${alt} />
--        </div>
-+        ${src &&
-+        html`
-+          <div class="img-container">
-+            <img
-+              src=${src}
-+              ${alt && `data-l10n-id=${alt} data-l10n-attrs="alt"`}
-+            />
-+          </div>
-+        `}
+-        ${ILLUSTRATION_ENABLED
++        ${ILLUSTRATION_ENABLED && src
+           ? html`<div class="img-container">
+-              <img src=${src} class=${ifDefined(className)} alt=${alt} />
++              <img
++                src=${src}
++                ${alt && `data-l10n-id=${alt} data-l10n-attrs="alt"`}
++              />
+             </div>`
+           : null}
          <div class="container">${this.containerContentTemplate(title)}</div>
-       </article>`;
-   }
 diff --git a/toolkit/themes/shared/aboutNetError.css b/toolkit/themes/shared/aboutNetError.css
-index f1a707b988..658d3f34d3 100644
+index 942c88b..7ee2384 100644
 --- a/toolkit/themes/shared/aboutNetError.css
 +++ b/toolkit/themes/shared/aboutNetError.css
-@@ -208,7 +208,7 @@
+@@ -289,7 +289,7 @@ button:disabled {
    }
  
    .img-container > img {
@@ -51,10 +54,10 @@ index f1a707b988..658d3f34d3 100644
 +    width: 3.5em;
      margin-block-start: 2em;
      margin-inline-end: 2.5em;
-   }
+ 
 diff --git a/toolkit/themes/shared/illustrations/warning.svg b/toolkit/themes/shared/illustrations/warning.svg
 new file mode 100644
-index 0000000000..e93301c810
+index 0000000..e93301c
 --- /dev/null
 +++ b/toolkit/themes/shared/illustrations/warning.svg
 @@ -0,0 +1,8 @@
