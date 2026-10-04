@@ -413,12 +413,13 @@ update:
 fetch: $(ff_source_tarball)
 
 $(ff_source_tarball):
-	curl -so public_key.asc "https://keys.openpgp.org/vks/v1/by-fingerprint/14F26682D0916CDD81E37B6D61B7B526D98F0353"
-	gpg --import public_key.asc
-	rm -f public_key.asc
-	curl -so $(ff_source_tarball).asc "$(ff_source_url).asc"
-	curl -so $(ff_source_tarball) "$(ff_source_url)"
-	gpg --verify $(ff_source_tarball).asc $(ff_source_tarball)
+	# Mozilla's release key is pinned in the repository (keys.openpgp.org reset
+	# every connection on 2026-10-04; a build must not depend on a keyserver).
+	gpg --import assets/mozilla-release-key.asc
+	curl -sfo $(ff_source_tarball).asc "$(ff_source_url).asc"
+	curl -sfo $(ff_source_tarball) "$(ff_source_url)"
+	gpg --status-fd 1 --verify $(ff_source_tarball).asc $(ff_source_tarball) | grep -q '^\[GNUPG:\] VALIDSIG .* 14F26682D0916CDD81E37B6D61B7B526D98F0353$$' \
+		|| { echo 'signature on $(ff_source_tarball) is not by Mozilla release key 14F26682D0916CDD81E37B6D61B7B526D98F0353' >&2; rm -f $(ff_source_tarball); exit 1; }
 
 $(targets_stamp):
 	@rm -f librewolf-targets-$(version)-$(release)-*

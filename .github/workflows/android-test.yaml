@@ -268,8 +268,7 @@ jobs:
           tb="firefox-$ver.source.tar.xz"
           cache="$LW_CI_ROOT/tarballs"
           if [ -f "$cache/$tb" ] && [ -f "$cache/$tb.asc" ]; then
-            curl -so public_key.asc "https://keys.openpgp.org/vks/v1/by-fingerprint/14F26682D0916CDD81E37B6D61B7B526D98F0353"
-            gpg --import public_key.asc && rm -f public_key.asc
+            gpg --import assets/mozilla-release-key.asc   # pinned; no keyserver
             if gpg --verify "$cache/$tb.asc" "$cache/$tb"; then
               ln -sf "$cache/$tb" "$tb"
               ln -sf "$cache/$tb.asc" "$tb.asc"

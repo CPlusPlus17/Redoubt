@@ -585,8 +585,8 @@ def manual_patchcheck_job(version, targets, dry_run):
 #    commit whose patches are tested -- stop. The same release is re-checked
 #    only when the patches moved.
 # 2. Download firefox-<v>.source.tar.xz and its .asc; fetch Mozilla's release
-#    key the way the Makefile's fetch rule does (keys.openpgp.org, by
-#    fingerprint) into a throwaway GNUPGHOME; refuse unless the key imported
+#    key from the repository (assets/mozilla-release-key.asc, the same file the
+#    Makefile's fetch rule imports) into a throwaway GNUPGHOME; refuse unless the key imported
 #    is exactly the pinned fingerprint and gpg reports VALIDSIG whose primary
 #    key is that fingerprint.
 # 3. Build a scratch root: symlinks to every top-level entry of the checkout
@@ -602,6 +602,10 @@ def manual_patchcheck_job(version, targets, dry_run):
 
 MOZILLA_KEY_FINGERPRINT = '14F26682D0916CDD81E37B6D61B7B526D98F0353'
 KEY_URL = 'https://keys.openpgp.org/vks/v1/by-fingerprint/{fpr}'
+# The pinned key ships in the repository: keys.openpgp.org reset every
+# connection from the build network on 2026-10-04, and a build must not depend
+# on a keyserver being up. --key-url can still point elsewhere.
+KEY_FILE = Path('assets') / 'mozilla-release-key.asc'
 PATCHCHECK_TARGETS = ('desktop', 'android')
 DOWNLOAD_TIMEOUT = 120
 # A GitHub comment is capped at 65536 characters; stay well clear.
@@ -865,7 +869,11 @@ def verify_tarball(tarball, signature, key_url, fingerprint, workdir, log=print)
 
 def _verify(tarball, signature, key_url, fingerprint, workdir, gnupghome, log):
     key = Path(workdir) / 'release-key.asc'
-    download(key_url, key, log)
+    if '://' in str(key_url):
+        download(key_url, key, log)
+    else:
+        shutil.copyfile(key_url, key)
+        log(f'release key from {key_url}')
     _gpg(gnupghome, '--import', str(key))
     primaries = imported_primaries(
         _gpg(gnupghome, '--with-colons', '--fingerprint').stdout)
@@ -958,7 +966,7 @@ def patchcheck(version, issue, sha, github, repo_root, workdir, *, dry_run=False
         download(f'{url}.asc', signature, log)
         digest = download(url, tarball, log)
     verify_tarball(tarball, signature,
-                   key_url or KEY_URL.format(fpr=fingerprint), fingerprint, workdir, log)
+                   key_url or str(Path(repo_root) / KEY_FILE), fingerprint, workdir, log)
 
     script = check_script or Path(repo_root) / 'scripts' / 'check-patchfail.sh'
     results = {}
@@ -1018,8 +1026,8 @@ def patchcheck_main(argv):
                    help='use this local firefox-<v>.source.tar.xz (and <it>.asc) '
                         'instead of downloading; still signature-verified')
     p.add_argument('--archive-base', default=ARCHIVE_BASE)
-    p.add_argument('--key-url', help='where to fetch the release key '
-                   '(default: keys.openpgp.org by --fingerprint)')
+    p.add_argument('--key-url', help='where to get the release key: a URL or a '
+                   'file (default: the repository\'s assets/mozilla-release-key.asc)')
     p.add_argument('--fingerprint', default=MOZILLA_KEY_FINGERPRINT,
                    help=argparse.SUPPRESS)  # tests sign with a throwaway key
     p.add_argument('--check-script', type=Path, help=argparse.SUPPRESS)
