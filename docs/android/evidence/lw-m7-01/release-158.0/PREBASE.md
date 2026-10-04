@@ -163,7 +163,7 @@ Gecko prefs whose release value changed to on, or changed on Android (from
 
 | pref | 157 → 158 | in our settings? |
 |---|---|---|
-| `privacy.restrict3rdpartystorage.heuristic.navigation` | Android false → **true** (no longer per-platform) | **no** |
+| `privacy.restrict3rdpartystorage.heuristic.navigation` | Android false → **true** (no longer per-platform) | **yes**, decided: kept off on Android (owner decision 2026-10-04), `android.cfg` `defaultPref(..., false)`, Redoubt-settings `990c367` |
 | `privacy.restrict3rdpartystorage.heuristic.recently_visited` | Android true → false | **no** (this one restricts more) |
 | `image.jxl.enabled` | Nightly-only → **true** | **no** (new image decoder exposed to the web) |
 | `dom.webnotifications.navigate.enabled` | false → **true** | no |
