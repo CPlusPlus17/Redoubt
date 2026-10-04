@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Redoubt</title>
+  <meta name="description" content="Redoubt: a privacy-hardened Android browser built from Firefox's source and LibreWolf's privacy configuration. Beta.">
+  <link rel="icon" href="icon.webp" type="image/webp">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="index.html"><img src="icon.webp" alt="" width="32" height="32">Redoubt</a>
+      <nav aria-label="Site">
+        <ul>
+        <li><a href="index.html" aria-current="page">Home</a></li>
+        <li><a href="install.html">Install &amp; updates</a></li>
+        <li><a href="privacy.html">Privacy &amp; limits</a></li>
+        <li><a href="sync.html">Sync</a></li>
+        <li><a href="security.html">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="wrap">
+<div class="hero">
+  <img src="icon.webp" alt="Redoubt logo" width="88" height="88">
+  <div>
+    <h1>Redoubt</h1>
+    <p class="lede">A privacy-hardened Android browser, built from Firefox&rsquo;s source and LibreWolf&rsquo;s privacy configuration.</p>
+  </div>
+</div>
+
+<div class="notice" role="note">
+  <p><strong>Redoubt is not LibreWolf, and not Firefox.</strong> It is an independent fork of LibreWolf&rsquo;s source, maintained by someone who is not a LibreWolf developer. Neither the LibreWolf project nor Mozilla has built, reviewed, endorsed or supported it. Please do not report Redoubt problems to LibreWolf or Mozilla.</p>
+</div>
+
+<blockquote class="statement">
+  <p>Redoubt ships the same privacy configuration and the same Gecko-level security patches as LibreWolf desktop, on a platform whose process containment is weaker &mdash; and we publish exactly where.</p>
+</blockquote>
+<p>That &ldquo;where&rdquo; is the measured, dated parity table in <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/PARITY.md">PARITY.md</a>, summarised on <a href="privacy.html">Privacy &amp; limits</a>. The largest gap first: <strong>Android has no Gecko content-process sandbox</strong>, so Redoubt&rsquo;s process containment is weaker than LibreWolf on the desktop.</p>
+
+<h2 id="status">Status: beta</h2>
+<p>Builds are published as <strong>prereleases</strong> on GitHub Releases. The current betas are based on Firefox 157 (Firefox&rsquo;s regular release track), need Android 8.0 or later, and install over the previous beta as an update.</p>
+<p>Redoubt is not on F-Droid, Accrescent or any app store yet. Automated device testing so far covers an x86_64 emulator only; ARM builds are checked but have not been run on a physical phone by the project. Reports from real devices are welcome.</p>
+
+<h2 id="download">Download</h2>
+<p><a class="button" href="https://github.com/CPlusPlus17/Redoubt/releases">Download from GitHub Releases</a></p>
+<p>Take the newest release at the top of the list. Every build is currently a prerelease, so GitHub&rsquo;s &ldquo;latest release&rdquo; shortcut does not point at it.</p>
+<div class="table-scroll">
+<table>
+  <thead><tr><th>file</th><th>for</th></tr></thead>
+  <tbody>
+    <tr><td><code>fenix-arm64-v8a-release.apk</code></td><td>almost any phone from the last several years</td></tr>
+    <tr><td><code>fenix-armeabi-v7a-release.apk</code></td><td>older 32-bit devices</td></tr>
+    <tr><td><code>fenix-x86_64-release.apk</code></td><td>emulators</td></tr>
+    <tr><td><code>fenix-universal-release.apk</code></td><td>all three ABIs; much larger, prefer a per-ABI APK</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The <code>fenix-</code> prefix is the file name of the Android app build Redoubt is made from; the installed app is Redoubt, <code>org.redoubtbrowser</code>. Installing, and staying up to date (including with Obtainium), is on <a href="install.html">Install &amp; updates</a>.</p>
+
+<h2 id="verify">Verify before installing</h2>
+<p>From the folder you downloaded the APK and <code>SHA256SUMS.signed</code> into:</p>
+<pre><code>sha256sum -c --ignore-missing SHA256SUMS.signed
+apksigner verify --print-certs fenix-&lt;abi&gt;-release.apk | grep -i SHA-256</code></pre>
+<p>The signing certificate&rsquo;s SHA-256 digest must be:</p>
+<pre class="fingerprint"><code>64:14:EB:33:46:81:CF:6E:92:90:34:B5:6A:06:2D:2B:8D:A0:90:82:21:72:F7:A3:95:2C:85:FD:D1:28:3B:D0</code></pre>
+<p>Every Redoubt APK is signed with this one key (APK signature schemes v2 and v3). If the digest differs, <strong>do not install it</strong>, and <a href="security.html">report it privately</a>. The key and its custody are documented in <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/SIGNING.md">SIGNING.md</a>.</p>
+
+<h2 id="what">What it is</h2>
+<ul>
+  <li><strong>Built from source.</strong> Gecko and the Android app are compiled from Firefox&rsquo;s source with LibreWolf&rsquo;s shared patch set and preference configuration applied, rather than patching a prebuilt browser.</li>
+  <li><strong>Telemetry and experiments removed</strong>, plus Google Play Services; sponsored shortcuts removed, search suggestions off by default.</li>
+  <li><strong>LibreWolf&rsquo;s privacy defaults</strong>, uBlock Origin preinstalled, and stronger site isolation than stock Firefox for Android.</li>
+</ul>
+<p>The details, and what is not yet proven, are on <a href="privacy.html">Privacy &amp; limits</a>. If you want a mature, widely used hardened Firefox for Android today, IronFox is that, and it is the browser LibreWolf itself recommends to Android users. How Redoubt differs is in <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/POSITIONING.md">POSITIONING.md</a>.</p>
+
+<h2 id="attribution">Attribution</h2>
+<p><strong>Redoubt is built on LibreWolf&rsquo;s work.</strong> The privacy configuration that is the point of this browser, and the patch set that enforces it, were written by the <a href="https://librewolf.net">LibreWolf project</a>. Redoubt is a fork of LibreWolf&rsquo;s source under MPL-2.0 and ports that work to Android, a platform LibreWolf does not ship. Redoubt does not publish desktop builds: for LibreWolf on the desktop, use <a href="https://librewolf.net">librewolf.net</a>.</p>
+    </div>
+  </main>
+  <footer class="site">
+    <div class="wrap">
+      <p>Redoubt is an independent fork, not affiliated with or endorsed by the <a href="https://librewolf.net">LibreWolf project</a> or by <a href="https://www.mozilla.org/">Mozilla</a>. Its privacy configuration and patch set are LibreWolf&rsquo;s work, used under MPL-2.0. Firefox is a trademark of the Mozilla Foundation (<a href="https://www.mozilla.org/foundation/trademarks/policy/">trademark policy</a>); Redoubt does not use Mozilla&rsquo;s trademarks in its branding.</p>
+      <p>Source, issues and releases: <a href="https://github.com/CPlusPlus17/Redoubt">github.com/CPlusPlus17/Redoubt</a>. This site loads nothing from any other server and uses no cookies, scripts or analytics.</p>
+    </div>
+  </footer>
+</body>
+</html>

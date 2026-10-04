@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Sync with LibreWolf desktop &middot; Redoubt</title>
+  <meta name="description" content="How to sync Redoubt with LibreWolf on the desktop through Firefox Sync, and what to know first.">
+  <link rel="icon" href="icon.webp" type="image/webp">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="index.html"><img src="icon.webp" alt="" width="32" height="32">Redoubt</a>
+      <nav aria-label="Site">
+        <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="install.html">Install &amp; updates</a></li>
+        <li><a href="privacy.html">Privacy &amp; limits</a></li>
+        <li><a href="sync.html" aria-current="page">Sync</a></li>
+        <li><a href="security.html">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="wrap">
+<h1>Sync with LibreWolf desktop</h1>
+<p class="lede">Redoubt can sync with LibreWolf on the desktop (or Firefox) through Firefox Sync and a Mozilla account. It is <strong>off by default on both sides</strong>, so you opt in on each device.</p>
+<p>Tested end to end by the maintainer on 2026-10-04, with a Redoubt 157.0-1 beta and LibreWolf desktop.</p>
+
+<h2 id="setup">Set it up</h2>
+<ol>
+  <li><strong>LibreWolf desktop.</strong> Set <code>identity.fxaccounts.enabled</code> to <code>true</code>. Put it in your <code>librewolf.overrides.cfg</code> so it survives updates, or set it in <code>about:config</code> for this profile only. Restart LibreWolf, then sign in to your Mozilla account from the menu.</li>
+  <li><strong>Redoubt.</strong> In Settings, turn on accounts and Sync. Redoubt asks to restart, which is how the opt-in takes effect. Sign in with the same account and choose what to sync.</li>
+</ol>
+
+<h2 id="what">What syncs</h2>
+<p>Bookmarks, history, passwords, open tabs (and &ldquo;Send tab&rdquo;), and addresses and payment cards. Add-ons do not sync to Android.</p>
+
+<h2 id="know">Things to know</h2>
+<ul>
+  <li><strong>Encryption.</strong> Your synced data is end-to-end encrypted with a key derived from your account password, so Mozilla cannot read it. Mozilla does see that the account exists, your IP address, when you sync, and roughly how much data you store.</li>
+  <li><strong>No instant delivery.</strong> Redoubt ships without Google services, and the push server option is removed. Sync runs at app start, on a schedule, or when you trigger it. A tab sent from the desktop arrives at the next sync, not immediately.</li>
+  <li><strong>Desktop history.</strong> LibreWolf clears history on shutdown by default, so there is little history to sync unless you change that.</li>
+  <li><strong>Your own server.</strong> You can run Mozilla&rsquo;s sync storage server (<code>syncstorage-rs</code>) yourself. On the desktop, point <code>identity.sync.tokenserver.uri</code> at it. Redoubt keeps the custom Mozilla account server and custom Sync token server settings on its hidden Sync Debug screen. Using your own server is <strong>not tested</strong> with Redoubt yet.</li>
+  <li><strong>Not affiliated.</strong> Firefox Sync is Mozilla&rsquo;s service, and LibreWolf is a separate project. Neither supports Redoubt, so report Redoubt sync problems on the <a href="https://github.com/CPlusPlus17/Redoubt/issues">Redoubt issue tracker</a>.</li>
+</ul>
+<p>Source of this page: <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/SYNC.md">SYNC.md</a>.</p>
+    </div>
+  </main>
+  <footer class="site">
+    <div class="wrap">
+      <p>Redoubt is an independent fork, not affiliated with or endorsed by the <a href="https://librewolf.net">LibreWolf project</a> or by <a href="https://www.mozilla.org/">Mozilla</a>. Its privacy configuration and patch set are LibreWolf&rsquo;s work, used under MPL-2.0. Firefox is a trademark of the Mozilla Foundation (<a href="https://www.mozilla.org/foundation/trademarks/policy/">trademark policy</a>); Redoubt does not use Mozilla&rsquo;s trademarks in its branding.</p>
+      <p>Source, issues and releases: <a href="https://github.com/CPlusPlus17/Redoubt">github.com/CPlusPlus17/Redoubt</a>. This site loads nothing from any other server and uses no cookies, scripts or analytics.</p>
+    </div>
+  </footer>
+</body>
+</html>

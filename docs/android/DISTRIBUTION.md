@@ -11,11 +11,25 @@ include the signing fingerprint and verification commands. Downloaded APKs pass
 the approved hashes, release signature and candidate payload checks; public access
 is verified in the [publication record](evidence/lw-m6-11/README.md).
 
-This beta has no in-app update check or update notification; later APKs must be
-obtained from Releases and installed over the current build. Obtainium integration
-has not been verified. F-Droid and Accrescent publication remain separate work.
-The following sections describe the future signed-endpoint contract; no such
-endpoint is supplied by publishing a GitHub prerelease.
+Betas 1-5 have no in-app update check (it is compiled out: no key was given to
+those builds); later APKs must be obtained from Releases and installed over the
+current build. Obtainium integration has not been verified. F-Droid and Accrescent
+publication remain separate work.
+
+**Status 2026-10-04 (owner decision: in-app check from the next build).** The
+publishing side now exists in the repository; what is still missing is owner-held:
+
+| part | state |
+|---|---|
+| client (`patches/android/update-check.patch`) | implemented; **revised 2026-10-04**: the versionCode decides (see "The document"), default endpoint `/update/android/` |
+| document generator + verifier (`scripts/update-manifest.py`) | implemented |
+| owner's signer (`scripts/sign-update-manifest.sh`) | implemented; refuses any key but the pinned one |
+| build wiring (`scripts/android-apk.sh --update-check`) | implemented; refuses to build until the public key is committed |
+| tests (`scripts/tests/test-update-manifest.py`, `test-update-check-jvm.sh`) | implemented, throwaway keys only |
+| hosting (`site/update/android/` on `redoubtbrowser.org`, GitHub Pages) | the site publishes `site/update/**` verbatim; **nothing is there yet** |
+| update-signing key | **not generated** -- owner action, `SIGNING.md` "The update-signing key" |
+| `assets/update-check.android.pubkey` | **not committed** -- until it is, every build compiles the check out, exactly as before |
+| first signed document | published with the first build made with `--update-check` (planned: Beta 6) |
 
 Redoubt is a fork that ships on the Firefox **release** track (since 2026-10-02; see
 `TRACK.md`), and the direct-APK
@@ -26,11 +40,11 @@ their own updater (**F-Droid** and **Accrescent**), which must not double-notify
 
 It is the contract half of LW-M6-06. The code half is
 `patches/android/update-check.patch` (`org.mozilla.fenix.lw.UpdateCheck`, landed
-2026-09-02); the endpoint itself still depends on the distribution domain, which
-is `redoubtbrowser.org` (`docs/android/IDENTITY.md`, decided 2026-08-23 — the
-domain is registered and resolves; what does not exist yet is anything served on
-it). **No path on this page is live**, and no verification key is checked in — a build made without one has
-the check compiled out (see "F-Droid and Accrescent do not double-notify").
+2026-09-02); the endpoint is served from `redoubtbrowser.org`
+(`docs/android/IDENTITY.md`), which the owner decided on 2026-10-04 to publish as a
+GitHub Page from `site/` (`docs/android/WEBSITE.md`). **No document is published
+yet**, and no verification key is checked in — a build made without one has the
+check compiled out (see "F-Droid and Accrescent do not double-notify").
 
 This page fixes the *shape* of the check and its privacy boundary so that the one
 thing a privacy browser must not do (a silent, always-on phone-home) is ruled out
@@ -45,8 +59,8 @@ Two lines from the task bound everything below:
   exists and links to the download. It does not download, install, or apply
   anything.
 - **Do not add a phone-home that runs without consent.** The check is off by
-  default and, when on, sends nothing that identifies the client — not even the
-  version string.
+  default and, when on, sends nothing that identifies the client beyond the
+  request itself — not even the version string.
 
 The risk the task names is the one that sets the defaults: *"an always-on update
 ping is a periodic beacon with an IP address attached — exactly what users came
@@ -60,7 +74,8 @@ These are LW-M6-06's acceptance criteria, restated as things that must hold:
 1. **The check sends no identifier beyond the version string.** No device id, no
    install id, no user id, no telemetry, no per-install value in any header. As
    implemented it sends less than the acceptance wording allows: not even the
-   version string (see "What the client sends").
+   version string (see "What the client sends"). What no client can hide is the
+   request itself: the host that answers it sees the IP address and the time.
 2. **It is disclosed in the UI and can be turned off.** A visible setting, a
    plain description of what it sends and where, and a switch that stops it
    entirely.
@@ -72,44 +87,87 @@ These are LW-M6-06's acceptance criteria, restated as things that must hold:
 The endpoint is a single static document, served over TLS, on the distribution
 host:
 
-    ENDPOINT  https://redoubtbrowser.org/updates/android/latest.json
+    ENDPOINT  https://redoubtbrowser.org/update/android/latest.json
+              https://redoubtbrowser.org/update/android/latest.json.sig
 
-`redoubtbrowser.org` is the decided domain (`docs/android/IDENTITY.md`, 2026-08-23);
-it is registered and resolves to a parking page. **Nothing is served at this path
-yet** — that is the open half, not the hostname. Earlier revisions of this page
-called the domain "an open placeholder" and "not a real hostname", which
-contradicted IDENTITY.md's "no placeholders remain"; the contradiction is the thing
-to avoid restoring. The path is a contract constant both the client and the
-server must implement (and can be renamed in one place when the layout is
-decided); the host is the only undecided part, and the URL does not resolve until
-`redoubtbrowser.org` does.
+    in the repository: site/update/android/latest.json and latest.json.sig
+
+`redoubtbrowser.org` is the decided domain (`docs/android/IDENTITY.md`, 2026-08-23).
+The site is a GitHub Page built from `site/` (`.github/workflows/pages.yaml`), so
+**GitHub answers the update check**: GitHub sees the requesting IP address and the
+time, once a day per install while the switch is on. The setting's description and
+the install page say so. The workflow
+publishes `site/update/**` verbatim and never generates or rewrites it; the files
+there are written only by the release procedure below. The path changed on
+2026-10-04 from `/updates/android/` to `/update/android/`, the URL agreed for the
+site; the patch's default (`-PlwUpdateCheckEndpoint`) moved with it. **Nothing is
+served at this path yet**, and until the first signed document is committed the
+URL is a 404, which the client treats as "no update".
+
+Two properties of the hosting matter to the client and are easy to break from the
+site side:
+
+- **No redirect.** The client follows none (`Request.Redirect.MANUAL`). The
+  document must be served `200` at exactly this URL: the custom domain must be the
+  apex `redoubtbrowser.org` (`site/CNAME`), not `www.`, or the apex answers `301`
+  and every check is a silent "no update". `scripts/update-manifest.py fetch`
+  refuses redirects for the same reason; run it after every publish.
+- **Byte-exact.** The signature covers the served bytes. Nothing in the pipeline
+  may reformat, minify or re-encode the two files (GitHub's transport compression
+  is undone before the client sees the bytes, and is fine).
 
 ### The document
 
-A small, signed JSON document. The client treats any field it does not understand
-as absent, and any document that fails signature verification as if it were not
-there at all.
+A small, signed JSON document, written by `scripts/update-manifest.py generate`
+from the release's `apk/output-metadata.json` and its tag. The client treats any
+field it does not understand as absent, and any document that fails signature
+verification as if it were not there at all.
 
     {
-      "latest_version":    "153.0.4-2",
-      "download_url":      "https://redoubtbrowser.org/downloads/redoubt-153.0.4-2.apk",
-      "release_notes_url": "https://redoubtbrowser.org/releases/153.0.4-2/",
-      "sha256":            "<hex digest of the APK the download link points to>",
-      "published_at":      "2026-08-22T00:00:00Z"
+      "latest_version": "157.0-1-beta.6",
+      "version_code": 2016188448,
+      "download_url": "https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0-1-beta.6",
+      "release_notes_url": "https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0-1-beta.6",
+      "published_at": "2026-10-05T00:00:00Z"
     }
 
     ENDPOINT.sig   base64 of the DER ECDSA P-256 / SHA-256 signature over the
-                   exact bytes of ENDPOINT
+                   exact bytes of ENDPOINT (one line; surrounding whitespace is
+                   trimmed by the client)
 
-- **latest_version** — the string the client compares against its own. This is
-  the only thing the check needs to decide that a newer version exists.
-- **download_url** — where the user is sent if they choose to update. Same
-  `redoubtbrowser.org` host. Offering the link, not fetching it, is the app's job.
-- **sha256** — the digest of the artifact the link points to.
-  `docs/android/SECURITY.md` §2 already relies on a published, checksummed
-  artifact; the digest lives here so there is one source of truth rather than two.
-- **published_at** — so the client can treat a document that has not changed in an
-  implausible amount of time as suspect rather than authoritative.
+(Illustrative values; the version code above is the test fixture's, not a real
+build's.)
+
+- **latest_version** (required) — the release tag without `android-`. Shown in the
+  dialog title ("Redoubt 157.0-1-beta.6 is available") and remembered so each
+  release is offered once. It decides "newer" only when `version_code` is absent.
+- **version_code** (added 2026-10-04) — the **lowest** versionCode among the
+  release's APKs. When it is present the client offers the update **iff the
+  install's own versionCode is known and `version_code` is greater**; an install
+  that cannot read its own code (0) is told it is up to date, never handed to the
+  string comparison, which would offer a beta its own release. Why not the
+  version string: every Redoubt APK's versionName is `<firefox>-<release>-default`
+  and betas share it (beta.4 and beta.5 are both `157.0-1-default`), so a string
+  comparison could never announce the next beta; and the string comparison reads
+  the `-1` of `157.0-1-default` as a Firefox component, which orders a respin
+  (`157.0-2`) above the next Firefox dot release (`157.0.1-1`). The versionCode is
+  Fenix's build-hour code (`0x78200000 | hours << 3 | abi bits`), which Android
+  itself requires to increase on every update; taking the lowest of the four APKs
+  means any APK of an older build (built at least one hour earlier) is below it and
+  any APK of the same build is not. The generator refuses to write a document that
+  would offer a build its own release. Nothing new is sent: the comparison is on
+  the device.
+- **download_url** (required, https) — where the user is sent if they choose to
+  update: the release's GitHub page, which carries all four APKs,
+  `SHA256SUMS.signed` and the verification commands. Offering the link, not
+  fetching it, is the app's job. `--download-url` overrides it (for example, once
+  the website has a download page).
+- **release_notes_url** (optional, https) — the same release page by default.
+- **published_at** — informational. The client does not read it; it lets a reader
+  of the document see when it was signed.
+- **no `sha256`.** The first draft had one; a release has four APKs, and one digest
+  field would name one of them arbitrarily. The digests live in one place, the
+  release's `SHA256SUMS.signed`, next to the files they describe.
 - **the signature** lives *next to* the document, not inside it (`latest.json.sig`).
   The first draft of this page put a `signature` field inside the JSON; a
   signature over a JSON object needs a canonical form (whitespace, key order,
@@ -126,31 +184,123 @@ confused channel could serve a stale or malicious one, which is exactly the
 failure mode `docs/android/SECURITY.md` §2 exists to describe. So:
 
 - The document is signed with a key whose **public** half is embedded in the
-  client at build time. The private half never leaves the signing host and never
-  appears in this page or in the patch. Concretely: ECDSA P-256 with SHA-256
-  (`SHA256withECDSA`, present on every Android release Fenix supports, unlike
-  Ed25519 which needs API 33); the client is handed the base64 DER
-  SubjectPublicKeyInfo through the Gradle property `lwUpdateCheckPubkey`, which
-  `scripts/android-apk.sh` forwards from the environment variable
-  `LW_UPDATE_CHECK_PUBKEY`. The maintainer's side is two openssl lines:
+  client at build time. The private half never leaves the key machine and never
+  appears in this page, the patch or the repository. Concretely: ECDSA P-256 with
+  SHA-256 (`SHA256withECDSA`, present on every Android release Fenix supports,
+  unlike Ed25519 which needs API 33); the client is handed the base64 DER
+  SubjectPublicKeyInfo through the Gradle property `lwUpdateCheckPubkey`.
+  `scripts/android-apk.sh --update-check` reads it from the committed file
+  `assets/update-check.android.pubkey` (or any key from the environment variable
+  `LW_UPDATE_CHECK_PUBKEY`, for smoke builds), and refuses a key that is not
+  P-256. The maintainer's side is `scripts/sign-update-manifest.sh`, which signs
+  with openssl and refuses to write a signature that does not verify against the
+  pinned public key; underneath it is one openssl line:
 
-      openssl ec -in update-key.pem -pubout -outform DER | base64 -w0     # -> LW_UPDATE_CHECK_PUBKEY
-      openssl dgst -sha256 -sign update-key.pem latest.json | base64 -w0 > latest.json.sig
+      openssl dgst -sha256 -sign redoubt-update-signing.pem latest.json | openssl base64 -A > latest.json.sig
 - The client verifies the signature before reading a single field. **On
   verification failure it behaves exactly as if the check had been turned off**:
   no prompt, no remote log, no crash. A bad signature is not an error the user is
   shown; it is a "no update."
-- The key is secret material owned by one of the skipped (`agent_safe:false`)
-  distribution tasks — the APK signing key is LW-M6-01 per
-  `docs/android/SECURITY.md` — and whether the document uses that key or a
-  dedicated one is an implementation decision. This page states the requirement
-  (the client must verify a signature it cannot itself produce), not the key.
+- **The key is a dedicated update-signing key, not the APK release key**
+  (decided 2026-10-04). The APK key is an RSA keystore for `apksigner`; this
+  verifier needs EC P-256; and the two have different blast radii — a lost update
+  key costs a client release with a new embedded key, a lost APK key ends the app
+  identity. Generation, custody and loss/compromise handling are in
+  `docs/android/SIGNING.md`, "The update-signing key".
+
+## Publishing a release with the check (step list)
+
+For every direct-APK release from the first one built with `--update-check`.
+Paths are examples; `<tag>` is e.g. `android-157.0-1-beta.6`.
+
+1. **Build** the direct-APK release with the check compiled in:
+
+       make android-package TARGETS=android ... \
+           ANDROID_APK_FLAGS="--variant=release --disable-debug-signing --update-check ..."
+
+   `--update-check` fails at once if `assets/update-check.android.pubkey` is not
+   committed. The dry run prints `update check: COMPILED IN` or `compiled out`.
+   Confirm on the artifact that the key is in it (R8 inlines the BuildConfig
+   constant into the dex):
+
+       unzip -p <apkdir>/fenix-arm64-v8a-release-unsigned.apk 'classes*.dex' \
+           | grep -c "$(cat assets/update-check.android.pubkey)"   # >= 1
+
+2. **Generate** the document on the build host, from that build's metadata:
+
+       ./scripts/update-manifest.py generate --metadata <apkdir>/output-metadata.json \
+           --tag <tag> --published <UTC time of the release> --out <bundle>/update/latest.json
+
+   It checks the tag against the APKs' versionName, takes the lowest versionCode,
+   refuses a non-https URL, and prints the document's sha256.
+3. **Stage it for the key machine** in its own `update/` directory of the signing
+   bundle, next to `scripts/sign-update-manifest.sh` and a copy of
+   `assets/update-check.android.pubkey`. Keep it out of `SHA256SUMS.tools`: the APK
+   signer (`evidence/lw-m6-01/sign.sh`) requires exactly its four tools, and the
+   two signing steps stay independent.
+4. **Sign on the key machine** (after or before `sign.sh`; they do not interact):
+
+       ./update/sign-update-manifest.sh /path/to/redoubt-update-signing.pem update/latest.json
+
+   Compare the sha256 it prints with step 2's. It asks for the key's passphrase,
+   verifies the new signature against the pinned public key, and writes
+   `latest.json.sig` only if that passes.
+5. **Intake on the build host:**
+
+       ./scripts/update-manifest.py verify <bundle>/update/latest.json \
+           --metadata <apkdir>/output-metadata.json
+
+   (uses the committed public key; checks the signature exactly as the app does,
+   and that no APK of this release would be offered its own release).
+6. **Publish the GitHub release first** (APKs, `SHA256SUMS.signed`), and make sure
+   the `download_url` page is public. A document must never point at a page that
+   does not exist yet.
+7. **Publish the document:** copy `latest.json` and `latest.json.sig` into
+   `site/update/android/`, commit (signed) and push to `main`; the Pages workflow
+   deploys `site/` as is.
+8. **Confirm it live**, without redirects, as the app sees it:
+
+       ./scripts/update-manifest.py fetch --expect-tag <tag>
+
+To withdraw an announcement, delete the two files (a 404 is "no update"). A
+document can never be rolled back to an older release: the client only offers a
+higher versionCode, so a document naming an older build is simply ignored.
+
+**F-Droid and Accrescent builds never pass `--update-check`** and run without
+`LW_UPDATE_CHECK_PUBKEY` in the environment; their artifacts have the check
+compiled out (no key string in the dex, no Settings row). The same `classes*.dex`
+grep returning 0 is the check for those.
+
+## Testing it
+
+- `python3 scripts/tests/test-update-manifest.py` — generate → sign (with
+  `sign-update-manifest.sh`, throwaway keys, including a passphrase-protected one
+  driven through a terminal) → verify; tampered documents and signatures, other
+  keys, non-P-256 keys, oversize input, a signer handed the wrong key, and `fetch`
+  refusing a redirect. Needs python3 and openssl.
+- `scripts/tests/test-update-check-jvm.sh --tree <firefox tree> --gradle-home
+  <a Fenix build's gradle-home> --android-jar <android.jar>` — compiles the
+  patch's own `UpdateCheck.kt` with `-Werror` on the host JVM (Kotlin compiler from
+  the gradle-home, real concept-fetch sources from the tree, compile-only stubs
+  for the Fenix classes it touches), runs `UpdateCheckerTest` (11 tests), and
+  cross-checks the patch's `UpdateChecker` against documents made by the tools
+  above: same verdict from the Kotlin and from `update-manifest.py` for older
+  installs, every APK of the same build, an install that cannot read its own
+  versionCode, tampering, another key and a malformed signature. Run 2026-10-04 against the pristine 157 tree with Kotlin 2.3.20 and
+  2.4.0: 10/10 tests, 13/13 cross-checks; re-run the same day after the
+  unknown-own-code fix with Kotlin 2.3.20: 11/11 tests, 14/14 cross-checks (the
+  new test fails against the previous `offers`). It does not replace
+  `./mach gradle fenix:testDebugUnitTest` or a build of the Fenix module.
+- `./scripts/android-smoke.sh --check-update-privacy` on a device, with a build
+  made with a key, is still the only measurement of the request itself.
 
 ## What the client sends
 
-Nothing that identifies the client — and, as implemented, not even the version
-string: the comparison happens on the device, so the server learns only that some
-Redoubt asked.
+Nothing that identifies the client beyond the request itself — and, as
+implemented, not even the version string: the comparison happens on the device, so
+the server learns only that some Redoubt asked, from the connection's IP address,
+at that time. The server is GitHub Pages: that is what GitHub sees, once a day
+while the switch is on.
 
     GET <ENDPOINT>        User-Agent: Redoubt-UpdateCheck/1
     GET <ENDPOINT>.sig    User-Agent: Redoubt-UpdateCheck/1
@@ -191,9 +341,10 @@ Redoubt asked.
 - **A visible setting.** "Check for updates" as its own row in Settings, with a
   switch. Not buried, and not only on the About screen.
 - **A plain-language description** beside it, stating exactly: what is sent (the
-  nothing that identifies the device — not even the version string), where it goes (the endpoint on the distribution
-  host), what it does (tells you a newer version exists and links to it), and what
-  it never does (downloads, installs, or sends anything that identifies the device).
+  nothing that identifies you beyond the request itself — not even the version
+  string), where it goes (`redoubtbrowser.org`, hosted on GitHub Pages, so GitHub
+  sees the IP address and the time), what it does (tells you a newer version exists and links to it), and what
+  it never does (downloads, installs, or sends anything else about you).
 - **The off switch stops everything.** Turning it off makes no request at all —
   not a suppressed one, a made-none one. There is no "still check but do not show
   it" mode, because that is a phone-home with the label taken off.
@@ -226,31 +377,37 @@ in-app prompt, or the same update is announced twice through two mechanisms.
 
 ## What this page does not decide
 
-- **The origin layout.** The domain itself is decided and registered
-  (`redoubtbrowser.org`). What is open is whether the update endpoint lives on that
-  host or a separate origin, and what actually gets served there. This page names the
-  shape so that decision is smaller when it happens.
-- **The key.** The signing key belongs to the skipped distribution tasks. This page
-  states the requirement, not the key; no key material appears here or in the patch.
+- **The key itself.** The owner generates and holds it (`SIGNING.md`, "The
+  update-signing key"); no private key material appears here, in the patch, or
+  anywhere in the repository. Only the public half is committed, once, at
+  `assets/update-check.android.pubkey`.
 - **The implementation.** `patches/android/update-check.patch` (the Kotlin, the
   setting, the signature verification) is the other half of LW-M6-06 and is not
-  written here. It is blocked on the domain and the key, and it is verified by
-  `./scripts/android-smoke.sh --check-update-privacy`, which cannot pass until the
-  endpoint exists.
+  written here. Its device-side measurement,
+  `./scripts/android-smoke.sh --check-update-privacy`, needs a build made with a
+  key and a published document to exercise the opt-in half.
 - **The default, finally.** This page recommends opt-in. If the maintainer chooses
   default-on instead, the two hard lines still hold: foreground-only and
   rate-limited (no background beacon), and disclosed with an off switch.
 
 ## Status
 
-The contract and the code are done: `patches/android/update-check.patch` implements
-every invariant above (`org.mozilla.fenix.lw.UpdateCheck` / `UpdateChecker`, with
-`UpdateCheckerTest` pinning the request shape, the signature check and the version
-comparison), and `./scripts/android-smoke.sh --check-update-privacy` measures the
-network side on a running build: with the switch off, no traffic to the update host
-across launch and the settings screens; with it on, the update host and nothing
-else new. What still needs the world is the domain (`redoubtbrowser.org`) and the
-key (LW-M6-01's custody): until both exist, every build is made without a key and
-the check is compiled out — no row, no reachable code path — which is exactly the
-store-build configuration. The domain is the load-bearing one: until it is decided,
-the endpoint is a contract, not an address.
+The contract, the client and the publishing side are done:
+`patches/android/update-check.patch` implements every invariant above
+(`org.mozilla.fenix.lw.UpdateCheck` / `UpdateChecker`, with `UpdateCheckerTest`
+pinning the request shape, the signature check and the version decision);
+`scripts/update-manifest.py`, `scripts/sign-update-manifest.sh` and
+`scripts/android-apk.sh --update-check` are the release side (table at the top);
+and `./scripts/android-smoke.sh --check-update-privacy` measures the network side on
+a running build. What still needs the owner is the update-signing key: until its
+public half is committed, every build is made without a key and the check is
+compiled out — no row, no reachable code path — which is exactly the store-build
+configuration. Then the site's DNS: until `redoubtbrowser.org` points at GitHub
+Pages, a build with the check compiled in gets NoResult and stays silent.
+
+Not yet measured on a device: the opt-in half of `--check-update-privacy` (the
+2026-09-06 run with a throwaway-key build saw no request to the update host after
+the switch was turned on, and nothing was published to answer one;
+`evidence/lw-m7-06/README.md`). It must be re-run against
+the first `--update-check` build with the document live, before that build is
+called done.

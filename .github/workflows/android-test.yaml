@@ -67,6 +67,11 @@ on:
       - scripts/firefox-release-watch.py
       - scripts/tests/test-firefox-release-watch.py
       - scripts/tests/fixtures/firefox-release-watch/**
+      # The website (pages.yaml) builds and checks itself on a GitHub-hosted
+      # runner, and nothing in the APK is built from site/.
+      - site/**
+      - .github/workflows/pages.yaml
+      - scripts/site-check.py
   workflow_dispatch:
   pull_request:
     types:
