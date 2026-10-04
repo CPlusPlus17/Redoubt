@@ -249,7 +249,8 @@ use the proposed `Build *` family.
 | `Build Accrescent` | `#5E35B1` | `Issues specific to the Accrescent release of Redoubt` |
 | `Build APK` | `#455A64` | `Issues specific to the direct APK download or Obtainium updates` |
 
-The closed beta uses direct APKs from a private link. Its source option in the
+The betas are direct APKs published as GitHub prereleases (the closed beta's
+private link was superseded on 2026-09-08). Their source option in the
 form maps to `Build APK` when channel labelling is relevant, and the maintainer
 adds `beta` to identify beta findings. All three channel labels and `beta` were
 created in the approved 2026-09-08 publication.
@@ -407,7 +408,7 @@ body:
         Obtainium and F-Droid both show the source repository in the app's detail
         page.
       options:
-        - Closed beta APK from the maintainer's private link
+        - GitHub Releases (github.com/CPlusPlus17/Redoubt/releases)
         - The Redoubt F-Droid repository
         - Accrescent
         - Direct APK download from our site
@@ -1084,7 +1085,7 @@ labels:
 - **Device model:**              <!-- e.g. Pixel 6a — Settings → About phone -->
 - **Total device RAM (optional):** <!-- total RAM, e.g. 3 GB / 4 GB / 8 GB -->
 - **Android version:**           <!-- e.g. Android 14, One UI 6.1 / GrapheneOS -->
-- **Installed from:**            <!-- closed beta APK from private link /
+- **Installed from:**            <!-- GitHub Releases /
                                       Redoubt F-Droid repo / Accrescent / direct APK
                                       from our site / Obtainium / another F-Droid
                                       repo (which?) / built from source / not sure -->

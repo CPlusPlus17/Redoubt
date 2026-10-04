@@ -10,6 +10,10 @@ their name — read [`IDENTITY.md`](IDENTITY.md) before touching anything that n
 the project.
 
 This directory is the work plan and the record of what has been done against it.
+Looking for the browser itself? Start at the [repository README](../../README.md);
+beta APKs are on [GitHub Releases](https://github.com/CPlusPlus17/Redoubt/releases).
+The status paragraphs below are a dated 2026-08-22 snapshot; later status is in
+[`STATUS.md`](STATUS.md) and [`BETA.md`](BETA.md).
 
 **Status: M0 and M1 complete, M2 done, M3/M4 well advanced.** Gecko builds from
 source for aarch64-linux-android with the full patch set and every hardening flag
