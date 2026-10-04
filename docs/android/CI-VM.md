@@ -345,6 +345,8 @@ No full build or release publication is implied by this preflight-only dispatch.
 
 ## Box B: the on-demand build VM
 
+> **Gate mode (owner decision 2026-10-04): `GATE_MODE=actual`.** Box B starts the build VM when *current* free memory minus a 2 GiB margin covers the VM (26112 MiB), not after reserving the other workloads' possible growth (that rule, `GATE_MODE=reserve`, held builds back for hours). If memory runs short during a build, the kernel kills the Redoubt VM first (OOMScoreAdjust=700, `Restart=no`); llama-server and the other project's runners keep priority, and the build is retried. Override in `~/.config/redoubt-boxb.env` on box B.
+
 Owner decision, 2026-10-04: the heavy Android jobs move to box B, host `llm`
 (Fedora 44, 24 threads, 62 GiB RAM, 1.8 TB free disk). Box B also runs the
 owner's llama-server (`llama-qwen38.service`, RTX 5090) and three ephemeral-VM

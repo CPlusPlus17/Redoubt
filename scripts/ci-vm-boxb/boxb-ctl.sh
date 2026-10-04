@@ -13,7 +13,12 @@
 # Box B decides about its own memory, whoever asks: the poller only knows GitHub's queue. Every
 # start, deferral and stop is logged to box B's journal (journalctl -t redoubt-boxb-ctl).
 #
-# The gate (all MiB):
+# The gate (all MiB). GATE_MODE=actual (default, owner decision 2026-10-04):
+#   room = MemAvailable - host margin
+# i.e. what the other workloads use NOW, not what they might grow to. If they grow while a build
+# runs, the kernel kills the Redoubt VM first (OOMScoreAdjust=700, Restart=no), so llama-server and
+# the other project's runners keep priority; a killed build is retried. The growth terms below are
+# still computed and logged, and GATE_MODE=reserve restores the conservative rule:
 #   room = MemAvailable - spherene growth - hasteheart growth - host margin
 #   spherene growth   machine-ghci.slice (the other project's runner VMs, gh-runner-slot@N):
 #                     every running VM scope may still grow to SPHERENE_VM_MIB, and every active
@@ -38,6 +43,7 @@ SPHERENE_VM_MIB=8704
 HH_JOB_MIB=10240
 HOST_MARGIN_MIB=2048
 MAX_PSI=10
+GATE_MODE=actual
 GHCI_SLICE=machine-ghci.slice
 SLOT_UNIT_GLOB='gh-runner-slot@*.service'
 HH_GROUP=ci-capacity
@@ -50,6 +56,9 @@ if [[ -r $CONF ]]; then
       NEED_MIB|SPHERENE_VM_MIB|HH_JOB_MIB|HOST_MARGIN_MIB|MAX_PSI)
         [[ $value =~ ^[0-9]{1,7}$ ]] || { echo "bad $key in $CONF" >&2; exit 2; }
         printf -v "$key" '%s' "$value" ;;
+      GATE_MODE)
+        [[ $value == actual || $value == reserve ]] || { echo "bad $key in $CONF" >&2; exit 2; }
+        GATE_MODE=$value ;;
       ''|'#'*) ;;
       *) echo "unknown key $key in $CONF" >&2; exit 2 ;;
     esac
@@ -91,8 +100,13 @@ gate() {
     (( grown < HH_JOB_MIB )) && hh=$(( hh + HH_JOB_MIB - grown ))
     hh_note+="${hh_note:+, }$member job grown $grown"
   done
-  ROOM=$(( avail - sph - hh - HOST_MARGIN_MIB ))
-  GATE_DETAIL="room $ROOM MiB = MemAvailable $avail - spherene growth $sph ($vms VM(s), $slots slot(s)) - hasteheart growth $hh (${hh_note:-no job running}) - host margin $HOST_MARGIN_MIB; need $NEED_MIB; memory PSI some avg60 $psi (max $MAX_PSI)"
+  if [[ $GATE_MODE == reserve ]]; then
+    ROOM=$(( avail - sph - hh - HOST_MARGIN_MIB ))
+    GATE_DETAIL="[reserve] room $ROOM MiB = MemAvailable $avail - spherene growth $sph ($vms VM(s), $slots slot(s)) - hasteheart growth $hh (${hh_note:-no job running}) - host margin $HOST_MARGIN_MIB; need $NEED_MIB; memory PSI some avg60 $psi (max $MAX_PSI)"
+  else
+    ROOM=$(( avail - HOST_MARGIN_MIB ))
+    GATE_DETAIL="[actual] room $ROOM MiB = MemAvailable $avail - host margin $HOST_MARGIN_MIB; need $NEED_MIB; memory PSI some avg60 $psi (max $MAX_PSI); possible growth not reserved: spherene $sph ($vms VM(s), $slots slot(s)), hasteheart $hh (${hh_note:-no job running})"
+  fi
   (( ROOM >= NEED_MIB && psi <= MAX_PSI ))
 }
 
