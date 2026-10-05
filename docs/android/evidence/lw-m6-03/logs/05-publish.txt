@@ -1,0 +1,24 @@
+$ ./scripts/fdroid-repo.sh publish <scratch checkout of this branch>   # throwaway key, repo URL http://10.0.2.2:8000/fdroid/repo
+==> index files -> site/fdroid/repo/ (no APKs)
+==> APK sources -> site/fdroid/sources.json
+==> human page -> site/fdroid.html, QR code -> site/fdroid/repo-qr.svg
+==> the Pages deploy's own index check (no download)
+repository fingerprint (pinned): C06A44BE77F6D540B68C0069CB2FC7BA6C25E8E1D613A8B87721DFFC75454B8F
+release key (SIGNING.md):        6414EB334681CF6E929034B56A062D2B8DA090822172F7A3952C85FDD1283BD0
+  ok    entry.jar: signed by the repository key, covers entry.json
+  ok    index-v1.jar: signed by the repository key, covers index-v1.json
+  ok    index.jar: signed by the repository key, covers index.xml
+  ok    index-v2.json: sha256 and size match the signed entry.json
+  ok    index-v1 and index-v2 agree on 6 APK(s), all signed by the release key
+  budget: site 228311 B + APKs 778194446 B = 778422757 B of 1000000000 B
+fdroid-pages: check PASSED
+==> what changed (commit these, signed, and push to main):
+    ?? assets/fdroid/repo-fingerprint
+    ?? site/fdroid.html
+    ?? site/fdroid/
+    site/fdroid in git: 179343 bytes
+==> site check (pages.yaml runs it first)
+    FAIL fdroid.html:39: external link 'fdroidrepos://10.0.2.2:8000/fdroid/repo?fingerprint=C06A44BE77F6D540B68C0069CB2FC7BA6C25E8E1D613A8B87721DFFC75454B8F' is not on the allowlist
+    FAIL: 8 pages checked in /home/mgysin/redoubt-artifacts/channels/fdroid-scratch-checkout/site, 1 problem(s)
+fdroid-repo: REFUSED: site-check fails; do not commit (a non-production repo URL, as in a local test, always fails it)
+EXIT=1

@@ -1,0 +1,25 @@
+$ ./scripts/fdroid-repo.sh verify http://127.0.0.1:8000/fdroid/repo   # the assembled public dir, served locally
+==> verify http://127.0.0.1:8000/fdroid/repo against repo fingerprint C06A44BE77F6D540B68C0069CB2FC7BA6C25E8E1D613A8B87721DFFC75454B8F
+signature  ok: entry.jar is signed by the expected key; index-v2.json matches entry.json
+repo       http://10.0.2.2:8000/fdroid/repo  timestamp 1791228149287
+package    org.redoubtbrowser 157.0-2-default 2016188486 x86_64 c4eb178b98c99138504e6dc3e8f4cd672f30df2da1d06bc95ddc436a57022522 signer 6414eb334681cf6e929034b56a062d2b8da090822172f7a3952c85fdd1283bd0
+package    org.redoubtbrowser 157.0-2-default 2016188482 arm64-v8a 409924c5ca02aca82889cb2a594e664f39b7fdfbce80e1047cf4fe768b11f660 signer 6414eb334681cf6e929034b56a062d2b8da090822172f7a3952c85fdd1283bd0
+package    org.redoubtbrowser 157.0-2-default 2016188480 armeabi-v7a e909b7de65e85e1b2c5aca936bca4aebe9f4f0889bfc51b0478a6c83aad3eb8e signer 6414eb334681cf6e929034b56a062d2b8da090822172f7a3952c85fdd1283bd0
+package    org.redoubtbrowser 157.0-1-default 2016188262 x86_64 34330b81778e6996032a397f66549ea961485c0773d74e282f871357e220d5b4 signer 6414eb334681cf6e929034b56a062d2b8da090822172f7a3952c85fdd1283bd0
+package    org.redoubtbrowser 157.0-1-default 2016188258 arm64-v8a e70a610431978081314e94c3e678d2a48cb18d46c84a1256ff6e6a60a7d76410 signer 6414eb334681cf6e929034b56a062d2b8da090822172f7a3952c85fdd1283bd0
+package    org.redoubtbrowser 157.0-1-default 2016188256 armeabi-v7a 25c36a409a6418185fe1bb7f25548daa95efd5dce1d0bb3cac75f29cdf487d66 signer 6414eb334681cf6e929034b56a062d2b8da090822172f7a3952c85fdd1283bd0
+    served  org.redoubtbrowser_2016188486.apk  sha256 matches the signed index
+    served  org.redoubtbrowser_2016188482.apk  sha256 matches the signed index
+    served  org.redoubtbrowser_2016188480.apk  sha256 matches the signed index
+    served  org.redoubtbrowser_2016188262.apk  sha256 matches the signed index
+    served  org.redoubtbrowser_2016188258.apk  sha256 matches the signed index
+    served  org.redoubtbrowser_2016188256.apk  sha256 matches the signed index
+==> verified: index signature, fingerprint, release signer, and every listed APK is served byte-exact
+EXIT=0
+
+$ ./scripts/fdroid-repo.sh verify --fingerprint <a different 64-hex value> http://127.0.0.1:8000/fdroid/repo
+        _("The repository's fingerprint does not match.")
+    )
+fdroidserver.exception.VerificationException: The repository's fingerprint does not match.
+fdroid-repo: REFUSED: the published index did not verify
+EXIT=1

@@ -79,6 +79,14 @@ concrete host is filled in when it is decided:
 - **Mirror discipline.** Mirrors are read-only copies of a single source of truth.
   If a mirror serves something different from the origin, the mirror is the
   incident: pull it and treat its audience as channel-compromised.
+- **The own F-Droid repository (LW-M6-03, 2026-10-05).** It is served from the GitHub
+  Pages site, so the site's host and the GitHub account are part of this channel. Its index
+  is signed with a third key, the F-Droid repository key (`SIGNING.md`, "The F-Droid
+  repository key"), which vouches for the index, not for the APKs. The APKs keep the release
+  key, so a stolen repository key can withhold or roll back updates within the two releases
+  served, but cannot replace the app. The deploy refuses any APK whose sha256 differs from the
+  signed index or whose certificate is not the release key (`FDROID.md`). A lost or replaced
+  repository key means every F-Droid user re-adds the repository by hand.
 
 ### 3. Device-specific surface
 

@@ -1,0 +1,45 @@
+$ KEEP_RELEASES=3 ./scripts/fdroid-repo.sh update    # beta.4 + beta.5 + 157.0-2
+==> retention: the newest 3 release(s)
+==> re-verifying every APK before the index is signed
+==> fdroid update (network: none)
+    2026-10-05 19:41:48,663 INFO: Creating signed index with this key (SHA256):
+    2026-10-05 19:41:48,663 INFO: C0 6A 44 BE 77 F6 D5 40 B6 8C 00 69 CB 2F C7 BA 6C 25 E8 E1 D6 13 A8 B8 77 21 DF FC 75 45 4B 8F
+    2026-10-05 19:41:50,088 INFO: Finished
+==> repository state
+    org.redoubtbrowser 157.0-2-default    2016188486  x86_64       /org.redoubtbrowser_2016188486.apk  134958981
+    org.redoubtbrowser 157.0-2-default    2016188482  arm64-v8a    /org.redoubtbrowser_2016188482.apk  129023922
+    org.redoubtbrowser 157.0-2-default    2016188480  armeabi-v7a  /org.redoubtbrowser_2016188480.apk  125120464
+    org.redoubtbrowser 157.0-1-default    2016188262  x86_64       /org.redoubtbrowser_2016188262.apk  134954885
+    org.redoubtbrowser 157.0-1-default    2016188258  arm64-v8a    /org.redoubtbrowser_2016188258.apk  129019826
+    org.redoubtbrowser 157.0-1-default    2016188256  armeabi-v7a  /org.redoubtbrowser_2016188256.apk  125116368
+    org.redoubtbrowser 157.0-1-default    2016188078  x86_64       /org.redoubtbrowser_2016188078.apk  134954885
+    org.redoubtbrowser 157.0-1-default    2016188074  arm64-v8a    /org.redoubtbrowser_2016188074.apk  129019826
+    org.redoubtbrowser 157.0-1-default    2016188072  armeabi-v7a  /org.redoubtbrowser_2016188072.apk  125112272
+    APK bytes the Pages deploy will fetch: 1167281429 (1.167 GB of the 1 GB site limit)
+    repo fingerprint: C06A44BE77F6D540B68C0069CB2FC7BA6C25E8E1D613A8B87721DFFC75454B8F
+==> next: ./scripts/fdroid-repo.sh publish <path to a Redoubt git checkout>
+
+$ ./scripts/fdroid-repo.sh publish <scratch checkout>   # publish runs the Pages check, which must refuse
+==> index files -> site/fdroid/repo/ (no APKs)
+==> APK sources -> site/fdroid/sources.json
+==> human page -> site/fdroid.html, QR code -> site/fdroid/repo-qr.svg
+==> the Pages deploy's own index check (no download)
+repository fingerprint (pinned): C06A44BE77F6D540B68C0069CB2FC7BA6C25E8E1D613A8B87721DFFC75454B8F
+release key (SIGNING.md):        6414EB334681CF6E929034B56A062D2B8DA090822172F7A3952C85FDD1283BD0
+  budget: site 255076 B + APKs 1167281429 B = 1167536505 B of 1000000000 B
+fdroid-pages: REFUSED: the assembled site would be 1167536505 bytes, over the 1000000000-byte limit (GitHub Pages: 1 GB per published site). Keep fewer releases (KEEP_RELEASES) and publish again.
+fdroid-repo: REFUSED: the published files fail scripts/fdroid-pages.py check
+EXIT=1
+
+$ python3 scripts/fdroid-pages.py assemble --site site --out <dir>   # the exact pages.yaml step
+repository fingerprint (pinned): C06A44BE77F6D540B68C0069CB2FC7BA6C25E8E1D613A8B87721DFFC75454B8F
+release key (SIGNING.md):        6414EB334681CF6E929034B56A062D2B8DA090822172F7A3952C85FDD1283BD0
+  ok    entry.jar: signed by the repository key, covers entry.json
+  ok    index-v1.jar: signed by the repository key, covers index-v1.json
+  ok    index.jar: signed by the repository key, covers index.xml
+  ok    index-v2.json: sha256 and size match the signed entry.json
+  ok    index-v1 and index-v2 agree on 9 APK(s), all signed by the release key
+  budget: site 255076 B + APKs 1167281429 B = 1167536505 B of 1000000000 B
+fdroid-pages: REFUSED: the assembled site would be 1167536505 bytes, over the 1000000000-byte limit (GitHub Pages: 1 GB per published site). Keep fewer releases (KEEP_RELEASES) and publish again.
+EXIT=1
+assembled dir exists afterwards: no
