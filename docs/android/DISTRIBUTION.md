@@ -527,7 +527,7 @@ time:
 | channel | artifact | update check | who updates it | state |
 |---|---|---|---|---|
 | direct APK (GitHub Releases, Obtainium) | `fenix-<abi>-release.apk` | compiled in with `--update-check`, opt-in, off by default | the user, prompted by the check or Obtainium | live |
-| own F-Droid repository (LW-M6-03) | the F-Droid build | not offered (see the section above) | the F-Droid client | in preparation |
+| own F-Droid repository (LW-M6-03) | `fenix-<abi>-release.apk` from the GitHub release, unchanged (universal excluded) | compiled in, hidden at runtime when the installer of record is a store client (see LW-M6-03) | the F-Droid client | in preparation |
 | Google Play (LW-M6-12) | `fenix-release.aab`, signed by the owner's upload key; Google signs the APKs with the release key | **compiled out**, always | Google Play | **pending**: no account yet |
 
 - `scripts/android-apk.sh --bundle` builds the AAB in a separate Gradle pass with
