@@ -37,7 +37,7 @@
   <li><a href="#verify">Verify it</a> before installing.</li>
   <li>Open the APK. When Android asks, allow installs from the app you opened it with, then install.</li>
 </ol>
-<p>A newer beta installs over the previous one as an update and keeps your data. Android only accepts an update signed with the same key as the installed app, so once you have verified the first install, a tampered update is refused by Android itself.</p>
+<p>A newer version installs over the previous one as an update and keeps your data. Android only accepts an update signed with the same key as the installed app, so once you have verified the first install, a tampered update is refused by Android itself.</p>
 
 <h2 id="verify">Verify the download</h2>
 <pre><code>sha256sum -c --ignore-missing SHA256SUMS.signed
@@ -63,8 +63,8 @@ apksigner verify --print-certs fenix-&lt;abi&gt;-release.apk | grep -i SHA-256</
   <li><strong>Every update after that:</strong> Android checks it. An update signed with any other key fails to install over Redoubt, and Obtainium reports the install error. If that happens, do not uninstall Redoubt to force it in; <a href="security.html">report it privately</a>.</li>
 </ul>
 
-<h2 id="in-app">An in-app update check is coming</h2>
-<p>The current betas have no update check of their own. A later build adds an <strong>opt-in</strong> check that is off by default: when you turn it on it runs only while the app is in the foreground, at most once a day, fetches a small signed file from <code>redoubtbrowser.org/update/</code>, and tells you a new version exists with a link to download it. This site is hosted on GitHub Pages, so GitHub sees your IP address and the time of that request. It does not download or install anything, and it sends nothing that identifies you beyond the request itself. The full contract is in <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/DISTRIBUTION.md">DISTRIBUTION.md</a>. Until it ships, use Obtainium or watch the Releases page.</p>
+<h2 id="in-app">In-app update check (opt-in)</h2>
+<p>From Redoubt 157.0-2 the app has an <strong>opt-in</strong> update check, off by default (Settings &rarr; <em>Check for updates</em>). When you turn it on it runs only while the app is in the foreground, at most once a day, fetches a small signed file from <code>redoubtbrowser.org/update/</code>, and tells you a new version exists with a link to download it. This site is hosted on GitHub Pages, so GitHub sees your IP address and the time of that request. It does not download or install anything, and it sends nothing that identifies you beyond the request itself. The full contract is in <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/DISTRIBUTION.md">DISTRIBUTION.md</a>. Earlier betas do not have it: install 157.0-2 once, then turn it on, or use Obtainium.</p>
 
 <h2 id="stores">F-Droid and Accrescent</h2>
 <p>Redoubt is not in any store yet. When it is, it will be Redoubt&rsquo;s own F-Droid repository (not f-droid.org&rsquo;s main repository, which would re-sign the app with a different key) and Accrescent, both signed with the same key and showing the same digest as above.</p>
