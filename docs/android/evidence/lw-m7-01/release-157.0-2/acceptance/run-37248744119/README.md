@@ -69,7 +69,7 @@ H-FP = a harness false positive (explained under the row).
 | 7 | `--check-no-suggest` | 0 | **PASS.** 60 s typing window: 8 keep-alive records, 3 background flows, 0 typing flows. Enter sent 9,128 B | `device/smoke/check-no-suggest/` |
 | 7a | `--check-no-suggest --no-suggest-negative-control` | 1 | **NEG, as expected.** Caught `ac.duckduckgo.com` on 5 connections | `device/smoke/check-no-suggest-negative-control/` |
 | 8 | baseline, with **full graphics acceptance** | 0 | **PASS**, 8/8. Graphics `acceptanceComplete: true`, **161/161** | `device/smoke/baseline-smoke/` |
-| 9 | `--check-update-privacy` (and a rerun) | 1, 1 | **H-FP; the product half passed.** OFF half: the row is present and OFF by default, and there are 0 update-host events. ON half: the switch was tapped on and the app relaunched. **DNS + SNI `redoubtbrowser.org`** appear in the ON window, which is what failed in the rejected run. The check then flags "new hosts" by bare SYN destination IP:<br>• run 1: `151.101.65.91`. Its SNI is `firefox-settings-attachments.cdn.mozilla.net`, which is in the OFF window on `151.101.1.91` (Fastly rotation).<br>• rerun: `151.101.193.91` (same host). Also `185.199.111.153`, whose SNI is `redoubtbrowser.org`: the update host's own address.<br>The harness subtracts update-hit *names*, not their addresses (`android-smoke.sh` around line 4110) | `device/smoke/check-update-privacy*/` |
+| 9 | `--check-update-privacy` (and a rerun) | 1, 1 | **H-FP; the product half passed.** OFF half: the row is present and OFF by default, and there are 0 update-host events. ON half: the switch was tapped on and the app relaunched. **DNS + SNI `redoubtbrowser.org`** appear in the ON window, which is what failed in the rejected run. The check then flags "new hosts" by bare SYN destination IP:<br>• run 1: `151.101.65.91`. Its SNI is `firefox-settings-attachments.cdn.mozilla.net`, which is in the OFF window on `151.101.1.91` (Fastly rotation).<br>• rerun: `151.101.193.91` (same host). Also `185.199.111.153`, whose SNI is `redoubtbrowser.org`: the update host's own address.<br>The harness subtracts update-hit *names*, not their addresses (`android-smoke.sh` around line 4110).<br>**Re-graded offline after the harness fix (branch `fix/harness-sni`): both runs PASS.** The check now attributes each connection by its own SNI or DNS name, as `--check-no-suggest` does (see "Re-grade of row 9" below) | `device/smoke/check-update-privacy*/`, `device/smoke/check-update-privacy-regrade/` |
 | **9a** | **update-check probe, live endpoint, ON** | 0 | **PASS (2b).** After the tap, `fenix_preferences.xml` has `pref_key_lw_update_check=true`, and no other file has the key. Home, then a launcher resume, gives **exactly one** request: `GET https://redoubtbrowser.org/update/android/latest.json`. Response **404** (`server: GitHub.com`). **No `.sig` request**, no dialog, no crash, app alive at 45 s. `lw_update_check.xml` gets `last_run_ms` only. A second resume inside 24 h makes 0 requests. Request headers are `User-Agent: Redoubt-UpdateCheck/1`, `Accept: */*`, `Accept-Language: en-US`, `Accept-Encoding`, `Sec-GPC: 1`, `Sec-Fetch-*`, `Connection`. There is no cookie, no query string and no version. `LOAD_ANONYMOUS` and `LOAD_BYPASS_CACHE` are set | `update-check/device-live/probe.json`, `03-*`, `04-*` |
 | **9b** | **same probe, OFF half** | 0 | **PASS.** The switch was turned off in Settings, and `fenix_preferences.xml` reads `false`. The app was stopped, the throttle file removed, then relaunched and resumed: **0 requests**, and `lw_update_check.xml` was not recreated, so `maybeRun` returned at `isEnabled`. **Control:** switch back on, next resume: 1 new GET of the same URL, 404 | `update-check/device-live/probe.json` (`off_*`, `control_*`) |
 | **9c** | **wrongly signed document, on the device** | 0 | **PASS.** A local TLS endpoint (throwaway CA, reached through `network.dns.localDomains` and `adb reverse`) served `latest.json` (`157.0-99`, `version_code` 2016189999, which **would** be offered if it verified) and a `.sig` from a **throwaway** P-256 key. The app fetched both (server log: 2 GETs, 200). It **offered nothing**: no dialog, `last_offered_version` never written, alive, no crash. The first attempt reached no server because host port 8443 was already taken by a local container; it is kept as `device-local-port-conflict/` and proves nothing | `update-check/device-local/` |
@@ -134,9 +134,38 @@ H-FP = a harness false positive (explained under the row).
 - `sign.sh`, `android-verify-signature.sh`, `SIGNING.md` and `apksigner.jar` (36.0.0, `3716d931…3dec`), with `SHA256SUMS.tools`. All four hashes equal the previous bundle's;
 - `update/`, holding `latest.json` (`039a38cc…afcc`), `sign-update-manifest.sh` (`5e0820f6…193b135`), `update-check.android.pubkey` (`8e714075…7de8`) and `SHA256SUMS.update`.
 
+## Re-grade of row 9 with the name-based rule
+
+The harness fix (`grade_update_privacy_flows` in `scripts/android-smoke.sh`) judges the windows
+per connection with `attribute_typing_flows`, the flow attribution `--check-no-suggest` uses. An
+ON-window connection passes when every name it carries (TLS SNI or DNS query name) is the update
+host, a name the OFF window's connections carried, or on the existing background lists. A
+connection without a name of its own passes only when a plaintext DNS answer in the capture gave
+the guest its address and every name asked for that address passes, or when it sent no payload to
+an address the OFF window also contacted. Anything else fails, and so does an OFF-window connection
+named for the update host.
+
+`scripts/regrade-update-privacy.py` re-ran both device runs against the run's own capture
+(`/home/mgysin/redoubt-artifacts/stable/accept2/work/capture.pcap`, 455,367,324 B, sha256
+`8173d7b3…7951`; not committed). The device JSON records events but not byte windows, so the
+script rebuilds them. The ON window is the burst after the relaunch gap and reproduces the
+recorded ON events exactly. The OFF window ends at the last of the 100 recorded OFF events, which
+is a lower bound of what the device judged and so the stricter choice. Its first 100 events equal
+the recorded ones. Result (`device/smoke/check-update-privacy-regrade/`):
+
+| Run | Device verdict (old rule) | Re-grade |
+| --- | --- | --- |
+| `check-update-privacy` | FAIL on `151.101.65.91`, `185.199.111.153` | **PASS**. 11 ON connections: `151.101.65.91` is SNI `firefox-settings-attachments.cdn.mozilla.net`, seen with the check off. `185.199.111.153` and the DNS query are `redoubtbrowser.org`. The IPv6 SYNs `2606:50c0:8000::153` / `8003::153` resolve to `redoubtbrowser.org` only, and `2a04:4e42::347` / `600::347` to three Mozilla names, all seen with the check off. `2600:1901:0:8d82::` is a payload-free SYN to an address the OFF window also contacted. Two DoT connections to the emulator resolver are OS noise. No update host with the check off |
+| `check-update-privacy-rerun` | FAIL on `151.101.193.91`, `185.199.111.153` | **PASS**. The same shape. `151.101.193.91` is SNI `firefox-settings-attachments.cdn.mozilla.net`, and the DNS query names that host |
+
+The unit tests `UpdatePrivacyAttributionTests` in `scripts/tests/test-android-smoke.py` cover the
+opposite cases: a new third-party SNI fails even on an address seen with the check off, as do a new
+DNS name, an unnamed flow with payload, an address resolved to a new name, and the update host in
+the OFF window.
+
 ## Not covered
 
 - **Physical devices and other ABIs.** No physical device was used, and only x86_64 ran on a device. arm64-v8a and armeabi-v7a were checked statically only.
 - **A positive on-device verification.** It needs the owner's signature on a published document.
 - **The probes from the 157.0-1 acceptance** were not repeated: stripped features, cookie online/offline, and the default-browser prompt.
-- **Harness fix for row 9.** `--check-update-privacy` should ignore the address of any flow whose SNI names an allowed host. That is a harness change, so it is left for a separate commit.
+
