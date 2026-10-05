@@ -17,6 +17,10 @@ tests were re-run on the merged branch. **`release.android` now reads `2`**
 (from main's 157.0-2) and must go back to `1` on release day (section 5,
 step 2).
 
+**Updated again 2026-10-05** (section 7): a new Android patch,
+`autofill-shadow-dom` (LW-M7-42), exists only on this branch. Android goes
+from 42 to 43 entries and the total from 108 to 109 patch files.
+
 Supporting files are in [`prebase/`](prebase/). Each claim below names the
 file or command it rests on.
 
@@ -404,3 +408,33 @@ and `fenix:assembleRelease` was re-run with `--skip-gecko --update-check`
 Not run here: the JVM harness `test-update-check-jvm.sh` (it builds against a
 patched 157 tree; the Robolectric run above covers the same tests on 158), any
 device or emulator run, desktop.
+
+## 7. New patch on this branch, 2026-10-05: `autofill-shadow-dom` (LW-M7-42)
+
+`patches/android/autofill-shadow-dom.patch` is the last `android.txt` entry.
+It makes login fields inside open shadow roots, such as reddit.com/login's,
+reach Android Autofill. The fix is a fallback in
+`GeckoViewAutoFillChild.onFocus`: GeckoView JS, packaged in omni.ja. The
+patch was written against 158.0b3, and **157 / `main` has no such entry**.
+Whether to backport it is a separate decision.
+
+| check (158.0b3) | result |
+|---|---|
+| `check-patchfail.sh` android / desktop | exit 0 / exit 0; the new patch applies exactly; 8 / 30 hunks with fuzz overall, as in section 6 |
+| fuzz 0 | applies to pristine 158.0b3; no other patch touches the file |
+| `check-patch-order.py`, `lint-patch-scope.py`, `board.py --check-scope`, `--check` | ok (109 patch files; 125 tasks) |
+| Gecko pass, `android-fat-aar.sh --abis x86_64`, section 4's objdir and build date | ok, per-ABI pass 801 s + merge 770 s; the APK's omni.ja carries the patched actor byte-for-byte |
+| `fenix:assembleRelease --skip-gecko --update-check` | `BUILD SUCCESSFUL in 14m 1s`; the script exits 1 afterwards on the expected universal-APK ABI check (section 4) |
+| emulator, API 34, probe AutofillService | plain form unchanged; shadow-DOM page and reddit.com/login now produce a fill request with `webDomain` and username/password hints; closed roots and non-login shadow inputs still produce none |
+
+Details and logs: `docs/android/evidence/lw-m7-42/autofill-shadow-dom/README.md`.
+
+On release day, step 3's `check-patchfail` and `check-patch-order` runs cover
+this entry like any other. If the 158.0 text of `GeckoViewAutoFillChild.sys.mjs`
+differs from b3, rebase the patch against it. A Gecko pass is needed in any
+case, because the change is in omni.ja and `--skip-gecko` does not rebuild it.
+
+Seen in passing, and not caused by this patch: on a fresh profile, a direct
+load of `https://www.reddit.com/login/` stays blank on both Redoubt 157.0-2
+and 158 (unpatched or patched). Stock Fenix 157 renders it. Visiting
+`reddit.com/` first works around it. Not investigated.

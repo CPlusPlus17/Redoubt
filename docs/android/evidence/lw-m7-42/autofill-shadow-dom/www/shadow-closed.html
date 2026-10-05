@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LW-M7-42 shadow closed</title></head>
+<body style="font-size:20px"><h3>LW-M7-42 CLOSED shadow-DOM login (must stay unregistered)</h3>
+<!-- Like reddit.com/login: same markup as shadow-open.html but CLOSED shadow
+     root, no <form> anywhere, reddit's own name/autocomplete values. -->
+<my-input id="u" data-name="username" data-type="text" data-ac="username webauthn"></my-input><br>
+<my-input id="p" data-name="password" data-type="password" data-ac="current-password"></my-input><br>
+<my-input id="o" data-name="appOtp" data-type="tel" data-ac="one-time-code"></my-input><br>
+<button style="font-size:24px">Log in</button>
+<script>
+customElements.define('my-input', class extends HTMLElement { constructor(){ super(); const r=this.attachShadow({mode:'closed'});
+ r.innerHTML='<label>'+this.dataset.name+' <input name="'+this.dataset.name+'" type="'+this.dataset.type+'" autocomplete="'+this.dataset.ac+'" style="font-size:24px;width:90%;height:60px"></label>'; }});
+</script></body></html>
