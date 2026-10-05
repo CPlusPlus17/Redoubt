@@ -1,0 +1,23 @@
+Packaged cfg: assets/omni.ja!/defaults/autoconfig/librewolf.cfg, sha256 73dc32beb523be4f184164e5819abbc54c00ad3905e14ca6bc79510a5b29f53c, identical in all four APKs
+Byte-equal to settings/common.cfg + settings/android.cfg at settings 008b87fddb0fb12084690a40127454a23b8e2e5c: yes
+
+Active (uncommented) lines of interest:
+1020:defaultPref("network.lna.allow_top_level_navigation", false);
+1470:lockPref("browser.ipProtection.enabled", false);
+1471:lockPref("browser.ipProtection.guardian.endpoint", "");
+1506:defaultPref("privacy.restrict3rdpartystorage.heuristic.navigation", false);
+1528:defaultPref("privacy.restrict3rdpartystorage.heuristic.recently_visited", false);
+738-  "librewolf.uBO.assetsBootstrapLocation",
+--
+--
+1441-  "librewolf.uBO.assetsBootstrapLocation",
+
+uBO catalog bootstrap (common.cfg value, then android.cfg's later override; the device read in the pref audit shows the effective value):
+  defaultPref(
+    "librewolf.uBO.assetsBootstrapLocation",
+    "https://librewolf.dev/librewolf/source/raw/branch/main/assets/uBOAssets.json"
+  ); // custom-ubo-assets-bootstrap-location.patch is common; LW-M3-07 must keep this working
+  defaultPref(
+    "librewolf.uBO.assetsBootstrapLocation",
+    "https://raw.githubusercontent.com/CPlusPlus17/Redoubt/612fac026e238ebac8745b6b9ed0922790473f21/assets/uBOAssets.android.json"
+  );
