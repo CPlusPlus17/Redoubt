@@ -1,0 +1,219 @@
+
+### 2026-10-04T14:44:51Z  user@10.0.0.154
+$ hostname; uname -r; cat /etc/os-release | grep -E "^(ID|VERSION_ID)="; nproc; free -m; df -h / /home; sudo -n true && echo SUDO_OK; id; loginctl show-user user -p Linger; ls -l /dev/kvm; uptime
+llm
+7.2.7-200.fc44.x86_64
+ID=fedora
+VERSION_ID=44
+24
+               total        used        free      shared  buff/cache   available
+Mem:           63653       19287       31241         730       14537       44366
+Swap:           8191         311        7880
+Filesystem                                             Size  Used Avail Use% Mounted on
+/dev/mapper/luks-dddb20c0-3db9-439e-a98f-44487d9e84fb  1.9T   88G  1.8T   5% /
+/dev/mapper/luks-dddb20c0-3db9-439e-a98f-44487d9e84fb  1.9T   88G  1.8T   5% /home
+SUDO_OK
+uid=1000(user) gid=1000(user) groups=1000(user),10(wheel) context=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023
+Linger=no
+crw-rw-rw-. 1 root kvm 10, 232 Oct  4 16:44 /dev/kvm
+ 16:44:51 up 7 days,  2:42,  4 users,  load average: 0.90, 0.78, 1.04
+[exit 0]
+
+### 2026-10-04T14:44:55Z  user@10.0.0.154
+$ systemctl list-units --all --no-pager "gh-runner*" "llama*" "*.slice" | head -40; systemctl cat "gh-runner-slot@.service" llama-qwen38.service --no-pager; systemctl --user list-units --all --no-pager | head -30
+[output withheld from this public record: read-only survey of units, cgroups and
+ configuration belonging to the owner (llama-server) and another project (gh-runner-slot,
+ ci-capacity). The figures used are summarised in docs/android/CI-VM.md, "Box B".]
+[exit 0]
+
+### 2026-10-04T14:45:01Z  user@10.0.0.154
+$ systemctl show machine-ghci.slice -p MemoryMax -p MemoryCurrent -p MemoryHigh; for s in user-1000 user-1001 user-1002; do printf "%s " $s; systemctl show $s.slice -p MemoryCurrent --value; done; getent passwd 1001 1002 | cut -d: -f1,6; systemctl show llama-qwen38.service -p MemoryCurrent -p MemoryPeak; ls -la /etc/ci-capacity.conf /run/ci-capacity 2>&1; cat /etc/ci-capacity.conf 2>&1 | head -30; ss -ltn | head -30
+[output withheld from this public record: read-only survey of units, cgroups and
+ configuration belonging to the owner (llama-server) and another project (gh-runner-slot,
+ ci-capacity). The figures used are summarised in docs/android/CI-VM.md, "Box B".]
+[exit 0]
+
+### 2026-10-04T14:46:35Z  user@10.0.0.154
+$ stat -c "%A %U:%G %n" /run/ci-capacity; test -x /run/ci-capacity && echo searchable; ls /run/ci-capacity/hasteheart.1.tok 2>&1; head -c0 /proc/locks && echo locks_readable; grep -E "^(anon|file|shmem) " /sys/fs/cgroup/system.slice/llama-qwen38.service/memory.stat; grep MemTotal /proc/meminfo; cat /proc/pressure/memory; rpm -q qemu-system-x86-core qemu-img bubblewrap passt edk2-ovmf genisoimage python3-pyyaml jq flock util-linux 2>&1; systemctl --user show-environment >/dev/null && echo user_manager_ok; cat /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/cgroup.controllers; ls ~/.local/share/redoubt-ci-vm ~/.config/systemd/user 2>&1
+[output withheld from this public record: read-only survey of units, cgroups and
+ configuration belonging to the owner (llama-server) and another project (gh-runner-slot,
+ ci-capacity). The figures used are summarised in docs/android/CI-VM.md, "Box B".]
+[exit 2]
+
+### 2026-10-04T14:47:26Z  user@10.0.0.154
+$ grep MemAvailable /proc/meminfo; for d in /sys/fs/cgroup/machine.slice/machine-ghci.slice/*/; do [ -f $d/memory.current ] && printf "%s %s anon+shmem=%s\n" "$(basename $d)" "$(cat $d/memory.current)" "$(awk "\$1==\"anon\"||\$1==\"shmem\"{s+=\$2}END{print s}" $d/memory.stat)"; done; for u in 1001 1002; do s=/sys/fs/cgroup/user.slice/user-$u.slice; printf "user-%s max=%s cur=%s anon+shmem=%s\n" $u "$(systemctl show user-$u.slice -p MemoryMax --value)" "$(cat $s/memory.current)" "$(awk "\$1==\"anon\"||\$1==\"shmem\"{s+=\$2}END{print s}" $s/memory.stat)"; done; stat -c "%n dev=%Hd:%Ld" /run /run/lock /run/ci-capacity 2>&1; findmnt -n -o TARGET,FSTYPE /run /run/lock; awk "\$2==\"FLOCK\"" /proc/locks | head -20; systemctl list-units --no-legend "gh-runner-slot@*" | wc -l; systemctl list-units --no-legend "user@*"
+[output withheld from this public record: read-only survey of units, cgroups and
+ configuration belonging to the owner (llama-server) and another project (gh-runner-slot,
+ ci-capacity). The figures used are summarised in docs/android/CI-VM.md, "Box B".]
+[exit 0]
+
+### 2026-10-04T14:47:32Z  user@10.0.0.154
+$ for p in 1351823 1357996 2241 345061 344960; do printf "%s %s %s\n" $p "$(ps -o user=,comm= -p $p)" "$(cat /proc/$p/cgroup 2>&1)"; done; awk "\$2==\"FLOCK\" && \$6 ~ /^00:1d:/" /proc/locks | wc -l
+[output withheld from this public record: read-only survey of units, cgroups and
+ configuration belonging to the owner (llama-server) and another project (gh-runner-slot,
+ ci-capacity). The figures used are summarised in docs/android/CI-VM.md, "Box B".]
+[exit 0]
+
+### 2026-10-04T14:50:06Z  user@10.0.0.154
+$ getent group ci-capacity; ls /usr/share/edk2/ovmf/OVMF_CODE.fd /usr/share/edk2/ovmf/OVMF_VARS.fd; ls /sys/fs/cgroup/user.slice/user-1001.slice/user@1001.service/app.slice/ | head; systemctl list-units --state=active --no-legend "gh-runner-slot@*" | wc -l; command -v flock ssh-keygen curl python3 gpgv; python3 --version; sestatus | head -3; ss -ltn "sport = :2222"
+ci-capacity:x:960:fivur-ci-2,fivur-ci-3
+/usr/share/edk2/ovmf/OVMF_CODE.fd
+/usr/share/edk2/ovmf/OVMF_VARS.fd
+cgroup.controllers
+cgroup.events
+cgroup.freeze
+cgroup.kill
+cgroup.max.depth
+cgroup.max.descendants
+cgroup.pressure
+cgroup.procs
+cgroup.stat
+cgroup.stat.local
+3
+/usr/bin/flock
+/usr/bin/ssh-keygen
+/usr/bin/curl
+/usr/bin/python3
+/usr/bin/gpgv
+Python 3.14.7
+SELinux status:                 enabled
+SELinuxfs mount:                /sys/fs/selinux
+SELinux root directory:         /etc/selinux
+State Recv-Q Send-Q Local Address:Port Peer Address:Port
+[exit 0]
+
+### 2026-10-04T14:55:47Z  user@10.0.0.154
+$ bash -s gate  # boxb-ctl.sh from the worktree on stdin, read-only gate
+gate defer: room 3117 MiB = MemAvailable 39611 - spherene growth 22682 (3 VM(s), 3 slot(s)) - hasteheart growth 11764 (fivur-ci-2 job grown 4069, fivur-ci-3 job grown 4647) - host margin 2048; need 26112; memory PSI some avg60 0 (max 10)
+[exit 3]
+
+### 2026-10-04T14:55:56Z  user@10.0.0.154
+$ rm -rf .local/src/redoubt-ci && mkdir -p .local/src/redoubt-ci && tar -C .local/src/redoubt-ci -xf -
+
+### 2026-10-04T14:55:57Z  user@10.0.0.154
+$ cat > .local/src/redoubt-ci/poller.pub
+
+### 2026-10-04T14:55:57Z  user@10.0.0.154
+$ bash .local/src/redoubt-ci/ci-vm-boxb/install-boxb.sh --poller-key-file .local/src/redoubt-ci/poller.pub
+
+### 2026-10-04T15:01:58Z  user@10.0.0.154 (poller key ~/.local/state/redoubt-boxb-control/ondemand_ed25519, forced command)
+$ status            # REDOUBT_DRY_RUN=1 redoubt-boxb-ondemand.sh on box A
+-> box B reachable / GitHub API readable / box B VM inactive; nothing queued for redoubt-ci-boxb
+$ id; cat /etc/passwd   # restriction check: the forced command must refuse anything else
+-> usage: boxb-ctl.sh status | gate | start REASON | stop [REASON]   [exit 2]
+
+### 2026-10-04T15:01:58Z  user@10.0.0.154
+$ .local/lib/redoubt-boxb/boxb-ctl.sh gate; free -m | head -2
+gate defer: room 3041 MiB = MemAvailable 27332 - spherene growth 18453 (3 VM(s), 3 slot(s)) - hasteheart growth 3790 (fivur-ci-2 job grown 8336, fivur-ci-3 job grown 8354) - host margin 2048; need 26112; memory PSI some avg60 0 (max 10)
+               total        used        free      shared  buff/cache   available
+Mem:           63653       36323       13027         730       15715       27329
+[exit 0]
+
+### 2026-10-04T15:24:39Z  user@10.0.0.154
+$ systemctl --user set-property --runtime redoubt-ci-vm.service MemoryHigh=6G MemoryMax=8G && systemctl --user show redoubt-ci-vm.service -p MemoryHigh -p MemoryMax -p OOMScoreAdjust -p CPUWeight && grep MemAvailable /proc/meminfo
+CPUWeight=50
+MemoryHigh=6442450944
+MemoryMax=8589934592
+OOMScoreAdjust=700
+MemAvailable:   44140532 kB
+[exit 0]
+
+# Provisioning boot: gate deferred for 25 min (gate-wait.txt); started with --force under the runtime 6G/8G bound above.
+
+### 2026-10-04T15:24:43Z  user@10.0.0.154
+$ systemctl --user is-active redoubt-ci-vm.service
+
+### 2026-10-04T15:24:43Z  user@10.0.0.154
+$ .local/lib/redoubt-boxb/boxb-ctl.sh gate
+
+### 2026-10-04T15:24:43Z  user@10.0.0.154
+$ systemctl --user start redoubt-ci-vm.service
+
+### 2026-10-04T15:24:44Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh true
+
+### 2026-10-04T15:24:59Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh true
+
+### 2026-10-04T15:24:59Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh sudo\ cloud-init\ status\ --wait
+
+### 2026-10-04T15:25:14Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh 'sudo cloud-init status --long; free -m; nproc'
+(output appended to deploy-guest.txt)
+
+### 2026-10-04T15:25:14Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh 'hostname; hostnamectl --static; sudo journalctl -b -u cloud-init -g hostname --no-pager | tail -5'
+redoubt-ci-boxb
+redoubt-ci-boxb
+-- No entries --
+[exit 0]
+
+### 2026-10-04T15:25:17Z  user@10.0.0.154
+$ systemctl --user is-active redoubt-ci-vm.service
+
+### 2026-10-04T15:25:17Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh true
+
+### 2026-10-04T15:25:18Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh sudo\ cloud-init\ status\ --wait\;\ rc=\$\?\;\ \[\ \$rc\ -eq\ 0\ \]\ \|\|\ \[\ \$rc\ -eq\ 2\ \]
+
+### 2026-10-04T15:25:18Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh 'sudo bash -s -- --runner-mem-max 22G --runner-swap-max 8G'
+
+### 2026-10-04T15:27:15Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh test\ -e\ /home/runner/actions-runner/run.sh
+
+### 2026-10-04T15:27:15Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh 'cat > /home/ciadmin/actions-runner.tar.gz'
+
+### 2026-10-04T15:27:17Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh 'sudo bash -s -- /home/ciadmin/actions-runner.tar.gz'
+
+### 2026-10-04T15:27:20Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh rm\ -f\ /home/ciadmin/actions-runner.tar.gz
+
+### 2026-10-04T15:27:24Z  user@10.0.0.154
+$ .local/lib/redoubt-ci-vm/ssh.sh test\ \!\ -e\ /home/runner/actions-runner/.runner
+
+### 2026-10-04T15:27:24Z  user@10.0.0.154
+$ (register-runner.py) .local/lib/redoubt-ci-vm/ssh.sh <config.sh --name redoubt-ci-boxb --labels redoubt-boxb, token on stdin>; .local/lib/redoubt-ci-vm/ssh.sh 'sudo systemctl enable --now redoubt-actions-runner.service'
+
+### 2026-10-04T15:27:37Z  user@10.0.0.154
+$ cd .local/src/redoubt-ci && python3 ci-vm/verify-host.py --on-demand --vm-name redoubt-ci-boxb     --lan-ip 10.0.0.154 --guest-arg=--cpus --guest-arg=16 --guest-arg=--mem-gib --guest-arg=24     --guest-arg=--runner-mem-max --guest-arg=23622320128 --guest-arg=--runner-swap-max     --guest-arg=8589934592 --guest-arg=--image-id --guest-arg=none
+
+### 2026-10-04T15:27:56Z  user@10.0.0.154 (poller key, forced command)
+$ status   # dry-run pass above
+
+### 2026-10-04T15:28:00Z  user@10.0.0.154
+$ .local/lib/redoubt-boxb/boxb-ctl.sh stop provisioning done; systemctl --user is-active redoubt-ci-vm.service; ls ${XDG_RUNTIME_DIR:-/run/user/1000}/systemd/user.control/ 2>&1
+stopping redoubt-ci-vm.service (provisioning done)
+inactive
+redoubt-ci-vm.service.d
+[exit 0]
+
+### 2026-10-04T15:28:07Z  user@10.0.0.154
+$ d=$XDG_RUNTIME_DIR/systemd/user.control/redoubt-ci-vm.service.d; ls $d; rm -f $d/50-MemoryHigh.conf $d/50-MemoryMax.conf; rmdir $d 2>/dev/null; systemctl --user daemon-reload; systemctl --user show redoubt-ci-vm.service -p MemoryHigh -p MemoryMax -p OOMScoreAdjust -p UnitFileState -p ActiveState; loginctl show-user user -p Linger; journalctl -t redoubt-boxb-ctl --no-pager -n 10
+50-MemoryHigh.conf
+50-MemoryMax.conf
+ActiveState=inactive
+UnitFileState=disabled
+MemoryHigh=infinity
+MemoryMax=27917287424
+OOMScoreAdjust=700
+Linger=yes
+Oct 04 17:28:00 llm redoubt-boxb-ctl[1393121]: stopping redoubt-ci-vm.service (provisioning done)
+[exit 0]
+
+### 2026-10-04T15:28:27Z  user@10.0.0.154 (poller key, forced command)
+$ status   # install-poller.sh --enable dry-run pass
+
+### 2026-10-04T15:28:27Z  user@10.0.0.154
+$ .local/lib/redoubt-boxb/boxb-ctl.sh gate
+gate defer: room 2685 MiB = MemAvailable 40618 - spherene growth 22887 (3 VM(s), 3 slot(s)) - hasteheart growth 12998 (fivur-ci-2 job grown 6706, fivur-ci-3 job grown 776) - host margin 2048; need 26112; memory PSI some avg60 0 (max 10)
+[exit 3]
+
+### 2026-10-04T14:58Z..15:24Z  user@10.0.0.154 (every 60 s, from box A)
+$ .local/lib/redoubt-boxb/boxb-ctl.sh gate
+(26 read-only passes waiting for room; results in gate-wait.txt)
+deployed Restart=no to box B 2026-10-04T15:35:34Z

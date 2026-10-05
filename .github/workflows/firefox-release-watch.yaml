@@ -8,6 +8,12 @@
 # points at is docs/android/REBASE.md; the cadence is its "Release-track
 # cadence" section.
 #
+# It also reads mobile_versions.json: a Firefox for Android release that is not
+# the desktop one (an Android-only dot such as 153.0.2) gets its own issue,
+# "Firefox for Android <v> released: rebase Android", whether or not it has a
+# source tarball; the issue says which, and what to do without one. If that
+# feed is down the desktop half still runs and the run turns red.
+#
 # Unlike the other workflows here this runs on a GitHub-hosted runner, not the
 # self-hosted librewolf-android one: it builds nothing, needs no secret beyond
 # GITHUB_TOKEN, and should not queue behind (or occupy) the build machine.
@@ -15,6 +21,29 @@
 # A schedule only fires from the default branch, so this starts watching once
 # it is on main. workflow_dispatch runs it by hand from the Actions tab; with
 # dry_run it opens nothing and prints the issue it would open.
+#
+# A second job, patchcheck, follows whenever the watch job opened an issue or
+# found it still open, and the release has a source tarball: one matrix entry
+# per such release (the watcher's `checks` output; normally one, two only if
+# a Firefox release and a newer Android-only one are both pending), one at a
+# time. For each, on a GitHub-hosted runner it downloads the release's source
+# tarball and .asc, verifies them against Mozilla's release key pinned by
+# fingerprint, runs scripts/check-patchfail.sh for --targets=desktop and then
+# --targets=android (only android for a Firefox for Android issue; one ~5 GB
+# extraction at a time, in a scratch root; nothing in the checkout changes,
+# nothing is committed), and posts ONE comment on the issue: per-target
+# pass/fail, the failing patches, fuzz counts and a link to the run. The comment carries a
+# marker for the version and the commit tested, so a repeat run on the same
+# commit posts nothing; a new commit (patches fixed on main) gets a new one.
+#
+# To exercise the patch check by hand before a real new release exists,
+# dispatch with dry_run=true and patchcheck_version=<a release, e.g. 157.0>
+# (patchcheck_targets picks the targets): the watch job adds one matrix entry
+# for that release, label "manual", newer than the repository or not, with no
+# issue. It downloads and verifies the tarball and runs the patch check like a
+# real one, then prints the comment to the log and the job summary; it posts
+# and opens nothing. Without dry_run, or with a beta or other non-release
+# version, the watch job refuses (red) and nothing runs.
 #
 # android-test.yaml lists this file, the script and its test under push
 # paths-ignore, so a push that touches only the watcher does not start the
@@ -30,10 +59,24 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Open nothing; print the issue that would be opened."
+        description: "Open and post nothing; print the issue and the patch-check comment that would be posted."
         required: false
         default: false
         type: boolean
+      patchcheck_version:
+        description: "Dry run only: also patch-check this Firefox release (e.g. 157.0), newer or not. Prints the comment; posts nothing."
+        required: false
+        default: ''
+        type: string
+      patchcheck_targets:
+        description: "Targets for patchcheck_version."
+        required: false
+        default: desktop,android
+        type: choice
+        options:
+          - desktop,android
+          - desktop
+          - android
   push:
     branches:
       - main
@@ -49,7 +92,8 @@ permissions:
   issues: write
 
 concurrency:
-  # Two overlapping runs could both miss each other's issue and open two.
+  # Two overlapping runs could both miss each other's issue and open two, or
+  # each other's patch-check comment and post two.
   group: firefox-release-watch
   cancel-in-progress: false
 
@@ -57,6 +101,10 @@ jobs:
   watch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      # JSON list of {version, issue, targets, label}; empty when the step
+      # did not run (push).
+      checks: ${{ steps.watch.outputs.checks }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -66,9 +114,71 @@ jobs:
         run: python3 scripts/tests/test-firefox-release-watch.py -v
 
       # A push only proves the watcher works; it never opens an issue.
+      # Exits 1 when either feed (or GitHub) failed, after writing the outputs
+      # of whatever did succeed; the patch check below still runs for that.
       - name: Check for a new Firefox release
+        id: watch
         if: ${{ github.event_name != 'push' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
-        run: python3 scripts/firefox-release-watch.py $DRY_RUN
+          # Empty except on a dispatch that set it; the script refuses it
+          # without DRY_RUN, and refuses a non-release version.
+          PATCHCHECK_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.patchcheck_version || '' }}
+          PATCHCHECK_TARGETS: ${{ github.event_name == 'workflow_dispatch' && inputs.patchcheck_targets || 'desktop,android' }}
+        run: |
+          python3 scripts/firefox-release-watch.py $DRY_RUN \
+            ${PATCHCHECK_VERSION:+--patchcheck-version "$PATCHCHECK_VERSION" --patchcheck-targets "$PATCHCHECK_TARGETS"}
+
+  # Only after the watch step ran (never on push) and said so: the issue was
+  # just opened, is still open, or this is a dry run (or a manual check); and the release has a
+  # source tarball. !cancelled() so a red watch step (a dead mobile feed) does not
+  # cancel the check of a desktop release it did flag.
+  patchcheck:
+    needs: watch
+    if: ${{ !cancelled() && needs.watch.outputs.checks != '' && needs.watch.outputs.checks != '[]' }}
+    strategy:
+      fail-fast: false
+      # One ~800 MB download and ~5 GB extraction per runner; one at a time
+      # also keeps the concurrency group's promise of no duplicate comments.
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJSON(needs.watch.outputs.checks) }}
+    runs-on: ubuntu-latest
+    # Download ~800 MB, two extractions of ~5 GB and two patch runs.
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        # No submodules: check-patchfail.sh reads only patches/ and
+        # assets/patches/.
+
+      - name: Disk before
+        run: df -h "$RUNNER_TEMP" .
+
+      - name: Check the patches against the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ matrix.version }}
+          ISSUE: ${{ matrix.issue }}
+          TARGETS: ${{ matrix.targets }}
+          # A manual entry exists only in a dry run; it is a dry run here too
+          # whatever the inputs say, so it can never post.
+          DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run || matrix.label == 'manual') && '--dry-run' || '' }}
+        run: |
+          python3 scripts/firefox-release-watch.py patchcheck \
+            --version "$VERSION" ${ISSUE:+--issue "$ISSUE"} --targets "$TARGETS" \
+            --reports-dir "$RUNNER_TEMP/patchfail-reports" $DRY_RUN
+
+      - name: Keep the full reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: patchfail-${{ matrix.version }}-${{ matrix.label }}
+          path: ${{ runner.temp }}/patchfail-reports/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Disk after
+        if: ${{ always() }}
+        run: df -h "$RUNNER_TEMP" .

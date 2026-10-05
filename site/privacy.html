@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Privacy & limits &middot; Redoubt</title>
+  <meta name="description" content="What Redoubt changes compared with Firefox for Android, and the honest limits: no Gecko content sandbox on Android, and what is not yet measured.">
+  <link rel="icon" href="icon.webp" type="image/webp">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="index.html"><img src="icon.webp" alt="" width="32" height="32">Redoubt</a>
+      <nav aria-label="Site">
+        <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="install.html">Install &amp; updates</a></li>
+        <li><a href="privacy.html" aria-current="page">Privacy &amp; limits</a></li>
+        <li><a href="sync.html">Sync</a></li>
+        <li><a href="security.html">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="wrap">
+<h1>Privacy &amp; limits</h1>
+<p class="lede">The approved summary, and what it does and does not mean.</p>
+
+<blockquote class="statement">
+  <p>Redoubt ships the same privacy configuration and the same Gecko-level security patches as LibreWolf desktop, on a platform whose process containment is weaker &mdash; and we publish exactly where.</p>
+</blockquote>
+<p>&ldquo;Where&rdquo; is the parity table in <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/PARITY.md">PARITY.md</a>: every row is backed by a named measurement or marked as not yet verified. This page is a summary of it; when they disagree, PARITY.md is right.</p>
+
+<h2 id="changes">What it changes compared with Firefox for Android</h2>
+<ul>
+  <li><strong>Built from source.</strong> Gecko and the Android app are compiled from Firefox&rsquo;s source with LibreWolf&rsquo;s shared patch set and preference configuration applied, rather than patching a prebuilt browser.</li>
+  <li><strong>Telemetry and experiments removed</strong>: the Glean upload path, Adjust, Nimbus experiments, crash-report uploads and Google Play Services are patched out; sponsored shortcuts are removed and search suggestions are off by default.</li>
+  <li><strong>LibreWolf&rsquo;s privacy defaults</strong>: resist-fingerprinting, strict Enhanced Tracking Protection and cookie partitioning (both locked), Global Privacy Control on.</li>
+  <li><strong>Stronger site isolation than stock</strong>: Fission is locked to isolate high-value sites; stock Firefox for Android ships with it off.</li>
+  <li><strong>uBlock Origin preinstalled</strong>, with its cookie-notice lists on by default. A filter list hides a cookie banner or blocks its script; it does not click &ldquo;reject&rdquo;, so the site records no refusal.</li>
+  <li><strong>Cloud features off</strong>, such as Shake to Summarize, IP Protection and Google Lens.</li>
+</ul>
+
+<h2 id="limits">Honest limits</h2>
+<ul>
+  <li><strong>No content-process sandbox.</strong> Firefox&rsquo;s Gecko content sandbox does not exist on Android (upstream never finished the port). Per-site process isolation, isolated processes and RLBox recover most, not all, of it. This is a platform fact, not a setting, and the largest containment gap versus desktop.</li>
+  <li><strong>Not everything is proven on a live page.</strong> HTTPS-only, certificate revocation, the TLS floor and fingerprinting coherence are configured but marked <em>Partial</em> in PARITY.md until measured on a device.</li>
+  <li><strong>DNS over HTTPS is not inherited.</strong> The DNS-over-HTTPS setting in the configuration is overridden by the app; use Settings &gt; DNS over HTTPS instead.</li>
+  <li><strong>Emulator-tested.</strong> Automated device testing so far covers an x86_64 emulator only. ARM builds are checked but have not been run on a physical phone by the project.</li>
+  <li><strong>A different signing identity.</strong> Redoubt cannot carry the desktop build&rsquo;s code-signing identity; its trust root is its own app id and signing key, held by one person, with no second key holder yet.</li>
+  <li><strong>A small project.</strong> If you want a mature, widely used hardened Firefox for Android today, IronFox is that, and it is the browser LibreWolf itself recommends to Android users.</li>
+</ul>
+<p>The full matrix, with the evidence for each row and the list of what is still pending: <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/PARITY.md">PARITY.md</a>.</p>
+    </div>
+  </main>
+  <footer class="site">
+    <div class="wrap">
+      <p>Redoubt is an independent fork, not affiliated with or endorsed by the <a href="https://librewolf.net">LibreWolf project</a> or by <a href="https://www.mozilla.org/">Mozilla</a>. Its privacy configuration and patch set are LibreWolf&rsquo;s work, used under MPL-2.0. Firefox is a trademark of the Mozilla Foundation (<a href="https://www.mozilla.org/foundation/trademarks/policy/">trademark policy</a>); Redoubt does not use Mozilla&rsquo;s trademarks in its branding.</p>
+      <p>Source, issues and releases: <a href="https://github.com/CPlusPlus17/Redoubt">github.com/CPlusPlus17/Redoubt</a>. This site loads nothing from any other server and uses no cookies, scripts or analytics.</p>
+    </div>
+  </footer>
+</body>
+</html>

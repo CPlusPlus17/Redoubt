@@ -176,7 +176,55 @@ Cryptographic, exact-payload and current CI-isolation checks remain required and
 have passed. This is a dated custody exception, not an assertion that the original
 offline/physical-separation procedure was followed.
 
+### Decision: stable-release custody, both keys stay on the Fedora host (2026-10-04)
+
+    DECIDED       2026-10-04
+    DECIDED BY    Manuel Gysin (owner)
+    SCOPE         the first stable release, Redoubt 157.0-2, and later releases
+                  until the owner decides otherwise
+    CHOICE        the APK release key (~/redoubt-release.p12) and the update-signing
+                  key (~/redoubt-update-key/) both stay on the Fedora host (box A);
+                  offline backups of both exist and the restore test was done
+                  (owner-reported); builds run in CI on box B; the owner signs on
+                  box A
+
+This is a **standing owner decision for the stable release**, in the place of the
+candidate-by-candidate exceptions recorded for Betas 1-5 (above, and
+`evidence/lw-m7-01/release-157.0/beta*/custody-decision.md`). It is **explicitly
+not offline signing**: settled rule 3 ("the key does not live on the build
+machine") and the release procedure below describe an offline holder machine,
+and that is not what happens. What is true instead:
+
+- **Box B builds, box A signs.** The unsigned APKs come from
+  `.github/workflows/android-release.yaml` on box B's VM (`CI-VM.md`, "Box B"),
+  which has no copy of, path to or credential for either key. Box A's own runner
+  VM (`redoubt-ci-qemu`) has no host home directory (the 2026-09-08 QEMU
+  boundary above). The keys sit on the Fedora host itself, outside both VMs.
+- **The owner signs, by hand.** `sign.sh` and `sign-update-manifest.sh` run in the
+  owner's own terminal on box A, with the passphrases typed there. The agent does
+  not read, copy or operate either key, and verifies only the results (published
+  fingerprint, v2+v3/no v1, payload identical to the unsigned artifact, document
+  signature against `assets/update-check.android.pubkey`).
+- **Backups and restore are owner-reported**, for both keys, on 2026-10-04. The
+  agent has not seen them; this file records the owner's statement, not a
+  measurement. The APK key's 2026-08-23 table above (two copies, restore tested)
+  still describes that key's older copies.
+- **Single holder, unchanged.** The 2026-09-06 decision stands; backups reduce the
+  loss risk, not the compromise risk, and do not add a holder. For the update key
+  the owner's choice is the same single holder (custody rule 2 below: two
+  copies, restore-tested, one holder).
+
+The risk accepted is the one rule 3 exists for: a compromise of the Fedora host
+reaches both keys at once. Moving the keys to an offline machine remains open and
+does not require re-deciding anything else.
+
 ## Release procedure
+
+> **For the stable release (2026-10-04 decision above):** step 1 runs on box B;
+> steps 2-5 run on the Fedora host (box A), in the owner's terminal, not on an
+> offline machine. The steps and their checks are otherwise unchanged. The
+> GitHub-release and update-document steps are in `DISTRIBUTION.md`, "Stable
+> release".
 
 1. CI builds the release variant unsigned and publishes the APK plus
    `SHA256SUMS` as a workflow artifact.
@@ -265,3 +313,122 @@ Android supports key rotation through APK Signature Scheme v3
   key.
 
 Do not treat rotation as a reason to hold the key less carefully.
+
+## The update-signing key (LW-M6-06)
+
+Everything above is about the **APK release key**. The in-app update check
+(`DISTRIBUTION.md`) needs a second, separate key: the one that signs
+`update/android/latest.json`. This section is its custody record.
+
+    purpose                signs the update-check document (latest.json.sig)
+    algorithm              ECDSA P-256 (prime256v1), signatures SHA256withECDSA
+    private key file       redoubt-update-signing.pem  (PKCS#8, passphrase-encrypted)
+    public key, committed  assets/update-check.android.pubkey
+                           (base64 DER SubjectPublicKeyInfo, one line)
+    generated              2026-10-04, by the owner (Manuel Gysin), on the Fedora host
+    SHA-256 of public DER  ecba7d19ada187d18cb6df84230ec90b40c6de7ed41e2f674f0958f715551d62
+    copies / holders       1 holder (the owner); working copy in ~/redoubt-update-key/ on the
+                           Fedora host (box A), where it stays for the stable release (owner
+                           decision 2026-10-04, above); offline backup copies made (owner-
+                           reported 2026-10-04; location not recorded here)
+    restore tested         2026-10-04, owner-reported: restore test done from the backup.
+                           Not witnessed by the agent, which does not read either key.
+
+Record the public-key digest as plain lowercase hex (what `openssl dgst -sha256`
+prints), not in the colon form or under the words "SHA-256 fingerprint":
+`scripts/android-verify-signature.sh` reads the APK fingerprint out of this file
+by exactly that label and format, and must keep finding only the APK one.
+
+Until the public key is committed, `scripts/android-apk.sh --update-check`
+refuses to build and every build has the check compiled out, exactly as Betas
+1-5 did. Nothing in the repository enables the check before that.
+
+### Why it is not the APK key
+
+- **The verifier needs EC P-256.** The client verifies with `SHA256withECDSA`,
+  which every supported Android release has (Ed25519 needs API 33). The APK key is
+  an RSA 4096 PKCS12 keystore used through `apksigner`; reusing it would mean a
+  different client algorithm and a second tool path to the most valuable key.
+- **Different blast radius.** The APK key *is* the app's identity: losing it ends
+  `org.redoubtbrowser`. The update key only vouches for a pointer: whoever holds
+  it can make opted-in installs show "a newer version is available" with an https
+  link of their choosing, but cannot make Android install anything (an APK still
+  has to carry the APK key's signature to update the app). Losing it is
+  recoverable with a client release. Separate keys keep the cheap risk from
+  touching the expensive one.
+- **Different cadence.** The update document may be re-signed more often than APKs
+  are (a withdrawn or corrected announcement). Every use of the APK key is a
+  custody event; this keeps those to APK releases.
+- **Separate tools, separate bundle.** `evidence/lw-m6-01/sign.sh` (the APK signer)
+  is unchanged and still requires exactly its four tools; the document is signed by
+  `scripts/sign-update-manifest.sh`, staged in its own `update/` directory of the
+  bundle (`DISTRIBUTION.md`, "Publishing a release with the check").
+
+### One-time generation (owner, on the key machine)
+
+Not on the build host (rule 3 above applies to this key too), not in CI, and never
+inside the repository checkout (`.gitignore` blocks `*.pem`, but do not rely on it).
+
+    # OpenSSL 3 (Fedora). Prompts for a new passphrase.
+    openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+        -pkeyopt ec_param_enc:named_curve -aes-256-cbc -out redoubt-update-signing.pem
+
+    # macOS (LibreSSL) equivalent:
+    #   openssl ecparam -name prime256v1 -genkey -noout \
+    #     | openssl pkcs8 -topk8 -v2 aes-256-cbc -out redoubt-update-signing.pem
+
+    # The public half, in the form the build embeds, and its fingerprint:
+    openssl pkey -in redoubt-update-signing.pem -pubout -outform DER | openssl base64 -A \
+        > update-check.android.pubkey
+    openssl pkey -in redoubt-update-signing.pem -pubout -outform DER | openssl dgst -sha256
+
+    # Prove key + passphrase + public file belong together before anything ships
+    # (any small JSON with those two fields will do; the script refuses on mismatch):
+    printf '{"latest_version": "test", "download_url": "https://example.org/"}\n' > t.json
+    ./sign-update-manifest.sh redoubt-update-signing.pem t.json update-check.android.pubkey
+    rm t.json t.json.sig
+
+Then: make the offline backup copy and repeat the last step from it (that is the
+restore test), and commit **only** `update-check.android.pubkey` as
+`assets/update-check.android.pubkey`, with its fingerprint and the custody facts
+filled into the table above. The public key and its fingerprint are public by
+design, like the APK fingerprint.
+
+### Custody rules
+
+The APK key's settled rules 1-3 apply unchanged: never in CI, never in this
+repository, not on the build host. In addition:
+
+1. **Passphrase-encrypted at rest**, passphrase held separately from the file.
+   `sign-update-manifest.sh` never sees either: openssl reads the file and asks
+   for the passphrase itself.
+2. **At least two copies, restore-tested**, recorded in the table above. Two
+   machines of one person are still one holder; say so if that is the case, as
+   the APK key section does. (Whether the 2026-09-06 single-holder decision
+   extends to this key is the owner's call; it is not assumed here.)
+3. **Signs only `latest.json` documents produced by `scripts/update-manifest.py`**
+   for a release that is published or about to be. It signs nothing else, and is
+   never used as a TLS, SSH or code-signing key.
+4. **Re-confirm at each release**, with the APK key.
+
+### If it is compromised
+
+Someone else can make opted-in installs announce an arbitrary https link. They
+cannot push an APK (Android enforces the APK key), so the realistic attack is a
+lure to a malicious download.
+
+1. Delete `site/update/android/latest.json` and `.sig` and redeploy: a 404 is "no
+   update", so no install shows anything further.
+2. Announce it (release notes, site, `SECURITY.md` channel): installs that saw a
+   prompt since the compromise should not have followed it.
+3. Generate a new key, commit its public half, and ship a client release built with
+   it. Installs on the old client stay silent until users update by other means;
+   the announcement must say so.
+
+### If it is lost
+
+Nobody can sign a document the shipped clients accept. They fall silent, which is
+safe but means opted-in users stop hearing about updates. Generate a new key, ship
+a client with it, and tell users on the release page and the site that the in-app
+check needs one manual update to resume. There is no lineage mechanism: a client
+embeds exactly one key, so rotation is always "new key in the next client".

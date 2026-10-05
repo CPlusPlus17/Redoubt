@@ -342,3 +342,154 @@ The retired host unit is preserved outside VM state as
 Its old workspace remains intact; its registration is revoked. Update the
 recorded cutover result and labels here and in LW-M6-09 evidence when rebuilding.
 No full build or release publication is implied by this preflight-only dispatch.
+
+## Box B: the on-demand build VM
+
+> **Gate mode (owner decision 2026-10-04): `GATE_MODE=actual`.** Box B starts the build VM when *current* free memory minus a 2 GiB margin covers the VM (26112 MiB), not after reserving the other workloads' possible growth (that rule, `GATE_MODE=reserve`, held builds back for hours). If memory runs short during a build, the kernel kills the Redoubt VM first (OOMScoreAdjust=700, `Restart=no`); llama-server and the other project's runners keep priority, and the build is retried. Override in `~/.config/redoubt-boxb.env` on box B.
+
+Owner decision, 2026-10-04: the heavy Android jobs move to box B, host `llm`
+(Fedora 44, 24 threads, 62 GiB RAM, 1.8 TB free disk). Box B also runs the
+owner's llama-server (`llama-qwen38.service`, RTX 5090) and three ephemeral-VM
+GitHub runners of another project (`gh-runner-slot@{1,2,3}.service` in
+`machine-ghci.slice`, plus two hasteheart slot accounts `fivur-ci-2/3` under
+`ci-capacity`). Redoubt yields to all of them and never touches their units,
+accounts or files. Box A's `redoubt-ci-qemu` (ID 22) is unchanged and keeps the
+`librewolf-android` jobs (test-android).
+
+| | Box A `redoubt-ci-qemu` | Box B `redoubt-ci-boxb` |
+|---|---|---|
+| Jobs | `runs-on: librewolf-android` (test-android) | `runs-on: [self-hosted, redoubt-boxb]` (build-android, android-release) |
+| VM | 8 vCPUs, 20 GiB, 400 GiB thin | 16 vCPUs, 24 GiB, 250 GiB thin (`vm.conf`) |
+| Guest runner slice | 18 GiB RAM / 6 GiB swap | 22 GiB RAM / 8 GiB swap |
+| Started by | `redoubt-ondemand.timer` on box A | `redoubt-boxb-ondemand.timer` on box A, through `boxb-ctl.sh` on box B |
+
+The VM, guest provisioning, firewall and runner service are the same scripts as
+above ([scripts/ci-vm](../../scripts/ci-vm/)), parameterised; the defaults are box
+A's, so box A's installed copies behave as before. Box B adds
+[scripts/ci-vm-boxb](../../scripts/ci-vm-boxb/). Everything runs as box B's
+unprivileged account `user` (user units, lingering on); `sudo -n` is only a
+fallback for `loginctl enable-linger` and for missing packages (none were missing
+on 2026-10-04).
+
+State on 2026-10-04: the VM is provisioned and stopped, runner `redoubt-ci-boxb`
+is GitHub runner **ID 23** (`self-hosted, Linux, X64, redoubt-boxb`, seen online),
+the isolation acceptance passed on box B, and box A's poller timer is enabled. No
+job has run on box B yet; build time, memory peak and APK output there are
+unverified. Evidence: [evidence/lw-m6-09/boxb](evidence/lw-m6-09/boxb/README.md).
+
+### Who decides what
+
+Box B holds no GitHub credential. The poller runs on box A, where `gh` is
+logged in, and only reads GitHub (the same queue reads and label rule as
+`redoubt-ondemand.sh`). Box B decides about its own memory:
+
+1. **Box A, every 60 s** (`redoubt-boxb-ondemand.timer`): if a queued job's labels
+   are all among `redoubt-ci-boxb`'s labels, or the keepalive is due (7 days;
+   GitHub drops a runner offline for 14), it asks box B to start. When nothing
+   matching is queued or in progress and the runner is not busy for 15 min (and
+   the VM has been up 10 min), it re-checks GitHub and asks box B to stop.
+   `~/.local/state/redoubt-boxb-ondemand/hold` on box A keeps the VM up.
+2. **Box B** ([boxb-ctl.sh](../../scripts/ci-vm-boxb/boxb-ctl.sh)): the poller's key
+   (`~/.local/state/redoubt-boxb-control/ondemand_ed25519` on box A) is bound in box
+   B's `authorized_keys` with `restrict,command=` to this script, which accepts only
+   `status`, `gate`, `start REASON` and `stop`. `start` runs the gate first and
+   refuses (exit 3) with the numbers in box B's journal when there is no room:
+
+   ```
+   room = MemAvailable − spherene growth − hasteheart growth − host margin 2 GiB
+   start only if room ≥ 26112 MiB (VM 24 GiB + QEMU) and memory PSI some avg60 ≤ 10
+   ```
+
+   - *spherene growth*: every VM scope in `machine-ghci.slice` may still grow to
+     8.5 GiB (a busy slot VM; an idle one holds ~1.1 GiB), and every active
+     `gh-runner-slot@` without a VM may boot one; capped by the slice's
+     `MemoryMax − MemoryCurrent` (30 GiB cap today).
+   - *hasteheart growth*: a `ci-capacity` member account running a job scope
+     (`fivur-slot-*.scope`) may still grow to 10 GiB (anon + shmem of its user
+     slice). Box A's script counts ci-capacity grants through `/run/ci-capacity`;
+     on box B that directory is mode 2770, not searchable by `user`, so box B uses
+     the job scopes instead. An idle slot counts 0: ci-capacity grants only above
+     its own `MemAvailable` floor (14 GiB), which a running Redoubt VM lowers.
+   - *host margin*: llama-server's anonymous memory (9.2 GiB measured) can grow;
+     its model file is a reclaimable mapping already outside `MemAvailable`'s
+     used side, and its weights sit on the GPU.
+
+   Knobs (parsed, never sourced) live in box B's `~/.config/redoubt-boxb.env`:
+   `NEED_MIB`, `SPHERENE_VM_MIB`, `HH_JOB_MIB`, `HOST_MARGIN_MIB`, `MAX_PSI`.
+
+In practice the gate opens when both hasteheart jobs are idle and the spherene
+VMs are not all busy. With both hasteheart jobs running it defers (measured
+2026-10-04: room about 3 GiB). A deferred Redoubt job waits in GitHub's queue
+(up to 24 h) and the poller asks again every minute; box B logs a deferral at
+most once per 10 min.
+
+**Overcommit is structural.** At their caps, llama-server, the spherene slice
+(30 GiB), hasteheart (2 × 10 GiB) and the host already exceed box B's 62 GiB
+(`/etc/ci-capacity.conf` says so). The gate protects the start, not the next
+hour. The box B drop-in
+([redoubt-ci-vm-boxb.conf](../../scripts/ci-vm-boxb/redoubt-ci-vm-boxb.conf)) therefore
+makes Redoubt the first victim: `OOMScoreAdjust=700` (Redoubt QEMU ≈ 390 + 700 against
+spherene ≈ 130 + 500 and llama-server ≈ 0), `MemoryMax=26G` for the QEMU unit, and
+`CPUWeight=50`/`IOWeight=50`. A killed QEMU fails the running build; nothing else
+is disturbed. The other direction (a hasteheart grant just after a Redoubt start)
+is the same open point as box A's (`impl/boxa/REVIEW.md` O1).
+
+### Install and register (idempotent; run from box A in the repository root)
+
+```sh
+bash scripts/ci-vm-boxb/deploy-boxb.sh host       # copy scripts, poller files on box A, install-boxb.sh on box B
+bash scripts/ci-vm-boxb/deploy-boxb.sh guest      # start (only if the gate agrees), provision 22G/8G, install runner 2.337.0
+bash scripts/ci-vm-boxb/deploy-boxb.sh register   # redoubt-ci-boxb, label redoubt-boxb; token via SSH stdin only
+bash scripts/ci-vm-boxb/deploy-boxb.sh verify     # verify-host.py on box B with box B's parameters
+bash scripts/ci-vm-boxb/install-poller.sh --enable  # enable redoubt-boxb-ondemand.timer on box A
+```
+
+Administration uses the owner's key `~/.ssh/id_boxb` (`user@10.0.0.154`). Set
+`BOXB_LOG=FILE` to append every remote command to an evidence log. `deploy-boxb.sh
+host` copies `scripts/ci-vm` and `scripts/ci-vm-boxb` to box B's
+`~/.local/src/redoubt-ci` and runs
+[install-boxb.sh](../../scripts/ci-vm-boxb/install-boxb.sh) there, which fetches the
+pinned Fedora image (SHA-256 above), runs `initialize.py --name redoubt-ci-boxb
+--cpus 16 --mem-mib 24576 --disk 250G` once, and on later runs only refreshes the
+launcher while the VM is stopped. It never enables `redoubt-ci-vm.service`.
+`guest --force` overrides the memory gate for provisioning; use it only as an owner
+decision. The registration token is fetched on box A with `gh api` and sent through
+SSH stdin through box B's `ssh.sh` into `config.sh`; it is never written on box B
+or in the guest outside the runner's own configuration. The android build image is
+not transferred: box A's archived image predates `assets/Dockerfile.android`'s
+SDK pins (bd3cb07e), so the workflows build it in the guest from the commit's
+Dockerfile and label it with its hash (`org.redoubt.dockerfile-sha256`); a later
+Dockerfile change rebuilds it.
+
+Box B paths: VM state `~/.local/share/redoubt-ci-vm/` (with `vm.conf`), host
+control `~/.local/state/redoubt-ci-vm-control/`, launcher `~/.local/lib/redoubt-ci-vm/`,
+`~/.local/lib/redoubt-boxb/boxb-ctl.sh`, units `~/.config/systemd/user/redoubt-ci-vm.service`
+and `redoubt-ci-vm.service.d/10-boxb.conf`. Guest SSH is box B's `127.0.0.1:2222`.
+The guest's private-network rejection covers box B's LAN (10.0.0.0/24) and libvirt
+bridges (192.168.122.0/24, 192.168.150.0/24).
+
+### Daily operation
+
+```sh
+# box A
+systemctl --user list-timers redoubt-boxb-ondemand.timer
+journalctl --user -u redoubt-boxb-ondemand -n 40 --no-pager
+REDOUBT_DRY_RUN=1 ~/.local/lib/redoubt-boxb-ondemand/redoubt-boxb-ondemand.sh
+# box B (owner key)
+ssh -i ~/.ssh/id_boxb -o IdentitiesOnly=yes user@10.0.0.154 \
+  '.local/lib/redoubt-boxb/boxb-ctl.sh gate; journalctl -t redoubt-boxb-ctl -n 20 --no-pager'
+ssh -i ~/.ssh/id_boxb -o IdentitiesOnly=yes user@10.0.0.154 \
+  'systemctl --user status redoubt-ci-vm.service --no-pager'
+ssh -i ~/.ssh/id_boxb -o IdentitiesOnly=yes user@10.0.0.154 \
+  ".local/lib/redoubt-ci-vm/ssh.sh 'free -h; df -h /home; sudo systemctl status redoubt-actions-runner.service --no-pager'"
+```
+
+Limits: the poller lives on box A, so box B's VM is not started while box A is
+off (queued jobs wait). Both pollers share box A's `gh` rate limit (about 20
+requests per minute each while 19 box A jobs are queued). The VM is persistent
+between jobs like box A's; the build caches under `/home/runner/redoubt-ci` are
+the point. Roll back by pointing the two workflows' `runs-on` back to
+`librewolf-android`, `systemctl --user disable --now redoubt-boxb-ondemand.timer`
+on box A, stopping the VM on box B, and removing the `redoubt-boxb-ondemand` line
+from box B's `authorized_keys`; retire `redoubt-ci-boxb`'s registration before
+deleting its disk.

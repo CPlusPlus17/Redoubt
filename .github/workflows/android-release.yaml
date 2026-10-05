@@ -34,6 +34,18 @@
 # If a step ever genuinely needs the build image, invoke `podman run`
 # explicitly inside a `run:` step, where the mount flags are ours to set.
 #
+# RELEASE INPUTS (2026-10-04, for the stable Redoubt 157.0-2 build): a full
+# dispatch takes update_check (true = --update-check, the direct-APK shape
+# with the committed public key; the gate below fails if the dex does not
+# carry the key, or carries it when false) and build_date (MOZ_BUILD_DATE,
+# passed as --build-date to both the fat-AAR and the APK pass, so the
+# versionCode is chosen at dispatch and can be checked to exceed the previous
+# release's). The artifact is the four unsigned APKs, output-metadata.json
+# (input of scripts/update-manifest.py generate) and SHA256SUMS. Preflight is
+# unchanged. Example (docs/android/DISTRIBUTION.md, "Stable release"):
+#   gh workflow run android-release.yaml --repo CPlusPlus17/Redoubt --ref main \
+#     -f mode=full -f update_check=true -f build_date=20261004200000
+#
 # NO apksigner DEPENDENCY, DELIBERATELY. The first draft resolved apksigner
 # from $ANDROID_SDK_ROOT/build-tools/*/. That variable was never set anywhere
 # in the workflow, and this machine has no build-tools directory at all. The
@@ -47,7 +59,9 @@ on:
   # Changes to this pipeline preflight themselves. A workflow that has never
   # executed is not a pipeline; this makes "it runs" observable on every edit.
   push:
-    branches: [android-port, main]
+    # main only: android-port is pushed at the same commit, and a second
+    # preflight would only start the box B VM twice for one edit.
+    branches: [main]
     paths: ['.github/workflows/android-release.yaml']
   workflow_dispatch:
     inputs:
@@ -57,13 +71,30 @@ on:
         default: preflight
         type: choice
         options: [preflight, full]
+      update_check:
+        description: "full only: compile the opt-in in-app update check in (--update-check; needs assets/update-check.android.pubkey). true for direct-APK releases, false for F-Droid/Accrescent-shaped builds."
+        required: false
+        default: false
+        type: boolean
+      build_date:
+        description: "full only: MOZ_BUILD_DATE, YYYYMMDDHHMMSS (UTC), passed as --build-date to the fat-AAR and the APK pass. Pins the versionCode; a release must use a value later than the previous release's. Empty = now (UTC) at the AAR pass."
+        required: false
+        default: ""
+        type: string
 
 jobs:
   build-unsigned:
-    runs-on: librewolf-android
+    # Box B's on-demand VM (docs/android/CI-VM.md, "Box B"): 16 vCPUs, 24 GiB.
+    # A preflight starts it too; box B's memory gate may defer the start while
+    # the host is busy, and the job then waits in GitHub's queue.
+    runs-on: [self-hosted, redoubt-boxb]
     env:
       # `inputs` only exists for workflow_dispatch; a push always preflights.
       MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'preflight' }}
+      # Inputs reach the scripts only through the environment, never by
+      # ${{ }} interpolation into a run: block. On push both are empty/false.
+      UPDATE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.update_check && 'true' || 'false' }}
+      BUILD_DATE_IN: ${{ github.event_name == 'workflow_dispatch' && inputs.build_date || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -113,6 +144,39 @@ jobs:
           echo "mode=$MODE — preflight only. No build was run."
           echo "Re-dispatch with mode=full to fetch, patch, build and publish."
 
+      - name: Validate the release inputs (build_date, update_check)
+        if: ${{ env.MODE == 'full' }}
+        run: |
+          set -eu
+          # Fail in seconds, not after an hour of fetch and Gecko build.
+          if [ -n "$BUILD_DATE_IN" ]; then
+            printf '%s' "$BUILD_DATE_IN" | grep -Eq '^[0-9]{14}$' \
+              || { echo "FATAL: build_date '$BUILD_DATE_IN' is not 14 digits (YYYYMMDDHHMMSS)" >&2; exit 1; }
+            # A real calendar time, not just 14 digits (e.g. not 20261332...).
+            python3 -c 'import sys, datetime; datetime.datetime.strptime(sys.argv[1], "%Y%m%d%H%M%S")' "$BUILD_DATE_IN" \
+              || { echo "FATAL: build_date '$BUILD_DATE_IN' is not a valid UTC date/time" >&2; exit 1; }
+            # The versionCode is derived from MOZ_BUILD_DATE; a value in the
+            # future would make every later build look older than this one.
+            now=$(date -u +%Y%m%d%H%M%S)
+            if [ "$BUILD_DATE_IN" \> "$now" ]; then
+              echo "FATAL: build_date $BUILD_DATE_IN is in the future (now $now UTC)" >&2; exit 1
+            fi
+            echo "build_date: $BUILD_DATE_IN (pinned for the AAR and the APK pass)"
+            echo "LW_DATE_FLAG=--build-date=$BUILD_DATE_IN" >> "$GITHUB_ENV"
+          else
+            echo "build_date: not given -- the AAR pass uses now (UTC) and the APK pass reads it back"
+            echo "LW_DATE_FLAG=" >> "$GITHUB_ENV"
+          fi
+          if [ "$UPDATE_CHECK" = true ]; then
+            test -s assets/update-check.android.pubkey \
+              || { echo "FATAL: update_check=true but assets/update-check.android.pubkey is not committed" >&2; exit 1; }
+            echo "update_check: COMPILED IN (key $(sha256sum assets/update-check.android.pubkey | cut -c1-16)...)"
+            echo "LW_UPDATE_FLAG=--update-check" >> "$GITHUB_ENV"
+          else
+            echo "update_check: compiled out"
+            echo "LW_UPDATE_FLAG=" >> "$GITHUB_ENV"
+          fi
+
       - name: Fetch and patch the Android tree
         if: ${{ env.MODE == 'full' }}
         run: |
@@ -124,6 +188,19 @@ jobs:
           make dir   TARGETS=android
           test -x "librewolf-$(cat version.android)-$(cat release.android)/mach" \
             || { echo "FATAL: mach not found in the extracted tree" >&2; exit 1; }
+
+      - name: Build image from this commit's Dockerfile
+        if: ${{ env.MODE == 'full' }}
+        run: |
+          set -eu
+          # Same rule as android-test.yaml build-android: rebuild when the
+          # Dockerfile changed, not only when the image is missing.
+          want=$(sha256sum assets/Dockerfile.android | cut -c1-64)
+          have=$(podman image inspect --format '{{ index .Labels "org.redoubt.dockerfile-sha256" }}' librewolf-android-build 2>/dev/null || true)
+          if [ "$have" != "$want" ]; then
+            podman build --no-cache --label "org.redoubt.dockerfile-sha256=$want" \
+              -t librewolf-android-build - < assets/Dockerfile.android
+          fi
 
       - name: "Build the unsigned release APK (Gecko/AAR pass, then Fenix)"
         if: ${{ env.MODE == 'full' }}
@@ -151,10 +228,17 @@ jobs:
           # calling it directly without that (as the previous revision did) dies
           # with 'fatal: --aar-dir is required'. ANDROID_APK_FLAGS carries the
           # variant + the unsigned flag through to the script.
+          # -j8: at the default min(16, nproc) = 16 a Gecko pass peaks at ~31 GB,
+          # more than box B's 24 GiB VM; at -j8 it peaks at 17-25 GB.
+          #   LW_DATE_FLAG    --build-date=<build_date> to BOTH passes, so the
+          #                   versionCode is the one chosen at dispatch, or empty.
+          #   LW_UPDATE_FLAG  --update-check (update_check=true), or empty.
+          # Both were set by the validation step above.
           make android-package \
             TARGETS=android \
             CONTAINER_ENGINE=podman \
-            ANDROID_APK_FLAGS="--variant=release --disable-debug-signing"
+            ANDROID_AAR_FLAGS="--jobs=8 $LW_DATE_FLAG" \
+            ANDROID_APK_FLAGS="--variant=release --disable-debug-signing --jobs=8 $LW_DATE_FLAG $LW_UPDATE_FLAG"
           APKDIR="librewolf-android-apk-$(cat version.android)-$(cat release.android)/apk"
           ls "$APKDIR"/*.apk >/dev/null 2>&1 \
             || { echo "FATAL: no release APK produced under $APKDIR/" >&2; exit 1; }
@@ -186,15 +270,61 @@ jobs:
           done
           [ "$found" -eq 1 ] || { echo "FATAL: no release APK found to gate ($APKDIR/)." >&2; exit 1; }
 
+      - name: Gate — the artifact matches the inputs (APK set, build date, update check)
+        if: ${{ env.MODE == 'full' }}
+        run: |
+          set -eu
+          APKDIR="librewolf-android-apk-$(cat version.android)-$(cat release.android)/apk"
+          # Exactly the four direct-APK outputs: arm64-v8a, armeabi-v7a,
+          # x86_64 and universal. android-apk.sh already checks them against
+          # output-metadata.json; this guards the publish step's glob.
+          n=$(find "$APKDIR" -maxdepth 1 -name '*.apk' | wc -l)
+          [ "$n" -eq 4 ] || { echo "FATAL: expected 4 APKs in $APKDIR/, found $n" >&2; exit 1; }
+          test -s "$APKDIR/output-metadata.json" \
+            || { echo "FATAL: $APKDIR/output-metadata.json is missing" >&2; exit 1; }
+          python3 - "$APKDIR/output-metadata.json" <<'PY'
+          import json, sys
+          els = json.load(open(sys.argv[1]))["elements"]
+          names = {e.get("versionName") for e in els}
+          codes = sorted(e.get("versionCode") for e in els)
+          print("versionName", sorted(names), "versionCodes", codes)
+          if len(els) != 4 or len(names) != 1:
+              sys.exit("FATAL: output-metadata.json does not describe one release of four APKs")
+          PY
+          if [ -n "$BUILD_DATE_IN" ]; then
+            got=$(sed -n 's/^MOZ_BUILD_DATE=\([0-9]*\).*/\1/p' \
+              "librewolf-android-aar-$(cat version.android)-$(cat release.android)/build-times.txt" | head -1)
+            [ "$got" = "$BUILD_DATE_IN" ] \
+              || { echo "FATAL: the AAR was built with MOZ_BUILD_DATE '$got', not build_date $BUILD_DATE_IN" >&2; exit 1; }
+            echo "OK: MOZ_BUILD_DATE $got"
+          fi
+          # R8 inlines the public key into the dex (DISTRIBUTION.md step 1).
+          key=$(tr -d ' \t\r\n' < assets/update-check.android.pubkey 2>/dev/null || true)
+          for apk in "$APKDIR"/*.apk; do
+            hits=0
+            [ -z "$key" ] || hits=$(unzip -p "$apk" 'classes*.dex' | grep -c -aF "$key" || true)
+            if [ "$UPDATE_CHECK" = true ] && [ "$hits" -lt 1 ]; then
+              echo "FATAL: update_check=true but $apk does not carry the update-check key" >&2; exit 1
+            fi
+            if [ "$UPDATE_CHECK" != true ] && [ "$hits" -ne 0 ]; then
+              echo "FATAL: update_check=false but $apk carries the update-check key" >&2; exit 1
+            fi
+            echo "OK: $apk update check $([ "$hits" -ge 1 ] && echo compiled in || echo compiled out)"
+          done
+
       - name: Collect unsigned APKs and publish sha256 sums
         if: ${{ env.MODE == 'full' }}
         run: |
           set -eu
           APKDIR="librewolf-android-apk-$(cat version.android)-$(cat release.android)/apk"
           mkdir -p dist
-          cp "$APKDIR"/*.apk dist/
+          cp "$APKDIR"/*.apk "$APKDIR/output-metadata.json" dist/
+          # SHA256SUMS lists the APKs only: it is the signer's input
+          # (SHA256SUMS.unsigned). output-metadata.json is the input of
+          # scripts/update-manifest.py generate.
           ( cd dist && sha256sum *.apk > SHA256SUMS )
           cat dist/SHA256SUMS
+          sha256sum dist/output-metadata.json
 
       - name: Upload unsigned artifacts + sums
         if: ${{ env.MODE == 'full' }}
@@ -203,7 +333,11 @@ jobs:
           name: redoubt-android-unsigned
           path: |
             dist/*.apk
+            dist/output-metadata.json
             dist/SHA256SUMS
+          if-no-files-found: error
+          # Long enough to sign on box A, publish and keep the unsigned
+          # inputs for a re-verification after the release.
           retention-days: 90
 
       - name: Boundary — CI stops here (no signing, no release)

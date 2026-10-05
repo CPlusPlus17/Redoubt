@@ -1,0 +1,26 @@
+Document: signing-bundle/update/latest.json (sha256 ea990570020d83d9a223c3b5160a4d0456cf7d08cd45a7aa8c9d7e6c83c84d89), signed here with a THROWAWAY P-256 key generated for this test (public key MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZ9ULy/fBPcpphNh20QyprektfMYjiDQ4aWfLdCc5SkPZt465I+vXLeIv9l9eduM+ttSSMgdgMBZtcYQjnxvb4Q==). Not the owner's key.
+
+$ update-manifest.py verify latest.json --metadata <CI output-metadata.json>   (committed key = what the app embeds)
+REJECTED: signature did not verify (the app would show nothing)
+exit 1
+
+$ ... --pubkey <throwaway public key>   (positive control: same bytes, matching key)
+signature OK; latest_version=157.0-2 version_code=2016188448 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0-2
+verdict for the given install: up to date
+matches ../ci/redoubt-android-unsigned/output-metadata.json: version_code is the lowest of [2016188448, 2016188450, 2016188454, 2016188455]
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016188262 --current-version 157.0-1-default (Beta 5 x86_64)
+signature OK; latest_version=157.0-2 version_code=2016188448 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0-2
+verdict for the given install: update offered
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016188454 --current-version 157.0-2-default (157.0-2 x86_64)
+signature OK; latest_version=157.0-2 version_code=2016188448 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0-2
+verdict for the given install: up to date
+exit 0
+
+$ signing-bundle/update/sign-update-manifest.sh <throwaway key> latest.json   (the owner's signer must refuse any key but the pinned one)
+== verifying against the pinned public key
+sign-update-manifest: the signature does NOT verify against /home/mgysin/redoubt-artifacts/stable/accept/signing-bundle/update/update-check.android.pubkey -- wrong key? Nothing was written.
+exit 2; l2.json.sig written: no

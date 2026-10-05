@@ -4,9 +4,20 @@ Owner: LW-M7-06. This file is written **before** the beta starts, as the task's
 first acceptance line requires. It fixes the entry criteria, the device spread,
 what is collected, the exit criteria, and holds the go/no-go decision at the end.
 The entry table records preparation evidence. §6 records tester results as they
-arrive; §7 stays blank until the owner makes the stable-release decision.
+arrive; §7 holds the owner's stable-release decision (GO, 2026-10-04).
 The owner changed the original closed-beta channel to a public GitHub prerelease
 on 2026-09-08; see §3 and the [publication record](evidence/lw-m6-11/README.md).
+
+> **Programme ended (2026-10-04).** The owner, Manuel Gysin, decided GO for the
+> stable release on 2026-10-04: *"we start now, testers are early adaptors"*. The
+> 14-day device-slot programme below (§2-§4) did not run as written and is
+> replaced by public early-adopter feedback after release, through the same
+> Android bug-report form. The first stable release is **Redoubt 157.0-2**
+> (Firefox 157; *"157 is our releae we want to go"* (verbatim)), a new build from `main`
+> with the in-app update check compiled in, not Beta 5's binary. §7 records the
+> decision and, for every no-go item, what is evidenced and what was waived. The
+> rest of this file is kept as written: it is the record of what the beta was
+> meant to measure and did not.
 
 > **Track note (2026-10-02):** Betas 1-3 were built from Firefox ESR 153. Android has
 > since moved to Firefox release 157.0 ([`TRACK.md`](TRACK.md#decision-reversed-2026-10-02));
@@ -98,7 +109,9 @@ asks for exactly this ("who holds which device").
 
 - **Length:** 14 days from the first install. The public-launch rotation in
   `TRIAGE.md` §5 starts separately when the public download page goes live.
-- **Channel:** direct signed APKs on a **public GitHub prerelease**. On
+- **Channel:** direct signed APKs on GitHub Releases. Since 2026-10-04 each beta is a full
+  release marked **Latest** (see `DISTRIBUTION.md`), still titled "Beta"; Betas 1-4 were
+  prereleases. Originally: a **public GitHub prerelease**. On
   2026-09-08, after approving the exact E7 beta candidate, the owner requested
   adding its APKs to GitHub Releases. That request supersedes the earlier
   private-link-only plan for this beta. The release is clearly marked as a
@@ -186,14 +199,94 @@ crashes, with the warning that it contains visited URLs.
 
 ## 7. Go / no-go
 
+Recorded by the agent on the owner's instruction of 2026-10-04 (the owner's words,
+verbatim: *"1. we start now, testers are early adaptors 2. 157 is our releae we want
+to go. 3. like said, testers are early adapotrs. 4. done"*). The decision is the
+owner's; the evidence lines below are the agent's reading of the repository and say
+plainly where real-device evidence does not exist.
+
 ```
-DECISION:     ______   (GO / NO-GO)
-DATE:         ______
-SIGNED BY:    ______________________   (maintainer)
-BUILD:        ______________________   (commit + MOZ_BUILD_DATE of the build the decision covers)
-NO-GO ITEMS:  every N-item above, each marked "not triggered — <evidence>" or "triggered — <issue>"
+DECISION:     GO   (owner decision, early-adopter release model)
+DATE:         2026-10-04
+SIGNED BY:    Manuel Gysin (maintainer) -- recorded by the agent on the owner's instruction
+BUILD:        Redoubt 157.0-2, commit 27240eb6d0140704f637135c7985c778a9f46e51,
+              MOZ_BUILD_DATE 20261005000000 (CI run 37248744119; accepted on the
+              emulator 2026-10-05, evidence/lw-m7-01/release-157.0-2/acceptance/
+              run-37248744119/)
+NO-GO ITEMS:  see below; every item was checked on the emulator only, none on a
+              tester device. What a tester device would have added is waived by
+              the owner's early-adopter decision, not shown to be absent.
 ```
 
-Until this block is filled in, LW-M7-06 is not done and the stable release does
-not proceed — the task's third acceptance line is "a written go/no-go decision at
-the end", and this is where it goes.
+The evidence is for the 157.0-1 builds that preceded 157.0-2: the device
+acceptance of rc3 (`6202ee6d`, Beta 4's source,
+[`evidence/lw-m7-01/release-157.0/acceptance/`](evidence/lw-m7-01/release-157.0/acceptance/README.md))
+and the regression smoke of the Beta 5 candidate (`cdeadd6c`,
+[`evidence/lw-m7-41/migration/`](evidence/lw-m7-41/migration/README.md)). All on one
+android-30 x86_64 emulator (no GMS, SwANGLE); arm64 and armeabi-v7a APKs were checked
+statically only. 157.0-2 itself is not built yet; the release procedure
+(`DISTRIBUTION.md`, "Stable release") repeats the smoke on its exact payload.
+
+- **N1 (crash/OOM on slots 1-3) -- not evidenced on real devices; waived.** On the
+  emulator: `--check-launcher-start` PASS on rc3 and on the Beta 5 candidate (fresh
+  profile and restart, no setup-failure dialog after 45 s); no crash in either
+  acceptance. There is **no measurement on a low-RAM phone** (slot 1, <= 3 GB) or on
+  Android 9/10 (slot 3). The site-isolation + `isolatedProcess` memory cost this beta
+  existed to measure is therefore **unmeasured**; the owner accepts that early
+  adopters will report it.
+- **N2 (first-run connections) -- not triggered on the emulator.** `--first-run-capture`
+  with DNS 9.9.9.9: rc3 108 events, Beta 5 candidate 124 events
+  (`acceptance/rc3/smoke/first-run-capture/`, `lw-m7-41/migration/smoke/first-run-capture/`,
+  host comparisons in `acceptance/rc3/first-run-host-comparison.json` and
+  `lw-m7-41/migration/smoke/first-run-host-comparison.json`). No named Mozilla
+  telemetry, experiments, ads or crash-reporting host and no named Google host. Named
+  Mozilla hosts are Remote Settings (`firefox.settings.services.mozilla.com`,
+  `content-signature-2.cdn.mozilla.net`, `firefox-settings-attachments.cdn.mozilla.net`,
+  E12's recorded exception; the two strict zero-Remote-Settings checks are red as
+  designed) and AMO (`services.addons.mozilla.org`, `versioncheck-bg.addons.mozilla.org`,
+  uBO's add-on). The other named hosts are uBO list mirrors and `publicsuffix.org`.
+  Limits: 23 unnamed destinations (22 IPv6, plus the emulator DNS 10.0.2.3) are transport observations, not attributed
+  per host; the effective `allowedCollections` was last read from a runtime pref dump
+  on the 2026-09-08 candidate (E12), not on 157; no capture on a tester's network.
+- **N3 (WebGL) -- not triggered on the emulator; real GPUs not evidenced, waived.**
+  Full graphics acceptance 161/161 twice on rc3 (`acceptance/rc3/smoke/baseline-smoke/`,
+  `static-no-gms-no-adjust/`) and once on the Beta 5 candidate
+  (`lw-m7-41/migration/smoke/baseline-smoke/graphics-acceptance/`), after the rc1
+  WebGL-permissions defect was fixed. The emulator renders through SwANGLE; no
+  physical GPU/driver was tested.
+- **N4 (search partner codes / engines) -- not triggered.** `--check-search` PASS on
+  rc3: the query went to `noai.duckduckgo.com` with no partner parameter; 4 engines,
+  default DuckDuckGo No-AI (`acceptance/rc3/smoke/check-search/`). `--check-no-suggest`
+  PASS on rc3 (its negative control red, as it should be) and on the Beta 5 candidate.
+  `--check-search` was not re-run on the Beta 5 candidate (it changed no Kotlin).
+- **N5 (second build over the first) -- not triggered on the emulator; real devices
+  not evidenced.** Real `adb install -r` upgrades kept the profile and signer:
+  Beta 3 -> rc3 (`acceptance/rc3/upgrade/`; versionCode 2016187942 -> 2016188078,
+  settings, bookmark, DoH and uBO selection kept) and Beta 4 rc3 -> Beta 5 candidate
+  (`lw-m7-41/migration/device/s1/`, `s2/`). These used the throwaway test key on both
+  sides, not the release key; the release-key path is covered by Betas 4 and 5
+  being published with the same key (fingerprint-verified downloads,
+  `evidence/lw-m7-01/release-157.0/beta5/downloaded-verification.txt`). No tester
+  reported installing one beta over another. 157.0-2's versionCodes must exceed
+  Beta 5's (2016188256-63); the release build pins `build_date` for that.
+- **N6 (must-lock prefs on a tester device) -- emulator only; tester dump waived.**
+  rc3 pref audit: generator 0-line diff against the committed baseline, audit
+  0 violations, 0 notes; 20 of 132 must-lock keys are in the harness dump universe,
+  the other 112 are enforced by the generated locks (`acceptance/rc3/pref-audit/`).
+  `--check-aboutconfig`: 52 prefs locked, on rc3 and the Beta 5 candidate. **No
+  `--pref-dump` from a tester's device exists.**
+
+- **G1 -- waived** by the owner: no slot 1-3 device completed 14 days; early adopters
+  take the testers' place after release.
+- **G2 -- per the N-items above:** each was checked on the emulator and recorded as
+  not triggered there; the real-device parts of N1, N3, N5 and N6 are not
+  evidenced and are waived by the owner's decision, not passed.
+- **G3 -- met trivially:** no beta issues were filed, so none is open or needs a
+  `Status Known issue` label.
+- **G4 -- met** (checked 2026-10-04 on `site/index.html`): the parity sentence from
+  `PARITY.md` §5 appears verbatim, with the link to the PARITY.md table, and the
+  SHA-256 fingerprint `64:14:EB:33:...:28:3B:D0` matches `SIGNING.md`
+  (also on `site/install.html`).
+
+The parity limits stand as published: the decision changes how the release is
+tested, not what `PARITY.md` says Redoubt does and does not protect.

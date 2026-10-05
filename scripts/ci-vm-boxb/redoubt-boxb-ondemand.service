@@ -1,0 +1,13 @@
+# ~/.config/systemd/user/redoubt-boxb-ondemand.service on box A (installed by install-poller.sh)
+[Unit]
+Description=Start/stop box B's Redoubt CI VM on demand (CPlusPlus17/Redoubt job queue)
+Documentation=https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/CI-VM.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/redoubt-boxb-ondemand.env
+ExecStart=%h/.local/lib/redoubt-boxb-ondemand/redoubt-boxb-ondemand.sh
+# A stop waits for box B's stop.sh (guest powerdown, up to 90 s + TimeoutStopSec=100).
+TimeoutStartSec=5min
+Nice=10

@@ -1,0 +1,85 @@
+# The redoubtbrowser.org website (docs/android/WEBSITE.md), published as a
+# GitHub Page from site/.
+#
+# GitHub-hosted runner, not the self-hosted Android runner: this job needs only
+# python3 and the Pages actions, and the self-hosted machine stays free for
+# builds. android-test.yaml ignores pushes that touch only site/**, this file
+# and the site checker, so a site edit does not start the hour-long build.
+#
+# What it publishes is site/ verbatim, including site/update/** (the signed
+# update-check endpoint, docs/android/DISTRIBUTION.md), which this workflow
+# neither generates nor rewrites. site/CNAME sets the custom domain.
+#
+# Before anything is uploaded, scripts/site-check.py must pass: well-formed HTML,
+# no script and nothing loaded from another origin, every internal link and
+# anchor resolves, external links only to the project's GitHub repository,
+# librewolf.net and mozilla.org, and the signing fingerprint identical to
+# README.md's. Pull requests run the check only and deploy nothing.
+#
+# It references no secrets. The deploy authenticates with the job's OIDC token
+# (id-token: write), which is what actions/deploy-pages requires.
+
+name: Website
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - site/**
+      - .github/workflows/pages.yaml
+      - scripts/site-check.py
+      # The checker compares the site's fingerprint against README.md.
+      - README.md
+  pull_request:
+    paths:
+      - site/**
+      - .github/workflows/pages.yaml
+      - scripts/site-check.py
+      - README.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One deploy at a time; never cancel one half-way through.
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check the site
+        run: python3 scripts/site-check.py site
+
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Upload the site
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

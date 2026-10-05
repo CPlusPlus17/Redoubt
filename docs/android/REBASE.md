@@ -58,11 +58,66 @@ the Actions tab, optionally as a dry run). It:
    when the rebase lands (§10).
 
 The issue carries the release notes (desktop and Android), the MFSA index and
-known-vulnerabilities page, and the step list of this file. Run it locally to
-see what it would do — read-only, nothing is opened without a token:
+known-vulnerabilities page, and the step list of this file.
+
+**Android-only releases are flagged too.** The same run reads `version` from
+<https://product-details.mozilla.org/1.0/mobile_versions.json> (the Firefox
+for Android release; the beta and nightly fields are ignored). When it is
+newer than `version.android` and is not the desktop release (that issue
+covers both targets) nor older than it (the desktop rebase goes past it), it
+is an Android-only dot such as 153.0.2, and the watcher opens **one** issue
+titled exactly `Firefox for Android <v> released: rebase Android`, same label,
+same open-or-closed dedup. It does not wait for a source tarball, because an
+Android-only dot may never get one (153.0.2 did not). The issue says whether
+`firefox-<v>.source.tar.xz` exists. With one, the rebase is the usual one for
+Android only (§2 bumps `version.android` / `release.android`, not `version`).
+Without one, there is nothing for §3 to verify. Compare the
+`FIREFOX-ANDROID_<v>_RELEASE` tag in Mozilla's Firefox repository with the one
+Redoubt builds, then either close the issue with a note (nothing reaches
+Redoubt; the next desktop release carries it) or take the fix from the
+release branch as a patch (`SECURITY.md`, "Android-only with no source
+tarball"). If `mobile_versions.json` is unreachable, the desktop half still
+runs and the workflow run turns red. No issue is opened about the failure.
+
+**§4 is pre-run on the issue.** When the watch job has opened the issue, or
+finds it still open, and the release has a source tarball, a second job (`patchcheck`, also GitHub-hosted, never the
+self-hosted Android runner) runs `scripts/firefox-release-watch.py patchcheck`:
+
+1. if the issue already carries a patch-check comment for this version **and
+   this commit** (a hidden `<!-- redoubt-patchcheck version=… sha=… -->`
+   marker), it stops before downloading anything. A new commit on the default
+   branch while the issue is open (patches fixed, say) gets a fresh comment
+   on the next daily run; a re-run on the same commit posts nothing;
+2. downloads `firefox-<v>.source.tar.xz` and its `.asc`, fetches Mozilla's
+   release key the way §3 / the Makefile does (the pinned assets/mozilla-release-key.asc; formerly keys.openpgp.org, by
+   fingerprint) into a throwaway keyring, and refuses unless the key is
+   exactly `14F26682D0916CDD81E37B6D61B7B526D98F0353` and gpg's `VALIDSIG`
+   names it as the primary key;
+3. runs `./scripts/check-patchfail.sh --targets=desktop`, then
+   `--targets=android`, in a scratch root whose `version` and
+   `version.android` both say `<v>` and whose everything else is a symlink
+   into the checkout. Nothing is bumped or committed. The two runs are
+   sequential, so the ~800 MB tarball and one ~5 GB extraction are all that
+   sit on the runner's disk at once. For a Firefox for Android issue only
+   `--targets=android` runs;
+4. posts **one** comment: per target pass / FAIL / ERROR, patch count, the
+   failing patches with the reason (hunks failed, target file missing,
+   reversed), fuzzed and offset hunk counts, the fuzzed patches (for §5a), and
+   a link to the run. The full reports are kept as the run's
+   `patchfail-<v>-release` (or `-android`) artifact for 30 days.
+
+The comment is a head start, not §4: it tests the patch lists as they are on
+the default branch, against the pristine tarball. Re-run §4 yourself on the
+rebase branch.
+
+Run either part locally to see what it would do — read-only, nothing is
+opened or posted without a token:
 
 ```sh
 python3 scripts/firefox-release-watch.py --dry-run
+# patch check, printed not posted; --tarball skips the download (still verified)
+python3 scripts/firefox-release-watch.py patchcheck --version 157.0 --dry-run \
+    --tarball firefox-157.0.source.tar.xz
 python3 scripts/tests/test-firefox-release-watch.py      # offline, fixtures only
 ```
 
@@ -71,8 +126,12 @@ What it does **not** do:
 - **It flags only the latest release.** If two releases land between two runs
   (rare on a daily schedule), only the newer one gets an issue; rebase straight
   to it.
-- **It does not bump, fetch or rebase anything.** It opens an issue; §1 onward
-  is still a human (or an agent) working through this file.
+- **It does not bump or rebase anything.** It opens an issue and pre-runs
+  §3–§4 into a comment; §1 onward is still a human (or an agent) working
+  through this file. It never pushes, never commits, and does not start the
+  self-hosted Android build.
+- **It does not re-check a closed issue.** Once the rebase lands and the
+  issue is closed, the patch check stops for that version.
 - **It reads the default branch.** A rebase sitting on a branch does not
   silence it; the issue stays open until the bump reaches the default branch
   and someone closes it.
@@ -216,7 +275,7 @@ make -n fetch TARGETS=android
 which prints (verified today, with `version.android` = `153.0esr`):
 
 ```
-curl -so public_key.asc "https://keys.openpgp.org/vks/v1/by-fingerprint/14F26682D0916CDD81E37B6D61B7B526D98F0353"
+gpg --import assets/mozilla-release-key.asc   # pinned in the repo since 2026-10-04 (was: keys.openpgp.org)
 gpg --import public_key.asc
 rm -f public_key.asc
 curl -so firefox-153.0esr.source.tar.xz.asc "https://archive.mozilla.org/pub/firefox/releases/153.0esr/source/firefox-153.0esr.source.tar.xz.asc"
@@ -1147,6 +1206,10 @@ our tree; none was backported in this rebase:
 | CVE-2026-84135 | 2026-82 (155) | low | Other issue in Firefox **Focus** for Android (not shipped by us) | 2046661 |
 | CVE-2026-92033 | 2026-90 (156) | high | Privilege escalation in Firefox for Android | 2047339 |
 | CVE-2026-100823 | 2026-97 (157) | low | Spoofing issue in the Downloads component | 2054384 |
+
+*Follow-up 2026-10-04:* closed by the move to Firefox release 157.0 (Beta 4
+on), CVE-2026-84135 aside (Focus-only, never shipped). Each fix was checked
+present in the 157.0 source: `PARITY.md` §7.
 
 Consistent with that: between the two tarballs only two files under `mobile/`
 differ at all (`GeckoAppShell.java`, HDR brightness getters;

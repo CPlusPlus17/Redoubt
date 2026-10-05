@@ -50,7 +50,16 @@ was weighed. It is no longer the policy.
   tarball carries Mozilla's own `mobile/android` fixes, and out-of-band Gecko
   security dots reach us the day Mozilla ships them, without §3a's ESR lag
   (median 14 days, worst 21). The LW-M7-05 statement drafted in §3 has to be
-  rewritten for the release track.
+  rewritten for the release track (`SECURITY.md` now is).
+  Checked 2026-10-04 (`PARITY.md` §7): the nine Firefox for Android CVEs
+  open against the 153.4.0esr tree (`REBASE.md` Appendix D) are all fixed in
+  Firefox <= 157.0 and present in the 157.0 source; eight are closed by
+  `157.0-1` (Beta 4 on), the ninth (CVE-2026-84135) is Focus-only and was
+  never shipped. Mozilla can also ship an Android-only dot release, possibly
+  without a desktop source tarball. Since 2026-10-04 `firefox-release-watch`
+  reads `mobile_versions.json` too and opens a `Firefox for Android <v>
+  released: rebase Android` issue for one (`REBASE.md`, "Release-track
+  cadence").
 - **The `MOZ_ESR`-dependent sites of §1 and §5.3 need re-validation**, above all
   the search-configuration channel (`toolkit/components/search/SearchUtils.sys.mjs:357`
   on 157: `AppConstants.IS_ESR ? "esr" : AppConstants.MOZ_UPDATE_CHANNEL`) and
@@ -158,6 +167,22 @@ was weighed. It is no longer the policy.
   LibreWolf stopped setting it false because OAuth flows to local addresses
   broke). Owner decision the same day: restored to false in
   `settings/android.cfg`, as the betas shipped. Desktop follows upstream.
+- **The navigation storage-access heuristic stays off** (owner decision
+  2026-10-04). `privacy.restrict3rdpartystorage.heuristic.navigation` grants
+  unpartitioned third-party storage to sites the user interacted with during
+  a navigation that returns to the starting site. 157 ships it false on
+  Android only (`StaticPrefList.yaml:18242-18249`); 158 ships it true
+  everywhere (158.0b3 `:18387-18390`, found in the 158 pre-rebase StaticPref
+  diff). `settings/android.cfg` pins it false (Redoubt-settings `990c367`)
+  ahead of the 158 rebase, so the rebase does not turn it on. Desktop
+  follows upstream.
+- **The recently-visited storage-access heuristic is pinned off** (owner
+  decision 2026-10-04). `privacy.restrict3rdpartystorage.heuristic.recently_visited`
+  grants a redirect-through tracker storage access when it was recently visited
+  as a first party. 157 ships it true on Android (`StaticPrefList.yaml:18296-18303`);
+  158 ships it false everywhere (158.0b3 `:18437-18440`). `settings/android.cfg`
+  pins it false (Redoubt-settings `008b87f`), so a later upstream flip back cannot
+  turn it on. On 158 this is a no-op. Desktop follows upstream.
 
 ### What the earlier analysis said this costs
 
@@ -410,6 +435,9 @@ Android. It is Android-only, it names no ESR version, and as of 2026-08-15 no ES
 release has carried it. The next scheduled ESR 153 point release is 153.1 on
 2026-08-18 — 14 days after the release-channel fix, and whether it carries this
 CVE at all depends on whether the bug is in Gecko or in the Kotlin layer.
+
+*(Superseded 2026-10-02: on the release track these fixes arrive with the
+rebase. Outcome for the nine that were open against 153.4.0esr: `PARITY.md` §7.)*
 
 **Redoubt on ESR inherits this gap and must close it by hand.** That
 is a standing obligation, not a one-off: someone reads every "Firefox for Android"

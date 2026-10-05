@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Install & updates &middot; Redoubt</title>
+  <meta name="description" content="How to install the Redoubt APK, verify it, and get notified of new versions with Obtainium.">
+  <link rel="icon" href="icon.webp" type="image/webp">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="index.html"><img src="icon.webp" alt="" width="32" height="32">Redoubt</a>
+      <nav aria-label="Site">
+        <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="install.html" aria-current="page">Install &amp; updates</a></li>
+        <li><a href="privacy.html">Privacy &amp; limits</a></li>
+        <li><a href="sync.html">Sync</a></li>
+        <li><a href="security.html">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="wrap">
+<h1>Install &amp; updates</h1>
+<p class="lede">Redoubt is distributed as signed APKs on GitHub Releases. There is no app store behind it yet, so you choose how to hear about updates.</p>
+
+<h2 id="direct">Install the APK directly</h2>
+<ol>
+  <li>Open the <a href="https://github.com/CPlusPlus17/Redoubt/releases/latest">latest release</a> on GitHub.</li>
+  <li>Download the APK for your device &mdash; for almost any recent phone that is <code>fenix-arm64-v8a-release.apk</code> &mdash; and <code>SHA256SUMS.signed</code>.</li>
+  <li><a href="#verify">Verify it</a> before installing.</li>
+  <li>Open the APK. When Android asks, allow installs from the app you opened it with, then install.</li>
+</ol>
+<p>A newer version installs over the previous one as an update and keeps your data. Android only accepts an update signed with the same key as the installed app, so once you have verified the first install, a tampered update is refused by Android itself.</p>
+
+<h2 id="verify">Verify the download</h2>
+<pre><code>sha256sum -c --ignore-missing SHA256SUMS.signed
+apksigner verify --print-certs fenix-&lt;abi&gt;-release.apk | grep -i SHA-256</code></pre>
+<p>The signing certificate&rsquo;s SHA-256 digest must be:</p>
+<pre class="fingerprint"><code>64:14:EB:33:46:81:CF:6E:92:90:34:B5:6A:06:2D:2B:8D:A0:90:82:21:72:F7:A3:95:2C:85:FD:D1:28:3B:D0</code></pre>
+<p>Every Redoubt APK is signed with this one key (APK signature schemes v2 and v3). If the digest differs, <strong>do not install it</strong>, and <a href="security.html">report it privately</a>. The key and its custody are documented in <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/SIGNING.md">SIGNING.md</a>.</p>
+<p>On a phone without <code>apksigner</code>, an app that shows an installed app&rsquo;s signing certificate (for example AppVerifier) can do the second check after installation: compare the SHA-256 it shows for <code>org.redoubtbrowser</code> with the digest above, and uninstall if it differs.</p>
+
+<h2 id="obtainium">Updates with Obtainium</h2>
+<p>Obtainium is an Android app that watches release pages and offers you new APKs. It works with Redoubt&rsquo;s GitHub Releases today.</p>
+<ol>
+  <li>Install Obtainium from its own release channel (F-Droid or its GitHub page).</li>
+  <li>In Obtainium, tap <strong>Add App</strong> and enter the source URL <code>https://github.com/CPlusPlus17/Redoubt</code>. Obtainium recognises it as a GitHub source.</li>
+  <li>Several APKs are attached to each release. Either pick yours when Obtainium asks, or set <strong>Filter APKs by regular expression</strong> to <code>arm64-v8a</code> (or <code>armeabi-v7a</code> on older 32-bit devices) so it always takes the right one.</li>
+  <li>Tap <strong>Add</strong>. If Redoubt is already installed, Obtainium tracks it; otherwise install it from Obtainium.</li>
+  <li>Obtainium then checks the release page on its own schedule and notifies you; it does not install anything without you confirming.</li>
+</ol>
+<h3 id="obtainium-verify">Verifying the signature with Obtainium</h3>
+<p>Obtainium downloads the APK from the same GitHub release, but it does not compare the signing certificate with Redoubt&rsquo;s published digest for you. So:</p>
+<ul>
+  <li><strong>First install:</strong> verify the certificate yourself &mdash; with <code>apksigner</code> as <a href="#verify">above</a> before installing, or with a certificate-viewing app straight after &mdash; and make sure the SHA-256 is <code class="fingerprint">64:14:EB:33:46:81:CF:6E:92:90:34:B5:6A:06:2D:2B:8D:A0:90:82:21:72:F7:A3:95:2C:85:FD:D1:28:3B:D0</code>.</li>
+  <li><strong>Every update after that:</strong> Android checks it. An update signed with any other key fails to install over Redoubt, and Obtainium reports the install error. If that happens, do not uninstall Redoubt to force it in; <a href="security.html">report it privately</a>.</li>
+</ul>
+
+<h2 id="in-app">In-app update check (opt-in)</h2>
+<p>From Redoubt 157.0-2 the app has an <strong>opt-in</strong> update check, off by default (Settings &rarr; <em>Check for updates</em>). When you turn it on it runs only while the app is in the foreground, at most once a day, fetches a small signed file from <code>redoubtbrowser.org/update/</code>, and tells you a new version exists with a link to download it. This site is hosted on GitHub Pages, so GitHub sees your IP address and the time of that request. It does not download or install anything, and it sends nothing that identifies you beyond the request itself. The full contract is in <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/DISTRIBUTION.md">DISTRIBUTION.md</a>. Earlier betas do not have it: install 157.0-2 once, then turn it on, or use Obtainium.</p>
+
+<h2 id="stores">F-Droid and Accrescent</h2>
+<p>Redoubt is not in any store yet. When it is, it will be Redoubt&rsquo;s own F-Droid repository (not f-droid.org&rsquo;s main repository, which would re-sign the app with a different key) and Accrescent, both signed with the same key and showing the same digest as above.</p>
+    </div>
+  </main>
+  <footer class="site">
+    <div class="wrap">
+      <p>Redoubt is an independent fork, not affiliated with or endorsed by the <a href="https://librewolf.net">LibreWolf project</a> or by <a href="https://www.mozilla.org/">Mozilla</a>. Its privacy configuration and patch set are LibreWolf&rsquo;s work, used under MPL-2.0. Firefox is a trademark of the Mozilla Foundation (<a href="https://www.mozilla.org/foundation/trademarks/policy/">trademark policy</a>); Redoubt does not use Mozilla&rsquo;s trademarks in its branding.</p>
+      <p>Source, issues and releases: <a href="https://github.com/CPlusPlus17/Redoubt">github.com/CPlusPlus17/Redoubt</a>. This site loads nothing from any other server and uses no cookies, scripts or analytics.</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -249,7 +249,8 @@ use the proposed `Build *` family.
 | `Build Accrescent` | `#5E35B1` | `Issues specific to the Accrescent release of Redoubt` |
 | `Build APK` | `#455A64` | `Issues specific to the direct APK download or Obtainium updates` |
 
-The closed beta uses direct APKs from a private link. Its source option in the
+The betas are direct APKs published as GitHub prereleases (the closed beta's
+private link was superseded on 2026-09-08). Their source option in the
 form maps to `Build APK` when channel labelling is relevant, and the maintainer
 adds `beta` to identify beta findings. All three channel labels and `beta` were
 created in the approved 2026-09-08 publication.
@@ -407,7 +408,7 @@ body:
         Obtainium and F-Droid both show the source repository in the app's detail
         page.
       options:
-        - Closed beta APK from the maintainer's private link
+        - GitHub Releases (github.com/CPlusPlus17/Redoubt/releases)
         - The Redoubt F-Droid repository
         - Accrescent
         - Direct APK download from our site
@@ -704,9 +705,9 @@ Gecko rather than in anything Redoubt changes, and it needs to go to Mozilla:
 
   https://bugzilla.mozilla.org/enter_bug.cgi?product=Fenix
 
-One caveat worth knowing: Redoubt tracks Firefox ESR, so we are usually
-behind the Firefox release you compared against. If the version numbers differ a lot,
-the bug may already be fixed upstream and simply not have reached our branch yet.
+One caveat worth knowing: Redoubt follows Firefox release, but a new Firefox version
+reaches Redoubt only after our rebase. If your Firefox is newer than your Redoubt, the
+bug may already be fixed upstream and simply not have reached our build yet.
 
 Marking as upstream and closing here. If you file it with Mozilla, please link the
 Bugzilla bug in a comment so anyone who finds this issue can follow it.
@@ -832,11 +833,9 @@ or 2.
 
 **1. Does stock Firefox for Android do it too?**
 Yes → `Broken Upstream` + `Status Upstream`, boilerplate **B4**. This is the
-strongest single signal and it is why the template asks. Caveat: we track **esr153**
-and Firefox release runs far ahead, so a version mismatch weakens the comparison in
-both directions — something fixed upstream months ago can still be live for us. When
-it matters, compare against **Tor Browser for Android**, which shares our ESR base
-(ROADMAP.md, "Release track").
+strongest single signal and it is why the template asks. Caveat: we follow Firefox release
+(TRACK.md), so compare against the **same Firefox version** as the reporter's Redoubt;
+between a Firefox release and our rebase, stock Firefox can be one version ahead.
 
 **2. Does it survive a clean profile?**
 No → it is configuration, theirs or ours. Ask which prefs they changed; if flipping
@@ -1084,7 +1083,7 @@ labels:
 - **Device model:**              <!-- e.g. Pixel 6a — Settings → About phone -->
 - **Total device RAM (optional):** <!-- total RAM, e.g. 3 GB / 4 GB / 8 GB -->
 - **Android version:**           <!-- e.g. Android 14, One UI 6.1 / GrapheneOS -->
-- **Installed from:**            <!-- closed beta APK from private link /
+- **Installed from:**            <!-- GitHub Releases /
                                       Redoubt F-Droid repo / Accrescent / direct APK
                                       from our site / Obtainium / another F-Droid
                                       repo (which?) / built from source / not sure -->
