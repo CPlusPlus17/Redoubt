@@ -919,5 +919,164 @@ class TypingFlowAttributionTests(unittest.TestCase):
         self.assertIn('negative_control=args.no_suggest_negative_control', source)
 
 
+
+def ipv6(src, dst, proto, transport):
+    ip = struct.pack('>IHBB', 6 << 28, len(transport), proto, 64)
+    ip += socket.inet_pton(socket.AF_INET6, src) + socket.inet_pton(socket.AF_INET6, dst)
+    return bytes(12) + struct.pack('>H', 0x86dd) + ip + transport
+
+
+def dns_answer_aaaa(name, address):
+    question = dns_name(name) + struct.pack('>HH', 28, 1)
+    answer = b'\xc0\x0c' + struct.pack('>HHIH', 28, 1, 60, 16) + socket.inet_pton(socket.AF_INET6, address)
+    return struct.pack('>HHHHHH', 0x1234, 0x8180, 1, 1, 0, 0) + question + answer
+
+
+class UpdatePrivacyAttributionTests(unittest.TestCase):
+    """check-update-privacy by name, per connection.  The shapes are the
+    157.0-2 acceptance (run-37248744119) false positives and their opposites."""
+    ATTACH = 'firefox-settings-attachments.cdn.mozilla.net'
+    UPDATE = ('185.199.111.153', 'redoubtbrowser.org')
+    GUEST6 = 'fec0::15'
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp.name) / 'capture.pcap'
+        self.path.write_bytes(struct.pack('<IHHIIII', 0xa1b2c3d4, 2, 4, 0, 0, 65535, 1))
+        self.clock = 1000
+        self.port = 40000
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def append(self, frame):
+        self.clock += 1
+        with self.path.open('ab') as f:
+            f.write(struct.pack('<IIII', self.clock, 0, len(frame), len(frame)) + frame)
+
+    def offset(self):
+        return self.path.stat().st_size
+
+    def tls(self, address, host):
+        self.port += 1
+        self.append(segment(GUEST, self.port, address, 443, flags=0x02))
+        self.append(segment(address, 443, GUEST, self.port, flags=0x12))
+        self.append(segment(GUEST, self.port, address, 443, hello(host)))
+        self.append(segment(address, 443, GUEST, self.port, tls_record(1400)))
+
+    def syn6(self, address):
+        self.port += 1
+        self.append(ipv6(self.GUEST6, address, 6, struct.pack('>HHII', self.port, 443, 1, 0)
+                         + bytes([0x50, 0x02]) + bytes(6)))
+
+    def resolve(self, name, address):
+        self.port += 1
+        self.append(datagram(GUEST, self.port, '10.0.2.3', 53, dns_query(name)))
+        reply = dns_answer_aaaa(name, address) if ':' in address else dns_answer(name, address)
+        self.append(datagram('10.0.2.3', 53, GUEST, self.port, reply))
+
+    def grade(self, off, on):
+        flows = lambda w: harness.attribute_typing_flows(str(self.path), {GUEST, self.GUEST6}, *w)
+        return harness.grade_update_privacy_flows(flows(off), flows(on), ['redoubtbrowser.org'])
+
+    def window(self, fill):
+        start = self.offset()
+        fill()
+        return (start, self.offset())
+
+    def off_window(self):
+        self.tls('151.101.1.91', self.ATTACH)
+        self.tls('34.149.226.178', 'content-signature-2.cdn.mozilla.net')
+        self.tls('185.199.109.153', 'ublockorigin.github.io')
+        self.syn6('2600:1901:0:8d82::')
+
+    def test_rotated_cdn_address_with_the_same_sni_passes(self):
+        off = self.window(self.off_window)
+        on = self.window(lambda: (self.tls(*self.UPDATE),
+                                  self.tls('151.101.193.91', self.ATTACH)))
+        result = self.grade(off, on)
+        self.assertEqual(result['on_failed'], [])
+        rows = {r['dst']: r for r in result['on_flows']}
+        self.assertEqual(rows['151.101.193.91']['names'], {self.ATTACH: 'seen-with-check-off'})
+
+    def test_update_host_passes_in_the_on_window_on_its_own_address(self):
+        off = self.window(self.off_window)
+        on = self.window(lambda: (self.resolve('redoubtbrowser.org', '2606:50c0:8000::153'),
+                                  self.syn6('2606:50c0:8000::153'),
+                                  self.tls(*self.UPDATE),
+                                  self.syn6('2600:1901:0:8d82::')))
+        result = self.grade(off, on)
+        self.assertEqual(result['on_failed'], [])
+        verdicts = {(r['dst'], r['port']): r['verdict'] for r in result['on_flows']}
+        self.assertEqual(verdicts[('185.199.111.153', 443)], 'named')
+        self.assertEqual(verdicts[('10.0.2.3', 53)], 'named')
+        # A bare SYN is named by the DNS answer that gave the guest its address ...
+        self.assertEqual(verdicts[('2606:50c0:8000::153', 443)], 'resolved')
+        # ... or, carrying no payload, by the OFF window having contacted it too.
+        self.assertEqual(verdicts[('2600:1901:0:8d82::', 443)], 'payload-free-seen-with-check-off')
+
+    def test_new_third_party_host_fails_even_on_an_address_seen_with_check_off(self):
+        off = self.window(self.off_window)
+        on = self.window(lambda: (self.tls(*self.UPDATE),
+                                  self.tls('151.101.1.91', 'tracker.example'),
+                                  self.tls('203.0.113.9', 'telemetry.example')))
+        result = self.grade(off, on)
+        failed = {r['dst']: r for r in result['on_failed']}
+        self.assertEqual(set(failed), {'151.101.1.91', '203.0.113.9'})
+        self.assertEqual(failed['151.101.1.91']['names'], {'tracker.example': None})
+        self.assertEqual(failed['151.101.1.91']['verdict'], 'new-name')
+        self.assertIn('tracker.example', harness.describe_update_privacy_failure(failed['151.101.1.91']))
+
+    def test_new_dns_query_fails(self):
+        off = self.window(self.off_window)
+        on = self.window(lambda: (self.tls(*self.UPDATE), self.resolve('telemetry.example', '203.0.113.9')))
+        [row] = self.grade(off, on)['on_failed']
+        self.assertEqual((row['port'], row['named_by']), (53, 'dns-query'))
+
+    def test_unnamed_flows_need_a_name_or_must_be_payload_free_to_a_known_address(self):
+        off = self.window(self.off_window)
+
+        def on_fill():
+            self.tls(*self.UPDATE)
+            self.syn6('2001:db8::66')                          # new address, no name
+            self.port += 1                                     # QUIC to a known address
+            self.append(datagram(GUEST, self.port, '34.149.226.178', 443, b'\xc0' + bytes(40)))
+            self.resolve('telemetry.example', '2001:db8::77')  # resolved, but to a new name
+            self.syn6('2001:db8::77')
+        result = self.grade(off, self.window(on_fill))
+        failed = {(r['dst'], r['port']): r['verdict'] for r in result['on_failed']}
+        self.assertEqual(failed, {('2001:db8::66', 443): 'unnamed',
+                                  ('34.149.226.178', 443): 'unnamed',
+                                  ('10.0.2.3', 53): 'new-name',
+                                  ('2001:db8::77', 443): 'resolved-to-new-name'})
+
+    def test_update_host_in_the_off_window_fails(self):
+        def off_fill():
+            self.off_window()
+            self.tls(*self.UPDATE)
+        off = self.window(off_fill)
+        on = self.window(lambda: self.tls(*self.UPDATE))
+        result = self.grade(off, on)
+        self.assertEqual([f['host'] for f in result['off_update_flows']], ['redoubtbrowser.org'])
+        self.assertNotIn('redoubtbrowser.org', result['off_names'])
+        # A subdomain is the update host's too.
+        off2 = self.window(lambda: self.tls('185.199.110.153', 'www.redoubtbrowser.org'))
+        self.assertEqual(len(self.grade(off2, on)['off_update_flows']), 1)
+
+    def test_shared_pages_address_in_the_off_window_is_not_an_update_contact(self):
+        self.resolve('redoubtbrowser.org', '185.199.109.153')   # earlier in the capture
+        off = self.window(self.off_window)                      # ublockorigin.github.io there
+        on = self.window(lambda: self.tls(*self.UPDATE))
+        result = self.grade(off, on)
+        self.assertEqual(result['off_update_flows'], [])
+        self.assertEqual(result['on_failed'], [])
+
+    def test_check_uses_the_name_based_grading(self):
+        body = source.split('def check_update_privacy(', 1)[1].split('\nNOT_IMPLEMENTED', 1)[0]
+        self.assertIn('grade_update_privacy_flows(', body)
+        self.assertIn('attribute_typing_flows(pcap, guest, off1, on_end)', body)
+        self.assertNotIn('seen_off', body)
+
+
 if __name__ == '__main__':
     unittest.main()

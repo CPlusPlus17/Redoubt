@@ -661,6 +661,15 @@ hard way:
   code. It measures the OFF state first and refuses to pass on a dead capture,
   then, only when the row exists, turns the check on through the UI like a
   user would and requires the update host to be the one new thing on the wire.
+  Since 2026-10-05 "new" is judged per connection by name, not by bare
+  destination address (`grade_update_privacy_flows`, reusing the
+  `--check-no-suggest` flow attribution): an ON-window connection must carry
+  the update host's name, a name seen with the check off, or a background-list
+  name, by its TLS SNI or DNS query. A connection with no name of its own needs
+  a plaintext DNS answer for its address whose every name passes, or must carry
+  no payload to an address the OFF window also contacted. CDN address rotation
+  and the update host's shared GitHub Pages address no longer fail it; a new
+  host on an old address does.
 
 ---
 
