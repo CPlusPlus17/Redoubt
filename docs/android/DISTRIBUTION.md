@@ -300,12 +300,15 @@ custody"). The step list above applies unchanged; this is the delta.
    2016188256-63) and not in the future:
 
        gh workflow run android-release.yaml --repo CPlusPlus17/Redoubt --ref main \
-           -f mode=full -f update_check=true -f build_date=20261004200000
+           -f mode=full -f update_check=true -f build_date=20261005000000
 
    The workflow refuses a malformed or future date, checks the AAR used it, and
    fails unless every dex carries the committed update-check key and all four
-   APKs are unsigned. With `20261004200000` the versionCodes are
-   2016188448-2016188455, 24 hours (8 codes per hour) above Beta 5's. The artifact
+   APKs are unsigned. With `20261005000000` the versionCodes are
+   2016188480-2016188487 (8 codes per build hour), above Beta 5's and above the
+   REJECTED first 157.0-2 build (run 37234607054, `20261004200000`, 2016188448-55,
+   never published: its update-check switch was never read). Never reuse a rejected
+   build's date. The artifact
    `redoubt-android-unsigned` holds the four APKs, `output-metadata.json` and
    `SHA256SUMS`. Record the run URL and the checked-out commit (`git rev-parse`).
 2. **Accept the exact payload** before signing: the emulator smoke on the x86_64
@@ -400,8 +403,10 @@ reached `redoubtbrowser.org`. A probe inside Gecko confirmed this (branch
   which needs Robolectric. Re-run 2026-10-05 on the 157 tree (Kotlin 2.4.0): 11/11 tests,
   14/14 cross-checks. Against the 0ef74fad patch it exits 2 at the wiring check.
 - `./mach gradle fenix:testDebugUnitTest --tests 'org.mozilla.fenix.lw.*'` —
-  `UpdateCheckerTest` and `UpdateCheckSwitchTest`. This is the only test that drives the
-  Settings switch and then asks the check whether it is on. Run 2026-10-05 on the Firefox 158
+  `UpdateCheckerTest` and `UpdateCheckSwitchTest`. It drives `UpdateCheck.bindSwitch` on a
+  stand-in switch and then asks the check whether it is on; it does not inflate
+  `preferences.xml` or run `SettingsFragment`, so the real Settings row is proven only by the
+  device acceptance's `--check-update-privacy` ON half. Run 2026-10-05 on the Firefox 158
   tree, the only one on the build host with a GeckoView AAR, with the fixed files copied in:
   15/15, `-Werror` compile clean.
 - `./scripts/android-smoke.sh --check-update-privacy` on a device, with a build
@@ -514,9 +519,11 @@ pinning the request shape, the signature check and the version decision);
 and `./scripts/android-smoke.sh --check-update-privacy` measures the network side on
 a running build. The update-signing key exists and its public half is committed
 (2026-10-04); a build made without `--update-check` still has the check compiled
-out — no row, no reachable code path — which is exactly the store-build
-configuration. The first build with it compiled in is the stable release
-157.0-2 ("Stable release" above).
+out — the row is hidden and `isEnabled` returns false (Settings search still
+indexes the row's title statically; a known, harmless cosmetic gap in store builds) —
+which is exactly the store-build configuration. The first build with it compiled in
+(run 37234607054) was rejected in acceptance (the switch defect); the stable release
+157.0-2 is the rebuild with the fix ("Stable release" above).
 
 Not yet measured on a device: the opt-in half of `--check-update-privacy`. The
 2026-09-06 run with a throwaway-key build saw no request to the update host after
