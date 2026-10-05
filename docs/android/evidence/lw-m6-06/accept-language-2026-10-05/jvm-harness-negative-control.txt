@@ -1,0 +1,18 @@
+== 1/4 extracting the patch's Kotlin
+   switch wiring present (UpdateCheckSwitchTest itself needs Robolectric; not run here)
+== 2/4 compiling UpdateCheck.kt with -Werror (kotlin 2.4.0)
+== 3/4 UpdateCheckerTest
+JUnit version 4.13.2
+..........E..E
+Time: 0.103
+There were 2 failures:
+1) the request sends no Accept-Language, so not the user's locale(org.mozilla.fenix.lw.UpdateCheckerTest)
+java.lang.AssertionError: Accept-Language reaches the wire: {user-agent=Redoubt-UpdateCheck/1, accept=*/*, accept-language=de-CH,de;q=0.8,en-US;q=0.5,en;q=0.3, accept-encoding=gzip, deflate, br, zstd}
+2) the request carries the static user agent and nothing else(org.mozilla.fenix.lw.UpdateCheckerTest)
+java.lang.AssertionError: expected:<[(User-Agent, Redoubt-UpdateCheck/1), (Accept-Language, ), (Accept, )]> but was:<[(User-Agent, Redoubt-UpdateCheck/1)]>
+
+FAILURES!!!
+Tests run: 12,  Failures: 2
+
+test-update-check-jvm: UpdateCheckerTest failed
+EXIT=2

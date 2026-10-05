@@ -429,6 +429,28 @@ while the switch is on.
   (`useCaches = false`, so no `ETag` / `If-Modified-Since` that could act as a
   per-install token), no redirects followed. `UpdateCheckerTest` pins every one of
   those request fields, because a packet capture cannot see inside TLS.
+- **No `Accept-Language`.** Gecko adds `Accept-Language` (from
+  `intl.accept_languages`, i.e. the user's locale) to every HTTP channel by
+  default. **157.0-2 sent it**: its device acceptance recorded
+  `Accept-Language: en-US` (`docs/android/evidence/lw-m7-01/release-157.0-2/acceptance/run-37248744119/update-check/device-local/server-requests.jsonl`).
+  From the build after 157.0-2 the check sets `Accept-Language` and `Accept` to
+  the empty string, which necko treats as "remove this header"
+  (`nsHttpHeaderArray::SetHeader`, reached through `GeckoViewFetchClient` →
+  `WebExecutorSupport.cpp` `SetupHttpChannel` → `setRequestHeader`, merge off,
+  after `HttpBaseChannel::Init` added the defaults). `UpdateChecker.REQUEST_HEADERS`
+  holds the list and `UpdateCheckerTest` pins it, including a model of that
+  removal rule (evidence: `docs/android/evidence/lw-m6-06/accept-language-2026-10-05/`).
+- **Headers Gecko adds that the check cannot remove.** Everything the channel adds
+  after the caller's headers, at open or connect time, stays: `Host`,
+  `Accept-Encoding` (`gzip, deflate, br, zstd`; the compression-dictionary path
+  can set it again later, so a removal could not be pinned), `Sec-GPC: 1`
+  (`nsHttpChannel::SetGlobalPrivacyControl`, set at connect), `Sec-Fetch-Dest`,
+  `Sec-Fetch-Mode`, `Sec-Fetch-Site`, `Priority: u=4`, `Pragma` and
+  `Cache-Control: no-cache` (from `useCaches = false`) and `Connection`. Each is
+  the same on every install of a given build; none carries a locale, an id or a
+  version. The on-device check of the full header list is the request log of an
+  acceptance probe against a local server, as in the 157.0-2 run above; the next
+  acceptance should show no `Accept-Language` and no `Accept` there.
 - **In the response** — the document above and its signature. The client verifies
   the signature, reads `latest_version`, compares it to its own, and that is the
   whole transaction.
