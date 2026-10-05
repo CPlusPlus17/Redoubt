@@ -3336,21 +3336,37 @@ tasks:
     isolation: none
     risk: Reproducibility is far cheaper to build in now than to retrofit after the first release.
 
+  # 2026-10-05 (owner decision): hosted on the existing GitHub Pages site at
+  # https://redoubtbrowser.org/fdroid/repo; only the signed index is committed
+  # (site/fdroid/repo/), pages.yaml fetches the APKs from the GitHub release at
+  # deploy time and verifies them; two releases kept (1 GB Pages limit); per-ABI
+  # APKs only; AntiFeatures: Tracking. Tooling and a throwaway-key proof on an
+  # API 34 emulator with F-Droid 2.0.1 are done (docs/android/FDROID.md,
+  # evidence/lw-m6-03/). Owner-held and NOT done: init (the repository key), the
+  # first publish, and the fingerprint in two places (prepared, uncommitted:
+  # ~/redoubt-artifacts/channels/fdroid-site-placeholder.diff). The no-double-
+  # notify half is update-check.patch's installer-of-record check (LW-M6-06),
+  # in the first build after 157.0-2. Acceptance 3 was shown with throwaway keys
+  # (Beta 5 -> 157.0-2 through F-Droid); it stays open for the real key.
   - id: LW-M6-03
     title: Set up the Redoubt F-Droid repository
     milestone: M6
     depends_on: [LW-M6-01, LW-M6-02, LW-M4-05]
-    owns: [docs/android/DISTRIBUTION.md]
+    owns: [docs/android/DISTRIBUTION.md, docs/android/FDROID.md, scripts/fdroid-repo.sh, scripts/fdroid-pages.py, scripts/tests/test-fdroid-pages.py, assets/fdroid/, site/fdroid/, site/fdroid.html, .github/workflows/pages.yaml, scripts/site-check.py, docs/android/evidence/lw-m6-03/]
+    reads: [patches/android/update-check.patch, docs/android/SIGNING.md, scripts/android-verify-signature.sh]
     what: |
       Run our own F-Droid repo rather than going through f-droid.org's main repo —
       it avoids their build-server signing model and lets us keep our own key.
       Requires zero GMS (LW-M4-05) and reproducibility (LW-M6-02). Publish the repo
       URL and its fingerprint and document how a user verifies both.
+      2026-10-05: binary-only repository of the GitHub release's per-ABI APKs at
+      https://redoubtbrowser.org/fdroid/repo (GitHub Pages); the owner runs
+      scripts/fdroid-repo.sh init/add/update/publish/verify (docs/android/FDROID.md).
     acceptance:
       - "repo index is signed and installable from a clean F-Droid client"
       - "the repo fingerprint is published in at least two independent places"
       - "an update from an older version installs cleanly"
-    verify: "manual: add the repo to F-Droid on a clean device and install"
+    verify: "python3 scripts/tests/test-fdroid-pages.py && python3 scripts/fdroid-pages.py check && ./scripts/fdroid-repo.sh verify (owner, after publish) && manual: add the repo to F-Droid on a clean device and install"
     effort_h: "8-16"
     skills: [ops, android]
     agent_safe: no
@@ -3402,6 +3418,11 @@ tasks:
     isolation: none
     risk: One convenience commit putting the key in CI undoes the entire custody model in LW-M6-01.
 
+  # 2026-10-05: acceptance 3 ("F-Droid and Accrescent installs do not
+  # double-notify") now also covers Redoubt's own F-Droid repository, which serves
+  # the direct APKs: update-check.patch hides the check when the installer of
+  # record is a store client (UpdateCheck.isOffered; evidence/lw-m6-03/patch/).
+  # Unit-tested (Robolectric, 158 tree), not yet built into an APK.
   - id: LW-M6-06
     title: Implement in-app update checking without an app store
     milestone: M6

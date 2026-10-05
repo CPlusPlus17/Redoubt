@@ -87,7 +87,9 @@ These are LW-M6-06's acceptance criteria, restated as things that must hold:
    plain description of what it sends and where, and a switch that stops it
    entirely.
 3. **F-Droid and Accrescent installs do not double-notify.** Those channels ship
-   their own update notification; the in-app check is not present in those builds.
+   their own update notification; the in-app check is not present in those builds,
+   or, where a store serves the direct APK itself (Redoubt's own F-Droid repository,
+   2026-10-05), it is not offered on an install whose installer of record is that store.
 
 ## The endpoint
 
@@ -276,7 +278,10 @@ higher versionCode, so a document naming an older build is simply ignored.
 **F-Droid and Accrescent builds never pass `--update-check`** and run without
 `LW_UPDATE_CHECK_PUBKEY` in the environment; their artifacts have the check
 compiled out (no key string in the dex, no Settings row). The same `classes*.dex`
-grep returning 0 is the check for those.
+grep returning 0 is the check for those. Redoubt's **own F-Droid repository** is the
+exception: it has no build of its own and serves these very APKs, check compiled
+in; the app hides the check when F-Droid installed it ("The own F-Droid repository"
+below).
 
 ## Stable release: Redoubt 157.0-2 (owner decision 2026-10-04)
 
@@ -499,6 +504,19 @@ F-Droid and Accrescent each notify their own users when a new build is on the
 repository. A user on either of those channels therefore must not *also* get an
 in-app prompt, or the same update is announced twice through two mechanisms.
 
+> **Revised 2026-10-05 for Redoubt's own F-Droid repository (LW-M6-03).** The
+> bullets below assume a store with its own build of the app. The own repository has
+> none: it serves the GitHub release's APKs byte for byte, so the artifact *has* the
+> check. For that case the decision is made at runtime after all, from the **installer
+> of record** (`PackageManager.getInstallSourceInfo`, API 30+): when it is a store
+> client (F-Droid, F-Droid Basic, Droid-ify, Neo Store, Accrescent, Play), the row is
+> hidden and the check never runs (`UpdateCheck.isOffered`, `update-check.patch`). It
+> reads one value the platform already holds on the device and sends nothing. A
+> second, check-less Gecko build only for the repository was the alternative, and is
+> not needed. Measured behaviour and limits: "The own F-Droid repository" below and
+> `FDROID.md`. The "No runtime detection" bullet below holds for builds with the check
+> compiled out; it no longer describes the direct APK.
+
 - **The check is a property of the direct-APK distribution.** It is present in the
   build published for the direct download (the one Obtainium tracks) and **absent
   from the F-Droid and Accrescent builds**. Those two are built and published by
@@ -554,3 +572,32 @@ acceptance. Both were the switch defect ("The switch defect" above), fixed
 2026-10-05, and not only the missing document. It must be re-run against
 the first `--update-check` build with the document live, before that build is
 called done.
+
+## The own F-Droid repository (LW-M6-03)
+
+Owner decision 2026-10-05: Redoubt runs its own F-Droid repository at
+`https://redoubtbrowser.org/fdroid/repo`, hosted on the existing GitHub Pages site. The
+design, the decisions and the owner runbook are in `docs/android/FDROID.md`. In brief:
+
+- **Same APKs, same key.** The repository serves the GitHub release's per-ABI APKs (not the
+  universal one) unchanged. Only the index is signed again, with the owner's F-Droid
+  repository key (`SIGNING.md`, "The F-Droid repository key").
+- **Only the index is in git.** `scripts/fdroid-repo.sh publish` writes the signed index to
+  `site/fdroid/repo/`. `pages.yaml` downloads the APKs from the GitHub release at deploy time
+  (`scripts/fdroid-pages.py assemble`). It deploys nothing unless the index signature, every
+  sha256 and size, and every APK certificate match, and the site stays within GitHub Pages' 1 GB.
+- **Two releases are kept**, because three do not fit in 1 GB.
+- **No double notification.** The APKs carry the opt-in check. It is hidden on a store install,
+  per the installer of record (revision note in "F-Droid and Accrescent do not double-notify"),
+  from the first build after 157.0-2. 157.0-2 has the switch, off by default, and the repository
+  description says to leave it off.
+- **Installer of record, measured** (API 34 emulator, F-Droid 2.0.1,
+  `evidence/lw-m6-03/logs/11-13`). When F-Droid updates a hand-installed APK, the installer
+  becomes `org.fdroid.fdroid`. A fresh F-Droid install also sets F-Droid as update owner. A
+  later hand install over it makes the system package installer the installer again. So the
+  check follows whoever made the latest install, which is the intended behaviour.
+
+Per release (owner, box A), after the GitHub release is public:
+`fdroid-repo.sh add <tag>`, `update`, `publish <checkout>`, commit and push, then
+`fdroid-repo.sh verify`. One-time: `fdroid-repo.sh init`, back up the key, and publish
+the fingerprint (`FDROID.md`, "Owner runbook").

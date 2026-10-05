@@ -1,0 +1,57 @@
+# F-Droid metadata for org.redoubtbrowser in the Redoubt F-Droid repository
+# (LW-M6-03; docs/android/FDROID.md). scripts/fdroid-repo.sh copies this file
+# into the repository's working directory before every `fdroid update`.
+#
+# This repository is BINARY-ONLY: it serves the same owner-signed APKs as the
+# GitHub release (no Builds: section, no build server, no re-signing). F-Droid
+# shows "What's new" as the Changelog: link below; fdroidserver writes
+# per-version changelog text into index-v2 only for versions it built itself.
+#
+# AntiFeatures: Tracking, decided 2026-10-05 (docs/android/FDROID.md,
+# "Anti-features"). F-Droid's own repository labels Fennec F-Droid and Mull,
+# a hardened fork like this one, "Tracking" for connecting to Mozilla services
+# by default; Redoubt still contacts Remote Settings and addons.mozilla.org by
+# default, so the same label applies, with the reason spelled out.
+
+AntiFeatures:
+  Tracking:
+    en-US: >-
+      Contacts Mozilla services by default: Remote Settings (blocklists,
+      certificate revocation data) and addons.mozilla.org (add-on updates,
+      including uBlock Origin). Telemetry, experiments, crash-report upload and
+      Google Play Services are removed. Details: https://redoubtbrowser.org/privacy.html
+
+Categories:
+  - Internet
+License: MPL-2.0
+AuthorName: Manuel Gysin
+WebSite: https://redoubtbrowser.org
+SourceCode: https://github.com/CPlusPlus17/Redoubt
+IssueTracker: https://github.com/CPlusPlus17/Redoubt/issues
+Changelog: https://github.com/CPlusPlus17/Redoubt/releases
+
+Name: Redoubt
+Summary: Privacy-hardened Firefox-based browser with LibreWolf's settings
+# One line per paragraph: F-Droid 2.x shows hard line breaks as they are
+# (seen on the emulator, docs/android/evidence/lw-m6-03).
+Description: |-
+    Redoubt is a privacy-hardened web browser for Android, built from Firefox's source with LibreWolf's privacy configuration and patch set applied.
+
+    * Telemetry and experiments removed: Glean upload, Adjust, Nimbus, crash-report uploads and Google Play Services are patched out.
+    * LibreWolf's privacy defaults: resist-fingerprinting, strict Enhanced Tracking Protection and cookie partitioning, Global Privacy Control on.
+    * uBlock Origin preinstalled, with its cookie-notice lists on by default.
+    * Cloud features off, such as page summaries, IP Protection and Google Lens.
+
+    Network services it still uses by default: Mozilla's Remote Settings (blocklists, certificate revocation data) and addons.mozilla.org (add-on updates, including uBlock Origin). Firefox Sync is off until you sign in. F-Droid tells you about updates, so leave the app's own opt-in "Check for updates" switch off; builds after 157.0-2 hide it when F-Droid installed or last updated the app.
+
+    The APKs in this repository are the same files as on the GitHub release page, signed with the same key. Signing certificate SHA-256: 64:14:EB:33:46:81:CF:6E:92:90:34:B5:6A:06:2D:2B:8D:A0:90:82:21:72:F7:A3:95:2C:85:FD:D1:28:3B:D0
+
+    Redoubt is an independent project, not affiliated with or endorsed by LibreWolf or Mozilla. Known limits are listed at https://redoubtbrowser.org/privacy.html
+
+# The only certificate this repository may ever carry for this app. fdroidserver
+# enforces it for builds it makes itself, not for binaries dropped into repo/;
+# scripts/fdroid-repo.sh enforces it for every APK before the index is signed.
+AllowedAPKSigningKeys: 6414eb334681cf6e929034b56a062d2b8da090822172f7a3952c85fdd1283bd0
+
+AutoUpdateMode: None
+UpdateCheckMode: None

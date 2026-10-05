@@ -10,6 +10,17 @@
 # update-check endpoint, docs/android/DISTRIBUTION.md), which this workflow
 # neither generates nor rewrites. site/CNAME sets the custom domain.
 #
+# Plus the F-Droid repository's APKs (LW-M6-03, docs/android/FDROID.md). Only
+# the signed index is committed (site/fdroid/repo/). scripts/fdroid-pages.py
+# assemble copies site/ to _site/, verifies the index signature against the
+# pinned repository fingerprint (assets/fdroid/repo-fingerprint), fetches every
+# APK the signed index names from its GitHub release (site/fdroid/sources.json),
+# and fails the deploy on any sha256/size mismatch with the signed index, a
+# missing file, an APK not signed by the release key (apksigner from the
+# runner's Android SDK), or a site over 1 GB (GitHub Pages' published-site
+# limit). Without site/fdroid/repo/ it only copies site/. Pull requests run the
+# offline index check and download nothing.
+#
 # Before anything is uploaded, scripts/site-check.py must pass: well-formed HTML,
 # no script and nothing loaded from another origin, every internal link and
 # anchor resolves, external links only to the project's GitHub repository,
@@ -31,12 +42,19 @@ on:
       - scripts/site-check.py
       # The checker compares the site's fingerprint against README.md.
       - README.md
+      # The F-Droid repository: its pinned fingerprint and the assembler.
+      - assets/fdroid/repo-fingerprint
+      - scripts/fdroid-pages.py
+      - scripts/tests/test-fdroid-pages.py
   pull_request:
     paths:
       - site/**
       - .github/workflows/pages.yaml
       - scripts/site-check.py
       - README.md
+      - assets/fdroid/repo-fingerprint
+      - scripts/fdroid-pages.py
+      - scripts/tests/test-fdroid-pages.py
   workflow_dispatch:
 
 permissions:
@@ -59,6 +77,17 @@ jobs:
       - name: Check the site
         run: python3 scripts/site-check.py site
 
+      - name: Test the F-Droid assembler (throwaway keys, offline)
+        run: python3 scripts/tests/test-fdroid-pages.py
+
+      - name: Check the F-Droid index (offline)
+        run: python3 scripts/fdroid-pages.py check --site site
+
+      - name: Assemble the site with the F-Droid APKs
+        if: github.event_name != 'pull_request'
+        # apksigner comes from the runner image's Android SDK ($ANDROID_HOME).
+        run: python3 scripts/fdroid-pages.py assemble --site site --out _site
+
       - name: Configure Pages
         if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
@@ -67,7 +96,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: _site
 
   deploy:
     if: github.event_name != 'pull_request'

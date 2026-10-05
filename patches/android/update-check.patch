@@ -62,6 +62,13 @@
 #     line. The F-Droid and Accrescent pipelines simply do not pass the key.
 #     scripts/android-apk.sh forwards LW_UPDATE_CHECK_PUBKEY (and, for the
 #     smoke harness, LW_UPDATE_CHECK_ENDPOINT) from the environment.
+#   * ...and store INSTALLS of the direct APK do not either (2026-10-05). The
+#     own F-Droid repository (LW-M6-03) serves the GitHub APKs unchanged, check
+#     compiled in. UpdateCheck.isOffered asks the installer of record
+#     (InstallSourceInfo.installingPackageName, API 30+; getInstallerPackageName
+#     before): F-Droid / F-Droid Basic / Droid-ify / Neo Store / Accrescent /
+#     Play -> row hidden, isEnabled false whatever is stored. Nothing is sent
+#     anywhere; the installer is read only when the switch is on.
 #   * The private key never enters the build or this repository. What the
 #     build embeds is the base64 DER SubjectPublicKeyInfo. Generating and
 #     holding the key is LW-M6-01's custody problem, not this patch's.
@@ -114,8 +121,9 @@
 #
 # Verification
 # -------------
-#   ./mach gradle fenix:testDebugUnitTest  -> UpdateCheckerTest (11 tests)
-#     and UpdateCheckSwitchTest (4 tests: the switch and the check agree)
+#   ./mach gradle fenix:testDebugUnitTest  -> UpdateCheckerTest (13 tests)
+#     and UpdateCheckSwitchTest (7 tests: the switch and the check agree;
+#     a store installer hides the row and keeps the check off)
 #   scripts/tests/test-update-check-jvm.sh  -> the same 11 tests plus a
 #     cross-check against openssl-signed scripts/update-manifest.py output,
 #     on the host JVM with -Werror and stubbed Fenix classes (no tree build);
@@ -197,6 +205,29 @@
 #     was this defect. UpdateCheckSwitchTest now drives the row's change listener
 #     the way a tap does and asks isEnabled: on after a tap, off after a second
 #     tap, off by default, and off with a value only in the default file.
+#
+# Store installs of the same APK (2026-10-05, LW-M6-03)
+# -------------------------------------------------------
+#   * Redoubt's own F-Droid repository serves the GitHub release's APKs, byte
+#     for byte, so they carry the check (opt-in, off). Without this, an F-Droid
+#     user who turned the switch on would be told about each update twice.
+#     A second, check-less Gecko build for the repository was the alternative;
+#     the installer of record makes it unnecessary.
+#   * UpdateCheck.installerOf reads InstallSourceInfo.installingPackageName (the
+#     package that made the LAST install or update; API 30+) or, below 30,
+#     getInstallerPackageName (@Suppress("DEPRECATION"): -Werror). Measured on
+#     an Android 14 emulator with F-Droid 2.0.1: a hand-installed Beta 5 that
+#     F-Droid updated to 157.0-2 reads org.fdroid.fdroid; a fresh F-Droid
+#     install reads org.fdroid.fdroid with updateOwner org.fdroid.fdroid; an
+#     APK installed by hand over it reads the package installer again
+#     (docs/android/evidence/lw-m6-03/logs/11-13).
+#   * isOffered = compiled in && installer not in STORE_INSTALLERS. bindSwitch
+#     hides the row when not offered; isEnabled is false then, whatever the
+#     stored value (it is kept, not cleared: a later hand install brings the
+#     user's choice back). Unknown installer (adb, uninstalled store) -> offered.
+#   * Tests: UpdateCheckerTest pins the list (isStoreInstaller); three new
+#     UpdateCheckSwitchTest cases set the installer through Robolectric's
+#     ShadowPackageManager.setInstallSourceInfo.
 
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
 index aefdac75d9..ea72f6f22d 100644
@@ -242,7 +273,7 @@ new file mode 100644
 index 0000000000..7a175a9fb2
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt
-@@ -0,0 +1,413 @@
+@@ -0,0 +1,472 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -264,11 +295,16 @@ index 0000000000..7a175a9fb2
 +//     exists and offers to open the download page.
 +//   * builds without an embedded key (F-Droid, Accrescent) have no key, no row
 +//     and no reachable code path -- BuildConfig.LW_UPDATE_CHECK_PUBKEY is empty.
++//   * the same direct-APK build, installed or last updated by a store client
++//     (Redoubt's own F-Droid repository serves the GitHub APKs unchanged), hides
++//     the row and never runs: the store notifies. See [UpdateCheck.STORE_INSTALLERS].
 +
 +package org.mozilla.fenix.lw
 +
 +import android.app.AlertDialog
 +import android.content.Context
++import android.content.pm.PackageManager
++import android.os.Build
 +import android.util.Base64
 +import androidx.annotation.VisibleForTesting
 +import androidx.core.content.pm.PackageInfoCompat
@@ -564,9 +600,61 @@ index 0000000000..7a175a9fb2
 +        get() = BuildConfig.LW_UPDATE_CHECK_PUBKEY.isNotEmpty()
 +
 +    /**
++     * Installers of record that bring their own update notification. Redoubt's
++     * F-Droid repository (LW-M6-03) serves the very APKs of the GitHub release,
++     * check compiled in, so the artifact alone cannot tell a store install from
++     * a direct one; the installer of record can. F-Droid and F-Droid Basic,
++     * Droid-ify, Neo Store (F-Droid clients that can add the repository),
++     * Accrescent and Google Play. Obtainium is deliberately absent: it tracks the
++     * direct-APK channel, which is the one this check exists for.
++     */
++    @VisibleForTesting internal val STORE_INSTALLERS: Set<String> = setOf(
++        "org.fdroid.fdroid",
++        "org.fdroid.basic",
++        "com.looker.droidify",
++        "com.machiav3lli.fdroid",
++        "app.accrescent.client",
++        "com.android.vending",
++    )
++
++    fun isStoreInstaller(installer: String?): Boolean = installer != null && installer in STORE_INSTALLERS
++
++    /**
++     * The installer of record: the package that performed the LAST install or
++     * update of this app (InstallSourceInfo.getInstallingPackageName, API 30+).
++     * Measured on Android 14: a hand-installed APK that F-Droid later updates
++     * reads org.fdroid.fdroid, and an APK installed by hand over an F-Droid
++     * install reads the system package installer again
++     * (docs/android/evidence/lw-m6-03/). Null when unknown (adb, a system app,
++     * an uninstalled installer): the check stays offered, off by default.
++     */
++    fun installerOf(context: Context): String? = try {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
++            context.packageManager.getInstallSourceInfo(context.packageName).installingPackageName
++        } else {
++            // The only API before 30; @Deprecated from 30, and the build is -Werror.
++            @Suppress("DEPRECATION")
++            context.packageManager.getInstallerPackageName(context.packageName)
++        }
++    } catch (e: PackageManager.NameNotFoundException) {
++        null
++    } catch (e: IllegalArgumentException) {
++        null
++    }
++
++    /**
++     * Whether this install offers the check at all: compiled in, and not
++     * installed or last updated by a store that notifies on its own.
++     */
++    fun isOffered(context: Context, compiledIn: Boolean = isCompiledIn): Boolean =
++        compiledIn && !isStoreInstaller(installerOf(context))
++
++    /**
 +     * The user's switch. It is stored in Fenix's own preference file,
 +     * components.settings.preferences ("fenix_preferences"), which is the file
-+     * [bindSwitch] writes, and nowhere else. Absent means off.
++     * [bindSwitch] writes, and nowhere else. Absent means off. A store install
++     * ([isOffered] false) reads as off whatever is stored; the installer is
++     * asked only when the switch is on.
 +     *
 +     * [compiledIn] is a parameter only so that a unit test, whose build has no
 +     * key, can reach the stored value; every production caller leaves it at
@@ -576,7 +664,7 @@ index 0000000000..7a175a9fb2
 +        compiledIn && context.components.settings.preferences.getBoolean(
 +            context.getString(R.string.pref_key_lw_update_check),
 +            false,
-+        )
++        ) && isOffered(context, compiledIn)
 +
 +    /**
 +     * Wires the Settings row (SettingsFragment.setupPreferences) to the file
@@ -591,9 +679,11 @@ index 0000000000..7a175a9fb2
 +     * itself is android:persistent="false" in preferences.xml, so androidx keeps
 +     * no second copy that could disagree. Binding writes nothing: an install
 +     * that never touches the switch has no value stored, which reads as off.
++     * On a store install ([isOffered] false) the row is hidden; a value stored
++     * before the store took over is kept but not acted on.
 +     */
 +    fun bindSwitch(switch: TwoStatePreference, compiledIn: Boolean = isCompiledIn) {
-+        switch.isVisible = compiledIn
++        switch.isVisible = isOffered(switch.context, compiledIn)
 +        switch.isChecked = isEnabled(switch.context, compiledIn)
 +        switch.onPreferenceChangeListener = SharedPreferenceUpdater()
 +    }
@@ -725,7 +815,7 @@ new file mode 100644
 index 0000000000..c290a17ef8
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckSwitchTest.kt
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,166 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -738,6 +828,11 @@ index 0000000000..c290a17ef8
 +// it drives UpdateChecker with everything injected and never touches the
 +// switch. These tests drive the switch the way a tap does and then ask
 +// UpdateCheck.isEnabled, the same question HomeActivity.onResume asks.
++//
++// Since 2026-10-05 (LW-M6-03) the same APK is also served by Redoubt's own
++// F-Droid repository, so the installer of record decides too: a store install
++// has no row and no check. The last three tests set it the way Android reports
++// it (InstallSourceInfo), as measured on an Android 14 emulator.
 +
 +package org.mozilla.fenix.lw
 +
@@ -756,6 +851,7 @@ index 0000000000..c290a17ef8
 +import org.mozilla.fenix.ext.components
 +import org.mozilla.fenix.utils.Settings
 +import org.robolectric.RobolectricTestRunner
++import org.robolectric.Shadows.shadowOf
 +
 +@RunWith(RobolectricTestRunner::class)
 +class UpdateCheckSwitchTest {
@@ -840,13 +936,58 @@ index 0000000000..c290a17ef8
 +        assertFalse(switch.isChecked)
 +        assertFalse(UpdateCheck.isEnabled(testContext, compiledIn = false))
 +    }
++
++    private fun installedBy(installer: String?) {
++        shadowOf(testContext.packageManager).setInstallSourceInfo(testContext.packageName, installer, installer)
++    }
++
++    @Test
++    fun `an install by F-Droid or another store hides the row and never runs the check`() {
++        for (store in listOf("org.fdroid.fdroid", "org.fdroid.basic", "com.looker.droidify",
++            "com.machiav3lli.fdroid", "app.accrescent.client", "com.android.vending")) {
++            installedBy(store)
++            // Even with the switch stored ON (turned on before the store took over).
++            settings.preferences.edit(commit = true) { putBoolean(key, true) }
++
++            val switch = boundSwitch()
++
++            assertFalse(store, switch.isVisible)
++            assertFalse(store, switch.isChecked)
++            assertFalse(store, UpdateCheck.isOffered(testContext, compiledIn = true))
++            assertFalse(store, UpdateCheck.isEnabled(testContext, compiledIn = true))
++        }
++    }
++
++    @Test
++    fun `a hand install keeps the row and the switch works`() {
++        installedBy("com.google.android.packageinstaller")
++        val switch = boundSwitch()
++
++        assertTrue(switch.isVisible)
++        tap(switch)
++
++        assertTrue(UpdateCheck.isEnabled(testContext, compiledIn = true))
++    }
++
++    @Test
++    fun `a direct install that F-Droid later updates loses the check`() {
++        installedBy("com.google.android.packageinstaller")
++        tap(boundSwitch())
++        assertTrue(UpdateCheck.isEnabled(testContext, compiledIn = true))
++
++        // F-Droid updates it: Android now reports F-Droid as the installer.
++        installedBy("org.fdroid.fdroid")
++
++        assertFalse(UpdateCheck.isEnabled(testContext, compiledIn = true))
++        assertFalse(boundSwitch().isVisible)
++    }
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt
 new file mode 100644
 index 0000000000..34b1410806
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt
-@@ -0,0 +1,252 @@
+@@ -0,0 +1,264 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1097,5 +1238,17 @@ index 0000000000..34b1410806
 +        // Leaving ESR: a 153 ESR install is offered the release build.
 +        assertTrue(UpdateChecker.isNewer("157.0-1", "153.4.0esr-1"))
 +        assertFalse(UpdateChecker.isNewer("153.4.0esr-2", "157.0-1"))
++    }
++
++    @Test
++    fun `store installers are recognised and nothing else is`() {
++        for (store in listOf("org.fdroid.fdroid", "org.fdroid.basic", "com.looker.droidify",
++            "com.machiav3lli.fdroid", "app.accrescent.client", "com.android.vending")) {
++            assertTrue(store, UpdateCheck.isStoreInstaller(store))
++        }
++        for (other in listOf(null, "", "com.google.android.packageinstaller", "com.android.packageinstaller",
++            "com.android.shell", "dev.imranr.obtainium", "org.mozilla.firefox", "org.fdroid.fdroid.debug")) {
++            assertFalse(other.toString(), UpdateCheck.isStoreInstaller(other))
++        }
 +    }
 +}

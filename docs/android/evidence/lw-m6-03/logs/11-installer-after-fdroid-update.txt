@@ -1,0 +1,20 @@
+# Scenario A: hand install of Beta 5 (x86_64), then F-Droid updates it to 157.0-2. API 34 emulator (google_apis x86_64), F-Droid 2.0.1.
+$ adb push org.redoubtbrowser_2016188262.apk /data/local/tmp/beta5.apk && adb shell pm install -i com.google.android.packageinstaller /data/local/tmp/beta5.apk
+BEFORE (dumpsys package org.redoubtbrowser):
+    versionCode=2016188262 minSdk=26 targetSdk=37
+    versionName=157.0-1-default
+    installerPackageName=com.google.android.packageinstaller
+    packageSource=1
+
+F-Droid: Update -> Android asked "Do you want to update this app?" (screens-new/08) -> Update.
+AFTER:
+    versionCode=2016188486 minSdk=26 targetSdk=37
+    versionName=157.0-2-default
+    lastUpdateTime=2026-10-05 21:46:48
+    installerPackageName=org.fdroid.fdroid
+    packageSource=2
+      firstInstallTime=2026-10-05 21:41:42
+
+$ adb pull <pm path org.redoubtbrowser> installed.apk; sha256sum; apksigner verify --print-certs
+c4eb178b98c99138504e6dc3e8f4cd672f30df2da1d06bc95ddc436a57022522  installed.apk   (= fenix-x86_64-release.apk of android-157.0-2, SHA256SUMS.signed)
+Signer #1 certificate SHA-256 digest: 6414eb334681cf6e929034b56a062d2b8da090822172f7a3952c85fdd1283bd0   (= the release key, SIGNING.md)

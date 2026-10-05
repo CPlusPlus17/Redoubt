@@ -432,3 +432,50 @@ safe but means opted-in users stop hearing about updates. Generate a new key, sh
 a client with it, and tell users on the release page and the site that the in-app
 check needs one manual update to resume. There is no lineage mechanism: a client
 embeds exactly one key, so rotation is always "new key in the next client".
+
+## The F-Droid repository key (LW-M6-03)
+
+A third key, separate from the two above: it signs the **index** of Redoubt's own F-Droid
+repository (`docs/android/FDROID.md`), not any APK. The APKs in the repository are the GitHub
+release's APKs, signed with the release key above, unchanged.
+
+    purpose                signs the F-Droid repository index (entry.jar, index-v1.jar, index.jar)
+    algorithm              RSA 4096, SHA256withRSA (fdroidserver also signs the two legacy
+                           JARs with SHA1withRSA for old clients)
+    keystore               ~/redoubt-fdroid/keystore.p12 on box A (PKCS12, alias
+                           redoubt-fdroid-repo, passphrase typed at the prompt)
+    created by             ./scripts/fdroid-repo.sh init, by the owner, once
+    generated              NOT YET (2026-10-05). Fill in date, fingerprint and backups when done:
+                           generated ____-__-__ ; fingerprint (plain hex) recorded in
+                           assets/fdroid/repo-fingerprint by the first publish
+    copies / holders       ____ (at least one offline backup, restore-tested)
+
+Record the fingerprint as plain hex as above, never under the words used for the APK key in
+"The key": `scripts/android-verify-signature.sh` and `scripts/fdroid-pages.py` read the APK
+fingerprint from this file by that label and must keep finding only the APK one.
+
+**What it can and cannot do.** Whoever holds it can publish an index that clients which added
+the repository accept: which versions are offered, their descriptions, and the sha256 of each
+APK. It **cannot** make Android install an APK that is not signed with the release key: the
+update would fail Android's same-key rule. A stolen repository key therefore lets an attacker
+withhold updates (serve a stale index), offer an old Redoubt as current within the two releases
+the repository keeps, or point at another app under a different package name. It cannot replace
+Redoubt itself. `fdroid-pages.py` also refuses to deploy an index whose APKs are not signed by
+the release key, but that is a check in this repository, not in the client.
+
+**Custody.** The APK key's settled rules apply: never in CI, never in a repository checkout
+(`init` refuses a home inside one), passphrase separate from the file. Back it up with the same
+care as the update-signing key: an offline copy, restore-tested with
+`REDOUBT_FDROID_HOME=<copy> ./scripts/fdroid-repo.sh fingerprint`.
+
+**If it is lost.** No one can sign a new index that existing clients accept. Users who added
+the repository stop receiving updates through it, silently: F-Droid keeps showing the last
+index. Recovery is a new key and a new repository fingerprint, which every user must re-add by
+hand (remove the old repository, add the new one). F-Droid has no key-rotation mechanism for
+a repository. The installed app is unaffected; its updates still come signed by the release
+key. Announce the change on the site, in the README and in the release notes.
+
+**If it is compromised.** Remove `site/fdroid/` and redeploy, so the URL stops serving an index,
+and announce it. Then create a new key and publish the new fingerprint as above. Users must
+re-add the repository; until they do, the attacker's index (if they can serve one at all, which
+needs the site or a mirror too) is limited as described above.

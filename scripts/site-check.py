@@ -16,6 +16,18 @@ Fails (exit 1) on any of:
 site/update/** belongs to the update endpoint (docs/android/DISTRIBUTION.md) and
 is published verbatim; this checker only checks that links into it resolve.
 
+site/fdroid/** belongs to the F-Droid repository (LW-M6-03, docs/android/FDROID.md):
+the signed index files that scripts/fdroid-repo.sh publish writes. They are not
+HTML pages of the site and are not linted here; scripts/fdroid-pages.py checks
+their signatures. Deliberate rules for it (added 2026-10-05):
+  * no *.apk anywhere under site/ -- the APKs are fetched from the GitHub release
+    at deploy time, never committed;
+  * site/fdroid.html (rendered by publish, never committed by hand) must carry the
+    repository fingerprint pinned in assets/fdroid/repo-fingerprint, in its
+    fdroidrepos:// link, and that file must exist when the page does;
+  * external links may also go to f-droid.org (where users get the client) and to
+    fdroidrepos://redoubtbrowser.org/fdroid/repo?fingerprint=<64 hex digits>.
+
 Usage: scripts/site-check.py [SITE_DIR]   (default: site/ next to scripts/)
 """
 import html.parser
@@ -33,7 +45,10 @@ ALLOWED_EXTERNAL = [
     re.compile(r"^https://github\.com/CPlusPlus17/Redoubt(/.*)?$"),
     re.compile(r"^https://librewolf\.net(/.*)?$"),
     re.compile(r"^https://(www\.)?mozilla\.org(/.*)?$"),
+    re.compile(r"^https://f-droid\.org(/.*)?$"),
+    re.compile(r"^fdroidrepos://redoubtbrowser\.org/fdroid/repo\?fingerprint=[0-9A-F]{64}$"),
 ]
+FDROID_LINK_RE = re.compile(r"fdroidrepos://[^\s\"'?]+\?fingerprint=([0-9A-Fa-f]{64})")
 FPR_RE = re.compile(r"\b(?:[0-9A-F]{2}:){31}[0-9A-F]{2}\b")
 DOMAIN = "redoubtbrowser.org"
 
@@ -110,7 +125,20 @@ def main():
     if not cname.is_file() or cname.read_text().strip() != DOMAIN:
         errors.append(f"{cname}: must contain exactly {DOMAIN}")
 
-    pages = sorted(site.rglob("*.html"))
+    apks = sorted(str(a.relative_to(site)) for a in site.rglob("*.apk"))
+    if apks:
+        errors.append(f"APKs committed under site/ {apks}: the F-Droid APKs are fetched at deploy time")
+    fdroid_page = site / "fdroid.html"
+    if fdroid_page.is_file():
+        pin = ROOT / "assets" / "fdroid" / "repo-fingerprint"
+        want = pin.read_text().strip().lower() if pin.is_file() else None
+        got = {g.lower() for g in FDROID_LINK_RE.findall(fdroid_page.read_text())}
+        if want is None:
+            errors.append("fdroid.html: assets/fdroid/repo-fingerprint is missing (run fdroid-repo.sh publish)")
+        elif got != {want}:
+            errors.append(f"fdroid.html: repository fingerprint(s) {sorted(got)} differ from assets/fdroid/repo-fingerprint {want}")
+
+    pages = sorted(p for p in site.rglob("*.html") if p.relative_to(site).parts[:1] != ("fdroid",))
     parsed = {}
     for p in pages:
         rel = p.relative_to(site)

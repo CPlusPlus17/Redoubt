@@ -89,7 +89,7 @@ in-app check (see §5 and `docs/android/DISTRIBUTION.md`).
 
 | channel | what it is | how it updates | in-app check present? |
 |---|---|---|---|
-| **F-Droid** | **Redoubt's own F-Droid repository**, not f-droid.org's main repo (LW-M6-03) | F-Droid's own updater, once our repo is added | **no** (compiled out) |
+| **F-Droid** | **Redoubt's own F-Droid repository** at `redoubtbrowser.org/fdroid/repo` (this site, `FDROID.md`), not f-droid.org's main repo (LW-M6-03) | F-Droid's own updater, once our repo is added | in the APK (the repository serves the direct APKs), **not offered** when F-Droid installed or last updated the app (from the build after 157.0-2) |
 | **Accrescent** | the Accrescent repository | Accrescent's own updater | **no** (compiled out) |
 | **direct APK** | the download on `redoubtbrowser.org` | the opt-in in-app version check (`DISTRIBUTION.md`) or the user's own tool (e.g. Obtainium) | **yes** (opt-in, off by default) |
 

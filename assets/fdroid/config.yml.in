@@ -1,0 +1,44 @@
+# fdroidserver config for the Redoubt F-Droid repository (LW-M6-03).
+#
+# TEMPLATE. scripts/fdroid-repo.sh writes config.yml from this file into the
+# repository's working directory (default ~/redoubt-fdroid/work/) before every
+# fdroidserver run, replacing @REPO_URL@. Do not edit the generated copy; edit
+# this file and commit.
+#
+# No secret is in this file or in the generated copy. The keystore is mounted
+# read-only into the container at /keys/keystore.p12 and its passphrase comes
+# from the environment of that one container run ({env: ...}), typed by the
+# owner at the prompt of fdroid-repo.sh.
+
+repo_url: @REPO_URL@
+repo_name: Redoubt
+repo_description: >-
+  The official F-Droid repository of Redoubt, a privacy-hardened Firefox-based
+  browser for Android. It serves the same APKs as the GitHub release, signed
+  with the same key (SHA-256 64:14:EB:33:46:81:CF:6E:92:90:34:B5:6A:06:2D:2B:8D:A0:90:82:21:72:F7:A3:95:2C:85:FD:D1:28:3B:D0).
+  https://redoubtbrowser.org/fdroid.html
+repo_icon: icon.png
+
+# No archive section. The repository is served by GitHub Pages, whose
+# published site may be no larger than 1 GB, and the APKs are fetched into
+# that site at deploy time. So scripts/fdroid-repo.sh keeps the newest
+# KEEP_RELEASES (default 2) releases in repo/ and deletes older APKs before the
+# index is signed; nothing is moved to an archive that would have to be hosted
+# too. 0 is fdroidserver's own default: archiving disabled.
+# docs/android/FDROID.md, "Retention".
+archive_older: 0
+
+keystore: /keys/keystore.p12
+repo_keyalias: redoubt-fdroid-repo
+keystorepass: {env: FDROID_KEYSTORE_PASS}
+keypass: {env: FDROID_KEYSTORE_PASS}
+
+# The escape hatch for bandwidth or a host move (docs/android/FDROID.md,
+# "Mirrors"). Clients that already added the repository read this list from
+# the signed index and fall back to the other entries when the primary does not
+# answer. Uncomment, keep the current URL FIRST, add the mirror (which must
+# serve the same repo/ tree, APKs included), update + publish, and only then
+# rely on it. The fingerprint does not change.
+# mirrors:
+#   - url: @REPO_URL@
+#   - url: https://<mirror-host>/fdroid/repo
