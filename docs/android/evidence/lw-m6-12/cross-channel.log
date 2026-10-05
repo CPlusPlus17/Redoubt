@@ -1,0 +1,31 @@
+== 0 uninstall
+Success
+== 1 install the direct-channel APK (per-ABI x86_64, update check compiled in, signed with throwaway key dd05cee7...)
+Serving...
+All files should be loaded. Notifying the device.
+Performing Incremental Install
+Success
+Install command complete in 1398 ms
+    versionCode=2016188390 minSdk=26 targetSdk=37
+    lastUpdateTime=2026-10-05 22:16:53
+      firstInstallTime=2026-10-05 22:16:53
+Status: ok
+Complete
+Tabs Open: 1
+settings row: 'Check for updates' '' (44, 1623, 408, 1682)
+== 2 install the Play split APKs (from the signed AAB, same throwaway key) over it, as Play would
+The APKs have been extracted in the directory: /tmp/15764546521878847068
+install-apks rc=0
+    versionCode=2016188391 minSdk=32 targetSdk=37
+    lastUpdateTime=2026-10-05 22:17:45
+      firstInstallTime=2026-10-05 22:16:53
+Tabs Open: 1
+settings 'Check for updates' rows after Play install: 0
+== 3 the same build's direct APK over the Play install
+adb: failed to install direct/fenix-x86_64-release.apk: Failure [INSTALL_FAILED_VERSION_DOWNGRADE: Downgrade detected: Update version code 2016188390 is older than current 2016188391]
+
+    versionCode=2016188391 minSdk=32 targetSdk=37
+== 4 negative control: the Play universal APK re-signed with a DIFFERENT key (the throwaway upload key, 1e7f290a...) over the Play install
+
+Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package org.redoubtbrowser signatures do not match newer version; ignoring!]
+adb: failed to install /tmp/claude-1000/-home-mgysin-Documents-librewolf/e0d297a6-dd59-4761-bb99-51f0017f288f/scratchpad/otherkey.apk: Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package org.redoubtbrowser signatures do not match newer version; ignoring!]

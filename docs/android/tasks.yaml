@@ -3373,6 +3373,8 @@ tasks:
     isolation: none
     risk: A repo signed with a key that later changes forces every user to reinstall manually.
 
+  # 2026-10-05: the "Play Store is out of scope" sentence below is reversed by
+  # owner decision (LW-M6-12, docs/android/PLAY.md section 1); the rest stands.
   - id: LW-M6-04
     title: Publish to Accrescent and provide direct APK plus Obtainium metadata
     milestone: M6
@@ -3384,6 +3386,10 @@ tasks:
       predictable release-asset naming scheme on the GitHub releases page. Set up
       all three so users are not funnelled into a single channel. Note the Play
       Store is out of scope — its signing model conflicts with LW-M6-01.
+      REVERSED 2026-10-05 by the owner: Google Play is in scope, as LW-M6-12,
+      with the existing release key uploaded to Play App Signing (same
+      fingerprint on every channel; Google holds a copy). The conflict with
+      LW-M6-01 is accepted, not resolved — SIGNING.md "Google holds a copy".
     acceptance:
       - "APKs are signed with v2 and v3, verified by apksigner"
       - "Obtainium resolves the GitHub release and offers the update"
@@ -3787,6 +3793,47 @@ tasks:
     agent_safe: yes
     isolation: none
     risk: A release tag pointing at older source or a missing submodule would misrepresent the published APKs.
+
+  # 2026-10-05: owner decision, reverses LW-M6-04's "Play out of scope".
+  - id: LW-M6-12
+    title: Publish Redoubt on Google Play with the existing release key
+    milestone: M6
+    depends_on: [LW-M6-01, LW-M6-05, LW-M6-06, LW-M6-11]
+    owns:
+      - docs/android/PLAY.md
+      - docs/android/play/
+      - docs/android/evidence/lw-m6-12/
+      - docs/android/evidence/lw-m6-01/sign-aab.sh
+      - scripts/android-aab.py
+      - scripts/bundletool.sh
+      - site/privacy-policy.html
+    reads:
+      - docs/android/PARITY.md
+      - docs/android/DISTRIBUTION.md
+      - patches/android/update-check.patch
+    what: |
+      The owner decided on 2026-10-05 to publish on Google Play with the EXISTING
+      release key uploaded to Play App Signing (PEPK), so one fingerprint covers
+      every channel and Google holds a copy of the key. Add a Play bundle to the
+      release path (scripts/android-apk.sh --bundle, android-release.yaml input
+      bundle, unsigned AAB artifact, update check always compiled out, versionCode
+      = the build's universal code), the owner's upload-key signer (sign-aab.sh),
+      a pinned bundletool, a privacy policy page, the store listing and graphics,
+      and the owner runbook docs/android/PLAY.md. Record what Google holding the
+      key means in SIGNING.md and SECURITY.md. The owner creates the account, runs
+      PEPK, holds the upload key and uploads; agents use throwaway keys only.
+    acceptance:
+      - "android-apk.sh --bundle produces an unsigned AAB for org.redoubtbrowser whose dex carries no update-check key and whose versionCode is >= every APK of the same build"
+      - "sign-aab.sh signs with a registered upload key, refuses the app signing key, and leaves the payload byte-identical"
+      - "APKs generated from the signed AAB by the pinned bundletool install and launch on an emulator, with no update-check row in Settings"
+      - "PLAY.md gives the owner every one-time and per-release step, with each Play requirement cited to an official page and date"
+      - "the Play listing is live and the Play-served APK verifies with the published fingerprint (owner, after upload)"
+    verify: "python3 docs/android/board.py --check && python3 docs/android/play/check-listing.py && python3 scripts/site-check.py"
+    effort_h: "8-16"
+    skills: [ops, android, gradle, docs]
+    agent_safe: no
+    isolation: worktree
+    risk: Google holds a copy of the app signing key and can sign updates every install accepts; a Google-generated or hybrid key would split the channels for good.
 
   - id: LW-M7-08
     title: Audit Android feature completeness against LibreWolf

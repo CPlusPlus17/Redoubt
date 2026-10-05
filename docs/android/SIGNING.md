@@ -97,6 +97,13 @@ There is no co-holder to recover from, no authority to appeal to, and no
 key-recovery mechanism outside Play App Signing, which this project does not use.
 Every installed user would have to uninstall and reinstall, losing their profile.
 
+> **2026-10-05, Google Play (LW-M6-12).** The owner decided to upload this key to
+> Play App Signing ("Google holds a copy of the app signing key" below). Once that
+> upload has happened, Google holds a second copy. That copy is a **custodian's
+> copy, not a second holder**. Google signs Play's APKs with it, but it will not hand
+> it back for signing GitHub or F-Droid APKs, so it does not change the loss case
+> above for those channels. It does change the compromise case.
+
 The LW-M6-01 acceptance criterion "at least two holders" is therefore **not met,
 and is not going to be met before launch**. It is an accepted risk of a solo
 project. Revisit it when there is a second maintainer, or when an offline copy in
@@ -313,6 +320,60 @@ Android supports key rotation through APK Signature Scheme v3
   key.
 
 Do not treat rotation as a reason to hold the key less carefully.
+
+## Google holds a copy of the app signing key (Google Play, LW-M6-12)
+
+    DECIDED       2026-10-05
+    DECIDED BY    Manuel Gysin (owner)
+    CHOICE        publish on Google Play with THIS key uploaded to Play App Signing
+                  (PEPK, "use existing app signing key"), so that the fingerprint
+                  above is the same on every channel; Google holds a copy
+    STATE         decided, NOT YET DONE -- no Play account exists and nothing has
+                  been uploaded (2026-10-05). Fill in the date of the PEPK upload
+                  here when it happens:  uploaded: ____-__-__
+    RUNBOOK       docs/android/PLAY.md section 4, steps 3-4
+
+This reverses LW-M6-04's "the Play Store is out of scope -- its signing model
+conflicts with LW-M6-01". The conflict is accepted, not resolved. Once the
+upload has happened, the following is true and must be said that way:
+
+- **Google can sign an update for `org.redoubtbrowser` that every install
+  accepts**, including the installs that came from GitHub Releases, Obtainium or the
+  F-Droid repository and never touched Play. Android checks the key, not the channel.
+  Such an update still has to reach the device: through Play, which can update any
+  install it is allowed to update, or as an APK handed to someone. Once there, the
+  device does not ask where it came from, only who signed it.
+- **The trust root is no longer one person.** It is the owner **and Google**. Every
+  sentence that says "one person holds the signing key" (README "Honest limits",
+  `site/privacy.html` "A different signing identity") becomes false on the day of the
+  upload. The corrected wording is prepared outside the repo and goes in with the
+  Play launch (PLAY.md section 9), not before.
+- **The compromise surface grows.** A Google-side compromise, a legal order addressed
+  to Google, or a takeover of the Play Console account combined with an upload-key
+  reset can all produce a validly signed update. The Play Console account therefore
+  needs 2-step verification, and its upload-key reset is a security event (PLAY.md,
+  step 4).
+- **What Google gets is the encrypted export.** PEPK encrypts the private key to
+  Google's public key on box A, and only Google can decrypt the zip. The keystore
+  passphrase is not sent. The owner runs PEPK. No agent does, and the encrypted zip is
+  deleted after the upload.
+- **The upload key is separate** (`~/redoubt-play-upload.p12`, owner-held). This key
+  is used once, for the PEPK export, and never signs an upload. `sign-aab.sh` refuses
+  it as the upload signer. A lost upload key is reset by Google. A lost app signing
+  key is still the end of the identity for every channel that is not Play.
+- **Key upgrades on Play.** Play offers a "key upgrade", and from Android 17 a
+  quantum-ready hybrid signing upgrade, both with keys that **Google generates**.
+  Accepting either makes Play installs on newer Android verify against a key the
+  other channels do not have. **Do not accept them**: PLAY.md step 3 says the same.
+  The v3 rotation described under "Rotation, and its limits" still works only with
+  this key, so a rotation on Play and on the other channels would have to be one
+  joint act.
+- **Losing access to Play does not return the key.** Unpublishing the app or losing
+  the account leaves Google's copy where it is.
+
+The channels stay interchangeable: a Play install and a GitHub or F-Droid install of
+a later build update each other in place (PLAY.md section 3, "versionCode, and
+moving between channels").
 
 ## The update-signing key (LW-M6-06)
 
