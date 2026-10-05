@@ -100,6 +100,9 @@ That "where" is [`docs/android/PARITY.md`](docs/android/PARITY.md). In short:
   are checked but have not been run on a physical phone by the project. Reports
   from real devices are welcome.
 - **One person holds the signing key.** There is no second key holder yet.
+- **Some password managers do not offer passkeys to Redoubt yet**, and login
+  forms built inside shadow DOM (Reddit's, for example) do not get autofill
+  suggestions in 157. See [Passwords and passkeys](#passwords-and-passkeys).
 - **A small project.** If you want a mature, widely used hardened Firefox for
   Android today, [IronFox](https://github.com/ironfox-oss/IronFox) is that, and it
   is the browser LibreWolf itself recommends to Android users. How Redoubt differs
@@ -112,6 +115,43 @@ both Redoubt and LibreWolf desktop to share bookmarks, passwords, history and
 open tabs. The maintainer tested this on 2026-10-04. There is no instant push,
 because Redoubt has no Google services. See
 [`docs/android/SYNC.md`](docs/android/SYNC.md).
+
+## Passwords and passkeys
+
+**Passwords.** Redoubt works with any Android autofill service: Bitwarden,
+KeePassDX, Proton Pass, Google Password Manager and others. Choose yours as
+the autofill service in Android's settings. Normal login forms get
+suggestions. Redoubt's own password saving is off by default.
+
+One gap: Redoubt 157 does not see login fields built inside shadow DOM, so
+your password manager gets no suggestion there. Reddit's login is one example.
+Stock Firefox for Android 157 has the same gap. A fix is planned for the next
+release, Redoubt 158. Until then, copy the username and password from your
+password manager.
+
+**Passkeys** need Android 14 or later. Redoubt passes passkey requests to
+Android's Credential Manager, along with the site's address. Each password
+manager then decides whether it trusts Redoubt as a browser:
+
+- **KeePassDX**: works once you allow it. The first time Redoubt asks for a
+  passkey, KeePassDX shows "App not recognized" and offers to add Redoubt to
+  its privileged apps. You can also do this beforehand: Settings > Form
+  filling > Passkeys settings > Privileged apps, then tick Redoubt.
+- **Bitwarden**: when you pick a passkey, Bitwarden says Redoubt is an
+  "Unrecognized browser". Choose **Trust** to add it to your own list of
+  trusted apps. Redoubt is not on Bitwarden's community list of browsers yet.
+  We are working on adding it, so that this step will no longer be needed.
+- **Proton Pass and Google Password Manager** check browsers against fixed
+  lists that do not include Redoubt yet. Neither lets you add a browser
+  yourself, so they offer no passkeys to Redoubt until their makers add it.
+
+We took the KeePassDX and Bitwarden steps from their source code. The project
+has not yet tested them with Redoubt on a phone.
+
+**Passkey suggestions inside the username field** (WebAuthn "conditional
+UI"; Reddit uses it) are not supported by Firefox for Android at all. Gecko
+reports them as unavailable on Android, so Redoubt cannot offer them either.
+Use the site's "Sign in with a passkey" button if it has one.
 
 ## Attribution
 
