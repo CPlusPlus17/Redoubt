@@ -9,6 +9,14 @@ needs only a tarball swap, a re-check and a build, not a rebase.
 target 158 and no longer apply to 157. The bump to 158.0 happens on release
 day, with the real 158.0 tarball. The steps are at the end of this file.
 
+**Updated 2026-10-05** (section 6): main (157.0-2 stable, with the update
+check's Settings-switch fix) and the two fix branches `fix/harness-sni` and
+`fix/update-accept-language` are merged in; 158.0b3 is still the newest 158
+source; check-patchfail, the fuzz-0 replay and the x86_64 compile and unit
+tests were re-run on the merged branch. **`release.android` now reads `2`**
+(from main's 157.0-2) and must go back to `1` on release day (section 5,
+step 2).
+
 Supporting files are in [`prebase/`](prebase/). Each claim below names the
 file or command it rests on.
 
@@ -263,8 +271,11 @@ the source tarball is on archive.mozilla.org.
 1. **Fetch and verify** `releases/158.0/source/firefox-158.0.source.tar.xz`
    and its `.asc` (REBASE.md §3). Check the primary key fingerprint is
    `14F26682D0916CDD81E37B6D61B7B526D98F0353`. Record size and sha256.
-2. **Bump** `version` and `version.android` to `158.0` (`release`,
-   `release.android` stay `1`) on this branch.
+2. **Bump** `version` and `version.android` to `158.0`, and **reset
+   `release.android` from `2` to `1`** (it came in as `2` with main's 157.0-2;
+   158.0-1 is the first build of 158). `release` stays `1`. The versionCode is
+   derived from the build date, so the reset does not make it go down; the
+   build date in step 7 does that job.
 3. **Re-check the patches** against the real tarball:
    `./scripts/check-patchfail.sh --targets=desktop` and `--targets=android`
    (both must exit 0), plus the `--fuzz=0` runs. Compare their reject lists
@@ -288,10 +299,26 @@ the source tarball is on archive.mozilla.org.
 6. **Build image**: `localhost/librewolf-android-build:fx158` from
    `assets/Dockerfile.android`. Re-read its four 158 pins against the 158.0
    tree (`python/mozboot/mozboot/android.py`, `android-packages.txt`).
-7. **Full build, 3 ABIs**: fresh `make dir TARGETS=android`, then
+7. **Release build in CI on box B.** This is how 157.0-2 was built
+   (`release-157.0-2/acceptance/run-37248744119/`). The workflow builds from
+   `--ref main`, so the owner first merges this branch into `main` and pushes
+   it; this branch is local-only until then. Dispatch:
+
+       gh workflow run android-release.yaml --repo CPlusPlus17/Redoubt --ref main \
+         -f mode=full -f update_check=true -f build_date=<YYYYMMDDHHMMSS UTC>
+
+   `update_check=true` compiles the update check in with the committed
+   `assets/update-check.android.pubkey` (the direct-APK shape). `build_date`
+   must be **new and later than 157.0-2's `20261005000000`**, so the
+   versionCodes go up, and not in the future (the workflow refuses that).
+   Use one value for all ABIs; the workflow passes it to the fat AAR and the
+   APK pass. Record the run id and inputs as for 157.0-2.
+
+   A local build (optional cross-check) works the same way: fresh
+   `make dir TARGETS=android`, then
    `make android-build` and `make android-package TARGETS=android` with
    `android_build_image=localhost/librewolf-android-build:fx158`,
-   `--variant=release --disable-debug-signing`, one `--build-date` for all
+   `--variant=release --disable-debug-signing --update-check`, one `--build-date` for all
    ABIs, and memguard running (the Beta 5 `build.sh` pattern,
    `evidence/lw-m7-41/migration/build/`). The universal-APK ABI check must
    pass this time.
@@ -304,6 +331,76 @@ the source tarball is on archive.mozilla.org.
    first-run capture. The capture is where the section 3 items show whether
    anything is newly on the wire. Then the owner's decisions on section 3, then
    signing and publishing (SIGNING.md: the owner signs offline; nothing on
-   this host signs a release).
-10. Desktop: the same tarball and steps 1-3 for `TARGETS=desktop`. This
+   this host signs a release). The acceptance should also check from the
+   local update server's request log (`update-check/device-local/server-requests.jsonl`
+   as in run 37248744119) that the update check sends **no `Accept-Language`
+   and no `Accept`** (the `fix/update-accept-language` change; the existing
+   probe does not assert this yet). `--check-update-privacy` now grades each
+   connection by name (`fix/harness-sni`); this will be its first live run.
+10. **Publish the update document after the release** (DISTRIBUTION.md,
+    "Publishing an update document", steps 2-8). Only after the GitHub release
+    `android-158.0-1` is public: `scripts/update-manifest.py generate` from the
+    CI build's `output-metadata.json`, sign `latest.json` on the key machine with
+    `sign-update-manifest.sh` (update-signing key, not the APK keystore),
+    `update-manifest.py verify` on the build host, copy `latest.json` and
+    `latest.json.sig` into `site/update/android/`, commit signed and push, then
+    `update-manifest.py fetch --expect-tag android-158.0-1`. Until then, 157.0-2
+    installs that turned the check on keep being told they are up to date.
+    Keep the evidence as in `release-157.0-2/stable/`.
+11. Desktop: the same tarball and steps 1-3 for `TARGETS=desktop`. This
     pre-rebase did not compile desktop.
+
+## 6. Update, 2026-10-05: main and the two fix branches merged
+
+**Source.** 158.0b3 is still the newest 158 source. On 2026-10-05
+`archive.mozilla.org/pub/firefox/candidates/` lists `158.0b1`..`158.0b3`
+candidates and no `158.0-candidates`; `/pub/firefox/releases/` lists
+`158.0b1`..`158.0b3`. The b3 tarball was re-verified against the pinned
+`assets/mozilla-release-key.asc` (main's, now on this branch): `VALIDSIG
+827E658608679618CD349F93678E455D76767AA3 … 14F26682D0916CDD81E37B6D61B7B526D98F0353`.
+Nothing changed between b3 and what this branch was rebased against, so
+sections 1-4 stand.
+
+**Merges** (signed merge commits, no conflicts):
+
+| merged | what it brings | effect on the 158 patches |
+|---|---|---|
+| `origin/main` (157.0-2 stable) | update check: signed endpoint, versionCode rule, the Settings-switch fix (`b86c1a0c`); release watcher; box B CI; pinned Mozilla key; Makefile `fetch` verifies against it | the only patch main changed since the branch point (`39d159ca`) is `update-check.patch`; this branch had not touched it. `canvas-webgl-permissions`, `addon-state-durability`, `no-onboarding` and the other 158-rebased patches have no change on main since the branch point, so they keep their 158 text |
+| `fix/harness-sni` | `--check-update-privacy` judges connections by name | scripts and docs only |
+| `fix/update-accept-language` | `update-check.patch` sends `Accept-Language: ""` / `Accept: ""` so Gecko drops both | Fenix-only |
+
+One patch fix after the merge: main's `update-check.patch` put its
+`HomeActivity.kt` hunk at 855; in order on 158 it lands at 862 (the 158 text
+of that file has 7 more lines above `onResume`). The header was moved, the
+content is unchanged, and a "158 REBASE" note was added to the patch header.
+It applied at an offset before; now it applies exactly.
+
+**Re-checks on the merged branch, 158.0b3** (`prebase/merge-2026-10-05/`):
+
+| check | result |
+|---|---|
+| `check-patchfail.sh --targets=desktop` | exit 0, 30 hunks with fuzz (as in section 2) |
+| `check-patchfail.sh --targets=android` | exit 0, 8 hunks with fuzz, all in common entries (as in section 2) |
+| `--fuzz=0`, both targets | the same 20 desktop / 10 android entries as section 2's "After", byte-for-byte the same reject list |
+| in-order replay, android at `--fuzz=0` (`replay.py`, fresh tree) | all 42 android entries apply, none needs fuzz; 13 at an offset (was 14; `update-check` is now exact), none in res/ |
+| `check-patch-order.py` | `patch order ok: 36/36 … 148 shared-file pair(s)` |
+| `board.py --check`, `--check-scope`, `lint-patch-scope.py` | ok (124 tasks; 108 patch files) |
+| `scripts/tests/test-android-smoke.py`, `test-update-manifest.py`, `test-firefox-release-watch.py` | 89, 15 and 67 tests, OK |
+
+**Compile check (incremental).** The merge changes no Gecko file: comparing
+the merged replay tree with the section 4 build tree over every file a patch
+touches or deletes differs in exactly the 7 update-check files
+(`replay-vs-build-tree.txt`). Those 7 were copied from the replay into the
+section 4 tree, together with main's `android-apk.sh` (new `--update-check`),
+and `fenix:assembleRelease` was re-run with `--skip-gecko --update-check`
+(image `fx158` `98e61be72eec`, build date 20261004120000, memguard on;
+`build-apk-merge.sh`):
+
+| step | result |
+|---|---|
+| run 4, `--skip-gecko --update-check` | `:fenix:compileReleaseKotlin` and `BUILD SUCCESSFUL in 17m 47s` (Kotlin `-Werror`). `libxul.so` sha256-identical to the AAR input and to run 3. The committed update-check public key is in `classes2.dex` (1 hit), so the check is compiled in. `android-apk.sh` exits 1 afterwards on the expected universal-APK ABI check (section 4). APKs: `SHA256SUMS.apk` |
+| targeted unit tests (`test-merge.sh`): section 4's list with `org.mozilla.fenix.lw.*` and `SettingsFragmentTest` added | `:fenix:compileDebugUnitTestKotlin` passes; **Fenix 44 classes / 563 tests / 0 failures**, run 2026-10-05, among them `UpdateCheckerTest` 12, `UpdateCheckSwitchTest` 4, `DohProviderMigrationTest` 9, `SettingsFragmentTest` 25. `service-firefox-accounts` and `feature-fxsuggest` were Gradle UP-TO-DATE (no input changed); their results are run 3's (17 / 145 / 0 and 12 / 73 / 0). `unit-tests.json`, `unit-tests-gradle.txt` |
+
+Not run here: the JVM harness `test-update-check-jvm.sh` (it builds against a
+patched 157 tree; the Robolectric run above covers the same tests on 158), any
+device or emulator run, desktop.
