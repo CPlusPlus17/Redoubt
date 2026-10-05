@@ -418,14 +418,22 @@ reach Android Autofill. The fix is a fallback in
 patch was written against 158.0b3, and **157 / `main` has no such entry**.
 Whether to backport it is a separate decision.
 
+A follow-up the same day narrowed the patch after an independent review. The
+first version also registered email fields in open shadow roots with no
+password field anywhere (newsletter, checkout), which upstream never does in
+the light DOM. Now a non-password field qualifies only if its
+shadow-inclusive FormLike holds a password field. The table is for the
+narrowed patch.
+
 | check (158.0b3) | result |
 |---|---|
 | `check-patchfail.sh` android / desktop | exit 0 / exit 0; the new patch applies exactly; 8 / 30 hunks with fuzz overall, as in section 6 |
 | fuzz 0 | applies to pristine 158.0b3; no other patch touches the file |
 | `check-patch-order.py`, `lint-patch-scope.py`, `board.py --check-scope`, `--check` | ok (109 patch files; 125 tasks) |
-| Gecko pass, `android-fat-aar.sh --abis x86_64`, section 4's objdir and build date | ok, per-ABI pass 801 s + merge 770 s; the APK's omni.ja carries the patched actor byte-for-byte |
-| `fenix:assembleRelease --skip-gecko --update-check` | `BUILD SUCCESSFUL in 14m 1s`; the script exits 1 afterwards on the expected universal-APK ABI check (section 4) |
-| emulator, API 34, probe AutofillService | plain form unchanged; shadow-DOM page and reddit.com/login now produce a fill request with `webDomain` and username/password hints; closed roots and non-login shadow inputs still produce none |
+| Gecko pass, `android-fat-aar.sh --abis x86_64`, section 4's objdir and build date | ok, per-ABI pass 856 s + merge 1158 s; the AAR's and the APK's omni.ja carry the patched actor byte-for-byte (`8e799ac0…c03a`) |
+| `fenix:assembleRelease --skip-gecko --update-check` | `BUILD SUCCESSFUL in 1m 26s`; the script exits 1 afterwards on the expected universal-APK ABI check (section 4) |
+| emulator, API 34, probe AutofillService, force-stop before each case | plain form 1 fill request (unchanged); open-shadow login page 1; closed roots 0; non-login shadow inputs 0; new email-only shadow page 0; reddit.com/login (after reddit.com/) 1, with `webDomain` and username/password hints |
+| same, unpatched 158.0b3 (run 4 APK, actor = pristine) | open-shadow login page 0, email-only 0, plain 1: the bug is present on 158 without the patch |
 
 Details and logs: `docs/android/evidence/lw-m7-42/autofill-shadow-dom/README.md`.
 

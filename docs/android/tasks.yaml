@@ -5357,7 +5357,8 @@ tasks:
       patches/android/autofill-shadow-dom.patch adds a fallback in onFocus, next
       to upstream's datalist one: an unregistered login field (password, or a
       username-type field LoginHelper infers as username/email or
-      LoginManagerChild's heuristics pick as the username) in a shadow tree
+      LoginManagerChild's heuristics pick as the username, in a FormLike that
+      holds a password field, as upstream requires) in a shadow tree
       whose roots are all open is registered through addElement with a
       FormLike whose elements include every open shadow root's fields under
       its root, so the Focus message carries the node to Java. Light DOM,
@@ -5366,7 +5367,7 @@ tasks:
     acceptance:
       - "focusing a shadow-DOM username or password field fires an AutofillService onFillRequest whose structure carries webDomain and both fields with username/password hints"
       - "a plain light-DOM login form still produces the same fill request (regression)"
-      - "fields in closed shadow roots and non-login inputs (search, one-time-code) are not registered"
+      - "fields in closed shadow roots and non-login inputs (search, one-time-code, email fields with no password field in their FormLike) are not registered"
       - "the patch applies at fuzz 0 in list order, check-patchfail is clean for both targets, and the Gecko pass that builds omni.ja compiles it"
     verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check-scope"
     effort_h: "3-6"

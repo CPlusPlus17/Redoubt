@@ -15,11 +15,16 @@
 # The patch adds one more fallback in onFocus, next to the datalist one. When
 # the focused element is unregistered and is
 #   * an <input> in a shadow tree whose shadow roots are all open, and
-#   * a login field: a password field (hasBeenTypePassword); a username-type
-#     field (LoginHelper.isUsernameFieldType) that LoginHelper infers to be a
-#     username or email field (autocomplete username/webauthn/email, or the
-#     words in its attributes or label); or the field LoginManagerChild's own
-#     heuristics (_getFormFields) pick as the username,
+#   * a login field: a password field (hasBeenTypePassword); or a
+#     username-type field (LoginHelper.isUsernameFieldType) whose
+#     shadow-inclusive FormLike (below) holds a password field, and that
+#     LoginHelper infers to be a username or email field (autocomplete
+#     username/webauthn/email, or the words in its attributes or label) or
+#     LoginManagerChild's own heuristics (_getFormFields) pick as the
+#     username. The password requirement matches upstream, which registers
+#     only forms with a password field: a newsletter or checkout email field
+#     with no password field beside it stays unregistered, and the username
+#     heuristics are not run for it,
 # it builds a FormLike rooted where FormLikeFactory would root it (the closest
 # <form> across shadow hosts, else the document element), whose elements also
 # include the fields of every open shadow root under that root, and passes it
@@ -30,7 +35,8 @@
 # Not changed: light-DOM fields (returned early, byte-for-byte the upstream
 # path), closed shadow roots and UA-widget roots (Element.shadowRoot is null
 # for both, and a field under one is rejected), non-login inputs (search, OTP,
-# anything else), null-principal documents. No new network, no new prefs.
+# email or text fields with no password field in their FormLike, anything
+# else), null-principal documents. No new network, no new prefs.
 # Cost: one DOM walk when an unregistered login-like field in a shadow root is
 # focused; once registered, later focuses hit the cache.
 #
@@ -91,7 +97,7 @@
        if (!aTarget.list) {
          return null;
        }
-@@ -357,6 +375,116 @@
+@@ -357,6 +375,130 @@
      }
    }
  
@@ -104,11 +110,14 @@
 +   * the light DOM, fields in a closed shadow root (or under one), and fields
 +   * that are not login fields.
 +   *
-+   * A login field here is a password field, a username-type field that
-+   * LoginHelper infers to be a username or email field (autocomplete
-+   * username/webauthn/email, or "username"/"email" in its attributes or
-+   * label), or the field LoginManagerChild's own heuristics pick as the
-+   * username of the shadow-inclusive form.
++   * A login field here is a password field, or a username-type field in a
++   * FormLike whose (shadow-inclusive) elements contain a password field and
++   * that is either inferred by LoginHelper to be a username or email field
++   * (autocomplete username/webauthn/email, or "username"/"email" in its
++   * attributes or label) or picked by LoginManagerChild's own heuristics as
++   * the username. Upstream registers only forms that hold a password field,
++   * so an email field with no password field beside it (newsletter,
++   * checkout) is not a login field.
 +   *
 +   * @param aField Focused element.
 +   */
@@ -140,7 +149,18 @@
 +        rootElement,
 +        elements: this._shadowInclusiveElements(rootElement, form),
 +      };
++      lazy.FormLikeFactory._addToJSONProperty(formLike);
 +    }
++
++    if (
++      !aField.hasBeenTypePassword &&
++      !formLike.elements.some(
++        el => HTMLInputElement.isInstance(el) && el.hasBeenTypePassword
++      )
++    ) {
++      return null;
++    }
++
 +    // With aField.form set, the form is in aField's own shadow tree and
 +    // form.elements already holds aField; it still needs the username pass.
 +    gShadowInclusiveFormLikes.add(formLike);
