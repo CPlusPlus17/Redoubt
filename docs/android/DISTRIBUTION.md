@@ -27,7 +27,7 @@ publishing side now exists in the repository; what is still missing is owner-hel
 
 | part | state |
 |---|---|
-| client (`patches/android/update-check.patch`) | implemented; **revised 2026-10-04**: the versionCode decides (see "The document"), default endpoint `/update/android/` |
+| client (`patches/android/update-check.patch`) | implemented; **revised 2026-10-04**: the versionCode decides (see "The document"), default endpoint `/update/android/`; **fixed 2026-10-05**: the Settings switch now writes the file the check reads. In the 157.0-2 build it did not, so the check could never be turned on ("The switch defect" below) |
 | document generator + verifier (`scripts/update-manifest.py`) | implemented |
 | owner's signer (`scripts/sign-update-manifest.sh`) | implemented; refuses any key but the pinned one |
 | build wiring (`scripts/android-apk.sh --update-check`) | implemented; refuses to build until the public key is committed |
@@ -340,6 +340,41 @@ custody"). The step list above applies unchanged; this is the delta.
    update check of their own"; update them for the stable release in the same
    publishing pass. The parity sentence and the fingerprint stay verbatim.
 
+## The switch defect (found 2026-10-05)
+
+Device acceptance of the 157.0-2 build (CI run 37234607054, commit `0ef74fad`) failed
+`--check-update-privacy`'s ON half. The switch was turned on through the UI, but no request
+reached `redoubtbrowser.org`. A probe inside Gecko confirmed this (branch
+`release/157.0-2-acceptance`, `docs/android/evidence/lw-m7-01/release-157.0-2/acceptance/`).
+**That build must not be published.**
+
+- **Cause.** The row was a plain `SwitchPreferenceCompat`. `SettingsFragment` sets no
+  `sharedPreferencesName`, so androidx persisted the switch to the default SharedPreferences
+  file (`org.redoubtbrowser_preferences.xml`). `UpdateCheck.isEnabled` reads
+  `components.settings.preferences` (`fenix_preferences`). The switch showed ON, and the
+  check stayed off.
+- **Fix** (`update-check.patch`, 2026-10-05). It uses upstream's own pattern for switches
+  that live in `fenix_preferences` (`CustomizationFragment`'s gesture switches):
+  `UpdateCheck.bindSwitch` sets the row's checked state from `isEnabled` and installs
+  `SharedPreferenceUpdater`, which writes `fenix_preferences` under the row's key. The row is
+  `android:persistent="false"`, so androidx keeps no second copy. Binding writes nothing, so
+  the check is off until the user taps the row. A value that 157.0-2 left in the default file
+  is ignored, not migrated.
+- **Why nothing caught it.** `UpdateCheckerTest` drives `UpdateChecker` with every input
+  injected and never touched the switch. `test-update-check-jvm.sh` runs those tests on a
+  plain JVM. The patch gates do not compile. The 2026-09-06 opt-in device run
+  (`evidence/lw-m7-06`) saw no request after the switch was turned on. It blamed that on
+  nothing being published, but the cause was this defect. **`UpdateCheckSwitchTest`**
+  (Robolectric, 4 tests) now taps the row through its change listener and asks `isEnabled`.
+  It checks four things: on after a tap, off after a second tap, off by default, and off when
+  a value exists only in the default file. With the listener removed, the test fails. The JVM
+  harness cannot run it (there is no Android runtime) and instead fails if the wiring is
+  missing from the patch. Runs: `evidence/lw-m6-06/switch-fix-2026-10-05/`.
+- **Before release.** A new CI build from a commit that has this fix needs a new acceptance,
+  and its ON half of `--check-update-privacy` must show the request. Whether that build is
+  still called 157.0-2 (nothing was published) or gets a new release number is the owner's
+  decision. It is not made here.
+
 ## Testing it
 
 - `python3 scripts/tests/test-update-manifest.py` — generate → sign (with
@@ -359,7 +394,16 @@ custody"). The step list above applies unchanged; this is the delta.
   2.4.0: 10/10 tests, 13/13 cross-checks; re-run the same day after the
   unknown-own-code fix with Kotlin 2.3.20: 11/11 tests, 14/14 cross-checks (the
   new test fails against the previous `offers`). It does not replace
-  `./mach gradle fenix:testDebugUnitTest` or a build of the Fenix module.
+  `./mach gradle fenix:testDebugUnitTest` or a build of the Fenix module. Since
+  2026-10-05 it also compiles against `androidx.preference` and greps the patch for the
+  switch wiring ("The switch defect" above). It does **not** run `UpdateCheckSwitchTest`,
+  which needs Robolectric. Re-run 2026-10-05 on the 157 tree (Kotlin 2.4.0): 11/11 tests,
+  14/14 cross-checks. Against the 0ef74fad patch it exits 2 at the wiring check.
+- `./mach gradle fenix:testDebugUnitTest --tests 'org.mozilla.fenix.lw.*'` —
+  `UpdateCheckerTest` and `UpdateCheckSwitchTest`. This is the only test that drives the
+  Settings switch and then asks the check whether it is on. Run 2026-10-05 on the Firefox 158
+  tree, the only one on the build host with a GeckoView AAR, with the fixed files copied in:
+  15/15, `-Werror` compile clean.
 - `./scripts/android-smoke.sh --check-update-privacy` on a device, with a build
   made with a key, is still the only measurement of the request itself.
 
@@ -474,9 +518,10 @@ out — no row, no reachable code path — which is exactly the store-build
 configuration. The first build with it compiled in is the stable release
 157.0-2 ("Stable release" above).
 
-Not yet measured on a device: the opt-in half of `--check-update-privacy` (the
+Not yet measured on a device: the opt-in half of `--check-update-privacy`. The
 2026-09-06 run with a throwaway-key build saw no request to the update host after
-the switch was turned on, and nothing was published to answer one;
-`evidence/lw-m7-06/README.md`). It must be re-run against
+the switch was turned on (`evidence/lw-m7-06/README.md`), and so did the 157.0-2
+acceptance. Both were the switch defect ("The switch defect" above), fixed
+2026-10-05, and not only the missing document. It must be re-run against
 the first `--update-check` build with the document live, before that build is
 called done.

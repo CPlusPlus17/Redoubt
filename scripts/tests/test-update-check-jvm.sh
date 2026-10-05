@@ -8,11 +8,15 @@
 #
 # What it does, in order:
 #   1. extracts UpdateCheck.kt and UpdateCheckerTest.kt from
-#      patches/android/update-check.patch (the files a build would compile);
+#      patches/android/update-check.patch (the files a build would compile),
+#      and checks the Settings-switch wiring in the same patch: the row is
+#      android:persistent="false", SettingsFragment hands it to
+#      UpdateCheck.bindSwitch, and UpdateCheckSwitchTest is there (see below);
 #   2. compiles UpdateCheck.kt with -Werror (the Fenix build's setting) against
-#      android.jar, androidx.core, kotlinx.coroutines, the tree's real
-#      android-components concept-fetch sources, and the compile-only stubs in
-#      scripts/tests/update-check-jvm/stubs for the few Fenix classes it touches;
+#      android.jar, androidx.core, androidx.preference, kotlinx.coroutines, the
+#      tree's real android-components concept-fetch sources, and the
+#      compile-only stubs in scripts/tests/update-check-jvm/stubs for the few
+#      Fenix classes it touches;
 #   3. runs UpdateCheckerTest with JUnit, Robolectric's runner and
 #      android.util.Base64 replaced by the shims in update-check-jvm/shims, and
 #      the real org.json;
@@ -26,9 +30,16 @@
 #
 # What it does NOT prove: that the Fenix module compiles (the stubs are
 # signatures copied from the 157 tree, not the tree) or anything about the UI,
-# the 24 h gate or the request on a device. `./mach gradle
-# fenix:testDebugUnitTest` and `android-smoke.sh --check-update-privacy` remain
-# the authorities for those.
+# the 24 h gate or the request on a device. In particular it does NOT run
+# UpdateCheckSwitchTest -- whether turning the Settings switch on makes
+# UpdateCheck.isEnabled true. That needs an Android Context and the real
+# Settings/SharedPreferences, i.e. Robolectric; on a plain JVM every android.jar
+# constructor throws "Stub!". 157.0-2 shipped with a switch that wrote one
+# SharedPreferences file while the check read another, and this harness (which
+# only ever exercised UpdateChecker, with everything injected) passed. Step 1's
+# grep is the most it can do: it fails if the wiring is undone. `./mach gradle
+# fenix:testDebugUnitTest --tests 'org.mozilla.fenix.lw.*'` and
+# `android-smoke.sh --check-update-privacy` remain the authorities.
 #
 # Needs: java 17+ (a JRE is enough; the Kotlin compiler comes from the
 # gradle-home), git, openssl, python3. Nothing is downloaded.
@@ -52,7 +63,7 @@ while [ $# -gt 0 ]; do
         --android-jar) ANDROID_JAR=$2; shift 2 ;;
         --patch) PATCH=$2; shift 2 ;;
         --keep) KEEP=1; shift ;;
-        -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
         *) die "unknown argument: $1" ;;
     esac
 done
@@ -78,6 +89,7 @@ KOTLINC_CP=$(ls "$LIB"/kotlin-compiler-embeddable-*.jar "$LIB"/kotlin-stdlib-[0-
 STDLIB=$(ls "$LIB"/kotlin-stdlib-[0-9]*.jar | head -1)
 COROUTINES=$(ls "$LIB"/kotlinx-coroutines-core-jvm-*.jar | head -1)
 CORE_AAR=$(pick "$CACHE/androidx.core/core" '*/core-[0-9]*.aar')
+PREFERENCE_AAR=$(pick "$CACHE/androidx.preference/preference" '*/preference-[0-9]*.aar')
 ANNOTATION=$(pick "$CACHE/androidx.annotation" '*/annotation-jvm-[0-9]*.jar')
 JUNIT=$(pick "$CACHE/junit/junit" '*/junit-4*.jar')
 # hamcrest-core 2.x is an empty jar that points at hamcrest 2.x: take every
@@ -89,8 +101,9 @@ JSON=$(pick "$CACHE/org.json/json" '*/json-*.jar')
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/redoubt-update-jvm.XXXXXX")
 if [ "$KEEP" -eq 1 ]; then echo "work directory kept: $WORK"; else trap 'rm -rf "$WORK"' 0; fi
-mkdir -p "$WORK/src" "$WORK/main" "$WORK/shims" "$WORK/test" "$WORK/aar"
+mkdir -p "$WORK/src" "$WORK/main" "$WORK/shims" "$WORK/test" "$WORK/aar" "$WORK/aar-preference"
 unzip -q -o "$CORE_AAR" classes.jar -d "$WORK/aar"
+unzip -q -o "$PREFERENCE_AAR" classes.jar -d "$WORK/aar-preference"
 
 kotlinc() {
     java -cp "$KOTLINC_CP" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -jvm-target 17 "$@" 2>&1 |
@@ -103,9 +116,18 @@ git -C "$WORK/src" apply --include='*/fenix/lw/*' "$PATCH"
 MAIN_KT="$WORK/src/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt"
 TEST_KT="$WORK/src/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt"
 [ -f "$MAIN_KT" ] && [ -f "$TEST_KT" ] || die "the patch no longer adds UpdateCheck.kt and UpdateCheckerTest.kt"
+# The Settings switch must reach the file UpdateCheck.isEnabled reads
+# (fenix_preferences). androidx alone would persist it to the default
+# SharedPreferences file, which nothing reads -- the 157.0-2 defect.
+wiring() { grep -q -e "$1" "$PATCH" || die "update-check.patch lost the switch wiring: no '$1' ($2)"; }
+wiring '^+            android:persistent="false"$' "preferences.xml row must not be persisted by androidx"
+wiring '^+        )?.let { org.mozilla.fenix.lw.UpdateCheck.bindSwitch(it) }$' "SettingsFragment must bind the row"
+wiring '^+        switch.onPreferenceChangeListener = SharedPreferenceUpdater()$' "bindSwitch must write fenix_preferences"
+wiring '^+++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckSwitchTest.kt$' "the Robolectric switch test"
+echo "   switch wiring present (UpdateCheckSwitchTest itself needs Robolectric; not run here)"
 
 echo "== 2/4 compiling UpdateCheck.kt with -Werror (kotlin $(basename "$STDLIB" .jar | sed 's/kotlin-stdlib-//'))"
-CP="$STDLIB:$ANDROID_JAR:$WORK/aar/classes.jar:$ANNOTATION:$COROUTINES"
+CP="$STDLIB:$ANDROID_JAR:$WORK/aar/classes.jar:$WORK/aar-preference/classes.jar:$ANNOTATION:$COROUTINES"
 kotlinc -Werror -cp "$CP" -d "$WORK/main" "$HERE"/stubs/*.kt \
     "$FETCH/Client.kt" "$FETCH/Headers.kt" "$FETCH/Request.kt" "$FETCH/Response.kt" "$MAIN_KT"
 [ -f "$WORK/main/org/mozilla/fenix/lw/UpdateChecker.class" ] || die "UpdateCheck.kt did not compile"
