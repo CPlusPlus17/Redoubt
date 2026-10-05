@@ -209,7 +209,10 @@ plainly where real-device evidence does not exist.
 DECISION:     GO   (owner decision, early-adopter release model)
 DATE:         2026-10-04
 SIGNED BY:    Manuel Gysin (maintainer) -- recorded by the agent on the owner's instruction
-BUILD:        Redoubt 157.0-2, commit/MOZ_BUILD_DATE filled in at release
+BUILD:        Redoubt 157.0-2, commit 27240eb6d0140704f637135c7985c778a9f46e51,
+              MOZ_BUILD_DATE 20261005000000 (CI run 37248744119; accepted on the
+              emulator 2026-10-05, evidence/lw-m7-01/release-157.0-2/acceptance/
+              run-37248744119/)
 NO-GO ITEMS:  see below; every item was checked on the emulator only, none on a
               tester device. What a tester device would have added is waived by
               the owner's early-adopter decision, not shown to be absent.

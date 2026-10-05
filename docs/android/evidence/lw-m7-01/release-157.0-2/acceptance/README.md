@@ -1,5 +1,9 @@
 # 157.0-2: device acceptance of CI run 37234607054, 2026-10-05: **FAIL**
 
+> **Superseded.** The rebuild with the fix, CI run 37248744119 (`27240eb6`, build date
+> 20261005000000), passed acceptance: [`run-37248744119/README.md`](run-37248744119/README.md).
+> Everything below is the record of the rejected first build.
+
 **Result: the payload FAILS acceptance on a product defect. Do not sign or publish it.** The
 in-app update check, which this release exists to ship, cannot be turned on. The Settings switch
 looks like it works, but its value goes to a SharedPreferences file that the check never reads. So

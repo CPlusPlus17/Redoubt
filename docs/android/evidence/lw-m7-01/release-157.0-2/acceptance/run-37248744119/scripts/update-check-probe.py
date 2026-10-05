@@ -2,7 +2,8 @@
 """Update-check probe for the 157.0-2 acceptance (diagnostic, not a gate).
 
 Run 2 (CI run 37248744119) changes, against the copy committed with the rejected run:
-paths; the switch's stored value is read from EVERY shared_prefs file (the fix stores it
+paths; the local endpoint's host port (8443 was taken on this host, so the first local run
+reached no server: see the README) and a check that the server is up; the switch's stored value is read from EVERY shared_prefs file (the fix stores it
 in fenix_preferences.xml only); and, in live mode, an OFF half after the ON half: the
 switch is turned off in Settings, the app is stopped, the 24 h throttle file is removed,
 and a relaunch plus resume must leave no request and no new lw_update_check.xml; then a
@@ -42,7 +43,7 @@ PKG = "org.redoubtbrowser"
 ENDPOINT = "https://redoubtbrowser.org/update/android/latest.json"
 TLS = R + "/x/tls"
 SERVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "update-endpoint-server.py")
-LOCAL_PORT = 8443
+LOCAL_PORT = int(os.environ.get("LW_UPDATE_PROBE_PORT", "28443"))   # run 1 used 8443, which is taken on this host
 serial, out, mode = sys.argv[1], sys.argv[2], sys.argv[3]
 docdir = sys.argv[4] if len(sys.argv) > 4 else None
 os.makedirs(out, exist_ok=True)
@@ -154,6 +155,8 @@ try:
                                    os.path.join(out, "server-requests.jsonl")],
                                   stdout=open(os.path.join(out, "server.out"), "w"), stderr=subprocess.STDOUT)
         time.sleep(1.5)
+        if server.poll() is not None:
+            raise RuntimeError("local endpoint server exited: " + open(os.path.join(out, "server.out")).read()[-400:])
         r = subprocess.run([ADB, "-s", serial, "root"], capture_output=True, text=True, timeout=120)
         note("adb-root", out=(r.stdout + r.stderr).strip())
         time.sleep(4)
