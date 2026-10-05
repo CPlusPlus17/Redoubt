@@ -697,6 +697,21 @@ def _dns_answers(data):
         pass
     return out
 
+def _dns_questions(data):
+    """The question names of one DNS message, lower-case without the root dot."""
+    if len(data) < 12:
+        return []
+    out, o = [], 12
+    try:
+        for _ in range(struct.unpack(">H", data[4:6])[0]):
+            name, o = _dns_name(data, o)
+            o += 4
+            if name:
+                out.append(name.lower().rstrip("."))
+    except (struct.error, IndexError):
+        pass
+    return out
+
 def _udp_background(host, dst, dp):
     # The same classification pcap_payloads applies to a single datagram.
     if host in SECURITY_SETTINGS_HOSTS or host in OS_NOISE_HOSTS:
@@ -731,7 +746,7 @@ def attribute_typing_flows(path, guest_ips, window_start, window_end, sensitive_
     security-settings / OS lists, exactly as pcap_payloads classifies it) or as
     `keepalive` (opened before typing, only keep-alive sized TLS records out).
     """
-    flows, resolved = {}, {}
+    flows, resolved, answered = {}, {}, {}
     sensitive = {h.lower().rstrip(".") for h in sensitive_hosts if h}
     with open(path, "rb") as f:
         gh = f.read(24)
@@ -793,9 +808,14 @@ def attribute_typing_flows(path, guest_ips, window_start, window_end, sensitive_
             else:
                 continue
             if not outbound:
-                if proto == 17 and sp == 53 and in_window:
-                    for name, address in _dns_answers(data):
-                        resolved.setdefault(address, []).append({"name": name, "ts": t})
+                if proto == 17 and sp == 53:
+                    answers = _dns_answers(data)
+                    asked = _dns_questions(data) if answers else []
+                    for name, address in answers:
+                        # The name the guest ASKED for, not a CNAME target.
+                        answered.setdefault(address, set()).update(asked or [name])
+                        if in_window:
+                            resolved.setdefault(address, []).append({"name": name, "ts": t})
                 key = ("tcp" if proto == 6 else "udp", dst, dp, src, sp)
                 if key in flows:
                     flow = flows[key]
@@ -869,7 +889,10 @@ def attribute_typing_flows(path, guest_ips, window_start, window_end, sensitive_
         })
     out.sort(key=lambda r: (r["ok"], r["opened_ts"]))
     return {"keepalive_record_max": KEEPALIVE_RECORD_MAX, "flows": out,
-            "typing_flows": [r for r in out if not r["ok"]]}
+            "typing_flows": [r for r in out if not r["ok"]],
+            # Every A/AAAA address any plaintext DNS answer gave the guest from
+            # the start of the capture to window_end, with the question names.
+            "dns_answers": {a: sorted(n) for a, n in answered.items()}}
 
 # --------------------------------------------------------------------------
 # DEX string table -- for the APK static checks.  Reads the real string_ids
@@ -4026,6 +4049,102 @@ def check_no_suggest(app, adb, pcap, capture_seconds, res, scheme, apk, negative
 # -PlwUpdateCheckEndpoint pointing somewhere else.
 UPDATE_CHECK_HOSTS = tuple(h for h in (os.environ.get("LW_SMOKE_UPDATE_HOST", ""), "redoubtbrowser.org") if h)
 
+# --------------------------------------------------------------------------
+# check-update-privacy: OFF/ON comparison by NAME, per connection.
+#
+# The 157.0-2 acceptance (docs/android/evidence/lw-m7-01/release-157.0-2/
+# acceptance/run-37248744119) failed this check twice on bare SYN destination
+# IPs: Fastly had moved firefox-settings-attachments.cdn.mozilla.net to another
+# address between the windows, and the update host's own GitHub Pages address
+# was not subtracted (only its name was).  The windows are now attributed per
+# connection with attribute_typing_flows, as check-no-suggest does, and a
+# connection is named by its own TLS SNI or DNS query name.
+#
+# An ON-window connection passes when every name it carries is the update
+# host, a name the OFF window's connections carried, or on the existing
+# background lists (SECURITY_SETTINGS_HOSTS, OS_NOISE_HOSTS).  A connection
+# with no name of its own (a bare SYN, QUIC, plain HTTP) passes only when
+#   - plaintext DNS in the capture gave the guest its address, and every name
+#     asked for that address passes the same test, or
+#   - it sent no payload at all (a SYN that went nowhere, e.g. the IPv6 leg of
+#     happy eyeballs) to an address the OFF window also contacted.
+# Anything else fails: a new name, or an unnamed address nothing vouches for.
+# OFF window: a connection named for the update host fails.  The OFF window
+# is judged on names only; an unnamed address that DNS also gave the update
+# host (GitHub Pages addresses are shared) is not a contact with it.
+# --------------------------------------------------------------------------
+def _host_match(name, hosts):
+    return any(name == h or name.endswith("." + h) for h in hosts)
+
+def _flow_names(flow):
+    names = {n.lower().rstrip(".") for n in flow.get("dns_names") or () if n}
+    if flow.get("host"):
+        names.add(flow["host"].lower().rstrip("."))
+    return names
+
+def _update_window_noise(flow):
+    """The transport summarise_capture already calls OS noise: the emulator's
+    resolver/gateway addresses (except a port-53 query, judged by its names),
+    an OS host, or link-local multicast/broadcast."""
+    names = _flow_names(flow)
+    if names:
+        return all(n in OS_NOISE_HOSTS for n in names)
+    if flow["dst"] in OS_NOISE_IPS:
+        return True
+    return flow["protocol"] == "udp" and _udp_background(None, flow["dst"], flow["port"])
+
+def grade_update_privacy_flows(off, on, update_hosts):
+    """Grade two attribute_typing_flows results (OFF window, ON window).
+    Returns {"off_update_flows", "off_names", "on_flows", "on_failed"}."""
+    update_hosts = tuple(h.lower().rstrip(".") for h in update_hosts if h)
+    off_flows = [f for f in off["flows"] if not _update_window_noise(f)]
+    off_update = [f for f in off_flows if any(_host_match(n, update_hosts) for n in _flow_names(f))]
+    off_names = set().union(*[_flow_names(f) for f in off_flows]) - {
+        n for f in off_update for n in _flow_names(f)}
+    off_addresses = {f["dst"] for f in off_flows}
+    answers = on.get("dns_answers", {})
+
+    def why(name):
+        if name in update_hosts:
+            return "update-host"
+        if name in off_names:
+            return "seen-with-check-off"
+        if name in SECURITY_SETTINGS_HOSTS or name in OS_NOISE_HOSTS:
+            return "background-allowlist"
+        return None
+
+    graded = []
+    for f in on["flows"]:
+        names = _flow_names(f)
+        row = {"protocol": f["protocol"], "dst": f["dst"], "port": f["port"],
+               "src_port": f["src_port"], "host": f["host"], "dns_names": f["dns_names"],
+               "window_out_bytes": f["window_out_bytes"]}
+        if _update_window_noise(f):
+            row.update(verdict="os-noise", ok=True, names={})
+        elif names:
+            basis = {n: why(n) for n in sorted(names)}
+            row.update(named_by="sni" if f["host"] and f["port"] not in DNS_PORTS else "dns-query",
+                       names=basis, ok=all(basis.values()),
+                       verdict="named" if all(basis.values()) else "new-name")
+        else:
+            resolved = answers.get(f["dst"], [])
+            basis = {n: why(n) for n in resolved}
+            row.update(named_by="dns-answer" if resolved else None, names=basis)
+            if resolved and all(basis.values()):
+                row.update(verdict="resolved", ok=True)
+            elif not f["window_out_bytes"] and f["dst"] in off_addresses:
+                row.update(verdict="payload-free-seen-with-check-off", ok=True)
+            else:
+                row.update(verdict="unnamed" if not resolved else "resolved-to-new-name", ok=False)
+        graded.append(row)
+    return {"off_update_flows": off_update, "off_names": sorted(off_names),
+            "on_flows": graded, "on_failed": [r for r in graded if not r["ok"]]}
+
+def describe_update_privacy_failure(row):
+    named = [n for n, b in sorted(row["names"].items()) if not b]
+    return "%s %s:%d (%s)" % (row["protocol"], row["dst"], row["port"],
+                              ", ".join(named) if named else "no name")
+
 def _switch_bounds_after(xml, text):
     i = xml.find('text="%s"' % text)
     if i < 0:
@@ -4043,7 +4162,9 @@ def check_update_privacy(app, adb, pcap, capture_seconds, res, scheme):
       ON   (only if the row exists; flipped through the UI like a user would):
            relaunch and idle -- the update host is contacted, and NOTHING else
            that was not already seen in the OFF window.  The endpoint need not
-           resolve: the DNS query alone shows the check ran and where it went."""
+           resolve: the DNS query alone shows the check ran and where it went.
+    Both windows are judged per connection by name (grade_update_privacy_flows),
+    never by bare destination address."""
     require_pcap(pcap)
     app.force_stop()
     time.sleep(1)
@@ -4063,10 +4184,10 @@ def check_update_privacy(app, adb, pcap, capture_seconds, res, scheme):
     compiled_in = spt is not None
     time.sleep(5)
     guest.update(app.guest_ips())
+    off_end = pcap_size(pcap)
     rows_off = summarise_capture(pcap, off0, guest_ips=guest)
     app_off = [r for r in rows_off if not r["os_noise"] and not r.get("harness")]
     off_hits = hits(rows_off)
-    seen_off = {(r["detail"] or r["dst"]) for r in app_off}
     if not rows_off:
         res.add("check-update-privacy", False,
                 "CAPTURE PRODUCED ZERO EVENTS in the OFF window -- a dead capture contains no "
@@ -4077,9 +4198,17 @@ def check_update_privacy(app, adb, pcap, capture_seconds, res, scheme):
     problems = []
     evidence = {"compiled_in": compiled_in, "hosts_checked": list(UPDATE_CHECK_HOSTS),
                 "off_window_app_events": app_off[:100], "off_window_update_hits": off_hits[:20]}
+    flows_off = attribute_typing_flows(pcap, guest, off0, off_end)
+    off_grade = grade_update_privacy_flows(flows_off, {"flows": []}, UPDATE_CHECK_HOSTS)
+    evidence["off_window_names"] = off_grade["off_names"]
     if off_hits:
         problems.append("%d event(s) to an update host with the check OFF (or absent): %s"
                         % (len(off_hits), sorted({r["detail"] for r in off_hits})[:4]))
+    elif off_grade["off_update_flows"]:
+        problems.append("%d connection(s) named for an update host with the check OFF (or absent): %s"
+                        % (len(off_grade["off_update_flows"]),
+                           sorted({n for f in off_grade["off_update_flows"]
+                                   for n in _flow_names(f)})[:4]))
 
     # ---- ON -------------------------------------------------------------
     if compiled_in:
@@ -4104,21 +4233,27 @@ def check_update_privacy(app, adb, pcap, capture_seconds, res, scheme):
                 log("check-update-privacy: switch ON, relaunched; idling %ds" % max(30, capture_seconds // 2))
                 time.sleep(max(30, capture_seconds // 2))
                 guest.update(app.guest_ips())
+                on_end = pcap_size(pcap)
                 rows_on = summarise_capture(pcap, off1, guest_ips=guest)
                 app_on = [r for r in rows_on if not r["os_noise"] and not r.get("harness")]
                 on_hits = hits(rows_on)
-                new_hosts = sorted({(r["detail"] or r["dst"]) for r in app_on} - seen_off
-                                   - {r["detail"] for r in on_hits})
+                grade = grade_update_privacy_flows(
+                    flows_off, attribute_typing_flows(pcap, guest, off1, on_end), UPDATE_CHECK_HOSTS)
+                new_hosts = [describe_update_privacy_failure(r) for r in grade["on_failed"]]
                 evidence["on_window_app_events"] = app_on[:100]
                 evidence["on_window_update_hits"] = on_hits[:20]
+                evidence["on_window_flows"] = grade["on_flows"][:200]
                 evidence["on_window_new_hosts_not_update"] = new_hosts
+                evidence["capture_windows"] = {"off": [off0, off_end], "on": [off1, on_end]}
                 sys.stdout.write(render_capture(rows_on))
                 if not on_hits:
                     problems.append("switch ON, relaunched, and NO event to an update host in the "
                                     "window -- the check did not run, so nothing about it is proven")
                 if new_hosts:
-                    problems.append("with the check ON, %d host(s) appeared that the OFF window did not "
-                                    "have and that are not the update host: %s" % (len(new_hosts), new_hosts[:6]))
+                    problems.append("with the check ON, %d connection(s) carried a name that is not the "
+                                    "update host, not seen with the check OFF and not on the background "
+                                    "lists, or no name that anything vouches for: %s"
+                                    % (len(new_hosts), new_hosts[:6]))
                 # leave the profile as we found it
                 _deeplink(adb, app.pkg, scheme, "settings_privacy")
                 sxml2, spt2 = _find_row(adb, "Check for updates", max_scrolls=16)
