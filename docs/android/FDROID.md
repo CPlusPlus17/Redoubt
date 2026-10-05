@@ -4,10 +4,9 @@ Redoubt runs its **own** F-Droid repository. It is not in f-droid.org's main rep
 because f-droid.org builds and signs apps with its own key, which would give Redoubt a second
 fingerprint (`WEBSITE.md` §5, `SIGNING.md`).
 
-    repository URL   https://<bucket>.<location>.your-objectstorage.com/repo
-                     (bucket and location: assets/fdroid/deploy.conf; suggested bucket
-                     name redoubt-fdroid; empty until the owner creates the bucket)
-    archive URL      https://<bucket>.<location>.your-objectstorage.com/archive
+    repository URL   https://redoubtbrowser.hel1.your-objectstorage.com/repo
+                     (bucket and location: assets/fdroid/deploy.conf)
+    archive URL      https://redoubtbrowser.hel1.your-objectstorage.com/archive
     human page       https://redoubtbrowser.org/fdroid.html   (rendered by `publish-page`)
     index key        RSA 4096, held by the owner only; its fingerprint is published by the
                      owner after `init`, never before ("Publishing the fingerprint" below)
@@ -73,11 +72,29 @@ Consequences for this repository:
 - **URL form: virtual-hosted, as documented.** The repository URL is
   `https://<bucket>.<location>.your-objectstorage.com/repo`. The path-style public form
   `https://<location>.your-objectstorage.com/<bucket>/…` is not documented as a public URL, so
-  it is not used. This tooling never contacted Hetzner. `verify` checks the real URL and its TLS
-  certificate (curl and Python both verify certificates by default) on the first deploy.
-  Bucket names with a dot are refused: a dot would put the name outside a single-label
-  wildcard certificate for `*.<location>.your-objectstorage.com`. That is an inference from TLS
-  rules; Hetzner does not document its certificate.
+  it is not used. `verify` also checks the real URL and its TLS certificate (curl and Python
+  both verify certificates by default) on every run.
+  Bucket names with a dot are refused. Hetzner's naming rules forbid dots ("No period (.)",
+  Buckets & objects FAQ, 2024-09-23), and a dot would put the name outside the single-label
+  wildcard certificate.
+- **Live check against the owner's bucket (2026-10-05, a probe object, deleted afterwards).**
+  Bucket `redoubtbrowser` in `hel1`, visibility Public:
+  - The certificate is `CN=hel1.your-objectstorage.com`, SAN `*.hel1.your-objectstorage.com`,
+    valid to 2026-11-29 (Hetzner renews it).
+  - Anonymous GET of an object returns 200 with `accept-ranges: bytes`. Anonymous listing,
+    PUT and DELETE return 403.
+  - A missing object returns **403, not 404**, so a 403 from `verify` means "missing" as
+    often as "forbidden".
+  - The pinned rclone 1.75.1 with the exact `rcl` settings (provider Hetzner, `acl=private`)
+    uploads, and the object is still publicly readable: the bucket's Public policy overrides
+    the private object ACL.
+  - `rclone copy --immutable --checksum`, the command `deploy` uses for APKs, refused to replace
+    an existing object with different content ("immutable file modified", exit 6). Note:
+    `rclone copyto --immutable` on a single file did **not** refuse and overwrote it, which is
+    why APKs must only ever go through `copy`.
+  - Hetzner refuses a plain SigV4 upload that leaves the payload hash out of the signature
+    (403). rclone signs it; any hand-made `curl --aws-sigv4` upload needs an
+    `x-amz-content-sha256` header.
 - **CORS: not needed.** CORS is enforced by browsers for scripts on other web pages. F-Droid
   clients are Android apps that fetch with their own HTTP stack, and `fdroid.html` loads
   nothing from the bucket (its QR code is a local SVG). No CORS policy is set.
@@ -86,8 +103,10 @@ Consequences for this repository:
   Hetzner's own rclone example uses that default, so API calls go to
   `https://<location>.your-objectstorage.com/<bucket>/…`. This affects only uploads. The URL
   users add is the virtual-hosted public one.
-- **Credentials are project-wide.** Create the bucket in a **Hetzner project of its own**
-  (for example `redoubt-fdroid`), so the deploy key cannot touch any other bucket.
+- **Credentials are project-wide.** Create the bucket in a **Hetzner project of its own**,
+  so the deploy key cannot touch any other bucket. The owner created bucket `redoubtbrowser` in
+  `hel1` on 2026-10-05 (`assets/fdroid/deploy.conf`). If its project holds other buckets, the
+  key in `s3.env` can reach them too.
 
 **Costs.** The figures are the launch prices of December 2024: a base price of €4.99 a month
 excluding VAT, with 1 TB of storage (744 TB-hours) and 1 TB of egress traffic included. Beyond
@@ -277,8 +296,8 @@ In [Hetzner Console](https://console.hetzner.com/):
    credentials are valid for every bucket of their project, so a dedicated project keeps the
    deploy key away from anything else.
 2. *Object Storage*, *Create Bucket*. Choose the **location** (`fsn1` Falkenstein, `nbg1`
-   Nuremberg or `hel1` Helsinki; the closest to most users is fine). Name it **`redoubt-fdroid`**,
-   or another name if that one is taken (lowercase letters, digits, `-`; no dots). Set
+   Nuremberg or `hel1` Helsinki; the closest to most users is fine). The live bucket is
+   **`redoubtbrowser`** in `hel1`. For a new one, pick a name (lowercase letters, digits, `-`; no dots). Set
    visibility to **Public** while it is empty. Hetzner recommends exactly that order.
 3. *Security*, *S3 Credentials*, *Generate credentials* (description: `redoubt-fdroid deploy`).
    The secret is shown once. Write both values straight into the credentials file on box A,
@@ -300,11 +319,12 @@ In [Hetzner Console](https://console.hetzner.com/):
 
 On box A, in a clean checkout of `main`:
 
-    ./scripts/fdroid-repo.sh init --bucket redoubt-fdroid --location fsn1
+    ./scripts/fdroid-repo.sh init --bucket redoubtbrowser --location hel1
                                          # asks twice for a new passphrase (12+ characters)
 
-This writes the bucket and location into `assets/fdroid/deploy.conf`. **Review and commit
-that file** (signed). It also creates `~/redoubt-fdroid/keystore.p12` (mode 0600),
+This checks the bucket and location against `assets/fdroid/deploy.conf`, which already names
+`redoubtbrowser` / `hel1` (an empty file is filled in; commit it, signed). Never run this
+script under `bash -x` or `set -x`: the trace would print the S3 secret. It also creates `~/redoubt-fdroid/keystore.p12` (mode 0600),
 `~/redoubt-fdroid/work/` and `~/redoubt-fdroid/repo-fingerprint.txt`, and prints the repository
 URL and the fingerprint. **Back up the keystore and its passphrase now**, with the custody of
 `SIGNING.md`, "The F-Droid repository key", and restore-test the backup with

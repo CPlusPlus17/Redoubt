@@ -11,6 +11,10 @@
 # release is ever deleted. The human page stays on redoubtbrowser.org
 # (site/fdroid.html). Runbook and design: docs/android/FDROID.md.
 #
+# Never run this under `bash -x` / `set -x`: the trace prints the S3 secret
+# (load_s3_env and the rclone exports). Credentials are otherwise never in
+# argv or logs.
+#
 #   init [--bucket <name>] [--location fsn1|nbg1|hel1]
 #                        create the repository signing key (owner, once) and
 #                        the working directory; fill the bucket into

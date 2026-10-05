@@ -118,8 +118,9 @@ concrete host is filled in when it is decided:
   stolen S3 credentials can withhold updates, or offer an older Redoubt (every release is kept
   in the archive), but cannot replace the app. A stolen S3 key cannot sign an index at all:
   clients refuse any index not signed by the pinned key. `deploy` never overwrites or deletes an
-  APK in the bucket, uploads the index last, and refuses an APK whose sha256 differs from the
-  signed index. `verify` checks every served APK byte for byte (`FDROID.md`). A lost or
+  APK in the bucket, uploads the index last, and refuses a local APK whose sha256 differs from
+  the signed index. For an APK already in the bucket, `deploy` compares only size and MD5
+  (size only for a multipart upload); `verify` checks every served APK byte for byte (`FDROID.md`). A lost or
   replaced repository key means every F-Droid user re-adds the repository by hand.
 
 ### 3. Device-specific surface
