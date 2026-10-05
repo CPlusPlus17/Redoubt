@@ -38,7 +38,12 @@
 #     ("Redoubt-UpdateCheck/1", the same literal on every install), no cookies
 #     (CookiePolicy.OMIT), no cache validators (useCaches=false, so no ETag or
 #     If-Modified-Since that could act as a per-install token), follows no
-#     redirects, and is a private load. It sends NOT EVEN the version string:
+#     redirects, and is a private load. It removes the Accept-Language header
+#     Gecko would add (the user's locale -- 157.0-2 sent it, "en-US" in its
+#     device acceptance) and Accept, by setting them empty, which necko treats
+#     as "remove" (UpdateChecker.REQUEST_HEADERS says why, and which headers
+#     Gecko adds later that a caller cannot remove: Sec-GPC, Sec-Fetch-*,
+#     Priority, ...; all constant). It sends NOT EVEN the version string:
 #     the comparison happens on the device, so the server learns only that
 #     some Redoubt asked -- from the connection's IP address, at that time.
 #     The server is GitHub Pages (redoubtbrowser.org is hosted there), so that
@@ -237,7 +242,7 @@ new file mode 100644
 index 0000000000..7a175a9fb2
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt
-@@ -0,0 +1,378 @@
+@@ -0,0 +1,413 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -273,6 +278,7 @@ index 0000000000..7a175a9fb2
 +import kotlinx.coroutines.launch
 +import kotlinx.coroutines.withContext
 +import mozilla.components.concept.fetch.Client
++import mozilla.components.concept.fetch.Header
 +import mozilla.components.concept.fetch.MutableHeaders
 +import mozilla.components.concept.fetch.Request
 +import mozilla.components.concept.fetch.isSuccess
@@ -352,14 +358,16 @@ index 0000000000..7a175a9fb2
 +     * and [USER_AGENT], which is the same literal on every install. Cookies are
 +     * omitted, caches bypassed (no ETag / If-Modified-Since round-trips that
 +     * could act as a per-install token), redirects are not followed (the
-+     * document lives at one fixed URL), and the load is private.
++     * document lives at one fixed URL), and the load is private. The headers
++     * Gecko adds by default that a caller can remove are removed: see
++     * [REQUEST_HEADERS].
 +     */
 +    @Suppress("TooGenericExceptionCaught")
 +    private fun get(url: String): ByteArray? = try {
 +        val request = Request(
 +            url = url,
 +            method = Request.Method.GET,
-+            headers = MutableHeaders("User-Agent" to USER_AGENT),
++            headers = MutableHeaders(REQUEST_HEADERS.map { (name, value) -> Header(name, value) }),
 +            connectTimeout = Pair(TIMEOUT_SECONDS, TimeUnit.SECONDS),
 +            readTimeout = Pair(TIMEOUT_SECONDS, TimeUnit.SECONDS),
 +            redirect = Request.Redirect.MANUAL,
@@ -399,6 +407,38 @@ index 0000000000..7a175a9fb2
 +    companion object {
 +        /** Static on purpose: identical on every install. */
 +        const val USER_AGENT = "Redoubt-UpdateCheck/1"
++
++        /**
++         * Every header the request sets, in order. An EMPTY value is not sent
++         * as an empty header: GeckoViewFetchClient hands each pair to
++         * WebRequest.Builder.addHeader, WebExecutorSupport.cpp's
++         * SetupHttpChannel passes it to nsIHttpChannel.setRequestHeader with
++         * merge=false, and nsHttpHeaderArray::SetHeader treats an empty value
++         * as "remove this header". The channel's default headers were added
++         * before that, in HttpBaseChannel::Init
++         * (nsHttpHandler::AddStandardRequestHeaders), so the empty pairs
++         * below delete two of them:
++         *   * Accept-Language -- intl.accept_languages, i.e. the user's
++         *     locale ("en-US" in the 157.0-2 device acceptance). It differs
++         *     between users, so it is the one default header that says
++         *     something about who asked.
++         *   * Accept -- a constant for this load type; removed because
++         *     nothing needs it, not because it says anything.
++         * What a caller CANNOT remove this way is everything the channel adds
++         * after the caller's headers, at AsyncOpen / connect time: Sec-GPC: 1
++         * (nsHttpChannel::SetGlobalPrivacyControl), Sec-Fetch-*, Priority,
++         * Pragma / Cache-Control: no-cache (useCaches = false), Connection,
++         * Host. Accept-Encoding stays too: the compression-dictionary path
++         * (nsHttpHandler::AddAcceptAndDictionaryHeaders) may set it again
++         * later, so a removal could not be pinned, and its value depends only
++         * on the Gecko build. All of these are the same on every install of a
++         * given build. docs/android/DISTRIBUTION.md lists them.
++         */
++        val REQUEST_HEADERS: List<Pair<String, String>> = listOf(
++            "User-Agent" to USER_AGENT,
++            "Accept-Language" to "",
++            "Accept" to "",
++        )
 +        const val TIMEOUT_SECONDS = 10L
 +        const val MAX_BYTES = 64 * 1024
 +
@@ -806,7 +846,7 @@ new file mode 100644
 index 0000000000..34b1410806
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,252 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -928,12 +968,67 @@ index 0000000000..34b1410806
 +        assertEquals(listOf(endpoint, "$endpoint.sig"), client.requests.map { it.url })
 +        for (request in client.requests) {
 +            assertEquals(Request.Method.GET, request.method)
-+            assertEquals(listOf("User-Agent" to UpdateChecker.USER_AGENT), request.headers!!.map { it.name to it.value })
++            // The only non-empty header is the static User-Agent; the empty
++            // ones remove Gecko defaults (see the next test).
++            assertEquals(
++                listOf(
++                    "User-Agent" to UpdateChecker.USER_AGENT,
++                    "Accept-Language" to "",
++                    "Accept" to "",
++                ),
++                request.headers!!.map { it.name to it.value },
++            )
 +            assertEquals(Request.CookiePolicy.OMIT, request.cookiePolicy)
 +            assertEquals(Request.Redirect.MANUAL, request.redirect)
 +            assertFalse(request.useCaches)
 +            assertTrue(request.private)
 +            assertEquals(null, request.body)
++        }
++    }
++
++    /**
++     * What Gecko 157 puts on the wire for a request, as far as the caller's
++     * headers decide it: HttpBaseChannel::Init first adds the defaults of
++     * nsHttpHandler::AddStandardRequestHeaders (values here are what the
++     * 157.0-2 device acceptance captured, with a non-English locale), then
++     * WebExecutorSupport's SetupHttpChannel applies each caller header with
++     * merge=false, where nsHttpHeaderArray::SetHeader REMOVES a header whose
++     * value is empty. Headers Gecko adds after that (Sec-GPC, Sec-Fetch-*,
++     * Priority, ...) are not the caller's to control and are not modelled.
++     */
++    private fun onTheWire(request: Request): Map<String, String> {
++        val wire = linkedMapOf(
++            "user-agent" to "Mozilla/5.0 (Android 16; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0",
++            "accept" to "*/*",
++            "accept-language" to "de-CH,de;q=0.8,en-US;q=0.5,en;q=0.3",
++            "accept-encoding" to "gzip, deflate, br, zstd",
++        )
++        for (header in request.headers!!) {
++            if (header.value.isEmpty()) {
++                wire.remove(header.name.lowercase())
++            } else {
++                wire[header.name.lowercase()] = header.value
++            }
++        }
++        return wire
++    }
++
++    @Test
++    fun `the request sends no Accept-Language, so not the user's locale`() {
++        val kp = keyPair()
++        val client = FakeClient(mapOf(endpoint to document, "$endpoint.sig" to sign(document, kp.private).toByteArray()))
++        UpdateChecker(client, endpoint, pub(kp), "157.0-1").check()
++        assertEquals(2, client.requests.size)
++        for (request in client.requests) {
++            val wire = onTheWire(request)
++            assertFalse("Accept-Language reaches the wire: $wire", wire.containsKey("accept-language"))
++            assertFalse("Accept reaches the wire: $wire", wire.containsKey("accept"))
++            // The removal is asked for explicitly: an empty value, not an absent one.
++            val acceptLanguage = request.headers!!.filter { it.name.equals("Accept-Language", ignoreCase = true) }
++            assertEquals(listOf(""), acceptLanguage.map { it.value })
++            assertEquals(UpdateChecker.USER_AGENT, wire["user-agent"])
++            // What is left of the defaults depends only on the Gecko build.
++            assertEquals(setOf("user-agent", "accept-encoding"), wire.keys)
 +        }
 +    }
 +
