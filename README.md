@@ -24,8 +24,9 @@ It is based on Firefox 157 (Firefox's regular release track), needs Android 8.0 
 later, and installs over any earlier beta as an update. It has an opt-in in-app
 update check (Settings → Check for updates), off by default.
 
-Redoubt is not on F-Droid, Accrescent or any app store yet, and the app has no
-update check: watch the Releases page and install new APKs over the old one.
+Redoubt is not on F-Droid, Accrescent or any app store yet. Turn on the update
+check, use Obtainium (below), or watch the Releases page, and install new APKs
+over the old one.
 
 ## Install and verify
 
