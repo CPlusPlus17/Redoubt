@@ -1,0 +1,24 @@
++ FDROID_DEPLOY_CONF=<throwaway>/deploy.conf; cat it
+# THROWAWAY test config (not the repository's assets/fdroid/deploy.conf).
+S3_BUCKET=redoubt-fdroid
+S3_LOCATION=fsn1
+KEEP_VERSIONS=1
+S3_ENDPOINT=http://10.0.0.135:9000
+PUBLIC_BASE_URL=http://10.0.0.135:9000/redoubt-fdroid
++ ./scripts/fdroid-repo.sh init
+fdroid-repo: WARNING: plain-http repo URL (http://10.0.0.135:9000/redoubt-fdroid/repo) -- for local tests only
+==> generating the repository key (RSA 4096, PKCS12) in <throwaway>/home/keystore.p12
+Generating 4,096 bit RSA key pair and self-signed certificate (SHA256withRSA) with a validity of 10,000 days
+	for: CN=Redoubt F-Droid repository, O=Redoubt
+
+Repository created.
+  keystore      <throwaway>/home/keystore.p12   (back it up NOW: SIGNING.md, "The F-Droid repository key")
+  working dir   <throwaway>/home/work
+  bucket        redoubt-fdroid (fsn1)   config: <throwaway>/deploy.conf
+  repo URL      http://10.0.0.135:9000/redoubt-fdroid/repo
+  archive URL   http://10.0.0.135:9000/redoubt-fdroid/archive
+  fingerprint   F8627D0018AF4F2826FFFD3BDDF3832A3299CD5BC8D093D15A5909AE3D32BD3F
+
+Users add:  http://10.0.0.135:9000/redoubt-fdroid/repo?fingerprint=F8627D0018AF4F2826FFFD3BDDF3832A3299CD5BC8D093D15A5909AE3D32BD3F
+Commit <throwaway>/deploy.conf if init filled in the bucket.
+Next:       ./scripts/fdroid-repo.sh add <release-tag>

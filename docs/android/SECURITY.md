@@ -109,14 +109,18 @@ concrete host is filled in when it is decided:
 - **Mirror discipline.** Mirrors are read-only copies of a single source of truth.
   If a mirror serves something different from the origin, the mirror is the
   incident: pull it and treat its audience as channel-compromised.
-- **The own F-Droid repository (LW-M6-03, 2026-10-05).** It is served from the GitHub
-  Pages site, so the site's host and the GitHub account are part of this channel. Its index
-  is signed with a third key, the F-Droid repository key (`SIGNING.md`, "The F-Droid
-  repository key"), which vouches for the index, not for the APKs. The APKs keep the release
-  key, so a stolen repository key can withhold or roll back updates within the two releases
-  served, but cannot replace the app. The deploy refuses any APK whose sha256 differs from the
-  signed index or whose certificate is not the release key (`FDROID.md`). A lost or replaced
-  repository key means every F-Droid user re-adds the repository by hand.
+- **The own F-Droid repository (LW-M6-03, 2026-10-05).** It is served from the owner's
+  Hetzner Object Storage bucket, so Hetzner and the Hetzner account (its S3 credentials, kept
+  in a project of their own and in a mode-600 file outside any checkout) are part of this
+  channel. The human page is on the GitHub Pages site. Its index is signed with a third key,
+  the F-Droid repository key (`SIGNING.md`, "The F-Droid repository key"), which vouches for
+  the index, not for the APKs. The APKs keep the release key, so a stolen repository key or
+  stolen S3 credentials can withhold updates, or offer an older Redoubt (every release is kept
+  in the archive), but cannot replace the app. A stolen S3 key cannot sign an index at all:
+  clients refuse any index not signed by the pinned key. `deploy` never overwrites or deletes an
+  APK in the bucket, uploads the index last, and refuses an APK whose sha256 differs from the
+  signed index. `verify` checks every served APK byte for byte (`FDROID.md`). A lost or
+  replaced repository key means every F-Droid user re-adds the repository by hand.
 
 ### 3. Device-specific surface
 

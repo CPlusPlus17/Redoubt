@@ -599,29 +599,36 @@ called done.
 
 ## The own F-Droid repository (LW-M6-03)
 
-Owner decision 2026-10-05: Redoubt runs its own F-Droid repository at
-`https://redoubtbrowser.org/fdroid/repo`, hosted on the existing GitHub Pages site. The
-design, the decisions and the owner runbook are in `docs/android/FDROID.md`. In brief:
+Owner decision 2026-10-05, revised the same day: Redoubt runs its own F-Droid repository in
+the owner's **Hetzner Object Storage bucket**,
+`https://<bucket>.<location>.your-objectstorage.com/repo` (bucket and location in
+`assets/fdroid/deploy.conf`). The first decision that day put it on the existing GitHub Pages
+site. Pages' 1 GB site limit kept only one to three releases, and the owner wants to keep every
+release. The human page stays at `https://redoubtbrowser.org/fdroid.html`. The design, the
+decision history and the owner runbook are in `docs/android/FDROID.md`. In brief:
 
 - **Same APKs, same key.** The repository serves the GitHub release's per-ABI APKs (not the
   universal one) unchanged. Only the index is signed again, with the owner's F-Droid
   repository key (`SIGNING.md`, "The F-Droid repository key").
-- **Only the index is in git.** `scripts/fdroid-repo.sh publish` writes the signed index to
-  `site/fdroid/repo/`. `pages.yaml` downloads the APKs from the GitHub release at deploy time
-  (`scripts/fdroid-pages.py assemble`). It deploys nothing unless the index signature, every
-  sha256 and size, and every APK certificate match, and the site stays within GitHub Pages' 1 GB.
-- **Two releases are kept**, because three do not fit in 1 GB.
+- **Nothing of the repository is in git**, apart from the non-secret hosting config, the
+  pinned fingerprint and the human page. `scripts/fdroid-repo.sh deploy` uploads from the
+  owner's machine with a pinned rclone: APKs first (never overwritten, never deleted), the
+  indexes last, `entry.jar` at the very end. `pages.yaml` downloads no APK.
+- **Every release is kept.** The newest five (`KEEP_VERSIONS`) are in the main section, every
+  older one in the signed archive section (`archive/`). Nothing is deleted.
 - **No double notification.** The APKs carry the opt-in check. It is hidden on a store install,
   per the installer of record (revision note in "F-Droid and Accrescent do not double-notify"),
   from the first build after 157.0-2. 157.0-2 has the switch, off by default, and the repository
   description says to leave it off.
 - **Installer of record, measured** (API 34 emulator, F-Droid 2.0.1,
-  `evidence/lw-m6-03/logs/11-13`). When F-Droid updates a hand-installed APK, the installer
-  becomes `org.fdroid.fdroid`. A fresh F-Droid install also sets F-Droid as update owner. A
-  later hand install over it makes the system package installer the installer again. So the
-  check follows whoever made the latest install, which is the intended behaviour.
+  `evidence/lw-m6-03/logs/11-13`, and the fresh install from a local S3 bucket in
+  `evidence/lw-m6-03/hetzner/logs/21`). When F-Droid updates a hand-installed APK, the
+  installer becomes `org.fdroid.fdroid`. A fresh F-Droid install also sets F-Droid as update
+  owner. A later hand install over it makes the system package installer the installer again.
+  So the check follows whoever made the latest install, which is the intended behaviour.
 
 Per release (owner, box A), after the GitHub release is public:
-`fdroid-repo.sh add <tag>`, `update`, `publish <checkout>`, commit and push, then
-`fdroid-repo.sh verify`. One-time: `fdroid-repo.sh init`, back up the key, and publish
-the fingerprint (`FDROID.md`, "Owner runbook").
+`fdroid-repo.sh add <tag>`, `update`, `deploy`, then `verify`. One-time: create the bucket
+(Public) and S3 credentials in Hetzner Console, `fdroid-repo.sh init --bucket <name> --location
+<loc>`, commit `deploy.conf`, back up the key, run `publish-page`, and publish the fingerprint
+(`FDROID.md`, "Owner runbook").

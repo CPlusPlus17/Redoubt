@@ -1,0 +1,13 @@
++ minio version
+minio version RELEASE.2025-09-07T16-13-09Z (commit-id=07c3a429bfed433e49018cb0f78a52145d4bedeb)
++ mc mb local/redoubt-fdroid
+Bucket created successfully `local/redoubt-fdroid`.
++ mc anonymous set-json policy.json local/redoubt-fdroid   (assets/fdroid/bucket-policy.json.in, bucket filled in)
+Access permission for `local/redoubt-fdroid` is set from `/tmp/policy.json`
++ mc anonymous get-json local/redoubt-fdroid
+{"Statement":[{"Action":["s3:GetObject"],"Effect":"Allow","Principal":{"AWS":["*"]},"Resource":["arn:aws:s3:::redoubt-fdroid/*"],"Sid":"RedoubtFdroidPublicRead"}],"Version":"2012-10-17"}
++ deployer credentials (secret not shown), readwrite
+Attached Policies: [readwrite]
+To User: throwaway-deployer
++ anonymous listing of the bucket (must be denied, like Hetzner public buckets)
+GET http://10.0.0.135:9000/redoubt-fdroid/ -> HTTP 403
