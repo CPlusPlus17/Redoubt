@@ -19,6 +19,7 @@ honest version *before* they install.
 | `index.html` | what Redoubt is, the not-LibreWolf/not-Mozilla notice, the §1 statement, status (beta), download, verify | `README.md`, this file |
 | `install.html` | direct APK, verification, Obtainium step by step, the coming in-app check, stores | this file §5–6, `DISTRIBUTION.md`, `SIGNING.md` |
 | `privacy.html` | the §1 statement, what changes, honest limits, link to the full matrix | `PARITY.md` §1, §5 |
+| `privacy-policy.html` | the privacy policy (what the developer collects: nothing; each connection the app makes; permissions; contact). Its URL is the one Play's listing and Data safety form point to | `PLAY.md` §5/§7, `PARITY.md`, `DISTRIBUTION.md` |
 | `sync.html` | sync with LibreWolf desktop | `SYNC.md` |
 | `passkeys.html` | password managers, autofill and passkeys: what works, known gaps | `README.md` "Passwords and passkeys", `PARITY.md` §8 |
 | `security.html` | private reporting, fingerprint, where bugs go | `SECURITY.md`, `README.md` |
@@ -92,6 +93,12 @@ in-app check (see §5 and `docs/android/DISTRIBUTION.md`).
 | **F-Droid** | **Redoubt's own F-Droid repository**, not f-droid.org's main repo (LW-M6-03) | F-Droid's own updater, once our repo is added | **no** (compiled out) |
 | **Accrescent** | the Accrescent repository | Accrescent's own updater | **no** (compiled out) |
 | **direct APK** | the download on `redoubtbrowser.org` | the opt-in in-app version check (`DISTRIBUTION.md`) or the user's own tool (e.g. Obtainium) | **yes** (opt-in, off by default) |
+| **Google Play** *(pending, LW-M6-12; owner decision 2026-10-05)* | `org.redoubtbrowser` on Google Play, same key via Play App Signing (`PLAY.md`) | Google Play | **no** (compiled out; Play forbids self-update) |
+
+The Google Play row is **not on the site yet**: it goes on the home and install pages
+the day the listing is public (`PLAY.md` §9), together with the corrected key-custody
+wording. Google holds a copy of the signing key, so "one person holds the key" stops
+being true then (`SIGNING.md`, "Google holds a copy of the app signing key").
 
 The direct-APK row is the one with no store, which is exactly why it has the opt-in version
 check and why the page must tell the user that, and how to get update awareness otherwise.

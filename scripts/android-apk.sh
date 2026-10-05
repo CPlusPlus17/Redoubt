@@ -200,6 +200,15 @@ DISABLE_DEBUG_SIGNING=""
 # docs/android/DISTRIBUTION.md is the contract.
 UPDATE_CHECK=0
 LW_UPDATE_CHECK_PROPS=""
+# LW-M6-12 (Google Play): --bundle adds a third pass, fenix:bundleRelease, in the
+# same objdir after the APKs are collected and verified, and writes the unsigned
+# Android App Bundle to <outdir>/aab/. Same tree, same fat AAR, same
+# MOZ_BUILD_DATE as the APKs; the update check is ALWAYS compiled out of it
+# (Play's Device and Network Abuse policy: a Play app updates only through Play),
+# whatever --update-check / LW_UPDATE_CHECK_PUBKEY say for the APKs. Release
+# build type and --disable-debug-signing only: the AAB exists to be signed by
+# the owner's Play upload key (docs/android/PLAY.md), never by a debug key.
+BUNDLE=0
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -250,6 +259,11 @@ is the fat AAR built by scripts/android-fat-aar.sh.
   --mount-opt O     bind mount suffix, "z" on SELinux (default: $MOUNT_OPT; "" to disable)
   --skip-gecko      skip pass 1 and go straight to Gradle.  Only valid when the
                     objdir already exists and was built by a previous run.
+  --bundle          also build the Google Play Android App Bundle
+                    (fenix:bundleRelease) into <outdir>/aab/, unsigned, with
+                    the update check compiled OUT regardless of --update-check.
+                    Needs --variant=release and --disable-debug-signing.
+                    docs/android/PLAY.md.
   --update-check    compile the opt-in update check in, with the committed
                     public key assets/update-check.android.pubkey (direct-APK
                     releases only; F-Droid/Accrescent builds never pass it).
@@ -334,6 +348,7 @@ while [ $# -gt 0 ]; do
         --skip-gecko)     SKIP_GECKO=1; shift ;;
         --disable-debug-signing) DISABLE_DEBUG_SIGNING="-PdisableDebugSigning"; shift ;;
         --update-check)   UPDATE_CHECK=1; shift ;;
+        --bundle)         BUNDLE=1; shift ;;
         -n|--dry-run)     DRY_RUN=1; shift ;;
         -h|--help)        usage; exit 0 ;;
         *)                usage >&2; die "unknown argument: $1" ;;
@@ -402,6 +417,14 @@ case "$VARIANT" in
     release) VARIANT_CAP="Release" ;;
     *)       die "--variant must be 'debug' or 'release' (got '$VARIANT')" ;;
 esac
+
+if [ "$BUNDLE" = "1" ]; then
+    [ "$VARIANT" = "release" ] ||
+        die "--bundle needs --variant=release: the Play bundle is the release build type"
+    [ -n "$DISABLE_DEBUG_SIGNING" ] ||
+        die "--bundle needs --disable-debug-signing: the AAB is signed by the owner's Play
+       upload key (docs/android/PLAY.md), and a debug-signed AAB is never a release input"
+fi
 
 [ -n "$SRCDIR" ] || { usage >&2; die "--srcdir is required"; }
 [ -d "$SRCDIR" ] || die "--srcdir '$SRCDIR' is not a directory"
@@ -873,6 +896,38 @@ exit \$rc
 EOF
 }
 
+# The Play bundle (--bundle). A separate Gradle invocation, never added to the
+# assemble one: fenix/app/build.gradle sets `isAppBundle` from the requested
+# task NAMES and turns jniLibs.useLegacyPackaging off when any of them contains
+# "bundle", so running both in one invocation would change how the direct
+# APKs package their native libraries. The update-check properties are not
+# passed, and -PlwUpdateCheckPubkey= is given EMPTY so that no gradle.properties
+# can supply a key either: BuildConfig.LW_UPDATE_CHECK_PUBKEY is "" and the
+# check is compiled out (patches/android/update-check.patch).
+pass_body_bundle() {
+    cat <<EOF
+set -u
+mkdir -p "\$GRADLE_USER_HOME" || exit 90
+cp -n /root/.gradle/gradle.properties "\$GRADLE_USER_HOME"/ 2>/dev/null || true
+grep -qx 'kotlin.internal.collectFUSMetrics=false' "\$GRADLE_USER_HOME/gradle.properties" 2>/dev/null || echo 'kotlin.internal.collectFUSMetrics=false' >> "\$GRADLE_USER_HOME/gradle.properties"
+date -u +'PASS bundle START %Y-%m-%dT%H:%M:%SZ'
+# Same Safe Args race as the apk pass (see there).
+./mach gradle fenix:generateSafeArgsRelease $DISABLE_DEBUG_SIGNING -PlwUpdateCheckPubkey= -PgleanBuildDate=$GLEAN_BUILD_DATE
+rc=\$?
+if [ \$rc -ne 0 ]; then
+    date -u +'PASS bundle END %Y-%m-%dT%H:%M:%SZ'
+    echo "MACH_EXIT=\$rc"
+    exit \$rc
+fi
+./mach gradle fenix:bundleRelease $DISABLE_DEBUG_SIGNING -PlwUpdateCheckPubkey= -PgleanBuildDate=$GLEAN_BUILD_DATE
+rc=\$?
+date -u +'PASS bundle END %Y-%m-%dT%H:%M:%SZ'
+echo "MACH_EXIT=\$rc"
+cat /sys/fs/cgroup/memory.peak > /work/out/logs/bundle.mempeak 2>/dev/null || true
+exit \$rc
+EOF
+}
+
 # ---------------------------------------------------------------------------
 # Artifact checks.  Every one reads the produced file; none trusts a log line.
 # ---------------------------------------------------------------------------
@@ -938,6 +993,10 @@ if [ "$DRY_RUN" = "1" ]; then
         log "  update check: compiled out (no key; store-build configuration)"
     fi
     log "  would collect APKs into $OUTDIR"
+    if [ "$BUNDLE" = "1" ]; then
+        log "  would then run ./mach gradle fenix:bundleRelease (update check: compiled OUT"
+        log "  for the bundle) and collect the unsigned AAB into $OUTDIR/aab"
+    fi
     exit 0
 fi
 
@@ -1444,6 +1503,60 @@ $out"
     done
 fi
 
+# ---------------------------------------------------------------------------
+# Pass 3 (--bundle): the Google Play Android App Bundle
+# ---------------------------------------------------------------------------
+# Runs after the APKs are copied out and verified: it recompiles with the
+# update-check key absent, which rewrites the release intermediates the APKs
+# came from. The APKs in $OUTDIR/apk are already final by then.
+if [ "$BUNDLE" = "1" ]; then
+    log "bundle: ./mach gradle fenix:bundleRelease (update check compiled OUT), log: $OUTDIR/logs/bundle.log"
+    rm -f "$OUTDIR/logs/bundle.mempeak"
+    t0=$(date +%s)
+    container_run bundle "$(pass_body_bundle)" > "$OUTDIR/logs/bundle.log" 2>&1
+    rc=$?
+    t1=$(date +%s)
+    if [ "$rc" != "0" ]; then
+        record bundle $((t1 - t0)) "FAILED rc=$rc"
+        die "bundle: mach gradle fenix:bundleRelease failed (exit $rc) after $((t1 - t0))s.
+       Log: $OUTDIR/logs/bundle.log"
+    fi
+    record bundle $((t1 - t0)) "ok"
+    aab_src_dir="$objdir/gradle/build/mobile/android/fenix/app/outputs/bundle/release"
+    aabs=$(ls "$aab_src_dir"/*.aab 2>/dev/null || true)
+    [ "$(printf '%s\n' "$aabs" | grep -c .)" = "1" ] ||
+        die "bundle: expected exactly one .aab in '$aab_src_dir', found: ${aabs:-none}"
+    rm -rf "$OUTDIR/aab"
+    mkdir -p "$OUTDIR/aab" || die "cannot create '$OUTDIR/aab'"
+    # One stable name, like the APKs' fenix-<abi>-release-unsigned.apk.
+    cp "$aabs" "$OUTDIR/aab/fenix-release-unsigned.aab" || die "cannot copy '$aabs'"
+    log "bundle: $(basename "$aabs") -> aab/fenix-release-unsigned.aab ($(du -h "$OUTDIR/aab/fenix-release-unsigned.aab" | cut -f1))"
+    aab_args=(inspect "$OUTDIR/aab/fenix-release-unsigned.aab" --expect-unsigned
+              --expect-package org.redoubtbrowser --build-date "$BUILD_DATE"
+              --apk-metadata "$OUTDIR/apk/output-metadata.json"
+              --json "$OUTDIR/aab/bundle-metadata.json")
+    [ ! -f "$repo_root/assets/update-check.android.pubkey" ] ||
+        aab_args+=(--forbid-key-file "$repo_root/assets/update-check.android.pubkey")
+    if [ -n "$update_check_pubkey" ]; then
+        printf '%s\n' "$update_check_pubkey" > "$OUTDIR/aab/.apk-update-key"
+        aab_args+=(--forbid-key-file "$OUTDIR/aab/.apk-update-key")
+    fi
+    for abi in $abi_list; do
+        aab_args+=(--maven-zip "$abi=$OUTDIR/input/$abi/target.maven.zip")
+    done
+    python3 "$repo_root/scripts/android-aab.py" "${aab_args[@]}" ||
+        die "bundle: the AAB failed its checks (see above)"
+    rm -f "$OUTDIR/aab/.apk-update-key"
+    # The AAB must carry every ABI the APKs do, and nothing else.
+    got=$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["abis"]))' \
+            "$OUTDIR/aab/bundle-metadata.json")
+    want=$(printf '%s\n' $abi_list | sort | tr '\n' ' ' | sed 's/ *$//')
+    [ "$got" = "$want" ] || die "bundle: the AAB carries ABIs [$got], expected [$want]"
+    ( cd "$OUTDIR/aab" && sha256sum fenix-release-unsigned.aab > SHA256SUMS.aab ) ||
+        die "cannot write $OUTDIR/aab/SHA256SUMS.aab"
+    log "bundle: ok in $((t1 - t0))s; $(cat "$OUTDIR/aab/SHA256SUMS.aab")"
+fi
+
 end_all=$(date +%s)
 {
     printf '\n%-14s %10s\n' total $((end_all - start_all))
@@ -1452,6 +1565,10 @@ end_all=$(date +%s)
         printf '  %-32s %s\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)"
     done
     printf '\nconfiguration layer: %s\n' "$OUTDIR/apk-config-layer.txt"
+    if [ "$BUNDLE" = "1" ]; then
+        printf '\nAAB (Google Play, update check compiled out):\n'
+        printf '  %-32s %s\n' fenix-release-unsigned.aab "$(du -h "$OUTDIR/aab/fenix-release-unsigned.aab" | cut -f1)"
+    fi
 } >> "$summary_file"
 
 log "APKs      : $OUTDIR/apk"

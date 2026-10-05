@@ -46,6 +46,18 @@
 #   gh workflow run android-release.yaml --repo CPlusPlus17/Redoubt --ref main \
 #     -f mode=full -f update_check=true -f build_date=20261004200000
 #
+# GOOGLE PLAY BUNDLE (LW-M6-12, docs/android/PLAY.md): bundle=true adds
+# --bundle, a third Gradle pass (fenix:bundleRelease) in the same run, so the
+# Android App Bundle shares the APKs' tree, fat AAR and build_date (its
+# versionCode is the build's universal code, >= every APK's). The update check
+# is compiled OUT of the bundle whatever update_check says (Play allows no
+# self-update outside Play); the gate below fails if its dex carries the key.
+# The bundle is a SEPARATE artifact, redoubt-android-aab-unsigned, so the APK
+# artifact and its SHA256SUMS stay exactly the four APKs sign.sh expects. It is
+# unsigned: the owner signs it with the Play upload key on box A
+# (evidence/lw-m6-01/sign-aab.sh) and uploads it to Play Console by hand. This
+# workflow never talks to Google Play.
+#
 # NO apksigner DEPENDENCY, DELIBERATELY. The first draft resolved apksigner
 # from $ANDROID_SDK_ROOT/build-tools/*/. That variable was never set anywhere
 # in the workflow, and this machine has no build-tools directory at all. The
@@ -76,6 +88,11 @@ on:
         required: false
         default: false
         type: boolean
+      bundle:
+        description: "full only: also build the unsigned Google Play bundle (.aab, update check always compiled out) as a separate artifact. docs/android/PLAY.md."
+        required: false
+        default: false
+        type: boolean
       build_date:
         description: "full only: MOZ_BUILD_DATE, YYYYMMDDHHMMSS (UTC), passed as --build-date to the fat-AAR and the APK pass. Pins the versionCode; a release must use a value later than the previous release's. Empty = now (UTC) at the AAR pass."
         required: false
@@ -95,6 +112,7 @@ jobs:
       # ${{ }} interpolation into a run: block. On push both are empty/false.
       UPDATE_CHECK: ${{ github.event_name == 'workflow_dispatch' && inputs.update_check && 'true' || 'false' }}
       BUILD_DATE_IN: ${{ github.event_name == 'workflow_dispatch' && inputs.build_date || '' }}
+      BUNDLE: ${{ github.event_name == 'workflow_dispatch' && inputs.bundle && 'true' || 'false' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -144,7 +162,7 @@ jobs:
           echo "mode=$MODE — preflight only. No build was run."
           echo "Re-dispatch with mode=full to fetch, patch, build and publish."
 
-      - name: Validate the release inputs (build_date, update_check)
+      - name: Validate the release inputs (build_date, update_check, bundle)
         if: ${{ env.MODE == 'full' }}
         run: |
           set -eu
@@ -175,6 +193,13 @@ jobs:
           else
             echo "update_check: compiled out"
             echo "LW_UPDATE_FLAG=" >> "$GITHUB_ENV"
+          fi
+          if [ "$BUNDLE" = true ]; then
+            echo "bundle: YES -- unsigned Play AAB, update check compiled out of it"
+            echo "LW_BUNDLE_FLAG=--bundle" >> "$GITHUB_ENV"
+          else
+            echo "bundle: no"
+            echo "LW_BUNDLE_FLAG=" >> "$GITHUB_ENV"
           fi
 
       - name: Fetch and patch the Android tree
@@ -233,12 +258,13 @@ jobs:
           #   LW_DATE_FLAG    --build-date=<build_date> to BOTH passes, so the
           #                   versionCode is the one chosen at dispatch, or empty.
           #   LW_UPDATE_FLAG  --update-check (update_check=true), or empty.
-          # Both were set by the validation step above.
+          #   LW_BUNDLE_FLAG  --bundle (bundle=true), or empty: the Play AAB.
+          # All three were set by the validation step above.
           make android-package \
             TARGETS=android \
             CONTAINER_ENGINE=podman \
             ANDROID_AAR_FLAGS="--jobs=8 $LW_DATE_FLAG" \
-            ANDROID_APK_FLAGS="--variant=release --disable-debug-signing --jobs=8 $LW_DATE_FLAG $LW_UPDATE_FLAG"
+            ANDROID_APK_FLAGS="--variant=release --disable-debug-signing --jobs=8 $LW_DATE_FLAG $LW_UPDATE_FLAG $LW_BUNDLE_FLAG"
           APKDIR="librewolf-android-apk-$(cat version.android)-$(cat release.android)/apk"
           ls "$APKDIR"/*.apk >/dev/null 2>&1 \
             || { echo "FATAL: no release APK produced under $APKDIR/" >&2; exit 1; }
@@ -312,6 +338,27 @@ jobs:
             echo "OK: $apk update check $([ "$hits" -ge 1 ] && echo compiled in || echo compiled out)"
           done
 
+      - name: Gate — the Play bundle is unsigned, compiled without the update check, and matches the APKs
+        if: ${{ env.MODE == 'full' && env.BUNDLE == 'true' }}
+        run: |
+          set -eu
+          OUT="librewolf-android-apk-$(cat version.android)-$(cat release.android)"
+          AAB="$OUT/aab/fenix-release-unsigned.aab"
+          test -s "$AAB" || { echo "FATAL: bundle=true but $AAB was not produced" >&2; exit 1; }
+          # android-apk.sh --bundle already ran these checks; they are repeated
+          # here on the exact file this job uploads, against the committed key
+          # (whatever update_check was) and the APKs' own output-metadata.json.
+          extra=()
+          [ -z "$BUILD_DATE_IN" ] || extra+=("--build-date=$BUILD_DATE_IN")
+          [ ! -s assets/update-check.android.pubkey ] || extra+=(--forbid-key-file=assets/update-check.android.pubkey)
+          python3 scripts/android-aab.py inspect "$AAB" --expect-unsigned \
+            --expect-package org.redoubtbrowser --apk-metadata "$OUT/apk/output-metadata.json" \
+            "${extra[@]}"
+          # The same dependency-free signature probe as the APK gate.
+          if unzip -l "$AAB" | grep -qiE 'META-INF/.*\.(RSA|DSA|EC)$'; then
+            echo "FATAL: $AAB carries a JAR signature; the bundle must leave CI unsigned" >&2; exit 1
+          fi
+
       - name: Collect unsigned APKs and publish sha256 sums
         if: ${{ env.MODE == 'full' }}
         run: |
@@ -338,6 +385,28 @@ jobs:
           if-no-files-found: error
           # Long enough to sign on box A, publish and keep the unsigned
           # inputs for a re-verification after the release.
+          retention-days: 90
+
+      - name: Collect the unsigned Play bundle and its sha256
+        if: ${{ env.MODE == 'full' && env.BUNDLE == 'true' }}
+        run: |
+          set -eu
+          OUT="librewolf-android-apk-$(cat version.android)-$(cat release.android)"
+          mkdir -p dist-aab
+          cp "$OUT/aab/fenix-release-unsigned.aab" "$OUT/aab/bundle-metadata.json" dist-aab/
+          ( cd dist-aab && sha256sum fenix-release-unsigned.aab > SHA256SUMS.aab )
+          cat dist-aab/SHA256SUMS.aab
+
+      - name: Upload the unsigned Play bundle
+        if: ${{ env.MODE == 'full' && env.BUNDLE == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: redoubt-android-aab-unsigned
+          path: |
+            dist-aab/fenix-release-unsigned.aab
+            dist-aab/bundle-metadata.json
+            dist-aab/SHA256SUMS.aab
+          if-no-files-found: error
           retention-days: 90
 
       - name: Boundary — CI stops here (no signing, no release)

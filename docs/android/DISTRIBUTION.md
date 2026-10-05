@@ -515,6 +515,30 @@ in-app prompt, or the same update is announced twice through two mechanisms.
   the store's own updater is authoritative for a store install. There is nothing to
   arbitrate at runtime because the choice was made in the artifact.
 
+## Google Play: no in-app check, compiled out (LW-M6-12)
+
+Owner decision 2026-10-05: Redoubt goes on Google Play with the existing release key
+(`PLAY.md`). Play is a store with its own updater, like F-Droid and Accrescent, and
+Play's Device and Network Abuse policy also forbids an app "distributed via Google
+Play" from updating itself "using any method other than Google Play's update
+mechanism". So the Play build has **no** update check, and that is enforced at build
+time:
+
+| channel | artifact | update check | who updates it | state |
+|---|---|---|---|---|
+| direct APK (GitHub Releases, Obtainium) | `fenix-<abi>-release.apk` | compiled in with `--update-check`, opt-in, off by default | the user, prompted by the check or Obtainium | live |
+| own F-Droid repository (LW-M6-03) | the F-Droid build | not offered (see the section above) | the F-Droid client | in preparation |
+| Google Play (LW-M6-12) | `fenix-release.aab`, signed by the owner's upload key; Google signs the APKs with the release key | **compiled out**, always | Google Play | **pending**: no account yet |
+
+- `scripts/android-apk.sh --bundle` builds the AAB in a separate Gradle pass with
+  `-PlwUpdateCheckPubkey=` empty, whatever `--update-check` says for the APKs.
+  `scripts/android-aab.py inspect --forbid-key-file` fails the build, and the CI gate
+  fails the run, if any dex in the bundle carries the committed key.
+- A device moving between the direct APK and Play keeps one key, so the move is an
+  ordinary update. The build it ends up with has the check or does not. That is the
+  same "no conflict to reconcile" rule as above, and it is measured in
+  `evidence/lw-m6-12/README.md`.
+
 ## What this page does not decide
 
 - **The key itself.** The owner generates and holds it (`SIGNING.md`, "The

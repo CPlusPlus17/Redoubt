@@ -59,6 +59,31 @@ So the response is about containment, not silent rotation:
 4. **Record the incident** (key fingerprint, affected builds, channel, date) in a
    dated note so the next incident can be diffed against it.
 
+**Google Play holds a copy (decided 2026-10-05, LW-M6-12).** Once the key is uploaded
+to Play App Signing (`docs/android/PLAY.md`), there are two places it can leak from:
+the owner's machine and Google. The threat model changes as follows, and it is written
+before the upload, not after:
+
+- **Who can sign a valid update:** the owner, and Google. A Google-signed APK is
+  accepted as an update by **every** install, whatever channel it came from. Google
+  is trusted not to misuse the copy. Nothing on the device enforces that.
+- **New paths to a malicious signed update:** a compromise of Google's signing
+  infrastructure, a legal order addressed to Google, and a takeover of the owner's
+  Play Console account. A takeover only uploads a bundle for Google to sign; it does
+  not reveal the key. Play's review is between that upload and users, but it is not a
+  security boundary.
+- **What a Play-side incident looks like and what to do.** An unexpected release on
+  the Play Console, an unexpected upload-key reset, or a Play-served APK whose payload
+  does not match the CI bundle: treat each as **channel compromise** (§2). Halt the
+  Play rollout, report it to Google, and announce it. Publish the hashes of the
+  last good build. If the key itself may have leaked from Google, it is a
+  **signature compromise** (this section) with no in-place fix, the same as a leak
+  from the owner.
+- **Containment the project keeps:** the upload key is separate and resettable, the
+  app signing key never signs an upload (`sign-aab.sh` refuses it), the Play Console
+  account uses 2-step verification, and Google-generated key upgrades (including the
+  Android 17 hybrid upgrade) are declined so that one key stays the only key.
+
 ### 2. Distribution-channel compromise
 
 A malicious or tampered APK served under the project's name — on the F-Droid
@@ -67,6 +92,11 @@ if the signing key itself is intact. The channel is currently an open
 placeholder (`redoubtbrowser.org`), so the controls are stated generically and the
 concrete host is filled in when it is decided:
 
+- **Google Play.** The Play build is the same source and the same build as the
+  release's APKs, without the update check (`docs/android/PLAY.md` §3). After each
+  rollout, download Play's signed universal APK from Play Console and verify its
+  fingerprint (PLAY.md §5 step 4). A Play-served APK that does not verify, or whose
+  version does not match the GitHub release, is a channel incident.
 - **F-Droid repository integrity first.** A F-Droid repository is signed and the
   client verifies it; a compromised *build* is caught by the repository signature
   if the signing key is safe. If the channel is compromised but the key is safe,
