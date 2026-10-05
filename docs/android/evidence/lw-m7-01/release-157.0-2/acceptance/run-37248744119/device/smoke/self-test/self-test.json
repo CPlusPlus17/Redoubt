@@ -1,0 +1,173 @@
+{
+ "checks": [
+  {
+   "check": "https-only-interstitial",
+   "ok": false,
+   "detail": "HTTP must reach the HTTPS-only interstitial before the user grants an exception",
+   "evidence": {
+    "prefs": {
+     "enabled": true,
+     "locked": false
+    },
+    "page": {
+     "url": "https://10.0.2.2:59713/?https-only-bbb5d121983cb2ed",
+     "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+site+not+available&button=Try+Again&description=Most+likely%2C+the+website+simply+does+not+support+HTTPS.%3Cbr%3E%3Cbr%3EHowever%2C+it%E2%80%99s+also+possible+that+an+attacker+is+involved.+If+you+continue+to+the+website%2C+you+should+not+enter+any+sensitive+info.+If+you+continue%2C+HTTPS-Only+mode+will+be+turned+off+temporarily+for+the+site.&image=mozac_error_lock.svg&showSSL=false&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=true&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+     "title": "Secure site not available",
+     "ready": "interactive",
+     "marker": null,
+     "continueVisible": true,
+     "canAddException": true
+    },
+    "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms"
+   }
+  },
+  {
+   "check": "page-load-http",
+   "ok": false,
+   "detail": "HTTP exception flow was not completed; no redundant blocked navigation attempted",
+   "evidence": {}
+  },
+  {
+   "check": "page-load-https",
+   "ok": false,
+   "detail": "https://10.0.2.2:46949/ ready=complete secure=True marker='lw-smoke-page-ok', origin logged 4 request(s)",
+   "evidence": {
+    "page": {
+     "url": "https://10.0.2.2:46949/",
+     "proto": "https:",
+     "secure": true,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 4
+   }
+  },
+  {
+   "check": "webgl",
+   "ok": false,
+   "detail": "Real release UI consent, pixels, revoke, lifetimes and frame isolation passed",
+   "evidence": {
+    "report": "/home/mgysin/redoubt-artifacts/stable/accept2/work/graphics-acceptance/9adbbf99c66a678b/graphics-results.json",
+    "report_sha256": "a714bd859540c967e21dc14a23c367525fbefd9a855ef8948ab2a0e246657a0b",
+    "runner_exit": 0,
+    "graphics_status": "PASS",
+    "acceptanceComplete": true,
+    "apk_sha256": "ee97f58b50789a7dae969785dcef7e6566d58681791c580eb62f82663e9dbfe3"
+   }
+  },
+  {
+   "check": "video",
+   "ok": false,
+   "detail": "no proof of decoding: {\"events\": [], \"ok\": true, \"play\": \"resolved\", \"currentTime\": 0.455528, \"readyState\": 4, \"videoWidth\": 64, \"videoHeight\": 64, \"paused\": false, \"decoded\": 13, \"dropped\": 0, \"mediaError\": null, \"autoplay_prefs\": {\"default\": 5, \"policy\": 0}} (origin served the file 1 time(s))",
+   "evidence": {
+    "video": {
+     "events": [],
+     "ok": true,
+     "play": "resolved",
+     "currentTime": 0.455528,
+     "readyState": 4,
+     "videoWidth": 64,
+     "videoHeight": 64,
+     "paused": false,
+     "decoded": 13,
+     "dropped": 0,
+     "mediaError": null,
+     "autoplay_prefs": {
+      "default": 5,
+      "policy": 0
+     }
+    },
+    "origin_requests": 1
+   }
+  },
+  {
+   "check": "getusermedia",
+   "ok": false,
+   "detail": "prompt(s) raised ['com.android.permissioncontroller:id/permission_deny_button'], harness tapped deny 2 time(s), getUserMedia rejected with NotAllowedError in 4600ms",
+   "evidence": {
+    "gum": {
+     "t0": 1791170788732,
+     "hasMediaDevices": true,
+     "hasRTCPeerConnection": true,
+     "state": "rejected",
+     "error": "NotAllowedError",
+     "message": "The request is not allowed by the user agent or the platform in the current context.",
+     "ms": 4600
+    },
+    "prompt_seen": true,
+    "taps": 2,
+    "dialogs": [
+     "com.android.permissioncontroller:id/permission_deny_button"
+    ],
+    "alive": true,
+    "crashed": false
+   }
+  },
+  {
+   "check": "extension",
+   "ok": false,
+   "detail": "installed smoke-probe@librewolf.invalid but its content script left no marker (marker='alive-webext') -- an extension that installs and does not run is not a working extension",
+   "evidence": {
+    "id": "smoke-probe@librewolf.invalid",
+    "marker": "alive-webext",
+    "addons": [
+     {
+      "id": "icons@mozac.org",
+      "name": "Mozilla Android Components - Browser Icons",
+      "active": true
+     },
+     {
+      "id": "readerview@mozac.org",
+      "name": "Mozilla Android Components - ReaderView",
+      "active": true
+     },
+     {
+      "id": "ads@mozac.org",
+      "name": "Mozilla Android Components - Ads Telemetry",
+      "active": true
+     },
+     {
+      "id": "cookies@mozac.org",
+      "name": "Mozilla Android Components - Search Telemetry",
+      "active": true
+     },
+     {
+      "id": "webcompat@mozilla.org",
+      "name": "Web Compatibility Interventions",
+      "active": true
+     },
+     {
+      "id": "uBlock0@raymondhill.net",
+      "name": "uBlock Origin",
+      "active": true
+     },
+     {
+      "id": "smoke-probe@librewolf.invalid",
+      "name": "LibreWolf smoke probe",
+      "active": true
+     }
+    ]
+   }
+  },
+  {
+   "check": "pref-dump",
+   "ok": true,
+   "detail": "written to /home/mgysin/redoubt-artifacts/stable/accept2/work/prefs.txt (58 prefs; librewolf.webgl.prompt=True)",
+   "evidence": {
+    "path": "/home/mgysin/redoubt-artifacts/stable/accept2/work/prefs.txt"
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/stable/accept2/work",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/stable/accept2/apk/fenix-x86_64-157.0-2-throwaway.apk",
+  "sha256": "ee97f58b50789a7dae969785dcef7e6566d58681791c580eb62f82663e9dbfe3",
+  "size": 135217228,
+  "harness_sha256": "dba0f279e5ca6eec7a51c1ac9d43e320536a88943c7494dca7e33b67a824ce46"
+ },
+ "status": "running",
+ "error": null
+}

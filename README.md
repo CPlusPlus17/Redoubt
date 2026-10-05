@@ -18,10 +18,11 @@ privacy configuration.
 
 ## Status
 
-**Beta.** Each beta is published as the **latest release** on
-[GitHub Releases](https://github.com/CPlusPlus17/Redoubt/releases/latest). The current
-betas are based on Firefox 157 (Firefox's regular release track), need Android 8.0
-or later, and install over the previous beta as an update.
+**Stable.** The current release is **Redoubt 157.0-2**, the first stable release,
+published as the [latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest).
+It is based on Firefox 157 (Firefox's regular release track), needs Android 8.0 or
+later, and installs over any earlier beta as an update. It has an opt-in in-app
+update check (Settings → Check for updates), off by default.
 
 Redoubt is not on F-Droid, Accrescent or any app store yet, and the app has no
 update check: watch the Releases page and install new APKs over the old one.
@@ -55,7 +56,7 @@ If the digest differs, do not install it, and report it privately (see
 [Security](#security-and-bug-reports)). The key and its custody are documented
 in [`docs/android/SIGNING.md`](docs/android/SIGNING.md).
 
-**Updates with Obtainium.** To be told about new betas, add
+**Updates with Obtainium.** To be told about new releases, add
 `https://github.com/CPlusPlus17/Redoubt` as an app in
 [Obtainium](https://github.com/ImranR98/Obtainium) and set **Filter APKs by
 regular expression** to `arm64-v8a` (or your ABI). Obtainium does not check the
