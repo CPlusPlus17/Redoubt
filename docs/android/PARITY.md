@@ -274,3 +274,47 @@ list it.
 - **Not covered by this section:** the platform gaps of §1 to §3 (no content
   sandbox, DoH overridden) are unchanged. This section is about Mozilla
   advisories only.
+
+## 8. Known limitations: passwords and passkeys (2026-10-05)
+
+These are not security-parity rows. They are listed here because users
+experience them as limits of Redoubt. Desktop LibreWolf does not have them in
+the same form: it has its own password manager and no Android Credential
+Manager. Measured on a 157.0-2 build on an Android 14 x86_64 emulator, with a
+probe AutofillService and a probe CredentialProviderService. Stock Firefox
+for Android 157 was run in the same setup for comparison.
+
+- **Password autofill works through any Android autofill service on normal
+  forms.** The probe service received the page's username and password fields
+  with web domain and autofill hints from `org.redoubtbrowser`.
+- **Shadow-DOM login forms get no autofill in 157.** Reddit's inputs live in
+  open shadow roots (`faceplate-text-input`). `GeckoViewAutoFillChild` only
+  registers fields from the non-composed `DOMFormHasPassword` /
+  `DOMInputPasswordAdded` events and from `scanDocument`'s
+  `querySelectorAll`, and neither reaches into shadow roots. `onFocus` only
+  resolves fields that were registered. Stock Firefox for Android 157 behaves
+  the same. A fix is planned for Redoubt 158 and is **not** in 157.0-2.
+- **Passkeys need Android 14+ and go through Android Credential Manager.**
+  `no-gms.patch` removes `play-services-fido`, Gecko's FIDO2 path for older
+  Android, so there is no fallback below Android 14.
+  The probe provider received `CallingAppInfo` with package
+  `org.redoubtbrowser` and the page origin set by the browser. Firefox
+  (`org.mozilla.firefox`) produced the same in the same setup.
+- **Some managers do not accept Redoubt as a browser for passkeys.** A
+  provider that checks browsers against an allowlist rejects Redoubt until it
+  is on that list. Proton Pass ships a copy of Google Password Manager's list
+  and offers no manual override, so neither offers passkeys to Redoubt.
+  KeePassDX lets the user add Redoubt (*Settings > Form filling > Passkeys
+  settings > Privileged apps*, or the "App not recognized" prompt on first
+  use; `PasskeysPrivilegedAppsPreferenceDialogFragmentCompat`, KeePassDX
+  4.5.5). Bitwarden offers **Trust** on its "Unrecognized browser" prompt
+  (`TrustPrivilegedAddPrompt`, since PM-19107). Adding Redoubt to Bitwarden's
+  and KeePassDX's community lists, and asking Proton to add it, is in
+  progress. The KeePassDX and Bitwarden steps come from their source and are
+  **PENDING** a device test with Redoubt.
+- **Conditional-mediation passkeys (autofill-style suggestions in the
+  username field) are unavailable.** `PublicKeyCredential::
+  IsConditionalMediationAvailable` resolves `false` under
+  `MOZ_WIDGET_ANDROID` (`dom/webauthn/PublicKeyCredential.cpp`), so every
+  Firefox-based Android browser has this limit. Sites' explicit passkey buttons
+  (modal WebAuthn) are not affected.

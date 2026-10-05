@@ -20,6 +20,7 @@ honest version *before* they install.
 | `install.html` | direct APK, verification, Obtainium step by step, the coming in-app check, stores | this file §5–6, `DISTRIBUTION.md`, `SIGNING.md` |
 | `privacy.html` | the §1 statement, what changes, honest limits, link to the full matrix | `PARITY.md` §1, §5 |
 | `sync.html` | sync with LibreWolf desktop | `SYNC.md` |
+| `passkeys.html` | password managers, autofill and passkeys: what works, known gaps | `README.md` "Passwords and passkeys", `PARITY.md` §8 |
 | `security.html` | private reporting, fingerprint, where bugs go | `SECURITY.md`, `README.md` |
 | `update/**` | the signed update-check endpoint | `DISTRIBUTION.md` — published verbatim; the site neither writes nor edits it |
 
@@ -31,7 +32,7 @@ Rules the checker enforces, so they do not depend on review:
   this up in the browser.
 - **External links only to** `github.com/CPlusPlus17/Redoubt` (releases, docs, issues,
   reporting), `librewolf.net` (attribution) and `mozilla.org` (trademark notice). Other
-  projects (IronFox, Obtainium, AppVerifier) are named, not linked.
+  projects (IronFox, Obtainium, AppVerifier, password managers) are named, not linked.
 - **One fingerprint.** Every fingerprint on the site must equal the one in `README.md`, which
   equals `SIGNING.md`.
 - Every internal link and `#anchor` resolves; the HTML is well formed.
