@@ -4044,8 +4044,8 @@ def grade_ubo_user_disable_phase(name, xml, logcat, alive, page_ok):
 def check_ubo_user_disable(app, adb, origin, res, wait=LAUNCHER_START_WAIT):
     """LW-M7-44: the fail-closed startup guard must not punish a deliberate disable.
 
-    An empty profile is provisioned by a first navigation. Two cold starts then
-    open a held fixture URL and mutate uBO through the real AddonManager API as
+    Each phase provisions an empty profile by a first navigation, then cold-starts
+    on a held fixture URL and mutates uBO through the real AddonManager API as
     soon as Marionette attaches, inside the preinstaller's readiness wait:
       * reload-control: addon.reload(), what a private-browsing permission change
         does. Not the user's choice to drop filtering, so startup must still fail
@@ -4053,23 +4053,31 @@ def check_ubo_user_disable(app, adb, origin, res, wait=LAUNCHER_START_WAIT):
       * user-disable: addon.disable(), what Settings > Add-ons does. Startup must
         continue unfiltered: no dialog or failure log, the user-disabled readiness
         line, and the held page loads with the listed script reaching the origin.
-    The control runs first so that the guard is shown live on the same profile."""
+    The control runs first so that the guard is shown live in the same run."""
     remote_port = origin.http_port
     adb.run("reverse", "tcp:%d" % remote_port, "tcp:%d" % origin.http_port, check=True)
     base = "http://127.0.0.1:%d/ubo-probe?token=" % remote_port
     phases = []
     m = None
     try:
-        token = "provision-" + os.urandom(8).hex()
-        m = open_session(app, base + token)
-        wait_for_initial_document(m, base + token)
-        provisioned = measure_ubo_navigation(m, res, origin, token, True, "ubo-user-disable-provision")
-        m.close()
-        m = None
-        if not provisioned:
-            res.add("check-ubo-user-disable", False, "uBO did not filter the provisioning page")
-            return False
         for name, method in (("reload-control", "reload"), ("user-disable", "disable")):
+            # Each phase provisions its own empty profile: uBO's first restart after
+            # installation still builds its filter cache, which keeps the readiness
+            # wait open for seconds. A later restart can be ready before Marionette
+            # attaches (measured on API 34: 1.8 s), and the phase would miss it.
+            app.force_stop()
+            app.wipe()
+            token = name + "-provision-" + os.urandom(8).hex()
+            m = open_session(app, base + token)
+            wait_for_initial_document(m, base + token)
+            provisioned = measure_ubo_navigation(m, res, origin, token, True,
+                                                 "ubo-user-disable-%s-provision" % name)
+            m.close()
+            m = None
+            if not provisioned:
+                res.add("check-ubo-user-disable", False,
+                        "%s: uBO did not filter the provisioning page" % name)
+                return False
             app.force_stop()
             time.sleep(2)
             adb.run("logcat", "-c", timeout=60)
@@ -4099,6 +4107,9 @@ def check_ubo_user_disable(app, adb, origin, res, wait=LAUNCHER_START_WAIT):
             for suffix, body in (("ui.xml", xml), ("logcat.txt", logcat)):
                 with open(os.path.join(app.work, "ubo-user-disable-%s-%s" % (name, suffix)), "w") as f:
                     f.write(body)
+            adb.shell("screencap -p /sdcard/lw-ubo-user-disable.png", timeout=60)
+            adb.run("pull", "/sdcard/lw-ubo-user-disable.png",
+                    os.path.join(app.work, "ubo-user-disable-%s.png" % name), timeout=60)
             phase = grade_ubo_user_disable_phase(name, xml, logcat, app.alive(), page_ok)
             phase.update({"phase": name, "mutation": mutation, "page": page,
                           "marionette_attached_s": attached, "mutated_s": mutated,

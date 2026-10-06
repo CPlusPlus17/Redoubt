@@ -116,10 +116,12 @@ private-mode controls, or an upgrade to a different APK version. Those require
 separate runs and evidence. Both flags refuse `--keep-state` because their first
 phase requires an empty app profile.
 
-`--check-ubo-user-disable` (LW-M7-44) provisions an empty profile, then cold-starts
-twice on the held fixture URL. Each time it changes uBO through the real AddonManager
-API as soon as Marionette attaches, while the preinstaller is still waiting for
-filter readiness. The first start is a control: `addon.reload()`, which is what a
+`--check-ubo-user-disable` (LW-M7-44) runs two phases. Each phase provisions an
+empty profile with a first navigation, then cold-starts on a held fixture URL. As
+soon as Marionette attaches, it changes uBO through the real AddonManager API while
+the preinstaller is still waiting for filter readiness. A fresh profile is needed
+each time because only uBO's first restart is slow enough. On API 34 a later
+restart was ready after 1.8 s, before Marionette attached. The first start is a control: `addon.reload()`, which is what a
 private-browsing permission change does, must still show the setup-failure dialog,
 and the held page must never reach the origin. The second start calls
 `addon.disable()`, which is what Settings > Add-ons does. It must log the
