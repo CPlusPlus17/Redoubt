@@ -675,6 +675,9 @@ UBO_ALLOWED_PATH = "/redoubt-allowed.js"
 UBO_FAILURE_TITLE = "uBlock Origin setup failed"
 UBO_FAILED_LOG = "uBlock Origin startup failed"
 UBO_READY_LOG = "uBlock Origin startup ready: Ready(installed=true, enabled=true)"
+# --check-ubo-user-disable (LW-M7-44): the user's choice during the readiness wait.
+UBO_USER_DISABLED_LOG = "uBlock Origin was disabled by the user during startup"
+UBO_READY_DISABLED_LOG = "uBlock Origin startup ready: Ready(installed=true, enabled=false)"
 # The preinstaller's readiness timeout is 30 s; the window must outlast it.
 LAUNCHER_START_WAIT = 45
 
@@ -3988,6 +3991,147 @@ def run_ubo_behavior(app, adb, apk, origin, res, lifecycle=False):
             m.close()
         adb.run("reverse", "--remove", "tcp:%d" % remote_port)
 
+UBO_MUTATE_JS = r"""
+  return (async () => {
+    const {AddonManager} = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+    const a = await AddonManager.getAddonByID(arguments[0]);
+    if (!a) return {absent: true};
+    const before = {active: a.isActive, userDisabled: a.userDisabled};
+    await a[arguments[1]]();
+    return {before, after: {active: a.isActive, userDisabled: a.userDisabled}};
+  })();
+"""
+
+def grade_ubo_user_disable_phase(name, xml, logcat, alive, page_ok):
+    """One restart in which uBO is disabled or reloaded while the preinstaller waits.
+
+    A phase only counts when the mutation landed inside the readiness wait: if
+    the preinstaller logged a ready line with filtering on before reporting the
+    outcome, the window was missed and the phase proves nothing either way."""
+    lines = logcat.splitlines()
+    failed = [l for l in lines if UBO_FAILED_LOG in l]
+    ready_on = [l for l in lines if UBO_READY_LOG in l]
+    user_disabled = [l for l in lines if UBO_USER_DISABLED_LOG in l]
+    ready_off = [l for l in lines if UBO_READY_DISABLED_LOG in l]
+    dialog = UBO_FAILURE_TITLE in html.unescape(xml or "")
+    problems = []
+    if ready_on:
+        problems.append("the readiness wait had already finished (window missed; rerun)")
+    elif name == "user-disable":
+        if dialog:
+            problems.append("the '%s' dialog is showing" % UBO_FAILURE_TITLE)
+        if failed:
+            problems.append("the preinstaller logged a startup failure")
+        if not user_disabled or not ready_off:
+            problems.append("no user-disabled readiness line was logged")
+        if not page_ok:
+            problems.append("the held first page did not load unfiltered")
+    else:
+        if not dialog:
+            problems.append("the '%s' dialog is not showing" % UBO_FAILURE_TITLE)
+        if not failed:
+            problems.append("the preinstaller did not log a startup failure")
+        if user_disabled or ready_off:
+            problems.append("a reload was treated as the user's choice")
+        if page_ok:
+            problems.append("the held first page loaded although startup failed")
+    if not alive:
+        problems.append("the app is not running")
+    return {"ok": not problems, "problems": problems, "dialog": dialog,
+            "failed_lines": failed[:5], "ready_lines": ready_on[:5],
+            "user_disabled_lines": user_disabled[:5], "ready_disabled_lines": ready_off[:5]}
+
+def check_ubo_user_disable(app, adb, origin, res, wait=LAUNCHER_START_WAIT):
+    """LW-M7-44: the fail-closed startup guard must not punish a deliberate disable.
+
+    Each phase provisions an empty profile by a first navigation, then cold-starts
+    on a held fixture URL and mutates uBO through the real AddonManager API as
+    soon as Marionette attaches, inside the preinstaller's readiness wait:
+      * reload-control: addon.reload(), what a private-browsing permission change
+        does. Not the user's choice to drop filtering, so startup must still fail
+        closed: failure dialog and log, and the held page never reaches the origin.
+      * user-disable: addon.disable(), what Settings > Add-ons does. Startup must
+        continue unfiltered: no dialog or failure log, the user-disabled readiness
+        line, and the held page loads with the listed script reaching the origin.
+    The control runs first so that the guard is shown live in the same run."""
+    remote_port = origin.http_port
+    adb.run("reverse", "tcp:%d" % remote_port, "tcp:%d" % origin.http_port, check=True)
+    base = "http://127.0.0.1:%d/ubo-probe?token=" % remote_port
+    phases = []
+    m = None
+    try:
+        for name, method in (("reload-control", "reload"), ("user-disable", "disable")):
+            # Each phase provisions its own empty profile: uBO's first restart after
+            # installation still builds its filter cache, which keeps the readiness
+            # wait open for seconds. A later restart can be ready before Marionette
+            # attaches (measured on API 34: 1.8 s), and the phase would miss it.
+            app.force_stop()
+            app.wipe()
+            token = name + "-provision-" + os.urandom(8).hex()
+            m = open_session(app, base + token)
+            wait_for_initial_document(m, base + token)
+            provisioned = measure_ubo_navigation(m, res, origin, token, True,
+                                                 "ubo-user-disable-%s-provision" % name)
+            m.close()
+            m = None
+            if not provisioned:
+                res.add("check-ubo-user-disable", False,
+                        "%s: uBO did not filter the provisioning page" % name)
+                return False
+            app.force_stop()
+            time.sleep(2)
+            adb.run("logcat", "-c", timeout=60)
+            token = name + "-" + os.urandom(8).hex()
+            started = time.time()
+            m = open_session(app, base + token)
+            attached = round(time.time() - started, 1)
+            mutation = m.script(UBO_MUTATE_JS, [UBO_ID, method], chrome=True)
+            mutated = round(time.time() - started, 1)
+            page_ok = False
+            if name == "user-disable":
+                try:
+                    wait_for_initial_document(m, base + token)
+                    page_ok, page = grade_ubo_navigation(
+                        m.script('return {url:location.href, uri:document.documentURI, '
+                                 'ready:document.readyState, '
+                                 'probe:(window.wrappedJSObject || window).redoubtUboProbe || null};')
+                        or {}, list(origin.requests), token, False)
+                except (HarnessError, MarionetteError) as e:
+                    page = {"error": str(e)}
+            time.sleep(max(0, wait - (time.time() - started)))
+            if name != "user-disable":
+                page = {"origin_requests": [r for r in origin.requests if token in r[2]]}
+                page_ok = bool(page["origin_requests"])
+            xml = _ui_dump(adb)
+            logcat = adb.out("logcat", "-d", "-v", "threadtime", timeout=120)
+            for suffix, body in (("ui.xml", xml), ("logcat.txt", logcat)):
+                with open(os.path.join(app.work, "ubo-user-disable-%s-%s" % (name, suffix)), "w") as f:
+                    f.write(body)
+            adb.shell("screencap -p /sdcard/lw-ubo-user-disable.png", timeout=60)
+            adb.run("pull", "/sdcard/lw-ubo-user-disable.png",
+                    os.path.join(app.work, "ubo-user-disable-%s.png" % name), timeout=60)
+            phase = grade_ubo_user_disable_phase(name, xml, logcat, app.alive(), page_ok)
+            phase.update({"phase": name, "mutation": mutation, "page": page,
+                          "marionette_attached_s": attached, "mutated_s": mutated,
+                          "waited_seconds": round(time.time() - started, 1)})
+            phases.append(phase)
+            log("check-ubo-user-disable: %s %s%s" % (name, "ok" if phase["ok"] else "FAILED: ",
+                                                     "; ".join(phase["problems"])))
+            m.close()
+            m = None
+    finally:
+        if m:
+            m.close()
+        adb.run("reverse", "--remove", "tcp:%d" % remote_port)
+    ok = len(phases) == 2 and all(p["ok"] for p in phases)
+    res.add("check-ubo-user-disable", ok,
+            "a reload during the readiness wait still pauses browsing; a user disable "
+            "continues unfiltered with no failure dialog" if ok else
+            "; ".join("%s: %s" % (p["phase"], ", ".join(p["problems"]))
+                      for p in phases if not p["ok"]),
+            {"phases": phases})
+    return ok
+
 # Mozilla's search partner / attribution parameters.  Measured on this build:
 # a real query typed into the Fenix toolbar produced
 # https://www.google.com/search?client=firefox-b-m&q=... -- client=firefox-b-m
@@ -4872,7 +5016,7 @@ def main(argv):
     ap.add_argument("--first-run-capture", action="store_true")
     ap.add_argument("--self-test", action="store_true",
                     help="prove the harness reports failure when a probe fails")
-    for f in ("ubo", "ubo-preinstall", "ubo-lifecycle", "search", "no-gms", "no-adjust",
+    for f in ("ubo", "ubo-preinstall", "ubo-lifecycle", "ubo-user-disable", "search", "no-gms", "no-adjust",
               "aboutconfig", "no-suggest", "strings", "update-privacy",
               "no-remote-settings", "https-only", "launcher-start", "video"):
         ap.add_argument("--check-" + f, action="store_true")
@@ -4880,7 +5024,8 @@ def main(argv):
                     help="with --check-no-suggest: turn 'Show search suggestions' ON before "
                          "typing; the check must then FAIL on the suggestion host's traffic")
     args = ap.parse_args(argv)
-    if (args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_launcher_start) and args.keep_state:
+    if (args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_launcher_start
+            or args.check_ubo_user_disable) and args.keep_state:
         raise HarnessError("uBO first-install checks require an empty app profile; omit --keep-state")
 
     for flag, why in NOT_IMPLEMENTED.items():
@@ -4931,7 +5076,8 @@ def main(argv):
         or args.first_run_capture or args.check_ubo or args.check_search
         or args.check_aboutconfig or args.check_no_suggest or args.check_update_privacy
         or args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_https_only
-        or args.check_launcher_start or args.check_video or args.self_test)
+        or args.check_launcher_start or args.check_video or args.self_test
+        or args.check_ubo_user_disable)
     if args.check_no_gms:
         check_no_gms(apk, res)
     if args.check_no_adjust:
@@ -5081,6 +5227,9 @@ def main(argv):
 
         if args.check_ubo_preinstall or args.check_ubo_lifecycle:
             run_ubo_behavior(app, adb, apk, origin, res, lifecycle=args.check_ubo_lifecycle)
+            return finish(res, args, work)
+        if args.check_ubo_user_disable:
+            check_ubo_user_disable(app, adb, origin, res)
             return finish(res, args, work)
 
         # Start on loopback so a secure-by-default browser can create its first

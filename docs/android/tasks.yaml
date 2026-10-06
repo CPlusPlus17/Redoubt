@@ -5483,3 +5483,65 @@ tasks:
     agent_safe: no
     isolation: worktree
     risk: Turning isolation off is a containment regression; content again runs under the app's uid and can read the profile. The owner accepted that trade on 2026-10-06 ("Accept, turn isolation off"). Re-enable when upstream decodes H.264 from an isolated content process; --check-video now has H.264 and MSE fixtures, so the harness sees this class of failure.
+
+  - id: LW-M7-44
+    title: Disabling uBlock Origin while it starts must not pause browsing
+    milestone: M7
+    depends_on: [LW-M3-07, LW-M7-11, LW-M7-12]   # LW-M7-11 owns the harness, LW-M7-12 PATCH-SCOPE.md
+    owns:
+      - docs/android/evidence/lw-m7-44/
+    shared_edit:
+      - patches/android/ubo-preinstall.patch
+      - docs/android/PATCH-SCOPE.md
+      - scripts/android-smoke.sh
+      - scripts/tests/test-android-smoke.py
+      - docs/android/SMOKE.md
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
+    reads:
+      - toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs
+      - mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+      - toolkit/components/extensions/parent/ext-management.js
+    what: |
+      Observed 2026-10-06 on 157.0-2 during the video investigation
+      (docs/android/evidence/video-playback/README.md, item 4): turning uBO off
+      through AddonManager made Redoubt show "uBlock Origin setup failed /
+      Browsing is paused". The guard is LibreWolfUboPreinstaller (LW-M3-07). It
+      runs once per process start and holds every engine session until uBO's
+      live blocking listener is registered. When that wait fails, it re-reads
+      the registry for 5 s and continues only for a strictly newer enabled copy
+      (an AMO update). Every other outcome failed closed, including the user's
+      own disable or removal. Any disable stops the extension, and that rejects
+      Gecko's wait ("Blocking extension stopped before becoming ready").
+      Outside the readiness wait, nothing trips the guard. A disable after
+      startup, a restart with uBO disabled or removed (Ready(installed, false)),
+      uBO's own power button (internal filtering state, the extension keeps
+      running) and an AMO update all leave browsing alone.
+      Fix: after the settle window, a copy whose Gecko disabledFlags include
+      USER, or the removal of a copy that was already provisioned, ends the wait
+      as Ready without filtering. A restart would accept the same state. The
+      wait still fails closed for blocklist, signature and app disablement, for a
+      same-version reload (a private-browsing permission change reloads uBO,
+      and the reload's transient userDisabled has cleared by the end of the
+      window), and for a removal during the very first installation (a restart
+      requires an explicit retry there too). Only the user, through the add-ons
+      manager, or chrome-privileged code can set userDisabled. Web content cannot.
+      Other WebExtensions cannot either: management.setEnabled covers only themes
+      and policy installs, and nothing runs in a tab before the wait ends.
+      Owner decision 2026-10-06, verbatim: "yes, put it in 158, no warning
+      needed". The fix ships with Firefox 158 (158.0-1), not as a 157 hotfix. A
+      non-user disable (blocklist, signature) that a restart accepts as
+      Ready(enabled=false), so browsing continues unfiltered, needs no warning;
+      none is added.
+    acceptance:
+      - "LibreWolfUboPreinstallerTest covers a user disable during the first-run and later-start waits, removal of a provisioned copy, and the retained failure for a reload, a non-user disable and a first-run removal"
+      - "on a device, android-smoke.sh --check-ubo-user-disable passes: a reload during the wait still shows the failure dialog, and a disable during the wait loads the held page unfiltered with no dialog"
+      - "the same check fails the user-disable phase on 157.0-2"
+      - "ubo-preinstall.patch applies in list order and compiles in a real Android build"
+    verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope && python3 scripts/tests/test-android-smoke.py"
+    effort_h: "3-6"
+    skills: [android, kotlin, webextensions]
+    agent_safe: no
+    isolation: worktree
+    risk: A user disable during the startup wait now opens the held first page without filtering, as the user asked. The guard's purpose is unchanged, because any failure that is not the user's choice still pauses browsing. Restarts already accepted every disabled copy, blocklisted or signature-disabled ones included. That pre-existing leniency is unchanged here; the owner decided on 2026-10-06 that it needs no warning.
