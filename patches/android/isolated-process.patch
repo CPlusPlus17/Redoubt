@@ -8,10 +8,15 @@
 # did not play: the owner reported 2026-10-06 that videos do not play on
 # redgifs.com and pornhub.com. Measured on an API 34 x86_64 emulator, with the
 # 157.0-2 release APK and stock Firefox 157.0 on the same AVD
-# (docs/android/evidence/video-playback/README.md): every H.264 source
-# (progressive MP4, MSE through hls.js, HLS in TS and fMP4) fails in 157.0-2 with
-# MEDIA_ERR_SRC_NOT_SUPPORTED or a hls.js bufferAddCodecError, and plays in
-# stock Firefox. VP9 and AV1 with Opus play in both.
+# (docs/android/evidence/video-playback/README.md): every H.264 source fails in
+# 157.0-2 and plays in stock Firefox. A progressive MP4 fails with
+# MEDIA_ERR_SRC_NOT_SUPPORTED. MSE fails before any media element error:
+# MediaSource.isTypeSupported('video/mp4; codecs="avc1..."') is false and
+# addSourceBuffer() throws NotSupportedError, which hls.js reports as
+# bufferAddCodecError (HLS in TS and in fMP4). VP9 and AV1 with Opus play in both.
+#
+# Owner decision, 2026-10-06, verbatim: "Accept, turn isolation off". Shipped
+# as hotfix 157.0-3, not held for 158.
 #
 # The cause is upstream Gecko, not a pref. AndroidDecoderModule::
 # IsJavaDecoderModuleAllowed() (dom/media/platforms/android/
@@ -390,7 +395,7 @@
 #
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
-@@ -139,8 +139,19 @@
+@@ -139,8 +139,21 @@
                  .setSameDocumentNavigationOverridesLoadTypeForceDisable(
                      FxNimbus.features.sameDocumentNavigationOverridesLoadType.value().forceDisableUri
                  )
@@ -402,11 +407,13 @@
 +                // refuses the Java MediaCodec decoder module
 +                // (AndroidDecoderModule::IsJavaDecoderModuleAllowed() is false when
 +                // GeckoAppShell.isIsolatedProcess()), and no other Android process decodes
-+                // H.264, HEVC or AAC for content (upstream bug 1810736). With isolation on,
-+                // every H.264 video -- progressive MP4, MSE and HLS -- fails with
-+                // MEDIA_ERR_SRC_NOT_SUPPORTED. Turn this back on only after a Firefox
-+                // release decodes H.264 from an isolated content process; the measurement is
-+                // in docs/android/evidence/video-playback/README.md.
++                // H.264, HEVC or AAC for content (upstream bug 1810736). With isolation on, a
++                // progressive H.264 MP4 fails with MEDIA_ERR_SRC_NOT_SUPPORTED, and MSE (so
++                // every hls.js/dash.js player) fails earlier: MediaSource.isTypeSupported()
++                // returns false for avc1/mp4a and addSourceBuffer() throws NotSupportedError.
++                // Turn this back on only after a Firefox release decodes H.264 from an
++                // isolated content process; the measurement is in
++                // docs/android/evidence/video-playback/README.md.
 +                .isolatedProcessEnabled(false)
 +                .appZygoteProcessEnabled(false)
  
