@@ -5,6 +5,11 @@
 > history purge, and the bounded guarantee. See
 > [Follow-up: hard gate, history purge, bound](#follow-up-hard-gate-history-purge-bound)
 > at the end; everything above it describes the first commit.
+>
+> **Follow-up 2026-10-06 (third commit): several tasks.** A review found that
+> `onTaskRemoved` fires for any task of the app (a PWA, a custom tab, or the
+> main task while one of those stays open) and deleted a live session. See
+> [Follow-up: several tasks](#follow-up-several-tasks) at the very end.
 
 Owner report 2026-10-06: "when swiping away the app, the delete all on close does
 not trigger. closing it with the close button, works". Owner decision 2026-10-06,
@@ -287,3 +292,138 @@ unit tests only. A 20 s fail-open on a device was not forced; the unit tests
 Raw evidence (full logcats, UI dumps, screenshots, DB copies):
 `~/redoubt-artifacts/delete-on-quit/raw-evidence-lw-m7-45-followup.tar.xz`,
 sha256 `08a5864e66a7438548db0f8e11d9638a9a24e3893192da102e5cfafc8aaf82d1`.
+
+## Follow-up: several tasks
+
+**Finding (review, medium, by code reading).** `DeleteOnQuitTaskService.onTaskRemoved`
+fires for ANY task of the app. The app can have several at once: the main
+browser; each PWA in its own document task (`FennecWebAppIntentProcessor` /
+`WebAppIntentProcessor` set `FLAG_ACTIVITY_NEW_DOCUMENT`); a custom tab in its
+own task (`ExternalAppBrowserActivity` has `taskAffinity=""`) or inside the
+calling app's task. Swiping one of them while another stayed visible kept the
+process alive, yet the live deletion ran (`removeAllTabs`, cookies of a session
+the user had not left) and wrote "clean". Browsing then continued under
+"clean", and a later kill skipped the cold-start deletion.
+
+**Fix** (`patches/android/delete-on-quit-swipe.patch`, sha256 `a165ab70…a678`):
+
+- `LiveTasks`: `DeleteOnQuitActivityCallbacks` record every live activity
+  (created, not yet destroyed) and its task id. A task counts as the app's own
+  once it was seen in `ActivityManager.appTasks`.
+- `onTaskRemoved` computes the tasks that still hold a live activity:
+  - an own task still in `appTasks` counts. The removed task has already left
+    `appTasks` when `onTaskRemoved` runs, because AOSP removes it from recents
+    before it posts `cleanUpServices`. The device runs confirm this.
+  - a task never listed there (a custom tab inside another app's task) counts.
+  - a recents entry with no live activity does not count.
+- `DeleteOnQuitGuard.onTaskRemoved(remaining)`: only when that set is empty
+  does it run the live deletion and mark "clean" (as before: once the deletion
+  is confirmed and no activity started meanwhile). Otherwise it deletes nothing
+  and writes nothing, and the marker stays "running", so the cold-start
+  guarantee still covers a later kill. The same applies when the task list
+  cannot be read. While another task remains, the service also keeps running,
+  so the next removal reaches it.
+- Log: `onTaskRemoved: task swiped away (<root activity>); other live tasks: [ids]`
+  and `task-removed: N other task(s) of the app still open; session continues,
+  nothing deleted, marker stays unclean`.
+
+The same commit also does the following:
+
+- Gate exclusions: favicon downloads (`HttpIconLoader`, through the engine's
+  fetch client, `CookiePolicy.INCLUDE` for normal tabs) are now listed beside
+  `mayLaunchUrl` and extension background pages. A favicon fetch that runs
+  before Gecko has processed the cookie deletion can carry a cookie from the
+  old session to the icon's host.
+- The `tasks.yaml` "what" no longer has the stale wording. It now says: the
+  directory is fsynced; the permissions DB is deleted asynchronously; the
+  local stores are deleted on IO with a 5 s wait.
+- The throwaway keystore password is no longer passed inline. Three committed
+  scripts now read it from a file outside the repository:
+  `build/apk.sh`, `build/apk2.sh` and
+  `../lw-m7-44/build/device-build-714e51cc/chain.sh`. History was not
+  rewritten; the password belongs to a throwaway test key only.
+
+**Unit tests** (`multitask/build/TEST-*.xml`): `DeleteOnQuitGuardTest`, 29
+tests (5 new), and `DeleteOnQuitStartGateMiddlewareTest`, 7 tests. There were
+0 failures. The new tests cover:
+
+- swiping one of two tasks deletes nothing and leaves "running"; swiping the
+  last task deletes and marks "clean";
+- a custom tab in another app's task keeps the session;
+- a stale recents entry does not keep the session;
+- an unreadable task list never deletes;
+- the callbacks feed the tracker.
+
+**Build.** `make android-dir` of 726ded4c with the edited Fenix sources, an
+x86_64 fat AAR (`MOZ_BUILD_DATE` 20261006150000, image `fx157`), then
+`android-apk.sh --variant release`. `:fenix:compileReleaseKotlin` passed under
+Kotlin `-Werror` (`multitask/build/`). Two earlier attempts are recorded in
+`build/commands.log`:
+
+- doq4 attempt 1 failed to compile: `taskInfo` is nullable.
+- the doq4 unit tests did not compile: the old test's trailing lambda bound to
+  a new constructor parameter, so `onActivityStart` is now last.
+
+The device cases were run on doq4 first (`multitask/device-doq4/`). They were
+then all re-run on the final doq5 (`multitask/device/`):
+
+| item | value |
+|---|---|
+| APK | `redoubt-doq5-x86_64-throwaway.apk` |
+| sha256 | `64f8bcfd76d1885ea5745eb7ab68b194c51a52eb81e3870254d509ba42851895` |
+| unsigned sha256 | `b3b4df1c8c56e6ed84064276890f91cb44fbf5d7dc691721149ac7c647a30b08` |
+| signing cert | `31e9a40f…b760` (throwaway) |
+
+**Device** (API 34 `google_apis` x86_64 emulator, all six categories on).
+Driver: `multitask/tools/` (`mt.sh`, `run-mt.sh`, `run-c-mt.sh` on top of
+`followup/tools/`). Server log: `multitask/device/server.jsonl`, which holds
+both runs.
+
+Each case starts with the main task holding two tabs that set cookies and
+localStorage, and waits 35 s for the autosave.
+
+| case | tasks | action | result | verdict |
+|---|---|---|---|---|
+| **A** PWA | main task #28 plus a PWA document task #32 (`ExternalAppBrowserActivity`, opened through the Fennec web-app intent `org.mozilla.gecko.WEBAPP` with a manifest) | swipe ONLY the PWA task | `other live tasks: [28]` … `nothing deleted`; marker `running`; 4 cookies, 2 tabs and localStorage still there. A page opened in the main task afterwards sent all 4 cookies (`doq_hdr_a=1; doq_js_a=1; doq_hdr_b=1; doq_js_b=1`) | PASS |
+| A, continued | main task only | swipe the main task | `other live tasks: []`, `task-removed: deleting …`, `deletion confirmed; marked clean`. Then the launcher start: 0 cookies, 0 history, no session file, and the report request had an empty `Cookie` | PASS |
+| **B1** custom tab, own task | main #36 plus custom tab #39 (`am start`, so `NEW_TASK` and `taskAffinity=""`) | swipe the main task | `other live tasks: [39]`, nothing deleted, marker `running`, all data intact. Swiping the custom-tab task afterwards: `other live tasks: []`, deletion, `clean`; the next start has no data | PASS |
+| **B2** custom tab, foreign task | main #41 plus a custom tab inside test client `org.redoubt.ctclient`'s task #44 (no `NEW_TASK`; client source in `tools/ctclient/`) | swipe the main task | `other live tasks: [44]` (a task never in `appTasks`), nothing deleted, marker `running`, all data intact. Then `kill -9`: the next cold start runs the start-up deletion (`marker running/0`) and the data is gone | PASS |
+| **C1** single task | main only | swipe | process killed (REMOVE TASK); the cold start deletes; the report request had an empty `Cookie` | PASS |
+| **C2** Quit | main only | menu Quit | `quit: deletion confirmed; marked clean`. The Quit's own `finishAndRemoveTask` also reaches `onTaskRemoved` with `other live tasks: []` (an idempotent second deletion). The next start shows no data | PASS |
+| harness | | `android-smoke.sh --check-delete-on-quit` | **PASS** (`multitask/harness/`) | PASS |
+
+Notes:
+
+- **Tracker re-run in a fresh process.** In A (main swipe) and B1 (custom-tab
+  swipe), Android killed the process with the last task (REMOVE TASK). It then
+  started a fresh process to deliver the pending `onTaskRemoved` to the
+  `stopWithTask="false"` service. That process ran the cold-start deletion
+  (marker `running`) and then the live one, because it has no live activity,
+  so `other live tasks: []`. This is why the following launcher start was warm
+  with the data already gone.
+- **B2 reload not seen.** B2's second client intent (to reload the custom tab
+  after the swipe) did not reach the server: the client activity was already
+  on top of its task. The cookie store snapshot (`snapshots/B2-*`) shows the
+  data intact instead.
+
+**Gates** (`multitask/gates/`, run on the final patch text). Every gate exited
+0:
+
+- `check-patch-order.py`
+- `lint-patch-scope.py`
+- `board.py --check` and `--check-scope`
+- `check-patchfail.sh --targets=android` against 157.0
+- at `android/firefox-158` e55a8329, with this patch text and the version
+  files set to 158.0b4 in a scratch worktree: `check-patchfail.sh` for android
+  (this patch applies with offsets only) and for desktop, and
+  `check-patch-order.py`
+
+**Not covered here:**
+
+- A PWA installed through the menu's "Add to Home screen". Gecko needs a secure
+  context to install a manifest, and the local server is plain HTTP on
+  10.0.2.2. Both PWA paths open `ExternalAppBrowserActivity` with
+  `FLAG_ACTIVITY_NEW_DOCUMENT`; the legacy Fennec web-app intent used here is
+  one of them.
+- Split screen.
+

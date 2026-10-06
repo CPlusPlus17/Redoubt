@@ -6,6 +6,9 @@ R=$V/repo; T=$R/librewolf-157.0-3; B=$V/build
 BD=20261006150000
 IMG=localhost/librewolf-android-build:fx157
 AS=/home/mgysin/.local/state/codex-desktop/tmp/fivur-android-sdk36/build-tools/36.0.0/apksigner
+# The keystore password is read from a file outside the repository (scrubbed
+# 2026-10-06: an earlier copy of this script passed it inline).
+KSPASS=${KS_PASS_FILE:-/home/mgysin/redoubt-artifacts/keep/throwaway-keys/throwaway.pass}
 log(){ echo "$(date -u +%FT%TZ) $*" >> $B/commands.log; }
 until [ -f $B/aar.rc ]; do sleep 20; done
 [ "$(cat $B/aar.rc)" = 0 ] || { log "aar failed; apk not started"; exit 1; }
@@ -19,7 +22,7 @@ U=$B/apk/apk/fenix-x86_64-release-unsigned.apk
 if [ -f $U ]; then
   mkdir -p $V/apk
   "$AS" sign --ks /home/mgysin/redoubt-artifacts/keep/throwaway-keys/throwaway.p12 --ks-key-alias throwaway \
-    --ks-pass pass:throwaway --out $V/apk/redoubt-doq2-x86_64-throwaway.apk $U; log "signed exit=$?"
+    --ks-pass file:$KSPASS --out $V/apk/redoubt-doq2-x86_64-throwaway.apk $U; log "signed exit=$?"
   sha256sum $U $V/apk/redoubt-doq2-x86_64-throwaway.apk >> $B/SHA256SUMS
 else log "no unsigned x86_64 apk"; fi
 log "START unit tests"
