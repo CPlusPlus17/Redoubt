@@ -23,6 +23,7 @@ honest version *before* they install.
 | `sync.html` | sync with LibreWolf desktop | `SYNC.md` |
 | `passkeys.html` | password managers, autofill and passkeys: what works, known gaps | `README.md` "Passwords and passkeys", `PARITY.md` §8 |
 | `security.html` | private reporting, fingerprint, where bugs go | `SECURITY.md`, `README.md` |
+| `fdroid.html`, `fdroid-qr.svg` *(not yet: written by `fdroid-repo.sh publish-page` after the owner's `init`)* | how to add Redoubt's F-Droid repository: its `fdroidrepos://` link, QR code, address and fingerprint, the archive, and that the repository itself is in a Hetzner Object Storage bucket | `FDROID.md`; rendered from `assets/fdroid/fdroid.html.in`, never edited by hand |
 | `update/**` | the signed update-check endpoint | `DISTRIBUTION.md` — published verbatim; the site neither writes nor edits it |
 
 Rules the checker enforces, so they do not depend on review:
@@ -32,8 +33,16 @@ Rules the checker enforces, so they do not depend on review:
   Content-Security-Policy meta (`default-src 'none'`, `img-src`/`style-src 'self'`) backs
   this up in the browser.
 - **External links only to** `github.com/CPlusPlus17/Redoubt` (releases, docs, issues,
-  reporting), `librewolf.net` (attribution) and `mozilla.org` (trademark notice). Other
-  projects (IronFox, Obtainium, AppVerifier, password managers) are named, not linked.
+  reporting), `librewolf.net` (attribution), `mozilla.org` (trademark notice) and
+  `f-droid.org` (where users get the F-Droid client). Other projects (IronFox, Obtainium,
+  AppVerifier, password managers) are named, not linked. **One exception, on `fdroid.html`
+  only:** links to the F-Droid repository's bucket named in `assets/fdroid/deploy.conf`,
+  `fdroidrepos://<bucket>.<location>.your-objectstorage.com/repo?fingerprint=<pinned>` and
+  `https://<bucket>.<location>.your-objectstorage.com/repo` or `/archive`. The repository
+  cannot live on this domain (`FDROID.md`, "Hosting"), so the page must point at Hetzner's.
+  The fingerprint in the link must equal `assets/fdroid/repo-fingerprint`.
+- **No repository files.** No `.apk` anywhere under `site/` and no `site/fdroid/` directory:
+  the F-Droid index and APKs live only in the bucket.
 - **One fingerprint.** Every fingerprint on the site must equal the one in `README.md`, which
   equals `SIGNING.md`.
 - Every internal link and `#anchor` resolves; the HTML is well formed.
@@ -90,7 +99,7 @@ in-app check (see §5 and `docs/android/DISTRIBUTION.md`).
 
 | channel | what it is | how it updates | in-app check present? |
 |---|---|---|---|
-| **F-Droid** | **Redoubt's own F-Droid repository** at `redoubtbrowser.org/fdroid/repo` (this site, `FDROID.md`), not f-droid.org's main repo (LW-M6-03) | F-Droid's own updater, once our repo is added | in the APK (the repository serves the direct APKs), **not offered** when F-Droid installed or last updated the app (from the build after 157.0-2) |
+| **F-Droid** | **Redoubt's own F-Droid repository**, hosted in the owner's Hetzner Object Storage bucket (`https://<bucket>.<location>.your-objectstorage.com/repo`; how to add it: `fdroid.html` on this site; `FDROID.md`), not f-droid.org's main repo (LW-M6-03) | F-Droid's own updater, once our repo is added | in the APK (the repository serves the direct APKs), **not offered** when F-Droid installed or last updated the app (from the build after 157.0-2) |
 | **Accrescent** | the Accrescent repository | Accrescent's own updater | **no** (compiled out) |
 | **direct APK** | the download on `redoubtbrowser.org` | the opt-in in-app version check (`DISTRIBUTION.md`) or the user's own tool (e.g. Obtainium) | **yes** (opt-in, off by default) |
 | **Google Play** *(pending, LW-M6-12; owner decision 2026-10-05)* | `org.redoubtbrowser` on Google Play, same key via Play App Signing (`PLAY.md`) | Google Play | **no** (compiled out; Play forbids self-update) |
@@ -140,8 +149,10 @@ with the sha256 of what you have.
 ## 5. Install guide, per channel
 
 - **F-Droid.** Install F-Droid. Then **add Redoubt's own repository** — its URL and
-  fingerprint go in §3 when LW-M6-03 stands it up — and install **Redoubt** from it.
-  F-Droid tells you when a new build lands; there is no in-app check to configure.
+  fingerprint go in §3 and on `fdroid.html` when LW-M6-03 stands it up — and install
+  **Redoubt** from it. F-Droid tells you when a new build lands; there is no in-app check to
+  configure. The address is a Hetzner Object Storage bucket, not `redoubtbrowser.org`; the
+  fingerprint is what proves it is ours. Older releases are in the repository's archive.
 
   Redoubt is **not** in f-droid.org's main repository and an earlier draft of this
   page said to use it. Going through the main repo means f-droid.org builds and

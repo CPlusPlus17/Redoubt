@@ -1,5 +1,11 @@
 # LW-M6-03 evidence: the F-Droid repository, proved with throwaway keys (2026-10-05)
 
+> **Superseded hosting, same day.** Sections 1 and 2 below prove the GitHub Pages design
+> (`publish`, `site/fdroid/repo/`, `scripts/fdroid-pages.py`), which the owner replaced on
+> 2026-10-05 with Hetzner Object Storage so that every release can be kept. Those scripts are
+> gone. The current design is proved in [`hetzner/README.md`](hetzner/README.md). Sections 3
+> (installer of record) and 4 (`update-check.patch`) are unaffected and still current.
+
 Everything here used a **throwaway** repository key, generated for this run under
 `~/redoubt-artifacts/channels/throwaway/fdroid-e2e/`. It has fingerprint
 `C06A44BE77F6D540B68C0069CB2FC7BA6C25E8E1D613A8B87721DFFC75454B8F` and is never to be

@@ -3336,37 +3336,44 @@ tasks:
     isolation: none
     risk: Reproducibility is far cheaper to build in now than to retrofit after the first release.
 
-  # 2026-10-05 (owner decision): hosted on the existing GitHub Pages site at
-  # https://redoubtbrowser.org/fdroid/repo; only the signed index is committed
-  # (site/fdroid/repo/), pages.yaml fetches the APKs from the GitHub release at
-  # deploy time and verifies them; two releases kept (1 GB Pages limit); per-ABI
-  # APKs only; AntiFeatures: Tracking. Tooling and a throwaway-key proof on an
-  # API 34 emulator with F-Droid 2.0.1 are done (docs/android/FDROID.md,
-  # evidence/lw-m6-03/). Owner-held and NOT done: init (the repository key), the
-  # first publish, and the fingerprint in two places (prepared, uncommitted:
+  # 2026-10-05 (owner decision, revised the same day): hosted in the owner's
+  # Hetzner Object Storage bucket, https://<bucket>.<location>.your-objectstorage.com/repo
+  # (assets/fdroid/deploy.conf), because GitHub Pages' 1 GB limit kept only 1-3
+  # releases and the owner wants to keep all of them. The earlier GitHub Pages
+  # design (index in site/fdroid/repo/, APKs fetched by pages.yaml) is retired.
+  # Retention: newest 5 releases in repo/, every older one in archive/, nothing
+  # deleted. scripts/fdroid-repo.sh deploy uploads with a pinned rclone, APKs
+  # first, index last; the human page stays at redoubtbrowser.org/fdroid.html.
+  # Per-ABI APKs only; AntiFeatures: Tracking. Tooling and a throwaway-key proof
+  # against a local S3 server (MinIO) with F-Droid 2.0.1 on an API 34 emulator,
+  # archive included, are done (docs/android/FDROID.md, evidence/lw-m6-03/hetzner/).
+  # Owner-held and NOT done: the Hetzner project, bucket (Public) and S3
+  # credentials, init (the repository key), the first deploy and publish-page,
+  # and the fingerprint in two places (prepared, uncommitted:
   # ~/redoubt-artifacts/channels/fdroid-site-placeholder.diff). The no-double-
   # notify half is update-check.patch's installer-of-record check (LW-M6-06),
   # in the first build after 157.0-2. Acceptance 3 was shown with throwaway keys
-  # (Beta 5 -> 157.0-2 through F-Droid); it stays open for the real key.
+  # (Beta 5 -> 157.0-2 through F-Droid, Pages design); it stays open for the real key.
   - id: LW-M6-03
     title: Set up the Redoubt F-Droid repository
     milestone: M6
     depends_on: [LW-M6-01, LW-M6-02, LW-M4-05]
-    owns: [docs/android/DISTRIBUTION.md, docs/android/FDROID.md, scripts/fdroid-repo.sh, scripts/fdroid-pages.py, scripts/tests/test-fdroid-pages.py, assets/fdroid/, site/fdroid/, site/fdroid.html, .github/workflows/pages.yaml, scripts/site-check.py, docs/android/evidence/lw-m6-03/]
+    owns: [docs/android/DISTRIBUTION.md, docs/android/FDROID.md, scripts/fdroid-repo.sh, scripts/tests/test-site-check-fdroid.py, assets/fdroid/, site/fdroid.html, site/fdroid-qr.svg, .github/workflows/pages.yaml, scripts/site-check.py, docs/android/evidence/lw-m6-03/]
     reads: [patches/android/update-check.patch, docs/android/SIGNING.md, scripts/android-verify-signature.sh]
     what: |
       Run our own F-Droid repo rather than going through f-droid.org's main repo —
       it avoids their build-server signing model and lets us keep our own key.
       Requires zero GMS (LW-M4-05) and reproducibility (LW-M6-02). Publish the repo
       URL and its fingerprint and document how a user verifies both.
-      2026-10-05: binary-only repository of the GitHub release's per-ABI APKs at
-      https://redoubtbrowser.org/fdroid/repo (GitHub Pages); the owner runs
-      scripts/fdroid-repo.sh init/add/update/publish/verify (docs/android/FDROID.md).
+      2026-10-05: binary-only repository of the GitHub release's per-ABI APKs in
+      the owner's Hetzner Object Storage bucket (all releases kept, older ones in
+      the archive section); the owner runs scripts/fdroid-repo.sh
+      init/add/update/deploy/verify/publish-page (docs/android/FDROID.md).
     acceptance:
       - "repo index is signed and installable from a clean F-Droid client"
       - "the repo fingerprint is published in at least two independent places"
       - "an update from an older version installs cleanly"
-    verify: "python3 scripts/tests/test-fdroid-pages.py && python3 scripts/fdroid-pages.py check && ./scripts/fdroid-repo.sh verify (owner, after publish) && manual: add the repo to F-Droid on a clean device and install"
+    verify: "python3 scripts/tests/test-site-check-fdroid.py && python3 scripts/site-check.py site && ./scripts/fdroid-repo.sh verify (owner, after deploy) && manual: add the repo to F-Droid on a clean device and install"
     effort_h: "8-16"
     skills: [ops, android]
     agent_safe: no

@@ -508,21 +508,23 @@ release's APKs, signed with the release key above, unchanged.
     created by             ./scripts/fdroid-repo.sh init, by the owner, once
     generated              NOT YET (2026-10-05). Fill in date, fingerprint and backups when done:
                            generated ____-__-__ ; fingerprint (plain hex) recorded in
-                           assets/fdroid/repo-fingerprint by the first publish
+                           assets/fdroid/repo-fingerprint by the first publish-page
     copies / holders       ____ (at least one offline backup, restore-tested)
 
 Record the fingerprint as plain hex as above, never under the words used for the APK key in
-"The key": `scripts/android-verify-signature.sh` and `scripts/fdroid-pages.py` read the APK
+"The key": `scripts/android-verify-signature.sh` and `scripts/fdroid-repo.sh` read the APK
 fingerprint from this file by that label and must keep finding only the APK one.
 
 **What it can and cannot do.** Whoever holds it can publish an index that clients which added
 the repository accept: which versions are offered, their descriptions, and the sha256 of each
 APK. It **cannot** make Android install an APK that is not signed with the release key: the
 update would fail Android's same-key rule. A stolen repository key therefore lets an attacker
-withhold updates (serve a stale index), offer an old Redoubt as current within the two releases
-the repository keeps, or point at another app under a different package name. It cannot replace
-Redoubt itself. `fdroid-pages.py` also refuses to deploy an index whose APKs are not signed by
-the release key, but that is a check in this repository, not in the client.
+withhold updates (serve a stale index), offer an old Redoubt as current (the repository keeps
+every release, in its archive), or point at another app under a different package name. It
+cannot replace Redoubt itself. `fdroid-repo.sh` also refuses to sign or deploy an index whose
+APKs are not signed by the release key, but that is a check in this repository, not in the
+client. The bucket's S3 credentials are a separate secret (`FDROID.md`): they can change what
+the bucket serves, but clients refuse any index that this key did not sign.
 
 **Custody.** The APK key's settled rules apply: never in CI, never in a repository checkout
 (`init` refuses a home inside one), passphrase separate from the file. Back it up with the same
@@ -536,7 +538,8 @@ hand (remove the old repository, add the new one). F-Droid has no key-rotation m
 a repository. The installed app is unaffected; its updates still come signed by the release
 key. Announce the change on the site, in the README and in the release notes.
 
-**If it is compromised.** Remove `site/fdroid/` and redeploy, so the URL stops serving an index,
+**If it is compromised.** Delete `repo/entry.jar`, `repo/index*` and the same files under
+`archive/` in the bucket (Hetzner Console or any S3 tool), so the URL stops serving an index,
 and announce it. Then create a new key and publish the new fingerprint as above. Users must
 re-add the repository; until they do, the attacker's index (if they can serve one at all, which
-needs the site or a mirror too) is limited as described above.
+needs the S3 credentials or a mirror too) is limited as described above.
