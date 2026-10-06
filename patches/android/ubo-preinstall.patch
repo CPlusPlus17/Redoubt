@@ -26,7 +26,10 @@
 # filtering. Only the user (or chrome code) sets userDisabled; WebExtensions can
 # toggle only themes. Blocklist, signature and app disablement, a same-version
 # reload (whose transient userDisabled has cleared by then), and removal during
-# the very first installation still fail closed, as before.
+# the very first installation still fail closed, as before. The registry must
+# also read the same for 3 polls (750 ms) after the window, so a reload whose
+# userDisabled outlasts the window on a slow device is seen restarting; one
+# still changing 5 s after the window fails closed.
 #
 #
 # 157 rebase (2026-10-02, Firefox release 157.0): no behaviour change.
@@ -365,10 +368,10 @@ index 0000000000..a2e34771f3
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
 new file mode 100644
-index 0000000000..e4eeb7536b
+index 0000000000..bed2144b8d
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
-@@ -0,0 +1,448 @@
+@@ -0,0 +1,469 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -444,7 +447,11 @@ index 0000000000..e4eeb7536b
 +        data class Failed(val reason: String) : State
 +    }
 +
-+    /** [userDisabled] is Gecko's userDisabled flag, which only the user or chrome code sets. */
++    /**
++     * [userDisabled] is Gecko's userDisabled flag, which only the user or chrome code sets.
++     * navigator.mozAddonManager on AMO hosts can also disable an add-on; that is not
++     * exploitable during the startup hold because no tab runs until the wait ends.
++     */
 +    internal data class Installed(
 +        val enabled: Boolean,
 +        val version: String,
@@ -616,8 +623,10 @@ index 0000000000..e4eeb7536b
 +            return when {
 +                settled != null && isNewerEnabled(settled, version) ->
 +                    throw ReplacedWhileStarting(settled.version, exception)
-+                // Judged only after the whole settle window: Gecko's reload (for example a
-+                // private-browsing permission change) sets userDisabled for a moment too.
++                // Judged only on a registry that held still after the whole settle window:
++                // Gecko's reload (for example a private-browsing permission change) sets
++                // userDisabled until the old instance has shut down, then starts it again,
++                // and a starting copy reads enabled (Gecko's isActive), so it never matches.
 +                settled != null && !settled.enabled && settled.userDisabled -> {
 +                    logger.info("uBlock Origin was disabled by the user during startup")
 +                    WaitResult.USER_DISABLED
@@ -634,14 +643,27 @@ index 0000000000..e4eeb7536b
 +    /**
 +     * The updater's shutdown can fail the wait before the newer copy is registered, so
 +     * the registry is re-read for a short window. Returns a newer enabled copy as soon
-+     * as one appears, otherwise the registry as it stands at the end of the window.
++     * as one appears. Otherwise the registry must then read the same for
++     * [SETTLED_POLLS] further polls, so that a reload whose transient userDisabled
++     * outlasts the window on a slow device is seen restarting rather than taken for the
++     * user's disable. A registry still changing [SETTLE_EXTENSION_MILLIS] after the
++     * window fails closed.
 +     */
 +    private suspend fun settleRegistry(awaitedVersion: String): Installed? {
 +        var waited = 0L
++        var previous: Installed? = null
++        var unchanged = 0
 +        while (true) {
 +            val installed = dependencies.installed()
 +            if (installed != null && isNewerEnabled(installed, awaitedVersion)) return installed
-+            if (waited >= REPLACEMENT_SETTLE_MILLIS) return installed
++            if (waited >= REPLACEMENT_SETTLE_MILLIS) {
++                unchanged = if (waited > REPLACEMENT_SETTLE_MILLIS && installed == previous) unchanged + 1 else 0
++                if (unchanged >= SETTLED_POLLS) return installed
++                if (waited >= REPLACEMENT_SETTLE_MILLIS + SETTLE_EXTENSION_MILLIS) {
++                    throw IOException("uBlock Origin's add-on state did not settle during startup")
++                }
++            }
++            previous = installed
 +            delay(REPLACEMENT_POLL_MILLIS)
 +            waited += REPLACEMENT_POLL_MILLIS
 +        }
@@ -758,6 +780,8 @@ index 0000000000..e4eeb7536b
 +        const val MAX_REPLACEMENTS = 2
 +        const val REPLACEMENT_SETTLE_MILLIS = 5_000L
 +        const val REPLACEMENT_POLL_MILLIS = 250L
++        const val SETTLED_POLLS = 3
++        const val SETTLE_EXTENSION_MILLIS = 5_000L
 +
 +        /**
 +         * Numeric dotted comparison; a suffix (1.75.1b3) sorts before its release. An
@@ -977,10 +1001,10 @@ index 0000000000..10bbe23169
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
 new file mode 100644
-index 0000000000..1a65ebd6f2
+index 0000000000..a3bf5f9d98
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
-@@ -0,0 +1,777 @@
+@@ -0,0 +1,876 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1326,6 +1350,103 @@ index 0000000000..1a65ebd6f2
 +                assertEquals(if (existing) "complete" else "attempted", dependencies.decision)
 +            }
 +        }
++    }
++
++    @Test
++    fun `reload whose userDisabled outlasts the settle window is not taken for a user disable`() = runTest {
++        for (existing in listOf(false, true)) {
++            val dependencies = FakeDependencies().apply {
++                if (existing) {
++                    decision = "complete"
++                    registry = Installed(enabled = true, version = VERSION)
++                }
++                onFilteringWait = {
++                    // A slow device: the reload's userDisabled only clears 5.25 s into the
++                    // settle (query 22), after the 5 s window, and the copy starts again.
++                    registry = Installed(enabled = false, version = VERSION, userDisabled = true)
++                    delayedRegistry = Installed(enabled = true, version = VERSION)
++                    delayedRegistryAtQuery = registryQueries + 22
++                    throw IOException("Blocking extension stopped before becoming ready")
++                }
++            }
++            val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++            val navigation = backgroundScope.async { preinstaller.awaitReady() }
++
++            preinstaller.start()
++            runCurrent()
++            advanceTimeBy(LibreWolfUboPreinstaller.REPLACEMENT_SETTLE_MILLIS + 100)
++            runCurrent()
++            // The window has ended on a user-disabled copy; it is not accepted yet.
++            assertEquals(State.Preparing, preinstaller.state.value)
++
++            advanceTimeBy(3_000)
++            runCurrent()
++
++            assertFailed(preinstaller, "stopped before becoming ready")
++            assertFalse(navigation.isCompleted)
++            assertEquals(Installed(enabled = true, version = VERSION), dependencies.registry)
++            assertEquals(if (existing) "complete" else "attempted", dependencies.decision)
++        }
++    }
++
++    @Test
++    fun `user disable that holds still after the settle window is accepted`() = runTest {
++        val dependencies = FakeDependencies().apply {
++            onFilteringWait = {
++                // The registry shows the disable late in the window (query 20, 4.75 s).
++                delayedRegistry = Installed(enabled = false, version = VERSION, userDisabled = true)
++                delayedRegistryAtQuery = registryQueries + 20
++                throw IOException("Blocking extension stopped before becoming ready")
++            }
++        }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        val navigation = backgroundScope.async { preinstaller.awaitReady() }
++
++        preinstaller.start()
++        runCurrent()
++        advanceTimeBy(
++            LibreWolfUboPreinstaller.REPLACEMENT_SETTLE_MILLIS +
++                (LibreWolfUboPreinstaller.SETTLED_POLLS - 1) * LibreWolfUboPreinstaller.REPLACEMENT_POLL_MILLIS + 100,
++        )
++        runCurrent()
++        assertEquals(State.Preparing, preinstaller.state.value)
++
++        advanceTimeBy(LibreWolfUboPreinstaller.REPLACEMENT_POLL_MILLIS)
++        runCurrent()
++
++        assertEquals(State.Ready(installed = true, enabled = false), preinstaller.state.value)
++        assertTrue(navigation.isCompleted)
++        assertEquals("complete", dependencies.decision)
++    }
++
++    @Test
++    fun `registry that keeps changing after the settle window times out to the failure`() = runTest {
++        val disabled = Installed(enabled = false, version = VERSION, userDisabled = true)
++        val enabled = Installed(enabled = true, version = VERSION)
++        val dependencies = FakeDependencies().apply {
++            onFilteringWait = {
++                registry = disabled
++                onRegistryQuery = { registry = if (registry == disabled) enabled else disabled }
++                throw IOException("Blocking extension stopped before becoming ready")
++            }
++        }
++        val preinstaller = LibreWolfUboPreinstaller(dependencies, backgroundScope)
++        val navigation = backgroundScope.async { preinstaller.awaitReady() }
++        val limit = LibreWolfUboPreinstaller.REPLACEMENT_SETTLE_MILLIS +
++            LibreWolfUboPreinstaller.SETTLE_EXTENSION_MILLIS
++
++        preinstaller.start()
++        runCurrent()
++        advanceTimeBy(limit - 100)
++        runCurrent()
++        assertEquals(State.Preparing, preinstaller.state.value)
++
++        advanceTimeBy(1_000)
++        runCurrent()
++
++        assertFailed(preinstaller, "did not settle")
++        assertFalse(navigation.isCompleted)
++        assertEquals("attempted", dependencies.decision)
 +    }
 +
 +    @Test
@@ -1695,6 +1816,7 @@ index 0000000000..1a65ebd6f2
 +        var completionFailure: Exception? = null
 +        var failingRegistryQuery: Int? = null
 +        var onFilteringWait: ((String) -> Unit)? = null
++        var onRegistryQuery: (() -> Unit)? = null
 +        var delayedRegistry: Installed? = null
 +        var delayedRegistryAtQuery = 0
 +        var prepareCalls = 0
@@ -1715,6 +1837,7 @@ index 0000000000..1a65ebd6f2
 +        override suspend fun installed(): Installed? {
 +            registryQueries++
 +            if (registryQueries == failingRegistryQuery) throw IOException("registry unavailable")
++            onRegistryQuery?.invoke()
 +            if (delayedRegistryAtQuery in 1..registryQueries) {
 +                registry = delayedRegistry
 +                delayedRegistryAtQuery = 0
