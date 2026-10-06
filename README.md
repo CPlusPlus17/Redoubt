@@ -18,8 +18,8 @@ privacy configuration.
 
 ## Status
 
-**Stable.** The current release is **Redoubt 157.0-2**, the first stable release,
-published as the [latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest).
+**Stable.** The current release is **Redoubt 157.0-3**, a hotfix of the first stable
+release (157.0-2) that makes H.264/AAC video play again, published as the [latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest).
 It is based on Firefox 157 (Firefox's regular release track), needs Android 8.0 or
 later, and installs over any earlier beta as an update. It has an opt-in in-app
 update check (Settings → Check for updates), off by default.
