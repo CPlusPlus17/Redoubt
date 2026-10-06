@@ -128,19 +128,85 @@ says so.
     provisioning page did not finish within `wait_for_initial_document`'s 15 s.
     This is unrelated to the fix, and the rerun in `old/` is the result.
 
-The device runs predate the settle follow-up and were not repeated. With the
-follow-up, a stable user disable ends the wait at least 750 ms later than in those
-runs. This is covered by the unit tests only.
+The device runs above predate the settle follow-up. They were repeated on the
+follow-up commit; see the next section.
 
-Not exercised: disabling with taps in Settings > Add-ons inside the window. The window
-lasts a few seconds, and the harness reaches the same Gecko `disable()` through
-AddonManager. Also not exercised: uBO's popup power button.
+## Device proof of the settle follow-up (714e51cc), 2026-10-06
+
+`build/device-build-714e51cc/`: `chain.sh` ran a fresh `make android-dir` of
+the worktree at 714e51cc, the x86_64 fat AAR, and Fenix `assembleRelease` with
+`-Werror` (`fenix-compile.txt`: `:fenix:compileReleaseKotlin`, `BUILD
+SUCCESSFUL`). Image `fx157` was `b3f9fc5d6358`, and the build date was
+20261006180000. The worktree differed from 714e51cc only in the comment header of
+`ubo-preinstall.patch` and in `tasks.yaml`, both committed with this section. The
+patch body was unchanged, and the built `LibreWolfUboPreinstaller.kt` carries the
+new "did not settle" path. The final `android-apk.sh` exit 1 is again the
+single-ABI universal-APK check. The x86_64 APK was re-signed with the throwaway
+key (cert `31e9a40f…b760`). Both hashes are in `SHA256SUMS`, and the signed APK's
+is `20f65e04…d7429`.
+
+Everything below ran on the same API 34 `google_apis` x86_64 emulator:
+
+- `device/fix-714e51cc/`: `android-smoke.sh --check-ubo-user-disable` **passed**,
+  3 checks with 0 failed.
+  - reload-control: the dialog was shown, "startup failed" was logged, and the
+    held page made no origin request. The guard is still live.
+  - user-disable: "uBlock Origin was disabled by the user during startup" and
+    `Ready(installed=true, enabled=false)`, with no dialog. The held page loaded
+    unfiltered, and both the EasyList-matched script and the allowed script
+    reached the origin.
+  - Timing: Marionette disabled uBO 4.3 s after the phase started. The phase
+    clock starts before the debug-app force-stop at 17:32:20.14, so the disable
+    landed at about 17:32:24.4. Readiness was logged at 17:32:30.19, about 5.8 s
+    after the disable. That matches the new rule: the 5 s window plus 3 polls of
+    250 ms. The pre-follow-up runs accepted at the end of the bare window.
+- `device/fix-714e51cc-lifecycle/`: `--check-ubo-lifecycle` **passed 10/10**. It
+  covers disable after readiness, retention across a restart, removal, and APK
+  reinstall.
+- `device/manual-tap/`: **disabling with real taps in Settings > Add-ons right
+  after a cold start.**
+  - Setup: a fresh install, then a first launcher start, which provisioned uBO
+    and logged `Ready(enabled=true)`. Then a force-stop.
+  - Cold start through `redoubt://settings_addon_manager`. Taps on the uBO row
+    landed 2.5 s after the start and on the Enabled switch at 4.1 s
+    (`timeline.txt`).
+  - The preinstaller logged the user-disabled line and `Ready(installed=true,
+    enabled=false)` at 17:37:04.84, 10.0 s after the start. So the tap fell
+    inside the readiness wait, which is the case the fix is for.
+  - No "setup failed" dialog appeared and nothing failed was logged
+    (`logcat-tap.excerpt.txt`). The screen 12 s later shows the uBO page with
+    the switch off (`2-after-12s.png`).
+- `device/manual-tap/`, **uBO's popup power button**:
+  - uBO was re-enabled with the switch. On `https://example.com/`, the menu led
+    to Extensions > uBlock Origin, which opened the popup (`4-popup.png`).
+  - The power button was tapped, and the popup shows it off for example.com
+    (`5-power-off.png`).
+  - Reloading the page showed no pause and no dialog (`6-page-after-power.png`).
+  - A force-stop and cold start on the same site logged `Ready(installed=true,
+    enabled=true)` with no failure, and the page loaded
+    (`7-cold-start-after-power.png`, `logcat-power-cold-restart.excerpt.txt`).
+  - The power button is per-site state inside uBO, and the extension keeps
+    running, so the preinstaller never sees it. It cannot be reached during the
+    startup wait either, because no tab has loaded yet.
+
+Not exercised on a device: the "did not settle" path and a reload whose
+`userDisabled` outlasts the window. Both depend on timing that the emulator cannot
+force, and the unit tests cover them.
+
+## Owner decision, 2026-10-06
+
+Verbatim: "yes, put it in 158, no warning needed".
+
+- LW-M7-44 ships with Firefox 158 (158.0-1). It is not a 157 hotfix.
+- On a restart, a disabled copy is accepted as `Ready(enabled=false)`, so
+  browsing continues unfiltered. This includes a non-user disable (blocklist,
+  signature). It needs no warning, and none is added.
+
+The decision is recorded in `tasks.yaml` (LW-M7-44) and in the header of
+`ubo-preinstall.patch`.
 
 ## Open owner questions
 
-- On a restart, any disabled copy is accepted as `Ready(enabled=false)`, including
-  blocklisted or signature-disabled ones. This leniency predates this change and is
-  not addressed here.
 - A private-browsing permission toggle during the few-second startup window still
   shows the dialog, and Retry recovers. A same-version reload cannot be told apart
   from a genuine failure without matching Gecko's error text.

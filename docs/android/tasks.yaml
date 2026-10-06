@@ -5529,6 +5529,11 @@ tasks:
       manager, or chrome-privileged code can set userDisabled. Web content cannot.
       Other WebExtensions cannot either: management.setEnabled covers only themes
       and policy installs, and nothing runs in a tab before the wait ends.
+      Owner decision 2026-10-06, verbatim: "yes, put it in 158, no warning
+      needed". The fix ships with Firefox 158 (158.0-1), not as a 157 hotfix. A
+      non-user disable (blocklist, signature) that a restart accepts as
+      Ready(enabled=false), so browsing continues unfiltered, needs no warning;
+      none is added.
     acceptance:
       - "LibreWolfUboPreinstallerTest covers a user disable during the first-run and later-start waits, removal of a provisioned copy, and the retained failure for a reload, a non-user disable and a first-run removal"
       - "on a device, android-smoke.sh --check-ubo-user-disable passes: a reload during the wait still shows the failure dialog, and a disable during the wait loads the held page unfiltered with no dialog"
@@ -5539,4 +5544,4 @@ tasks:
     skills: [android, kotlin, webextensions]
     agent_safe: no
     isolation: worktree
-    risk: A user disable during the startup wait now opens the held first page without filtering, as the user asked. The guard's purpose is unchanged, because any failure that is not the user's choice still pauses browsing. Restarts already accepted every disabled copy, blocklisted or signature-disabled ones included. That pre-existing leniency is unchanged here and is an open owner question.
+    risk: A user disable during the startup wait now opens the held first page without filtering, as the user asked. The guard's purpose is unchanged, because any failure that is not the user's choice still pauses browsing. Restarts already accepted every disabled copy, blocklisted or signature-disabled ones included. That pre-existing leniency is unchanged here; the owner decided on 2026-10-06 that it needs no warning.
