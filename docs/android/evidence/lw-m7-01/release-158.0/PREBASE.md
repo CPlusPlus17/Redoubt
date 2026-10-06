@@ -21,6 +21,14 @@ step 2).
 `autofill-shadow-dom` (LW-M7-42), exists only on this branch. Android goes
 from 42 to 43 entries and the total from 108 to 109 patch files.
 
+**Updated 2026-10-06** (section 8): main 84a2015b is merged in. It brings the
+video hotfix (isolation off), 157.0-3 and LW-M7-44. The newest 158 source is
+now **158.0b4**. One android patch, `disable-157-cloud-features`, was
+regenerated for b4. Both targets apply cleanly to b4, and an x86_64 build of
+this branch on b4 passes `--check-video` (H.264 and MSE included) and
+`--check-ubo-user-disable`. **`release.android` now reads `3`**, from main's
+157.0-3. Release day still resets it to `1`.
+
 Supporting files are in [`prebase/`](prebase/). Each claim below names the
 file or command it rests on.
 
@@ -276,14 +284,15 @@ the source tarball is on archive.mozilla.org.
    and its `.asc` (REBASE.md §3). Check the primary key fingerprint is
    `14F26682D0916CDD81E37B6D61B7B526D98F0353`. Record size and sha256.
 2. **Bump** `version` and `version.android` to `158.0`, and **reset
-   `release.android` from `2` to `1`** (it came in as `2` with main's 157.0-2;
+   `release.android` from `3` to `1`** (it came in as `3` with main's 157.0-3,
+   and before that as `2` with 157.0-2;
    158.0-1 is the first build of 158). `release` stays `1`. The versionCode is
    derived from the build date, so the reset does not make it go down; the
    build date in step 7 does that job.
 3. **Re-check the patches** against the real tarball:
    `./scripts/check-patchfail.sh --targets=desktop` and `--targets=android`
    (both must exit 0), plus the `--fuzz=0` runs. Compare their reject lists
-   with section 2's "After" table. Anything new between b3 and 158.0 gets the
+   with section 2's "After" table (section 8 confirms them on b4). Anything new between b3 and 158.0 gets the
    same in-order fuzz-0 treatment (`prebase/tools/replay.py`). Then run
    `python3 scripts/check-patch-order.py`,
    `python3 docs/android/board.py --check` and `--check-scope`. Diff
@@ -313,8 +322,8 @@ the source tarball is on archive.mozilla.org.
 
    `update_check=true` compiles the update check in with the committed
    `assets/update-check.android.pubkey` (the direct-APK shape). `build_date`
-   must be **new and later than 157.0-2's `20261005000000`**, so the
-   versionCodes go up, and not in the future (the workflow refuses that).
+   must be **new and later than 157.0-3's `20261006090000`** (CI run
+   37441476096; 157.0-2's was `20261005000000`), so the versionCodes go up, and not in the future (the workflow refuses that).
    Use one value for all ABIs; the workflow passes it to the fat AAR and the
    APK pass. Record the run id and inputs as for 157.0-2.
 
@@ -341,6 +350,11 @@ the source tarball is on archive.mozilla.org.
    and no `Accept`** (the `fix/update-accept-language` change; the existing
    probe does not assert this yet). `--check-update-privacy` now grades each
    connection by name (`fix/harness-sni`); this will be its first live run.
+   Also run `--check-video`, which covers H.264, AAC and MSE since LW-M7-43, and
+   `--check-ubo-user-disable` (LW-M7-44). Both passed on the b4 build in
+   section 8. In the 158.0 tree, check again that
+   `AndroidDecoderModule::IsJavaDecoderModuleAllowed()` still refuses isolated
+   processes. Isolation stays off until it does not.
 10. **Publish the update document after the release** (DISTRIBUTION.md,
     "Publishing an update document", steps 2-8). Only after the GitHub release
     `android-158.0-1` is public: `scripts/update-manifest.py generate` from the
@@ -446,3 +460,104 @@ Seen in passing, and not caused by this patch: on a fresh profile, a direct
 load of `https://www.reddit.com/login/` stays blank on both Redoubt 157.0-2
 and 158 (unpatched or patched). Stock Fenix 157 renders it. Visiting
 `reddit.com/` first works around it. Not investigated.
+
+## 8. Update, 2026-10-06: main 84a2015b merged; re-checked on 158.0b4
+
+**Source.** On 2026-10-06, `archive.mozilla.org/pub/firefox/releases/` listed
+`158.0b1` to `158.0b4`, and `candidates/` listed `158.0b1` to
+`158.0b4-candidates`. There was no `158.0-candidates` yet. **158.0b4** is
+`releases/158.0b4/source/firefox-158.0b4.source.tar.xz`:
+
+- 812620004 bytes, sha256
+  `6e8c17884180287eb31269bd7ada0b6c92440434caa285986101835373e2111a`.
+- Verified against the pinned `assets/mozilla-release-key.asc`: `GOODSIG`,
+  `VALIDSIG 827E658608679618CD349F93678E455D76767AA3 2026-10-05 … 14F26682D0916CDD81E37B6D61B7B526D98F0353`
+  (`prebase/merge-2026-10-06/tarball-158.0b4.txt`).
+
+Every check below used b4. The b3 tarball is still in `~/redoubt-artifacts/ff158/`.
+
+**Merge.** `origin/main` at 84a2015b was merged in a signed merge commit. Everything
+main gained since this branch's last merge base (`e418bbcb`) came in:
+
+- the H.264/AAC video hotfix (LW-M7-43). `isolated-process.patch` now passes
+  `false` to both `isolatedProcessEnabled` and `appZygoteProcessEnabled`, and
+  this branch had never changed that patch, so main's text is used unchanged;
+- the harness rows `video-h264` and `video-mse`;
+- the F-Droid repository (own and Hetzner) and the Google Play channel work;
+- the passkey/password-manager docs;
+- `fix/harness-sni` and `fix/update-accept-language`, as main merged them;
+- the 157.0-3 release bump, its acceptance and update document;
+- LW-M7-44: a user disable of uBO during its startup wait no longer pauses
+  browsing. Owner decision 2026-10-06, verbatim: "yes, put it in 158, no
+  warning needed".
+
+Conflicts, resolved by hand:
+
+| file | conflict | resolution |
+|---|---|---|
+| `docs/android/tasks.yaml` | LW-M7-42 (this branch) and LW-M7-43/44 (main) were added at the same place | all three kept, in id order |
+| `patches/android/ubo-preinstall.patch` | only the `index` lines of the two new Kotlin files (`LibreWolfUboPreinstaller.kt` and its test) | main's taken. The new-file bodies are main's LW-M7-44 text. The 158 `strings.xml` rebase and its "158 rebase" header note are kept, and so are this branch's other hunk offsets. `git diff origin/main` on the patch shows only those 158 changes |
+
+`release.android` came in as `3`, and `version` and `version.android` stay
+`157.0`. Section 5 step 2 now resets `release.android` from `3` to `1`.
+`assets/patches/android.txt` and `PATCH-SCOPE.md` merged without conflicts: 22
+common, 43 android and 44 desktop-only, 109 in all. `board.py --check-scope`
+agrees.
+
+**One patch regenerated for b4.** On b4, `check-patchfail --targets=android`
+**failed** in `disable-157-cloud-features` (LW-M7-40), at
+`SecretSettingsFragment.kt` hunk 3 (`patchfail-android-before-fix.out.gz`).
+158.0b4 removed the IP Protection "locations" secret setting: its
+`SecretSettingsFragment.kt` block and `Settings.isIPProtectionLocationsEnabled`.
+That block was the trailing context of two of the patch's hunks:
+
+- the hunk that removes the IP Protection switch, which rejected;
+- the `isIPProtectionAvailable` hunk in `Settings.kt`, which needed fuzz 1.
+
+Main had not changed this patch since the branch point, so the failure is
+b3 → b4, not the merge. Both hunks were regenerated at fuzz 0 on an in-order
+b4 replay (`replay.py`; log `replay-android-b4.log`), and the removed and added
+lines are unchanged. No other patch names the removed setting. That patch text
+no longer applies to b3. A diff of every file this patch touches between b3 and
+b4 shows only those two files changed.
+
+**Checks on the merged branch (890043b4), 158.0b4** (`prebase/merge-2026-10-06/`):
+
+| check | result |
+|---|---|
+| `check-patchfail.sh --targets=android` | exit 0, 65 patches, 8 hunks with fuzz, all in common entries (as in section 6) |
+| `check-patchfail.sh --targets=desktop` | exit 0, 66 patches, 30 hunks with fuzz (as in section 6) |
+| `--fuzz=0`, both targets | the same 10 android and 20 desktop entries as section 6, identical to b3's reject lists |
+| in-order replay, android at `--fuzz=0` (fresh b4 tree) | all 43 android entries apply with no fuzz. 15 apply at an offset (13 on b3). The two new ones are `no-onboarding` and `no-gms`, one hunk each, in `SecretSettingsFragment.kt` and `Settings.kt` (b4's removal). None of the offsets is in res/ or in a hash-pinned patch. `isolated-process`, `update-check` and `ubo-preinstall` apply exactly |
+| `make android-dir` (158.0 layout, b4 bytes, `release.android` 1) | exit 0. Every fail-closed check in `librewolf-patches.py` passed, including the glean-core hashes, so glean-core did not move between b3 and b4 |
+| `check-patch-order.py` | `patch order ok: 36/36 … 148 shared-file pair(s)` |
+| `lint-patch-scope.py`, `board.py --check`, `--check-scope`, `--check-cfg-split`, `--diff-mozconfig --strict` | ok (128 tasks; 109 patch files) |
+| `site-check.py` | PASS, 8 pages |
+| `scripts/tests/*.py` (18) | 12 ok. The four receipt tests (`addon-state-durability`, `extension-update-controls`, `global-privacy-controls`, `session-cleanup`) fail on "changed since its 157.0 receipt", as section 4 expects until release-day step 4. `test-android-signing.py` and `test-android-version-code.py` exit 2 because their inputs are missing, as on main |
+
+**Build and device check (x86_64, optional).** This build ran in a scratch
+copy of 890043b4 with `version` and `version.android` set to `158.0` and
+`release.android` to `1`. `firefox-158.0.source.tar.xz` was symlinked to the
+b4 tarball, giving release day's layout with b4's bytes. Image `fx158`
+(`98e61be72eec`), build date 20261006200000 (`prebase/merge-2026-10-06/build/`):
+
+| step | result |
+|---|---|
+| `android-fat-aar.sh --abis x86_64` | ok, 32 min (per-ABI pass and merge) |
+| `android-apk.sh --variant release` | `:fenix:compileReleaseKotlin`, `BUILD SUCCESSFUL in 13m 28s` (Kotlin `-Werror`), so LW-M7-44's preinstaller compiles against 158. The script's exit 1 afterwards is the expected single-ABI universal-APK check (section 4) |
+| built tree | `GeckoProvider.kt` reads `.isolatedProcessEnabled(false)` and `.appZygoteProcessEnabled(false)`, and the preinstaller carries the settle rule |
+
+The x86_64 APK was signed with the throwaway key, cert `31e9a40f…b760`. Its
+sha256 is `88585f1f…c2`; both hashes are in `build/SHA256SUMS`. The test device
+was an emulator, API 34 `google_apis` x86_64, which reported "Redoubt 158.0-1
+buildID=20261006200000":
+
+| check | result |
+|---|---|
+| `--check-video` | **3/3 PASS**: `video` (VP8/Opus) 13 frames; `video-h264` (H.264 + AAC progressive MP4) 14 frames; `video-mse` (`isTypeSupported(avc1.42E01E,mp4a.40.2)` true, 15 frames). This is the LW-M7-43 fix on 158 (`device/video/`) |
+| `--check-ubo-user-disable` | **PASS** on the second run (`device/ubo-user-disable/`). Reload-control: the dialog was shown and "startup failed" logged. User-disable: "disabled by the user during startup", `Ready(installed=true, enabled=false)`, and the held page loaded unfiltered with no dialog. The first run (`device/ubo-user-disable-harness-error/`) ended with a harness error before the second phase: "initial browser document did not finish loading before about:config". That is the provisioning timeout already seen once on 157.0-2 (`evidence/lw-m7-44/device/old-provision-timeout/`), not a result |
+
+Not run here: armeabi-v7a/arm64-v8a, Fenix unit tests, the rest of the smoke
+suite, desktop, and the release-day receipt recapture. Section 5 still holds
+for 158.0 itself. If 158.0 (or a b5/RC) changes `SecretSettingsFragment.kt` or
+`Settings.kt` again, `disable-157-cloud-features` is the first place to look.
