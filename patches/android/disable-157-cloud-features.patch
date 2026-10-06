@@ -73,6 +73,14 @@
 # intent. The Settings.kt shakeToSummarizeFeatureFlagEnabled hunk needed fuzz 2
 # on 158 (the new tabReloadCover settings follow it), so the patch is
 # regenerated at fuzz 0 on the in-order 158 tree.
+#
+# 158.0b4 (2026-10-06): no change of intent. 158.0b4 removed the IP
+# Protection "locations" secret setting (its SecretSettingsFragment.kt block
+# and Settings.isIPProtectionLocationsEnabled), which was the trailing context
+# of the SecretSettingsFragment.kt IP Protection hunk and of the Settings.kt
+# isIPProtectionAvailable hunk. The first rejected on b4 and the second needed
+# fuzz 1. Both were regenerated at fuzz 0 on the in-order 158.0b4 tree; the
+# removed and added lines are unchanged. This text no longer applies to b3.
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 index dffc035..3fc909e 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
@@ -182,7 +190,7 @@ index 1987e81..ede1d73 100644
 +        iconUrl = null,
      )
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index c826902..59923da 100644
+index 6223661..797b91f 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 @@ -202,11 +202,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
@@ -220,10 +228,10 @@ index c826902..59923da 100644
 -            onPreferenceChangeListener = SharedPreferenceUpdater()
 -        }
 -
-         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_ip_protection_locations).apply {
-             isVisible = Config.channel.isNightlyOrDebug || Config.channel.isBeta
-             isChecked = settings.isIPProtectionLocationsEnabled
-@@ -519,12 +502,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_ip_protection_use_gpi).apply {
+             // LibreWolf (LW-M4-05): no Google Play Integrity provider exists in this build, and
+             // IPProtection always selects the Mozilla-account provider, so this switch would be a lie.
+@@ -513,12 +496,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
              onPreferenceChangeListener = SharedPreferenceUpdater()
          }
  
@@ -237,7 +245,7 @@ index c826902..59923da 100644
              isVisible = Config.channel.isNightlyOrDebug
              isChecked = context.components.settings.showVoiceSearchInDisplayToolbar
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index 47f9b74..9da90f6 100644
+index a2a8d09..981028b 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 @@ -2624,12 +2624,18 @@ class Settings(
@@ -304,8 +312,8 @@ index 47f9b74..9da90f6 100644
 +        get() = false
  
      /**
-      * Persists IPProtection locations state set through Secret Settings.
-@@ -3328,11 +3342,18 @@ class Settings(
+      * Tracks how many times the summarize menu item has been shown. Used to control highlight/badge visibility for
+@@ -3317,11 +3331,18 @@ class Settings(
              default = { FxNimbus.features.nativeShareSheet.value().enabled },
          )
  
