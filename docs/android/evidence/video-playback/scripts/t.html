@@ -1,0 +1,30 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>vt</title>
+<style>body{font:14px monospace;margin:4px}video{width:320px;height:180px;background:#000;display:block}#s{white-space:pre-wrap;font-size:13px}#go{font-size:28px;padding:10px 30px}</style>
+<script src="hls.min.js"></script></head><body>
+<button id="go">PLAY</button>
+<video id="v" playsinline></video>
+<div id="s">init</div>
+<script>
+var q=new URLSearchParams(location.search), src=q.get("src")||"h264.mp4", mode=q.get("mode")||"click";
+var v=document.getElementById("v"), s=document.getElementById("s"), ev=[], t0=Date.now(), playErr="";
+if(mode==="muted"){v.muted=true;v.autoplay=true;}
+if(mode==="autoplay"){v.autoplay=true;}
+["loadstart","loadedmetadata","canplay","playing","pause","waiting","stalled","error","ended","play"].forEach(function(e){v.addEventListener(e,function(){ev.push(e+"@"+((Date.now()-t0)/1000).toFixed(1));});});
+var hls=null;
+if(src.endsWith(".m3u8")){
+  if(window.Hls&&Hls.isSupported()){hls=new Hls();hls.on(Hls.Events.ERROR,function(e,d){ev.push("HLSERR:"+d.type+"/"+d.details+(d.fatal?"!":""));});hls.loadSource(src);hls.attachMedia(v);}
+  else ev.push("Hls.isSupported=false");
+} else v.src=src;
+document.getElementById("go").onclick=function(){var p=v.play();if(p)p.then(function(){ev.push("play()ok")},function(e){playErr=e.name;ev.push("play()rej:"+e.name)});};
+function tick(){
+  var pq=v.getVideoPlaybackQuality?v.getVideoPlaybackQuality():{};
+  var st={src:src,mode:mode,ct:+v.currentTime.toFixed(2),rs:v.readyState,ns:v.networkState,paused:v.paused,muted:v.muted,
+   err:v.error?(v.error.code+":"+v.error.message):null,dec:pq.totalVideoFrames,drop:pq.droppedVideoFrames,vw:v.videoWidth,
+   mse:typeof MediaSource!=="undefined"?MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E,mp4a.40.2"'):"noMSE",
+   cpt:{h264:v.canPlayType('video/mp4; codecs="avc1.42E01E"'),vp9:v.canPlayType('video/webm; codecs="vp9"'),av1:v.canPlayType('video/mp4; codecs="av01.0.05M.08"'),aac:v.canPlayType('audio/mp4; codecs="mp4a.40.2"')},ev:ev};
+  window.__st=st; s.textContent=JSON.stringify(st,null,1);
+  document.title="CT="+st.ct+" RS="+st.rs+(st.err?" ERR":"")+(st.paused?" P":" ");
+}
+setInterval(tick,500);tick();
+</script></body></html>

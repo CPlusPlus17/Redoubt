@@ -45,9 +45,10 @@ Full parity is the target and it is *nearly* reachable. Two things are not:
   `toolkit.mozbuild:37` never traverses `security/sandbox`, and every
   `security.sandbox.*` pref is inert. LW-M5-07 is a time-boxed spike to confirm
   whether that is policy or physics; the working assumption is that it stays gone.
-  The mitigation is Android's own containment — `isolatedProcess` plus the app
-  zygote (LW-M5-02), and a locked `fission.webContentIsolationStrategy`
-  (LW-M5-01) — which recovers most, not all, of it.
+  The mitigation is Android's own containment — a locked
+  `fission.webContentIsolationStrategy` (LW-M5-01). `isolatedProcess` plus the
+  app zygote (LW-M5-02) shipped in 157.0-2 and are pinned off again (LW-M7-43):
+  an isolated content process cannot decode H.264 or AAC in Firefox 157.
 - **The signing key.** A new `applicationId` means no upgrade path from any
   existing Android browser, and the key we generate in LW-M6-01 cannot be replaced
   later without stranding every install.

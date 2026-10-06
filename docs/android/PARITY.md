@@ -21,8 +21,12 @@ What recovers **most, not all**, of it:
 - **Per-site process isolation** — `fission.webContentIsolationStrategy` locked
   to `ISOLATE_HIGH_VALUE` (LW-M5-01). Stock Fenix ships `0` (ISOLATE_NOTHING);
   this is a genuine win over the browser we build from.
-- **Process separation** — `isolatedProcess` plus the app zygote (LW-M5-02) give
-  the content process a distinct uid.
+- **Process separation** — **not shipped.** `isolatedProcess` plus the app zygote
+  (LW-M5-02) gave the content process a distinct uid in 157.0-2, but an isolated
+  content process cannot decode H.264 or AAC in Firefox 157 (upstream bug 1810736),
+  so most web video failed. Both are pinned off from the fix for that defect
+  (LW-M7-43, `evidence/video-playback/`); content runs under the app's uid, as in
+  stock Fenix.
 - **JS/WASM sandboxing** — 52 RLBox modules are built (measured in `libxul.so`).
 
 The two **irreducible** gaps, stated plainly, are the **Gecko content-process
@@ -60,8 +64,8 @@ assertion.
 **Auxiliary-process containment (GPU / RDD / socket / utility / media):** not
 counted as an independent row. On desktop several of these run under per-process
 seccomp sandboxing; on Android that per-process sandboxing has no equivalent — they
-run under the shared `isolated_app` uid without the content sandbox that would
-complement them. This is a **consequence of row 1**, not a separate mechanism.
+run under the app's own uid, and since LW-M7-43 so does content, without the
+content sandbox that would complement them. This is a **consequence of row 1**, not a separate mechanism.
 [SANDBOX-SPIKE]
 
 ## 3. The irreducible gaps
@@ -73,7 +77,8 @@ Stated in §1. It is neither a policy decision nor a small port: upstream (bug
 finished it, and the cost of finishing it is 4–8 engineering-weeks to a first
 build and 6–12 engineering-months to ship-safe, with permanent maintenance
 (SANDBOX-SPIKE §7). The recorded recommendation is **not to pursue `MOZ_SANDBOX`**:
-the marginal gain over `isolated_app` + RLBox is kernel-attack-surface only, and
+the marginal gain over `isolated_app` + RLBox is kernel-attack-surface only (and
+`isolated_app` itself is off until upstream decodes H.264 in it, LW-M7-43), and
 it is undercut by the no-telemetry SIGSYS risk on a vendor-kernel fleet
 (SANDBOX-SPIKE §8).
 

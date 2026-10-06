@@ -3031,6 +3031,14 @@ tasks:
       - "the values survive a Nimbus fetch — they are not merely set once at first run"
       - "no functional regression in the smoke test, and startup cost measured"
     verify: "adb shell ps -A -Z | grep -c isolated"
+    note: >-
+      REVISED BY LW-M7-43 (owner decision 2026-10-06, "Accept, turn isolation
+      off"). The isolation default this task set was reverted: from 157.0-3,
+      isolated-process.patch pins isolatedProcessEnabled(false) and
+      appZygoteProcessEnabled(false), still as literals. With isolation on, Gecko
+      refuses the MediaCodec decoder in content (upstream bug 1810736), so
+      157.0-2 played no H.264 or AAC. The verification above describes the build
+      that shipped through 157.0-2, not the current default.
     effort_h: "4-8"
     skills: [kotlin, android]
     agent_safe: yes
@@ -5405,3 +5413,73 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: Turning lists on through uBO's managed settings would re-apply them at every start and make the choice impossible to undo. The migration writes uBO's storage from outside uBO; doing it anywhere uBO may already have read its selection would be overwritten or race it, which is why it runs inside the storage backend selection and never while uBO runs.
+
+  - id: LW-M7-43
+    title: Make H.264 and AAC video play again (no decoder when isolated)
+    milestone: M7
+    depends_on: [LW-M5-02, LW-M2-07, LW-M3-02]
+    owns:
+      - docs/android/evidence/video-playback/
+    shared_edit:
+      - patches/android/isolated-process.patch
+      - assets/patches/android.txt
+      - docs/android/PATCH-SCOPE.md
+      - docs/android/PARITY.md
+      - docs/android/ROADMAP.md
+      - docs/android/TRIAGE.md
+      - docs/android/play/listing-en-US.md
+      - README.md
+      - site/privacy.html
+      - scripts/android-smoke.sh
+      - docs/android/SMOKE.md
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+    reads:
+      - docs/android/SANDBOX-SPIKE.md
+      - dom/media/platforms/android/AndroidDecoderModule.cpp
+      - dom/media/platforms/PDMFactory.cpp
+      - dom/media/ipc/RemoteMediaManagerChild.cpp
+    what: |
+      Owner report 2026-10-06: videos do not play in Redoubt 157.0-2, for example
+      on redgifs.com and pornhub.com. Reproduced on an API 34 x86_64 emulator
+      against stock Firefox 157.0 on the same AVD
+      (docs/android/evidence/video-playback/README.md). On a local page, all 18
+      H.264 and AAC cases fail in 157.0-2 and pass in Firefox: progressive MP4,
+      MP4 without audio, AAC-only, AV1+AAC, and hls.js over TS and fMP4. The six
+      VP9 and AV1 cases with Opus pass in both. canPlayType('avc1') returns "" and
+      MediaSource.isTypeSupported('avc1') returns false only in Redoubt. redgifs
+      then falls back to a native .m3u8 src and gets MEDIA_ERR_SRC_NOT_SUPPORTED,
+      and pornhub's player never attaches a source.
+      Cause: isolated-process.patch (LW-M5-02). In an isolated content process,
+      AndroidDecoderModule::IsJavaDecoderModuleAllowed() is false
+      (AndroidDecoderModule.cpp:349-352). Content then has no MediaCodec
+      decoder, and no other process has one: the GPU process starts only ffvpx
+      on Android, RDD is off, and the utility process starts no MediaCodec module
+      (media.utility-android-media-codec.enabled=false, bug 1771196). This is
+      upstream bug 1810736, which SANDBOX-SPIKE.md §9(b) named as LW-M5-02's
+      acceptance risk. --check-video did not catch it: its VP8/Opus fixture is
+      decoded in-process by ffvpx.
+      Fix: isolated-process.patch now pins isolatedProcessEnabled(false) and
+      appZygoteProcessEnabled(false), still as literals. Public claims that
+      rely on isolated processes are corrected.
+      Owner decision, 2026-10-06, verbatim: "Accept, turn isolation off". The
+      fix ships as hotfix 157.0-3, not with 158.
+      Harness: android-smoke.sh --check-video (and the baseline suite) now also
+      runs an H.264+AAC progressive MP4 (video-h264) and an MSE case
+      (video-mse: isTypeSupported avc1+mp4a true, and an appended fragmented
+      MP4 advances currentTime). Both FAIL on the 157.0-2 APK and PASS on the
+      fix on the API 34 emulator
+      (docs/android/evidence/video-playback/harness/).
+    acceptance:
+      - "on a device, H.264 progressive MP4, H.264 over MSE/hls.js and AAC play in a fresh profile of a build with the fix, and still fail in 157.0-2"
+      - "the build with the fix differs from 157.0-2's behaviour only by the GeckoProvider.kt literals; no pref is changed"
+      - "no Redoubt-specific pref (media.*, autoplay, RFP/FPP, uBO) is needed for or against playback; checked by pref toggles in a fresh 157.0-2 profile"
+      - "README, site/privacy.html, the Play listing, PARITY.md, PATCH-SCOPE.md and android.txt no longer claim isolated content processes"
+      - "isolated-process.patch applies in list order and compiles in a real Android build"
+      - "android-smoke.sh --check-video fails video-h264 and video-mse on 157.0-2 and passes all three video rows on the fix"
+    verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope"
+    effort_h: "4-8"
+    skills: [android, media, kotlin]
+    agent_safe: no
+    isolation: worktree
+    risk: Turning isolation off is a containment regression; content again runs under the app's uid and can read the profile. The owner accepted that trade on 2026-10-06 ("Accept, turn isolation off"). Re-enable when upstream decodes H.264 from an isolated content process; --check-video now has H.264 and MSE fixtures, so the harness sees this class of failure.

@@ -43,7 +43,7 @@ It changes the defaults of a modern Gecko-based browser so that privacy is the s
 
 Honest limits, stated up front:
 
-• Android has no Gecko content-process sandbox. Per-site isolation and isolated processes recover most of that protection, not all of it. The full, measured comparison is published on redoubtbrowser.org.
+• Android has no Gecko content-process sandbox. Per-site isolation recovers part of that protection. Android's isolated content processes are not used, because Firefox cannot play H.264 video in them yet. The full, measured comparison is published on redoubtbrowser.org.
 • Redoubt is a small, independent project with one maintainer.
 
 What leaves your device, and when:
