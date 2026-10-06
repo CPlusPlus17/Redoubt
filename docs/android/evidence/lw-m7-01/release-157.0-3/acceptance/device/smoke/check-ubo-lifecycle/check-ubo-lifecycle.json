@@ -1,0 +1,320 @@
+{
+ "checks": [
+  {
+   "check": "ubo-first-navigation",
+   "ok": true,
+   "detail": "bundled-list script blocked; allowed script must execute and reach the origin",
+   "evidence": {
+    "page": {
+     "url": "http://127.0.0.1:53921/ubo-probe?token=first-af0f34996c7126c2",
+     "uri": "http://127.0.0.1:53921/ubo-probe?token=first-af0f34996c7126c2",
+     "ready": "complete",
+     "probe": {
+      "token": "first-af0f34996c7126c2",
+      "blocked": false,
+      "allowed": true
+     }
+    },
+    "page_requests": [
+     [
+      1791285827.3129992,
+      "http",
+      "/ubo-probe?token=first-af0f34996c7126c2"
+     ]
+    ],
+    "blocked_requests": [],
+    "allowed_requests": [
+     [
+      1791285827.396818,
+      "http",
+      "/redoubt-allowed.js?token=first-af0f34996c7126c2"
+     ]
+    ],
+    "expected_blocked": true
+   }
+  },
+  {
+   "check": "ubo-preinstalled-signature",
+   "ok": true,
+   "detail": "the pinned ordinary AMO-signed add-on must be active on first navigation",
+   "evidence": {
+    "addon": {
+     "id": "uBlock0@raymondhill.net",
+     "version": "1.75.0",
+     "active": true,
+     "userDisabled": false,
+     "signedState": 2,
+     "amoSigned": true,
+     "isBuiltin": false,
+     "privateBrowsingAllowed": true,
+     "blockingResponseListeners": 1,
+     "startupCache": {
+      "memoryEnabled": true,
+      "disk": [
+       {
+        "location": "app-profile",
+        "enabled": true,
+        "version": "1.75.0"
+       }
+      ]
+     }
+    },
+    "bundle": {
+     "pin": {
+      "schema": 1,
+      "id": "uBlock0@raymondhill.net",
+      "version": "1.75.0",
+      "url": "https://addons.mozilla.org/firefox/downloads/file/5034826/ublock_origin-1.75.0.xpi",
+      "sha256": "5b74415860456370644bd80f16125e865b0e6c356bb5dfcfb84069967eaa5287",
+      "size": 4650100,
+      "asset": "extensions/ublock_origin.xpi",
+      "android_min_version": "115.0"
+     },
+     "xpi_sha256": "5b74415860456370644bd80f16125e865b0e6c356bb5dfcfb84069967eaa5287",
+     "filter_path": "assets/thirdparties/easylist/easylist.txt",
+     "filter_sha256": "f54f1cc57746f0da7a7be0d9d1bbd8beedf976090bf5bc39365eef111cf3fdf9",
+     "filter_rule": "/banner_ads/*$~xmlhttprequest,domain=~clickbd.com"
+    }
+   }
+  },
+  {
+   "check": "ubo-disabled-control",
+   "ok": true,
+   "detail": "bundled-list script allowed with uBO disabled or absent; allowed script must execute and reach the origin",
+   "evidence": {
+    "page": {
+     "url": "http://127.0.0.1:53921/ubo-probe?token=ubo-disabled-control-1194da52f8218063",
+     "uri": "http://127.0.0.1:53921/ubo-probe?token=ubo-disabled-control-1194da52f8218063",
+     "ready": "complete",
+     "probe": {
+      "token": "ubo-disabled-control-1194da52f8218063",
+      "blocked": true,
+      "allowed": true
+     }
+    },
+    "page_requests": [
+     [
+      1791285827.595143,
+      "http",
+      "/ubo-probe?token=ubo-disabled-control-1194da52f8218063"
+     ]
+    ],
+    "blocked_requests": [
+     [
+      1791285827.605466,
+      "http",
+      "/banner_ads/redoubt-probe.js?token=ubo-disabled-control-1194da52f8218063"
+     ]
+    ],
+    "allowed_requests": [
+     [
+      1791285827.60613,
+      "http",
+      "/redoubt-allowed.js?token=ubo-disabled-control-1194da52f8218063"
+     ]
+    ],
+    "expected_blocked": false
+   }
+  },
+  {
+   "check": "ubo-disabled-control-state",
+   "ok": true,
+   "detail": "the installed add-on retains its disabled state",
+   "evidence": {
+    "addon": {
+     "id": "uBlock0@raymondhill.net",
+     "version": "1.75.0",
+     "active": false,
+     "userDisabled": true,
+     "signedState": 2,
+     "amoSigned": true,
+     "isBuiltin": false,
+     "privateBrowsingAllowed": null,
+     "blockingResponseListeners": 0,
+     "startupCache": {
+      "memoryEnabled": false,
+      "disk": [
+       {
+        "location": "app-profile",
+        "enabled": false,
+        "version": "1.75.0"
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "check": "ubo-disabled-restart",
+   "ok": true,
+   "detail": "bundled-list script allowed with uBO disabled or absent; allowed script must execute and reach the origin",
+   "evidence": {
+    "page": {
+     "url": "http://127.0.0.1:53921/ubo-probe?token=ubo-disabled-restart-ae2f017d0aa9d15f",
+     "uri": "http://127.0.0.1:53921/ubo-probe?token=ubo-disabled-restart-ae2f017d0aa9d15f",
+     "ready": "complete",
+     "probe": {
+      "token": "ubo-disabled-restart-ae2f017d0aa9d15f",
+      "blocked": true,
+      "allowed": true
+     }
+    },
+    "page_requests": [
+     [
+      1791285829.4471452,
+      "http",
+      "/ubo-probe?token=ubo-disabled-restart-ae2f017d0aa9d15f"
+     ]
+    ],
+    "blocked_requests": [
+     [
+      1791285829.506968,
+      "http",
+      "/banner_ads/redoubt-probe.js?token=ubo-disabled-restart-ae2f017d0aa9d15f"
+     ]
+    ],
+    "allowed_requests": [
+     [
+      1791285829.5078952,
+      "http",
+      "/redoubt-allowed.js?token=ubo-disabled-restart-ae2f017d0aa9d15f"
+     ]
+    ],
+    "expected_blocked": false
+   }
+  },
+  {
+   "check": "ubo-disabled-restart-state",
+   "ok": true,
+   "detail": "the installed add-on retains its disabled state",
+   "evidence": {
+    "addon": {
+     "id": "uBlock0@raymondhill.net",
+     "version": "1.75.0",
+     "active": false,
+     "userDisabled": true,
+     "signedState": 2,
+     "amoSigned": true,
+     "isBuiltin": false,
+     "privateBrowsingAllowed": null,
+     "blockingResponseListeners": 0,
+     "startupCache": {
+      "memoryEnabled": false,
+      "disk": [
+       {
+        "location": "app-profile",
+        "enabled": false,
+        "version": "1.75.0"
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "check": "ubo-removed-restart",
+   "ok": true,
+   "detail": "bundled-list script allowed with uBO disabled or absent; allowed script must execute and reach the origin",
+   "evidence": {
+    "page": {
+     "url": "http://127.0.0.1:53921/ubo-probe?token=ubo-removed-restart-6819a4bce87b21f8",
+     "uri": "http://127.0.0.1:53921/ubo-probe?token=ubo-removed-restart-6819a4bce87b21f8",
+     "ready": "complete",
+     "probe": {
+      "token": "ubo-removed-restart-6819a4bce87b21f8",
+      "blocked": true,
+      "allowed": true
+     }
+    },
+    "page_requests": [
+     [
+      1791285833.482127,
+      "http",
+      "/ubo-probe?token=ubo-removed-restart-6819a4bce87b21f8"
+     ]
+    ],
+    "blocked_requests": [
+     [
+      1791285833.548239,
+      "http",
+      "/banner_ads/redoubt-probe.js?token=ubo-removed-restart-6819a4bce87b21f8"
+     ]
+    ],
+    "allowed_requests": [
+     [
+      1791285833.5492475,
+      "http",
+      "/redoubt-allowed.js?token=ubo-removed-restart-6819a4bce87b21f8"
+     ]
+    ],
+    "expected_blocked": false
+   }
+  },
+  {
+   "check": "ubo-removed-restart-state",
+   "ok": true,
+   "detail": "a removed add-on stays absent",
+   "evidence": {
+    "addon": null
+   }
+  },
+  {
+   "check": "ubo-removed-apk-reinstall",
+   "ok": true,
+   "detail": "bundled-list script allowed with uBO disabled or absent; allowed script must execute and reach the origin",
+   "evidence": {
+    "page": {
+     "url": "http://127.0.0.1:53921/ubo-probe?token=ubo-removed-apk-reinstall-2367f6d5ac6e7157",
+     "uri": "http://127.0.0.1:53921/ubo-probe?token=ubo-removed-apk-reinstall-2367f6d5ac6e7157",
+     "ready": "complete",
+     "probe": {
+      "token": "ubo-removed-apk-reinstall-2367f6d5ac6e7157",
+      "blocked": true,
+      "allowed": true
+     }
+    },
+    "page_requests": [
+     [
+      1791285840.061108,
+      "http",
+      "/ubo-probe?token=ubo-removed-apk-reinstall-2367f6d5ac6e7157"
+     ]
+    ],
+    "blocked_requests": [
+     [
+      1791285840.112844,
+      "http",
+      "/banner_ads/redoubt-probe.js?token=ubo-removed-apk-reinstall-2367f6d5ac6e7157"
+     ]
+    ],
+    "allowed_requests": [
+     [
+      1791285840.1177328,
+      "http",
+      "/redoubt-allowed.js?token=ubo-removed-apk-reinstall-2367f6d5ac6e7157"
+     ]
+    ],
+    "expected_blocked": false
+   }
+  },
+  {
+   "check": "ubo-removed-apk-reinstall-state",
+   "ok": true,
+   "detail": "a removed add-on stays absent",
+   "evidence": {
+    "addon": null
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/release-157.0-3/work",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/release-157.0-3/apk/fenix-x86_64-157.0-3-throwaway.apk",
+  "sha256": "d4cf46e500bbd30990c29728d0db421d0acc38f90e49b43d7842c9dc169a164b",
+  "size": 135217228,
+  "harness_sha256": "a69126f1ccbb3c024ba8512408a89e5f48bc7af91682175d923505fc060a3a19"
+ },
+ "status": "completed",
+ "error": null
+}
