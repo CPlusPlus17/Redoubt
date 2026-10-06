@@ -350,9 +350,11 @@ the source tarball is on archive.mozilla.org.
    and no `Accept`** (the `fix/update-accept-language` change; the existing
    probe does not assert this yet). `--check-update-privacy` now grades each
    connection by name (`fix/harness-sni`); this will be its first live run.
-   Also run `--check-video`, which covers H.264, AAC and MSE since LW-M7-43, and
-   `--check-ubo-user-disable` (LW-M7-44). Both passed on the b4 build in
-   section 8. In the 158.0 tree, check again that
+   Also run `--check-video`, which covers H.264, AAC and MSE since LW-M7-43,
+   `--check-ubo-user-disable` (LW-M7-44), and `--check-delete-on-quit`
+   (LW-M7-45; it needs `adb root`, so a `google_apis` image, not a Play
+   image). The first two passed on the b4 build in section 8, and
+   `--check-delete-on-quit` passed on the b4 build in section 9. In the 158.0 tree, check again that
    `AndroidDecoderModule::IsJavaDecoderModuleAllowed()` still refuses isolated
    processes. Isolation stays off until it does not.
 10. **Publish the update document after the release** (DISTRIBUTION.md,
@@ -561,3 +563,56 @@ Not run here: armeabi-v7a/arm64-v8a, Fenix unit tests, the rest of the smoke
 suite, desktop, and the release-day receipt recapture. Section 5 still holds
 for 158.0 itself. If 158.0 (or a b5/RC) changes `SecretSettingsFragment.kt` or
 `Settings.kt` again, `disable-157-cloud-features` is the first place to look.
+
+## 9. Update, 2026-10-06: LW-M7-45 (delete on quit after swipe/kill/crash) merged
+
+**Merge.** `origin/main` at 726ded4c was merged in a signed merge commit
+(f3066440). It brings `delete-on-quit-swipe.patch` (LW-M7-45: 8d2a68d7 plus
+the follow-up bcca6eb7) and its `check-patch-order.py` constraints. In the
+follow-up, `ubo-preinstall` and `fission-isolation` must precede this patch
+because of `Core.kt`. Owner decisions 2026-10-06, verbatim: trigger rule
+"Every non-Quit exit"; link starts "Yes, hard gate"; keep the best-effort
+`onTaskRemoved` service.
+
+Conflicts, resolved by hand:
+
+| file | conflict | resolution |
+|---|---|---|
+| `assets/patches/android.txt` | this branch's `autofill-shadow-dom` (LW-M7-42) and main's `delete-on-quit-swipe` were both appended last | both kept, `autofill-shadow-dom` first. They share no file |
+| `docs/android/PATCH-SCOPE.md` | the count line, the "added" sections, the `android.txt` row and the patch table | both kept. The counts are now 22 common / 44 android / 44 desktop-only = 110. `board.py --check-scope` agrees |
+
+**Checks on f3066440, 158.0b4** (`prebase/lw-m7-45-2026-10-06/gates/`):
+
+| check | result |
+|---|---|
+| `check-patchfail.sh --targets=android` | exit 0, 66 patches. 8 hunks with fuzz, all in common entries, as in section 8. `delete-on-quit-swipe` applies with offsets only |
+| `check-patchfail.sh --targets=desktop` | exit 0, 66 patches, 30 hunks with fuzz, as in section 8 |
+| `check-patch-order.py` | ok: 38/38 constraints, 157 shared-file pairs |
+| `board.py --check`, `--check-scope`, `--check-cfg-split`, `--diff-mozconfig --strict`, `lint-patch-scope.py` | ok (129 tasks; 110 patch files) |
+| `site-check.py` | PASS, 8 pages |
+| `scripts/tests/*.py` | as in section 8. The four receipt tests fail on "changed since its 157.0 receipt", which is expected until release-day step 4. `test-android-signing.py` and `test-android-version-code.py` exit 2 because their inputs are missing |
+
+**Build and device check (x86_64, optional, done now).** The layout was the
+same as section 8: a scratch worktree of f3066440 with `version` and
+`version.android` set to `158.0`, `release.android` set to `1`, and
+`firefox-158.0.source.tar.xz` pointing at the b4 tarball. Image `fx158`
+(`98e61be72eec`), build date 20261006190000 (`prebase/lw-m7-45-2026-10-06/build/`).
+
+| step | result |
+|---|---|
+| `make android-dir`, `android-fat-aar.sh --abis x86_64` | ok |
+| `android-apk.sh --variant release` | `:fenix:compileReleaseKotlin`, `BUILD SUCCESSFUL in 14m 35s` (Kotlin `-Werror`). **This patch compiles against 158.** The script's exit 1 afterwards is the expected single-ABI universal-APK check |
+| `fenix:testDebugUnitTest --tests org.mozilla.fenix.lw.*` | `DeleteOnQuitGuardTest` 24 and `DeleteOnQuitStartGateMiddlewareTest` 7, 0 failures |
+
+The APK was signed with the throwaway key (sha256 `f3427038…84eb`; unsigned
+`3c9e204e…d106`; `build/SHA256SUMS`). It was tested on an API 34
+`google_apis` x86_64 emulator, which reported `versionName=158.0-1-default`:
+
+| check | result |
+|---|---|
+| `android-smoke.sh --check-delete-on-quit` | **PASS** (`device/smoke-check-delete-on-quit.json`) |
+| link cold start after a recents swipe (`device/c11-158-…filtered.txt`) | the link tab's engine session was held at 22:24:04.480, before Gecko cleared the cookies (.493). The deletion completed at .880, and the session was created at 22:24:06.130. The request reached the server at 06.513 with an empty `Cookie` (`device/server.jsonl`) |
+
+So the release-day compile risk for this patch is retired. On release day,
+re-run `--check-delete-on-quit` with the rest of the acceptance (step 9).
+
