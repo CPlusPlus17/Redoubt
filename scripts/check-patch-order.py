@@ -160,6 +160,14 @@ CONSTRAINTS = (
     # QANimbusToolingReceiver.kt, so the pair shares no file and has no textual orde + ' On 153: ' + 'The scoped candidate is authored after this predecessor; moving it earlier fails the measured complete scoped replay (LW-M7-20 ordering-review.json).'),
     ('patches/android/no-adjust.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt'), 'Keep the existing no-adjust -> no-gms predecessor chain ahead of the selected Sync integration order. The inverse attempt failed in no-gms before Sync; this is a chosen composition constraint, not an isolated intrinsic pair conflict (LW-M7-20 ordering-review.json).'),
     ('patches/android/ubo-preinstall.patch', 'patches/android/sync-opt-in.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt'), 'The scoped candidate is authored after this predecessor; moving it earlier fails the measured complete scoped replay (LW-M7-20 ordering-review.json).'),
+    # LW-M7-45 follow-up: the start-gate middleware goes first in Core.kt's
+    # BrowserStore middleware list, whose first entry ubo-preinstall adds and
+    # whose context fission-isolation changes. Per-file replay on pristine
+    # firefox-157.0 (evidence tools/pairswap.sh): moving delete-on-quit-swipe
+    # directly before either rejects its Core.kt hunk. FenixApplication.kt
+    # (ubo-preinstall) stays byte-identical in both orders.
+    ('patches/android/ubo-preinstall.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt'), 'LW-M7-45: Core.kt hunk context is the LibreWolfUboPreinstallMiddleware line; delete-on-quit-swipe moved before ubo-preinstall rejects it on firefox-157.0. FenixApplication.kt is order-free (byte-identical).'),
+    ('patches/android/fission-isolation.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt',), 'LW-M7-45: delete-on-quit-swipe moved before fission-isolation rejects its Core.kt hunk on firefox-157.0 (the middleware-list context differs).'),
     (
         "patches/android/webgl-prompt-default.patch",
         "patches/android/canvas-webgl-permissions.patch",
@@ -936,8 +944,9 @@ REVIEWED_ORDER_FREE = (
     ('patches/android/privacy-defaults.patch', 'patches/android/disable-157-cloud-features.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), _M157_ANDROID + ': LW-M7-40. Settings.kt byte-identical in both swaps; the hunks are in disjoint regions.'),
     ('patches/android/search-config.patch', 'patches/android/disable-157-cloud-features.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt', 'mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml'), _M157_ANDROID + ': LW-M7-40. All three shared files byte-identical in both swaps.'),
     # LW-M7-45 (delete-on-quit-swipe): one <service> after MediaSessionService, and
-    # FenixApplication hooks before restoreBrowserState(), inside restoreBrowserState/
-    # restoreDownloads and in the ProcessLifecycleOwner observer list. Per-file replay
+    # FenixApplication hooks before restoreBrowserState() and inside
+    # restoreBrowserState/restoreDownloads (the follow-up dropped the
+    # ProcessLifecycleOwner hunk and added Core.kt; see CONSTRAINTS). Per-file replay
     # on pristine firefox-157.0 (gen/pairswap.sh in the LW-M7-45 evidence) with it
     # moved directly before each partner: both apply and the file is byte-identical
     # to list order.
@@ -947,7 +956,7 @@ REVIEWED_ORDER_FREE = (
     ('patches/android/no-glean.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/AndroidManifest.xml', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt'), 'LW-M7-45: byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
     ('patches/android/no-gms.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/AndroidManifest.xml', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt'), 'LW-M7-45: byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
     ('patches/android/sync-opt-in.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'LW-M7-45: byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
-    ('patches/android/ubo-preinstall.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'LW-M7-45: byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
+    ('patches/android/doh-mullvad-migration.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt',), 'LW-M7-45 follow-up: Core.kt byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
 )
 
 

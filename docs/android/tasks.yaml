@@ -5562,13 +5562,18 @@ tasks:
     tree_paths:
       - mobile/android/fenix/app/src/main/AndroidManifest.xml
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddleware.kt
       - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddlewareTest.kt
     reads:
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataController.kt
       - mobile/android/android-components/components/feature/privatemode/src/main/java/mozilla/components/feature/privatemode/notification/AbstractPrivateNotificationService.kt
       - patches/android/privacy-defaults.patch
+      - patches/android/ubo-preinstall.patch
+      - mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/engine/middleware/CreateEngineSessionMiddleware.kt
     what: |
       Owner report 2026-10-06: "when swiping away the app, the delete all on
       close does not trigger. closing it with the close button, works".
@@ -5592,17 +5597,46 @@ tasks:
       notification) runs the same deletion from onTaskRemoved without
       blocking. Android usually kills the process right after a swipe, so
       (a) is measured, not relied on.
+      Owner decisions 2026-10-06 (review of 8d2a68d7), verbatim:
+        - trigger rule: "Every non-Quit exit". Keep: any exit that is not
+          Quit, including an OOM kill, a crash or a reboot, triggers the
+          deletion at the next start.
+        - link starts: "Yes, hard gate". Cold starts through a VIEW
+          intent/link, a custom tab, a PWA or a widget/search shortcut must
+          not dispatch any page load until the deletion is confirmed, the
+          same gate as the restore.
+        - keep the best-effort onTaskRemoved service.
+      Follow-up (same task): DeleteOnQuitStartGateMiddleware (first in the
+      BrowserStore middleware list, Core.kt) holds every
+      EngineAction.CreateEngineSessionAction while the gate is closed and
+      replays them in order once it opens; every page load needs an engine
+      session. With HISTORY selected, the tabs of the following restore lose
+      engineSessionState (back/forward history), the cold-start equivalent of
+      upstream's PurgeHistoryAction. Any activity start
+      (ActivityLifecycleCallbacks) marks the session running, not only the
+      process's first ON_START. The marker's directory is fsync'ed after the
+      rename. Corrected wording: the permissions DB is deleted
+      asynchronously with the engine deletions; the local stores are deleted
+      on IO while the main thread waits at most 5 s.
+      The guarantee is bounded: the gate opens when Gecko and every store
+      confirmed or 20 s after the deletion started, whichever comes first.
+      If Gecko has not confirmed by then, or a local step failed, restore
+      and page loads proceed (fail open, logged "deletion incomplete") and
+      the deletion is retried after the next exit that is not Quit.
     acceptance:
       - "with the setting on and all categories selected, cookies, localStorage, history and open tabs are gone after a cold start that follows a recents swipe, am force-stop, or kill -9 of the main process, and the deletion is logged before the session restore"
       - "menu Quit still deletes, and the next cold start skips the start-up deletion (marker clean)"
       - "with the setting off nothing is deleted after any of those exits"
       - "a deletion that dies mid-way is retried at most 3 times, then the start continues"
       - "a normal background/foreground cycle deletes nothing"
-      - "the patch applies to Firefox 157.0 and 158.0b3 in list order, compiles under -Werror, and DeleteOnQuitGuardTest passes"
+      - "a cold start through a VIEW intent link or a custom tab after a swipe creates no engine session before the deletion is confirmed (logcat order), and the page's request carries no cookie (server log)"
+      - "with HISTORY selected and TABS not, the restored tabs have no back/forward history after an unclean exit"
+      - "any activity start after Quit sets the marker back to running"
+      - "the patch applies to Firefox 157.0 and 158.0b4 in list order, compiles under -Werror, and DeleteOnQuitGuardTest and DeleteOnQuitStartGateMiddlewareTest pass"
       - "android-smoke.sh --check-delete-on-quit passes on a build with the patch and fails on one without it"
     verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope"
     effort_h: "6-10"
     skills: [kotlin, android]
     agent_safe: yes
     isolation: worktree
-    risk: With the default settings (cookies + cache on), every cold start after a swipe, an OOM kill in the background or a reboot now logs the user out of every site. That is what the setting says, but it is new behaviour for anyone who never used Quit, including the first start after the update.
+    risk: With the default settings (cookies + cache on), every cold start after a swipe, an OOM kill in the background or a reboot now logs the user out of every site. That is what the setting says (owner decision "Every non-Quit exit"), but it is new behaviour for anyone who never used Quit, including the first start after the update. The guarantee is bounded at 20 s (fail open, retried after the next unclean exit).

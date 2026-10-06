@@ -1,26 +1,38 @@
 # Redoubt delete-on-quit-swipe.patch  (Android, LW-M7-45)
 #
 # Owner report 2026-10-06: "when swiping away the app, the delete all on close
-# does not trigger. closing it with the close button, works". Owner decision
-# 2026-10-06, verbatim: "lets build both as fallback".
+# does not trigger. closing it with the close button, works". Owner decisions
+# 2026-10-06, verbatim:
+#   - "lets build both as fallback"
+#   - trigger rule: "Every non-Quit exit" -- any exit that is not Quit,
+#     including an OOM kill, a crash or a reboot, triggers the deletion at the
+#     next start (with the default cookies + cache selection, the user is
+#     logged out after any unclean exit);
+#   - link starts: "Yes, hard gate" -- a cold start through a link (VIEW
+#     intent), a custom tab, a PWA or a widget/search shortcut must not load
+#     any page until the deletion is confirmed, the same gate as the restore;
+#   - keep the best-effort onTaskRemoved service.
 #
 # Upstream files touched
 # -----------------------
 #   mobile/android/fenix/app/src/main/AndroidManifest.xml          (one <service>)
 #   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-#       setupEarlyMain: DeleteOnQuitGuard.onColdStart() right before
-#       restoreBrowserState()/restoreDownloads(); both wait for its gate.
-#       setupPostMegazord: a ProcessLifecycleOwner ON_START observer.
+#       setupEarlyMain: DeleteOnQuitGuard.onColdStart() and the activity
+#       lifecycle callbacks right before restoreBrowserState()/restoreDownloads();
+#       both restores wait for the guard's gate.
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+#       DeleteOnQuitStartGateMiddleware first in the BrowserStore middleware
+#       list (context: ubo-preinstall.patch's LibreWolfUboPreinstallMiddleware
+#       line, which is earlier in android.txt).
 #   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
 #       the Quit callback also calls DeleteOnQuitGuard.onSessionEnding("quit").
 # New files
 #   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddleware.kt
 #   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
-# Every hunk's context is identical in Firefox 157.0 and 158.0b3 (158 moved
-# the Quit callback from onDeleteAndQuit to handleNavigationEvent, and added
-# tabDataCoordinator.initialize() before restoreBrowserState; neither is in
-# a context line). Fully qualified names are used instead of imports because
-# the import blocks differ between the two.
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddlewareTest.kt
+# Fully qualified names are used instead of imports because the import blocks
+# differ between Firefox 157 and 158.
 #
 # What upstream does
 # -------------------
@@ -35,43 +47,64 @@
 #
 # What this patch does
 # ---------------------
-# (b) the guarantee. A marker file (noBackupFilesDir/redoubt_session_end,
-#     written temp + fsync + rename) says how the session ended. It reads
-#     "clean" only after Quit's deletion was confirmed by every store and by
-#     Gecko; a cold start, a return to the foreground, and anything that kills
-#     the process leave "running". On a cold start with the setting on and a
-#     marker that is not "clean" (or absent), onColdStart:
+# (b) the guarantee, bounded (see "Bound" below). A marker file
+#     (noBackupFilesDir/redoubt_session_end, written temp + fsync + rename +
+#     fsync of the directory) says how the session ended. It reads "clean"
+#     only after Quit's deletion was confirmed by every store and by Gecko;
+#     any activity start (Application.ActivityLifecycleCallbacks, so a second
+#     task or split screen counts too) and anything that kills the process
+#     leave "running". On a cold start with the setting on and a marker that
+#     is not "clean" (or absent), onColdStart:
 #       1. writes "cleaning", attempt n, BEFORE deleting anything;
 #       2. dispatches the Gecko deletions (StorageController clearData with the
-#          upstream flags per category) synchronously from Application.onCreate,
-#          i.e. before any activity or GeckoSession exists, so Gecko runs them
-#          ahead of any page load, including one from a VIEW intent;
+#          upstream flags per category) from Application.onCreate, i.e. before
+#          any activity or GeckoSession exists; the site-permissions DB
+#          (PERMISSIONS) is deleted asynchronously with them, because Fenix's
+#          PermissionStorage needs the main thread (found on the device);
 #       3. deletes the local stores on the IO dispatcher -- session file +
 #          thumbnails (TABS), Places + recently closed tabs (HISTORY),
 #          downloads DB (DOWNLOADS) -- while the main thread waits for them,
-#          bounded (5 s). Only the wait is on the main thread: a step that
-#          needs it cannot deadlock start-up (Fenix's PermissionStorage does:
-#          it is backed by Gecko's site-permission storage, so it runs with the
-#          Gecko deletions in step 2's async half; found on the device);
-#       4. returns a gate that restoreBrowserState() and restoreDownloads()
-#          join; it opens when Gecko and every store confirmed (bounded, 20 s),
-#          and then the marker becomes "running".
+#          bounded (5 s); only the wait is on the main thread;
+#       4. returns the cold-start gate. It opens when Gecko and every store
+#          confirmed, or 20 s after step 1, and then the marker becomes
+#          "running". Until it opens:
+#            - restoreBrowserState() and restoreDownloads() wait;
+#            - DeleteOnQuitStartGateMiddleware holds every
+#              EngineAction.CreateEngineSessionAction and replays them in
+#              order when it opens. Every page load needs an engine session,
+#              so nothing loads -- not a restored tab, not a link (VIEW
+#              intent), custom tab, PWA or widget/shortcut search. Holding is
+#              a list and the replay a coroutine: the main thread never
+#              blocks on it (no ANR).
+#       5. With HISTORY selected, the middleware strips engineSessionState
+#          (the back/forward history) from the tabs of the following session
+#          restore -- the cold-start equivalent of the
+#          EngineAction.PurgeHistoryAction that upstream's Quit dispatches.
+#          With TABS selected the session file is gone anyway.
 #     A deletion that kills the process cannot loop: after 3 attempts that did
 #     not finish, the start continues without deleting and logs an error; the
 #     next unclean exit counts from 1 again. With the setting off nothing is
-#     deleted, whatever the marker says. Private tabs are never persisted and
-#     their Gecko data dies with the process; the selected categories are
-#     cleared for normal and private browsing alike, as on Quit.
+#     deleted or held, whatever the marker says. Private tabs are never
+#     persisted and their Gecko data dies with the process; the selected
+#     categories are cleared for normal and private browsing alike, as on Quit.
+#
+#     Bound. The guarantee is bounded on purpose: if Gecko has not confirmed
+#     within 20 s, or a local step fails, the gate opens anyway (fail open;
+#     logged "deletion incomplete ... continuing (fail open)"), restore and
+#     loads proceed, and the deletion is retried after the next exit that is
+#     not Quit. Not covered by the gate: a custom-tabs client's mayLaunchUrl
+#     speculative connect (a TCP/TLS pre-connect, no request, no cookies), and
+#     extension background pages (uBO's filter-list updates).
 #
 # (a) best effort. DeleteOnQuitTaskService, a started (not foreground) service
 #     with stopWithTask="false" and no notification, is started at every
-#     ProcessLifecycleOwner ON_START while the setting is on. When the task is
-#     swiped away while it runs, onTaskRemoved starts the same deletion
-#     without blocking (no ANR) and marks "clean" only if it finishes and the
-#     app did not come back meanwhile. Android usually kills a background
-#     process right after removing its task, and stops background services
-#     about a minute after the app left the foreground, so (a) is measured,
-#     never relied on; (b) covers everything (a) misses.
+#     activity start while the setting is on. When the task is swiped away
+#     while it runs, onTaskRemoved starts the same deletion without blocking
+#     (no ANR) and marks "clean" only if it finishes and no activity started
+#     meanwhile. Android usually kills a background process right after
+#     removing its task, and stops background services about a minute after
+#     the app left the foreground, so (a) is measured, never relied on; (b)
+#     covers everything (a) misses.
 #
 # Quit itself is unchanged; after upstream's deletion it also runs the guard's
 # awaited deletion (idempotent) and only then writes "clean", because upstream
@@ -81,12 +114,17 @@
 # Log tag: RedoubtDeleteOnQuit (Logger info/warn/error reach logcat in
 # release builds through FenixLogSink).
 #
-# Unit tests: DeleteOnQuitGuardTest (JVM, no Robolectric): marker atomicity and
-# parsing, the cold-start decision table, ordering (attempt recorded before
-# deletion; restore gated on the engine), bounded retries, timeouts, a local
-# step that never returns (the main thread is released), the
-# clean-quit / foreground race, setting off. The deletion itself is proven on
-# a device: docs/android/evidence/lw-m7-45/.
+# Unit tests (JVM): DeleteOnQuitGuardTest -- marker atomicity, parsing and the
+# directory fsync, the cold-start decision table, ordering (attempt recorded
+# before deletion; restore gated on the engine), bounded retries, the single
+# 20 s bound (fail open), a local step that never returns (the main thread is
+# released), the history-purge flag, every activity start (not only the
+# first) marking "running", the clean-quit / foreground race, setting off.
+# DeleteOnQuitStartGateMiddlewareTest -- link, custom-tab, PWA and restored-tab
+# session creation held until the gate opens and replayed in order, no
+# overtaking at the opening, release on fail-open, no holding without a
+# pending deletion, and the restore without back/forward history. The
+# deletion itself is proven on a device: docs/android/evidence/lw-m7-45/.
 #
 diff --git a/mobile/android/fenix/app/src/main/AndroidManifest.xml b/mobile/android/fenix/app/src/main/AndroidManifest.xml
 --- a/mobile/android/fenix/app/src/main/AndroidManifest.xml
@@ -107,31 +145,21 @@ diff --git a/mobile/android/fenix/app/src/main/AndroidManifest.xml b/mobile/andr
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -398,6 +398,10 @@
+@@ -398,6 +398,13 @@
  
          initializeRemoteSettingsSupport()
  
 +        // Redoubt LW-M7-45: after a session that did not end through Quit,
-+        // delete the "on quit" categories; the two restores below wait for it.
++        // delete the "on quit" categories; the two restores below and every
++        // engine-session creation (links, custom tabs, PWAs) wait for it.
++        // Any activity start marks the session as running again.
 +        org.mozilla.fenix.lw.DeleteOnQuitGuard.get(this).onColdStart()
++        registerActivityLifecycleCallbacks(org.mozilla.fenix.lw.DeleteOnQuitActivityCallbacks(this))
 +
          restoreBrowserState()
          restoreDownloads()
          restoreMessaging()
-@@ -450,6 +454,12 @@
-                     browserStore = components.core.store,
-                 ),
-                 VisibilityLifecycleObserver(),
-+                // Redoubt LW-M7-45: a session is in use again.
-+                object : androidx.lifecycle.DefaultLifecycleObserver {
-+                    override fun onStart(owner: androidx.lifecycle.LifecycleOwner) {
-+                        org.mozilla.fenix.lw.onAppForeground(this@FenixApplication)
-+                    }
-+                },
-             )
- 
-         components.analytics.metricsStorage.tryRegisterAsUsageRecorder(this)
-@@ -462,6 +472,8 @@
+@@ -462,6 +469,8 @@
      private fun restoreBrowserState() = applicationScope.launch {
          val store = components.core.store
          val sessionStorage = components.core.sessionStorage
@@ -140,7 +168,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixAppli
  
          components.useCases.tabsUseCases.restore(sessionStorage, components.settings.getTabTimeout())
  
-@@ -475,7 +487,16 @@
+@@ -475,7 +484,16 @@
      }
  
      private fun restoreDownloads() {
@@ -158,6 +186,19 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixAppli
      }
  
      private fun initVisualCompletenessQueueAndQueueTasks() {
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+@@ -349,6 +349,9 @@
+ 
+         val middlewareList =
+             listOf(
++                // Redoubt LW-M7-45: no engine session (so no page load) before a
++                // pending "delete browsing data on quit" deletion is confirmed.
++                org.mozilla.fenix.lw.DeleteOnQuitStartGateMiddleware.create(context),
+                 LibreWolfUboPreinstallMiddleware(context.components.uboPreinstaller),
+                 ProfileMarkerMiddleware(markerName = "BrowserStore", profiler = engine.profiler),
+                 LogMiddleware(tag = "BrowserStore", shouldIncludeDetailedData = { Config.channel.isDebug }),
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
@@ -174,7 +215,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteO
 new file mode 100644
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
-@@ -0,0 +1,540 @@
+@@ -0,0 +1,655 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -186,39 +227,59 @@ new file mode 100644
 +// (MenuDialogFragment -> DeleteBrowsingDataController.clearBrowsingDataOnQuit).
 +// Swiping the app away from recents, an OOM kill, a crash, a force-stop or a
 +// reboot skips the deletion, and the next start restores the tabs, cookies and
-+// history the user asked to have deleted. Owner decision 2026-10-06: "lets
-+// build both as fallback".
++// history the user asked to have deleted. Owner decisions 2026-10-06: "lets
++// build both as fallback"; trigger rule "Every non-Quit exit"; link starts
++// "Yes, hard gate".
 +//
-+//   (b) the guarantee. A marker file records how the session ended: "clean"
-+//       is written only after Quit's deletion has been confirmed; every other
-+//       end leaves "running" (or "cleaning") behind. On a cold start with the
-+//       setting on and a marker that is not "clean", FenixApplication runs the
-+//       same deletion for the selected categories before the session store and
-+//       the downloads list are restored: the engine deletions are dispatched
-+//       to Gecko before any activity exists (so before any GeckoSession can
-+//       load a page), the app-side stores (Places, session file, recently
-+//       closed tabs, thumbnails, permissions DB, downloads DB) are deleted
-+//       synchronously, and the restore waits for Gecko to confirm. A deletion
-+//       that itself kills the process cannot loop: the attempt count is in the
-+//       marker, written before the deletion starts, and after MAX_ATTEMPTS the
-+//       start continues without deleting and logs an error.
++//   (b) the guarantee, bounded. A marker file records how the session ended:
++//       "clean" is written only after Quit's deletion has been confirmed;
++//       every other end leaves "running" (or "cleaning") behind. On a cold
++//       start with the setting on and a marker that is not "clean",
++//       FenixApplication runs the same deletion for the selected categories:
++//       the engine deletions (and the site-permissions DB, which needs the
++//       main thread) are dispatched asynchronously before any activity exists;
++//       the local stores (Places, session file, recently closed tabs,
++//       thumbnails, downloads DB) are deleted on the IO dispatcher while the
++//       main thread waits for them, bounded (5 s). The cold-start gate opens
++//       when Gecko and every store confirmed, or after ENGINE_TIMEOUT_MS
++//       (20 s) counted from the start of the deletion. Until it opens, the
++//       session and downloads restores wait, and DeleteOnQuitStartGateMiddleware
++//       holds every engine-session creation -- so no page loads, whether it
++//       comes from the restore, a link (VIEW intent), a custom tab, a PWA or a
++//       widget/shortcut. With HISTORY selected and TABS kept, the restored
++//       tabs lose their back/forward history (the equivalent of upstream's
++//       EngineAction.PurgeHistoryAction on Quit). A deletion that itself kills
++//       the process cannot loop: the attempt count is in the marker, written
++//       before the deletion starts, and after MAX_ATTEMPTS the start continues
++//       without deleting and logs an error.
++//
++//       The bound is deliberate: if the engine has not confirmed within 20 s,
++//       or a local step fails, the gate opens anyway (fail open, logged as
++//       "deletion incomplete") and browsing continues; the marker is
++//       "running" again, so the deletion is retried after the next exit that
++//       is not Quit.
 +//
 +//   (a) best effort. DeleteOnQuitTaskService (stopWithTask="false") is started
-+//       while the app is in the foreground, so Android calls onTaskRemoved when
-+//       the task is swiped away. That starts the same deletion without waiting
-+//       for it; Android usually kills the process within milliseconds, so (a)
-+//       may not finish -- (b) does not depend on it.
++//       at every activity start, so Android calls onTaskRemoved when the task
++//       is swiped away. That starts the same deletion without waiting for it;
++//       Android usually kills the process within milliseconds, so (a) may not
++//       finish -- (b) does not depend on it.
 +//
 +// Nothing here touches the network, and with the setting off nothing is
-+// deleted. Log tag: RedoubtDeleteOnQuit.
++// deleted or held. Log tag: RedoubtDeleteOnQuit.
 +
 +package org.mozilla.fenix.lw
 +
++import android.app.Activity
++import android.app.Application
 +import android.app.Service
 +import android.content.Context
 +import android.content.Intent
++import android.os.Bundle
 +import android.os.IBinder
-+import androidx.annotation.VisibleForTesting
++import android.system.Os
++import android.system.OsConstants
++import kotlinx.coroutines.CancellationException
 +import kotlinx.coroutines.CompletableDeferred
 +import kotlinx.coroutines.CoroutineDispatcher
 +import kotlinx.coroutines.CoroutineScope
@@ -261,11 +322,15 @@ new file mode 100644
 +data class QuitMarker(val state: SessionEnd, val attempts: Int = 0)
 +
 +/**
-+ * The marker file. Writes are atomic: the new content goes to a temporary
-+ * file in the same directory, is fsync'ed, and replaces the marker with
-+ * rename(2). A reader sees the old marker or the new one, never a torn one.
++ * The marker file. Writes are atomic and durable: the new content goes to a
++ * temporary file in the same directory, is fsync'ed, replaces the marker with
++ * rename(2), and then the directory is fsync'ed so the rename itself survives
++ * a power loss. A reader sees the old marker or the new one, never a torn one.
 + */
-+class QuitMarkerFile(private val file: File) {
++class QuitMarkerFile(
++    private val file: File,
++    private val syncDirectory: (File) -> Unit = ::fsyncDirectory,
++) {
 +    /** Returns null when there is no marker. Unreadable content reads as [SessionEnd.RUNNING]: unclean. */
 +    fun read(): QuitMarker? {
 +        if (!file.exists()) return null
@@ -299,6 +364,25 @@ new file mode 100644
 +            tmp.delete()
 +            throw IOException("rename $tmp -> $file failed")
 +        }
++        syncDirectory(dir)
++    }
++}
++
++/**
++ * fsync(2) on a directory, so that a rename into it is on disk. Best effort:
++ * the marker is already correct in the page cache, and a lost rename only
++ * leaves the previous marker behind (never "clean" while a session runs).
++ */
++fun fsyncDirectory(dir: File) {
++    try {
++        val fd = Os.open(dir.path, OsConstants.O_RDONLY, 0)
++        try {
++            Os.fsync(fd)
++        } finally {
++            Os.close(fd)
++        }
++    } catch (e: Exception) {
++        Logger(DeleteOnQuitGuard.LOG_TAG).warn("fsync of $dir failed: $e")
 +    }
 +}
 +
@@ -363,9 +447,25 @@ new file mode 100644
 +    private var foregroundEpoch = 0
 +    private var lastWritten: QuitMarker? = null
 +
-+    /** What session and downloads restore wait for; complete when there is nothing to wait for. */
++    /**
++     * What session and downloads restore, and every engine-session creation,
++     * wait for; complete when there is nothing to wait for.
++     */
 +    @Volatile var coldStartGate: Job = completedJob()
 +        private set
++
++    /**
++     * True from a cold-start deletion of HISTORY until the session restore
++     * completed: the restored tabs must come back without their back/forward
++     * history (upstream's Quit dispatches EngineAction.PurgeHistoryAction).
++     */
++    @Volatile var purgeRestoredHistory: Boolean = false
++        private set
++
++    /** The session restore has completed (RestoreCompleteAction). */
++    fun onRestoreComplete() {
++        purgeRestoredHistory = false
++    }
 +
 +    /**
 +     * Called from Application.onCreate on the main thread, before the session
@@ -398,6 +498,8 @@ new file mode 100644
 +                        "before session restore, attempt ${decision.attempt}/$maxAttempts"
 +                )
 +                writeMarker(QuitMarker(SessionEnd.CLEANING, decision.attempt))
++                val deadline = System.nanoTime() + engineTimeoutMs * NANOS_PER_MILLI
++                purgeRestoredHistory = DeleteBrowsingDataOnQuitType.HISTORY in types
 +                val engine = startEngine(types)
 +                // The local stores are deleted on the IO dispatcher; the main
 +                // thread only WAITS for them, bounded. Only the wait is under
@@ -407,13 +509,23 @@ new file mode 100644
 +                val local = scope.async(ioDispatcher) { runner.deleteAppData(types, live = false) }
 +                val appOkNow = runBlocking { awaitDeferred(local, appDataTimeoutMs) }
 +                logger.info("cold start: app-side deletion done (ok=$appOkNow); waiting for the engine")
++                // The gate opens when everything confirmed, or when the bound
++                // (counted from the start of the deletion) has passed: fail
++                // open, and the next unclean exit retries.
 +                return scope.launch {
-+                    val appOk = appOkNow || awaitDeferred(local, engineTimeoutMs)
-+                    val engineOk = withTimeoutOrNull(engineTimeoutMs) { engine.await() } ?: false
++                    var appOk = appOkNow
++                    var engineOk = false
++                    withTimeoutOrNull(remainingMs(deadline)) {
++                        if (!appOk) appOk = awaitDeferred(local, Long.MAX_VALUE)
++                        engineOk = awaitEngine(engine)
++                    }
 +                    if (appOk && engineOk) {
-+                        logger.warn("cold start: deletion complete; session restore may proceed")
++                        logger.warn("cold start: deletion complete; session restore and page loads may proceed")
 +                    } else {
-+                        logger.error("cold start: deletion incomplete (app=$appOk engine=$engineOk); continuing")
++                        logger.error(
++                            "cold start: deletion incomplete (app=$appOk engine=$engineOk) within " +
++                                "${engineTimeoutMs}ms; continuing (fail open), retried after the next unclean exit"
++                        )
 +                    }
 +                    markRunning()
 +                }
@@ -421,7 +533,11 @@ new file mode 100644
 +        }
 +    }
 +
-+    /** ProcessLifecycleOwner ON_START: a session is in use again. */
++    /**
++     * Any activity of the app started (Application.ActivityLifecycleCallbacks,
++     * not only ProcessLifecycleOwner, so a second task or split screen counts
++     * too): a session is in use again.
++     */
 +    fun onForeground() {
 +        synchronized(lock) {
 +            foregroundEpoch++
@@ -475,9 +591,23 @@ new file mode 100644
 +        }
 +    }
 +
++    private suspend fun awaitEngine(d: Deferred<Boolean>): Boolean =
++        try {
++            d.await()
++        } catch (e: CancellationException) {
++            throw e
++        } catch (e: Exception) {
++            logger.error("engine deletion failed", e)
++            false
++        }
++
++    private fun remainingMs(deadline: Long): Long = ((deadline - System.nanoTime()) / NANOS_PER_MILLI).coerceAtLeast(1)
++
 +    private suspend fun awaitDeferred(d: Deferred<Boolean>, timeoutMs: Long): Boolean =
 +        try {
 +            withTimeoutOrNull(timeoutMs) { d.await() } ?: false
++        } catch (e: CancellationException) {
++            throw e
 +        } catch (e: Exception) {
 +            logger.error("app-side deletion failed", e)
 +            false
@@ -526,6 +656,7 @@ new file mode 100644
 +        const val APP_DATA_TIMEOUT_MS = 5_000L
 +        const val ENGINE_TIMEOUT_MS = 20_000L
 +        const val MARKER_FILE = "redoubt_session_end"
++        private const val NANOS_PER_MILLI = 1_000_000L
 +
 +        @Volatile private var instance: DeleteOnQuitGuard? = null
 +
@@ -708,28 +839,198 @@ new file mode 100644
 +    }
 +}
 +
-+/** ProcessLifecycleOwner hook, registered by FenixApplication. */
-+@VisibleForTesting
++/** A session is in use again: mark it running and (re)start the task-removal service. */
 +fun onAppForeground(context: Context) {
 +    val guard = DeleteOnQuitGuard.get(context)
 +    guard.onForeground()
 +    DeleteOnQuitTaskService.sync(context, guard.isEnabled())
 +}
-diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
++
++/**
++ * Registered by FenixApplication. Every activity start counts, not only the
++ * first one of the process (ProcessLifecycleOwner ON_START): after Quit, an
++ * activity of another task (a custom tab, split screen) that starts must set
++ * the marker back to "running".
++ */
++class DeleteOnQuitActivityCallbacks(
++    private val onActivityStart: () -> Unit,
++) : Application.ActivityLifecycleCallbacks {
++    constructor(context: Context) : this({ onAppForeground(context) })
++
++    override fun onActivityStarted(activity: Activity) = onActivityStart()
++
++    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
++
++    override fun onActivityResumed(activity: Activity) = Unit
++
++    override fun onActivityPaused(activity: Activity) = Unit
++
++    override fun onActivityStopped(activity: Activity) = Unit
++
++    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
++
++    override fun onActivityDestroyed(activity: Activity) = Unit
++}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddleware.kt
 new file mode 100644
 --- /dev/null
-+++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
-@@ -0,0 +1,322 @@
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddleware.kt
+@@ -0,0 +1,139 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 +
-+// Redoubt LW-M7-45: the marker, the cold-start rule and the guard's state
-+// machine. The deletion itself (DefaultDeleteOnQuitRunner) is exercised on a
++// Redoubt LW-M7-45: the hard gate for "Delete browsing data on quit" at a cold
++// start. Owner decision 2026-10-06, link starts: "Yes, hard gate".
++//
++// Every page load needs an engine session, and every engine session of the
++// BrowserStore is created through EngineAction.CreateEngineSessionAction: the
++// restored tabs, a tab opened from a link (VIEW intent), a custom tab, a PWA, a
++// widget or shortcut search, and the follow-up of a LoadUrlAction on a tab that
++// has no session yet. While DeleteOnQuitGuard's cold-start gate is open the
++// middleware passes everything through. While it is closed, it holds those
++// creations and replays them, in order, through the store once the gate opens.
++// The gate is bounded (ENGINE_TIMEOUT_MS, then fail open), so nothing is held
++// longer than that. Nothing blocks the main thread: holding is a list, and the
++// replay is a coroutine.
++//
++// The middleware also strips the back/forward history (engineSessionState)
++// from the tabs of the session restore that follows a cold-start deletion of
++// HISTORY, as upstream's EngineAction.PurgeHistoryAction does on Quit.
++//
++// Same hold-and-replay shape as LibreWolfUboPreinstallMiddleware (LW-M3-07).
++
++package org.mozilla.fenix.lw
++
++import android.content.Context
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.launch
++import mozilla.components.browser.state.action.BrowserAction
++import mozilla.components.browser.state.action.EngineAction
++import mozilla.components.browser.state.action.RestoreCompleteAction
++import mozilla.components.browser.state.action.TabListAction
++import mozilla.components.browser.state.state.BrowserState
++import mozilla.components.lib.state.Middleware
++import mozilla.components.lib.state.Store
++import mozilla.components.support.base.log.logger.Logger
++import java.util.IdentityHashMap
++
++/** Holds engine-session creation until the cold-start deletion is confirmed (or its bound passed). */
++class DeleteOnQuitStartGateMiddleware(
++    private val gate: () -> Job,
++    private val purgeRestoredHistory: () -> Boolean,
++    private val onRestoreComplete: () -> Unit,
++    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
++) : Middleware<BrowserState, BrowserAction> {
++    private val logger = Logger(DeleteOnQuitGuard.LOG_TAG)
++    private val lock = Any()
++    private val pending = mutableListOf<EngineAction.CreateEngineSessionAction>()
++    private val replays = IdentityHashMap<EngineAction.CreateEngineSessionAction, Int>()
++    private var waiting = false
++
++    override fun invoke(
++        store: Store<BrowserState, BrowserAction>,
++        next: (BrowserAction) -> Unit,
++        action: BrowserAction,
++    ) {
++        when (action) {
++            is EngineAction.CreateEngineSessionAction -> hold(store, next, action)
++            is TabListAction.RestoreAction -> next(withoutHistoryIfPurging(action))
++            is RestoreCompleteAction -> {
++                onRestoreComplete()
++                next(action)
++            }
++            else -> next(action)
++        }
++    }
++
++    private fun withoutHistoryIfPurging(action: TabListAction.RestoreAction): TabListAction.RestoreAction {
++        if (!purgeRestoredHistory() || action.tabs.none { it.engineSessionState != null }) return action
++        logger.warn("restore: dropping the back/forward history of ${action.tabs.size} restored tab(s) (HISTORY deleted)")
++        return action.copy(tabs = action.tabs.map { it.copy(engineSessionState = null) })
++    }
++
++    private fun hold(
++        store: Store<BrowserState, BrowserAction>,
++        next: (BrowserAction) -> Unit,
++        action: EngineAction.CreateEngineSessionAction,
++    ) {
++        val currentGate = gate()
++        val passThrough =
++            synchronized(lock) {
++                val replayCount = replays[action] ?: 0
++                when {
++                    replayCount > 0 -> {
++                        if (replayCount == 1) replays.remove(action) else replays[action] = replayCount - 1
++                        true
++                    }
++                    currentGate.isCompleted && !waiting && replays.isEmpty() -> true
++                    else -> {
++                        pending.add(action)
++                        logger.warn("holding engine session for tab ${action.tabId} until the on-quit deletion is confirmed")
++                        if (waiting) return
++                        waiting = true
++                        false
++                    }
++                }
++            }
++        if (passThrough) {
++            next(action)
++            return
++        }
++        scope.launch {
++            currentGate.join()
++            // Dispatch through the store again (never call a stored `next` later);
++            // a tab removed meanwhile is discarded by the normal session creation.
++            while (true) {
++                val actions =
++                    synchronized(lock) {
++                        if (pending.isEmpty()) {
++                            waiting = false
++                            return@launch
++                        }
++                        pending.toList().also { batch ->
++                            batch.forEach { replays[it] = (replays[it] ?: 0) + 1 }
++                            pending.clear()
++                        }
++                    }
++                logger.warn("gate open: releasing ${actions.size} held engine session(s)")
++                actions.forEach { store.dispatch(it) }
++            }
++        }
++    }
++
++    companion object {
++        /** The production instance; reads the process-wide guard lazily. */
++        fun create(context: Context): DeleteOnQuitStartGateMiddleware {
++            val app = context.applicationContext
++            return DeleteOnQuitStartGateMiddleware(
++                gate = { DeleteOnQuitGuard.get(app).coldStartGate },
++                purgeRestoredHistory = { DeleteOnQuitGuard.get(app).purgeRestoredHistory },
++                onRestoreComplete = { DeleteOnQuitGuard.get(app).onRestoreComplete() },
++            )
++        }
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
+@@ -0,0 +1,412 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++// Redoubt LW-M7-45: the marker, the cold-start rule, the guard's state
++// machine and the activity-start hook. The deletion itself (DefaultDeleteOnQuitRunner) is exercised on a
 +// device; see docs/android/evidence/lw-m7-45/.
 +
 +package org.mozilla.fenix.lw
 +
++import io.mockk.mockk
 +import kotlinx.coroutines.CompletableDeferred
 +import kotlinx.coroutines.CoroutineScope
 +import kotlinx.coroutines.Deferred
@@ -748,6 +1049,7 @@ new file mode 100644
 +import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType
 +import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.CACHE
 +import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.COOKIES
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.HISTORY
 +import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.TABS
 +import java.io.File
 +
@@ -834,6 +1136,24 @@ new file mode 100644
 +        assertEquals(SessionEnd.RUNNING, marker.read()!!.state)
 +        file.writeText("state=cleaning\nattempts=-4\n")
 +        assertEquals(QuitMarker(SessionEnd.CLEANING, 0), marker.read())
++    }
++
++    @Test
++    fun `the directory is fsynced after the rename`() {
++        val seen = mutableListOf<Pair<File, QuitMarker?>>()
++        val synced = QuitMarkerFile(file) { dir -> seen += dir to QuitMarkerFile(file).read() }
++        synced.write(QuitMarker(SessionEnd.CLEAN))
++        // Called once, on the marker's directory, after the new content was in place.
++        assertEquals(listOf(file.parentFile!!.absoluteFile to QuitMarker(SessionEnd.CLEAN)), seen)
++        assertFalse(File(file.parentFile, file.name + ".tmp").exists())
++    }
++
++    @Test
++    fun `a failing directory fsync does not fail the write`() {
++        // The default implementation swallows errors (android.system.Os is a stub on the JVM).
++        fsyncDirectory(File(tmp.root, "does-not-exist"))
++        marker.write(QuitMarker(SessionEnd.RUNNING))
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
 +    }
 +
 +    @Test
@@ -964,6 +1284,48 @@ new file mode 100644
 +    }
 +
 +    @Test
++    fun `the gate bound counts from the start of the deletion and fails open`() {
++        // Local stores and engine never answer: the gate still opens after the
++        // single bound (not 5 s + 20 s), and the marker is running again so the
++        // next unclean exit retries.
++        marker.write(QuitMarker(SessionEnd.RUNNING))
++        val runner = FakeRunner(engine = CompletableDeferred(), appBlocker = CompletableDeferred())
++        val started = System.nanoTime()
++        val gate = guard(runner, appDataTimeoutMs = 100, engineTimeoutMs = 300).onColdStart()
++        runBlocking { gate.join() }
++        val elapsedMs = (System.nanoTime() - started) / 1_000_000
++        assertTrue("gate opened after ${elapsedMs}ms", elapsedMs in 250..1_500)
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `history deletion without tabs asks the restore to drop back-forward history`() {
++        selected = setOf(HISTORY, COOKIES)
++        marker.write(QuitMarker(SessionEnd.RUNNING))
++        val g = guard(FakeRunner())
++        assertFalse(g.purgeRestoredHistory)
++        runBlocking { g.onColdStart().join() }
++        assertTrue(g.purgeRestoredHistory)
++        g.onRestoreComplete()
++        assertFalse(g.purgeRestoredHistory)
++    }
++
++    @Test
++    fun `no history purge without HISTORY or without a deletion`() {
++        selected = setOf(COOKIES, TABS)
++        marker.write(QuitMarker(SessionEnd.RUNNING))
++        val g1 = guard(FakeRunner())
++        runBlocking { g1.onColdStart().join() }
++        assertFalse(g1.purgeRestoredHistory)
++
++        selected = setOf(HISTORY)
++        marker.write(QuitMarker(SessionEnd.CLEAN))
++        val g2 = guard(FakeRunner())
++        runBlocking { g2.onColdStart().join() }
++        assertFalse("Quit already deleted it", g2.purgeRestoredHistory)
++    }
++
++    @Test
 +    fun `app-side failure is contained`() {
 +        val runner = FakeRunner(appThrows = true)
 +        runBlocking { guard(runner).onColdStart().join() }
@@ -1032,6 +1394,34 @@ new file mode 100644
 +    }
 +
 +    @Test
++    fun `every activity start counts, not only the first one of the process`() {
++        // Split screen / a second task: after Quit, an activity of another task
++        // starts while the process never left the foreground.
++        val runner = FakeRunner()
++        val g = guard(runner)
++        runBlocking { g.onColdStart().join() }
++        var starts = 0
++        val callbacks = DeleteOnQuitActivityCallbacks {
++            starts++
++            g.onForeground()
++        }
++        callbacks.onActivityStarted(mockk(relaxed = true))
++        runBlocking { g.onSessionEnding("quit").join() }
++        assertEquals(QuitMarker(SessionEnd.CLEAN), marker.read())
++
++        callbacks.onActivityStarted(mockk(relaxed = true))
++        assertEquals(2, starts)
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++
++        // Other lifecycle events never touch the marker.
++        runBlocking { g.onSessionEnding("quit").join() }
++        callbacks.onActivityResumed(mockk(relaxed = true))
++        callbacks.onActivityStopped(mockk(relaxed = true))
++        assertEquals(2, starts)
++        assertEquals(QuitMarker(SessionEnd.CLEAN), marker.read())
++    }
++
++    @Test
 +    fun `foreground without a preceding quit writes nothing`() {
 +        val runner = FakeRunner()
 +        val g = guard(runner)
@@ -1040,5 +1430,287 @@ new file mode 100644
 +        file.setLastModified(before - 10_000)
 +        g.onForeground()
 +        assertEquals(before - 10_000, file.lastModified())
++    }
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddlewareTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddlewareTest.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddlewareTest.kt
+@@ -0,0 +1,277 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++// Redoubt LW-M7-45: the hard gate on every way a cold start can load a page
++// (restore, link, custom tab, PWA, widget), and the history purge of the
++// restore that follows a HISTORY deletion.
++
++package org.mozilla.fenix.lw
++
++import io.mockk.every
++import io.mockk.mockk
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.ExperimentalCoroutinesApi
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.runBlocking
++import kotlinx.coroutines.test.runCurrent
++import kotlinx.coroutines.test.runTest
++import mozilla.components.browser.state.action.BrowserAction
++import mozilla.components.browser.state.action.ContentAction
++import mozilla.components.browser.state.action.CustomTabListAction
++import mozilla.components.browser.state.action.EngineAction
++import mozilla.components.browser.state.action.RestoreCompleteAction
++import mozilla.components.browser.state.action.TabListAction
++import mozilla.components.browser.state.state.BrowserState
++import mozilla.components.browser.state.state.createCustomTab
++import mozilla.components.browser.state.state.createTab
++import mozilla.components.browser.state.state.recover.RecoverableTab
++import mozilla.components.browser.state.state.recover.TabState
++import mozilla.components.concept.engine.EngineSessionState
++import mozilla.components.lib.state.Store
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNotNull
++import org.junit.Assert.assertSame
++import org.junit.Assert.assertTrue
++import org.junit.Rule
++import org.junit.Test
++import org.junit.rules.TemporaryFolder
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.COOKIES
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.HISTORY
++import java.io.File
++
++@OptIn(ExperimentalCoroutinesApi::class)
++class DeleteOnQuitStartGateMiddlewareTest {
++    @get:Rule val tmp = TemporaryFolder()
++
++    /** A store whose dispatch runs the middleware again, as BrowserStore does. */
++    private class Harness(val middleware: DeleteOnQuitStartGateMiddleware) {
++        val delivered = mutableListOf<BrowserAction>()
++        val redispatched = mutableListOf<BrowserAction>()
++        val store = mockk<Store<BrowserState, BrowserAction>>()
++
++        init {
++            every { store.dispatch(any()) } answers {
++                val action = firstArg<BrowserAction>()
++                redispatched.add(action)
++                middleware.invoke(store, { delivered.add(it) }, action)
++            }
++        }
++
++        fun send(action: BrowserAction) = middleware.invoke(store, { delivered.add(it) }, action)
++    }
++
++    private fun middleware(
++        gate: Job,
++        purge: () -> Boolean = { false },
++        restoreDone: () -> Unit = {},
++        scope: CoroutineScope,
++    ) = DeleteOnQuitStartGateMiddleware({ gate }, purge, restoreDone, scope)
++
++    private fun creation(tabId: String) = EngineAction.CreateEngineSessionAction(tabId)
++
++    @Test
++    fun `link, custom tab, PWA and restored tabs get no engine session before the gate opens`() = runTest {
++        val gate = Job()
++        val h = Harness(middleware(gate, scope = backgroundScope))
++        // A cold start through a VIEW intent: the tab is added and its load is
++        // requested; the load needs an engine session, which is held.
++        val linkTab = createTab("http://10.0.2.2:8765/report.html", id = "link")
++        val addLink = TabListAction.AddTabAction(linkTab, select = true)
++        val loadLink = EngineAction.LoadUrlAction("link", "http://10.0.2.2:8765/report.html")
++        val custom = createCustomTab("https://example.org/", id = "custom")
++        val addCustom = CustomTabListAction.AddCustomTabAction(custom)
++        val createLink = creation("link")
++        val createCustom = EngineAction.CreateEngineSessionAction("custom", includeParent = true)
++        val createPwa = EngineAction.CreateEngineSessionAction("pwa", skipLoading = false)
++        val createRestored = EngineAction.CreateEngineSessionAction("restored", skipLoading = true)
++
++        listOf(addLink, loadLink, createLink, addCustom, createCustom, createPwa, createRestored).forEach(h::send)
++        runCurrent()
++
++        // Tab bookkeeping passes; no engine session (so no load) is created.
++        assertEquals(listOf(addLink, loadLink, addCustom), h.delivered)
++        assertTrue(h.redispatched.isEmpty())
++
++        gate.complete()
++        runCurrent()
++
++        val held = listOf(createLink, createCustom, createPwa, createRestored)
++        assertEquals(held, h.redispatched)
++        assertEquals(listOf(addLink, loadLink, addCustom) + held, h.delivered)
++
++        // Once open, the gate costs nothing: creations pass straight through.
++        val later = creation("later")
++        h.send(later)
++        assertEquals(later, h.delivered.last())
++        assertEquals(held, h.redispatched)
++    }
++
++    @Test
++    fun `a creation arriving as the gate opens cannot overtake held ones`() = runTest {
++        val gate = Job()
++        val h = Harness(middleware(gate, scope = backgroundScope))
++        val first = creation("first")
++        val second = creation("second")
++        val racing = creation("arrived-before-replay")
++        h.send(first)
++        h.send(second)
++        runCurrent()
++
++        gate.complete()
++        // Invoked before the scheduled replay runs.
++        h.send(racing)
++        runCurrent()
++
++        assertEquals(listOf(first, second, racing), h.delivered)
++    }
++
++    @Test
++    fun `no deletion pending means nothing is held`() = runTest {
++        val h = Harness(middleware(Job().apply { complete() }, scope = backgroundScope))
++        val action = creation("tab")
++        h.send(action)
++        assertEquals(listOf(action), h.delivered)
++        assertTrue(h.redispatched.isEmpty())
++    }
++
++    @Test
++    fun `held loads are released when the deletion fails open after its bound`() {
++        // The real guard: Gecko never confirms, so the gate opens after the
++        // bound and the held link load proceeds (fail open, documented).
++        val marker = QuitMarkerFile(File(tmp.root, "redoubt_session_end"))
++        marker.write(QuitMarker(SessionEnd.RUNNING))
++        val runner =
++            object : DeleteOnQuitRunner {
++                override fun startEngineDeletion(
++                    types: Set<org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType>,
++                    scope: CoroutineScope,
++                ) = CompletableDeferred<Boolean>()
++
++                override suspend fun deleteAppData(
++                    types: Set<org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType>,
++                    live: Boolean,
++                ) = true
++            }
++        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
++        val guard =
++            DeleteOnQuitGuard(
++                marker = marker,
++                selectedTypes = { setOf(COOKIES) },
++                runner = runner,
++                scope = scope,
++                ioDispatcher = Dispatchers.Unconfined,
++                appDataTimeoutMs = 100,
++                engineTimeoutMs = 200,
++            )
++        val h =
++            Harness(
++                DeleteOnQuitStartGateMiddleware(
++                    { guard.coldStartGate },
++                    { guard.purgeRestoredHistory },
++                    { guard.onRestoreComplete() },
++                    scope,
++                ),
++            )
++        guard.onColdStart()
++        val link = creation("link")
++        h.send(link)
++        assertTrue("held while Gecko has not confirmed", h.delivered.isEmpty())
++
++        runBlocking { guard.coldStartGate.join() }
++        runBlocking { kotlinx.coroutines.delay(50) }
++        assertEquals(listOf(link), h.delivered)
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `the restore after a HISTORY deletion comes back without back-forward history`() = runTest {
++        var purge = true
++        var restoreDone = 0
++        val h =
++            Harness(
++                middleware(
++                    Job().apply { complete() },
++                    purge = { purge },
++                    restoreDone = {
++                        restoreDone++
++                        purge = false
++                    },
++                    scope = backgroundScope,
++                ),
++            )
++        val history = mockk<EngineSessionState>()
++        val restore =
++            TabListAction.RestoreAction(
++                tabs =
++                    listOf(
++                        RecoverableTab(history, TabState(id = "a", url = "http://10.0.2.2:8765/b.html", title = "b")),
++                        RecoverableTab(null, TabState(id = "b", url = "https://example.org/")),
++                    ),
++                selectedTabId = "a",
++                restoreLocation = TabListAction.RestoreAction.RestoreLocation.BEGINNING,
++            )
++        h.send(restore)
++        val sent = h.delivered.single() as TabListAction.RestoreAction
++        // Same tabs, same urls, same selection: only the engine state (the
++        // back/forward history) is gone, as after EngineAction.PurgeHistoryAction.
++        assertEquals(restore.tabs.map { it.state }, sent.tabs.map { it.state })
++        assertTrue(sent.tabs.all { it.engineSessionState == null })
++        assertEquals("a", sent.selectedTabId)
++
++        h.send(RestoreCompleteAction)
++        assertEquals(1, restoreDone)
++        assertSame(RestoreCompleteAction, h.delivered.last())
++
++        // After the restore completed (or with no HISTORY deletion) restores are untouched.
++        h.send(restore)
++        assertSame(restore, h.delivered.last())
++        assertNotNull((h.delivered.last() as TabListAction.RestoreAction).tabs[0].engineSessionState)
++    }
++
++    @Test
++    fun `the guard asks for the purge only for HISTORY and clears it at restore complete`() {
++        val marker = QuitMarkerFile(File(tmp.root, "m"))
++        marker.write(QuitMarker(SessionEnd.RUNNING))
++        val runner =
++            object : DeleteOnQuitRunner {
++                override fun startEngineDeletion(
++                    types: Set<org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType>,
++                    scope: CoroutineScope,
++                ) = CompletableDeferred(true)
++
++                override suspend fun deleteAppData(
++                    types: Set<org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType>,
++                    live: Boolean,
++                ) = true
++            }
++        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
++        val guard =
++            DeleteOnQuitGuard(marker, { setOf(HISTORY) }, runner, scope, Dispatchers.Unconfined)
++        val m = DeleteOnQuitStartGateMiddleware({ guard.coldStartGate }, { guard.purgeRestoredHistory }, { guard.onRestoreComplete() }, scope)
++        val h = Harness(m)
++        guard.onColdStart()
++        runBlocking { guard.coldStartGate.join() }
++        assertTrue(guard.purgeRestoredHistory)
++        h.send(RestoreCompleteAction)
++        assertFalse(guard.purgeRestoredHistory)
++    }
++
++    @Test
++    fun `other actions are never held`() = runTest {
++        val h = Harness(middleware(Job(), scope = backgroundScope))
++        val actions =
++            listOf(
++                ContentAction.UpdateTitleAction("t", "title"),
++                RestoreCompleteAction,
++                EngineAction.PurgeHistoryAction,
++            )
++        actions.forEach(h::send)
++        assertEquals(actions, h.delivered)
++        assertFalse(h.redispatched.isNotEmpty())
 +    }
 +}
