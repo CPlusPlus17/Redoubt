@@ -93,18 +93,35 @@
 #     logged "deletion incomplete ... continuing (fail open)"), restore and
 #     loads proceed, and the deletion is retried after the next exit that is
 #     not Quit. Not covered by the gate: a custom-tabs client's mayLaunchUrl
-#     speculative connect (a TCP/TLS pre-connect, no request, no cookies), and
-#     extension background pages (uBO's filter-list updates).
+#     speculative connect (a TCP/TLS pre-connect, no request, no cookies),
+#     extension background pages (uBO's filter-list updates), and favicon
+#     downloads (android-components HttpIconLoader, through the engine's
+#     fetch client; for normal tabs with CookiePolicy.INCLUDE, so one that
+#     runs before Gecko processed the cookie deletion can carry a cookie of
+#     the old session to that icon's host).
 #
 # (a) best effort. DeleteOnQuitTaskService, a started (not foreground) service
 #     with stopWithTask="false" and no notification, is started at every
-#     activity start while the setting is on. When the task is swiped away
-#     while it runs, onTaskRemoved starts the same deletion without blocking
-#     (no ANR) and marks "clean" only if it finishes and no activity started
-#     meanwhile. Android usually kills a background process right after
-#     removing its task, and stops background services about a minute after
-#     the app left the foreground, so (a) is measured, never relied on; (b)
-#     covers everything (a) misses.
+#     activity start while the setting is on. Android calls onTaskRemoved for
+#     ANY task of the app that is swiped away while it runs, and the app can
+#     have several: the main browser, each PWA in its own document task
+#     (FLAG_ACTIVITY_NEW_DOCUMENT), a custom tab in its own task
+#     (ExternalAppBrowserActivity, taskAffinity="") or inside the calling
+#     app's task. DeleteOnQuitActivityCallbacks therefore track every live
+#     activity and its task (LiveTasks), and onTaskRemoved ends the session
+#     only when no other task still holds a live activity: the removed task
+#     has left ActivityManager.appTasks by then, a task never listed there
+#     (a custom tab in another app's task) counts as remaining, and a recents
+#     entry without a live activity does not. Then it starts the same
+#     deletion without blocking (no ANR) and marks "clean" only if it
+#     finishes and no activity started meanwhile. While another task remains,
+#     or when the task list cannot be read, it deletes nothing and leaves the
+#     marker "running" -- the user is still in that session, and (b) still
+#     covers a later kill -- and the service keeps running for the next
+#     removal. Android usually kills a background process right after
+#     removing its last task, and stops background services about a minute
+#     after the app left the foreground, so (a) is measured, never relied on;
+#     (b) covers everything (a) misses.
 #
 # Quit itself is unchanged; after upstream's deletion it also runs the guard's
 # awaited deletion (idempotent) and only then writes "clean", because upstream
@@ -119,7 +136,11 @@
 # before deletion; restore gated on the engine), bounded retries, the single
 # 20 s bound (fail open), a local step that never returns (the main thread is
 # released), the history-purge flag, every activity start (not only the
-# first) marking "running", the clean-quit / foreground race, setting off.
+# first) marking "running", the clean-quit / foreground race, setting off,
+# and several tasks (swiping one of two tasks deletes nothing and leaves
+# "running", swiping the last one deletes and marks "clean"; a custom tab in
+# another app's task keeps the session; a stale recents entry does not; an
+# unreadable task list never deletes).
 # DeleteOnQuitStartGateMiddlewareTest -- link, custom-tab, PWA and restored-tab
 # session creation held until the gate opens and replayed in order, no
 # overtaking at the opening, release on fail-open, no holding without a
@@ -215,7 +236,7 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteO
 new file mode 100644
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
-@@ -0,0 +1,655 @@
+@@ -0,0 +1,770 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -260,10 +281,19 @@ new file mode 100644
 +//       is not Quit.
 +//
 +//   (a) best effort. DeleteOnQuitTaskService (stopWithTask="false") is started
-+//       at every activity start, so Android calls onTaskRemoved when the task
-+//       is swiped away. That starts the same deletion without waiting for it;
-+//       Android usually kills the process within milliseconds, so (a) may not
-+//       finish -- (b) does not depend on it.
++//       at every activity start, so Android calls onTaskRemoved when a task
++//       of the app is swiped away. The app can have several tasks at once
++//       (the main browser, each PWA in its own document task, a custom tab in
++//       its own task or inside the calling app's task), and onTaskRemoved
++//       fires for any of them. Only the removal of the LAST task that still
++//       holds a live activity of the app ends the session: then the same
++//       deletion starts without waiting for it, and "clean" is written once it
++//       was confirmed. While another task remains (or when that cannot be
++//       determined) nothing is deleted and the marker stays "running", so
++//       the session the user is still in keeps its tabs and cookies and (b)
++//       still applies to it. Android usually kills the process within
++//       milliseconds of the last task's removal, so (a) may not finish -- (b)
++//       does not depend on it.
 +//
 +// Nothing here touches the network, and with the setting off nothing is
 +// deleted or held. Log tag: RedoubtDeleteOnQuit.
@@ -271,10 +301,12 @@ new file mode 100644
 +package org.mozilla.fenix.lw
 +
 +import android.app.Activity
++import android.app.ActivityManager
 +import android.app.Application
 +import android.app.Service
 +import android.content.Context
 +import android.content.Intent
++import android.os.Build
 +import android.os.Bundle
 +import android.os.IBinder
 +import android.system.Os
@@ -591,6 +623,23 @@ new file mode 100644
 +        }
 +    }
 +
++    /**
++     * A task of the app was removed (swiped away from recents). [remainingTasks]
++     * is the number of OTHER tasks that still hold a live activity of the app,
++     * or null when that could not be determined. Only the removal of the last
++     * one ends the session; otherwise nothing is deleted and the marker is left
++     * as it is ("running" while a session is in use), so a later kill or crash
++     * is still covered by the cold-start deletion.
++     */
++    fun onTaskRemoved(remainingTasks: Int?): Job {
++        if (remainingTasks == null || remainingTasks > 0) {
++            val what = remainingTasks?.let { "$it other task(s) of the app still open" } ?: "other tasks unknown"
++            logger.warn("task-removed: $what; session continues, nothing deleted, marker stays unclean")
++            return completedJob()
++        }
++        return onSessionEnding("task-removed")
++    }
++
 +    private suspend fun awaitEngine(d: Deferred<Boolean>): Boolean =
 +        try {
 +            d.await()
@@ -819,9 +868,14 @@ new file mode 100644
 +    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
 +
 +    override fun onTaskRemoved(rootIntent: Intent?) {
-+        Logger(DeleteOnQuitGuard.LOG_TAG).warn("onTaskRemoved: task swiped away")
-+        DeleteOnQuitGuard.get(this).onSessionEnding("task-removed")
-+        stopSelf()
++        val remaining = DeleteOnQuitActivityCallbacks.liveTasks.remainingAfterRemoval(appTaskIds(this))
++        Logger(DeleteOnQuitGuard.LOG_TAG).warn(
++            "onTaskRemoved: task swiped away (${rootIntent?.component?.shortClassName}); " +
++                "other live tasks: ${remaining ?: "unknown"}"
++        )
++        DeleteOnQuitGuard.get(this).onTaskRemoved(remaining?.size)
++        // While another task remains, keep running: its removal must reach onTaskRemoved too.
++        if (remaining != null && remaining.isEmpty()) stopSelf()
 +    }
 +
 +    companion object {
@@ -847,19 +901,94 @@ new file mode 100644
 +}
 +
 +/**
++ * The ids of the app's own tasks as Android lists them (ActivityManager.appTasks),
++ * or null when they cannot be read. A task removed from recents is no longer
++ * listed by the time onTaskRemoved runs. A task the app's activity lives in but
++ * that belongs to another app (a custom tab opened without a new task) is never
++ * listed.
++ */
++fun appTaskIds(context: Context): Set<Int>? =
++    try {
++        context.getSystemService(ActivityManager::class.java)?.appTasks?.mapNotNullTo(HashSet()) { task ->
++            try {
++                task.taskInfo?.let(::taskIdOf)
++            } catch (e: IllegalArgumentException) {
++                null // the task went away meanwhile
++            }
++        }
++    } catch (e: RuntimeException) {
++        Logger(DeleteOnQuitGuard.LOG_TAG).warn("app tasks unreadable: $e")
++        null
++    }
++
++// persistentId is the task id before API 29 (deprecated there, replaced by taskId).
++@Suppress("DEPRECATION")
++private fun taskIdOf(info: ActivityManager.RecentTaskInfo): Int =
++    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) info.taskId else info.persistentId
++
++/**
++ * The app's live (created, not yet destroyed) activities and the task each
++ * one lives in, so a task removal can tell whether the session is still in use
++ * in another task.
++ *
++ * A task counts as the app's own once it was seen in the app's task list
++ * ([appTaskIds]); a live activity in a task never seen there (a custom tab in
++ * the calling app's task, or an unreadable task list) counts as remaining
++ * whatever the task list says later. A removed own task drops out of the task
++ * list before its activities are destroyed, so it does not count.
++ */
++class LiveTasks {
++    private val activities = HashMap<Any, Int>()
++    private val ownTasks = HashSet<Int>()
++
++    /** [activity] was created or started in [taskId]; [appTasks] is the app's task list now, null if unknown. */
++    @Synchronized
++    fun onActivity(activity: Any, taskId: Int, appTasks: Set<Int>?) {
++        activities[activity] = taskId
++        if (appTasks != null && taskId in appTasks) ownTasks += taskId
++    }
++
++    /** [activity] was destroyed. */
++    @Synchronized
++    fun onDestroyed(activity: Any) {
++        val taskId = activities.remove(activity) ?: return
++        if (taskId !in activities.values) ownTasks -= taskId
++    }
++
++    /**
++     * The tasks that still hold a live activity of the app, given the app's
++     * task list after a removal ([appTasks]); null when that list is unknown.
++     */
++    @Synchronized
++    fun remainingAfterRemoval(appTasks: Set<Int>?): Set<Int>? {
++        appTasks ?: return null
++        return activities.values.filterTo(HashSet()) { it in appTasks || it !in ownTasks }
++    }
++}
++
++/**
 + * Registered by FenixApplication. Every activity start counts, not only the
 + * first one of the process (ProcessLifecycleOwner ON_START): after Quit, an
 + * activity of another task (a custom tab, split screen) that starts must set
-+ * the marker back to "running".
++ * the marker back to "running". Activity creation, start and destruction also
++ * feed [liveTasks], which DeleteOnQuitTaskService consults when a task is
++ * removed.
 + */
 +class DeleteOnQuitActivityCallbacks(
++    private val tasks: LiveTasks? = null,
++    private val appTasks: () -> Set<Int>? = { null },
 +    private val onActivityStart: () -> Unit,
 +) : Application.ActivityLifecycleCallbacks {
-+    constructor(context: Context) : this({ onAppForeground(context) })
++    constructor(context: Context) : this(liveTasks, { appTaskIds(context) }, { onAppForeground(context) })
 +
-+    override fun onActivityStarted(activity: Activity) = onActivityStart()
++    override fun onActivityStarted(activity: Activity) {
++        tasks?.onActivity(activity, activity.taskId, appTasks())
++        onActivityStart()
++    }
 +
-+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
++    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
++        tasks?.onActivity(activity, activity.taskId, appTasks())
++    }
 +
 +    override fun onActivityResumed(activity: Activity) = Unit
 +
@@ -869,7 +998,14 @@ new file mode 100644
 +
 +    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
 +
-+    override fun onActivityDestroyed(activity: Activity) = Unit
++    override fun onActivityDestroyed(activity: Activity) {
++        tasks?.onDestroyed(activity)
++    }
++
++    companion object {
++        /** The process's live activities by task. */
++        val liveTasks = LiveTasks()
++    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddleware.kt
 new file mode 100644
@@ -1019,17 +1155,19 @@ diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteO
 new file mode 100644
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
-@@ -0,0 +1,412 @@
+@@ -0,0 +1,514 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 +
 +// Redoubt LW-M7-45: the marker, the cold-start rule, the guard's state
-+// machine and the activity-start hook. The deletion itself (DefaultDeleteOnQuitRunner) is exercised on a
++// machine, the activity-start hook and the several-tasks rule. The deletion itself (DefaultDeleteOnQuitRunner) is exercised on a
 +// device; see docs/android/evidence/lw-m7-45/.
 +
 +package org.mozilla.fenix.lw
 +
++import android.app.Activity
++import io.mockk.every
 +import io.mockk.mockk
 +import kotlinx.coroutines.CompletableDeferred
 +import kotlinx.coroutines.CoroutineScope
@@ -1430,6 +1568,106 @@ new file mode 100644
 +        file.setLastModified(before - 10_000)
 +        g.onForeground()
 +        assertEquals(before - 10_000, file.lastModified())
++    }
++
++    // --- several tasks (PWA, custom tab, main browser) ----------------------
++
++    /** Two own tasks: swiping one leaves the other's session alone; swiping the last one ends it. */
++    @Test
++    fun `swiping one of two tasks deletes nothing, swiping the last one deletes and marks clean`() {
++        val runner = FakeRunner()
++        val g = guard(runner)
++        runBlocking { g.onColdStart().join() }
++        val engineBefore = runner.engineCalls.size
++        val appBefore = runner.appCalls.size
++        val tasks = LiveTasks()
++        val main = Any()
++        val pwa = Any()
++        tasks.onActivity(main, 11, setOf(11))
++        tasks.onActivity(pwa, 12, setOf(11, 12))
++
++        // The PWA task is swiped: Android drops it from the task list before
++        // its activity is destroyed.
++        val left = tasks.remainingAfterRemoval(setOf(11))
++        assertEquals(setOf(11), left)
++        runBlocking { g.onTaskRemoved(left!!.size).join() }
++        assertEquals(engineBefore, runner.engineCalls.size)
++        assertEquals(appBefore, runner.appCalls.size)
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++
++        // Then the main task is swiped too.
++        tasks.onDestroyed(pwa)
++        val none = tasks.remainingAfterRemoval(emptySet())
++        assertEquals(emptySet<Int>(), none)
++        runBlocking { g.onTaskRemoved(none!!.size).join() }
++        assertEquals(engineBefore + 1, runner.engineCalls.size)
++        assertEquals(listOf(selected to true), runner.appCalls.drop(appBefore))
++        assertEquals(QuitMarker(SessionEnd.CLEAN), marker.read())
++    }
++
++    @Test
++    fun `a custom tab inside another app's task keeps the session alive when the main task is swiped`() {
++        val runner = FakeRunner()
++        val g = guard(runner)
++        runBlocking { g.onColdStart().join() }
++        val tasks = LiveTasks()
++        tasks.onActivity("main", 21, setOf(21))
++        // The custom tab lives in the calling app's task, never in the app's task list.
++        tasks.onActivity("custom-tab", 99, setOf(21))
++        val left = tasks.remainingAfterRemoval(emptySet())
++        assertEquals(setOf(99), left)
++        val engineBefore = runner.engineCalls.size
++        runBlocking { g.onTaskRemoved(left!!.size).join() }
++        assertEquals(engineBefore, runner.engineCalls.size)
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++
++        // Once the custom tab is gone, its task no longer counts.
++        tasks.onDestroyed("custom-tab")
++        tasks.onDestroyed("main")
++        assertEquals(emptySet<Int>(), tasks.remainingAfterRemoval(emptySet()))
++    }
++
++    @Test
++    fun `a stale recents entry without a live activity does not keep the session alive`() {
++        val tasks = LiveTasks()
++        tasks.onActivity("main", 31, setOf(31))
++        // Task 32 is in recents (the user backed out of it) but has no live activity.
++        assertEquals(emptySet<Int>(), tasks.remainingAfterRemoval(setOf(32)))
++    }
++
++    @Test
++    fun `an unknown task list never deletes`() {
++        val runner = FakeRunner()
++        val g = guard(runner)
++        runBlocking { g.onColdStart().join() }
++        val tasks = LiveTasks()
++        tasks.onActivity("main", 41, null)
++        assertNull(tasks.remainingAfterRemoval(null))
++        // A task never seen in the app's list counts as remaining.
++        assertEquals(setOf(41), tasks.remainingAfterRemoval(emptySet()))
++        val engineBefore = runner.engineCalls.size
++        runBlocking { g.onTaskRemoved(null).join() }
++        assertEquals(engineBefore, runner.engineCalls.size)
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `the activity callbacks feed the task tracker`() {
++        val tasks = LiveTasks()
++        var appTasks: Set<Int>? = setOf(51, 52)
++        val callbacks = DeleteOnQuitActivityCallbacks(tasks, { appTasks }) {}
++        val a = mockk<Activity>(relaxed = true)
++        val b = mockk<Activity>(relaxed = true)
++        every { a.taskId } returns 51
++        every { b.taskId } returns 52
++        callbacks.onActivityCreated(a, null)
++        callbacks.onActivityCreated(b, null)
++        callbacks.onActivityStarted(b)
++        appTasks = setOf(51)
++        assertEquals(setOf(51), tasks.remainingAfterRemoval(appTasks))
++        callbacks.onActivityDestroyed(b)
++        callbacks.onActivityDestroyed(a)
++        assertEquals(emptySet<Int>(), tasks.remainingAfterRemoval(emptySet()))
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddlewareTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddlewareTest.kt
