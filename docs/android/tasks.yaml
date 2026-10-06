@@ -5584,19 +5584,25 @@ tasks:
       has the feature on by default (cookies + cache, privacy-defaults.patch).
       Owner decision 2026-10-06, verbatim: "lets build both as fallback".
       (b) The guarantee: a marker file (noBackupFilesDir/redoubt_session_end,
-      written temp + fsync + rename) reads "clean" only after Quit's deletion
-      was confirmed. On a cold start with the setting on and any other marker,
-      the selected categories are deleted before restoreBrowserState() and
-      restoreDownloads(): Gecko clearData is dispatched from
-      Application.onCreate, the app-side stores (session file, thumbnails,
-      Places, recently closed, permissions DB, downloads DB) are deleted
-      synchronously, and both restores wait for Gecko. The attempt is written
-      before deleting; after 3 unfinished attempts the start continues
-      without deleting and logs an error.
+      written temp + fsync + rename, then fsync of the directory) reads
+      "clean" only after Quit's deletion was confirmed. On a cold start with
+      the setting on and any other marker, the selected categories are
+      deleted before restoreBrowserState() and restoreDownloads(): Gecko
+      clearData is dispatched from Application.onCreate, the permissions DB
+      is deleted asynchronously with the engine deletions (Fenix's
+      PermissionStorage needs the main thread), and the local stores
+      (session file, thumbnails, Places, recently closed, downloads DB) are
+      deleted on the IO dispatcher while the main thread waits at most 5 s.
+      Both restores and every engine-session creation wait for the
+      cold-start gate. The attempt is written before deleting; after 3
+      unfinished attempts the start continues without deleting and logs an
+      error.
       (a) Best effort: a started service with stopWithTask="false" (no
       notification) runs the same deletion from onTaskRemoved without
-      blocking. Android usually kills the process right after a swipe, so
-      (a) is measured, not relied on.
+      blocking, but only when the removed task was the app's last one with a
+      live activity (see the multi-task follow-up below). Android usually
+      kills the process right after a swipe, so (a) is measured, not relied
+      on.
       Owner decisions 2026-10-06 (review of 8d2a68d7), verbatim:
         - trigger rule: "Every non-Quit exit". Keep: any exit that is not
           Quit, including an OOM kill, a crash or a reboot, triggers the
@@ -5614,15 +5620,33 @@ tasks:
       engineSessionState (back/forward history), the cold-start equivalent of
       upstream's PurgeHistoryAction. Any activity start
       (ActivityLifecycleCallbacks) marks the session running, not only the
-      process's first ON_START. The marker's directory is fsync'ed after the
-      rename. Corrected wording: the permissions DB is deleted
-      asynchronously with the engine deletions; the local stores are deleted
-      on IO while the main thread waits at most 5 s.
+      process's first ON_START.
       The guarantee is bounded: the gate opens when Gecko and every store
       confirmed or 20 s after the deletion started, whichever comes first.
       If Gecko has not confirmed by then, or a local step failed, restore
       and page loads proceed (fail open, logged "deletion incomplete") and
-      the deletion is retried after the next exit that is not Quit.
+      the deletion is retried after the next exit that is not Quit. Not
+      behind the gate: a custom-tabs client's mayLaunchUrl speculative
+      connect (TCP/TLS only), extension background pages (uBO's filter-list
+      updates), and favicon downloads (android-components HttpIconLoader,
+      cookies included for normal tabs, so one that runs before Gecko
+      processed the cookie deletion can carry an old-session cookie to the
+      icon's host).
+      Multi-task follow-up (review finding, 2026-10-06): onTaskRemoved fires
+      for ANY task of the app -- a PWA's document task
+      (FLAG_ACTIVITY_NEW_DOCUMENT), a custom tab's own task
+      (ExternalAppBrowserActivity, taskAffinity=""), or the main task while
+      a custom tab or PWA stays open. The first version then deleted the
+      tabs and cookies of a session the user was still in and wrote "clean",
+      so a later kill skipped the cold-start deletion.
+      DeleteOnQuitActivityCallbacks now track each live activity's task
+      (LiveTasks); onTaskRemoved deletes and may mark "clean" only when no
+      other task holds a live activity (the removed task has left
+      ActivityManager.appTasks; a task never listed there, such as a custom
+      tab in the caller's task, counts as remaining; a recents entry without
+      a live activity does not). Otherwise, and when the task list cannot be
+      read, it does nothing: the marker stays "running" and the service
+      keeps running for the next removal.
     acceptance:
       - "with the setting on and all categories selected, cookies, localStorage, history and open tabs are gone after a cold start that follows a recents swipe, am force-stop, or kill -9 of the main process, and the deletion is logged before the session restore"
       - "menu Quit still deletes, and the next cold start skips the start-up deletion (marker clean)"
@@ -5632,6 +5656,7 @@ tasks:
       - "a cold start through a VIEW intent link or a custom tab after a swipe creates no engine session before the deletion is confirmed (logcat order), and the page's request carries no cookie (server log)"
       - "with HISTORY selected and TABS not, the restored tabs have no back/forward history after an unclean exit"
       - "any activity start after Quit sets the marker back to running"
+      - "with a PWA or custom tab task and the main task open, swiping one of them deletes nothing live and leaves the marker running; swiping the last one deletes (live or at the next cold start)"
       - "the patch applies to Firefox 157.0 and 158.0b4 in list order, compiles under -Werror, and DeleteOnQuitGuardTest and DeleteOnQuitStartGateMiddlewareTest pass"
       - "android-smoke.sh --check-delete-on-quit passes on a build with the patch and fails on one without it"
     verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope"
