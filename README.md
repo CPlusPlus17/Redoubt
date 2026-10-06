@@ -91,8 +91,10 @@ That "where" is [`docs/android/PARITY.md`](docs/android/PARITY.md). In short:
 ### Honest limits
 
 - **No content-process sandbox.** Firefox's Gecko content sandbox does not exist
-  on Android (upstream never finished the port). Per-site process isolation,
-  isolated processes and RLBox recover most, not all, of it.
+  on Android (upstream never finished the port). Per-site process isolation and
+  RLBox recover part of it. Android's isolated content processes are **not** used:
+  in Firefox 157 an isolated content process cannot decode H.264 or AAC, so most
+  web video would not play (upstream bug 1810736).
 - **Not everything is proven on a live page.** HTTPS-only, certificate revocation,
   the TLS floor and fingerprinting coherence are configured but marked *Partial*
   in `PARITY.md` until measured on a device. The DNS-over-HTTPS setting in the

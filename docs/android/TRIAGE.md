@@ -657,9 +657,10 @@ on Android, not something LibreWolf turned off, and we cannot turn it on from wh
 we sit.
 
 What we do instead is use Android's own containment, which stock Firefox for Android
-does not: isolated processes, the app zygote, and per-site process isolation
-(fission.webContentIsolationStrategy), which Android Firefox ships disabled. That
-recovers most of the gap and we do not claim it recovers all of it.
+does not: per-site process isolation (fission.webContentIsolationStrategy), which
+Android Firefox ships disabled. Isolated processes and the app zygote are not used:
+in Firefox 157 an isolated content process cannot play H.264 video (upstream bug
+1810736). That recovers part of the gap and we do not claim it recovers all of it.
 
 Our position, in full: Redoubt ships the same privacy configuration and
 the same Gecko-level security patches as LibreWolf desktop, on a platform whose
@@ -789,8 +790,7 @@ the shared set that silently did not apply on Android; an APK whose signing
 fingerprint does not match the published one; any sign that F-Droid, Accrescent or
 the direct download served a binary we did not sign; unexpected outbound network
 requests from a build that should make none before first navigation; a demonstrated
-way past the containment we *do* have (isolated processes, the app zygote, the
-locked isolation strategy).
+way past the containment we *do* have (the locked isolation strategy).
 
 **What does not qualify:** the documented sandbox gap (**B2**); "Redoubt is less
 secure than $BROWSER" comparisons; hardening wishlists; anything that is a privacy
