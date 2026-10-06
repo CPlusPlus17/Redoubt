@@ -1,0 +1,13 @@
++ ./scripts/fdroid-repo.sh publish-page <scratch checkout>   (the MinIO test home; repo URL http://10.0.0.135:9000/redoubt-fdroid/repo)
+==> first publish: pinned the repository fingerprint in assets/fdroid/repo-fingerprint
+==> human page -> site/fdroid.html, QR code -> site/fdroid-qr.svg
+==> what changed (commit these, signed, and push to main):
+    ?? assets/fdroid/repo-fingerprint
+    ?? site/fdroid-qr.svg
+    ?? site/fdroid.html
+==> site check (pages.yaml runs it first)
+    FAIL fdroid.html: assets/fdroid/deploy.conf names no bucket (run fdroid-repo.sh init --bucket)
+    FAIL fdroid.html:39: external link 'fdroidrepos://10.0.0.135:9000/redoubt-fdroid/repo?fingerprint=F8627D0018AF4F2826FFFD3BDDF3832A3299CD5BC8D093D15A5909AE3D32BD3F' is not on the allowlist
+    FAIL: 9 pages checked in <scratch>/co-test/site, 2 problem(s)
+fdroid-repo: REFUSED: site-check fails; do not commit (a page rendered for a test URL always fails it)
+exit 1

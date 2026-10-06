@@ -1,0 +1,151 @@
+{
+ "checks": [
+  {
+   "check": "ubo-user-disable-reload-control-provision",
+   "ok": true,
+   "detail": "bundled-list script blocked; allowed script must execute and reach the origin",
+   "evidence": {
+    "page": {
+     "url": "http://127.0.0.1:46617/ubo-probe?token=reload-control-provision-fe56733b78380c17",
+     "uri": "http://127.0.0.1:46617/ubo-probe?token=reload-control-provision-fe56733b78380c17",
+     "ready": "complete",
+     "probe": {
+      "token": "reload-control-provision-fe56733b78380c17",
+      "blocked": false,
+      "allowed": true
+     }
+    },
+    "page_requests": [
+     [
+      1791290129.851516,
+      "http",
+      "/ubo-probe?token=reload-control-provision-fe56733b78380c17"
+     ]
+    ],
+    "blocked_requests": [],
+    "allowed_requests": [
+     [
+      1791290129.9347835,
+      "http",
+      "/redoubt-allowed.js?token=reload-control-provision-fe56733b78380c17"
+     ]
+    ],
+    "expected_blocked": true
+   }
+  },
+  {
+   "check": "ubo-user-disable-user-disable-provision",
+   "ok": true,
+   "detail": "bundled-list script blocked; allowed script must execute and reach the origin",
+   "evidence": {
+    "page": {
+     "url": "http://127.0.0.1:46617/ubo-probe?token=user-disable-provision-709ed4fb8ceaed7f",
+     "uri": "http://127.0.0.1:46617/ubo-probe?token=user-disable-provision-709ed4fb8ceaed7f",
+     "ready": "complete",
+     "probe": {
+      "token": "user-disable-provision-709ed4fb8ceaed7f",
+      "blocked": false,
+      "allowed": true
+     }
+    },
+    "page_requests": [
+     [
+      1791290187.8706357,
+      "http",
+      "/ubo-probe?token=user-disable-provision-709ed4fb8ceaed7f"
+     ]
+    ],
+    "blocked_requests": [],
+    "allowed_requests": [
+     [
+      1791290187.9214244,
+      "http",
+      "/redoubt-allowed.js?token=user-disable-provision-709ed4fb8ceaed7f"
+     ]
+    ],
+    "expected_blocked": true
+   }
+  },
+  {
+   "check": "check-ubo-user-disable",
+   "ok": false,
+   "detail": "user-disable: the 'uBlock Origin setup failed' dialog is showing, the preinstaller logged a startup failure, no user-disabled readiness line was logged, the held first page did not load unfiltered",
+   "evidence": {
+    "phases": [
+     {
+      "ok": true,
+      "problems": [],
+      "dialog": true,
+      "failed_lines": [
+       "10-06 14:35:41.281 12164 12164 E LibreWolfUboPreinstaller: uBlock Origin startup failed; browsing remains paused"
+      ],
+      "ready_lines": [],
+      "user_disabled_lines": [],
+      "ready_disabled_lines": [],
+      "phase": "reload-control",
+      "mutation": {
+       "before": {
+        "active": true,
+        "userDisabled": false
+       },
+       "after": {
+        "active": true,
+        "userDisabled": false
+       }
+      },
+      "page": {
+       "origin_requests": []
+      },
+      "marionette_attached_s": 4.3,
+      "mutated_s": 4.3,
+      "waited_seconds": 47.1
+     },
+     {
+      "ok": false,
+      "problems": [
+       "the 'uBlock Origin setup failed' dialog is showing",
+       "the preinstaller logged a startup failure",
+       "no user-disabled readiness line was logged",
+       "the held first page did not load unfiltered"
+      ],
+      "dialog": true,
+      "failed_lines": [
+       "10-06 14:36:39.388 13131 13131 E LibreWolfUboPreinstaller: uBlock Origin startup failed; browsing remains paused"
+      ],
+      "ready_lines": [],
+      "user_disabled_lines": [],
+      "ready_disabled_lines": [],
+      "phase": "user-disable",
+      "mutation": {
+       "before": {
+        "active": true,
+        "userDisabled": false
+       },
+       "after": {
+        "active": false,
+        "userDisabled": true
+       }
+      },
+      "page": {
+       "error": "initial browser document did not finish loading before about:config: {'url': 'about:blank', 'uri': 'about:blank', 'ready': 'complete'}"
+      },
+      "marionette_attached_s": 4.3,
+      "mutated_s": 4.3,
+      "waited_seconds": 47.1
+     }
+    ]
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/ubo-disable/runs/old",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/ubo-disable/apk/redoubt-157.0-2-x86_64-throwaway.apk",
+  "sha256": "ef2e520491711e39ffa789e32128071db4d3477b8bd44cb2c395b841e1f62ed1",
+  "size": 135217228,
+  "harness_sha256": "556f5f4b0bb0410b5cdd7d904472c1e5a9df8d8298cf703bfe19c8ef1baf3753"
+ },
+ "status": "completed",
+ "error": null
+}

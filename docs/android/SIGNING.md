@@ -97,6 +97,13 @@ There is no co-holder to recover from, no authority to appeal to, and no
 key-recovery mechanism outside Play App Signing, which this project does not use.
 Every installed user would have to uninstall and reinstall, losing their profile.
 
+> **2026-10-05, Google Play (LW-M6-12).** The owner decided to upload this key to
+> Play App Signing ("Google holds a copy of the app signing key" below). Once that
+> upload has happened, Google holds a second copy. That copy is a **custodian's
+> copy, not a second holder**. Google signs Play's APKs with it, but it will not hand
+> it back for signing GitHub or F-Droid APKs, so it does not change the loss case
+> above for those channels. It does change the compromise case.
+
 The LW-M6-01 acceptance criterion "at least two holders" is therefore **not met,
 and is not going to be met before launch**. It is an accepted risk of a solo
 project. Revisit it when there is a second maintainer, or when an offline copy in
@@ -314,6 +321,60 @@ Android supports key rotation through APK Signature Scheme v3
 
 Do not treat rotation as a reason to hold the key less carefully.
 
+## Google holds a copy of the app signing key (Google Play, LW-M6-12)
+
+    DECIDED       2026-10-05
+    DECIDED BY    Manuel Gysin (owner)
+    CHOICE        publish on Google Play with THIS key uploaded to Play App Signing
+                  (PEPK, "use existing app signing key"), so that the fingerprint
+                  above is the same on every channel; Google holds a copy
+    STATE         decided, NOT YET DONE -- no Play account exists and nothing has
+                  been uploaded (2026-10-05). Fill in the date of the PEPK upload
+                  here when it happens:  uploaded: ____-__-__
+    RUNBOOK       docs/android/PLAY.md section 4, steps 3-4
+
+This reverses LW-M6-04's "the Play Store is out of scope -- its signing model
+conflicts with LW-M6-01". The conflict is accepted, not resolved. Once the
+upload has happened, the following is true and must be said that way:
+
+- **Google can sign an update for `org.redoubtbrowser` that every install
+  accepts**, including the installs that came from GitHub Releases, Obtainium or the
+  F-Droid repository and never touched Play. Android checks the key, not the channel.
+  Such an update still has to reach the device: through Play, which can update any
+  install it is allowed to update, or as an APK handed to someone. Once there, the
+  device does not ask where it came from, only who signed it.
+- **The trust root is no longer one person.** It is the owner **and Google**. Every
+  sentence that says "one person holds the signing key" (README "Honest limits",
+  `site/privacy.html` "A different signing identity") becomes false on the day of the
+  upload. The corrected wording is prepared outside the repo and goes in with the
+  Play launch (PLAY.md section 9), not before.
+- **The compromise surface grows.** A Google-side compromise, a legal order addressed
+  to Google, or a takeover of the Play Console account combined with an upload-key
+  reset can all produce a validly signed update. The Play Console account therefore
+  needs 2-step verification, and its upload-key reset is a security event (PLAY.md,
+  step 4).
+- **What Google gets is the encrypted export.** PEPK encrypts the private key to
+  Google's public key on box A, and only Google can decrypt the zip. The keystore
+  passphrase is not sent. The owner runs PEPK. No agent does, and the encrypted zip is
+  deleted after the upload.
+- **The upload key is separate** (`~/redoubt-play-upload.p12`, owner-held). This key
+  is used once, for the PEPK export, and never signs an upload. `sign-aab.sh` refuses
+  it as the upload signer. A lost upload key is reset by Google. A lost app signing
+  key is still the end of the identity for every channel that is not Play.
+- **Key upgrades on Play.** Play offers a "key upgrade", and from Android 17 a
+  quantum-ready hybrid signing upgrade, both with keys that **Google generates**.
+  Accepting either makes Play installs on newer Android verify against a key the
+  other channels do not have. **Do not accept them**: PLAY.md step 3 says the same.
+  The v3 rotation described under "Rotation, and its limits" still works only with
+  this key, so a rotation on Play and on the other channels would have to be one
+  joint act.
+- **Losing access to Play does not return the key.** Unpublishing the app or losing
+  the account leaves Google's copy where it is.
+
+The channels stay interchangeable: a Play install and a GitHub or F-Droid install of
+a later build update each other in place (PLAY.md section 3, "versionCode, and
+moving between channels").
+
 ## The update-signing key (LW-M6-06)
 
 Everything above is about the **APK release key**. The in-app update check
@@ -432,3 +493,53 @@ safe but means opted-in users stop hearing about updates. Generate a new key, sh
 a client with it, and tell users on the release page and the site that the in-app
 check needs one manual update to resume. There is no lineage mechanism: a client
 embeds exactly one key, so rotation is always "new key in the next client".
+
+## The F-Droid repository key (LW-M6-03)
+
+A third key, separate from the two above: it signs the **index** of Redoubt's own F-Droid
+repository (`docs/android/FDROID.md`), not any APK. The APKs in the repository are the GitHub
+release's APKs, signed with the release key above, unchanged.
+
+    purpose                signs the F-Droid repository index (entry.jar, index-v1.jar, index.jar)
+    algorithm              RSA 4096, SHA256withRSA (fdroidserver also signs the two legacy
+                           JARs with SHA1withRSA for old clients)
+    keystore               ~/redoubt-fdroid/keystore.p12 on box A (PKCS12, alias
+                           redoubt-fdroid-repo, passphrase typed at the prompt)
+    created by             ./scripts/fdroid-repo.sh init, by the owner, once
+    generated              NOT YET (2026-10-05). Fill in date, fingerprint and backups when done:
+                           generated ____-__-__ ; fingerprint (plain hex) recorded in
+                           assets/fdroid/repo-fingerprint by the first publish-page
+    copies / holders       ____ (at least one offline backup, restore-tested)
+
+Record the fingerprint as plain hex as above, never under the words used for the APK key in
+"The key": `scripts/android-verify-signature.sh` and `scripts/fdroid-repo.sh` read the APK
+fingerprint from this file by that label and must keep finding only the APK one.
+
+**What it can and cannot do.** Whoever holds it can publish an index that clients which added
+the repository accept: which versions are offered, their descriptions, and the sha256 of each
+APK. It **cannot** make Android install an APK that is not signed with the release key: the
+update would fail Android's same-key rule. A stolen repository key therefore lets an attacker
+withhold updates (serve a stale index), offer an old Redoubt as current (the repository keeps
+every release, in its archive), or point at another app under a different package name. It
+cannot replace Redoubt itself. `fdroid-repo.sh` also refuses to sign or deploy an index whose
+APKs are not signed by the release key, but that is a check in this repository, not in the
+client. The bucket's S3 credentials are a separate secret (`FDROID.md`): they can change what
+the bucket serves, but clients refuse any index that this key did not sign.
+
+**Custody.** The APK key's settled rules apply: never in CI, never in a repository checkout
+(`init` refuses a home inside one), passphrase separate from the file. Back it up with the same
+care as the update-signing key: an offline copy, restore-tested with
+`REDOUBT_FDROID_HOME=<copy> ./scripts/fdroid-repo.sh fingerprint`.
+
+**If it is lost.** No one can sign a new index that existing clients accept. Users who added
+the repository stop receiving updates through it, silently: F-Droid keeps showing the last
+index. Recovery is a new key and a new repository fingerprint, which every user must re-add by
+hand (remove the old repository, add the new one). F-Droid has no key-rotation mechanism for
+a repository. The installed app is unaffected; its updates still come signed by the release
+key. Announce the change on the site, in the README and in the release notes.
+
+**If it is compromised.** Delete `repo/entry.jar`, `repo/index*` and the same files under
+`archive/` in the bucket (Hetzner Console or any S3 tool), so the URL stops serving an index,
+and announce it. Then create a new key and publish the new fingerprint as above. Users must
+re-add the repository; until they do, the attacker's index (if they can serve one at all, which
+needs the S3 credentials or a mirror too) is limited as described above.

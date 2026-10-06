@@ -1,0 +1,46 @@
++ (scratch checkout, its committed deploy.conf) ./scripts/fdroid-repo.sh init --bucket redoubt-fdroid-test --location fsn1   (throwaway key, production URL form; nothing is uploaded)
+Generating 4,096 bit RSA key pair and self-signed certificate (SHA256withRSA) with a validity of 10,000 days
+	for: CN=Redoubt F-Droid repository, O=Redoubt
+
+Repository created.
+  bucket        redoubt-fdroid-test (fsn1)   config: <scratch>/co-prod/assets/fdroid/deploy.conf
+  repo URL      https://redoubt-fdroid-test.fsn1.your-objectstorage.com/repo
+  archive URL   https://redoubt-fdroid-test.fsn1.your-objectstorage.com/archive
+  fingerprint   3157CF0B33109CDEC3988E8689D78101FD711E0DCC11E3C944CCB609EC2DB49A
+
+Users add:  https://redoubt-fdroid-test.fsn1.your-objectstorage.com/repo?fingerprint=3157CF0B33109CDEC3988E8689D78101FD711E0DCC11E3C944CCB609EC2DB49A
+Next:       ./scripts/fdroid-repo.sh add <release-tag>
+
+init wrote the bucket into <scratch>/co-prod/assets/fdroid/deploy.conf: review it and commit it (signed).
++ git diff assets/fdroid/deploy.conf
+-S3_BUCKET=
++S3_BUCKET=redoubt-fdroid-test
++ ./scripts/fdroid-repo.sh publish-page .
+==> first publish: pinned the repository fingerprint in assets/fdroid/repo-fingerprint
+==> human page -> site/fdroid.html, QR code -> site/fdroid-qr.svg
+==> what changed (commit these, signed, and push to main):
+     M assets/fdroid/deploy.conf
+    ?? assets/fdroid/repo-fingerprint
+    ?? site/fdroid-qr.svg
+    ?? site/fdroid.html
+==> site check (pages.yaml runs it first)
+    PASS: 9 pages checked in <scratch>/co-prod/site, 0 problem(s)
+exit 0
++ fill and apply the placeholder diff
+Applied patch README.md cleanly.
+Applied patch site/index.html cleanly.
+Applied patch site/install.html cleanly.
++ python3 scripts/site-check.py site
+PASS: 9 pages checked in site, 0 problem(s)
+exit 0
++ the page's repository links
+fdroidrepos://redoubt-fdroid-test.fsn1.your-objectstorage.com/repo?fingerprint=3157CF0B33109CDEC3988E8689D78101FD711E0DCC11E3C944CCB609EC2DB49A
+https://redoubt-fdroid-test.fsn1.your-objectstorage.com/archive
+https://redoubt-fdroid-test.fsn1.your-objectstorage.com/repo
+ M README.md
+ M assets/fdroid/deploy.conf
+ M site/index.html
+ M site/install.html
+?? assets/fdroid/repo-fingerprint
+?? site/fdroid-qr.svg
+?? site/fdroid.html

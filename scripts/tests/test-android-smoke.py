@@ -539,6 +539,54 @@ class LauncherStartGateTests(unittest.TestCase):
             harness.main(['--check-launcher-start', '--keep-state'])
 
 
+class UboUserDisableGateTests(unittest.TestCase):
+    """LW-M7-44: --check-ubo-user-disable grading."""
+    PREFIX = '10-06 06:00:01.000  100  100 I LibreWolfUboPreinstaller: '
+    USER = PREFIX + harness.UBO_USER_DISABLED_LOG
+    READY_OFF = PREFIX + harness.UBO_READY_DISABLED_LOG
+    READY_ON = PREFIX + harness.UBO_READY_LOG
+    FAILED = PREFIX.replace(' I ', ' E ') + harness.UBO_FAILED_LOG + '; browsing remains paused'
+    DIALOG = '<node text="uBlock Origin setup failed" bounds="[0,0][1,1]" />'
+    grade = staticmethod(harness.grade_ubo_user_disable_phase)
+
+    def test_user_disable_inside_the_wait_continues(self):
+        result = self.grade('user-disable', '<hierarchy/>', self.USER + '\n' + self.READY_OFF, True, True)
+        self.assertTrue(result['ok'], result)
+
+    def test_user_disable_that_shows_the_dialog_fails(self):
+        result = self.grade('user-disable', self.DIALOG, self.FAILED, True, False)
+        self.assertFalse(result['ok'])
+        self.assertTrue(result['dialog'])
+        self.assertIn('no user-disabled readiness line was logged', result['problems'])
+
+    def test_user_disable_needs_the_held_page_to_load(self):
+        result = self.grade('user-disable', '<hierarchy/>', self.USER + '\n' + self.READY_OFF, True, False)
+        self.assertFalse(result['ok'])
+
+    def test_a_missed_window_is_never_a_pass(self):
+        for name in ('user-disable', 'reload-control'):
+            result = self.grade(name, '<hierarchy/>', self.READY_ON + '\n' + self.READY_OFF, True, True)
+            self.assertFalse(result['ok'])
+            self.assertIn('window missed', result['problems'][0])
+
+    def test_reload_control_must_fail_closed(self):
+        result = self.grade('reload-control', self.DIALOG, self.FAILED, True, False)
+        self.assertTrue(result['ok'], result)
+        for xml, log, page_ok in (('<hierarchy/>', self.FAILED, False),
+                                  (self.DIALOG, '', False),
+                                  (self.DIALOG, self.FAILED, True),
+                                  (self.DIALOG, self.FAILED + '\n' + self.USER, False)):
+            self.assertFalse(self.grade('reload-control', xml, log, True, page_ok)['ok'])
+
+    def test_a_dead_app_fails(self):
+        self.assertFalse(self.grade('user-disable', '<hierarchy/>',
+                                    self.USER + '\n' + self.READY_OFF, False, True)['ok'])
+
+    def test_check_refuses_kept_state(self):
+        with self.assertRaises(harness.HarnessError):
+            harness.main(['--check-ubo-user-disable', '--keep-state'])
+
+
 PKG = 'org.redoubtbrowser'
 os.environ.setdefault('LW_SMOKE_REPO', str(ROOT))
 

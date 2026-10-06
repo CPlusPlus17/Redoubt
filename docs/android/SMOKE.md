@@ -22,7 +22,7 @@ error. The whole harness exists so that build fails.
 ```
 
 That boots a headless x86_64 emulator with packet capture, installs the APK,
-wipes the app's data, runs the eight baseline checks and kills the emulator
+wipes the app's data, runs the ten baseline checks and kills the emulator
 again. Runtime depends on the host, nested virtualization and candidate startup.
 
 Against an emulator or device you already have running:
@@ -115,6 +115,19 @@ exercise Gecko's add-on state; they do not prove Fenix's extension controls,
 private-mode controls, or an upgrade to a different APK version. Those require
 separate runs and evidence. Both flags refuse `--keep-state` because their first
 phase requires an empty app profile.
+
+`--check-ubo-user-disable` (LW-M7-44) runs two phases. Each phase provisions an
+empty profile with a first navigation, then cold-starts on a held fixture URL. As
+soon as Marionette attaches, it changes uBO through the real AddonManager API while
+the preinstaller is still waiting for filter readiness. A fresh profile is needed
+each time because only uBO's first restart is slow enough. On API 34 a later
+restart was ready after 1.8 s, before Marionette attached. The first start is a control: `addon.reload()`, which is what a
+private-browsing permission change does, must still show the setup-failure dialog,
+and the held page must never reach the origin. The second start calls
+`addon.disable()`, which is what Settings > Add-ons does. It must log the
+user-disabled readiness line and show no dialog, and the held page must load
+unfiltered. If the preinstaller was already ready before the change, the phase
+fails as a missed window, never as a pass. The check refuses `--keep-state`.
 
 The fixture uses `adb reverse` and Android loopback (`127.0.0.1`). Gecko exempts
 loopback from HTTPS-only in `nsHTTPSOnlyUtils::LoopbackOrLocalException`, so the
@@ -302,14 +315,43 @@ says the cause is the GL stack under the emulator, not L1. The
 
 **This check has been proven to fire.** See "proving a check can fail" below.
 
-### `video`
+### `video`, `video-h264`, `video-mse`
 
-**Proves:** the media stack demuxes and decodes. A 64x64 VP8 + Opus WebM,
-embedded in the script and served from the local origin, must reach
-`readyState >= 3`, advance `currentTime` by more than 0.25 s, and report at
-least 4 frames through `getVideoPlaybackQuality().totalVideoFrames`, with no
-`error` event and `video.error === null`. The origin must also have served the
-file.
+Also runnable alone: `--check-video` (the same three rows, nothing else).
+
+**Proves:** the media stack demuxes and decodes, through both decoder paths
+Gecko has on Android.
+
+- `video`: a 64x64 VP8 + Opus WebM. ffvpx decodes it **inside the content
+  process**.
+- `video-h264`: a 64x64 H.264 Constrained Baseline + AAC-LC progressive MP4
+  played from `<video src>`. H.264 and AAC need **Android MediaCodec**.
+- `video-mse`: `MediaSource.isTypeSupported('video/mp4;
+  codecs="avc1.42E01E,mp4a.40.2"')` must be `true`, `addSourceBuffer()` with
+  that type must succeed, and a fragmented MP4 of the same H.264 + AAC content,
+  fetched and appended in one `appendBuffer()`, must play. This is the path
+  hls.js, dash.js and most site players use.
+
+The two `<video src>` rows must each reach `readyState >= 3`, advance
+`currentTime` by more than 0.25 s and report at least 4 frames through
+`getVideoPlaybackQuality().totalVideoFrames`, with `video.error === null`. The
+MSE row requires `readyState >= 2`, the same clock advance and 4 frames. A media
+error ends a probe at once instead of after the 30 s timeout. The origin must
+have served every fixture.
+
+The fixtures are embedded in the script as base64, like the WebM. The H.264
+ones are deterministic: the ffmpeg recipe is in the comment above them, and the
+driver checks their sha256 before it serves them.
+
+**Why three rows (LW-M7-43).** Redoubt 157.0-2 shipped with this check green
+and no H.264 or AAC playback at all. Isolated content processes were on, and
+Gecko refuses the MediaCodec module in an isolated process (upstream bug
+1810736). VP8/Opus kept working because ffvpx needs no MediaCodec, so a
+VP8-only fixture could not see the defect. On the 157.0-2 build the
+progressive MP4 fails with `MEDIA_ERR_SRC_NOT_SUPPORTED`. MSE fails before any
+element error: `isTypeSupported` returns `false` and `addSourceBuffer()` throws
+`NotSupportedError`. The fail-on-157.0-2 / pass-on-the-fix runs are in
+`docs/android/evidence/video-playback/harness/`.
 
 **Does not prove — measured, not assumed:** that any decoded pixel is correct.
 On Android, decoded video frames are **not readable from content**:
@@ -689,6 +731,8 @@ $ ./scripts/android-smoke.sh --emulator --self-test
 [smoke] page-load-http   FAIL …
 [smoke] webgl            FAIL …
 [smoke] video            FAIL …
+[smoke] video-h264       FAIL …
+[smoke] video-mse        FAIL …
 [smoke] getusermedia     FAIL …
 [smoke] extension        FAIL …
 [smoke] SELF-TEST OK: every probe reported failure when fed a wrong expectation
@@ -773,7 +817,7 @@ the vacuous version later.
 --json FILE            where to write the full result (default $WORK/result.json)
 --capture-seconds N    window length for the two capture modes (default 60)
 --pref-dump --network-capture --first-run-capture --self-test
---check-{ubo,search,no-gms,no-adjust,aboutconfig,no-suggest,strings,update-privacy}
+--check-{ubo,search,no-gms,no-adjust,aboutconfig,no-suggest,strings,update-privacy,video}
 --no-suggest-negative-control  with --check-no-suggest: suggestions ON before typing; must FAIL
 ```
 

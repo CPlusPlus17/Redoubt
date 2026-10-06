@@ -21,8 +21,12 @@ What recovers **most, not all**, of it:
 - **Per-site process isolation** — `fission.webContentIsolationStrategy` locked
   to `ISOLATE_HIGH_VALUE` (LW-M5-01). Stock Fenix ships `0` (ISOLATE_NOTHING);
   this is a genuine win over the browser we build from.
-- **Process separation** — `isolatedProcess` plus the app zygote (LW-M5-02) give
-  the content process a distinct uid.
+- **Process separation** — **not shipped.** `isolatedProcess` plus the app zygote
+  (LW-M5-02) gave the content process a distinct uid in 157.0-2, but an isolated
+  content process cannot decode H.264 or AAC in Firefox 157 (upstream bug 1810736),
+  so most web video failed. Both are pinned off from the fix for that defect
+  (LW-M7-43, `evidence/video-playback/`); content runs under the app's uid, as in
+  stock Fenix.
 - **JS/WASM sandboxing** — 52 RLBox modules are built (measured in `libxul.so`).
 
 The two **irreducible** gaps, stated plainly, are the **Gecko content-process
@@ -60,8 +64,8 @@ assertion.
 **Auxiliary-process containment (GPU / RDD / socket / utility / media):** not
 counted as an independent row. On desktop several of these run under per-process
 seccomp sandboxing; on Android that per-process sandboxing has no equivalent — they
-run under the shared `isolated_app` uid without the content sandbox that would
-complement them. This is a **consequence of row 1**, not a separate mechanism.
+run under the app's own uid, and since LW-M7-43 so does content, without the
+content sandbox that would complement them. This is a **consequence of row 1**, not a separate mechanism.
 [SANDBOX-SPIKE]
 
 ## 3. The irreducible gaps
@@ -73,7 +77,8 @@ Stated in §1. It is neither a policy decision nor a small port: upstream (bug
 finished it, and the cost of finishing it is 4–8 engineering-weeks to a first
 build and 6–12 engineering-months to ship-safe, with permanent maintenance
 (SANDBOX-SPIKE §7). The recorded recommendation is **not to pursue `MOZ_SANDBOX`**:
-the marginal gain over `isolated_app` + RLBox is kernel-attack-surface only, and
+the marginal gain over `isolated_app` + RLBox is kernel-attack-surface only (and
+`isolated_app` itself is off until upstream decodes H.264 in it, LW-M7-43), and
 it is undercut by the no-telemetry SIGSYS risk on a vendor-kernel fleet
 (SANDBOX-SPIKE §8).
 
@@ -274,3 +279,47 @@ list it.
 - **Not covered by this section:** the platform gaps of §1 to §3 (no content
   sandbox, DoH overridden) are unchanged. This section is about Mozilla
   advisories only.
+
+## 8. Known limitations: passwords and passkeys (2026-10-05)
+
+These are not security-parity rows. They are listed here because users
+experience them as limits of Redoubt. Desktop LibreWolf does not have them in
+the same form: it has its own password manager and no Android Credential
+Manager. Measured on a 157.0-2 build on an Android 14 x86_64 emulator, with a
+probe AutofillService and a probe CredentialProviderService. Stock Firefox
+for Android 157 was run in the same setup for comparison.
+
+- **Password autofill works through any Android autofill service on normal
+  forms.** The probe service received the page's username and password fields
+  with web domain and autofill hints from `org.redoubtbrowser`.
+- **Shadow-DOM login forms get no autofill in 157.** Reddit's inputs live in
+  open shadow roots (`faceplate-text-input`). `GeckoViewAutoFillChild` only
+  registers fields from the non-composed `DOMFormHasPassword` /
+  `DOMInputPasswordAdded` events and from `scanDocument`'s
+  `querySelectorAll`, and neither reaches into shadow roots. `onFocus` only
+  resolves fields that were registered. Stock Firefox for Android 157 behaves
+  the same. A fix is planned for Redoubt 158 and is **not** in 157.0-2.
+- **Passkeys need Android 14+ and go through Android Credential Manager.**
+  `no-gms.patch` removes `play-services-fido`, Gecko's FIDO2 path for older
+  Android, so there is no fallback below Android 14.
+  The probe provider received `CallingAppInfo` with package
+  `org.redoubtbrowser` and the page origin set by the browser. Firefox
+  (`org.mozilla.firefox`) produced the same in the same setup.
+- **Some managers do not accept Redoubt as a browser for passkeys.** A
+  provider that checks browsers against an allowlist rejects Redoubt until it
+  is on that list. Proton Pass ships a copy of Google Password Manager's list
+  and offers no manual override, so neither offers passkeys to Redoubt.
+  KeePassDX lets the user add Redoubt (*Settings > Form filling > Passkeys
+  settings > Privileged apps*, or the "App not recognized" prompt on first
+  use; `PasskeysPrivilegedAppsPreferenceDialogFragmentCompat`, KeePassDX
+  4.5.5). Bitwarden offers **Trust** on its "Unrecognized browser" prompt
+  (`TrustPrivilegedAddPrompt`, since PM-19107). Adding Redoubt to Bitwarden's
+  and KeePassDX's community lists, and asking Proton to add it, is in
+  progress. The KeePassDX and Bitwarden steps come from their source and are
+  **PENDING** a device test with Redoubt.
+- **Conditional-mediation passkeys (autofill-style suggestions in the
+  username field) are unavailable.** `PublicKeyCredential::
+  IsConditionalMediationAvailable` resolves `false` under
+  `MOZ_WIDGET_ANDROID` (`dom/webauthn/PublicKeyCredential.cpp`), so every
+  Firefox-based Android browser has this limit. Sites' explicit passkey buttons
+  (modal WebAuthn) are not affected.

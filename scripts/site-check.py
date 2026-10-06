@@ -16,6 +16,22 @@ Fails (exit 1) on any of:
 site/update/** belongs to the update endpoint (docs/android/DISTRIBUTION.md) and
 is published verbatim; this checker only checks that links into it resolve.
 
+The F-Droid repository (LW-M6-03, docs/android/FDROID.md) is hosted in the owner's
+Hetzner Object Storage bucket, not on this site; only its human page is here.
+Deliberate rules for it (2026-10-05, revised the same day for the bucket):
+  * no *.apk anywhere under site/, and no site/fdroid/ directory (the old GitHub
+    Pages layout): repository files are never committed;
+  * assets/fdroid/deploy.conf is the hosting config. It must not set the test-only
+    keys S3_ENDPOINT or PUBLIC_BASE_URL, so a page rendered for a local test server
+    can never pass;
+  * site/fdroid.html (rendered by fdroid-repo.sh publish-page, never by hand) needs
+    the bucket in deploy.conf and must carry the repository fingerprint pinned in
+    assets/fdroid/repo-fingerprint in its fdroidrepos:// link;
+  * external links may also go to f-droid.org (where users get the client), and,
+    from fdroid.html only, to the bucket named in deploy.conf:
+    fdroidrepos://<bucket>.<location>.your-objectstorage.com/repo?fingerprint=<64 hex>
+    and https://<bucket>.<location>.your-objectstorage.com/repo or /archive.
+
 Usage: scripts/site-check.py [SITE_DIR]   (default: site/ next to scripts/)
 """
 import html.parser
@@ -33,9 +49,40 @@ ALLOWED_EXTERNAL = [
     re.compile(r"^https://github\.com/CPlusPlus17/Redoubt(/.*)?$"),
     re.compile(r"^https://librewolf\.net(/.*)?$"),
     re.compile(r"^https://(www\.)?mozilla\.org(/.*)?$"),
+    re.compile(r"^https://f-droid\.org(/.*)?$"),
 ]
+FDROID_PAGE = "fdroid.html"
+LOCATIONS = ("fsn1", "nbg1", "hel1")
+BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$")
+FDROID_LINK_RE = re.compile(r"fdroidrepos://[^\s\"'?]+\?fingerprint=([0-9A-Fa-f]{64})")
 FPR_RE = re.compile(r"\b(?:[0-9A-F]{2}:){31}[0-9A-F]{2}\b")
 DOMAIN = "redoubtbrowser.org"
+
+
+def deploy_conf(errors):
+    """The bucket host from assets/fdroid/deploy.conf, or None when no bucket is set."""
+    path = ROOT / "assets" / "fdroid" / "deploy.conf"
+    if not path.is_file():
+        errors.append("assets/fdroid/deploy.conf is missing")
+        return None
+    conf = {}
+    for line in path.read_text().splitlines():
+        m = re.match(r"^([A-Z0-9_]+)=(.*)$", line.strip())
+        if m:
+            conf[m.group(1)] = m.group(2)
+    for key in ("S3_ENDPOINT", "PUBLIC_BASE_URL"):
+        if conf.get(key):
+            errors.append(f"assets/fdroid/deploy.conf sets {key}, a throwaway-test override; never commit it")
+    bucket, loc = conf.get("S3_BUCKET", ""), conf.get("S3_LOCATION", "")
+    if loc not in LOCATIONS:
+        errors.append(f"assets/fdroid/deploy.conf: S3_LOCATION {loc!r} is not one of {LOCATIONS}")
+        return None
+    if not bucket:
+        return None
+    if not BUCKET_RE.match(bucket):
+        errors.append(f"assets/fdroid/deploy.conf: {bucket!r} is not a valid bucket name")
+        return None
+    return f"{bucket}.{loc}.your-objectstorage.com"
 
 
 class Page(html.parser.HTMLParser):
@@ -110,6 +157,29 @@ def main():
     if not cname.is_file() or cname.read_text().strip() != DOMAIN:
         errors.append(f"{cname}: must contain exactly {DOMAIN}")
 
+    apks = sorted(str(a.relative_to(site)) for a in site.rglob("*.apk"))
+    if apks:
+        errors.append(f"APKs committed under site/ {apks}: the F-Droid repository lives in the bucket, never in git")
+    if (site / "fdroid").exists():
+        errors.append("site/fdroid/ exists: the F-Droid repository lives in the Hetzner bucket, not on this site (FDROID.md)")
+    bucket_host = deploy_conf(errors)
+    fdroid_allowed = []
+    if bucket_host:
+        h = re.escape(bucket_host)
+        fdroid_allowed = [re.compile(rf"^fdroidrepos://{h}/repo\?fingerprint=[0-9A-F]{{64}}$"),
+                          re.compile(rf"^https://{h}/(repo|archive)/?$")]
+    fdroid_page = site / FDROID_PAGE
+    if fdroid_page.is_file():
+        pin = ROOT / "assets" / "fdroid" / "repo-fingerprint"
+        want = pin.read_text().strip().lower() if pin.is_file() else None
+        got = {g.lower() for g in FDROID_LINK_RE.findall(fdroid_page.read_text())}
+        if bucket_host is None:
+            errors.append("fdroid.html: assets/fdroid/deploy.conf names no bucket (run fdroid-repo.sh init --bucket)")
+        if want is None:
+            errors.append("fdroid.html: assets/fdroid/repo-fingerprint is missing (run fdroid-repo.sh publish-page)")
+        elif got != {want}:
+            errors.append(f"fdroid.html: repository fingerprint(s) {sorted(got)} differ from assets/fdroid/repo-fingerprint {want}")
+
     pages = sorted(site.rglob("*.html"))
     parsed = {}
     for p in pages:
@@ -152,7 +222,8 @@ def main():
                 errors.append(f"{rel}:{ln}: mailto link {href!r}; use the GitHub reporting link")
                 continue
             if is_external(href):
-                if not any(r.match(href) for r in ALLOWED_EXTERNAL):
+                allowed = ALLOWED_EXTERNAL + (fdroid_allowed if rel == pathlib.Path(FDROID_PAGE) else [])
+                if not any(r.match(href) for r in allowed):
                     errors.append(f"{rel}:{ln}: external link {href!r} is not on the allowlist")
                 continue
             parts = urllib.parse.urlsplit(href)

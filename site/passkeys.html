@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Passwords &amp; passkeys &middot; Redoubt</title>
+  <meta name="description" content="Using a password manager and passkeys with Redoubt: what works, what does not yet, and what to do about it.">
+  <link rel="icon" href="icon.webp" type="image/webp">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="index.html"><img src="icon.webp" alt="" width="32" height="32">Redoubt</a>
+      <nav aria-label="Site">
+        <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="install.html">Install &amp; updates</a></li>
+        <li><a href="privacy.html">Privacy &amp; limits</a></li>
+        <li><a href="sync.html">Sync</a></li>
+        <li><a href="passkeys.html" aria-current="page">Passwords &amp; passkeys</a></li>
+        <li><a href="security.html">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="wrap">
+<h1>Passwords &amp; passkeys</h1>
+<p class="lede">Redoubt works with your password manager through Android&rsquo;s own autofill and Credential Manager. Passwords work with any manager. For passkeys, it depends on whether the manager trusts Redoubt as a browser.</p>
+
+<h2 id="passwords">Passwords</h2>
+<p>Choose your password manager (Bitwarden, KeePassDX, Proton Pass, Google Password Manager or another) as the autofill service in Android&rsquo;s settings. Redoubt then offers its suggestions on normal login forms. Redoubt&rsquo;s own password saving is off by default.</p>
+<p><strong>Known gap in 157:</strong> Redoubt does not see login fields built inside shadow DOM, so your password manager gets no suggestion there. Reddit&rsquo;s login is one example. Stock Firefox for Android 157 has the same gap. A fix is planned for the next release, Redoubt 158. Until then, copy the username and password from your password manager.</p>
+
+<h2 id="passkeys">Passkeys</h2>
+<p>Passkeys need <strong>Android 14 or later</strong>. Redoubt passes each passkey request to Android&rsquo;s Credential Manager, along with the site&rsquo;s address. Each password manager then decides whether it trusts Redoubt as a browser.</p>
+<ul>
+  <li><strong>KeePassDX:</strong> works once you allow it. The first time Redoubt asks for a passkey, KeePassDX shows &ldquo;App not recognized&rdquo; and offers to add Redoubt to its privileged apps. You can also do this beforehand: <em>Settings &rarr; Form filling &rarr; Passkeys settings &rarr; Privileged apps</em>, then tick Redoubt.</li>
+  <li><strong>Bitwarden:</strong> when you pick a passkey, Bitwarden says Redoubt is an &ldquo;Unrecognized browser&rdquo;. Choose <strong>Trust</strong> to add it to your own list of trusted apps. Redoubt is not on Bitwarden&rsquo;s community list of browsers yet. We are working on adding it, so that this step will no longer be needed.</li>
+  <li><strong>Proton Pass and Google Password Manager</strong> check browsers against fixed lists that do not include Redoubt yet. Neither lets you add a browser yourself, so they offer no passkeys to Redoubt until their makers add it.</li>
+</ul>
+<p>We took the KeePassDX and Bitwarden steps from their source code. The project has not yet tested them with Redoubt on a phone.</p>
+
+<h2 id="conditional">Passkey suggestions in the username field</h2>
+<p>Some sites, Reddit among them, show passkeys as suggestions while you type in the username field (WebAuthn &ldquo;conditional UI&rdquo;). Firefox for Android does not support this at all: Gecko reports it as unavailable on Android, so Redoubt cannot offer it either. Use the site&rsquo;s &ldquo;Sign in with a passkey&rdquo; button if it has one.</p>
+<p>Source of this page: <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/README.md#passwords-and-passkeys">README.md</a>. Problems: <a href="https://github.com/CPlusPlus17/Redoubt/issues">Redoubt issue tracker</a>.</p>
+    </div>
+  </main>
+  <footer class="site">
+    <div class="wrap">
+      <p>Redoubt is an independent fork, not affiliated with or endorsed by the <a href="https://librewolf.net">LibreWolf project</a> or by <a href="https://www.mozilla.org/">Mozilla</a>. Its privacy configuration and patch set are LibreWolf&rsquo;s work, used under MPL-2.0. Firefox is a trademark of the Mozilla Foundation (<a href="https://www.mozilla.org/foundation/trademarks/policy/">trademark policy</a>); Redoubt does not use Mozilla&rsquo;s trademarks in its branding.</p>
+      <p>Source, issues and releases: <a href="https://github.com/CPlusPlus17/Redoubt">github.com/CPlusPlus17/Redoubt</a>. This site loads nothing from any other server and uses no cookies, scripts or analytics.</p>
+    </div>
+  </footer>
+</body>
+</html>

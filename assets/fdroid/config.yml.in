@@ -1,0 +1,50 @@
+# fdroidserver config for the Redoubt F-Droid repository (LW-M6-03).
+#
+# TEMPLATE. scripts/fdroid-repo.sh writes config.yml from this file into the
+# repository's working directory (default ~/redoubt-fdroid/work/) before every
+# fdroidserver run, replacing @REPO_URL@ and @ARCHIVE_OLDER@. Do not edit the
+# generated copy; edit this file and commit.
+#
+# No secret is in this file or in the generated copy. The keystore is mounted
+# read-only into the container at /keys/keystore.p12 and its passphrase comes
+# from the environment of that one container run ({env: ...}), typed by the
+# owner at the prompt of fdroid-repo.sh.
+
+repo_url: @REPO_URL@
+repo_name: Redoubt
+repo_description: >-
+  The official F-Droid repository of Redoubt, a privacy-hardened Firefox-based
+  browser for Android. It serves the same APKs as the GitHub release, signed
+  with the same key (SHA-256 64:14:EB:33:46:81:CF:6E:92:90:34:B5:6A:06:2D:2B:8D:A0:90:82:21:72:F7:A3:95:2C:85:FD:D1:28:3B:D0).
+  https://redoubtbrowser.org/fdroid.html
+repo_icon: icon.png
+
+# Retention: keep every release (owner decision 2026-10-05, docs/android/FDROID.md,
+# "Retention"). The main section shows the newest KEEP_VERSIONS releases
+# (assets/fdroid/deploy.conf, default 5); fdroidserver moves every older APK to
+# the archive section (archive/, next to repo/ in the bucket) and signs an index
+# for it with the same key. Nothing is deleted. archive_older counts APK files,
+# not releases, so scripts/fdroid-repo.sh writes KEEP_VERSIONS x 3 (one APK per
+# ABI) here. archive_url defaults to repo_url with /repo replaced by /archive.
+archive_older: @ARCHIVE_OLDER@
+archive_name: Redoubt (archive)
+archive_description: >-
+  Older Redoubt releases, kept so that a downgrade stays possible. Same APKs as
+  the GitHub releases, same signing key as the main Redoubt repository.
+  https://redoubtbrowser.org/fdroid.html
+
+keystore: /keys/keystore.p12
+repo_keyalias: redoubt-fdroid-repo
+keystorepass: {env: FDROID_KEYSTORE_PASS}
+keypass: {env: FDROID_KEYSTORE_PASS}
+
+# The escape hatch for bandwidth, an outage or a host move (docs/android/FDROID.md,
+# "Mirrors"). Clients that already added the repository read this list from
+# the signed index and fall back to the other entries when the primary does not
+# answer. Uncomment, keep the current URL FIRST, add the mirror (which must
+# serve the same repo/ and archive/ trees, APKs included), update + deploy, and only then
+# rely on it. The fingerprint does not change. A mirror can be a second bucket
+# in another Hetzner location, or any static host.
+# mirrors:
+#   - url: @REPO_URL@
+#   - url: https://<mirror-host>/repo

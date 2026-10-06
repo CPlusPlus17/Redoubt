@@ -3031,6 +3031,14 @@ tasks:
       - "the values survive a Nimbus fetch — they are not merely set once at first run"
       - "no functional regression in the smoke test, and startup cost measured"
     verify: "adb shell ps -A -Z | grep -c isolated"
+    note: >-
+      REVISED BY LW-M7-43 (owner decision 2026-10-06, "Accept, turn isolation
+      off"). The isolation default this task set was reverted: from 157.0-3,
+      isolated-process.patch pins isolatedProcessEnabled(false) and
+      appZygoteProcessEnabled(false), still as literals. With isolation on, Gecko
+      refuses the MediaCodec decoder in content (upstream bug 1810736), so
+      157.0-2 played no H.264 or AAC. The verification above describes the build
+      that shipped through 157.0-2, not the current default.
     effort_h: "4-8"
     skills: [kotlin, android]
     agent_safe: yes
@@ -3336,27 +3344,52 @@ tasks:
     isolation: none
     risk: Reproducibility is far cheaper to build in now than to retrofit after the first release.
 
+  # 2026-10-05 (owner decision, revised the same day): hosted in the owner's
+  # Hetzner Object Storage bucket, https://<bucket>.<location>.your-objectstorage.com/repo
+  # (assets/fdroid/deploy.conf), because GitHub Pages' 1 GB limit kept only 1-3
+  # releases and the owner wants to keep all of them. The earlier GitHub Pages
+  # design (index in site/fdroid/repo/, APKs fetched by pages.yaml) is retired.
+  # Retention: newest 5 releases in repo/, every older one in archive/, nothing
+  # deleted. scripts/fdroid-repo.sh deploy uploads with a pinned rclone, APKs
+  # first, index last; the human page stays at redoubtbrowser.org/fdroid.html.
+  # Per-ABI APKs only; AntiFeatures: Tracking. Tooling and a throwaway-key proof
+  # against a local S3 server (MinIO) with F-Droid 2.0.1 on an API 34 emulator,
+  # archive included, are done (docs/android/FDROID.md, evidence/lw-m6-03/hetzner/).
+  # Owner-held and NOT done: the Hetzner project, bucket (Public) and S3
+  # credentials, init (the repository key), the first deploy and publish-page,
+  # and the fingerprint in two places (prepared, uncommitted:
+  # ~/redoubt-artifacts/channels/fdroid-site-placeholder.diff). The no-double-
+  # notify half is update-check.patch's installer-of-record check (LW-M6-06),
+  # in the first build after 157.0-2. Acceptance 3 was shown with throwaway keys
+  # (Beta 5 -> 157.0-2 through F-Droid, Pages design); it stays open for the real key.
   - id: LW-M6-03
     title: Set up the Redoubt F-Droid repository
     milestone: M6
     depends_on: [LW-M6-01, LW-M6-02, LW-M4-05]
-    owns: [docs/android/DISTRIBUTION.md]
+    owns: [docs/android/DISTRIBUTION.md, docs/android/FDROID.md, scripts/fdroid-repo.sh, scripts/tests/test-site-check-fdroid.py, assets/fdroid/, site/fdroid.html, site/fdroid-qr.svg, .github/workflows/pages.yaml, scripts/site-check.py, docs/android/evidence/lw-m6-03/]
+    reads: [patches/android/update-check.patch, docs/android/SIGNING.md, scripts/android-verify-signature.sh]
     what: |
       Run our own F-Droid repo rather than going through f-droid.org's main repo —
       it avoids their build-server signing model and lets us keep our own key.
       Requires zero GMS (LW-M4-05) and reproducibility (LW-M6-02). Publish the repo
       URL and its fingerprint and document how a user verifies both.
+      2026-10-05: binary-only repository of the GitHub release's per-ABI APKs in
+      the owner's Hetzner Object Storage bucket (all releases kept, older ones in
+      the archive section); the owner runs scripts/fdroid-repo.sh
+      init/add/update/deploy/verify/publish-page (docs/android/FDROID.md).
     acceptance:
       - "repo index is signed and installable from a clean F-Droid client"
       - "the repo fingerprint is published in at least two independent places"
       - "an update from an older version installs cleanly"
-    verify: "manual: add the repo to F-Droid on a clean device and install"
+    verify: "python3 scripts/tests/test-site-check-fdroid.py && python3 scripts/site-check.py site && ./scripts/fdroid-repo.sh verify (owner, after deploy) && manual: add the repo to F-Droid on a clean device and install"
     effort_h: "8-16"
     skills: [ops, android]
     agent_safe: no
     isolation: none
     risk: A repo signed with a key that later changes forces every user to reinstall manually.
 
+  # 2026-10-05: the "Play Store is out of scope" sentence below is reversed by
+  # owner decision (LW-M6-12, docs/android/PLAY.md section 1); the rest stands.
   - id: LW-M6-04
     title: Publish to Accrescent and provide direct APK plus Obtainium metadata
     milestone: M6
@@ -3368,6 +3401,10 @@ tasks:
       predictable release-asset naming scheme on the GitHub releases page. Set up
       all three so users are not funnelled into a single channel. Note the Play
       Store is out of scope — its signing model conflicts with LW-M6-01.
+      REVERSED 2026-10-05 by the owner: Google Play is in scope, as LW-M6-12,
+      with the existing release key uploaded to Play App Signing (same
+      fingerprint on every channel; Google holds a copy). The conflict with
+      LW-M6-01 is accepted, not resolved — SIGNING.md "Google holds a copy".
     acceptance:
       - "APKs are signed with v2 and v3, verified by apksigner"
       - "Obtainium resolves the GitHub release and offers the update"
@@ -3402,6 +3439,11 @@ tasks:
     isolation: none
     risk: One convenience commit putting the key in CI undoes the entire custody model in LW-M6-01.
 
+  # 2026-10-05: acceptance 3 ("F-Droid and Accrescent installs do not
+  # double-notify") now also covers Redoubt's own F-Droid repository, which serves
+  # the direct APKs: update-check.patch hides the check when the installer of
+  # record is a store client (UpdateCheck.isOffered; evidence/lw-m6-03/patch/).
+  # Unit-tested (Robolectric, 158 tree), not yet built into an APK.
   - id: LW-M6-06
     title: Implement in-app update checking without an app store
     milestone: M6
@@ -3766,6 +3808,47 @@ tasks:
     agent_safe: yes
     isolation: none
     risk: A release tag pointing at older source or a missing submodule would misrepresent the published APKs.
+
+  # 2026-10-05: owner decision, reverses LW-M6-04's "Play out of scope".
+  - id: LW-M6-12
+    title: Publish Redoubt on Google Play with the existing release key
+    milestone: M6
+    depends_on: [LW-M6-01, LW-M6-05, LW-M6-06, LW-M6-11]
+    owns:
+      - docs/android/PLAY.md
+      - docs/android/play/
+      - docs/android/evidence/lw-m6-12/
+      - docs/android/evidence/lw-m6-01/sign-aab.sh
+      - scripts/android-aab.py
+      - scripts/bundletool.sh
+      - site/privacy-policy.html
+    reads:
+      - docs/android/PARITY.md
+      - docs/android/DISTRIBUTION.md
+      - patches/android/update-check.patch
+    what: |
+      The owner decided on 2026-10-05 to publish on Google Play with the EXISTING
+      release key uploaded to Play App Signing (PEPK), so one fingerprint covers
+      every channel and Google holds a copy of the key. Add a Play bundle to the
+      release path (scripts/android-apk.sh --bundle, android-release.yaml input
+      bundle, unsigned AAB artifact, update check always compiled out, versionCode
+      = the build's universal code), the owner's upload-key signer (sign-aab.sh),
+      a pinned bundletool, a privacy policy page, the store listing and graphics,
+      and the owner runbook docs/android/PLAY.md. Record what Google holding the
+      key means in SIGNING.md and SECURITY.md. The owner creates the account, runs
+      PEPK, holds the upload key and uploads; agents use throwaway keys only.
+    acceptance:
+      - "android-apk.sh --bundle produces an unsigned AAB for org.redoubtbrowser whose dex carries no update-check key and whose versionCode is >= every APK of the same build"
+      - "sign-aab.sh signs with a registered upload key, refuses the app signing key, and leaves the payload byte-identical"
+      - "APKs generated from the signed AAB by the pinned bundletool install and launch on an emulator, with no update-check row in Settings"
+      - "PLAY.md gives the owner every one-time and per-release step, with each Play requirement cited to an official page and date"
+      - "the Play listing is live and the Play-served APK verifies with the published fingerprint (owner, after upload)"
+    verify: "python3 docs/android/board.py --check && python3 docs/android/play/check-listing.py && python3 scripts/site-check.py"
+    effort_h: "8-16"
+    skills: [ops, android, gradle, docs]
+    agent_safe: no
+    isolation: worktree
+    risk: Google holds a copy of the app signing key and can sign updates every install accepts; a Google-generated or hybrid key would split the channels for good.
 
   - id: LW-M7-08
     title: Audit Android feature completeness against LibreWolf
@@ -5375,3 +5458,135 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: Registering too much (a site's search box or OTP field offered as a login) or touching the light-DOM path that every working login form relies on; both are fenced by returning early for anything that is not a login field in an all-open shadow tree.
+
+  - id: LW-M7-43
+    title: Make H.264 and AAC video play again (no decoder when isolated)
+    milestone: M7
+    depends_on: [LW-M5-02, LW-M2-07, LW-M3-02]
+    owns:
+      - docs/android/evidence/video-playback/
+    shared_edit:
+      - patches/android/isolated-process.patch
+      - assets/patches/android.txt
+      - docs/android/PATCH-SCOPE.md
+      - docs/android/PARITY.md
+      - docs/android/ROADMAP.md
+      - docs/android/TRIAGE.md
+      - docs/android/play/listing-en-US.md
+      - README.md
+      - site/privacy.html
+      - scripts/android-smoke.sh
+      - docs/android/SMOKE.md
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+    reads:
+      - docs/android/SANDBOX-SPIKE.md
+      - dom/media/platforms/android/AndroidDecoderModule.cpp
+      - dom/media/platforms/PDMFactory.cpp
+      - dom/media/ipc/RemoteMediaManagerChild.cpp
+    what: |
+      Owner report 2026-10-06: videos do not play in Redoubt 157.0-2, for example
+      on redgifs.com and pornhub.com. Reproduced on an API 34 x86_64 emulator
+      against stock Firefox 157.0 on the same AVD
+      (docs/android/evidence/video-playback/README.md). On a local page, all 18
+      H.264 and AAC cases fail in 157.0-2 and pass in Firefox: progressive MP4,
+      MP4 without audio, AAC-only, AV1+AAC, and hls.js over TS and fMP4. The six
+      VP9 and AV1 cases with Opus pass in both. canPlayType('avc1') returns "" and
+      MediaSource.isTypeSupported('avc1') returns false only in Redoubt. redgifs
+      then falls back to a native .m3u8 src and gets MEDIA_ERR_SRC_NOT_SUPPORTED,
+      and pornhub's player never attaches a source.
+      Cause: isolated-process.patch (LW-M5-02). In an isolated content process,
+      AndroidDecoderModule::IsJavaDecoderModuleAllowed() is false
+      (AndroidDecoderModule.cpp:349-352). Content then has no MediaCodec
+      decoder, and no other process has one: the GPU process starts only ffvpx
+      on Android, RDD is off, and the utility process starts no MediaCodec module
+      (media.utility-android-media-codec.enabled=false, bug 1771196). This is
+      upstream bug 1810736, which SANDBOX-SPIKE.md §9(b) named as LW-M5-02's
+      acceptance risk. --check-video did not catch it: its VP8/Opus fixture is
+      decoded in-process by ffvpx.
+      Fix: isolated-process.patch now pins isolatedProcessEnabled(false) and
+      appZygoteProcessEnabled(false), still as literals. Public claims that
+      rely on isolated processes are corrected.
+      Owner decision, 2026-10-06, verbatim: "Accept, turn isolation off". The
+      fix ships as hotfix 157.0-3, not with 158.
+      Harness: android-smoke.sh --check-video (and the baseline suite) now also
+      runs an H.264+AAC progressive MP4 (video-h264) and an MSE case
+      (video-mse: isTypeSupported avc1+mp4a true, and an appended fragmented
+      MP4 advances currentTime). Both FAIL on the 157.0-2 APK and PASS on the
+      fix on the API 34 emulator
+      (docs/android/evidence/video-playback/harness/).
+    acceptance:
+      - "on a device, H.264 progressive MP4, H.264 over MSE/hls.js and AAC play in a fresh profile of a build with the fix, and still fail in 157.0-2"
+      - "the build with the fix differs from 157.0-2's behaviour only by the GeckoProvider.kt literals; no pref is changed"
+      - "no Redoubt-specific pref (media.*, autoplay, RFP/FPP, uBO) is needed for or against playback; checked by pref toggles in a fresh 157.0-2 profile"
+      - "README, site/privacy.html, the Play listing, PARITY.md, PATCH-SCOPE.md and android.txt no longer claim isolated content processes"
+      - "isolated-process.patch applies in list order and compiles in a real Android build"
+      - "android-smoke.sh --check-video fails video-h264 and video-mse on 157.0-2 and passes all three video rows on the fix"
+    verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope"
+    effort_h: "4-8"
+    skills: [android, media, kotlin]
+    agent_safe: no
+    isolation: worktree
+    risk: Turning isolation off is a containment regression; content again runs under the app's uid and can read the profile. The owner accepted that trade on 2026-10-06 ("Accept, turn isolation off"). Re-enable when upstream decodes H.264 from an isolated content process; --check-video now has H.264 and MSE fixtures, so the harness sees this class of failure.
+
+  - id: LW-M7-44
+    title: Disabling uBlock Origin while it starts must not pause browsing
+    milestone: M7
+    depends_on: [LW-M3-07, LW-M7-11, LW-M7-12]   # LW-M7-11 owns the harness, LW-M7-12 PATCH-SCOPE.md
+    owns:
+      - docs/android/evidence/lw-m7-44/
+    shared_edit:
+      - patches/android/ubo-preinstall.patch
+      - docs/android/PATCH-SCOPE.md
+      - scripts/android-smoke.sh
+      - scripts/tests/test-android-smoke.py
+      - docs/android/SMOKE.md
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
+    reads:
+      - toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs
+      - mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+      - toolkit/components/extensions/parent/ext-management.js
+    what: |
+      Observed 2026-10-06 on 157.0-2 during the video investigation
+      (docs/android/evidence/video-playback/README.md, item 4): turning uBO off
+      through AddonManager made Redoubt show "uBlock Origin setup failed /
+      Browsing is paused". The guard is LibreWolfUboPreinstaller (LW-M3-07). It
+      runs once per process start and holds every engine session until uBO's
+      live blocking listener is registered. When that wait fails, it re-reads
+      the registry for 5 s and continues only for a strictly newer enabled copy
+      (an AMO update). Every other outcome failed closed, including the user's
+      own disable or removal. Any disable stops the extension, and that rejects
+      Gecko's wait ("Blocking extension stopped before becoming ready").
+      Outside the readiness wait, nothing trips the guard. A disable after
+      startup, a restart with uBO disabled or removed (Ready(installed, false)),
+      uBO's own power button (internal filtering state, the extension keeps
+      running) and an AMO update all leave browsing alone.
+      Fix: after the settle window, a copy whose Gecko disabledFlags include
+      USER, or the removal of a copy that was already provisioned, ends the wait
+      as Ready without filtering. A restart would accept the same state. The
+      wait still fails closed for blocklist, signature and app disablement, for a
+      same-version reload (a private-browsing permission change reloads uBO,
+      and the reload's transient userDisabled has cleared by the end of the
+      window), and for a removal during the very first installation (a restart
+      requires an explicit retry there too). Only the user, through the add-ons
+      manager, or chrome-privileged code can set userDisabled. Web content cannot.
+      Other WebExtensions cannot either: management.setEnabled covers only themes
+      and policy installs, and nothing runs in a tab before the wait ends.
+      Owner decision 2026-10-06, verbatim: "yes, put it in 158, no warning
+      needed". The fix ships with Firefox 158 (158.0-1), not as a 157 hotfix. A
+      non-user disable (blocklist, signature) that a restart accepts as
+      Ready(enabled=false), so browsing continues unfiltered, needs no warning;
+      none is added.
+    acceptance:
+      - "LibreWolfUboPreinstallerTest covers a user disable during the first-run and later-start waits, removal of a provisioned copy, and the retained failure for a reload, a non-user disable and a first-run removal"
+      - "on a device, android-smoke.sh --check-ubo-user-disable passes: a reload during the wait still shows the failure dialog, and a disable during the wait loads the held page unfiltered with no dialog"
+      - "the same check fails the user-disable phase on 157.0-2"
+      - "ubo-preinstall.patch applies in list order and compiles in a real Android build"
+    verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope && python3 scripts/tests/test-android-smoke.py"
+    effort_h: "3-6"
+    skills: [android, kotlin, webextensions]
+    agent_safe: no
+    isolation: worktree
+    risk: A user disable during the startup wait now opens the held first page without filtering, as the user asked. The guard's purpose is unchanged, because any failure that is not the user's choice still pauses browsing. Restarts already accepted every disabled copy, blocklisted or signature-disabled ones included. That pre-existing leniency is unchanged here; the owner decided on 2026-10-06 that it needs no warning.

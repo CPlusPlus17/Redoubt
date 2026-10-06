@@ -10,11 +10,21 @@
 # update-check endpoint, docs/android/DISTRIBUTION.md), which this workflow
 # neither generates nor rewrites. site/CNAME sets the custom domain.
 #
+# The F-Droid repository (LW-M6-03, docs/android/FDROID.md) is NOT published
+# here. Its index and APKs live in the owner's Hetzner Object Storage bucket,
+# uploaded by `scripts/fdroid-repo.sh deploy` from the owner's machine; this
+# workflow downloads no APK. Only the human page site/fdroid.html and its QR
+# code are part of this site. (Until 2026-10-05 this workflow fetched the APKs
+# from the GitHub release into the Pages artifact; GitHub Pages' 1 GB site limit
+# allowed only one to three releases, so the repository moved to the bucket.)
+#
 # Before anything is uploaded, scripts/site-check.py must pass: well-formed HTML,
 # no script and nothing loaded from another origin, every internal link and
 # anchor resolves, external links only to the project's GitHub repository,
-# librewolf.net and mozilla.org, and the signing fingerprint identical to
-# README.md's. Pull requests run the check only and deploy nothing.
+# librewolf.net, mozilla.org, f-droid.org and (from fdroid.html only) the
+# F-Droid bucket named in assets/fdroid/deploy.conf, the signing fingerprint
+# identical to README.md's, and no APK or site/fdroid/ directory committed.
+# Pull requests run the check only and deploy nothing.
 #
 # It references no secrets. The deploy authenticates with the job's OIDC token
 # (id-token: write), which is what actions/deploy-pages requires.
@@ -31,12 +41,20 @@ on:
       - scripts/site-check.py
       # The checker compares the site's fingerprint against README.md.
       - README.md
+      # The F-Droid page's inputs to the checker: the pinned repository
+      # fingerprint and the bucket it may link to, and the checker's tests.
+      - assets/fdroid/repo-fingerprint
+      - assets/fdroid/deploy.conf
+      - scripts/tests/test-site-check-fdroid.py
   pull_request:
     paths:
       - site/**
       - .github/workflows/pages.yaml
       - scripts/site-check.py
       - README.md
+      - assets/fdroid/repo-fingerprint
+      - assets/fdroid/deploy.conf
+      - scripts/tests/test-site-check-fdroid.py
   workflow_dispatch:
 
 permissions:
@@ -58,6 +76,9 @@ jobs:
 
       - name: Check the site
         run: python3 scripts/site-check.py site
+
+      - name: Test the checker's F-Droid rules (hermetic)
+        run: python3 scripts/tests/test-site-check-fdroid.py
 
       - name: Configure Pages
         if: github.event_name != 'pull_request'

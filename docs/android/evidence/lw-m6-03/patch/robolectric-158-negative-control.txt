@@ -1,0 +1,17 @@
+# Negative control: UpdateCheck.isOffered changed to `compiledIn` only (installer ignored); ./mach gradle fenix:testDebugUnitTest --tests org.mozilla.fenix.lw.UpdateCheckSwitchTest, same overlay setup.
+  TEST: a value in the default preferences file does not enable the check
+  SUCCESS
+  TEST: by default the check is off and binding the switch stores nothing
+  SUCCESS
+  TEST: turning the switch on enables the check and turning it off disables it
+  SUCCESS
+  TEST: a direct install that F-Droid later updates loses the check
+  TEST-UNEXPECTED-FAIL | org.mozilla.fenix.lw.UpdateCheckSwitchTest.a direct install that F-Droid later updates loses the check | java.lang.AssertionError
+  TEST: a build without a key hides the row and never reports the check enabled
+  SUCCESS
+  TEST: a hand install keeps the row and the switch works
+  SUCCESS
+  TEST: an install by F-Droid or another store hides the row and never runs the check
+  TEST-UNEXPECTED-FAIL | org.mozilla.fenix.lw.UpdateCheckSwitchTest.an install by F-Droid or another store hides the row and never runs the check | java.lang.AssertionError: org.fdroid.fdroid
+7 tests completed, 2 failed
+MACH_EXIT=1

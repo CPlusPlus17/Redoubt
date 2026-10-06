@@ -1,5 +1,48 @@
 # LibreWolf isolated-process.patch  (Android)
-# Owner: LW-M5-02 ("Enable isolatedProcess and the app zygote")
+# Owner: LW-M5-02 ("Enable isolatedProcess and the app zygote"); revised by LW-M7-43
+#
+#
+# 2026-10-06 REVISION (LW-M7-43): BOTH ARGUMENTS ARE NOW PINNED FALSE
+# --------------------------------------------------------------------
+# Redoubt 157.0-2 shipped this patch with both arguments true, and H.264 video
+# did not play: the owner reported 2026-10-06 that videos do not play on
+# redgifs.com and pornhub.com. Measured on an API 34 x86_64 emulator, with the
+# 157.0-2 release APK and stock Firefox 157.0 on the same AVD
+# (docs/android/evidence/video-playback/README.md): every H.264 source fails in
+# 157.0-2 and plays in stock Firefox. A progressive MP4 fails with
+# MEDIA_ERR_SRC_NOT_SUPPORTED. MSE fails before any media element error:
+# MediaSource.isTypeSupported('video/mp4; codecs="avc1..."') is false and
+# addSourceBuffer() throws NotSupportedError, which hls.js reports as
+# bufferAddCodecError (HLS in TS and in fMP4). VP9 and AV1 with Opus play in both.
+#
+# Owner decision, 2026-10-06, verbatim: "Accept, turn isolation off". Shipped
+# as hotfix 157.0-3, not held for 158.
+#
+# The cause is upstream Gecko, not a pref. AndroidDecoderModule::
+# IsJavaDecoderModuleAllowed() (dom/media/platforms/android/
+# AndroidDecoderModule.cpp:349-352 on 157 and 158) returns false when
+# GeckoAppShell.isIsolatedProcess(). The content process then has no H.264 or
+# AAC decoder, and no other process supplies one: the GPU process starts only
+# ffvpx on Android, RDD is off on Android, and the utility process takes only
+# audio and starts no MediaCodec module unless
+# media.utility-android-media-codec.enabled is set ("Bug 1771196 - Dont yet
+# enable AndroidDecoderModule on Utility"). This is upstream bug 1810736 ("Media
+# decoding is not compatible with isolated process", REOPENED), which
+# SANDBOX-SPIKE.md sections 5 and 9(b) named as this task's acceptance risk. The
+# smoke harness's --check-video missed it because its fixture is VP8/Opus, which
+# ffvpx decodes inside the content process.
+#
+# So the hunk below now passes false for both, which is upstream Fenix's
+# default. They are still literals, so neither Settings nor Nimbus can change
+# them. The cost is real: content processes run under the app's own uid in
+# untrusted_app again, so a compromised content process can read the profile
+# directory (item 2 of "How this was verified" no longer holds). Site isolation
+# (fission-isolation.patch, LW-M5-01) is unaffected. Turn isolation back on only
+# when a Firefox release decodes H.264 from an isolated content process; check
+# IsJavaDecoderModuleAllowed() at every rebase.
+#
+# Everything below this block documents the original enablement and its
+# measurements. Where it says "forced on", read "was forced on until 157.0-2".
 #
 # Upstream file touched
 # ----------------------
@@ -352,28 +395,27 @@
 #
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
-@@ -139,8 +139,22 @@
+@@ -139,8 +139,21 @@
                  .setSameDocumentNavigationOverridesLoadTypeForceDisable(
                      FxNimbus.features.sameDocumentNavigationOverridesLoadType.value().forceDisableUri
                  )
 -                .isolatedProcessEnabled(context.components.settings.isIsolatedProcessEnabled)
 -                .appZygoteProcessEnabled(context.components.settings.isAppZygoteEnabled)
-+                // LibreWolf (LW-M5-02): both of these are forced on, and are deliberately
-+                // NOT read from Settings/Nimbus any more. Gecko's own content sandbox is
-+                // not compiled on Android (MOZ_SANDBOX is absent from the Android
-+                // config.status, so every security.sandbox.* pref is inert), so Android's
-+                // own per-process isolation is the only containment a content process
-+                // gets. That is a security decision and must not sit on a channel that a
-+                // remote experiment, a Fenix settings write or an upstream default flip
-+                // can lower.
-+                //
-+                // appZygoteProcessEnabled(true) is safe on every API level we ship to:
-+                // GeckoRuntimeSettings.Builder itself refuses it below SDK 29 (Android 10)
-+                // and stores false, and GeckoProcessType.determineContentProcessType()
-+                // re-checks SDK_INT, so an API 26-28 device silently falls back to plain
-+                // isolatedProcess (CONTENT_ISOLATED) instead of the zygote variant.
-+                .isolatedProcessEnabled(true)
-+                .appZygoteProcessEnabled(true)
++                // Redoubt (LW-M5-02, revised 2026-10-06): both are pinned OFF, and are still
++                // deliberately NOT read from Settings/Nimbus, so neither an experiment nor a
++                // settings write can change them. In an isolated content process Gecko
++                // refuses the Java MediaCodec decoder module
++                // (AndroidDecoderModule::IsJavaDecoderModuleAllowed() is false when
++                // GeckoAppShell.isIsolatedProcess()), and no other Android process decodes
++                // H.264, HEVC or AAC for content (upstream bug 1810736). With isolation on, a
++                // progressive H.264 MP4 fails with MEDIA_ERR_SRC_NOT_SUPPORTED, and MSE (so
++                // every hls.js/dash.js player) fails earlier: MediaSource.isTypeSupported()
++                // returns false for avc1/mp4a and addSourceBuffer() throws NotSupportedError.
++                // Turn this back on only after a Firefox release decodes H.264 from an
++                // isolated content process; the measurement is in
++                // docs/android/evidence/video-playback/README.md.
++                .isolatedProcessEnabled(false)
++                .appZygoteProcessEnabled(false)
  
          if (FxNimbus.features.fission.value().shouldUseNimbus) {
              builder.fissionEnabled(FxNimbus.features.fission.value().enabled)
