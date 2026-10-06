@@ -935,6 +935,19 @@ REVIEWED_ORDER_FREE = (
     ('patches/android/no-suggest.patch', 'patches/android/disable-157-cloud-features.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), _M157_ANDROID + ': LW-M7-40. Settings.kt byte-identical with disable-157-cloud-features moved before no-suggest; moving no-suggest after it trips the separate no-suggest -> privacy-defaults constraint, not this pair.'),
     ('patches/android/privacy-defaults.patch', 'patches/android/disable-157-cloud-features.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt',), _M157_ANDROID + ': LW-M7-40. Settings.kt byte-identical in both swaps; the hunks are in disjoint regions.'),
     ('patches/android/search-config.patch', 'patches/android/disable-157-cloud-features.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt', 'mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml'), _M157_ANDROID + ': LW-M7-40. All three shared files byte-identical in both swaps.'),
+    # LW-M7-45 (delete-on-quit-swipe): one <service> after MediaSessionService, and
+    # FenixApplication hooks before restoreBrowserState(), inside restoreBrowserState/
+    # restoreDownloads and in the ProcessLifecycleOwner observer list. Per-file replay
+    # on pristine firefox-157.0 (gen/pairswap.sh in the LW-M7-45 evidence) with it
+    # moved directly before each partner: both apply and the file is byte-identical
+    # to list order.
+    ('patches/android/disable-157-cloud-features.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'LW-M7-45: byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
+    ('patches/android/firefox-suggest-policy.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'LW-M7-45: byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
+    ('patches/android/no-adjust.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/AndroidManifest.xml', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt'), 'LW-M7-45: byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
+    ('patches/android/no-glean.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/AndroidManifest.xml', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt'), 'LW-M7-45: byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
+    ('patches/android/no-gms.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/AndroidManifest.xml', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt'), 'LW-M7-45: byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
+    ('patches/android/sync-opt-in.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'LW-M7-45: byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
+    ('patches/android/ubo-preinstall.patch', 'patches/android/delete-on-quit-swipe.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt',), 'LW-M7-45: byte-identical in both orders on firefox-157.0; the hunks are in disjoint regions.'),
 )
 
 

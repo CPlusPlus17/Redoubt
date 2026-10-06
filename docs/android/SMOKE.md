@@ -166,6 +166,25 @@ phase also exercises an add-on update racing first-run readiness whenever AMO
 serves a newer uBO than the pin. The UI dump and logcat of each phase are kept
 in the work directory as `launcher-start-<phase>-*`.
 
+### Delete on quit after a swipe: `--check-delete-on-quit` (LW-M7-45)
+
+"Delete browsing data on quit" used to run only from the menu's Quit item; a
+recents swipe left the data and the next start restored it. The check needs a
+rootable image (`adb root`): it writes the app's `fenix_preferences.xml` and
+reads its session file. Two phases on one install: with the setting on (all six
+categories) and then off, it opens two tabs, waits until the session file holds
+both, swipes the task away with the real recents gesture, cold starts from the
+launcher and waits 20 s. On: PASS needs a completed deletion -- the guard's
+start-up one (`cold start after unclean exit` ... `deletion complete`, before any
+`RestoreAction`), or `onTaskRemoved`'s (`task-removed: deletion confirmed`) when
+the swipe left the process alive -- and no saved tab afterwards. Off: no start-up
+deletion, the guard's `setting off` line, and both tabs restored. Whether
+`onTaskRemoved` fired and finished is recorded per phase, not graded. On
+2026-10-06 it PASSED on the LW-M7-45 build and FAILED on Beta 5 (2 tabs restored
+after the swipe), on the API 34 x86_64 emulator
+(`evidence/lw-m7-45/harness/`). Logcat of each phase is kept in the work
+directory as `delete-on-quit-<phase>-*`.
+
 `--check-https-only` exercises the new default and is also part of the baseline
 page-load suite. HTTP to the local non-loopback fixture must show the browser's
 HTTPS-only interstitial. The test uses its actual Continue button, then requires
@@ -453,6 +472,7 @@ task is genuinely done.
 | `--check-strings` | LW-M4-12 | implemented | two halves: the resource table (`aapt2` over the APK's `resources.arsc`, every locale) and a running-app traversal of the deep-linked settings screens (`--strings-locale`, `--strings-depth`, `--strings-max-taps`); a brand word in any string value that is not on the enumerated exception list fails it |
 | `--check-update-privacy` | LW-M6-06 | implemented | OFF window: launch, idle, open Settings — no event to an update host, and a dead capture (zero events) fails rather than passes. If the "Check for updates" row exists it must read OFF; the harness flips it, relaunches, and requires the update host to be contacted and nothing else new. A build without a row (compiled out, as a store build should be) passes the OFF half only |
 | `--check-launcher-start` | LW-M3-07 | implemented | launcher (not URL) cold starts on a fresh profile and a restart; fails on the uBO setup-failure dialog, a logged failure, or a missing readiness line. Beta 2 and the first 153.4 candidate: **FAIL** (dialog 30 s into the restart) |
+| `--check-delete-on-quit` | LW-M7-45 | implemented | needs `adb root`; recents swipe then launcher cold start, setting on (selected data deleted before restore, by the start-up guard or by a completed `onTaskRemoved`) and off (tabs restored). LW-M7-45 build: **PASS**; Beta 5: **FAIL** (2 tabs restored) |
 
 ### `--check-search` deserves a note
 

@@ -1,0 +1,1044 @@
+# Redoubt delete-on-quit-swipe.patch  (Android, LW-M7-45)
+#
+# Owner report 2026-10-06: "when swiping away the app, the delete all on close
+# does not trigger. closing it with the close button, works". Owner decision
+# 2026-10-06, verbatim: "lets build both as fallback".
+#
+# Upstream files touched
+# -----------------------
+#   mobile/android/fenix/app/src/main/AndroidManifest.xml          (one <service>)
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+#       setupEarlyMain: DeleteOnQuitGuard.onColdStart() right before
+#       restoreBrowserState()/restoreDownloads(); both wait for its gate.
+#       setupPostMegazord: a ProcessLifecycleOwner ON_START observer.
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
+#       the Quit callback also calls DeleteOnQuitGuard.onSessionEnding("quit").
+# New files
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
+# Every hunk's context is identical in Firefox 157.0 and 158.0b3 (158 moved
+# the Quit callback from onDeleteAndQuit to handleNavigationEvent, and added
+# tabDataCoordinator.initialize() before restoreBrowserState; neither is in
+# a context line). Fully qualified names are used instead of imports because
+# the import blocks differ between the two.
+#
+# What upstream does
+# -------------------
+# "Delete browsing data on quit" (Settings) deletes the selected categories
+# only from the menu's Quit item: DefaultDeleteBrowsingDataController
+# .clearBrowsingDataOnQuit, then finishAndRemoveTask(). Swipe-away from
+# recents, OOM kill, crash, force-stop and reboot skip it, and the next cold
+# start restores the session (FenixApplication.restoreBrowserState) with the
+# cookies, history and tabs the user asked to have deleted. Redoubt turns the
+# feature on by default (privacy-defaults.patch: cookies + cache), so this hits
+# every default install.
+#
+# What this patch does
+# ---------------------
+# (b) the guarantee. A marker file (noBackupFilesDir/redoubt_session_end,
+#     written temp + fsync + rename) says how the session ended. It reads
+#     "clean" only after Quit's deletion was confirmed by every store and by
+#     Gecko; a cold start, a return to the foreground, and anything that kills
+#     the process leave "running". On a cold start with the setting on and a
+#     marker that is not "clean" (or absent), onColdStart:
+#       1. writes "cleaning", attempt n, BEFORE deleting anything;
+#       2. dispatches the Gecko deletions (StorageController clearData with the
+#          upstream flags per category) synchronously from Application.onCreate,
+#          i.e. before any activity or GeckoSession exists, so Gecko runs them
+#          ahead of any page load, including one from a VIEW intent;
+#       3. deletes the local stores on the IO dispatcher -- session file +
+#          thumbnails (TABS), Places + recently closed tabs (HISTORY),
+#          downloads DB (DOWNLOADS) -- while the main thread waits for them,
+#          bounded (5 s). Only the wait is on the main thread: a step that
+#          needs it cannot deadlock start-up (Fenix's PermissionStorage does:
+#          it is backed by Gecko's site-permission storage, so it runs with the
+#          Gecko deletions in step 2's async half; found on the device);
+#       4. returns a gate that restoreBrowserState() and restoreDownloads()
+#          join; it opens when Gecko and every store confirmed (bounded, 20 s),
+#          and then the marker becomes "running".
+#     A deletion that kills the process cannot loop: after 3 attempts that did
+#     not finish, the start continues without deleting and logs an error; the
+#     next unclean exit counts from 1 again. With the setting off nothing is
+#     deleted, whatever the marker says. Private tabs are never persisted and
+#     their Gecko data dies with the process; the selected categories are
+#     cleared for normal and private browsing alike, as on Quit.
+#
+# (a) best effort. DeleteOnQuitTaskService, a started (not foreground) service
+#     with stopWithTask="false" and no notification, is started at every
+#     ProcessLifecycleOwner ON_START while the setting is on. When the task is
+#     swiped away while it runs, onTaskRemoved starts the same deletion
+#     without blocking (no ANR) and marks "clean" only if it finishes and the
+#     app did not come back meanwhile. Android usually kills a background
+#     process right after removing its task, and stops background services
+#     about a minute after the app left the foreground, so (a) is measured,
+#     never relied on; (b) covers everything (a) misses.
+#
+# Quit itself is unchanged; after upstream's deletion it also runs the guard's
+# awaited deletion (idempotent) and only then writes "clean", because upstream
+# does not wait for Gecko's clearData callbacks before finishAndRemoveTask().
+#
+# No network: every step is a local store or Gecko's StorageController.
+# Log tag: RedoubtDeleteOnQuit (Logger info/warn/error reach logcat in
+# release builds through FenixLogSink).
+#
+# Unit tests: DeleteOnQuitGuardTest (JVM, no Robolectric): marker atomicity and
+# parsing, the cold-start decision table, ordering (attempt recorded before
+# deletion; restore gated on the engine), bounded retries, timeouts, a local
+# step that never returns (the main thread is released), the
+# clean-quit / foreground race, setting off. The deletion itself is proven on
+# a device: docs/android/evidence/lw-m7-45/.
+#
+diff --git a/mobile/android/fenix/app/src/main/AndroidManifest.xml b/mobile/android/fenix/app/src/main/AndroidManifest.xml
+--- a/mobile/android/fenix/app/src/main/AndroidManifest.xml
++++ b/mobile/android/fenix/app/src/main/AndroidManifest.xml
+@@ -732,6 +732,12 @@
+             android:foregroundServiceType="mediaPlayback"
+             android:exported="false" />
+ 
++        <!-- Redoubt LW-M7-45: receives onTaskRemoved for "Delete browsing data on quit". -->
++        <service
++            android:name=".lw.DeleteOnQuitTaskService"
++            android:exported="false"
++            android:stopWithTask="false" />
++
+         <service
+             android:name=".customtabs.CustomTabsService"
+             android:exported="true"
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+@@ -398,6 +398,10 @@
+ 
+         initializeRemoteSettingsSupport()
+ 
++        // Redoubt LW-M7-45: after a session that did not end through Quit,
++        // delete the "on quit" categories; the two restores below wait for it.
++        org.mozilla.fenix.lw.DeleteOnQuitGuard.get(this).onColdStart()
++
+         restoreBrowserState()
+         restoreDownloads()
+         restoreMessaging()
+@@ -450,6 +454,12 @@
+                     browserStore = components.core.store,
+                 ),
+                 VisibilityLifecycleObserver(),
++                // Redoubt LW-M7-45: a session is in use again.
++                object : androidx.lifecycle.DefaultLifecycleObserver {
++                    override fun onStart(owner: androidx.lifecycle.LifecycleOwner) {
++                        org.mozilla.fenix.lw.onAppForeground(this@FenixApplication)
++                    }
++                },
+             )
+ 
+         components.analytics.metricsStorage.tryRegisterAsUsageRecorder(this)
+@@ -462,6 +472,8 @@
+     private fun restoreBrowserState() = applicationScope.launch {
+         val store = components.core.store
+         val sessionStorage = components.core.sessionStorage
++        // Redoubt LW-M7-45: not before a pending "on quit" deletion is done.
++        org.mozilla.fenix.lw.DeleteOnQuitGuard.get(this@FenixApplication).coldStartGate.join()
+ 
+         components.useCases.tabsUseCases.restore(sessionStorage, components.settings.getTabTimeout())
+ 
+@@ -475,7 +487,16 @@
+     }
+ 
+     private fun restoreDownloads() {
+-        components.useCases.downloadUseCases.restoreDownloads()
++        // Redoubt LW-M7-45: not before a pending "on quit" deletion is done.
++        val gate = org.mozilla.fenix.lw.DeleteOnQuitGuard.get(this).coldStartGate
++        if (gate.isCompleted) {
++            components.useCases.downloadUseCases.restoreDownloads()
++        } else {
++            applicationScope.launch {
++                gate.join()
++                components.useCases.downloadUseCases.restoreDownloads()
++            }
++        }
+     }
+ 
+     private fun initVisualCompletenessQueueAndQueueTasks() {
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
+@@ -976,6 +976,8 @@
+                 activity?.let { activity ->
+                     activity.lifecycleScope.launch {
+                         deleteBrowsingDataController.clearBrowsingDataOnQuit {
++                            // Redoubt LW-M7-45: confirm the deletion, then record the clean quit.
++                            org.mozilla.fenix.lw.DeleteOnQuitGuard.get(activity).onSessionEnding("quit")
+                             activity.finishAndRemoveTask()
+                         }
+                     }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
+@@ -0,0 +1,540 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++// Redoubt LW-M7-45: "Delete browsing data on quit" also covers sessions that
++// did not end through the Quit menu item.
++//
++// Upstream deletes the selected categories only when the user picks Quit
++// (MenuDialogFragment -> DeleteBrowsingDataController.clearBrowsingDataOnQuit).
++// Swiping the app away from recents, an OOM kill, a crash, a force-stop or a
++// reboot skips the deletion, and the next start restores the tabs, cookies and
++// history the user asked to have deleted. Owner decision 2026-10-06: "lets
++// build both as fallback".
++//
++//   (b) the guarantee. A marker file records how the session ended: "clean"
++//       is written only after Quit's deletion has been confirmed; every other
++//       end leaves "running" (or "cleaning") behind. On a cold start with the
++//       setting on and a marker that is not "clean", FenixApplication runs the
++//       same deletion for the selected categories before the session store and
++//       the downloads list are restored: the engine deletions are dispatched
++//       to Gecko before any activity exists (so before any GeckoSession can
++//       load a page), the app-side stores (Places, session file, recently
++//       closed tabs, thumbnails, permissions DB, downloads DB) are deleted
++//       synchronously, and the restore waits for Gecko to confirm. A deletion
++//       that itself kills the process cannot loop: the attempt count is in the
++//       marker, written before the deletion starts, and after MAX_ATTEMPTS the
++//       start continues without deleting and logs an error.
++//
++//   (a) best effort. DeleteOnQuitTaskService (stopWithTask="false") is started
++//       while the app is in the foreground, so Android calls onTaskRemoved when
++//       the task is swiped away. That starts the same deletion without waiting
++//       for it; Android usually kills the process within milliseconds, so (a)
++//       may not finish -- (b) does not depend on it.
++//
++// Nothing here touches the network, and with the setting off nothing is
++// deleted. Log tag: RedoubtDeleteOnQuit.
++
++package org.mozilla.fenix.lw
++
++import android.app.Service
++import android.content.Context
++import android.content.Intent
++import android.os.IBinder
++import androidx.annotation.VisibleForTesting
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.CoroutineDispatcher
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Deferred
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.async
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.runBlocking
++import kotlinx.coroutines.withContext
++import kotlinx.coroutines.withTimeoutOrNull
++import mozilla.components.browser.state.action.EngineAction
++import mozilla.components.browser.state.action.RecentlyClosedAction
++import mozilla.components.concept.engine.Engine
++import mozilla.components.concept.engine.translate.ModelManagementOptions
++import mozilla.components.concept.engine.translate.ModelOperation
++import mozilla.components.concept.engine.translate.OperationLevel
++import mozilla.components.feature.downloads.DownloadStorage
++import mozilla.components.support.base.log.logger.Logger
++import org.mozilla.fenix.ext.components
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType
++import java.io.File
++import java.io.FileOutputStream
++import java.io.IOException
++
++/** How the last session ended, as far as the marker file knows. */
++enum class SessionEnd(val token: String) {
++    /** Quit ran and its deletion was confirmed. */
++    CLEAN("clean"),
++
++    /** A session is (or was) in progress. */
++    RUNNING("running"),
++
++    /** A start-up deletion began and has not finished. */
++    CLEANING("cleaning"),
++}
++
++/** The marker's content. [attempts] counts start-up deletions begun since the last one that finished. */
++data class QuitMarker(val state: SessionEnd, val attempts: Int = 0)
++
++/**
++ * The marker file. Writes are atomic: the new content goes to a temporary
++ * file in the same directory, is fsync'ed, and replaces the marker with
++ * rename(2). A reader sees the old marker or the new one, never a torn one.
++ */
++class QuitMarkerFile(private val file: File) {
++    /** Returns null when there is no marker. Unreadable content reads as [SessionEnd.RUNNING]: unclean. */
++    fun read(): QuitMarker? {
++        if (!file.exists()) return null
++        val text =
++            try {
++                file.readText()
++            } catch (e: IOException) {
++                return QuitMarker(SessionEnd.RUNNING)
++            }
++        val fields =
++            text.lineSequence()
++                .mapNotNull { line -> line.split('=', limit = 2).takeIf { it.size == 2 } }
++                .associate { (k, v) -> k.trim() to v.trim() }
++        val state = SessionEnd.entries.firstOrNull { it.token == fields["state"] } ?: return QuitMarker(SessionEnd.RUNNING)
++        val attempts = fields["attempts"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
++        return QuitMarker(state, attempts)
++    }
++
++    /** Atomically replaces the marker. */
++    @Throws(IOException::class)
++    fun write(marker: QuitMarker) {
++        val dir = file.absoluteFile.parentFile ?: throw IOException("no parent for $file")
++        if (!dir.isDirectory && !dir.mkdirs()) throw IOException("cannot create $dir")
++        val tmp = File(dir, file.name + ".tmp")
++        FileOutputStream(tmp).use { out ->
++            out.write("format=1\nstate=${marker.state.token}\nattempts=${marker.attempts}\n".toByteArray())
++            out.flush()
++            out.fd.sync()
++        }
++        if (!tmp.renameTo(file)) {
++            tmp.delete()
++            throw IOException("rename $tmp -> $file failed")
++        }
++    }
++}
++
++/** What a cold start does about the last session. */
++sealed class StartupDecision {
++    /** Nothing to delete: the setting is off, or the last session ended through Quit. */
++    data class Skip(val reason: String) : StartupDecision()
++
++    /** Run the deletion; [attempt] is 1 for the first try. */
++    data class Run(val attempt: Int) : StartupDecision()
++
++    /** Earlier attempts died mid-deletion; continue without deleting. */
++    data class GiveUp(val attempts: Int) : StartupDecision()
++}
++
++/** The cold-start rule, kept free of Android so it can be tested on its own. */
++fun decideAtStartup(
++    marker: QuitMarker?,
++    enabled: Boolean,
++    maxAttempts: Int = DeleteOnQuitGuard.MAX_ATTEMPTS,
++): StartupDecision =
++    when {
++        !enabled -> StartupDecision.Skip("setting off")
++        marker == null -> StartupDecision.Run(1)
++        marker.state == SessionEnd.CLEAN -> StartupDecision.Skip("last session ended with Quit")
++        marker.state == SessionEnd.RUNNING -> StartupDecision.Run(1)
++        marker.attempts >= maxAttempts -> StartupDecision.GiveUp(marker.attempts)
++        else -> StartupDecision.Run(marker.attempts + 1)
++    }
++
++/** Performs the deletion for a set of categories. */
++interface DeleteOnQuitRunner {
++    /**
++     * Issues every engine-side deletion for [types] before it returns, and
++     * returns a Deferred that completes with true when the engine confirmed
++     * all of them.
++     */
++    fun startEngineDeletion(types: Set<DeleteBrowsingDataOnQuitType>, scope: CoroutineScope): Deferred<Boolean>
++
++    /**
++     * Deletes the app-side data for [types]. [live] is false at a cold start,
++     * before anything was restored; true when a running session ends, where the
++     * in-memory state (open tabs, downloads list) is cleared too.
++     */
++    suspend fun deleteAppData(types: Set<DeleteBrowsingDataOnQuitType>, live: Boolean): Boolean
++}
++
++/** Ties the marker, the setting and the runner together. One instance per process. */
++@Suppress("LongParameterList")
++class DeleteOnQuitGuard(
++    private val marker: QuitMarkerFile,
++    private val selectedTypes: () -> Set<DeleteBrowsingDataOnQuitType>,
++    private val runner: DeleteOnQuitRunner,
++    private val scope: CoroutineScope,
++    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
++    private val appDataTimeoutMs: Long = APP_DATA_TIMEOUT_MS,
++    private val engineTimeoutMs: Long = ENGINE_TIMEOUT_MS,
++    private val maxAttempts: Int = MAX_ATTEMPTS,
++) {
++    private val logger = Logger(LOG_TAG)
++    private val lock = Any()
++    private var foregroundEpoch = 0
++    private var lastWritten: QuitMarker? = null
++
++    /** What session and downloads restore wait for; complete when there is nothing to wait for. */
++    @Volatile var coldStartGate: Job = completedJob()
++        private set
++
++    /**
++     * Called from Application.onCreate on the main thread, before the session
++     * store is restored. Returns the Job that restore must wait for.
++     */
++    fun onColdStart(): Job = coldStart().also { coldStartGate = it }
++
++    private fun coldStart(): Job {
++        val types = selectedTypes()
++        val current = marker.read()
++        val decision = decideAtStartup(current, types.isNotEmpty(), maxAttempts)
++        synchronized(lock) { lastWritten = current }
++        when (decision) {
++            is StartupDecision.Skip -> {
++                logger.info("cold start: no deletion (${decision.reason}); marker was ${describe(current)}")
++                markRunning()
++                return completedJob()
++            }
++            is StartupDecision.GiveUp -> {
++                logger.error(
++                    "cold start: ${decision.attempts} deletion attempts did not finish; " +
++                        "continuing WITHOUT deleting ${names(types)}"
++                )
++                markRunning()
++                return completedJob()
++            }
++            is StartupDecision.Run -> {
++                logger.warn(
++                    "cold start after unclean exit (marker ${describe(current)}): deleting ${names(types)} " +
++                        "before session restore, attempt ${decision.attempt}/$maxAttempts"
++                )
++                writeMarker(QuitMarker(SessionEnd.CLEANING, decision.attempt))
++                val engine = startEngine(types)
++                // The local stores are deleted on the IO dispatcher; the main
++                // thread only WAITS for them, bounded. Only the wait is under
++                // runBlocking, so a step that needs the main thread cannot
++                // deadlock start-up: the wait times out and the gate below
++                // keeps waiting for the step off the main thread.
++                val local = scope.async(ioDispatcher) { runner.deleteAppData(types, live = false) }
++                val appOkNow = runBlocking { awaitDeferred(local, appDataTimeoutMs) }
++                logger.info("cold start: app-side deletion done (ok=$appOkNow); waiting for the engine")
++                return scope.launch {
++                    val appOk = appOkNow || awaitDeferred(local, engineTimeoutMs)
++                    val engineOk = withTimeoutOrNull(engineTimeoutMs) { engine.await() } ?: false
++                    if (appOk && engineOk) {
++                        logger.warn("cold start: deletion complete; session restore may proceed")
++                    } else {
++                        logger.error("cold start: deletion incomplete (app=$appOk engine=$engineOk); continuing")
++                    }
++                    markRunning()
++                }
++            }
++        }
++    }
++
++    /** ProcessLifecycleOwner ON_START: a session is in use again. */
++    fun onForeground() {
++        synchronized(lock) {
++            foregroundEpoch++
++            if (lastWritten?.state == SessionEnd.CLEAN) {
++                writeMarkerLocked(QuitMarker(SessionEnd.RUNNING))
++            }
++        }
++    }
++
++    /** True when the user has the feature on with at least one category. */
++    fun isEnabled(): Boolean = selectedTypes().isNotEmpty()
++
++    /**
++     * The session is ending through Quit ([reason] "quit") or a task removal
++     * ("task-removed"). Starts the deletion without blocking the caller and
++     * writes "clean" once every part of it was confirmed -- unless the app came
++     * back to the foreground meanwhile.
++     */
++    fun onSessionEnding(reason: String): Job {
++        val types = selectedTypes()
++        if (types.isEmpty()) {
++            logger.info("$reason: setting off, nothing to do")
++            return completedJob()
++        }
++        val epoch = synchronized(lock) { foregroundEpoch }
++        logger.warn("$reason: deleting ${names(types)}")
++        val engine = startEngine(types)
++        return scope.launch {
++            val appOk =
++                try {
++                    withTimeoutOrNull(appDataTimeoutMs) {
++                        withContext(ioDispatcher) { runner.deleteAppData(types, live = true) }
++                    } ?: false
++                } catch (e: Exception) {
++                    logger.error("$reason: app-side deletion failed", e)
++                    false
++                }
++            val engineOk = withTimeoutOrNull(engineTimeoutMs) { engine.await() } ?: false
++            synchronized(lock) {
++                when {
++                    !(appOk && engineOk) ->
++                        logger.error("$reason: deletion incomplete (app=$appOk engine=$engineOk); marker stays unclean")
++                    epoch != foregroundEpoch ->
++                        logger.info("$reason: app returned to the foreground; marker stays unclean")
++                    else -> {
++                        writeMarkerLocked(QuitMarker(SessionEnd.CLEAN))
++                        logger.warn("$reason: deletion confirmed; marked clean")
++                    }
++                }
++            }
++        }
++    }
++
++    private suspend fun awaitDeferred(d: Deferred<Boolean>, timeoutMs: Long): Boolean =
++        try {
++            withTimeoutOrNull(timeoutMs) { d.await() } ?: false
++        } catch (e: Exception) {
++            logger.error("app-side deletion failed", e)
++            false
++        }
++
++    private fun startEngine(types: Set<DeleteBrowsingDataOnQuitType>): Deferred<Boolean> =
++        try {
++            runner.startEngineDeletion(types, scope)
++        } catch (e: Exception) {
++            logger.error("engine deletion could not be started", e)
++            CompletableDeferred(false)
++        }
++
++    private fun markRunning() {
++        synchronized(lock) {
++            if (lastWritten != QuitMarker(SessionEnd.RUNNING)) {
++                writeMarkerLocked(QuitMarker(SessionEnd.RUNNING))
++            }
++        }
++    }
++
++    private fun writeMarker(value: QuitMarker) = synchronized(lock) { writeMarkerLocked(value) }
++
++    private fun writeMarkerLocked(value: QuitMarker) {
++        try {
++            marker.write(value)
++            lastWritten = value
++        } catch (e: IOException) {
++            // An unwritten "running" or "cleaning" leaves the previous marker,
++            // which is never "clean" while a session runs except in the window
++            // right after Quit; an unwritten "clean" only costs one extra
++            // deletion at the next start.
++            logger.error("marker write failed (${value.state.token})", e)
++        }
++    }
++
++    private fun describe(m: QuitMarker?) = m?.let { "${it.state.token}/${it.attempts}" } ?: "absent"
++
++    private fun names(types: Set<DeleteBrowsingDataOnQuitType>) = types.joinToString(",") { it.name }
++
++    private fun completedJob(): Job = Job().apply { complete() }
++
++    companion object {
++        const val LOG_TAG = "RedoubtDeleteOnQuit"
++        const val MAX_ATTEMPTS = 3
++        const val APP_DATA_TIMEOUT_MS = 5_000L
++        const val ENGINE_TIMEOUT_MS = 20_000L
++        const val MARKER_FILE = "redoubt_session_end"
++
++        @Volatile private var instance: DeleteOnQuitGuard? = null
++
++        /** The process-wide guard. */
++        fun get(context: Context): DeleteOnQuitGuard =
++            instance ?: synchronized(this) {
++                instance ?: create(context.applicationContext).also { instance = it }
++            }
++
++        private fun create(context: Context): DeleteOnQuitGuard =
++            DeleteOnQuitGuard(
++                marker = QuitMarkerFile(File(context.noBackupFilesDir, MARKER_FILE)),
++                selectedTypes = {
++                    val settings = context.components.settings
++                    if (!settings.shouldDeleteBrowsingDataOnQuit) {
++                        emptySet()
++                    } else {
++                        DeleteBrowsingDataOnQuitType.entries.filter { settings.getDeleteDataOnQuit(it) }.toSet()
++                    }
++                },
++                runner = DefaultDeleteOnQuitRunner(context),
++                scope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
++            )
++    }
++}
++
++/**
++ * The deletion itself: the same categories and engine flags as upstream's
++ * DefaultDeleteBrowsingDataController, but every engine call is awaited, and
++ * the app-side stores are deleted directly so nothing depends on store
++ * middleware that runs later.
++ */
++class DefaultDeleteOnQuitRunner(private val context: Context) : DeleteOnQuitRunner {
++    private val logger = Logger(DeleteOnQuitGuard.LOG_TAG)
++    private val core get() = context.components.core
++
++    override fun startEngineDeletion(
++        types: Set<DeleteBrowsingDataOnQuitType>,
++        scope: CoroutineScope,
++    ): Deferred<Boolean> {
++        val engine = core.engine
++        val calls = mutableListOf<Deferred<Boolean>>()
++        fun clear(name: String, data: Int) {
++            calls += engineCall(name) { ok, err -> engine.clearData(Engine.BrowsingData.select(data), null, ok, err) }
++        }
++        for (type in types) {
++            when (type) {
++                DeleteBrowsingDataOnQuitType.COOKIES -> {
++                    clear("cookies", Engine.BrowsingData.COOKIES or Engine.BrowsingData.AUTH_SESSIONS)
++                    clear("dom-storages", Engine.BrowsingData.DOM_STORAGES)
++                }
++                DeleteBrowsingDataOnQuitType.CACHE -> {
++                    clear("caches", Engine.BrowsingData.ALL_CACHES)
++                    // Not counted: an engine without translations support reports an error every time.
++                    engineCall("translation-models") { ok, err ->
++                        engine.manageTranslationsLanguageModel(
++                            ModelManagementOptions(operation = ModelOperation.DELETE, operationLevel = OperationLevel.CACHE),
++                            ok,
++                            err,
++                        )
++                    }
++                }
++                DeleteBrowsingDataOnQuitType.PERMISSIONS -> {
++                    clear("site-settings", Engine.BrowsingData.ALL_SITE_SETTINGS)
++                    calls += scope.async {
++                        try {
++                            core.permissionStorage.deleteAllSitePermissions()
++                            logger.info("site permissions storage cleared")
++                            true
++                        } catch (e: Exception) {
++                            logger.error("deleting site permissions storage failed", e)
++                            false
++                        }
++                    }
++                }
++                DeleteBrowsingDataOnQuitType.HISTORY ->
++                    calls += engineCall("tracking-protection-data") { ok, err -> engine.clearTrackingProtectionData(ok, err) }
++                DeleteBrowsingDataOnQuitType.TABS, DeleteBrowsingDataOnQuitType.DOWNLOADS -> Unit
++            }
++        }
++        return scope.async { calls.map { it.await() }.all { it } }
++    }
++
++    override suspend fun deleteAppData(types: Set<DeleteBrowsingDataOnQuitType>, live: Boolean): Boolean {
++        var ok = true
++        suspend fun step(name: String, block: suspend () -> Unit) {
++            try {
++                block()
++            } catch (e: Exception) {
++                logger.error("deleting $name failed", e)
++                ok = false
++            }
++        }
++        val store = core.store
++        for (type in types) {
++            when (type) {
++                DeleteBrowsingDataOnQuitType.TABS -> {
++                    if (live) step("open tabs") { context.components.useCases.tabsUseCases.removeAllTabs(false) }
++                    step("session file") { core.sessionStorage.clear() }
++                    step("thumbnails") { core.thumbnailStorage.clearThumbnails().join() }
++                }
++                DeleteBrowsingDataOnQuitType.HISTORY -> {
++                    step("history") { core.historyStorage.deleteEverything() }
++                    step("recently closed tabs") { core.recentlyClosedTabsStorage.value.removeAllTabs() }
++                    if (live) {
++                        step("history state") {
++                            store.dispatch(EngineAction.PurgeHistoryAction)
++                            store.dispatch(RecentlyClosedAction.RemoveAllClosedTabAction)
++                        }
++                    }
++                }
++                // PERMISSIONS: Fenix's PermissionStorage is backed by Gecko's
++                // site-permission storage and needs the main thread, so it runs
++                // in startEngineDeletion, never in this (possibly awaited from
++                // the main thread) step.
++                DeleteBrowsingDataOnQuitType.DOWNLOADS -> {
++                    if (live) step("downloads list") { context.components.useCases.downloadUseCases.removeAllDownloads() }
++                    step("downloads database") { DownloadStorage(context).removeAllDownloads() }
++                }
++                DeleteBrowsingDataOnQuitType.COOKIES, DeleteBrowsingDataOnQuitType.CACHE,
++                DeleteBrowsingDataOnQuitType.PERMISSIONS -> Unit
++            }
++        }
++        return ok
++    }
++
++    private fun engineCall(
++        name: String,
++        call: (onSuccess: () -> Unit, onError: (Throwable) -> Unit) -> Unit,
++    ): Deferred<Boolean> {
++        val result = CompletableDeferred<Boolean>()
++        try {
++            call(
++                {
++                    logger.info("engine: $name cleared")
++                    result.complete(true)
++                },
++                { e ->
++                    logger.warn("engine: clearing $name failed: $e")
++                    result.complete(false)
++                },
++            )
++        } catch (e: Exception) {
++            logger.error("engine: clearing $name threw", e)
++            result.complete(false)
++        }
++        return result
++    }
++}
++
++/**
++ * Best-effort half (a). A plain started service with stopWithTask="false":
++ * Android delivers onTaskRemoved when the task is swiped away while it runs.
++ * It holds no notification and does no work of its own; Android stops it about
++ * a minute after the app went to the background, after which only (b) applies.
++ */
++class DeleteOnQuitTaskService : Service() {
++    override fun onBind(intent: Intent?): IBinder? = null
++
++    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
++
++    override fun onTaskRemoved(rootIntent: Intent?) {
++        Logger(DeleteOnQuitGuard.LOG_TAG).warn("onTaskRemoved: task swiped away")
++        DeleteOnQuitGuard.get(this).onSessionEnding("task-removed")
++        stopSelf()
++    }
++
++    companion object {
++        /** Call while the app is in the foreground. Never throws. */
++        fun sync(context: Context, enabled: Boolean) {
++            val intent = Intent(context, DeleteOnQuitTaskService::class.java)
++            try {
++                if (enabled) context.startService(intent) else context.stopService(intent)
++            } catch (e: IllegalStateException) {
++                Logger(DeleteOnQuitGuard.LOG_TAG).warn("task service not (re)started: $e")
++            } catch (e: SecurityException) {
++                Logger(DeleteOnQuitGuard.LOG_TAG).warn("task service not (re)started: $e")
++            }
++        }
++    }
++}
++
++/** ProcessLifecycleOwner hook, registered by FenixApplication. */
++@VisibleForTesting
++fun onAppForeground(context: Context) {
++    val guard = DeleteOnQuitGuard.get(context)
++    guard.onForeground()
++    DeleteOnQuitTaskService.sync(context, guard.isEnabled())
++}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
+new file mode 100644
+--- /dev/null
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
+@@ -0,0 +1,322 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++// Redoubt LW-M7-45: the marker, the cold-start rule and the guard's state
++// machine. The deletion itself (DefaultDeleteOnQuitRunner) is exercised on a
++// device; see docs/android/evidence/lw-m7-45/.
++
++package org.mozilla.fenix.lw
++
++import kotlinx.coroutines.CompletableDeferred
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Deferred
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.runBlocking
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Rule
++import org.junit.Test
++import org.junit.rules.TemporaryFolder
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.CACHE
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.COOKIES
++import org.mozilla.fenix.settings.deletebrowsingdata.DeleteBrowsingDataOnQuitType.TABS
++import java.io.File
++
++class DeleteOnQuitGuardTest {
++    @get:Rule val tmp = TemporaryFolder()
++
++    private lateinit var file: File
++    private lateinit var marker: QuitMarkerFile
++
++    /** Records calls; the engine half completes only when [engine] is completed. */
++    private inner class FakeRunner(
++        var engine: CompletableDeferred<Boolean> = CompletableDeferred(true),
++        var appOk: Boolean = true,
++        var appThrows: Boolean = false,
++        var appBlocker: CompletableDeferred<Unit>? = null,
++    ) : DeleteOnQuitRunner {
++        val engineCalls = mutableListOf<Set<DeleteBrowsingDataOnQuitType>>()
++        val appCalls = mutableListOf<Pair<Set<DeleteBrowsingDataOnQuitType>, Boolean>>()
++        val markerSeenByEngine = mutableListOf<QuitMarker?>()
++
++        override fun startEngineDeletion(
++            types: Set<DeleteBrowsingDataOnQuitType>,
++            scope: CoroutineScope,
++        ): Deferred<Boolean> {
++            engineCalls += types
++            markerSeenByEngine += marker.read()
++            return engine
++        }
++
++        override suspend fun deleteAppData(types: Set<DeleteBrowsingDataOnQuitType>, live: Boolean): Boolean {
++            appCalls += types to live
++            appBlocker?.await()
++            if (appThrows) throw IllegalStateException("boom")
++            return appOk
++        }
++    }
++
++    private var selected: Set<DeleteBrowsingDataOnQuitType> = setOf(COOKIES, CACHE, TABS)
++
++    private fun guard(
++        runner: DeleteOnQuitRunner,
++        engineTimeoutMs: Long = 2_000,
++        appDataTimeoutMs: Long = 2_000,
++        scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
++    ) =
++        DeleteOnQuitGuard(
++            marker = marker,
++            selectedTypes = { selected },
++            runner = runner,
++            scope = scope,
++            ioDispatcher = Dispatchers.Unconfined,
++            appDataTimeoutMs = appDataTimeoutMs,
++            engineTimeoutMs = engineTimeoutMs,
++        )
++
++    @Before
++    fun setUp() {
++        file = File(tmp.root, "sub/redoubt_session_end")
++        marker = QuitMarkerFile(file)
++    }
++
++    // --- marker file -------------------------------------------------------
++
++    @Test
++    fun `absent marker reads as null`() {
++        assertNull(marker.read())
++    }
++
++    @Test
++    fun `marker round-trips and leaves no temporary file`() {
++        marker.write(QuitMarker(SessionEnd.CLEANING, 2))
++        assertEquals(QuitMarker(SessionEnd.CLEANING, 2), marker.read())
++        marker.write(QuitMarker(SessionEnd.CLEAN))
++        assertEquals(QuitMarker(SessionEnd.CLEAN, 0), marker.read())
++        assertEquals(listOf("redoubt_session_end"), file.parentFile!!.list()!!.toList())
++    }
++
++    @Test
++    fun `unreadable or unknown marker content counts as unclean`() {
++        file.parentFile!!.mkdirs()
++        file.writeText("garbage")
++        assertEquals(SessionEnd.RUNNING, marker.read()!!.state)
++        file.writeText("state=clean-ish\n")
++        assertEquals(SessionEnd.RUNNING, marker.read()!!.state)
++        file.writeText("state=cleaning\nattempts=-4\n")
++        assertEquals(QuitMarker(SessionEnd.CLEANING, 0), marker.read())
++    }
++
++    @Test
++    fun `a torn temporary file never replaces the marker`() {
++        marker.write(QuitMarker(SessionEnd.CLEAN))
++        File(file.parentFile, file.name + ".tmp").writeText("state=run")
++        assertEquals(QuitMarker(SessionEnd.CLEAN), marker.read())
++    }
++
++    // --- cold-start rule ---------------------------------------------------
++
++    @Test
++    fun `startup decision table`() {
++        val clean = QuitMarker(SessionEnd.CLEAN)
++        val running = QuitMarker(SessionEnd.RUNNING)
++        for (m in listOf(null, clean, running, QuitMarker(SessionEnd.CLEANING, 9))) {
++            assertTrue(decideAtStartup(m, enabled = false) is StartupDecision.Skip)
++        }
++        assertEquals(StartupDecision.Run(1), decideAtStartup(null, enabled = true))
++        assertTrue(decideAtStartup(clean, enabled = true) is StartupDecision.Skip)
++        assertEquals(StartupDecision.Run(1), decideAtStartup(running, enabled = true))
++        assertEquals(StartupDecision.Run(2), decideAtStartup(QuitMarker(SessionEnd.CLEANING, 1), true, 3))
++        assertEquals(StartupDecision.Run(3), decideAtStartup(QuitMarker(SessionEnd.CLEANING, 2), true, 3))
++        assertEquals(StartupDecision.GiveUp(3), decideAtStartup(QuitMarker(SessionEnd.CLEANING, 3), true, 3))
++    }
++
++    // --- cold start --------------------------------------------------------
++
++    @Test
++    fun `unclean exit deletes before restore and records the attempt first`() {
++        marker.write(QuitMarker(SessionEnd.RUNNING))
++        val runner = FakeRunner(engine = CompletableDeferred())
++        val g = guard(runner)
++        assertTrue(g.coldStartGate.isCompleted)
++        val gate = g.onColdStart()
++        assertTrue(gate === g.coldStartGate)
++
++        assertEquals(listOf(selected), runner.engineCalls)
++        assertEquals(listOf(selected to false), runner.appCalls)
++        // The attempt was on disk before any deletion started.
++        assertEquals(listOf<QuitMarker?>(QuitMarker(SessionEnd.CLEANING, 1)), runner.markerSeenByEngine)
++        // Restore waits for the engine.
++        assertFalse(gate.isCompleted)
++        assertEquals(QuitMarker(SessionEnd.CLEANING, 1), marker.read())
++
++        runner.engine.complete(true)
++        runBlocking { gate.join() }
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `missing marker with the setting on counts as unclean`() {
++        val runner = FakeRunner()
++        runBlocking { guard(runner).onColdStart().join() }
++        assertEquals(1, runner.engineCalls.size)
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `setting off deletes nothing whatever the marker says`() {
++        selected = emptySet()
++        for (m in listOf(null, QuitMarker(SessionEnd.RUNNING), QuitMarker(SessionEnd.CLEANING, 1))) {
++            if (m == null) file.delete() else marker.write(m)
++            val runner = FakeRunner()
++            val gate = guard(runner).onColdStart()
++            assertTrue(gate.isCompleted)
++            assertTrue(runner.engineCalls.isEmpty())
++            assertTrue(runner.appCalls.isEmpty())
++            assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++        }
++    }
++
++    @Test
++    fun `clean quit skips the deletion and marks the new session running`() {
++        marker.write(QuitMarker(SessionEnd.CLEAN))
++        val runner = FakeRunner()
++        assertTrue(guard(runner).onColdStart().isCompleted)
++        assertTrue(runner.engineCalls.isEmpty())
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `a deletion that keeps killing the process is retried a bounded number of times`() {
++        // Each "process" dies during the deletion: the engine never confirms
++        // and the gate is abandoned, so the marker keeps saying "cleaning".
++        for (attempt in 1..DeleteOnQuitGuard.MAX_ATTEMPTS) {
++            val runner = FakeRunner(engine = CompletableDeferred())
++            val process = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
++            guard(runner, scope = process).onColdStart()
++            assertEquals(1, runner.engineCalls.size)
++            assertEquals(QuitMarker(SessionEnd.CLEANING, attempt), marker.read())
++            process.cancel() // the process dies
++        }
++        val runner = FakeRunner()
++        val gate = guard(runner).onColdStart()
++        assertTrue(gate.isCompleted)
++        assertTrue("gave up: no further attempt", runner.engineCalls.isEmpty())
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++        // The next unclean exit starts counting again.
++        val next = FakeRunner()
++        runBlocking { guard(next).onColdStart().join() }
++        assertEquals(1, next.engineCalls.size)
++    }
++
++    @Test
++    fun `engine that never answers does not hold restore forever`() {
++        marker.write(QuitMarker(SessionEnd.RUNNING))
++        val runner = FakeRunner(engine = CompletableDeferred())
++        val gate = guard(runner, engineTimeoutMs = 50).onColdStart()
++        runBlocking { gate.join() }
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `a local step that never returns does not hold the main thread`() {
++        // Found on the device: a step that needed the main thread deadlocked
++        // onColdStart. The main thread now only waits, bounded; restore keeps
++        // waiting for the step off the main thread.
++        marker.write(QuitMarker(SessionEnd.RUNNING))
++        val blocker = CompletableDeferred<Unit>()
++        val runner = FakeRunner(appBlocker = blocker)
++        val gate = guard(runner, appDataTimeoutMs = 50).onColdStart()
++        assertFalse("restore still waits for the local step", gate.isCompleted)
++        assertEquals(QuitMarker(SessionEnd.CLEANING, 1), marker.read())
++        blocker.complete(Unit)
++        runBlocking { gate.join() }
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `app-side failure is contained`() {
++        val runner = FakeRunner(appThrows = true)
++        runBlocking { guard(runner).onColdStart().join() }
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    // --- session end -------------------------------------------------------
++
++    @Test
++    fun `quit marks clean only after the deletion is confirmed`() {
++        val runner = FakeRunner(engine = CompletableDeferred())
++        val g = guard(runner)
++        runBlocking { g.onColdStart().also { runner.engine.complete(true) }.join() }
++
++        runner.engine = CompletableDeferred()
++        val job = g.onSessionEnding("quit")
++        assertEquals(selected to true, runner.appCalls.last())
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++        runner.engine.complete(true)
++        runBlocking { job.join() }
++        assertEquals(QuitMarker(SessionEnd.CLEAN), marker.read())
++
++        // Back in the foreground after Quit: the session is running again.
++        g.onForeground()
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `quit whose deletion fails stays unclean`() {
++        val runner = FakeRunner()
++        val g = guard(runner)
++        runBlocking { g.onColdStart().join() }
++        runner.engine = CompletableDeferred(false)
++        runBlocking { g.onSessionEnding("quit").join() }
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++
++        runner.engine = CompletableDeferred(true)
++        runner.appOk = false
++        runBlocking { g.onSessionEnding("quit").join() }
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `returning to the foreground before the deletion finished keeps the marker unclean`() {
++        val runner = FakeRunner()
++        val g = guard(runner)
++        runBlocking { g.onColdStart().join() }
++        runner.engine = CompletableDeferred()
++        val job = g.onSessionEnding("task-removed")
++        g.onForeground()
++        runner.engine.complete(true)
++        runBlocking { job.join() }
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `session end with the setting off does nothing`() {
++        val runner = FakeRunner()
++        val g = guard(runner)
++        runBlocking { g.onColdStart().join() }
++        selected = emptySet()
++        val calls = runner.engineCalls.size
++        runBlocking { g.onSessionEnding("task-removed").join() }
++        assertEquals(calls, runner.engineCalls.size)
++        assertEquals(QuitMarker(SessionEnd.RUNNING), marker.read())
++    }
++
++    @Test
++    fun `foreground without a preceding quit writes nothing`() {
++        val runner = FakeRunner()
++        val g = guard(runner)
++        runBlocking { g.onColdStart().join() }
++        val before = file.lastModified()
++        file.setLastModified(before - 10_000)
++        g.onForeground()
++        assertEquals(before - 10_000, file.lastModified())
++    }
++}
