@@ -616,3 +616,53 @@ The APK was signed with the throwaway key (sha256 `f3427038…84eb`; unsigned
 So the release-day compile risk for this patch is retired. On release day,
 re-run `--check-delete-on-quit` with the rest of the acceptance (step 9).
 
+
+## 10. Update, 2026-10-07: LW-M7-45 multi-task fix merged
+
+**Merge.** `origin/main` at f44de75e was merged into this branch as a signed
+merge commit, a0c10098, with no conflicts. It brings the LW-M7-45 follow-up
+a9d7caa2. Before it, `onTaskRemoved` deleted the live session whenever ANY
+task of the app was swiped: a PWA document task, a custom tab's own task, or
+the main task while a custom tab or PWA stayed open. Now it deletes, and
+marks "clean", only when no other task holds a live activity. The commit also
+lists `HttpIconLoader` favicon fetches as a gate exclusion and moves the
+throwaway keystore password out of three evidence scripts.
+
+**Checks on a0c10098, 158.0b4.** These ran in a scratch worktree with
+`version` and `version.android` set to `158.0b4`
+(`prebase/lw-m7-45-multitask-2026-10-07/gates/`):
+
+| check | result |
+|---|---|
+| `check-patchfail.sh --targets=android` | exit 0; `delete-on-quit-swipe` applies with offsets only, as in section 9 |
+| `check-patchfail.sh --targets=desktop` | exit 0 |
+| `check-patch-order.py`, `lint-patch-scope.py`, `board.py --check`, `--check-scope`, `site-check.py` | ok |
+
+**Build and device check (x86_64).** The layout was the same as in sections 8
+and 9: version `158.0`, `release.android` `1`, and
+`firefox-158.0.source.tar.xz` pointing at the b4 tarball. The image was
+`fx158` (`98e61be72eec`), with build date 20261006230000
+(`prebase/lw-m7-45-multitask-2026-10-07/build/`). A fresh worktree needs
+`git submodule update --init settings` before `make android-dir`.
+
+| step | result |
+|---|---|
+| `android-apk.sh --variant release` | `:fenix:compileReleaseKotlin`, `BUILD SUCCESSFUL in 17m 51s` (Kotlin `-Werror`). The script's exit 1 afterwards is the expected single-ABI universal-APK check |
+| `fenix:testDebugUnitTest --tests org.mozilla.fenix.lw.*` | `DeleteOnQuitGuardTest` 29 and `DeleteOnQuitStartGateMiddlewareTest` 7, 0 failures |
+
+APK `redoubt-158b4-doq5-x86_64-throwaway.apk`, sha256
+`860056ba287e5e5fc15a53af97b2a92b4c964c96fbb600f23b0113db38c1caf3`
+(unsigned `a798f0537e2bfb977a56d733c364ce150d2761941c7a8cab5096b364ade9c3d2`).
+It ran on an API 34 `google_apis` x86_64 emulator, which reported
+`versionName=158.0-1-default`:
+
+| check | result |
+|---|---|
+| `android-smoke.sh --check-delete-on-quit` | **PASS** (`device/smoke-check-delete-on-quit.json`) |
+| case A: main task plus PWA document task, swipe the PWA | `other live tasks: [73]`, nothing deleted, marker `running`; the main task's next request sent all 4 cookies. Swiping the main task afterwards deleted everything, and the next request had an empty `Cookie` |
+| case B2: main task plus a custom tab inside another app's task, swipe the main task | `other live tasks: [84]`, nothing deleted, marker `running`. After a later `kill -9`, the cold start deleted everything |
+
+The full case set (A, B1, B2, single swipe, Quit) on 157.0-3 is in
+`docs/android/evidence/lw-m7-45/README.md`, section "Follow-up: several
+tasks". On release day, re-run `--check-delete-on-quit` with the rest of the
+acceptance (step 9).
