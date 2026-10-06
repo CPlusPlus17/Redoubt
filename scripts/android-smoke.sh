@@ -3833,6 +3833,150 @@ def check_launcher_start(app, adb, res, wait=LAUNCHER_START_WAIT):
             {"phases": phases})
     return ok
 
+# ---------------------------------------------------------------------------
+# --check-delete-on-quit  (LW-M7-45)
+#
+# "Delete browsing data on quit" must also run after the task is swiped away
+# from recents. Needs a rootable image (it writes the app's preferences and
+# reads its session file). Two phases on one install:
+#   on : setting on, all six categories. Two tabs are opened and saved, the
+#        task is swiped away from recents (the real gesture), the app is cold
+#        started from the launcher. PASS needs a completed deletion -- the
+#        cold start's ("cold start after unclean exit" ... "deletion
+#        complete"), or onTaskRemoved's when the swipe left the process alive
+#        ("task-removed: deletion confirmed") -- no RestoreAction before it,
+#        and no saved tab afterwards.
+#   off: the same with the setting off. PASS needs NO start-up deletion and
+#        the two tabs restored -- the negative control.
+# Whether onTaskRemoved (the best-effort half) fired is recorded, not graded.
+# ---------------------------------------------------------------------------
+DOQ_TAG = "RedoubtDeleteOnQuit"
+DOQ_PREFS = ("pref_key_delete_browsing_data_on_quit", "pref_key_delete_open_tabs_on_quit",
+             "pref_key_delete_browsing_history_on_quit", "pref_key_delete_cookies_and_site_data_on_quit",
+             "pref_key_delete_caches_on_quit", "pref_key_delete_permissions_on_quit",
+             "pref_key_delete_downloads_on_quit")
+DOQ_WAIT = 20
+
+def _doq_set_prefs(app, adb, on):
+    app.force_stop()
+    time.sleep(1)
+    path = "/data/data/%s/shared_prefs/fenix_preferences.xml" % app.pkg
+    xml = adb.shell("cat %s 2>/dev/null" % path, timeout=60)
+    if "<map" not in xml:
+        xml = "<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n</map>\n"
+    for k in DOQ_PREFS:
+        xml = re.sub(r'\s*<boolean name="%s" value="[a-z]+" />' % re.escape(k), "", xml)
+        val = ("true" if on else "false") if k == DOQ_PREFS[0] else "true"
+        xml = xml.replace("</map>", '    <boolean name="%s" value="%s" />\n</map>' % (k, val))
+    local = os.path.join(app.work, "doq-prefs-%s.xml" % ("on" if on else "off"))
+    with open(local, "w") as f:
+        f.write(xml)
+    adb.run("push", local, "/data/local/tmp/doq-prefs.xml", timeout=60, check=True)
+    owner = adb.shell("stat -c %%u:%%g /data/data/%s" % app.pkg, timeout=60).strip()
+    adb.shell("mkdir -p /data/data/{p}/shared_prefs && cp /data/local/tmp/doq-prefs.xml {f} && "
+              "chown {o} {f} /data/data/{p}/shared_prefs && chmod 660 {f} && "
+              "restorecon -R /data/data/{p}/shared_prefs".format(p=app.pkg, f=path, o=owner), timeout=60)
+
+def _doq_saved_tabs(app, adb):
+    body = adb.shell("cat /data/data/%s/files/mozilla_components_session_storage_gecko.json "
+                     "2>/dev/null" % app.pkg, timeout=60)
+    try:
+        return len(json.loads(body).get("sessionStateTuples", [])) if body.strip() else 0
+    except ValueError:
+        return -1
+
+def _doq_swipe_away(adb):
+    size = re.findall(r"(\d+)x(\d+)", adb.shell("wm size", timeout=30))
+    w, h = map(int, size[-1]) if size else (1080, 2340)
+    adb.shell("input keyevent KEYCODE_WAKEUP", timeout=30)
+    adb.shell("input keyevent KEYCODE_APP_SWITCH", timeout=30)
+    time.sleep(2.5)
+    adb.shell("input swipe %d %d %d %d 120" % (w // 2, int(h * 0.6), w // 2, int(h * 0.06)), timeout=30)
+    time.sleep(4)
+    adb.shell("input keyevent KEYCODE_HOME", timeout=30)
+
+def check_delete_on_quit(app, adb, res):
+    r = adb.run("root", timeout=90)
+    if "cannot run as root" in (r.stdout + r.stderr):
+        raise HarnessError("--check-delete-on-quit needs a rootable image (it writes the app's "
+                           "preferences and reads its session file)")
+    time.sleep(2)
+    adb.run("wait-for-device", timeout=120)
+    component = launcher_component(adb, app.pkg)
+    phases = []
+    for mode in ("on", "off"):
+        problems = []
+        _doq_set_prefs(app, adb, mode == "on")
+        adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "
+                  "-f 0x10200000 -n %s" % component, timeout=90)
+        time.sleep(8)
+        for n in (1, 2):
+            app.start_url("http://127.0.0.1:9/doq-%s-%d" % (mode, n))
+            time.sleep(4)
+        deadline, saved = time.time() + 60, 0
+        while time.time() < deadline and saved < 2:
+            time.sleep(3)
+            saved = _doq_saved_tabs(app, adb)
+        if saved < 2:
+            problems.append("only %d tab(s) saved before the swipe" % saved)
+        adb.run("logcat", "-c", timeout=60)
+        _doq_swipe_away(adb)
+        swipe_log = adb.out("logcat", "-d", "-v", "threadtime", timeout=120)
+        deadline = time.time() + 15
+        while app.alive() and time.time() < deadline:
+            time.sleep(1)
+        killed = not app.alive()
+        if not killed:
+            app.force_stop()  # the swipe left the process; still a non-Quit exit
+        adb.run("logcat", "-c", timeout=60)
+        adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "
+                  "-f 0x10200000 -n %s" % component, timeout=90)
+        time.sleep(DOQ_WAIT)
+        logcat = adb.out("logcat", "-d", "-v", "threadtime", timeout=120)
+        after = _doq_saved_tabs(app, adb)
+        for suffix, body in (("swipe-logcat.txt", swipe_log), ("logcat.txt", logcat)):
+            with open(os.path.join(app.work, "delete-on-quit-%s-%s" % (mode, suffix)), "w") as f:
+                f.write(body)
+        lines = logcat.splitlines()
+        def first(pat):
+            return next((i for i, l in enumerate(lines) if re.search(pat, l)), None)
+        unclean = first(DOQ_TAG + r".*cold start after unclean exit")
+        done = first(DOQ_TAG + r".*cold start: deletion complete")
+        restore = first(r"BrowserStore.*RestoreAction")
+        swipe_done = re.search(DOQ_TAG + r".*task-removed: deletion confirmed", swipe_log) is not None
+        if mode == "on":
+            # Either half may do the work: (b) at the cold start, or (a) when the
+            # swipe left the process alive long enough to finish and mark clean.
+            if not swipe_done and unclean is None:
+                problems.append("neither onTaskRemoved nor the cold start deleted anything")
+            if not swipe_done and done is None:
+                problems.append("the start-up deletion did not report completion")
+            if restore is not None and (done is None or restore < done):
+                problems.append("a session restore was logged before the deletion completed")
+            if after != 0:
+                problems.append("%d tab(s) saved after the cold start" % after)
+        else:
+            if unclean is not None:
+                problems.append("a start-up deletion ran with the setting off")
+            if first(DOQ_TAG + r".*setting off") is None:
+                problems.append("the guard did not log its setting-off decision")
+            if after < 2:
+                problems.append("tabs were not restored with the setting off (%d saved)" % after)
+        phase = {"phase": mode, "ok": not problems, "problems": problems, "saved_before": saved,
+                 "saved_after": after, "killed_by_swipe": killed,
+                 "on_task_removed_logged": bool(re.search(DOQ_TAG + r".*onTaskRemoved", swipe_log)),
+                 "on_task_removed_completed": swipe_done, "startup_deletion": unclean is not None}
+        phases.append(phase)
+        log("check-delete-on-quit: %s %s%s" % (mode, "ok" if phase["ok"] else "FAILED: ",
+                                               "; ".join(problems)))
+    ok = all(p["ok"] for p in phases)
+    res.add("check-delete-on-quit", ok,
+            "recents swipe then cold start: setting on deleted the saved tabs before restore, "
+            "setting off restored them" if ok else
+            "; ".join("%s: %s" % (p["phase"], ", ".join(p["problems"])) for p in phases if not p["ok"]),
+            {"phases": phases})
+    return ok
+
 def ubo_bundle_evidence(apk):
     """Bind a behavior probe to the exact packaged, pinned filter input."""
     with zipfile.ZipFile(apk) as archive:
@@ -5018,7 +5162,8 @@ def main(argv):
                     help="prove the harness reports failure when a probe fails")
     for f in ("ubo", "ubo-preinstall", "ubo-lifecycle", "ubo-user-disable", "search", "no-gms", "no-adjust",
               "aboutconfig", "no-suggest", "strings", "update-privacy",
-              "no-remote-settings", "https-only", "launcher-start", "video"):
+              "no-remote-settings", "https-only", "launcher-start", "video",
+              "delete-on-quit"):
         ap.add_argument("--check-" + f, action="store_true")
     ap.add_argument("--no-suggest-negative-control", action="store_true",
                     help="with --check-no-suggest: turn 'Show search suggestions' ON before "
@@ -5200,6 +5345,11 @@ def main(argv):
         # ---- --check-launcher-start: no URL, no Marionette, empty profile ----
         if args.check_launcher_start:
             check_launcher_start(app, adb, res)
+            return finish(res, args, work)
+
+        # ---- --check-delete-on-quit: swipe-away then cold start (LW-M7-45) ----
+        if args.check_delete_on_quit:
+            check_delete_on_quit(app, adb, res)
             return finish(res, args, work)
 
         # ---- --check-no-suggest: nothing leaves the toolbar before Enter ----

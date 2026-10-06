@@ -1,0 +1,128 @@
+# Redoubt delete-on-quit-swipe.patch  (Android, LW-M7-45)
+#
+# Owner report 2026-10-06: "when swiping away the app, the delete all on close
+# does not trigger. closing it with the close button, works". Owner decisions
+# 2026-10-06, verbatim:
+#   - "lets build both as fallback"
+#   - trigger rule: "Every non-Quit exit" -- any exit that is not Quit,
+#     including an OOM kill, a crash or a reboot, triggers the deletion at the
+#     next start (with the default cookies + cache selection, the user is
+#     logged out after any unclean exit);
+#   - link starts: "Yes, hard gate" -- a cold start through a link (VIEW
+#     intent), a custom tab, a PWA or a widget/search shortcut must not load
+#     any page until the deletion is confirmed, the same gate as the restore;
+#   - keep the best-effort onTaskRemoved service.
+#
+# Upstream files touched
+# -----------------------
+#   mobile/android/fenix/app/src/main/AndroidManifest.xml          (one <service>)
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+#       setupEarlyMain: DeleteOnQuitGuard.onColdStart() and the activity
+#       lifecycle callbacks right before restoreBrowserState()/restoreDownloads();
+#       both restores wait for the guard's gate.
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+#       DeleteOnQuitStartGateMiddleware first in the BrowserStore middleware
+#       list (context: ubo-preinstall.patch's LibreWolfUboPreinstallMiddleware
+#       line, which is earlier in android.txt).
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
+#       the Quit callback also calls DeleteOnQuitGuard.onSessionEnding("quit").
+# New files
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddleware.kt
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddlewareTest.kt
+# Fully qualified names are used instead of imports because the import blocks
+# differ between Firefox 157 and 158.
+#
+# What upstream does
+# -------------------
+# "Delete browsing data on quit" (Settings) deletes the selected categories
+# only from the menu's Quit item: DefaultDeleteBrowsingDataController
+# .clearBrowsingDataOnQuit, then finishAndRemoveTask(). Swipe-away from
+# recents, OOM kill, crash, force-stop and reboot skip it, and the next cold
+# start restores the session (FenixApplication.restoreBrowserState) with the
+# cookies, history and tabs the user asked to have deleted. Redoubt turns the
+# feature on by default (privacy-defaults.patch: cookies + cache), so this hits
+# every default install.
+#
+# What this patch does
+# ---------------------
+# (b) the guarantee, bounded (see "Bound" below). A marker file
+#     (noBackupFilesDir/redoubt_session_end, written temp + fsync + rename +
+#     fsync of the directory) says how the session ended. It reads "clean"
+#     only after Quit's deletion was confirmed by every store and by Gecko;
+#     any activity start (Application.ActivityLifecycleCallbacks, so a second
+#     task or split screen counts too) and anything that kills the process
+#     leave "running". On a cold start with the setting on and a marker that
+#     is not "clean" (or absent), onColdStart:
+#       1. writes "cleaning", attempt n, BEFORE deleting anything;
+#       2. dispatches the Gecko deletions (StorageController clearData with the
+#          upstream flags per category) from Application.onCreate, i.e. before
+#          any activity or GeckoSession exists; the site-permissions DB
+#          (PERMISSIONS) is deleted asynchronously with them, because Fenix's
+#          PermissionStorage needs the main thread (found on the device);
+#       3. deletes the local stores on the IO dispatcher -- session file +
+#          thumbnails (TABS), Places + recently closed tabs (HISTORY),
+#          downloads DB (DOWNLOADS) -- while the main thread waits for them,
+#          bounded (5 s); only the wait is on the main thread;
+#       4. returns the cold-start gate. It opens when Gecko and every store
+#          confirmed, or 20 s after step 1, and then the marker becomes
+#          "running". Until it opens:
+#            - restoreBrowserState() and restoreDownloads() wait;
+#            - DeleteOnQuitStartGateMiddleware holds every
+#              EngineAction.CreateEngineSessionAction and replays them in
+#              order when it opens. Every page load needs an engine session,
+#              so nothing loads -- not a restored tab, not a link (VIEW
+#              intent), custom tab, PWA or widget/shortcut search. Holding is
+#              a list and the replay a coroutine: the main thread never
+#              blocks on it (no ANR).
+#       5. With HISTORY selected, the middleware strips engineSessionState
+#          (the back/forward history) from the tabs of the following session
+#          restore -- the cold-start equivalent of the
+#          EngineAction.PurgeHistoryAction that upstream's Quit dispatches.
+#          With TABS selected the session file is gone anyway.
+#     A deletion that kills the process cannot loop: after 3 attempts that did
+#     not finish, the start continues without deleting and logs an error; the
+#     next unclean exit counts from 1 again. With the setting off nothing is
+#     deleted or held, whatever the marker says. Private tabs are never
+#     persisted and their Gecko data dies with the process; the selected
+#     categories are cleared for normal and private browsing alike, as on Quit.
+#
+#     Bound. The guarantee is bounded on purpose: if Gecko has not confirmed
+#     within 20 s, or a local step fails, the gate opens anyway (fail open;
+#     logged "deletion incomplete ... continuing (fail open)"), restore and
+#     loads proceed, and the deletion is retried after the next exit that is
+#     not Quit. Not covered by the gate: a custom-tabs client's mayLaunchUrl
+#     speculative connect (a TCP/TLS pre-connect, no request, no cookies), and
+#     extension background pages (uBO's filter-list updates).
+#
+# (a) best effort. DeleteOnQuitTaskService, a started (not foreground) service
+#     with stopWithTask="false" and no notification, is started at every
+#     activity start while the setting is on. When the task is swiped away
+#     while it runs, onTaskRemoved starts the same deletion without blocking
+#     (no ANR) and marks "clean" only if it finishes and no activity started
+#     meanwhile. Android usually kills a background process right after
+#     removing its task, and stops background services about a minute after
+#     the app left the foreground, so (a) is measured, never relied on; (b)
+#     covers everything (a) misses.
+#
+# Quit itself is unchanged; after upstream's deletion it also runs the guard's
+# awaited deletion (idempotent) and only then writes "clean", because upstream
+# does not wait for Gecko's clearData callbacks before finishAndRemoveTask().
+#
+# No network: every step is a local store or Gecko's StorageController.
+# Log tag: RedoubtDeleteOnQuit (Logger info/warn/error reach logcat in
+# release builds through FenixLogSink).
+#
+# Unit tests (JVM): DeleteOnQuitGuardTest -- marker atomicity, parsing and the
+# directory fsync, the cold-start decision table, ordering (attempt recorded
+# before deletion; restore gated on the engine), bounded retries, the single
+# 20 s bound (fail open), a local step that never returns (the main thread is
+# released), the history-purge flag, every activity start (not only the
+# first) marking "running", the clean-quit / foreground race, setting off.
+# DeleteOnQuitStartGateMiddlewareTest -- link, custom-tab, PWA and restored-tab
+# session creation held until the gate opens and replayed in order, no
+# overtaking at the opening, release on fail-open, no holding without a
+# pending deletion, and the restore without back/forward history. The
+# deletion itself is proven on a device: docs/android/evidence/lw-m7-45/.
+#
