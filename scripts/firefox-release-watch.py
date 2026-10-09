@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Flag every new Firefox release with one GitHub issue.
 
-Run daily by .github/workflows/firefox-release-watch.yaml. Since 2026-10-02 the
+Run hourly by .github/workflows/firefox-release-watch.yaml. Since 2026-10-02 the
 Android track follows Firefox release, the same track as desktop
 (docs/android/TRACK.md, "Decision reversed"), so every Firefox release is a
 rebase for both. Nothing else in the repository watches for one:
@@ -51,8 +51,18 @@ hand, newer than the repository or not, with no issue; it prints the comment
 instead of posting it, and without --dry-run it is refused.
 
 Only the latest release is flagged. If two releases land between runs (a
-daily schedule makes that rare), the older one gets no issue of its own; the
+hourly schedule makes that rare), the older one gets no issue of its own; the
 rebase goes straight to the newer one anyway.
+
+Since LW-M7-47 (docs/android/RELEASE-WATCH.md) it also: assigns every issue
+it opens to --notify (default $RELEASE_WATCH_NOTIFY, else the repository
+owner) and @-mentions them, and assigns an open unassigned one; reads Mozilla's
+security advisories (section "Mozilla security advisories" below) and puts
+the ones the shipped release is behind on the release issue or a new one;
+reminds on open `security` issues every 24 h; emits the `autobuild` matrix
+(section "autobuild"); and, if RELEASE_WATCH_NTFY_URL is set, pushes each of
+those events to an ntfy topic. `--notify-test` only opens and closes one test
+issue to check the notification path.
 
 Standard library only. Exit 0 when it did its job (including "nothing to
 do" and "tarball not there yet"); exit 1 on a network or API failure, so the
@@ -60,6 +70,7 @@ workflow run turns red instead of silently missing a release.
 """
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -88,6 +99,25 @@ LABEL_COLOR = 'e66000'
 LABEL_DESCRIPTION = 'A new Firefox release to rebase onto (scripts/firefox-release-watch.py)'
 USER_AGENT = 'redoubt-firefox-release-watch'
 TIMEOUT = 30
+
+# Notification (LW-M7-47). Firefox 157.0.1 was flagged on 2026-10-06 (#3) and
+# nobody acted for three days: the issue had no assignee, mentioned nobody and
+# said "rebase", not "security". Every issue the watcher opens is now assigned
+# to RELEASE_WATCH_NOTIFY (default: the repository owner) and @-mentions them,
+# which GitHub delivers as a "participating" notification (web, email, GitHub
+# Mobile push, per the owner's notification settings). docs/android/RELEASE-WATCH.md.
+SECURITY_LABEL = 'security'
+SECURITY_LABEL_COLOR = 'b60205'
+SECURITY_LABEL_DESCRIPTION = ('A Mozilla security advisory the shipped Redoubt is behind '
+                              '(scripts/firefox-release-watch.py)')
+PRIORITY_LABELS = {'critical': 'priority: critical', 'high': 'priority: high'}
+PRIORITY_LABEL_COLOR = 'd93f0b'
+PRIORITY_LABEL_DESCRIPTION = 'Highest MFSA impact of an advisory the shipped Redoubt is behind'
+TEST_LABEL = 'release-watch-test'
+# MFSA impact ratings, lowest to highest. "medium" appears in a few old files.
+IMPACT_ORDER = {'none': 0, 'low': 1, 'moderate': 2, 'medium': 2, 'high': 3, 'critical': 4}
+# A reminder comment on an open security issue at most this often.
+REMIND_AFTER_HOURS = 24
 
 _VERSION = re.compile(r'^(\d+)\.(\d+)(?:\.(\d+))?(esr)?$')
 
@@ -276,7 +306,7 @@ def android_issue_body(version, android, latest, has_tarball, repo, ref='main'):
             '(docs/android/SECURITY.md, "Android-only with no source tarball"). '
             'Building from the tag itself skips §3\'s signature check on the '
             'tarball, so it is not the supported path.',
-            '4. If a tarball appears later, the next daily run notices it while '
+            '4. If a tarball appears later, the next run notices it while '
             'this issue is open and posts the patch check here.',
         ]
     lines += [
@@ -332,8 +362,9 @@ class GitHub:
     def __init__(self, repo, token, api=GITHUB_API):
         self.repo, self.token, self.api = repo, token, api.rstrip('/')
 
-    def _call(self, method, path, data=None):
-        url = f'{self.api}/repos/{self.repo}{path}'
+    def _api(self, method, path, data=None):
+        """`path` from the API root, e.g. '/repos/o/r/issues' or '/graphql'."""
+        url = f'{self.api}{path}'
         try:
             with urllib.request.urlopen(_request(url, method, data, self.token),
                                         timeout=TIMEOUT) as r:
@@ -343,6 +374,9 @@ class GitHub:
             return e.code, None, e.headers
         except (urllib.error.URLError, OSError, ValueError) as e:
             raise WatchError(f'{method} {url}: {e}') from e
+
+    def _call(self, method, path, data=None):
+        return self._api(method, f'/repos/{self.repo}{path}', data)
 
     def _pages(self, path, params, what):
         out, page = [], 1
@@ -357,22 +391,33 @@ class GitHub:
             page += 1
 
     def issues(self, label):
-        """Every issue with `label`, open and closed, as
-        {'title', 'number', 'state'} dicts."""
+        """Every issue with `label`, open and closed, as dicts with 'title',
+        'number', 'state', 'created_at', 'labels' (names), 'assignees'
+        (logins) and 'node_id'."""
         items = self._pages('/issues', {'labels': label, 'state': 'all'},
                             f'listing issues labelled {label}')
         return [{'title': i.get('title', ''), 'number': i.get('number'),
-                 'state': i.get('state', '')} for i in items]
+                 'state': i.get('state', ''), 'created_at': i.get('created_at', ''),
+                 'labels': [l.get('name', '') if isinstance(l, dict) else str(l)
+                            for l in i.get('labels') or []],
+                 'assignees': [a.get('login', '') for a in i.get('assignees') or []],
+                 'node_id': i.get('node_id', '')}
+                for i in items if 'pull_request' not in i]
 
     def issue_titles(self, label):
         """Titles of every issue with `label`, open and closed."""
         return [i['title'] for i in self.issues(label)]
 
-    def comments(self, number):
-        """Bodies of every comment on issue `number`."""
+    def comments_full(self, number):
+        """Every comment on issue `number` as {'body', 'created_at'}."""
         items = self._pages(f'/issues/{number}/comments', {},
                             f'listing comments on #{number}')
-        return [i.get('body') or '' for i in items]
+        return [{'body': i.get('body') or '', 'created_at': i.get('created_at', '')}
+                for i in items]
+
+    def comments(self, number):
+        """Bodies of every comment on issue `number`."""
+        return [c['body'] for c in self.comments_full(number)]
 
     def create_comment(self, number, body):
         status, comment, _ = self._call('POST', f'/issues/{number}/comments',
@@ -381,26 +426,172 @@ class GitHub:
             raise WatchError(f'commenting on #{number}: HTTP {status}')
         return comment.get('html_url', '')
 
-    def ensure_label(self, label):
+    def ensure_label(self, label, color=LABEL_COLOR, description=LABEL_DESCRIPTION):
         status, _, _ = self._call('POST', '/labels', {
-            'name': label, 'color': LABEL_COLOR, 'description': LABEL_DESCRIPTION})
+            'name': label, 'color': color, 'description': description})
         # 201 created, 422 already exists. Anything else: creating the issue
         # with the label below still works where the token may set labels.
         return status in (201, 422)
 
-    def create_issue(self, title, body, label):
-        """Returns (html_url, number)."""
-        status, issue, _ = self._call('POST', '/issues', {
-            'title': title, 'body': body, 'labels': [label]})
+    def create_issue(self, title, body, label, assignees=()):
+        """Returns (html_url, number). GitHub drops an assignee who cannot be
+        assigned (no push access) without failing the call."""
+        data = {'title': title, 'body': body, 'labels': [label]}
+        if assignees:
+            data['assignees'] = list(assignees)
+        status, issue, _ = self._call('POST', '/issues', data)
         if status != 201 or not issue:
             raise WatchError(f'creating issue {title!r}: HTTP {status}')
         return issue.get('html_url', ''), issue.get('number')
+
+    def add_assignees(self, number, logins):
+        status, _, _ = self._call('POST', f'/issues/{number}/assignees',
+                                  {'assignees': list(logins)})
+        if status not in (200, 201):
+            raise WatchError(f'assigning #{number}: HTTP {status}')
+
+    def add_labels(self, number, labels):
+        status, _, _ = self._call('POST', f'/issues/{number}/labels',
+                                  {'labels': list(labels)})
+        if status != 200:
+            raise WatchError(f'labelling #{number}: HTTP {status}')
+
+    def edit_issue(self, number, **fields):
+        status, _, _ = self._call('PATCH', f'/issues/{number}', fields)
+        if status != 200:
+            raise WatchError(f'editing #{number}: HTTP {status}')
+
+    def pin_issue(self, node_id):
+        """Pin an issue to the repository's Issues page (GraphQL; at most three
+        are pinned). True on success. Best effort: the caller only logs a
+        failure, e.g. three already pinned or a token that may not pin."""
+        if not node_id:
+            return False
+        status, data, _ = self._api('POST', '/graphql', {
+            'query': 'mutation($id: ID!) { pinIssue(input: {issueId: $id}) '
+                     '{ issue { number } } }',
+            'variables': {'id': node_id}})
+        return status == 200 and bool(data) and not data.get('errors')
+
+    def latest_release(self):
+        """The tag of the repository's latest (non-prerelease) release, or ''
+        when there is none."""
+        status, rel, _ = self._call('GET', '/releases/latest')
+        if status == 404:
+            return ''
+        if status != 200 or not rel:
+            raise WatchError(f'reading the latest release: HTTP {status}')
+        return rel.get('tag_name', '')
+
+    def list_dir(self, repo, path):
+        """[{'name', 'download_url'}] of a directory of another (public)
+        repository, through the contents API."""
+        status, items, _ = self._api('GET', f'/repos/{repo}/contents/{path}')
+        if status == 404:
+            return []
+        if status != 200 or not isinstance(items, list):
+            raise WatchError(f'listing {repo}/{path}: HTTP {status}')
+        return [{'name': i.get('name', ''), 'download_url': i.get('download_url', '')}
+                for i in items if i.get('type') == 'file']
+
+    # Actions and git data: used by `autobuild` only.
+
+    def workflow_runs(self, workflow, status):
+        """[{'id', 'html_url', 'head_branch', 'status'}] of `workflow`'s runs
+        in `status` (queued, in_progress, ...)."""
+        q = urllib.parse.urlencode({'status': status, 'per_page': 50})
+        code, data, _ = self._call('GET', f'/actions/workflows/{workflow}/runs?{q}')
+        if code != 200 or not isinstance(data, dict):
+            raise WatchError(f'listing {workflow} runs ({status}): HTTP {code}')
+        return [{'id': r.get('id'), 'html_url': r.get('html_url', ''),
+                 'head_branch': r.get('head_branch', ''), 'status': r.get('status', '')}
+                for r in data.get('workflow_runs') or []]
+
+    def dispatch(self, workflow, ref, inputs):
+        code, _, _ = self._call('POST', f'/actions/workflows/{workflow}/dispatches',
+                                {'ref': ref, 'inputs': inputs})
+        if code != 204:
+            raise WatchError(f'dispatching {workflow} on {ref}: HTTP {code}')
+
+    def branch_sha(self, branch):
+        """The commit `branch` points at, or '' when it does not exist."""
+        code, data, _ = self._call('GET', f'/git/ref/heads/{branch}')
+        if code == 404:
+            return ''
+        if code != 200 or not data:
+            raise WatchError(f'reading branch {branch}: HTTP {code}')
+        return data['object']['sha']
+
+    def commit_files(self, base_sha, files, message):
+        """A new commit on top of `base_sha` whose tree is base_sha's with
+        `files` ({path: text}) replaced. Returns its sha. Not on any branch
+        yet: create_branch points one at it."""
+        code, commit, _ = self._call('GET', f'/git/commits/{base_sha}')
+        if code != 200 or not commit:
+            raise WatchError(f'reading commit {base_sha}: HTTP {code}')
+        code, tree, _ = self._call('POST', '/git/trees', {
+            'base_tree': commit['tree']['sha'],
+            'tree': [{'path': p, 'mode': '100644', 'type': 'blob', 'content': t}
+                     for p, t in sorted(files.items())]})
+        if code != 201 or not tree:
+            raise WatchError(f'creating a tree: HTTP {code}')
+        code, new, _ = self._call('POST', '/git/commits', {
+            'message': message, 'tree': tree['sha'], 'parents': [base_sha]})
+        if code != 201 or not new:
+            raise WatchError(f'creating a commit: HTTP {code}')
+        return new['sha']
+
+    def create_branch(self, branch, sha):
+        code, _, _ = self._call('POST', '/git/refs',
+                                {'ref': f'refs/heads/{branch}', 'sha': sha})
+        if code != 201:
+            raise WatchError(f'creating branch {branch}: HTTP {code}')
+
+
+def ntfy_send(url, title, message, click='', priority='default', token='', log=print):
+    """Push one message to an ntfy topic (https://ntfy.sh/<topic> or a
+    self-hosted server). Optional channel: only when the repository secret
+    RELEASE_WATCH_NTFY_URL is set. Never fatal: GitHub's own notification
+    (assignment + mention) is the channel of record."""
+    headers = {'User-Agent': USER_AGENT, 'Title': title.encode('ascii', 'replace').decode(),
+               'Priority': priority, 'Tags': 'warning'}
+    if click:
+        headers['Click'] = click
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    req = urllib.request.Request(url, data=message.encode(), method='POST', headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            ok = 200 <= r.status < 300
+    except (urllib.error.URLError, OSError) as e:
+        log(f'warning: ntfy push failed: {e}')
+        return False
+    log('ntfy push sent' if ok else 'warning: ntfy push refused')
+    return ok
+
+
+def mention_line(notify, what):
+    """The first paragraph of every issue or comment that must reach the
+    owner: an @-mention makes it a "participating" notification."""
+    return f'@{notify}: {what}\n\n' if notify else ''
+
+
+def title_matches(actual, base):
+    """`actual` is `base`, or `base` behind a "[security: high] " style
+    prefix the advisory check adds. The dedup must survive that rename."""
+    return actual == base or (actual.startswith('[') and actual.endswith('] ' + base))
+
+
+def strip_prefix(title):
+    if title.startswith('[') and '] ' in title:
+        return title.split('] ', 1)[1]
+    return title
 
 
 # --------------------------------------------------------------------------
 
 def run(root, versions, exists, github, repo, dry_run=False, log=print, ref='main',
-        found=None):
+        found=None, notify=None):
     """Decide and act. Returns a one-word outcome, also used by the tests:
     'current', 'no-tarball', 'duplicate', 'would-open', 'opened'.
 
@@ -434,38 +625,52 @@ def run(root, versions, exists, github, repo, dry_run=False, log=print, ref='mai
     found['version'] = latest
     return _flag(issue_title(latest),
                  lambda: issue_body(latest, android, desktop, esr, esr_next, repo, ref),
-                 github, dry_run, log, found)
+                 github, dry_run, log, found, notify,
+                 f'Mozilla released Firefox {latest}')
 
 
-def _flag(title, body, github, dry_run, log, found):
+def _flag(title, body, github, dry_run, log, found, notify=None, what='new Firefox release'):
     """Open the issue `title` unless one exists, open or closed. `body` is
-    called only when the issue is about to be opened (or printed)."""
+    called only when the issue is about to be opened (or printed). With
+    `notify` (a GitHub login) the issue is assigned to it and mentions it; an
+    existing open issue nobody is assigned to is assigned to it too."""
     if github is None:
         if not dry_run:
             raise WatchError('no GitHub access and not a dry run')
         log('dry run without GitHub access: duplicate check skipped')
     else:
-        same = [i for i in github.issues(LABEL) if i['title'] == title]
+        same = [i for i in github.issues(LABEL) if title_matches(i['title'], title)]
         if same:
             # Prefer an open one, should a human have duplicated it by hand.
             same.sort(key=lambda i: i['state'] != 'open')
             found['issue'], found['state'] = same[0]['number'], same[0]['state']
+            found['title'] = same[0]['title']
             log(f'already flagged: {title!r} (#{found["issue"]}, {found["state"]})')
+            if (notify and same[0]['state'] == 'open'
+                    and not same[0].get('assignees')):
+                if dry_run:
+                    log(f'dry run: would assign #{found["issue"]} to {notify}')
+                else:
+                    github.add_assignees(found['issue'], [notify])
+                    log(f'assigned #{found["issue"]} to {notify}')
             return 'duplicate'
 
-    text = body()
+    text = mention_line(notify, f'{what}; you are assigned. Notification path: '
+                                f'docs/android/RELEASE-WATCH.md.') + body()
     if dry_run:
-        log(f'dry run: would open {title!r}:\n\n{text}')
+        log(f'dry run: would open {title!r}' + (f' assigned to {notify}' if notify else '')
+            + f':\n\n{text}')
         return 'would-open'
     github.ensure_label(LABEL)
-    url, found['issue'] = github.create_issue(title, text, LABEL)
-    found['state'] = 'open'
+    url, found['issue'] = github.create_issue(title, text, LABEL,
+                                              assignees=[notify] if notify else ())
+    found['state'], found['title'], found['url'] = 'open', title, url
     log(f'opened {url}')
     return 'opened'
 
 
 def run_android(root, mobile, latest, exists, github, repo, dry_run=False, log=print,
-                ref='main', found=None):
+                ref='main', found=None, notify=None):
     """The Firefox for Android half. `mobile` is mobile_versions.json, `latest`
     the desktop LATEST_FIREFOX_VERSION (`run` handles that one). Returns
     'current', 'same-as-desktop', 'superseded', 'ahead-of-desktop',
@@ -514,7 +719,8 @@ def run_android(root, mobile, latest, exists, github, repo, dry_run=False, log=p
     return _flag(android_issue_title(version),
                  lambda: android_issue_body(version, android, latest, found['tarball'],
                                             repo, ref),
-                 github, dry_run, log, found)
+                 github, dry_run, log, found, notify,
+                 f'Mozilla released Firefox for Android {version}')
 
 
 def wants_patchcheck(outcome, found):
@@ -625,6 +831,30 @@ _PATCHES = re.compile(r'^Patches: (\d+)$')
 
 def patchcheck_marker(version, sha):
     return f'<!-- redoubt-patchcheck version={version} sha={sha} -->'
+
+
+def patchcheck_result_marker(version, sha, results):
+    """The second line of a patch-check comment: the per-target verdicts in
+    a form `autobuild` reads back (it runs in a later job and cannot see this
+    one's outputs). Comments from before LW-M7-47 do not have it."""
+    verdicts = ' '.join(f'{t}={r["status"]}' for t, r in results.items())
+    return f'<!-- redoubt-patchcheck-result version={version} sha={sha} {verdicts} -->'
+
+
+_RESULT_MARKER = re.compile(
+    r'<!-- redoubt-patchcheck-result version=(\S+) sha=(\S+)((?: [a-z]+=[a-z]+)*) -->')
+
+
+def patchcheck_results(comments, version, sha):
+    """{target: 'pass'|'fail'|'error'} from the newest patch-check comment
+    for `version` at `sha`, or None when there is none (or only an old one
+    without the result line)."""
+    found = None
+    for body in comments:
+        for m in _RESULT_MARKER.finditer(body):
+            if (m.group(1), m.group(2)) == (version, sha):
+                found = dict(kv.split('=', 1) for kv in m.group(3).split())
+    return found
 
 
 def already_posted(comments, version, sha):
@@ -745,6 +975,7 @@ def patchcheck_comment(version, sha, results, run_link, tarball_sha256='',
     fpr = ' '.join(fingerprint[i:i + 4] for i in range(0, len(fingerprint), 4))
     lines = [
         patchcheck_marker(version, sha),
+        patchcheck_result_marker(version, sha, results),
         f'### Patch check against Firefox {version}',
         '',
         f'`./scripts/check-patchfail.sh --targets=<target>` against '
@@ -997,6 +1228,709 @@ def patchcheck(version, issue, sha, github, repo_root, workdir, *, dry_run=False
     return 'posted'
 
 
+# --------------------------------------------------------------------------
+# Mozilla security advisories (LW-M7-47). Source: Mozilla's own repository of
+# the MFSA texts, github.com/mozilla/foundation-security-advisories,
+# announce/<year>/mfsa<year>-<n>.yml -- the files www.mozilla.org's advisory
+# pages are built from, readable through the GitHub API with the workflow's
+# GITHUB_TOKEN, no scraping. The newest MFSA_LOOKBACK files are read each run.
+#
+# An advisory matters when its fixed_in names "Firefox <v>" or "Firefox for
+# Android <v>" (not ESR, iOS, Focus, Thunderbird) with <v> newer than the
+# Redoubt users run: the latest published GitHub release (android-<v>-<n>),
+# or version.android when there is none. Then, once per advisory (a hidden
+# marker):
+#
+#   - the open watcher issue for <v> (release or Firefox for Android) gets a
+#     comment with the impact and the CVE list, the `security` label, a
+#     `priority: critical|high` label for those impacts, a "[security: <impact>]"
+#     title prefix, the owner assigned and mentioned, and a pin for
+#     critical/high;
+#   - without one (the release issue is closed, or <v> was never flagged
+#     because a newer release overtook it) a separate issue opens, titled
+#     "Mozilla security advisory MFSA <year>-<n> (fixed in Firefox <v>)",
+#     labelled firefox-release + security, assigned, mentioned.
+#
+# The same run reminds: an open `security` issue whose version is still newer
+# than the shipped release gets a comment mentioning the owner once every
+# REMIND_AFTER_HOURS.
+# --------------------------------------------------------------------------
+
+MFSA_REPO = 'mozilla/foundation-security-advisories'
+MFSA_LOOKBACK = 12
+ADVISORY_PAGE = 'https://www.mozilla.org/en-US/security/advisories/{id}/'
+_MFSA_NAME = re.compile(r'^mfsa(\d{4})-(\d+)\.yml$')
+_FIXED_IN = re.compile(r'^Firefox(?: for Android)? (\d+(?:\.\d+){0,2})$')
+_RELEASE_TAG = re.compile(r'^android-(\d+\.\d+(?:\.\d+)?)-(\d+)$')
+_TITLE_VERSION = re.compile(r'Firefox (?:for Android )?(\d+\.\d+(?:\.\d+)?)\b')
+
+_YAML_KEY = re.compile(r'^( *)([A-Za-z0-9_.-]+):(?:\s+(.*))?$')
+_YAML_BLOCK = ('|', '>', '|-', '>-', '|+', '>+')
+
+
+def _yaml_scalar(v):
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] == "'":
+        v = v[1:-1].replace("''", "'")
+    elif len(v) >= 2 and v[0] == v[-1] == '"':
+        v = v[1:-1].replace('\\"', '"').replace('\\\\', '\\')
+    return ' '.join(v.split())
+
+
+def parse_advisory(text, name=''):
+    """The fields this script needs from one announce/*.yml file:
+    {'id', 'announced', 'impact', 'title', 'fixed_in': [...],
+     'cves': [{'id', 'impact', 'title'}]}.
+
+    Standard library only, so a line reader for the subset of YAML these files
+    use (top-level scalars, the fixed_in list, the advisories mapping and its
+    block scalars). The test cross-checks it against PyYAML on real files;
+    2024-2026 (272 files) read identically on 2026-10-09."""
+    out = {'id': name, 'announced': '', 'impact': '', 'title': '', 'fixed_in': [],
+           'cves': []}
+    section = cve = block = capture = None
+    cve_indent = field_indent = None
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        indent = len(line) - len(line.lstrip(' '))
+        if block is not None:
+            if indent > block:
+                if capture is not None:
+                    target, key = capture
+                    target[key] = ' '.join((target[key] + ' ' + line).split())
+                continue
+            block = capture = None
+        if section == 'fixed_in' and line.lstrip().startswith('- '):
+            out['fixed_in'].append(_yaml_scalar(line.lstrip()[2:]))
+            continue
+        m = _YAML_KEY.match(line)
+        if not m:
+            continue
+        ind, key, val = len(m.group(1)), m.group(2), m.group(3)
+        target = None
+        if ind == 0:
+            section, cve = key, None
+            target = out if key in ('announced', 'impact', 'title') else None
+        elif section == 'advisories':
+            if cve_indent is None:
+                cve_indent = ind
+            if ind == cve_indent:
+                cve = {'id': key, 'impact': '', 'title': ''}
+                out['cves'].append(cve)
+                field_indent = None
+            elif cve is not None and ind > cve_indent:
+                if field_indent is None:
+                    field_indent = ind
+                if ind == field_indent and key in ('impact', 'title'):
+                    target = cve
+        if val is not None and val.strip() in _YAML_BLOCK:
+            block = ind
+            if target is not None:
+                target[key] = ''
+                capture = (target, key)
+        elif target is not None and val is not None:
+            target[key] = _yaml_scalar(val)
+    return out
+
+
+def normalize_version(text):
+    """'157' -> '157.0' (MFSA spells a major without .0); '157.0.1' unchanged."""
+    return text if '.' in text else f'{text}.0'
+
+
+def advisory_versions(adv):
+    """Firefox / Firefox for Android versions in fixed_in, normalized."""
+    out = []
+    for entry in adv['fixed_in']:
+        m = _FIXED_IN.match(entry.strip())
+        if m:
+            out.append(normalize_version(m.group(1)))
+    return out
+
+
+def advisory_impact(adv):
+    """The highest of the advisory's own impact and its CVEs'."""
+    impacts = [adv.get('impact', '')] + [c['impact'] for c in adv['cves']]
+    return max((i for i in impacts if i in IMPACT_ORDER),
+               key=IMPACT_ORDER.get, default='unknown')
+
+
+def mfsa_label(adv_id):
+    """'mfsa2026-104' -> 'MFSA 2026-104'."""
+    return adv_id.upper().replace('MFSA', 'MFSA ', 1)
+
+
+def advisory_marker(adv_id):
+    return f'<!-- redoubt-mfsa id={adv_id} -->'
+
+
+def advisory_issue_title(adv, version):
+    return f'Mozilla security advisory {mfsa_label(adv["id"])} (fixed in Firefox {version})'
+
+
+def security_title(title, impact):
+    return f'[security: {impact}] {strip_prefix(title)}'
+
+
+def shipped_release(tag, android):
+    """(version, description) of what Redoubt users run: the latest GitHub
+    release's tag, android-<v>-<n>, else version.android."""
+    m = _RELEASE_TAG.match(tag or '')
+    if m:
+        return m.group(1), f'Redoubt {m.group(1)}-{m.group(2)} (release `{tag}`)'
+    return android, f'`version.android` {android} (no published release found)'
+
+
+def _cve_lines(adv, limit=60):
+    cves = sorted(adv['cves'], key=lambda c: -IMPACT_ORDER.get(c['impact'], 0))
+    lines = [f'- **{c["impact"] or "?"}** `{c["id"]}`: {c["title"]}' for c in cves[:limit]]
+    if len(cves) > limit:
+        lines.append(f'- ... and {len(cves) - limit} more (see the advisory)')
+    return lines
+
+
+def advisory_text(adv, version, shipped_desc, android):
+    """The shared part of the advisory comment and the advisory issue. Pure."""
+    impact = advisory_impact(adv)
+    counts = {}
+    for c in adv['cves']:
+        counts[c['impact'] or '?'] = counts.get(c['impact'] or '?', 0) + 1
+    tally = ', '.join(f'{n} {i}' for i, n in sorted(
+        counts.items(), key=lambda kv: -IMPACT_ORDER.get(kv[0], 0)))
+    return [
+        f'**{mfsa_label(adv["id"])}**: {adv["title"]} (announced {adv["announced"]}).',
+        f'Highest impact: **{impact}**. Fixed in: {", ".join(adv["fixed_in"])}. '
+        f'CVEs: {len(adv["cves"])}' + (f' ({tally})' if tally else '') + '.',
+        f'Advisory: {ADVISORY_PAGE.format(id=adv["id"])}',
+        '',
+        f'Users run {shipped_desc}, older than Firefox {version}; '
+        + (f'`version.android` on the default branch is `{android}`, older too. '
+           if is_newer(version, android) else
+           f'`version.android` on the default branch is already `{android}` '
+           f'(rebased, not yet released). ')
+        + f'Every CVE below that reaches Gecko or Fenix code Redoubt ships is '
+        f'open in the published APK until a release at or past {version} is '
+        f'signed and published. Response targets: docs/android/SECURITY.md.',
+        '',
+        '<details><summary>CVEs</summary>',
+        '',
+        *_cve_lines(adv),
+        '',
+        '</details>',
+    ]
+
+
+def advisory_comment(adv, version, shipped_desc, android, notify):
+    return (advisory_marker(adv['id']) + '\n'
+            + mention_line(notify, f'Mozilla published a security advisory for this '
+                                   f'release (impact {advisory_impact(adv)}).')
+            + '\n'.join(advisory_text(adv, version, shipped_desc, android)) + '\n')
+
+
+def advisory_issue_body(adv, version, shipped_desc, android, notify, open_issues, repo,
+                        ref='main'):
+    rebase = f'https://github.com/{repo}/blob/{ref}/docs/android/REBASE.md'
+    lines = [advisory_marker(adv['id'])]
+    text = mention_line(notify, 'the shipped Redoubt is behind a Mozilla security '
+                                'advisory; you are assigned.')
+    lines += [text.rstrip('\n'), ''] if text else []
+    lines += advisory_text(adv, version, shipped_desc, android)
+    lines += ['', '## What to do', '']
+    if open_issues:
+        lines.append('Open release issues of the watcher: '
+                     + ', '.join(f'#{n}' for n in open_issues)
+                     + '. Rebasing onto any of them at or past Firefox '
+                     + f'{version} closes this.')
+    else:
+        lines.append(f'No open release issue covers Firefox {version} (it was '
+                     f'closed, or a newer release overtook it before it was '
+                     f'flagged). Rebase onto the latest Firefox release '
+                     f'([REBASE.md]({rebase})); it carries these fixes.')
+    lines += ['', 'Close this issue when a signed Redoubt at or past Firefox '
+              f'{version} is published.', '',
+              '<sub>Opened by `scripts/firefox-release-watch.py` from '
+              f'{MFSA_REPO}. One issue per advisory.</sub>']
+    return '\n'.join(lines) + '\n'
+
+
+def fetch_advisories(github, now_year, lookback=MFSA_LOOKBACK, fetch_text=None, log=print):
+    """The newest `lookback` advisories, parsed, oldest first. Reads this
+    year's directory, and last year's too when this one has fewer."""
+    fetch_text = fetch_text or _fetch_text
+    files = []
+    for year in (now_year, now_year - 1):
+        for f in github.list_dir(MFSA_REPO, f'announce/{year}'):
+            m = _MFSA_NAME.match(f['name'])
+            if m:
+                files.append(((int(m.group(1)), int(m.group(2))), f))
+        if len(files) >= lookback:
+            break
+    files.sort(key=lambda x: x[0])
+    out = []
+    for _, f in files[-lookback:]:
+        out.append(parse_advisory(fetch_text(f['download_url']), f['name'][:-len('.yml')]))
+    log(f'advisories read: {", ".join(a["id"] for a in out) or "none"}')
+    return out
+
+
+def _fetch_text(url):
+    try:
+        with urllib.request.urlopen(_request(url), timeout=TIMEOUT) as r:
+            return r.read().decode()
+    except (urllib.error.URLError, OSError, UnicodeDecodeError) as e:
+        raise WatchError(f'cannot read {url}: {e}') from e
+
+
+def load_advisories_dir(path):
+    """Advisories from local files (tests, and --advisories-dir by hand)."""
+    files = []
+    for f in Path(path).iterdir():
+        m = _MFSA_NAME.match(f.name)
+        if m:
+            files.append(((int(m.group(1)), int(m.group(2))), f))
+    return [parse_advisory(f.read_text(), f.name[:-len('.yml')])
+            for _, f in sorted(files, key=lambda x: x[0])]
+
+
+def _upgrade(github, issue, adv, impact, notify, dry_run, log):
+    """Labels, title prefix, assignee and pin on an existing issue."""
+    labels = [SECURITY_LABEL] + ([PRIORITY_LABELS[impact]] if impact in PRIORITY_LABELS else [])
+    title = security_title(issue['title'], impact)
+    if dry_run:
+        log(f'dry run: would label #{issue["number"]} {labels}, retitle it {title!r}'
+            + (f', assign {notify}' if notify else '')
+            + (', pin it' if impact in PRIORITY_LABELS else ''))
+        return
+    github.ensure_label(SECURITY_LABEL, SECURITY_LABEL_COLOR, SECURITY_LABEL_DESCRIPTION)
+    if impact in PRIORITY_LABELS:
+        github.ensure_label(PRIORITY_LABELS[impact], PRIORITY_LABEL_COLOR,
+                            PRIORITY_LABEL_DESCRIPTION)
+    github.add_labels(issue['number'], labels)
+    # Never downgrade: a later "moderate" advisory leaves "[security: high]".
+    old = issue['title']
+    old_impact = old[len('[security: '):old.index(']')] if old.startswith('[security: ') else ''
+    if IMPACT_ORDER.get(impact, 0) >= IMPACT_ORDER.get(old_impact, -1) and title != old:
+        github.edit_issue(issue['number'], title=title)
+    if notify and notify not in issue.get('assignees', []):
+        github.add_assignees(issue['number'], [notify])
+    if impact in PRIORITY_LABELS:
+        if github.pin_issue(issue.get('node_id', '')):
+            log(f'pinned #{issue["number"]}')
+        else:
+            log(f'warning: could not pin #{issue["number"]} (three pinned already, '
+                f'or the token may not pin); the labels and the mention still stand')
+
+
+def run_advisories(root, advisories, github, repo, shipped_tag, dry_run=False, log=print,
+                   notify=None, events=None, ref='main'):
+    """Returns [(advisory id, outcome)]; outcome is 'not-affected',
+    'known', 'upgraded'/'would-upgrade' or 'opened'/'would-open'."""
+    events = [] if events is None else events
+    android = read_track(root, 'version.android')
+    shipped, shipped_desc = shipped_release(shipped_tag, android)
+    log(f'shipped: {shipped_desc}')
+    issues = github.issues(LABEL) if github is not None else []
+    results = []
+    for adv in advisories:
+        newer = sorted((v for v in advisory_versions(adv) if is_newer(v, shipped)),
+                       key=parse_version)
+        if not newer:
+            results.append((adv['id'], 'not-affected'))
+            continue
+        version, impact = newer[0], advisory_impact(adv)
+        log(f'{adv["id"]}: fixed in Firefox {version}, impact {impact}; '
+            f'shipped {shipped} is behind')
+        bases = (issue_title(version), android_issue_title(version))
+        release = [i for i in issues if i['state'] == 'open'
+                   and any(title_matches(i['title'], b) for b in bases)]
+        if release:
+            issue = release[0]
+            if github is not None and any(advisory_marker(adv['id']) in c
+                                          for c in github.comments(issue['number'])):
+                results.append((adv['id'], 'known'))
+                continue
+            body = advisory_comment(adv, version, shipped_desc, android, notify)
+            if dry_run:
+                log(f'dry run: would comment on #{issue["number"]}:\n\n{body}')
+                _upgrade(github, issue, adv, impact, notify, True, log)
+                results.append((adv['id'], 'would-upgrade'))
+                continue
+            url = github.create_comment(issue['number'], body)
+            _upgrade(github, issue, adv, impact, notify, False, log)
+            log(f'advisory on {url}')
+            events.append({'title': f'{mfsa_label(adv["id"])} ({impact}): Firefox {version}',
+                           'message': f'Redoubt {shipped} is behind. #{issue["number"]}',
+                           'click': url, 'impact': impact})
+            results.append((adv['id'], 'upgraded'))
+            continue
+
+        title = advisory_issue_title(adv, version)
+        if any(title_matches(i['title'], title) for i in issues):
+            results.append((adv['id'], 'known'))
+            continue
+        open_numbers = [i['number'] for i in issues if i['state'] == 'open'
+                        and not title_matches(i['title'], title)
+                        and _TITLE_VERSION.search(i['title'])
+                        and not is_newer(version, _TITLE_VERSION.search(i['title']).group(1))]
+        body = advisory_issue_body(adv, version, shipped_desc, android, notify,
+                                   open_numbers, repo, ref)
+        if dry_run or github is None:
+            if not dry_run:
+                raise WatchError('no GitHub access and not a dry run')
+            log(f'dry run: would open {security_title(title, impact)!r}:\n\n{body}')
+            results.append((adv['id'], 'would-open'))
+            continue
+        github.ensure_label(LABEL)
+        url, number = github.create_issue(security_title(title, impact), body, LABEL,
+                                          assignees=[notify] if notify else ())
+        issues.append({'title': security_title(title, impact), 'number': number,
+                       'state': 'open', 'assignees': [notify] if notify else [],
+                       'labels': [LABEL], 'node_id': ''})
+        _upgrade(github, issues[-1], adv, impact, None, False, log)
+        log(f'opened {url}')
+        events.append({'title': f'{mfsa_label(adv["id"])} ({impact}): Firefox {version}',
+                       'message': f'Redoubt {shipped} is behind. New issue #{number}',
+                       'click': url, 'impact': impact})
+        results.append((adv['id'], 'opened'))
+    return results
+
+
+def _parse_time(text):
+    return datetime.datetime.strptime(text, '%Y-%m-%dT%H:%M:%SZ').replace(
+        tzinfo=datetime.timezone.utc)
+
+
+REMINDER_MARKER = '<!-- redoubt-reminder -->'
+
+
+def run_reminders(root, github, shipped_tag, now, dry_run=False, log=print, notify=None,
+                  events=None):
+    """Remind on every open `security` watcher issue whose Firefox version
+    the shipped release is still behind, once per REMIND_AFTER_HOURS (counted
+    from the issue's creation, the last reminder or the last advisory comment). Returns the issue
+    numbers reminded (or that would be)."""
+    events = [] if events is None else events
+    shipped, shipped_desc = shipped_release(shipped_tag, read_track(root, 'version.android'))
+    out = []
+    for issue in github.issues(LABEL):
+        if issue['state'] != 'open' or SECURITY_LABEL not in issue.get('labels', []):
+            continue
+        m = _TITLE_VERSION.search(issue['title'])
+        if not m or not is_newer(m.group(1), shipped):
+            continue
+        stamps = [issue.get('created_at') or '']
+        # Any ping that mentioned the owner counts: a reminder, or an
+        # advisory comment (so the run that labels an issue does not also
+        # remind on it).
+        stamps += [c['created_at'] for c in github.comments_full(issue['number'])
+                   if REMINDER_MARKER in c['body'] or '<!-- redoubt-mfsa ' in c['body']]
+        stamps = [_parse_time(t) for t in stamps if t]
+        if not stamps:
+            continue
+        age = now - max(stamps)
+        if age < datetime.timedelta(hours=REMIND_AFTER_HOURS):
+            continue
+        opened = _parse_time(issue['created_at']) if issue.get('created_at') else None
+        days = f'{(now - opened).days} day(s)' if opened else 'a while'
+        body = (REMINDER_MARKER + '\n'
+                + mention_line(notify, f'reminder: open for {days}; {shipped_desc} is '
+                                       f'still behind Firefox {m.group(1)}.')
+                + 'This comment repeats every '
+                f'{REMIND_AFTER_HOURS} h while the issue is open and the shipped '
+                f'release is behind. Close the issue once a fixed release is out, '
+                f'or note here why it does not apply.\n')
+        if dry_run:
+            log(f'dry run: would remind on #{issue["number"]}:\n\n{body}')
+        else:
+            url = github.create_comment(issue['number'], body)
+            log(f'reminded on {url}')
+            events.append({'title': f'Still behind Firefox {m.group(1)}',
+                           'message': f'#{issue["number"]} open for {days}', 'click': url,
+                           'impact': 'high'})
+        out.append(issue['number'])
+    return out
+
+
+def notify_test(github, notify, now, dry_run=False, log=print):
+    """Open an issue assigned to `notify` that mentions them, then close it:
+    one end-to-end check of the notification path. Returns its URL."""
+    title = f'Release watch notification test ({now:%Y-%m-%d %H:%M} UTC)'
+    body = (mention_line(notify, 'this is a test of the release watcher\'s '
+                                 'notification path. If this reached your email or '
+                                 'phone, the path works.')
+            + 'Closed right after opening; nothing to do. '
+            'docs/android/RELEASE-WATCH.md, "Notification".\n')
+    if dry_run:
+        log(f'dry run: would open and close {title!r} assigned to {notify}:\n\n{body}')
+        return ''
+    github.ensure_label(TEST_LABEL, 'cccccc', 'Notification test of the release watcher')
+    url, number = github.create_issue(title, body, TEST_LABEL,
+                                      assignees=[notify] if notify else ())
+    github.edit_issue(number, state='closed', state_reason='not_planned')
+    log(f'opened and closed {url}')
+    return url
+
+
+# --------------------------------------------------------------------------
+# autobuild (LW-M7-47): a candidate build for a flagged release, so a
+# signing bundle is ready when the owner looks. Run by the workflow's third
+# job after `patchcheck`, one release at a time. Usage:
+#
+#   firefox-release-watch.py autobuild --version 157.0.1 --issue 3 \
+#       --targets desktop,android --base-sha <main sha> [--dry-run]
+#
+# 1. Once per version, ever: if the issue already carries an autobuild
+#    marker for <v>, stop.
+# 2. Read the patch check's verdicts for <v> at --base-sha from the issue
+#    (patchcheck_result_marker). No verdict: stop (the check did not finish,
+#    or was posted before LW-M7-47; the next run, on a new commit, has one).
+#    android not 'pass': comment once which target failed (the patch-check
+#    comment above lists the patches), mention the owner, stop.
+# 3. Box B builds one thing at a time: if android-release.yaml or
+#    android-test.yaml has a run queued or in progress, stop; the next run
+#    retries.
+# 4. Branch auto/firefox-<v> (created at --base-sha plus one commit setting
+#    version.android/release.android, and version/release when desktop is in
+#    the targets, to <v> / 1; reused if it already exists).
+# 5. Dispatch android-release.yaml on that branch: mode=full,
+#    update_check=true, build_date=now (UTC). The workflow builds and gates
+#    UNSIGNED APKs only; nothing here signs, publishes or merges.
+# 6. Comment: branch, build date, the runs page, what the owner does next.
+#
+# Permissions: this job alone gets contents: write (the branch, through the
+# git data API) and actions: write (the dispatch). A push or ref made with
+# GITHUB_TOKEN starts no workflow, which is why the dispatch is explicit
+# (GitHub exempts workflow_dispatch from that rule).
+# --------------------------------------------------------------------------
+
+AUTOBUILD_POLICIES = ('dot', 'all', 'off')
+BUILD_WORKFLOW = 'android-release.yaml'
+BOXB_WORKFLOWS = ('android-release.yaml', 'android-test.yaml')
+BUSY_STATUSES = ('queued', 'in_progress', 'waiting', 'requested', 'pending')
+
+
+def autobuild_branch(version):
+    return f'auto/firefox-{version}'
+
+
+def autobuild_marker(version):
+    return f'<!-- redoubt-autobuild version={version} -->'
+
+
+def autobuild_blocked_marker(version, sha):
+    return f'<!-- redoubt-autobuild-blocked version={version} sha={sha} -->'
+
+
+def autobuild_eligible(version, current, policy):
+    """Whether a flagged release gets a candidate build. 'dot': a dot
+    release on the major Redoubt is on (157.0.1 while version.android is
+    157.0); 'all': also a new major; 'off': never."""
+    if policy not in AUTOBUILD_POLICIES:
+        raise WatchError(f'autobuild policy must be one of {AUTOBUILD_POLICIES}, '
+                         f'got {policy!r}')
+    if policy == 'off' or not is_newer(version, current):
+        return False
+    if policy == 'all':
+        return True
+    v, c = parse_version(version), parse_version(current)
+    return v[0] == c[0] and v[1:] != (0, 0)
+
+
+def autobuild_jobs(checks, current, policy):
+    """The workflow's autobuild matrix: the patch-check entries that get a
+    candidate build. Never a manual (dry-run) entry, never one without an
+    issue."""
+    return [dict(j) for j in checks
+            if j.get('label') != 'manual' and j.get('issue')
+            and autobuild_eligible(j['version'], current, policy)]
+
+
+def autobuild_files(version, targets):
+    files = {'version.android': f'{version}\n', 'release.android': '1\n'}
+    if 'desktop' in targets:
+        files.update({'version': f'{version}\n', 'release': '1\n'})
+    return files
+
+
+def autobuild_commit_message(version, base_sha, issue):
+    return (f'Firefox {version}: bump the version files (candidate build)\n\n'
+            f'Made by scripts/firefox-release-watch.py autobuild for #{issue}, on top '
+            f'of {base_sha}. Version files only; the rebase itself (REBASE.md '
+            f'§5-§10) and the signed release are still the owner\'s. Not for '
+            f'merging as is.\n')
+
+
+def autobuild_comment(version, branch, commit_sha, build_date, runs_url, repo, notify,
+                      targets):
+    return (autobuild_marker(version) + '\n'
+            + mention_line(notify, f'a candidate build of Firefox {version} is running.')
+            + f'### Candidate build dispatched\n\n'
+            f'- Branch: [`{branch}`](https://github.com/{repo}/tree/{branch}) at '
+            f'`{commit_sha[:12]}`: `version.android` = `{version}`, `release.android` = `1`'
+            + (' (and desktop\'s `version` / `release`)' if 'desktop' in targets else '')
+            + '; nothing else changed.\n'
+            f'- Workflow: `{BUILD_WORKFLOW}`, `mode=full`, `update_check=true`, '
+            f'`build_date={build_date}` (box B). Runs: {runs_url}\n'
+            f'- The artifact is **unsigned** (`redoubt-android-unsigned`: the four APKs, '
+            f'output-metadata.json, SHA256SUMS). Nothing was signed, published or merged.\n\n'
+            f'Next, by hand: download the artifact, run the acceptance on the emulator '
+            f'(docs/android/SMOKE.md), sign offline (docs/android/SIGNING.md, '
+            f'DISTRIBUTION.md "Publishing a release with the check"), publish, then '
+            f'land the bump on main (signed commits) and close this issue. If the '
+            f'build fails, the run log says where; the branch stays for the rebase.\n\n'
+            f'<sub>Posted by `scripts/firefox-release-watch.py autobuild`. Once per '
+            f'version: to build again, dispatch `{BUILD_WORKFLOW}` on the branch by '
+            f'hand.</sub>\n')
+
+
+def autobuild_blocked_comment(version, sha, results, notify):
+    bad = ', '.join(f'{t}: {r}' for t, r in results.items() if r != 'pass')
+    return (autobuild_blocked_marker(version, sha) + '\n'
+            + mention_line(notify, f'no candidate build of Firefox {version}.')
+            + f'The patch check at `{sha[:12]}` did not pass ({bad}); the comment '
+            f'above lists the failing patches. Fix them on main (REBASE.md §5); '
+            f'the next run checks the new commit and builds if it passes. This '
+            f'issue stays assigned until then.\n')
+
+
+def boxb_busy(github, workflows=BOXB_WORKFLOWS):
+    """The first queued or running run on box B's workflows, or None."""
+    for wf in workflows:
+        for status in BUSY_STATUSES:
+            runs = github.workflow_runs(wf, status)
+            if runs:
+                return {**runs[0], 'workflow': wf}
+    return None
+
+
+def autobuild(version, issue, targets, base_sha, github, repo, now, *, dry_run=False,
+              notify=None, log=print, events=None):
+    """Returns 'already-dispatched', 'no-result', 'blocked',
+    'already-blocked', 'busy', 'would-dispatch' or 'dispatched'."""
+    events = [] if events is None else events
+    parse_version(version)
+    comments = github.comments(issue)
+    if any(autobuild_marker(version) in c for c in comments):
+        log(f'#{issue} already has the candidate build of {version}')
+        return 'already-dispatched'
+    results = patchcheck_results(comments, version, base_sha)
+    if results is None:
+        log(f'#{issue} has no patch-check verdict for {version} at {base_sha[:12]}; '
+            f'no build')
+        return 'no-result'
+    log(f'patch check at {base_sha[:12]}: {results}')
+    if results.get('android') != 'pass':
+        if any(autobuild_blocked_marker(version, base_sha) in c for c in comments):
+            return 'already-blocked'
+        body = autobuild_blocked_comment(version, base_sha, results, notify)
+        if dry_run:
+            log(f'dry run: would comment on #{issue}:\n\n{body}')
+        else:
+            url = github.create_comment(issue, body)
+            log(f'commented {url}')
+            events.append({'title': f'Firefox {version}: patches fail, no build',
+                           'message': f'#{issue}', 'click': url, 'impact': 'high'})
+        return 'blocked'
+    busy = boxb_busy(github)
+    if busy:
+        log(f'box B is busy ({busy["workflow"]} run {busy["id"]}, {busy["status"]} on '
+            f'{busy["head_branch"]}): not dispatching; the next run retries')
+        return 'busy'
+    branch = autobuild_branch(version)
+    build_date = now.strftime('%Y%m%d%H%M%S')
+    runs_url = (f'https://github.com/{repo}/actions/workflows/{BUILD_WORKFLOW}'
+                f'?query=branch%3A{urllib.parse.quote(branch, safe="")}')
+    files = autobuild_files(version, targets)
+    if dry_run:
+        log(f'dry run: would create {branch} at {base_sha[:12]} + {sorted(files)}, '
+            f'dispatch {BUILD_WORKFLOW} mode=full update_check=true '
+            f'build_date={build_date}, and comment on #{issue}')
+        return 'would-dispatch'
+    sha = github.branch_sha(branch)
+    if sha:
+        log(f'{branch} exists at {sha[:12]}; building it as it is')
+    else:
+        sha = github.commit_files(base_sha, files,
+                                  autobuild_commit_message(version, base_sha, issue))
+        github.create_branch(branch, sha)
+        log(f'created {branch} at {sha[:12]}')
+    github.dispatch(BUILD_WORKFLOW, branch,
+                    {'mode': 'full', 'update_check': 'true', 'build_date': build_date})
+    log(f'dispatched {BUILD_WORKFLOW} on {branch}, build_date {build_date}')
+    url = github.create_comment(issue, autobuild_comment(version, branch, sha, build_date,
+                                                         runs_url, repo, notify, targets))
+    log(f'commented {url}')
+    events.append({'title': f'Firefox {version}: candidate build started',
+                   'message': f'{branch}, #{issue}', 'click': url, 'impact': 'default'})
+    return 'dispatched'
+
+
+def send_events(events, env=None, log=print):
+    """The optional ntfy channel: one push per event, only when the
+    repository secret RELEASE_WATCH_NTFY_URL reaches the step."""
+    env = os.environ if env is None else env
+    url = env.get('RELEASE_WATCH_NTFY_URL', '').strip()
+    if not url or not events:
+        return 0
+    sent = 0
+    for e in events:
+        prio = {'critical': 'urgent', 'high': 'high'}.get(e.get('impact'), 'default')
+        sent += ntfy_send(url, e['title'], e['message'], e.get('click', ''), prio,
+                          env.get('RELEASE_WATCH_NTFY_TOKEN', '').strip(), log)
+    return sent
+
+
+def autobuild_main(argv):
+    p = argparse.ArgumentParser(
+        prog='firefox-release-watch.py autobuild',
+        description='Branch, bump and dispatch an unsigned candidate build of a '
+                    'flagged release whose patch check passed.')
+    p.add_argument('--version', required=True)
+    p.add_argument('--issue', type=int, required=True)
+    p.add_argument('--targets', default=','.join(PATCHCHECK_TARGETS))
+    p.add_argument('--base-sha', default=os.environ.get('GITHUB_SHA', ''),
+                   help='the commit the patch check tested (default: $GITHUB_SHA)')
+    p.add_argument('--api', default=os.environ.get('GITHUB_API_URL', GITHUB_API))
+    p.add_argument('--repo', default=os.environ.get('GITHUB_REPOSITORY', ''))
+    p.add_argument('--notify', default=default_notify())
+    p.add_argument('--now', help=argparse.SUPPRESS)  # tests: YYYYMMDDHHMMSS
+    p.add_argument('--dry-run', action='store_true',
+                   help='write nothing; print what would be created and dispatched')
+    a = p.parse_args(argv)
+    token = os.environ.get('GITHUB_TOKEN', '')
+    if not (a.repo and token and a.base_sha):
+        print('error: autobuild needs GITHUB_TOKEN, --repo and --base-sha (it reads '
+              'the issue even in a dry run)', file=sys.stderr)
+        return 1
+    now = (datetime.datetime.strptime(a.now, '%Y%m%d%H%M%S').replace(
+        tzinfo=datetime.timezone.utc) if a.now else
+        datetime.datetime.now(datetime.timezone.utc))
+    events = []
+    try:
+        outcome = autobuild(a.version, a.issue, [t for t in a.targets.split(',') if t],
+                            a.base_sha, GitHub(a.repo, token, a.api), a.repo, now,
+                            dry_run=a.dry_run, notify=a.notify or None, events=events)
+    except (WatchError, ValueError) as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 1
+    if not a.dry_run:
+        send_events(events)
+    summary = os.environ.get('GITHUB_STEP_SUMMARY')
+    if summary:
+        with open(summary, 'a') as f:
+            f.write(f'firefox-release-watch autobuild {a.version} (#{a.issue}): '
+                    f'**{outcome}**\n')
+    print(f'outcome: {outcome}')
+    return 0
+
+
+def default_notify(env=None):
+    env = os.environ if env is None else env
+    return (env.get('RELEASE_WATCH_NOTIFY') or env.get('GITHUB_REPOSITORY_OWNER') or '').strip()
+
+
 def head_sha(repo_root):
     sha = os.environ.get('GITHUB_SHA', '')
     if sha:
@@ -1096,11 +2030,37 @@ def main(argv=None):
                         'repository or not, with no issue (dry run only)')
     p.add_argument('--patchcheck-targets', default=','.join(PATCHCHECK_TARGETS),
                    help='targets of that check (default: %(default)s)')
+    p.add_argument('--notify', default=default_notify(),
+                   help='GitHub login every issue is assigned to and mentions (default: '
+                        '$RELEASE_WATCH_NOTIFY, else $GITHUB_REPOSITORY_OWNER; empty: '
+                        'nobody)')
+    p.add_argument('--advisories-dir', type=Path,
+                   help='read mfsa*.yml from this directory instead of '
+                        f'github.com/{MFSA_REPO}')
+    p.add_argument('--no-advisories', action='store_true',
+                   help='skip the security-advisory check and the reminders')
+    p.add_argument('--shipped-tag',
+                   help='the release users run, as a tag (android-157.0-3); default: '
+                        'the repository\'s latest GitHub release')
+    p.add_argument('--autobuild-policy',
+                   default=os.environ.get('RELEASE_WATCH_AUTOBUILD', '').strip() or 'dot',
+                   choices=AUTOBUILD_POLICIES,
+                   help='which flagged releases get a candidate build (default: '
+                        '$RELEASE_WATCH_AUTOBUILD, else dot)')
+    p.add_argument('--notify-test', action='store_true',
+                   help='only open and close one test issue assigned to --notify')
+    p.add_argument('--now', help=argparse.SUPPRESS)  # tests: YYYYMMDDHHMMSS
     if argv is None:
         argv = sys.argv[1:]
     if argv[:1] == ['patchcheck']:
         return patchcheck_main(argv[1:])
+    if argv[:1] == ['autobuild']:
+        return autobuild_main(argv[1:])
     a = p.parse_args(argv)
+    now = (datetime.datetime.strptime(a.now, '%Y%m%d%H%M%S').replace(
+        tzinfo=datetime.timezone.utc) if a.now else
+        datetime.datetime.now(datetime.timezone.utc))
+    notify = a.notify.strip().lstrip('@') or None
 
     def load(path, url):
         if path:
@@ -1129,6 +2089,19 @@ def main(argv=None):
     exists = lambda u: url_exists(u.replace(ARCHIVE_BASE, a.archive_base, 1))
     repo = a.repo or 'CPlusPlus17/Redoubt'
     errors = []
+    events = []
+
+    if a.notify_test:
+        try:
+            notify_test(github, notify, now, a.dry_run)
+        except WatchError as e:
+            print(f'error: notification test: {e}', file=sys.stderr)
+            return 1
+        if not a.dry_run:
+            send_events([{'title': 'Release watch notification test',
+                          'message': 'If this arrived, the ntfy channel works.',
+                          'impact': 'default'}])
+        return 0
 
     # Each feed and each half fails on its own: a dead mobile feed must not
     # stop the desktop issue, and neither may open an issue about a failure.
@@ -1148,7 +2121,8 @@ def main(argv=None):
     found, outcome = {}, None
     if versions is not None:
         outcome = attempt('Firefox release', lambda: run(
-            a.root, versions, exists, github, repo, a.dry_run, ref=a.ref, found=found))
+            a.root, versions, exists, github, repo, a.dry_run, ref=a.ref, found=found,
+            notify=notify))
 
     android_found, android_outcome = {}, None
     latest = (versions or {}).get('LATEST_FIREFOX_VERSION') or ''
@@ -1163,7 +2137,33 @@ def main(argv=None):
     elif mobile is not None:
         android_outcome = attempt('Firefox for Android', lambda: run_android(
             a.root, mobile, latest, exists, github, repo, a.dry_run, ref=a.ref,
-            found=android_found))
+            found=android_found, notify=notify))
+    for f_, o_ in ((found, outcome), (android_found, android_outcome)):
+        if o_ == 'opened':
+            events.append({'title': f_.get('title', 'New Firefox release'),
+                           'message': 'Assigned to you on GitHub.',
+                           'click': f_.get('url', ''), 'impact': 'default'})
+
+    # Security advisories, then reminders. Read-only GitHub access is enough
+    # for a dry run without a token (the contents API allows 60 calls an hour
+    # unauthenticated).
+    advisory_results, reminded = None, None
+    if not a.no_advisories:
+        reader = github or GitHub(a.repo or repo, '', a.api)
+        shipped_tag = a.shipped_tag
+        if shipped_tag is None:
+            shipped_tag = attempt('latest release', reader.latest_release) or ''
+        advisories = attempt('security advisories', lambda: (
+            load_advisories_dir(a.advisories_dir) if a.advisories_dir
+            else fetch_advisories(reader, now.year)))
+        if advisories is not None:
+            advisory_results = attempt('security advisories', lambda: run_advisories(
+                a.root, advisories, github, repo, shipped_tag, a.dry_run, notify=notify,
+                events=events, ref=a.ref))
+        if github is not None:
+            reminded = attempt('reminders', lambda: run_reminders(
+                a.root, github, shipped_tag, now, a.dry_run, notify=notify,
+                events=events))
 
     jobs = patchcheck_jobs((outcome, found) if outcome else None,
                            (android_outcome, android_found) if android_outcome else None)
@@ -1176,14 +2176,32 @@ def main(argv=None):
             jobs.append(manual)
             print(f'manual patch check of {manual["version"]} ({manual["targets"]}): '
                   f'queued, dry run')
+    current = None
+    try:
+        current = read_track(a.root, 'version.android')
+    except WatchError:
+        pass
+    builds = autobuild_jobs(jobs, current, a.autobuild_policy) if current else []
+    affected = [f'{i} ({o})' for i, o in advisory_results or [] if o != 'not-affected']
     summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:
         with open(summary, 'a') as f:
             f.write(f'firefox-release-watch: **{outcome or "error"}**; '
-                    f'Firefox for Android: **{android_outcome or "error"}**\n')
+                    f'Firefox for Android: **{android_outcome or "error"}**\n\n')
             if manual:
                 f.write(f'manual patch check (dry run): **{manual["version"]}**, '
-                        f'targets {manual["targets"]}\n')
+                        f'targets {manual["targets"]}\n\n')
+            if advisory_results is not None:
+                f.write('security advisories the shipped release is behind: '
+                        + (', '.join(affected) or 'none') + '\n\n')
+            if reminded:
+                f.write(f'reminded on: {", ".join(f"#{n}" for n in reminded)}\n\n')
+            f.write(f'notify: {"@" + notify if notify else "nobody"}; autobuild policy '
+                    f'{a.autobuild_policy}: '
+                    + (', '.join(b['version'] for b in builds) or 'nothing to build')
+                    + '\n')
+    if not a.dry_run:
+        send_events(events)
     # For the workflow's patch-check job (needs.watch.outputs.*). Written even
     # after an error, so a desktop issue opened before the Android half failed
     # still gets its check.
@@ -1197,9 +2215,14 @@ def main(argv=None):
                     f'android_outcome={android_outcome or "error"}\n'
                     f'android_version={android_found.get("version", "")}\n'
                     f'android_issue={android_found.get("issue") or ""}\n'
-                    f'checks={json.dumps(jobs, separators=(",", ":"))}\n')
+                    f'checks={json.dumps(jobs, separators=(",", ":"))}\n'
+                    f'autobuild={json.dumps(builds, separators=(",", ":"))}\n')
     print(f'outcome: {outcome or "error"}')
     print(f'android outcome: {android_outcome or "error"}')
+    if advisory_results is not None:
+        print('advisories: ' + (', '.join(affected) or 'none affecting the shipped release'))
+    if builds:
+        print('autobuild: ' + ', '.join(b['version'] for b in builds))
     return 1 if errors else 0
 
 

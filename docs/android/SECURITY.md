@@ -171,7 +171,14 @@ advisory, that the shipped build is not behind it.
 `scripts/firefox-release-watch.py` opens an issue for each new
 `LATEST_FIREFOX_VERSION`, and one for each Android-only Firefox for Android
 release in `mobile_versions.json`, saying whether it has a source tarball.
-Every MFSA titled "Firefox for Android" is still read by the triage owner in
+Since LW-M7-47 it also reads Mozilla's advisory files
+(mozilla/foundation-security-advisories). An advisory fixed in a Firefox
+newer than the published release is posted on the release issue (or opens
+its own), with its impact and CVEs, label `security` and the owner assigned
+and mentioned. The owner is reminded every 24 h until the issue closes
+(`docs/android/RELEASE-WATCH.md`). Matching the version is automatic.
+Reading the advisory is not:
+every MFSA titled "Firefox for Android" is still read by the triage owner in
 `docs/android/TRIAGE.md` (a placeholder until one is named; this page names
 the *role*, not a person). The current coverage record, with the nine
 Android CVEs the ESR tree lacked and how the move to 157 closed them, is

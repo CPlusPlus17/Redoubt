@@ -49,6 +49,11 @@ def fixture(version):
     return json.loads((FIXTURES / f'product-details-{version}.json').read_text())
 
 
+def core(found):
+    """`found` without the title and URL _flag records for notifications."""
+    return {k: v for k, v in found.items() if k not in ('title', 'url')}
+
+
 def mobile_fixture(version):
     return json.loads((FIXTURES / f'mobile-versions-{version}.json').read_text())
 
@@ -56,32 +61,92 @@ def mobile_fixture(version):
 class FakeGitHub:
     def __init__(self, titles=(), closed=()):
         # [title, number, state]; numbers are 1-based positions
-        self.items = [{'title': t, 'number': n, 'state': 'closed' if t in closed else 'open'}
+        self.items = [{'title': t, 'number': n, 'state': 'closed' if t in closed else 'open',
+                       'labels': [watch.LABEL], 'assignees': [], 'node_id': f'I_{n}',
+                       'created_at': '2026-10-06T14:17:40Z'}
                       for n, t in enumerate(titles, 1)]
         self.created = []
         self.labels = []
         self.posted = {}  # number -> [comment bodies]
+        self.stamps = {}  # number -> [comment created_at]
+        self.assigned = {}  # number -> [logins]
+        self.edits = []
+        self.pinned = []
+        self.release = ''
+        self.runs = {}  # (workflow, status) -> [runs]
+        self.branches = {}
+        self.commits = []
+        self.dispatched = []
+        self.now = '2026-10-09T12:00:00Z'
 
     def issues(self, label):
         assert label == watch.LABEL
         return [dict(i) for i in self.items]
 
-    def ensure_label(self, label):
+    def ensure_label(self, label, *a):
         self.labels.append(label)
         return True
 
-    def create_issue(self, title, body, label):
+    def create_issue(self, title, body, label, assignees=()):
         self.created.append((title, body, label))
         number = len(self.items) + 1
-        self.items.append({'title': title, 'number': number, 'state': 'open'})
+        self.items.append({'title': title, 'number': number, 'state': 'open',
+                           'labels': [label], 'assignees': list(assignees),
+                           'node_id': f'I_{number}', 'created_at': self.now})
+        self.assigned[number] = list(assignees)
         return f'https://github.invalid/issues/{number}', number
+
+    def item(self, number):
+        return next(i for i in self.items if i['number'] == number)
+
+    def add_assignees(self, number, logins):
+        self.assigned.setdefault(number, []).extend(logins)
+        self.item(number)['assignees'] += list(logins)
+
+    def add_labels(self, number, labels):
+        self.item(number)['labels'] += [l for l in labels if l not in self.item(number)['labels']]
+
+    def edit_issue(self, number, **fields):
+        self.edits.append((number, fields))
+        self.item(number).update(fields)
+
+    def pin_issue(self, node_id):
+        self.pinned.append(node_id)
+        return True
+
+    def latest_release(self):
+        return self.release
+
+    def comments_full(self, number):
+        bodies = self.posted.get(number, [])
+        stamps = self.stamps.get(number, [])
+        return [{'body': b, 'created_at': stamps[k] if k < len(stamps) else self.now}
+                for k, b in enumerate(bodies)]
 
     def comments(self, number):
         return list(self.posted.get(number, []))
 
     def create_comment(self, number, body):
         self.posted.setdefault(number, []).append(body)
+        self.stamps.setdefault(number, []).append(self.now)
         return f'https://github.invalid/issues/{number}#c{len(self.posted[number])}'
+
+    def workflow_runs(self, workflow, status):
+        return list(self.runs.get((workflow, status), []))
+
+    def dispatch(self, workflow, ref, inputs):
+        self.dispatched.append((workflow, ref, inputs))
+
+    def branch_sha(self, branch):
+        return self.branches.get(branch, '')
+
+    def commit_files(self, base_sha, files, message):
+        self.commits.append((base_sha, dict(files), message))
+        return f'{len(self.commits):040x}'
+
+    def create_branch(self, branch, sha):
+        assert branch not in self.branches
+        self.branches[branch] = sha
 
 
 class Versions(unittest.TestCase):
@@ -208,14 +273,14 @@ class Run(unittest.TestCase):
 
         gh, found = FakeGitHub(['unrelated']), {}
         self.assertEqual(self.go('158.0', gh, found=found), 'opened')
-        self.assertEqual(found, {'version': '158.0', 'issue': 2, 'state': 'open'})
+        self.assertEqual(core(found), {'version': '158.0', 'issue': 2, 'state': 'open'})
         self.assertTrue(watch.wants_patchcheck('opened', found))
 
         # The next day: still open, so the check runs again (and the comment
         # marker decides whether anything is posted).
         found = {}
         self.assertEqual(self.go('158.0', gh, found=found), 'duplicate')
-        self.assertEqual(found, {'version': '158.0', 'issue': 2, 'state': 'open'})
+        self.assertEqual(core(found), {'version': '158.0', 'issue': 2, 'state': 'open'})
         self.assertTrue(watch.wants_patchcheck('duplicate', found))
 
         # Closed: the rebase is done; no check.
@@ -325,7 +390,7 @@ class RunAndroid(unittest.TestCase):
         self.assertIn('https://archive.mozilla.org/pub/fenix/releases/157.0.1/', body)
         self.assertIn('NEXT_RELEASE_DATE', body)
         self.assertNotIn('make fetch TARGETS', body)
-        self.assertEqual(af, {'version': '157.0.1', 'tarball': False, 'issue': 1,
+        self.assertEqual(core(af), {'version': '157.0.1', 'tarball': False, 'issue': 1,
                               'state': 'open'})
         # No tarball: nothing to check the patches against.
         self.assertFalse(watch.wants_android_patchcheck(a, af))
@@ -450,7 +515,8 @@ class RunAndroid(unittest.TestCase):
 
 def clean_env(token=None):
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith('GITHUB_') and k not in ('RUNNER_TEMP', 'GNUPGHOME')}
+           if not k.startswith(('GITHUB_', 'RELEASE_WATCH_'))
+           and k not in ('RUNNER_TEMP', 'GNUPGHOME')}
     if token:
         env['GITHUB_TOKEN'] = token
     return env
@@ -491,18 +557,51 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(raw)
             return
+        # Public reads: no token needed (a dry run without one uses them).
+        if url.path == '/repos/o/r/releases/latest':
+            tag = self.state.get('release')
+            return self.reply(200, {'tag_name': tag}) if tag else self.reply(404)
+        prefix = '/repos/mozilla/foundation-security-advisories/contents/announce/'
+        if url.path.startswith(prefix):
+            year = url.path[len(prefix):]
+            names = [n for n in self.state.get('mfsa', {}) if n.startswith(f'mfsa{year}-')]
+            if not names:
+                return self.reply(404)
+            return self.reply(200, [{'name': n, 'type': 'file',
+                                     'download_url': f'{self.state["base"]}/raw/{n}'}
+                                    for n in sorted(names)])
+        if url.path.startswith('/raw/'):
+            raw = self.state['mfsa'][url.path[len('/raw/'):]].encode()
+            self.send_response(200)
+            self.send_header('Content-Length', str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
         if self.headers.get('Authorization') != 'Bearer test-token':
             return self.reply(401, {'message': 'Bad credentials'})
         if url.path == '/repos/o/r/issues':
             assert q['state'] == ['all'] and q['labels'] == ['firefox-release'], q
             page = int(q['page'][0])
-            items = [{'title': t, 'number': n, 'state': 'open'}
+            meta = self.state.setdefault('meta', {})
+            items = [{'title': t, 'number': n, 'state': 'open',
+                      **meta.get(n, {})}
                      for n, t in enumerate(self.state['issues'], 1)]
             return self.reply(200, items[(page - 1) * 100:page * 100])
+        if url.path.startswith('/repos/o/r/actions/workflows/') and url.path.endswith('/runs'):
+            wf = url.path.split('/')[6]
+            runs = self.state.get('runs', {}).get((wf, q['status'][0]), [])
+            return self.reply(200, {'total_count': len(runs), 'workflow_runs': runs})
+        if url.path.startswith('/repos/o/r/git/ref/heads/'):
+            branch = url.path[len('/repos/o/r/git/ref/heads/'):]
+            sha = self.state.get('refs', {}).get(branch)
+            return self.reply(200, {'object': {'sha': sha}}) if sha else self.reply(404)
+        if url.path.startswith('/repos/o/r/git/commits/'):
+            return self.reply(200, {'sha': url.path.rsplit('/', 1)[1], 'tree': {'sha': 'tree0'}})
         if url.path.startswith('/repos/o/r/issues/') and url.path.endswith('/comments'):
             number = int(url.path.split('/')[5])
             page = int(q['page'][0])
-            items = [{'body': b} for b in self.state['comments'].get(number, [])]
+            items = [{'body': b, 'created_at': '2026-10-09T12:00:00Z'}
+                     for b in self.state['comments'].get(number, [])]
             return self.reply(200, items[(page - 1) * 100:page * 100])
         self.reply(404)
 
@@ -513,6 +612,33 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
                 return self.reply(422, {'message': 'already_exists'})
             self.state['labels'].append(data['name'])
             return self.reply(201, data)
+        if self.headers.get('Authorization') != 'Bearer test-token':
+            return self.reply(401, {'message': 'Bad credentials'})
+        if self.path.startswith('/repos/o/r/issues/') and self.path.endswith('/assignees'):
+            number = int(self.path.split('/')[5])
+            self.state.setdefault('assigned', {}).setdefault(number, []).extend(
+                data['assignees'])
+            return self.reply(201, {'number': number})
+        if self.path.startswith('/repos/o/r/issues/') and self.path.endswith('/labels'):
+            number = int(self.path.split('/')[5])
+            self.state.setdefault('issue_labels', {}).setdefault(number, []).extend(
+                data['labels'])
+            return self.reply(200, [{'name': l} for l in data['labels']])
+        if self.path.startswith('/repos/o/r/actions/workflows/') and self.path.endswith('/dispatches'):
+            self.state.setdefault('dispatched', []).append((self.path.split('/')[6], data))
+            return self.reply(204)
+        if self.path == '/repos/o/r/git/trees':
+            self.state.setdefault('trees', []).append(data)
+            return self.reply(201, {'sha': 'tree1'})
+        if self.path == '/repos/o/r/git/commits':
+            self.state.setdefault('commits', []).append(data)
+            return self.reply(201, {'sha': 'c' * 40})
+        if self.path == '/repos/o/r/git/refs':
+            self.state.setdefault('refs', {})[data['ref'][len('refs/heads/'):]] = data['sha']
+            return self.reply(201, {'ref': data['ref']})
+        if self.path == '/graphql':
+            self.state.setdefault('pinned', []).append(data['variables']['id'])
+            return self.reply(200, {'data': {'pinIssue': {'issue': {'number': 1}}}})
         if self.path == '/repos/o/r/issues':
             self.state['issues'].append(data['title'])
             self.state['bodies'].append(data)
@@ -528,6 +654,17 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
         self.reply(404)
 
 
+    def do_PATCH(self):
+        data = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        if self.headers.get('Authorization') != 'Bearer test-token':
+            return self.reply(401, {'message': 'Bad credentials'})
+        number = int(self.path.split('/')[5])
+        self.state.setdefault('edits', []).append((number, data))
+        if 'title' in data:
+            self.state['issues'][number - 1] = data['title']
+        return self.reply(200, {'number': number})
+
+
 class EndToEnd(unittest.TestCase):
     def setUp(self):
         FakeServer.state = {'heads': [], 'gets': [], 'tarballs': set(), 'labels': [],
@@ -541,6 +678,7 @@ class EndToEnd(unittest.TestCase):
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
         self.base = f'http://127.0.0.1:{self.server.server_address[1]}'
+        FakeServer.state['base'] = self.base
         tmp = tempfile.TemporaryDirectory(prefix='redoubt-release-watch-e2e-')
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
@@ -566,6 +704,7 @@ class EndToEnd(unittest.TestCase):
     def outputs(self, path):
         out = dict(l.split('=', 1) for l in path.read_text().splitlines())
         out['checks'] = json.loads(out['checks'])
+        out['autobuild'] = json.loads(out['autobuild'])
         path.unlink()
         return out
 
@@ -578,7 +717,8 @@ class EndToEnd(unittest.TestCase):
                          'outcome=opened\nversion=158.0\nissue=151\npatchcheck=true\n'
                          'android_outcome=current\nandroid_version=\nandroid_issue=\n'
                          'checks=[{"version":"158.0","issue":"151",'
-                         '"targets":"desktop,android","label":"release"}]\n')
+                         '"targets":"desktop,android","label":"release"}]\n'
+                         'autobuild=[]\n')
         out.unlink()
         r = self.script('158.0', output=out)
         o = self.outputs(out)
@@ -589,7 +729,7 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(out.read_text(),
                          'outcome=current\nversion=\nissue=\npatchcheck=false\n'
                          'android_outcome=current\nandroid_version=\nandroid_issue=\n'
-                         'checks=[]\n')
+                         'checks=[]\nautobuild=[]\n')
 
     def test_android_only_dot_release(self):
         out = self.root / 'github-output'
@@ -671,6 +811,101 @@ class EndToEnd(unittest.TestCase):
         self.assertIn('outcome: duplicate', r.stdout)
         self.assertEqual(FakeServer.state['issues'].count(
             'Firefox 158.0 released: rebase Android and desktop'), 1)
+
+    def mfsa(self, *names):
+        FakeServer.state['mfsa'] = {f'{n}.yml': (MFSA / f'{n}.yml').read_text()
+                                    for n in names}
+
+    def test_advisory_upgrades_the_issue_and_queues_a_build(self):
+        out = self.root / 'github-output'
+        self.mfsa('mfsa2026-97', 'mfsa2026-100', 'mfsa2026-104')
+        FakeServer.state['release'] = 'android-157.0-3'
+        FakeServer.state['tarballs'].add('157.0.1')
+        r = self.script('157.0.1', '--notify', 'owner', output=out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('advisories: mfsa2026-104 (upgraded)', r.stdout)
+        n = 151  # the release issue just opened
+        self.assertEqual(FakeServer.state['bodies'][-1]['assignees'], ['owner'])
+        self.assertTrue(FakeServer.state['bodies'][-1]['body'].startswith('@owner: '))
+        self.assertIn(watch.advisory_marker('mfsa2026-104'), FakeServer.state['comments'][n][0])
+        self.assertEqual(FakeServer.state['issue_labels'][n], ['security'])
+        self.assertEqual(FakeServer.state['issues'][n - 1],
+                         '[security: moderate] Firefox 157.0.1 released: rebase Android and desktop')
+        o = self.outputs(out)
+        self.assertEqual(o['autobuild'], [{'version': '157.0.1', 'issue': str(n),
+                                           'targets': 'desktop,android', 'label': 'release'}])
+        # Next run: same issue (renamed), no second advisory comment.
+        r = self.script('157.0.1', '--notify', 'owner', output=out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('outcome: duplicate', r.stdout)
+        self.assertEqual(len(FakeServer.state['comments'][n]), 1)
+        self.assertEqual(len(FakeServer.state['issues']), n)
+
+    def test_dry_run_without_token_reads_advisories(self):
+        self.mfsa('mfsa2026-104')
+        FakeServer.state['release'] = 'android-157.0-3'
+        FakeServer.state['tarballs'].add('157.0.1')
+        r = self.script('157.0.1', '--dry-run', token='')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("would open '[security: moderate] Mozilla security advisory "
+                      "MFSA 2026-104 (fixed in Firefox 157.0.1)'", r.stdout)
+        self.assertEqual(len(FakeServer.state['issues']), 150)
+
+    def test_advisory_feed_down_is_red_but_the_release_still_flags(self):
+        FakeServer.state['tarballs'].add('158.0')
+        r = self.script('158.0', '--api', self.base + '/broken-api')
+        self.assertEqual(r.returncode, 1)
+        r = self.script('158.0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('outcome: opened', r.stdout)
+
+    def test_notify_test(self):
+        r = self.script('157.0', '--notify-test', '--notify', 'owner')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(FakeServer.state['issues'][-1].startswith(
+            'Release watch notification test ('))
+        self.assertEqual(FakeServer.state['bodies'][-1]['assignees'], ['owner'])
+        self.assertEqual(FakeServer.state['edits'][-1][1],
+                         {'state': 'closed', 'state_reason': 'not_planned'})
+
+    def autobuild(self, *extra, token='test-token'):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), 'autobuild', '--version', '157.0.1', '--issue', '3',
+             '--base-sha', SHA, '--api', self.base, '--repo', 'o/r', '--notify', 'owner',
+             '--now', '20261009123456', *extra],
+            env=clean_env(token), capture_output=True, text=True, timeout=60)
+
+    def test_autobuild_cli(self):
+        FakeServer.state['comments'][3] = [
+            f'<!-- redoubt-patchcheck-result version=157.0.1 sha={SHA} desktop=pass '
+            f'android=pass -->']
+        r = self.autobuild('--dry-run')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('outcome: would-dispatch', r.stdout)
+        self.assertNotIn('dispatched', FakeServer.state)
+        FakeServer.state['runs'] = {('android-release.yaml', 'queued'): [
+            {'id': 9, 'html_url': 'x', 'head_branch': 'main', 'status': 'queued'}]}
+        r = self.autobuild()
+        self.assertIn('outcome: busy', r.stdout)
+        FakeServer.state['runs'] = {}
+        r = self.autobuild()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('outcome: dispatched', r.stdout)
+        self.assertEqual(FakeServer.state['refs'], {'auto/firefox-157.0.1': 'c' * 40})
+        tree = FakeServer.state['trees'][0]
+        self.assertEqual(tree['base_tree'], 'tree0')
+        self.assertEqual({e['path']: e['content'] for e in tree['tree']},
+                         {'release': '1\n', 'release.android': '1\n',
+                          'version': '157.0.1\n', 'version.android': '157.0.1\n'})
+        self.assertEqual(FakeServer.state['commits'][0]['parents'], [SHA])
+        self.assertEqual(FakeServer.state['dispatched'], [(
+            'android-release.yaml', {'ref': 'auto/firefox-157.0.1', 'inputs': {
+                'mode': 'full', 'update_check': 'true', 'build_date': '20261009123456'}})])
+        r = self.autobuild()
+        self.assertIn('outcome: already-dispatched', r.stdout)
+        self.assertEqual(len(FakeServer.state['dispatched']), 1)
+        r = self.autobuild(token='')
+        self.assertEqual(r.returncode, 1)
 
     def test_current_needs_no_network_beyond_fixture(self):
         r = self.script('157.0')
@@ -778,6 +1013,401 @@ class EndToEnd(unittest.TestCase):
             self.assertNotIn('manual', r.stdout)
 
 
+MFSA = FIXTURES / 'mfsa'
+
+
+def advisory(name):
+    return watch.parse_advisory((MFSA / f'{name}.yml').read_text(), name)
+
+
+def derived_advisory(name, impact, fixed_in, cves=3):
+    """A made-up advisory in the real files' shape (for impacts and versions
+    no real file has yet)."""
+    lines = [f'## {name}.yml', 'announced: October 13, 2026', f'impact: {impact}',
+             'fixed_in:', f'- {fixed_in}', f'title: Security Vulnerabilities fixed in {fixed_in}',
+             'advisories:']
+    for k in range(cves):
+        lines += [f'  CVE-2026-9{k:05d}:', f"    title: 'Bug {k}: use-after-free'",
+                  f'    impact: {impact if k == 0 else "moderate"}', '    reporter: Mozilla',
+                  '    bugs:', f'      - url: {k}']
+    return watch.parse_advisory('\n'.join(lines) + '\n', name)
+
+
+class AdvisoryParse(unittest.TestCase):
+    def test_matches_pyyaml_on_real_files(self):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest('PyYAML not installed')
+        norm = lambda v: ' '.join(str(v).split())
+        for f in sorted(MFSA.glob('*.yml')):
+            y = yaml.safe_load(f.read_text())
+            got = watch.parse_advisory(f.read_text(), f.stem)
+            self.assertEqual(got['fixed_in'], y['fixed_in'], f.name)
+            self.assertEqual(got['impact'], y['impact'], f.name)
+            self.assertEqual(got['title'], norm(y['title']), f.name)
+            self.assertEqual(got['announced'], norm(y['announced']), f.name)
+            self.assertEqual([(c['id'], c['impact'], c['title']) for c in got['cves']],
+                             [(k, v.get('impact', ''), norm(v.get('title', '')))
+                              for k, v in y['advisories'].items()], f.name)
+
+    def test_fields(self):
+        a = advisory('mfsa2026-104')
+        self.assertEqual(a['fixed_in'], ['Firefox 157.0.1'])
+        self.assertEqual(a['impact'], 'moderate')
+        self.assertEqual([c['id'] for c in a['cves']], ['CVE-2026-106016'])
+        self.assertEqual(a['cves'][0]['title'], 'Mitigation bypass in the File Handling component')
+        self.assertEqual(advisory('mfsa2025-25')['fixed_in'], ['Firefox 137.0.2'])  # indented list
+        block = [c for c in advisory('mfsa2025-28')['cves'] if c['id'] == 'CVE-2025-4083'][0]
+        self.assertEqual(block['title'], 'Process isolation bypass using "javascript:" URI '
+                                         'links in cross-origin frames')
+        self.assertEqual(len(advisory('mfsa2026-97')['cves']), 76)
+
+    def test_versions_and_impact(self):
+        self.assertEqual(watch.advisory_versions(advisory('mfsa2026-97')), ['157.0'])
+        self.assertEqual(watch.advisory_versions(advisory('mfsa2026-104')), ['157.0.1'])
+        self.assertEqual(watch.advisory_versions(advisory('mfsa2024-45')), ['130.0.1'])
+        self.assertEqual(watch.advisory_versions(advisory('mfsa2026-73')), ['153.0.3'])
+        for other in ('mfsa2026-100', 'mfsa2026-101', 'mfsa2026-89'):  # ESR, Thunderbird, iOS
+            self.assertEqual(watch.advisory_versions(advisory(other)), [], other)
+        self.assertEqual(watch.advisory_impact(advisory('mfsa2026-97')), 'high')
+        self.assertEqual(watch.advisory_impact(derived_advisory('mfsa2026-105', 'critical',
+                                                                'Firefox 158')), 'critical')
+        self.assertEqual(watch.mfsa_label('mfsa2026-104'), 'MFSA 2026-104')
+
+    def test_shipped_release(self):
+        self.assertEqual(watch.shipped_release('android-157.0-3', '157.0')[0], '157.0')
+        self.assertEqual(watch.shipped_release('android-157.0.1-2', '157.0')[0], '157.0.1')
+        self.assertEqual(watch.shipped_release('android-158.0-1-beta.1', '157.0')[0], '157.0')
+        self.assertEqual(watch.shipped_release('', '157.0'),
+                         ('157.0', '`version.android` 157.0 (no published release found)'))
+
+    def test_title_matches(self):
+        base = watch.issue_title('157.0.1')
+        self.assertTrue(watch.title_matches(base, base))
+        self.assertTrue(watch.title_matches('[security: high] ' + base, base))
+        self.assertFalse(watch.title_matches('[security: high] ' + base + ' again', base))
+        self.assertFalse(watch.title_matches('x ' + base, base))
+        self.assertEqual(watch.security_title('[security: low] ' + base, 'high'),
+                         '[security: high] ' + base)
+
+
+class RunAdvisories(unittest.TestCase):
+    DOT = 'Firefox 157.0.1 released: rebase Android and desktop'
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix='redoubt-release-watch-mfsa-')
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        (self.root / 'version.android').write_text('157.0\n')
+        (self.root / 'version').write_text('157.0')
+        self.log = []
+
+    def go(self, gh, advisories, tag='android-157.0-3', dry_run=False):
+        return watch.run_advisories(self.root, advisories, gh, 'o/r', tag, dry_run,
+                                    log=self.log.append, notify='owner')
+
+    def test_upgrades_the_open_release_issue_once(self):
+        gh = FakeGitHub([self.DOT])
+        advs = [advisory('mfsa2026-97'), advisory('mfsa2026-100'), advisory('mfsa2026-104')]
+        self.assertEqual(self.go(gh, advs), [('mfsa2026-97', 'not-affected'),
+                                             ('mfsa2026-100', 'not-affected'),
+                                             ('mfsa2026-104', 'upgraded')])
+        body = gh.posted[1][0]
+        self.assertTrue(body.startswith(watch.advisory_marker('mfsa2026-104') + '\n@owner: '))
+        self.assertIn('CVE-2026-106016', body)
+        self.assertIn('Highest impact: **moderate**', body)
+        self.assertIn('Redoubt 157.0-3', body)
+        self.assertIn('https://www.mozilla.org/en-US/security/advisories/mfsa2026-104/', body)
+        self.assertEqual(gh.item(1)['labels'], [watch.LABEL, 'security'])
+        self.assertEqual(gh.item(1)['title'], '[security: moderate] ' + self.DOT)
+        self.assertEqual(gh.assigned[1], ['owner'])
+        self.assertEqual(gh.pinned, [], 'moderate is not pinned')
+        self.assertEqual(self.go(gh, advs)[-1], ('mfsa2026-104', 'known'))
+        self.assertEqual(len(gh.posted[1]), 1)
+        # The release watcher still recognises its renamed issue.
+        found = {}
+        self.assertEqual(watch.run(self.root, fixture('157.0.1'), lambda u: True, gh, 'o/r',
+                                   log=self.log.append, found=found), 'duplicate')
+        self.assertEqual(found['issue'], 1)
+
+    def test_critical_is_labelled_pinned_and_never_downgraded(self):
+        gh = FakeGitHub(['Firefox 158.0 released: rebase Android and desktop'])
+        crit = derived_advisory('mfsa2026-105', 'critical', 'Firefox 158')
+        self.assertEqual(self.go(gh, [crit]), [('mfsa2026-105', 'upgraded')])
+        self.assertIn('priority: critical', gh.item(1)['labels'])
+        self.assertEqual(gh.pinned, ['I_1'])
+        self.assertTrue(gh.item(1)['title'].startswith('[security: critical] '))
+        low = derived_advisory('mfsa2026-106', 'low', 'Firefox 158')
+        self.assertEqual(self.go(gh, [low]), [('mfsa2026-106', 'upgraded')])
+        self.assertTrue(gh.item(1)['title'].startswith('[security: critical] '))
+
+    def test_no_open_issue_opens_an_advisory_issue(self):
+        gh = FakeGitHub([self.DOT, 'Firefox 158.0 released: rebase Android and desktop'],
+                        closed=[self.DOT])
+        self.assertEqual(self.go(gh, [advisory('mfsa2026-104')]),
+                         [('mfsa2026-104', 'opened')])
+        title, body, label = gh.created[0]
+        self.assertEqual(title, '[security: moderate] Mozilla security advisory '
+                                'MFSA 2026-104 (fixed in Firefox 157.0.1)')
+        self.assertEqual(label, watch.LABEL)
+        self.assertIn('@owner: ', body)
+        self.assertIn('Open release issues of the watcher: #2', body)
+        self.assertEqual(gh.assigned[3], ['owner'])
+        self.assertIn('security', gh.item(3)['labels'])
+        self.assertEqual(self.go(gh, [advisory('mfsa2026-104')]),
+                         [('mfsa2026-104', 'known')])
+        self.assertEqual(len(gh.created), 1)
+
+    def test_shipped_at_or_past_is_quiet(self):
+        gh = FakeGitHub([self.DOT])
+        self.assertEqual(self.go(gh, [advisory('mfsa2026-104')], tag='android-157.0.1-1'),
+                         [('mfsa2026-104', 'not-affected')])
+        self.assertEqual((gh.posted, gh.created), ({}, []))
+
+    def test_no_release_falls_back_to_version_android(self):
+        gh = FakeGitHub([self.DOT])
+        self.assertEqual(self.go(gh, [advisory('mfsa2026-104')], tag=''),
+                         [('mfsa2026-104', 'upgraded')])
+        self.assertIn('`version.android` 157.0 (no published release found)', gh.posted[1][0])
+
+    def test_dry_run_writes_nothing(self):
+        gh = FakeGitHub([self.DOT])
+        self.assertEqual(self.go(gh, [advisory('mfsa2026-104')], dry_run=True),
+                         [('mfsa2026-104', 'would-upgrade')])
+        self.assertEqual((gh.posted, gh.edits, gh.assigned), ({}, [], {}))
+        self.assertEqual(self.go(None, [advisory('mfsa2026-104')], dry_run=True),
+                         [('mfsa2026-104', 'would-open')])
+
+
+class Reminders(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix='redoubt-release-watch-remind-')
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        (self.root / 'version.android').write_text('157.0\n')
+        self.gh = FakeGitHub(['[security: moderate] ' + RunAdvisories.DOT,
+                              'Firefox 158.0 released: rebase Android and desktop'])
+        self.gh.item(1)['labels'].append('security')
+
+    def at(self, stamp, tag='android-157.0-3'):
+        now = watch._parse_time(stamp)
+        self.gh.now = stamp
+        return watch.run_reminders(self.root, self.gh, tag, now, notify='owner',
+                                   log=lambda *a: None)
+
+    def test_once_a_day_while_behind(self):
+        self.assertEqual(self.at('2026-10-06T20:00:00Z'), [], 'younger than a day')
+        self.assertEqual(self.at('2026-10-09T12:00:00Z'), [1])
+        self.assertIn('@owner: reminder: open for 2 day(s)', self.gh.posted[1][0])
+        self.assertEqual(self.at('2026-10-09T13:00:00Z'), [])
+        self.assertEqual(self.at('2026-10-10T12:00:01Z'), [1])
+        self.assertEqual(len(self.gh.posted[1]), 2)
+        self.assertNotIn(2, self.gh.posted, 'not a security issue')
+
+    def test_an_advisory_comment_counts_as_a_ping(self):
+        self.gh.now = '2026-10-09T11:00:00Z'
+        self.gh.create_comment(1, watch.advisory_marker('mfsa2026-104') + '\n@owner: x')
+        self.assertEqual(self.at('2026-10-09T12:00:00Z'), [])
+        self.assertEqual(self.at('2026-10-10T11:00:00Z'), [1])
+
+    def test_quiet_once_shipped(self):
+        self.assertEqual(self.at('2026-10-09T12:00:00Z', tag='android-157.0.1-1'), [])
+
+
+class Notify(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix='redoubt-release-watch-notify-')
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        (self.root / 'version.android').write_text('157.0\n')
+        (self.root / 'version').write_text('157.0')
+
+    def go(self, gh, found=None, dry_run=False):
+        return watch.run(self.root, fixture('157.0.1'), lambda u: True, gh, 'o/r', dry_run,
+                         log=lambda *a: None, found=found, notify='owner')
+
+    def test_new_issue_is_assigned_and_mentions(self):
+        gh = FakeGitHub()
+        found = {}
+        self.assertEqual(self.go(gh, found), 'opened')
+        self.assertEqual(gh.assigned[1], ['owner'])
+        self.assertTrue(gh.created[0][1].startswith('@owner: Mozilla released Firefox 157.0.1'))
+        self.assertEqual(found['url'], 'https://github.invalid/issues/1')
+
+    def test_open_unassigned_issue_gets_assigned_once(self):
+        gh = FakeGitHub([RunAdvisories.DOT])
+        self.assertEqual(self.go(gh), 'duplicate')
+        self.assertEqual(gh.assigned, {1: ['owner']})
+        self.go(gh)
+        self.assertEqual(gh.assigned, {1: ['owner']})
+
+    def test_closed_issue_is_left_alone(self):
+        gh = FakeGitHub([RunAdvisories.DOT], closed=[RunAdvisories.DOT])
+        self.assertEqual(self.go(gh), 'duplicate')
+        self.assertEqual(gh.assigned, {})
+
+    def test_default_notify(self):
+        self.assertEqual(watch.default_notify({'GITHUB_REPOSITORY_OWNER': 'CPlusPlus17'}),
+                         'CPlusPlus17')
+        self.assertEqual(watch.default_notify({'GITHUB_REPOSITORY_OWNER': 'a',
+                                               'RELEASE_WATCH_NOTIFY': 'b'}), 'b')
+        self.assertEqual(watch.default_notify({}), '')
+
+    def test_notify_test_opens_and_closes(self):
+        gh = FakeGitHub()
+        now = watch._parse_time('2026-10-09T12:00:00Z')
+        watch.notify_test(gh, 'owner', now, log=lambda *a: None)
+        self.assertEqual(gh.created[0][2], watch.TEST_LABEL)
+        self.assertEqual(gh.assigned[1], ['owner'])
+        self.assertEqual(gh.edits, [(1, {'state': 'closed', 'state_reason': 'not_planned'})])
+
+
+class Ntfy(unittest.TestCase):
+    def test_off_without_the_secret(self):
+        self.assertEqual(watch.send_events([{'title': 't', 'message': 'm'}], env={}), 0)
+
+    def test_posts_when_configured(self):
+        got = []
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                got.append((self.path, dict(self.headers),
+                            self.rfile.read(int(self.headers['Content-Length'])).decode()))
+                self.send_response(200)
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+
+        srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        url = f'http://127.0.0.1:{srv.server_address[1]}/redoubt-abc'
+        n = watch.send_events([{'title': 'MFSA 2026-105 (critical)', 'message': 'behind',
+                                'click': 'https://x/1', 'impact': 'critical'}],
+                              env={'RELEASE_WATCH_NTFY_URL': url,
+                                   'RELEASE_WATCH_NTFY_TOKEN': 'tk'}, log=lambda *a: None)
+        self.assertEqual(n, 1)
+        path, headers, body = got[0]
+        self.assertEqual((path, body), ('/redoubt-abc', 'behind'))
+        self.assertEqual(headers['Priority'], 'urgent')
+        self.assertEqual(headers['Click'], 'https://x/1')
+        self.assertEqual(headers['Authorization'], 'Bearer tk')
+
+    def test_failure_is_not_fatal(self):
+        self.assertEqual(watch.send_events(
+            [{'title': 't', 'message': 'm'}],
+            env={'RELEASE_WATCH_NTFY_URL': 'http://127.0.0.1:9/x'}, log=lambda *a: None), 0)
+
+
+class Autobuild(unittest.TestCase):
+    NOW = watch._parse_time('2026-10-09T12:34:56Z')
+
+    def setUp(self):
+        self.gh = FakeGitHub([RunAdvisories.DOT])
+        self.log = []
+
+    def verdict(self, android='pass', sha=None):
+        sha = sha or SHA
+        self.gh.posted.setdefault(1, []).append(
+            watch.patchcheck_marker('157.0.1', sha) + '\n'
+            + f'<!-- redoubt-patchcheck-result version=157.0.1 sha={sha} desktop=pass '
+              f'android={android} -->\n### Patch check\n')
+
+    def go(self, dry_run=False, targets=('desktop', 'android')):
+        return watch.autobuild('157.0.1', 1, list(targets), SHA, self.gh, 'o/r', self.NOW,
+                               dry_run=dry_run, notify='owner', log=self.log.append)
+
+    def test_eligibility(self):
+        e = watch.autobuild_eligible
+        self.assertTrue(e('157.0.1', '157.0', 'dot'))
+        self.assertTrue(e('157.0.2', '157.0.1', 'dot'))
+        self.assertTrue(e('157.1', '157.0', 'dot'))
+        self.assertFalse(e('158.0', '157.0', 'dot'))
+        self.assertTrue(e('158.0', '157.0', 'all'))
+        self.assertFalse(e('157.0.1', '157.0', 'off'))
+        self.assertFalse(e('157.0', '157.0', 'all'))
+        self.assertFalse(e('157.0.1', '157.0.1', 'dot'))
+        with self.assertRaises(watch.WatchError):
+            e('157.0.1', '157.0', 'sometimes')
+        checks = [{'version': '157.0.1', 'issue': '3', 'targets': 'desktop,android',
+                   'label': 'release'},
+                  {'version': '157.0.1', 'issue': '', 'targets': 'android', 'label': 'manual'},
+                  {'version': '158.0', 'issue': '4', 'targets': 'desktop,android',
+                   'label': 'release'}]
+        self.assertEqual(watch.autobuild_jobs(checks, '157.0', 'dot'), checks[:1])
+        self.assertEqual(watch.autobuild_jobs(checks, '157.0', 'all'), [checks[0], checks[2]])
+
+    def test_dispatch_once(self):
+        self.verdict()
+        self.assertEqual(self.go(), 'dispatched')
+        base, files, message = self.gh.commits[0]
+        self.assertEqual(base, SHA)
+        self.assertEqual(files, {'version.android': '157.0.1\n', 'release.android': '1\n',
+                                 'version': '157.0.1\n', 'release': '1\n'})
+        self.assertIn('#1', message)
+        self.assertEqual(self.gh.branches, {'auto/firefox-157.0.1': f'{1:040x}'})
+        self.assertEqual(self.gh.dispatched, [('android-release.yaml', 'auto/firefox-157.0.1',
+                                               {'mode': 'full', 'update_check': 'true',
+                                                'build_date': '20261009123456'})])
+        comment = self.gh.posted[1][-1]
+        self.assertTrue(comment.startswith(watch.autobuild_marker('157.0.1') + '\n@owner: '))
+        self.assertIn('**unsigned**', comment)
+        self.assertIn('build_date=20261009123456', comment)
+        self.assertEqual(self.go(), 'already-dispatched')
+        self.assertEqual(len(self.gh.dispatched), 1)
+
+    def test_android_only_bumps_android_only(self):
+        self.verdict()
+        self.go(targets=('android',))
+        self.assertEqual(sorted(self.gh.commits[0][1]), ['release.android', 'version.android'])
+
+    def test_existing_branch_is_reused(self):
+        self.verdict()
+        self.gh.branches['auto/firefox-157.0.1'] = 'b' * 40
+        self.assertEqual(self.go(), 'dispatched')
+        self.assertEqual(self.gh.commits, [])
+        self.assertIn('`bbbbbbbbbbbb`', self.gh.posted[1][-1])
+
+    def test_needs_a_verdict_for_this_commit(self):
+        self.assertEqual(self.go(), 'no-result')
+        self.verdict(sha='f' * 40)
+        self.assertEqual(self.go(), 'no-result')
+        # A pre-LW-M7-47 comment has only the first marker.
+        self.gh.posted[1].append(watch.patchcheck_marker('157.0.1', SHA))
+        self.assertEqual(self.go(), 'no-result')
+        self.assertEqual(self.gh.dispatched, [])
+
+    def test_failing_patches_block_and_say_so_once(self):
+        self.verdict(android='fail')
+        self.assertEqual(self.go(), 'blocked')
+        self.assertIn('did not pass (android: fail)', self.gh.posted[1][-1])
+        self.assertIn('@owner: no candidate build', self.gh.posted[1][-1])
+        self.assertEqual(self.go(), 'already-blocked')
+        self.assertEqual(len(self.gh.posted[1]), 2)
+        self.assertEqual((self.gh.branches, self.gh.dispatched), ({}, []))
+
+    def test_box_b_busy_waits(self):
+        self.verdict()
+        for wf, status in (('android-release.yaml', 'in_progress'),
+                           ('android-test.yaml', 'queued')):
+            self.gh.runs = {(wf, status): [{'id': 7, 'html_url': 'x', 'head_branch':
+                                            'android/158-beta2', 'status': status}]}
+            self.assertEqual(self.go(), 'busy')
+        self.assertEqual((self.gh.branches, self.gh.dispatched), ({}, []))
+        self.gh.runs = {}
+        self.assertEqual(self.go(), 'dispatched')
+
+    def test_dry_run(self):
+        self.verdict()
+        self.assertEqual(self.go(dry_run=True), 'would-dispatch')
+        self.assertEqual((self.gh.branches, self.gh.dispatched, self.gh.commits), ({}, [], []))
+        self.assertEqual(len(self.gh.posted[1]), 1)
+
+
 class ManualPatchcheck(unittest.TestCase):
     def test_job(self):
         self.assertEqual(watch.manual_patchcheck_job(' 157.0 ', 'desktop,android', True),
@@ -875,7 +1505,13 @@ class Comment(unittest.TestCase):
     def test_body(self):
         body = watch.patchcheck_comment('158.0', SHA, self.results(), RUN, 'ab' * 32)
         self.assertTrue(body.startswith(watch.patchcheck_marker('158.0', SHA) + '\n'))
-        self.assertEqual(body.count('<!-- redoubt-patchcheck'), 1)
+        self.assertEqual(body.count('<!-- redoubt-patchcheck '), 1)
+        self.assertEqual(body.splitlines()[1],
+                         f'<!-- redoubt-patchcheck-result version=158.0 sha={SHA} '
+                         f'desktop=pass android=fail -->')
+        self.assertEqual(watch.patchcheck_results([body], '158.0', SHA),
+                         {'desktop': 'pass', 'android': 'fail'})
+        self.assertIsNone(watch.patchcheck_results([body], '158.0', 'f' * 40))
         self.assertIn('### Patch check against Firefox 158.0', body)
         self.assertIn('| desktop | pass | 68 | 0 | 27 (22 patches) | 144 |', body)
         self.assertIn('| android | **FAIL** | 68 | 20 | 32 (25 patches) | 165 |', body)

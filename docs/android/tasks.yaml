@@ -5665,3 +5665,61 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: With the default settings (cookies + cache on), every cold start after a swipe, an OOM kill in the background or a reboot now logs the user out of every site. That is what the setting says (owner decision "Every non-Quit exit"), but it is new behaviour for anyone who never used Quit, including the first start after the update. The guarantee is bounded at 20 s (fail open, retried after the next unclean exit).
+
+  - id: LW-M7-47
+    title: Tell the owner about every Firefox release and advisory; prebuild dots
+    milestone: M7
+    depends_on: []
+    owns:
+      - scripts/firefox-release-watch.py
+      - scripts/tests/test-firefox-release-watch.py
+      - scripts/tests/fixtures/firefox-release-watch/mfsa/
+      - .github/workflows/firefox-release-watch.yaml
+      - docs/android/RELEASE-WATCH.md
+    shared_edit:
+      - docs/android/REBASE.md
+      - docs/android/TRACK.md
+      - docs/android/SECURITY.md
+    reads:
+      - .github/workflows/android-release.yaml
+      - .github/workflows/android-test.yaml
+      - docs/android/DISTRIBUTION.md
+    what: |
+      Owner decision 2026-10-09, verbatim: "lets do 1,2,7"; item 1: never
+      miss a Mozilla security release again. Firefox 157.0.1 shipped
+      2026-10-06 and the watcher opened #3 the same day, but #3 had no
+      assignee and no mention, its title said "rebase", the owner does not
+      watch the repository (GET /repos/CPlusPlus17/Redoubt/subscription: 404),
+      and the daily cron ran hours late. Nobody acted for three days.
+      scripts/firefox-release-watch.py now runs hourly. It assigns every issue
+      it opens (and an open unassigned one) to RELEASE_WATCH_NOTIFY (default:
+      the repository owner) and @-mentions them. It reads the newest MFSA files
+      of mozilla/foundation-security-advisories (stdlib parser, matched against
+      PyYAML on all 272 files of 2024-2026). For an advisory fixed in a Firefox
+      newer than the latest GitHub release, it comments impact and CVEs on the
+      release issue. It also adds labels `security` and `priority: critical|high`,
+      a "[security: <impact>]" title and a pin for critical/high. With no open
+      release issue it opens an advisory issue instead. Open security issues get
+      a reminder every 24 h. The new `autobuild` job, for a dot release on the
+      current major (RELEASE_WATCH_AUTOBUILD dot|all|off) whose android patch
+      check passed at this commit, creates auto/firefox-<v> (version files
+      only, via the git data API). If box B has no queued or running build, it
+      dispatches android-release.yaml (mode=full, update_check=true,
+      build_date=now). Unsigned only; it never signs, publishes or merges.
+      Optional ntfy push via the secret RELEASE_WATCH_NTFY_URL, off unless set.
+      docs/android/RELEASE-WATCH.md.
+    acceptance:
+      - "every issue the watcher opens is created with the notify login as assignee and starts with an @-mention of it; an open unassigned watcher issue is assigned on the next run, a closed one is not"
+      - "an MFSA whose fixed_in names Firefox or Firefox for Android newer than the latest android-<v>-<n> release is commented once on the open release issue for that version (labels security, priority for critical/high, title prefix never lowered, pin for critical/high), else opens one advisory issue; ESR, iOS, Focus and Thunderbird advisories are ignored"
+      - "the release dedup still finds an issue renamed with a [security: ...] prefix"
+      - "an open security issue the shipped release is behind gets at most one reminder per 24 h, counting advisory comments"
+      - "autobuild dispatches android-release.yaml at most once per version, only with a patch-check result marker for the run's commit saying android=pass, never while android-release.yaml or android-test.yaml has a queued or running run, and comments once when android failed"
+      - "the workflow defaults to permissions {}; only the autobuild job has contents: write and actions: write"
+      - "with RELEASE_WATCH_NTFY_URL unset nothing is sent to ntfy; a failed push does not fail the run"
+      - "--dry-run writes nothing to GitHub in every mode; scripts/tests/test-firefox-release-watch.py passes offline; actionlint reports nothing for the workflow"
+    verify: "python3 scripts/tests/test-firefox-release-watch.py && python3 docs/android/board.py --check"
+    effort_h: "6-10"
+    skills: [python, ops, docs]
+    agent_safe: yes
+    isolation: worktree
+    risk: Hourly runs that misjudge a version would ping the owner every day for nothing or, with autobuild, hold box B for hours on a useless build; a dedup bug would open an issue per hour.
