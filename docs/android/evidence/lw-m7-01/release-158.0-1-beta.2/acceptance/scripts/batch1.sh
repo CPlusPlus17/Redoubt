@@ -1,0 +1,9 @@
+#!/bin/bash
+# Stage 1 (after check-launcher-start booted the API 34 AVD): about:config and the CSP probe.
+R=/home/mgysin/redoubt-artifacts/beta-158.0-1-b2; S=$R/repo/docs/android/evidence/lw-m7-01/release-158.0-1-beta.2/acceptance/scripts
+export SERIAL=$(/home/mgysin/redoubt-artifacts/android-sdk/platform-tools/adb devices | awk '/^emulator-/{print $1; exit}') RUNS=$R/runs
+[ -n "$SERIAL" ] || { echo "no emulator-* serial; stopping (never fall back to another device)"; exit 1; }   # added for Beta 2
+echo "serial=$SERIAL"
+$S/run-check.sh check-aboutconfig --check-aboutconfig
+python3 $S/aboutconfig-csp-probe.py $SERIAL $R/runs/aboutconfig-csp > $R/runs/aboutconfig-csp.console 2>&1; echo "$(date -u +%T) aboutconfig-csp-probe exit=$?"
+echo BATCH1 DONE
