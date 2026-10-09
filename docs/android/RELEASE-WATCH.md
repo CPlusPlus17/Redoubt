@@ -83,6 +83,46 @@ Every hour (`cron: '23 * * * *'`):
 The job summary of each run shows the outcome, the advisories the shipped
 release is behind, the reminders sent and what autobuild will do.
 
+## Outages: a warning first, red after 6 hours
+
+An hourly run that turned red on every failure would send up to 24 failure
+emails a day while product-details, archive.mozilla.org or the GitHub API is
+down. So the script tells two kinds of failure apart:
+
+- **Transient** (`TransientError`): no connection, a timeout, a body that is
+  not JSON, or HTTP 408, 429 or 5xx, from a feed, the archive, the advisory
+  files or the GitHub API. The run logs `warning: <source> failed
+  (transient, failing since <time>)`, adds an Actions warning annotation and
+  a `[!WARNING]` line to the job summary, and **exits 0**. A 5xx on the
+  tarball HEAD is still never read as "no tarball yet": the outcome is
+  `error`, not `no-tarball`.
+- **Everything else** is red at once: HTTP 401, 403, 404 or 422 (a token, a
+  permission or a path that needs a human), a malformed `version.android` or
+  feed entry (no `LATEST_FIREFOX_VERSION`), a refused input, a bug.
+
+Each source (the two feeds, "Firefox release", "Firefox for Android",
+"latest release", "security advisories", "reminders") keeps its own streak.
+`--state-file` (`$RELEASE_WATCH_STATE`) is a JSON file
+`{"failing_since": {"<source>": "<UTC time of its first failure>"}}`. A
+source that answers ends its streak. When a source that fails now has been
+failing for more than `OUTAGE_HOURS` (6 h), the run is red, and stays red
+every run until the source answers again. The workflow keeps the file in the
+Actions cache: `actions/cache/restore` takes the newest
+`release-watch-outages-*` entry, and `actions/cache/save` writes
+`release-watch-outages-<run id>` after every run, red ones included (cache
+entries cannot be overwritten). A lost or unreadable file only restarts the
+count; it can delay a red run, never cause one. Without `--state-file` (by
+hand), a transient failure is never red.
+
+The cache was chosen over the alternatives because it needs no write to an
+issue (no notification noise) and no extra API calls. Reading the previous
+runs' conclusions through the API does not work: those runs are green now.
+
+The `patchcheck` and `autobuild` steps also treat a transient failure as a
+warning and exit 0. They write nothing before their last step, so the next
+hourly run simply retries. A long outage of the same service turns the
+`watch` job red, because it reads the same archive and API.
+
 ## Notification: what the owner must check
 
 GitHub's own notification path needs no new secret. These settings decide
@@ -174,8 +214,9 @@ The job runs `scripts/firefox-release-watch.py autobuild` after the patch
 check job:
 
 1. **Once per version.** If the issue already has an
-   `<!-- redoubt-autobuild version=<v> -->` comment, the job stops. To build
-   again, dispatch `android-release.yaml` by hand.
+   `<!-- redoubt-autobuild version=<v> -->` comment, or the no-build-date
+   comment of step 5, the job stops. To build again, dispatch
+   `android-release.yaml` by hand.
 2. **Only on a passing patch check of this commit.** Since LW-M7-47 the
    patch check comment has a second marker,
    `<!-- redoubt-patchcheck-result version=<v> sha=<commit> desktop=pass android=pass -->`.
@@ -196,11 +237,68 @@ check job:
    `github-actions[bot]`. Nothing else changes, and the branch is not for
    merging as it is: the bump lands on main as a signed commit from the
    owner. If the branch already exists, the job builds it as it stands.
-5. **Dispatch** `android-release.yaml` on the branch with `mode=full`,
-   `update_check=true` and `build_date=<now, UTC>`. A push or ref created
+5. **Build date** (next section). If no hour fits, the job does not create
+   the branch or dispatch. It comments once
+   (`<!-- redoubt-autobuild-nodate version=<v> -->`), says why, mentions the
+   owner and states that **the owner must pick the build date** and dispatch
+   by hand. The watcher then never builds that version itself, so a hand
+   dispatch cannot race it.
+6. **Dispatch** `android-release.yaml` on the branch with `mode=full`,
+   `update_check=true` and `build_date=<step 5>`. A push or ref created
    with `GITHUB_TOKEN` starts no workflow by itself; GitHub exempts
    `workflow_dispatch`, which is why the dispatch is explicit.
-6. **Comment**: the branch, the build date, the runs page and the next steps.
+7. **Comment**: the branch, the build date and why it was chosen, its
+   versionCodes, the runs page and the next steps.
+
+### Build date and versionCode
+
+Fenix's versionCode is `0x78200000 | (hours since 2014-12-28 00:00 UTC) << 3`
+plus three ABI bits (`scripts/android-aab.py version_code`: armeabi-v7a +0,
+arm64-v8a +2, x86_64 +6, universal +7). It follows the **hour** of
+`MOZ_BUILD_DATE` and grows by 8 per hour. Android, Obtainium and the update
+check all treat a higher versionCode as newer. Before this fix the job used
+`build_date=now`. A 157.0.x candidate built on 2026-10-09 would then have got
+a higher versionCode than 158.0-1 Beta 1 (built 20261007050000). Beta
+testers, whose profiles are already 158, could have been offered it, or moved
+down to it by Obtainium: an older Firefox under a newer profile.
+
+The precedent is 157.0.1-1
+(`evidence/lw-m7-01/release-157.0.1/README.md`, "Build date and
+versionCodes"). Its build date, 20261006180000 (codes 2016188816-823), was
+picked by hand between 157.0-3 (20261006090000, 2016188744-751) and Beta 1
+(20261007050000, 2016188904-911). The job now applies the same rule itself
+(`choose_build_date`):
+
+- **Lower bound**: the build hour of the release GitHub marks *Latest*. With
+  no Latest release there is no lower bound.
+- **Upper bound**: the earliest build hour among the published (non-draft)
+  releases, prerelease or not, of a Firefox **major** newer than the
+  candidate's. For 157.0.x that is the oldest 158 beta, because a tester may
+  still run Beta 1. A superseded beta of the same major, and any draft, is no
+  bound.
+- The hour must be strictly between the bounds, not after the run's own
+  hour (no build date in the future), and not one any release (or a rejected
+  build, `REJECTED_BUILD_DATES`: 20261004200000) already used.
+- **No upper bound**: the run's own hour, as before but at the full hour, so
+  the versionCodes in the comment are exact.
+- **Otherwise**: the middle hour of the free window, rounded down (the
+  nearest unused hour if that one is taken). The middle leaves room for
+  another dot release on either side. On 2026-10-09 this gives
+  20261006190000 (codes 2016188824-831) for 157.0.1, one hour from the hand
+  pick. A later 157.0.2, with 157.0.1-1 as Latest, would get 20261006230000.
+- **No hour fits**, or a bound release's build date cannot be read: no
+  build (step 5).
+
+**Where the build hours come from: the release notes.** The asset names
+(`fenix-<abi>-release.apk`) carry no versionCode. Reading the APKs would mean
+downloading about 400 MB per release. Every release since 157.0-2 states its
+build date in the Provenance section ("CI run N, with MOZ_BUILD_DATE
+YYYYMMDDHHMMSS"), and some add "versionCodes N-M". The job reads
+`MOZ_BUILD_DATE <14 digits>` and, failing that, the first code of
+`versionCodes N`. If both are present they must give the same hour.
+Otherwise, or if neither is present, the date is unreadable; that only blocks
+a build when the release is one of the two bounds. **So every release's notes
+must keep the "MOZ_BUILD_DATE YYYYMMDDHHMMSS" line**, betas included.
 
 **It never signs, publishes or merges.** `android-release.yaml` builds and
 gates *unsigned* APKs and uploads them with `output-metadata.json` and
@@ -231,7 +329,11 @@ GITHUB_TOKEN=$(gh auth token) python3 scripts/firefox-release-watch.py --dry-run
     --repo CPlusPlus17/Redoubt --notify CPlusPlus17
 # Advisories from local files instead of GitHub; pretend a different release is shipped.
 python3 scripts/firefox-release-watch.py --dry-run --advisories-dir DIR --shipped-tag android-157.0-3
-# What autobuild would do for an issue (reads the issue; needs a token).
+# Outage tracking by hand: a transient failure is red only with a state file
+# whose streak for that source is older than 6 h.
+python3 scripts/firefox-release-watch.py --dry-run --state-file /tmp/outages.json
+# What autobuild would do for an issue (reads the issue and the releases, and
+# prints the build date it would choose and why; needs a token).
 GITHUB_TOKEN=... python3 scripts/firefox-release-watch.py autobuild --dry-run \
     --repo CPlusPlus17/Redoubt --version 157.0.1 --issue 3 --base-sha "$(git rev-parse origin/main)"
 # Offline tests: fixtures only, fake GitHub/archive/ntfy servers on 127.0.0.1.
@@ -269,13 +371,44 @@ The workflow passes `actionlint` 1.7.12 (without shellcheck).
 
 ## On merge
 
-The first hourly run on main after the merge acts on the state at that
-moment. If Firefox 157.0.1 is still `LATEST_FIREFOX_VERSION`:
+origin/main is now at ff6e15f7, the 157.0.1-1 rebase: `version` and
+`version.android` are `157.0.1`. The Latest GitHub release is still
+`android-157.0-3`. While Firefox 157.0.1 is `LATEST_FIREFOX_VERSION`, the
+first hourly run on main after the merge does this:
 
-- #3 is assigned to the owner.
-- #3 gets the MFSA 2026-104 comment, the `security` label and the title
-  `[security: moderate] ...`.
-- The patch check runs again for the new commit, with the result marker.
-- Unless the policy is `off`, the next step is a candidate build of 157.0.1
-  on box B, as soon as box B is idle. Set `RELEASE_WATCH_AUTOBUILD=off`
-  before merging if box B is needed for 158.0-1 at that time.
+- The release check says `current`: neither track is behind 157.0.1. So
+  there is no patch check and **no candidate build**.
+- The advisory check finds MFSA 2026-104 (fixed in 157.0.1), and the shipped
+  `android-157.0-3` is behind it. #3 is the open issue for 157.0.1. It gets
+  the advisory comment, the `security` label and the title
+  `[security: moderate] Firefox 157.0.1 released: ...`, and it is
+  **assigned** to the owner.
+- From then on, #3 gets a **reminder** that mentions the owner every
+  24 hours.
+
+This continues until `android-157.0.1-1` is published and marked Latest.
+Then the shipped release is no longer behind 157.0.1, so the reminders stop.
+The owner closes #3. Firefox 158.0 (due 2026-10-13) gets its own issue and
+patch check, but no candidate build under the default `dot` policy.
+
+## Recommended: a ruleset on main (owner action)
+
+The `autobuild` job runs with `contents: write`. It only creates
+`auto/firefox-<v>` branches through the git data API, but the token it holds
+could also move `main`, as could any other workflow token with
+`contents: write`. The owner should add a
+**branch ruleset** that lets only the owner update `main`. This task does
+not create it:
+
+- Settings → Rules → Rulesets → New ruleset → New branch ruleset.
+- Name `main: owner only`, Enforcement **Active**.
+- Bypass list: **Repository admin** (the owner), "Always allow". Do not add
+  GitHub Actions or any app.
+- Target branches: **Include default branch**.
+- Rules: **Restrict updates**, **Restrict deletions**, **Block force
+  pushes**. Add **Require signed commits** too: main is already signed-only
+  by convention.
+
+The `auto/*` branches stay outside the ruleset, so the job keeps working. A
+`github-actions[bot]` push to main is then refused. The owner's signed local
+merges and pushes go through the bypass.

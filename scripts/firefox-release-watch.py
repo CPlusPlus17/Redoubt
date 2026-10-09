@@ -65,8 +65,15 @@ those events to an ntfy topic. `--notify-test` only opens and closes one test
 issue to check the notification path.
 
 Standard library only. Exit 0 when it did its job (including "nothing to
-do" and "tarball not there yet"); exit 1 on a network or API failure, so the
-workflow run turns red instead of silently missing a release.
+do" and "tarball not there yet"). A transient failure (TransientError: no
+connection, a timeout, HTTP 408/429/5xx from a feed, archive.mozilla.org or
+the GitHub API) is a warning and a job-summary line, and the run stays green,
+until the same source has failed for more than OUTAGE_HOURS in a row
+(--state-file keeps the first failure's time between runs; the workflow keeps
+that file in the Actions cache). Then, and on every other failure (a 401/403/
+404, a malformed version file or feed entry, a bug), exit 1: the run turns red
+instead of silently missing a release, without an e-mail an hour for every
+short outage.
 """
 
 import argparse
@@ -118,12 +125,36 @@ TEST_LABEL = 'release-watch-test'
 IMPACT_ORDER = {'none': 0, 'low': 1, 'moderate': 2, 'medium': 2, 'high': 3, 'critical': 4}
 # A reminder comment on an open security issue at most this often.
 REMIND_AFTER_HOURS = 24
+# A source (a feed, the archive, the GitHub API calls of one step) may fail
+# transiently this long, in a row, before the hourly run turns red.
+OUTAGE_HOURS = 6
 
 _VERSION = re.compile(r'^(\d+)\.(\d+)(?:\.(\d+))?(esr)?$')
 
 
 class WatchError(Exception):
     """A failure that must turn the workflow run red."""
+
+
+class TransientError(WatchError):
+    """A network failure, or an HTTP status that says "try again later"
+    (408, 429, 5xx), from a feed, archive.mozilla.org or the GitHub API. The
+    hourly run logs it as a warning and stays green until the same source has
+    failed for longer than OUTAGE_HOURS (see "Transient failures" in main())."""
+
+
+# HTTP statuses that mean the other side is down or busy, not that the
+# request (or this script) is wrong. 401/403/404/422 stay fatal: those need a
+# human (a token, a permission, a renamed path).
+TRANSIENT_STATUSES = frozenset({0, 408, 429, 500, 502, 503, 504})
+
+
+def http_error(message, status):
+    """WatchError for `status`, TransientError when the status is one a later
+    run may not see."""
+    if status in TRANSIENT_STATUSES or (isinstance(status, int) and status >= 500):
+        return TransientError(message)
+    return WatchError(message)
 
 
 def parse_version(text):
@@ -340,8 +371,11 @@ def fetch_json(url):
     try:
         with urllib.request.urlopen(_request(url), timeout=TIMEOUT) as r:
             return json.load(r)
+    except urllib.error.HTTPError as e:
+        raise http_error(f'cannot read {url}: HTTP {e.code}', e.code) from e
     except (urllib.error.URLError, OSError, ValueError) as e:
-        raise WatchError(f'cannot read {url}: {e}') from e
+        # A dead connection, a timeout, or an HTML error page instead of JSON.
+        raise TransientError(f'cannot read {url}: {e}') from e
 
 
 def url_exists(url):
@@ -353,9 +387,9 @@ def url_exists(url):
     except urllib.error.HTTPError as e:
         if e.code == 404:
             return False
-        raise WatchError(f'HEAD {url}: HTTP {e.code}') from e
+        raise http_error(f'HEAD {url}: HTTP {e.code}', e.code) from e
     except (urllib.error.URLError, OSError) as e:
-        raise WatchError(f'HEAD {url}: {e}') from e
+        raise TransientError(f'HEAD {url}: {e}') from e
 
 
 class GitHub:
@@ -373,7 +407,7 @@ class GitHub:
         except urllib.error.HTTPError as e:
             return e.code, None, e.headers
         except (urllib.error.URLError, OSError, ValueError) as e:
-            raise WatchError(f'{method} {url}: {e}') from e
+            raise TransientError(f'{method} {url}: {e}') from e
 
     def _call(self, method, path, data=None):
         return self._api(method, f'/repos/{self.repo}{path}', data)
@@ -384,7 +418,7 @@ class GitHub:
             q = urllib.parse.urlencode({**params, 'per_page': 100, 'page': page})
             status, items, _ = self._call('GET', f'{path}?{q}')
             if status != 200 or not isinstance(items, list):
-                raise WatchError(f'{what}: HTTP {status}')
+                raise http_error(f'{what}: HTTP {status}', status)
             out += items
             if len(items) < 100:
                 return out
@@ -423,7 +457,7 @@ class GitHub:
         status, comment, _ = self._call('POST', f'/issues/{number}/comments',
                                         {'body': body})
         if status != 201 or not comment:
-            raise WatchError(f'commenting on #{number}: HTTP {status}')
+            raise http_error(f'commenting on #{number}: HTTP {status}', status)
         return comment.get('html_url', '')
 
     def ensure_label(self, label, color=LABEL_COLOR, description=LABEL_DESCRIPTION):
@@ -441,25 +475,25 @@ class GitHub:
             data['assignees'] = list(assignees)
         status, issue, _ = self._call('POST', '/issues', data)
         if status != 201 or not issue:
-            raise WatchError(f'creating issue {title!r}: HTTP {status}')
+            raise http_error(f'creating issue {title!r}: HTTP {status}', status)
         return issue.get('html_url', ''), issue.get('number')
 
     def add_assignees(self, number, logins):
         status, _, _ = self._call('POST', f'/issues/{number}/assignees',
                                   {'assignees': list(logins)})
         if status not in (200, 201):
-            raise WatchError(f'assigning #{number}: HTTP {status}')
+            raise http_error(f'assigning #{number}: HTTP {status}', status)
 
     def add_labels(self, number, labels):
         status, _, _ = self._call('POST', f'/issues/{number}/labels',
                                   {'labels': list(labels)})
         if status != 200:
-            raise WatchError(f'labelling #{number}: HTTP {status}')
+            raise http_error(f'labelling #{number}: HTTP {status}', status)
 
     def edit_issue(self, number, **fields):
         status, _, _ = self._call('PATCH', f'/issues/{number}', fields)
         if status != 200:
-            raise WatchError(f'editing #{number}: HTTP {status}')
+            raise http_error(f'editing #{number}: HTTP {status}', status)
 
     def pin_issue(self, node_id):
         """Pin an issue to the repository's Issues page (GraphQL; at most three
@@ -480,8 +514,17 @@ class GitHub:
         if status == 404:
             return ''
         if status != 200 or not rel:
-            raise WatchError(f'reading the latest release: HTTP {status}')
+            raise http_error(f'reading the latest release: HTTP {status}', status)
         return rel.get('tag_name', '')
+
+    def releases(self):
+        """Every release of the repository, newest first, as dicts with
+        'tag', 'name', 'draft', 'prerelease' and 'body'."""
+        items = self._pages('/releases', {}, 'listing releases')
+        return [{'tag': r.get('tag_name', ''), 'name': r.get('name') or '',
+                 'draft': bool(r.get('draft')), 'prerelease': bool(r.get('prerelease')),
+                 'body': r.get('body') or ''}
+                for r in items]
 
     def list_dir(self, repo, path):
         """[{'name', 'download_url'}] of a directory of another (public)
@@ -490,7 +533,7 @@ class GitHub:
         if status == 404:
             return []
         if status != 200 or not isinstance(items, list):
-            raise WatchError(f'listing {repo}/{path}: HTTP {status}')
+            raise http_error(f'listing {repo}/{path}: HTTP {status}', status)
         return [{'name': i.get('name', ''), 'download_url': i.get('download_url', '')}
                 for i in items if i.get('type') == 'file']
 
@@ -502,7 +545,7 @@ class GitHub:
         q = urllib.parse.urlencode({'status': status, 'per_page': 50})
         code, data, _ = self._call('GET', f'/actions/workflows/{workflow}/runs?{q}')
         if code != 200 or not isinstance(data, dict):
-            raise WatchError(f'listing {workflow} runs ({status}): HTTP {code}')
+            raise http_error(f'listing {workflow} runs ({status}): HTTP {code}', code)
         return [{'id': r.get('id'), 'html_url': r.get('html_url', ''),
                  'head_branch': r.get('head_branch', ''), 'status': r.get('status', '')}
                 for r in data.get('workflow_runs') or []]
@@ -511,7 +554,7 @@ class GitHub:
         code, _, _ = self._call('POST', f'/actions/workflows/{workflow}/dispatches',
                                 {'ref': ref, 'inputs': inputs})
         if code != 204:
-            raise WatchError(f'dispatching {workflow} on {ref}: HTTP {code}')
+            raise http_error(f'dispatching {workflow} on {ref}: HTTP {code}', code)
 
     def branch_sha(self, branch):
         """The commit `branch` points at, or '' when it does not exist."""
@@ -519,7 +562,7 @@ class GitHub:
         if code == 404:
             return ''
         if code != 200 or not data:
-            raise WatchError(f'reading branch {branch}: HTTP {code}')
+            raise http_error(f'reading branch {branch}: HTTP {code}', code)
         return data['object']['sha']
 
     def commit_files(self, base_sha, files, message):
@@ -528,24 +571,24 @@ class GitHub:
         yet: create_branch points one at it."""
         code, commit, _ = self._call('GET', f'/git/commits/{base_sha}')
         if code != 200 or not commit:
-            raise WatchError(f'reading commit {base_sha}: HTTP {code}')
+            raise http_error(f'reading commit {base_sha}: HTTP {code}', code)
         code, tree, _ = self._call('POST', '/git/trees', {
             'base_tree': commit['tree']['sha'],
             'tree': [{'path': p, 'mode': '100644', 'type': 'blob', 'content': t}
                      for p, t in sorted(files.items())]})
         if code != 201 or not tree:
-            raise WatchError(f'creating a tree: HTTP {code}')
+            raise http_error(f'creating a tree: HTTP {code}', code)
         code, new, _ = self._call('POST', '/git/commits', {
             'message': message, 'tree': tree['sha'], 'parents': [base_sha]})
         if code != 201 or not new:
-            raise WatchError(f'creating a commit: HTTP {code}')
+            raise http_error(f'creating a commit: HTTP {code}', code)
         return new['sha']
 
     def create_branch(self, branch, sha):
         code, _, _ = self._call('POST', '/git/refs',
                                 {'ref': f'refs/heads/{branch}', 'sha': sha})
         if code != 201:
-            raise WatchError(f'creating branch {branch}: HTTP {code}')
+            raise http_error(f'creating branch {branch}: HTTP {code}', code)
 
 
 def ntfy_send(url, title, message, click='', priority='default', token='', log=print):
@@ -1077,8 +1120,10 @@ def download(url, dest, log=print):
                     break
                 h.update(chunk)
                 f.write(chunk)
+    except urllib.error.HTTPError as e:
+        raise http_error(f'downloading {url}: HTTP {e.code}', e.code) from e
     except (urllib.error.URLError, OSError) as e:
-        raise WatchError(f'downloading {url}: {e}') from e
+        raise TransientError(f'downloading {url}: {e}') from e
     log(f'downloaded {url} ({Path(dest).stat().st_size} bytes)')
     return h.hexdigest()
 
@@ -1479,8 +1524,10 @@ def _fetch_text(url):
     try:
         with urllib.request.urlopen(_request(url), timeout=TIMEOUT) as r:
             return r.read().decode()
+    except urllib.error.HTTPError as e:
+        raise http_error(f'cannot read {url}: HTTP {e.code}', e.code) from e
     except (urllib.error.URLError, OSError, UnicodeDecodeError) as e:
-        raise WatchError(f'cannot read {url}: {e}') from e
+        raise TransientError(f'cannot read {url}: {e}') from e
 
 
 def load_advisories_dir(path):
@@ -1694,10 +1741,17 @@ def notify_test(github, notify, now, dry_run=False, log=print):
 # 4. Branch auto/firefox-<v> (created at --base-sha plus one commit setting
 #    version.android/release.android, and version/release when desktop is in
 #    the targets, to <v> / 1; reused if it already exists).
-# 5. Dispatch android-release.yaml on that branch: mode=full,
-#    update_check=true, build_date=now (UTC). The workflow builds and gates
+# 5. Choose build_date (section "Build date and versionCode" below): an
+#    hour strictly between the Latest release's build hour and the oldest
+#    published release of a newer Firefox major (a beta), read from the
+#    releases' notes. If no hour fits, or a bound cannot be read, comment
+#    once why, mention the owner (who picks the date and dispatches by hand),
+#    and stop; that version is then never built by the watcher.
+# 6. Dispatch android-release.yaml on that branch: mode=full,
+#    update_check=true, build_date=<5>. The workflow builds and gates
 #    UNSIGNED APKs only; nothing here signs, publishes or merges.
-# 6. Comment: branch, build date, the runs page, what the owner does next.
+# 7. Comment: branch, build date and why, the versionCodes, the runs page,
+#    what the owner does next.
 #
 # Permissions: this job alone gets contents: write (the branch, through the
 # git data API) and actions: write (the dispatch). A push or ref made with
@@ -1711,12 +1765,194 @@ BOXB_WORKFLOWS = ('android-release.yaml', 'android-test.yaml')
 BUSY_STATUSES = ('queued', 'in_progress', 'waiting', 'requested', 'pending')
 
 
+# --------------------------------------------------------------------------
+# Build date and versionCode. Fenix's versionCode is
+#
+#   0x78200000 | (hours since 2014-12-28 00:00 UTC) << 3 | ABI bits
+#
+# (scripts/android-aab.py version_code; ABI bits: armeabi-v7a 0, arm64-v8a 2,
+# x86_64 6, universal 7), so it is fixed by the build HOUR of MOZ_BUILD_DATE
+# and grows by 8 per hour. Android installs, Obtainium and the update check
+# all take a higher versionCode as newer. A dot-release candidate built
+# "now" while a beta of the next major is out (158.0-1 Beta 1, built
+# 20261007050000) would get a higher code than that beta, and beta testers,
+# whose profiles are already 158, could be offered it: a downgrade of Firefox
+# under their profile. The precedent is 157.0.1-1
+# (docs/android/evidence/lw-m7-01/release-157.0.1/README.md, "Build date and
+# versionCodes"): 20261006180000, between 157.0-3 (20261006090000) and 158.0-1
+# Beta 1 (20261007050000).
+#
+# The rule (choose_build_date):
+#
+#   lower  the build hour of the release GitHub marks Latest (the stable
+#          users run). No Latest release at all: no lower bound.
+#   upper  the earliest build hour among the published (non-draft)
+#          releases, prerelease or not, of a Firefox major newer than the
+#          candidate's (158.0-1 Beta 1 for a 157.0.x candidate). None: no
+#          upper bound.
+#   The candidate's hour must be > lower, < upper, not after this run's hour
+#   (no build date in the future), and not one any readable release (or
+#   REJECTED_BUILD_DATES) already used.
+#   - No upper bound: this run's hour (as build_date=now always did, minus
+#     the minutes, so the stated versionCodes are exact).
+#   - Otherwise: the middle hour of the open window (rounded down), so a
+#     later dot release still finds room on both sides; the nearest unused
+#     hour if that one is taken.
+#   - Window empty, or a bound release whose build date cannot be read: no
+#     dispatch; the issue says why and the owner picks the date.
+#
+# Where a release's build hour comes from: its notes. Every release since
+# 157.0-2 states it in the Provenance section, "with MOZ_BUILD_DATE
+# YYYYMMDDHHMMSS"; some also state "versionCodes N-M". The asset names
+# (fenix-<abi>-release.apk) carry no code, and reading the APKs would mean
+# downloading ~400 MB per release, so the notes are the source. When both are
+# stated they must agree (the hour recomputed from the lowest code); if they
+# do not, or neither is there, the date is unreadable and only matters if
+# that release is one of the two bounds.
+# --------------------------------------------------------------------------
+
+FENIX_EPOCH = datetime.datetime(2014, 12, 28, tzinfo=datetime.timezone.utc)
+VERSION_CODE_BASE = 0x78200000
+ABI_BITS = {'armeabi-v7a': 0, 'arm64-v8a': 2, 'x86_64': 6, 'universal': 7}
+# Build dates of builds that were rejected and must never be reused
+# (memory and DISTRIBUTION.md: run 37234607054, 2026-10-04).
+REJECTED_BUILD_DATES = ('20261004200000',)
+_BUILD_DATE = re.compile(r'MOZ_BUILD_DATE[`*\s=:]*(\d{14})\b')
+_VERSION_CODES = re.compile(r'versionCodes?[`*\s:]*(\d{10})\b')
+_ANY_RELEASE_TAG = re.compile(
+    r'^android-(\d+\.\d+(?:\.\d+)?(?:esr)?)-(\d+)(?:-beta\.(\d+))?$')
+
+
+def build_hour(build_date):
+    """'20261006090000' -> hours since Fenix's epoch (minutes ignored, as
+    Fenix does)."""
+    t = datetime.datetime.strptime(build_date, '%Y%m%d%H%M%S').replace(
+        tzinfo=datetime.timezone.utc)
+    return int((t - FENIX_EPOCH).total_seconds() // 3600)
+
+
+def hour_date(hour):
+    """Inverse of build_hour: the build date at the start of that hour."""
+    return (FENIX_EPOCH + datetime.timedelta(hours=hour)).strftime('%Y%m%d%H%M%S')
+
+
+def version_codes(hour):
+    """{abi: versionCode} for a build hour."""
+    return {abi: VERSION_CODE_BASE | (hour << 3) | bits for abi, bits in ABI_BITS.items()}
+
+
+def code_hour(code):
+    """The build hour a versionCode was made from."""
+    return (code - VERSION_CODE_BASE) >> 3
+
+
+def release_build_hour(body):
+    """The build hour stated in a release's notes, or None. MOZ_BUILD_DATE
+    first; a "versionCodes N" range alone also works; both stated and
+    disagreeing is None (unreadable), not a guess."""
+    dates = {build_hour(m.group(1)) for m in _BUILD_DATE.finditer(body or '')
+             if _valid_date(m.group(1))}
+    codes = {code_hour(int(m.group(1))) for m in _VERSION_CODES.finditer(body or '')
+             if int(m.group(1)) >= VERSION_CODE_BASE}
+    if len(dates) > 1 or len(codes) > 1:
+        return None
+    if dates and codes and dates != codes:
+        return None
+    return next(iter(dates or codes), None)
+
+
+def _valid_date(text):
+    try:
+        datetime.datetime.strptime(text, '%Y%m%d%H%M%S')
+        return True
+    except ValueError:
+        return False
+
+
+def release_tag_version(tag):
+    """'android-158.0-1-beta.1' -> '158.0'; None for any other tag."""
+    m = _ANY_RELEASE_TAG.match(tag or '')
+    return m.group(1) if m else None
+
+
+def _codes_text(hour):
+    c = version_codes(hour)
+    return f'{c["armeabi-v7a"]}-{c["universal"]}'
+
+
+def choose_build_date(version, releases, latest_tag, now):
+    """(build_date or None, explanation). `releases` as GitHub.releases()
+    returns them, `latest_tag` the tag GitHub marks Latest ('' for none),
+    `now` this run's time. Pure. The rule is in the section comment above."""
+    major = parse_version(version)[0]
+    now_hour = int((now - FENIX_EPOCH).total_seconds() // 3600)
+    published = [r for r in releases if not r.get('draft')]
+    used = {build_hour(d) for d in REJECTED_BUILD_DATES}
+    for r in published:
+        h = release_build_hour(r.get('body', ''))
+        if h is not None:
+            used.add(h)
+
+    lower = lower_desc = None
+    if latest_tag:
+        rel = next((r for r in published if r['tag'] == latest_tag), None)
+        lower = release_build_hour(rel['body']) if rel else None
+        if lower is None:
+            return None, (f'the build date of the Latest release `{latest_tag}` cannot be '
+                          f'read from its notes (no "MOZ_BUILD_DATE YYYYMMDDHHMMSS" in its '
+                          f'Provenance section), so the lower bound of the versionCode is '
+                          f'unknown')
+        lower_desc = (f'`{latest_tag}` (Latest), built {hour_date(lower)}, versionCodes '
+                      f'{_codes_text(lower)}')
+
+    upper = upper_desc = None
+    for r in published:
+        v = release_tag_version(r['tag'])
+        if not v or parse_version(v)[0] <= major:
+            continue
+        h = release_build_hour(r['body'])
+        if h is None:
+            return None, (f'`{r["tag"]}` is a published release of Firefox {v}, a newer '
+                          f'major than {version}, and its build date cannot be read from '
+                          f'its notes, so the upper bound of the versionCode is unknown')
+        if upper is None or h < upper:
+            upper = h
+            upper_desc = (f'`{r["tag"]}` ({"prerelease" if r.get("prerelease") else "release"}'
+                          f' of Firefox {v}), built {hour_date(h)}, versionCodes '
+                          f'{_codes_text(h)}')
+
+    lo = lower if lower is not None else -1
+    bounds = (f'above {lower_desc}' if lower_desc else 'no Latest release, so no lower bound')
+    bounds += (f'; below {upper_desc}' if upper_desc
+               else f'; no published release of a Firefox major newer than {major}')
+    if upper is None:
+        if now_hour > lo and now_hour not in used:
+            return hour_date(now_hour), (f'this run\'s hour, {bounds}')
+        return None, (f'this run\'s hour {hour_date(now_hour)} is not above the lower bound '
+                      f'or is already used ({bounds})')
+    hi = min(upper, now_hour + 1)  # exclusive; never a build date in the future
+    if lower is None:
+        lo = max(lo, hi - 24 * 366)  # no Latest release: look back a year at most
+    free = [h for h in range(lo + 1, hi) if h not in used]
+    if not free:
+        return None, (f'no unused hour lies strictly between the bounds and not after '
+                      f'this run ({bounds})')
+    mid = lo + (hi - lo) // 2 if lower is not None else hi - 1
+    pick = min(free, key=lambda h: (abs(h - mid), h))
+    return hour_date(pick), (f'the middle of the free window, {bounds}; it leaves room '
+                             f'for another dot release on either side')
+
+
 def autobuild_branch(version):
     return f'auto/firefox-{version}'
 
 
 def autobuild_marker(version):
     return f'<!-- redoubt-autobuild version={version} -->'
+
+
+def autobuild_nodate_marker(version):
+    return f'<!-- redoubt-autobuild-nodate version={version} -->'
 
 
 def autobuild_blocked_marker(version, sha):
@@ -1763,7 +1999,7 @@ def autobuild_commit_message(version, base_sha, issue):
 
 
 def autobuild_comment(version, branch, commit_sha, build_date, runs_url, repo, notify,
-                      targets):
+                      targets, why=''):
     return (autobuild_marker(version) + '\n'
             + mention_line(notify, f'a candidate build of Firefox {version} is running.')
             + f'### Candidate build dispatched\n\n'
@@ -1773,6 +2009,9 @@ def autobuild_comment(version, branch, commit_sha, build_date, runs_url, repo, n
             + '; nothing else changed.\n'
             f'- Workflow: `{BUILD_WORKFLOW}`, `mode=full`, `update_check=true`, '
             f'`build_date={build_date}` (box B). Runs: {runs_url}\n'
+            f'- Build date `{build_date}`: {why or "chosen by the watcher"}. versionCodes '
+            f'{_codes_text(build_hour(build_date))} (armeabi-v7a to universal; '
+            f'scripts/android-aab.py versioncode).\n'
             f'- The artifact is **unsigned** (`redoubt-android-unsigned`: the four APKs, '
             f'output-metadata.json, SHA256SUMS). Nothing was signed, published or merged.\n\n'
             f'Next, by hand: download the artifact, run the acceptance on the emulator '
@@ -1783,6 +2022,28 @@ def autobuild_comment(version, branch, commit_sha, build_date, runs_url, repo, n
             f'<sub>Posted by `scripts/firefox-release-watch.py autobuild`. Once per '
             f'version: to build again, dispatch `{BUILD_WORKFLOW}` on the branch by '
             f'hand.</sub>\n')
+
+
+def autobuild_nodate_comment(version, why, notify):
+    return (autobuild_nodate_marker(version) + '\n'
+            + mention_line(notify, f'no candidate build of Firefox {version}: no safe '
+                                   f'build date.')
+            + f'The patch check passed, but the watcher found no build date it may use: '
+            f'{why}.\n\n'
+            f'The versionCode comes from the build hour (+8 per hour), so the build must '
+            f'sit above the Latest release and below every published build of a newer '
+            f'Firefox major (a beta), or beta testers could be offered an older Firefox '
+            f'under their newer profile. **The owner must pick the build date** and '
+            f'dispatch by hand (precedent: docs/android/evidence/lw-m7-01/release-157.0.1/'
+            f'README.md, "Build date and versionCodes"):\n\n'
+            f'```\ngh workflow run {BUILD_WORKFLOW} --ref {autobuild_branch(version)} '
+            f'-f mode=full -f update_check=true -f build_date=YYYYMMDDHH0000\n```\n\n'
+            f'The watcher did not create `{autobuild_branch(version)}`: make it from '
+            f'main with `version.android` = `{version}` and `release.android` = `1` '
+            f'first. `scripts/android-aab.py versioncode YYYYMMDDHH0000 universal` prints '
+            f'the code a date gives. The watcher will not build this version by '
+            f'itself any more (once per version, like the build), so a hand dispatch '
+            f'never races it.\n')
 
 
 def autobuild_blocked_comment(version, sha, results, notify):
@@ -1808,13 +2069,17 @@ def boxb_busy(github, workflows=BOXB_WORKFLOWS):
 def autobuild(version, issue, targets, base_sha, github, repo, now, *, dry_run=False,
               notify=None, log=print, events=None):
     """Returns 'already-dispatched', 'no-result', 'blocked',
-    'already-blocked', 'busy', 'would-dispatch' or 'dispatched'."""
+    'already-blocked', 'busy', 'no-build-date', 'would-dispatch' or
+    'dispatched'."""
     events = [] if events is None else events
     parse_version(version)
     comments = github.comments(issue)
     if any(autobuild_marker(version) in c for c in comments):
         log(f'#{issue} already has the candidate build of {version}')
         return 'already-dispatched'
+    if any(autobuild_nodate_marker(version) in c for c in comments):
+        log(f'#{issue} says no build date fits {version}; the owner picks it')
+        return 'no-build-date'
     results = patchcheck_results(comments, version, base_sha)
     if results is None:
         log(f'#{issue} has no patch-check verdict for {version} at {base_sha[:12]}; '
@@ -1838,8 +2103,22 @@ def autobuild(version, issue, targets, base_sha, github, repo, now, *, dry_run=F
         log(f'box B is busy ({busy["workflow"]} run {busy["id"]}, {busy["status"]} on '
             f'{busy["head_branch"]}): not dispatching; the next run retries')
         return 'busy'
+    latest_tag = github.latest_release()
+    build_date, why = choose_build_date(version, github.releases(), latest_tag, now)
+    if build_date is None:
+        log(f'no build date for {version}: {why}')
+        body = autobuild_nodate_comment(version, why, notify)
+        if dry_run:
+            log(f'dry run: would comment on #{issue}:\n\n{body}')
+        else:
+            url = github.create_comment(issue, body)
+            log(f'commented {url}')
+            events.append({'title': f'Firefox {version}: pick a build date',
+                           'message': f'No safe versionCode window. #{issue}',
+                           'click': url, 'impact': 'high'})
+        return 'no-build-date'
+    log(f'build_date {build_date}: {why}')
     branch = autobuild_branch(version)
-    build_date = now.strftime('%Y%m%d%H%M%S')
     runs_url = (f'https://github.com/{repo}/actions/workflows/{BUILD_WORKFLOW}'
                 f'?query=branch%3A{urllib.parse.quote(branch, safe="")}')
     files = autobuild_files(version, targets)
@@ -1860,7 +2139,7 @@ def autobuild(version, issue, targets, base_sha, github, repo, now, *, dry_run=F
                     {'mode': 'full', 'update_check': 'true', 'build_date': build_date})
     log(f'dispatched {BUILD_WORKFLOW} on {branch}, build_date {build_date}')
     url = github.create_comment(issue, autobuild_comment(version, branch, sha, build_date,
-                                                         runs_url, repo, notify, targets))
+                                                         runs_url, repo, notify, targets, why))
     log(f'commented {url}')
     events.append({'title': f'Firefox {version}: candidate build started',
                    'message': f'{branch}, #{issue}', 'click': url, 'impact': 'default'})
@@ -1912,6 +2191,13 @@ def autobuild_main(argv):
         outcome = autobuild(a.version, a.issue, [t for t in a.targets.split(',') if t],
                             a.base_sha, GitHub(a.repo, token, a.api), a.repo, now,
                             dry_run=a.dry_run, notify=a.notify or None, events=events)
+    except TransientError as e:
+        # Box B's queue, the releases or the issue could not be read. Nothing
+        # was dispatched (the dispatch is the last write but the comment), so
+        # the next hourly run retries; the watch job's outage tracking turns
+        # red if GitHub stays down.
+        warn(f'autobuild {a.version}: {e}; the next run retries')
+        return 0
     except (WatchError, ValueError) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
@@ -1924,6 +2210,63 @@ def autobuild_main(argv):
                     f'**{outcome}**\n')
     print(f'outcome: {outcome}')
     return 0
+
+
+def warn(message, env=None):
+    """A warning that stays green: stderr, an Actions annotation and a line
+    in the job summary."""
+    env = os.environ if env is None else env
+    print(f'warning: {message}', file=sys.stderr)
+    if env.get('GITHUB_ACTIONS') == 'true':
+        print(f'::warning title=Release watch::{message}')
+    summary = env.get('GITHUB_STEP_SUMMARY')
+    if summary:
+        with open(summary, 'a') as f:
+            f.write(f'> [!WARNING]\n> {message}\n\n')
+
+
+def load_outages(path):
+    """{source: ISO time of its first failure in the current streak} from
+    --state-file. Missing or unreadable: {} (a streak restarts, it never
+    turns red by mistake)."""
+    if not path:
+        return {}
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for k, v in (data.get('failing_since') or {}).items() if isinstance(data, dict) else ():
+        try:
+            _parse_time(v)
+            out[str(k)] = v
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def update_outages(state, ok, transient, now):
+    """The next state: a source that worked ends its streak, one that failed
+    transiently starts one (or keeps its start). Sources that did not run
+    this time keep theirs. Pure."""
+    state = {k: v for k, v in state.items() if k not in ok}
+    for what in transient:
+        state.setdefault(what, now.strftime('%Y-%m-%dT%H:%M:%SZ'))
+    return state
+
+
+def long_outages(state, transient, now, hours=OUTAGE_HOURS):
+    """[(source, since)] among this run's transient failures whose streak is
+    longer than `hours`."""
+    limit = datetime.timedelta(hours=hours)
+    return [(w, state[w]) for w in transient
+            if w in state and now - _parse_time(state[w]) > limit]
+
+
+def save_outages(path, state):
+    if path:
+        Path(path).write_text(json.dumps({'failing_since': state}, indent=1,
+                                         sort_keys=True) + '\n')
 
 
 def default_notify(env=None):
@@ -1990,6 +2333,11 @@ def patchcheck_main(argv):
                              run_link=run_url(), reports_dir=a.reports_dir,
                              targets=[t for t in a.targets.split(',') if t],
                              report=report)
+    except TransientError as e:
+        # A download or GitHub call that a later run may not see. The issue
+        # stays open, so the next hourly run checks again.
+        warn(f'patchcheck {a.version}: {e}; the next run retries')
+        return 0
     except (WatchError, ValueError, OSError) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
@@ -2049,6 +2397,11 @@ def main(argv=None):
                         '$RELEASE_WATCH_AUTOBUILD, else dot)')
     p.add_argument('--notify-test', action='store_true',
                    help='only open and close one test issue assigned to --notify')
+    p.add_argument('--state-file', type=Path,
+                   default=os.environ.get('RELEASE_WATCH_STATE') or None,
+                   help='JSON file that remembers since when each source has been '
+                        'failing (default: $RELEASE_WATCH_STATE; none: a transient '
+                        'failure never turns the run red)')
     p.add_argument('--now', help=argparse.SUPPRESS)  # tests: YYYYMMDDHHMMSS
     if argv is None:
         argv = sys.argv[1:]
@@ -2088,7 +2441,9 @@ def main(argv=None):
     github = GitHub(a.repo, token, a.api) if (a.repo and token) else None
     exists = lambda u: url_exists(u.replace(ARCHIVE_BASE, a.archive_base, 1))
     repo = a.repo or 'CPlusPlus17/Redoubt'
-    errors = []
+    errors = []      # fatal: the run turns red
+    transient = {}   # source -> message: a warning, unless the outage is long
+    worked = set()   # sources that answered this time
     events = []
 
     if a.notify_test:
@@ -2107,11 +2462,17 @@ def main(argv=None):
     # stop the desktop issue, and neither may open an issue about a failure.
     def attempt(what, f):
         try:
-            return f()
+            result = f()
+        except TransientError as e:
+            print(f'transient failure: {what}: {e}', file=sys.stderr)
+            transient.setdefault(what, str(e))
+            return None
         except (WatchError, ValueError, OSError) as e:
             print(f'error: {what}: {e}', file=sys.stderr)
             errors.append(what)
             return None
+        worked.add(what)
+        return result
 
     versions = attempt('firefox_versions.json',
                        lambda: load(a.versions_file, a.product_details_url))
@@ -2133,7 +2494,9 @@ def main(argv=None):
     if mobile is not None and not latest:
         print('Firefox for Android: skipped, no usable desktop release to tell an '
               'Android-only release from', file=sys.stderr)
-        errors.append('Firefox for Android (skipped)')
+        if versions is not None:
+            # The feed answered with no usable release: not an outage.
+            errors.append('Firefox for Android (skipped)')
     elif mobile is not None:
         android_outcome = attempt('Firefox for Android', lambda: run_android(
             a.root, mobile, latest, exists, github, repo, a.dry_run, ref=a.ref,
@@ -2223,7 +2586,24 @@ def main(argv=None):
         print('advisories: ' + (', '.join(affected) or 'none affecting the shipped release'))
     if builds:
         print('autobuild: ' + ', '.join(b['version'] for b in builds))
-    return 1 if errors else 0
+
+    # Transient failures: green with a warning, unless the same source has
+    # been failing for more than OUTAGE_HOURS (then red every run until it
+    # answers again).
+    state = update_outages(load_outages(a.state_file), worked, transient, now)
+    try:
+        save_outages(a.state_file, state)
+    except OSError as e:
+        print(f'warning: cannot write {a.state_file}: {e}', file=sys.stderr)
+    long = long_outages(state, transient, now)
+    for what, message in transient.items():
+        since = state.get(what, '')
+        warn(f'{what} failed (transient, failing since {since or "now"}): {message}'
+             + ('' if a.state_file else '; no --state-file, so this never turns red'))
+    for what, since in long:
+        print(f'error: {what} has been failing since {since}, more than '
+              f'{OUTAGE_HOURS} h', file=sys.stderr)
+    return 1 if errors or long else 0
 
 
 if __name__ == '__main__':

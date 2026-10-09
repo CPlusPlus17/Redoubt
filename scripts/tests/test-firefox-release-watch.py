@@ -73,6 +73,7 @@ class FakeGitHub:
         self.edits = []
         self.pinned = []
         self.release = ''
+        self.rels = []  # what releases() returns: [{'tag', 'draft', 'prerelease', 'body'}]
         self.runs = {}  # (workflow, status) -> [runs]
         self.branches = {}
         self.commits = []
@@ -116,6 +117,9 @@ class FakeGitHub:
 
     def latest_release(self):
         return self.release
+
+    def releases(self):
+        return [dict(r) for r in self.rels]
 
     def comments_full(self, number):
         bodies = self.posted.get(number, [])
@@ -561,6 +565,12 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
         if url.path == '/repos/o/r/releases/latest':
             tag = self.state.get('release')
             return self.reply(200, {'tag_name': tag}) if tag else self.reply(404)
+        if url.path == '/repos/o/r/releases':
+            page = int(q['page'][0])
+            items = [{'tag_name': r['tag'], 'name': r['tag'], 'draft': r.get('draft', False),
+                      'prerelease': r.get('prerelease', False), 'body': r['body']}
+                     for r in self.state.get('releases', [])]
+            return self.reply(200, items[(page - 1) * 100:page * 100])
         prefix = '/repos/mozilla/foundation-security-advisories/contents/announce/'
         if url.path.startswith(prefix):
             year = url.path[len(prefix):]
@@ -685,8 +695,10 @@ class EndToEnd(unittest.TestCase):
         (self.root / 'version.android').write_text('157.0\n')
         (self.root / 'version').write_text('157.0')
 
-    def script(self, version, *extra, token='test-token', output=None, mobile='157.0'):
+    def script(self, version, *extra, token='test-token', output=None, mobile='157.0',
+               env_extra=None):
         env = clean_env(token)
+        env.update(env_extra or {})
         if output:
             env['GITHUB_OUTPUT'] = str(output)
         # Never the network: without a mobile fixture the URL is a dead port.
@@ -760,13 +772,17 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(FakeServer.state['issues'][150:],
                          ['Firefox 158.0 released: rebase Android and desktop'])
 
-    def test_mobile_feed_down_is_red_without_spam(self):
+    def test_mobile_feed_down_is_green_without_spam(self):
         out = self.root / 'github-output'
+        summary = self.root / 'summary.md'
         FakeServer.state['tarballs'].add('158.0')
         for _ in range(3):
-            r = self.script('158.0', output=out, mobile=None)
-            self.assertEqual(r.returncode, 1)
-            self.assertIn('mobile_versions.json', r.stderr)
+            r = self.script('158.0', output=out, mobile=None,
+                            env_extra={'GITHUB_STEP_SUMMARY': str(summary)})
+            # A dead feed is an outage, not a bug: a warning, not a red run.
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn('warning: mobile_versions.json failed (transient', r.stderr)
+            self.assertIn('[!WARNING]', summary.read_text())
             o = self.outputs(out)
             # The desktop half did its job and its check still runs.
             self.assertIn(o['outcome'], ('opened', 'duplicate'))
@@ -784,8 +800,8 @@ class EndToEnd(unittest.TestCase):
              '--archive-base', f'{self.base}/releases', '--api', self.base,
              '--repo', 'o/r'], env=clean_env('test-token'),
             capture_output=True, text=True, timeout=60)
-        self.assertEqual(r.returncode, 1)
-        self.assertIn('firefox_versions.json', r.stderr)
+        self.assertEqual(r.returncode, 0, r.stderr)  # transient: a warning
+        self.assertIn('warning: firefox_versions.json failed (transient', r.stderr)
         self.assertIn('Firefox for Android: skipped', r.stderr)
         self.assertEqual(FakeServer.state['heads'], [])
         self.assertEqual(len(FakeServer.state['issues']), 150)
@@ -876,6 +892,13 @@ class EndToEnd(unittest.TestCase):
             env=clean_env(token), capture_output=True, text=True, timeout=60)
 
     def test_autobuild_cli(self):
+        # The real situation of 2026-10-09: 157.0-3 is Latest, 158.0-1 Beta 1
+        # is out. build_date=now would put 157.0.1 above the beta.
+        FakeServer.state['release'] = 'android-157.0-3'
+        FakeServer.state['releases'] = [
+            {'tag': 'android-158.0-1-beta.1', 'prerelease': True,
+             'body': BETA1_NOTES},
+            {'tag': 'android-157.0-3', 'body': STABLE_157_3_NOTES}]
         FakeServer.state['comments'][3] = [
             f'<!-- redoubt-patchcheck-result version=157.0.1 sha={SHA} desktop=pass '
             f'android=pass -->']
@@ -900,11 +923,19 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(FakeServer.state['commits'][0]['parents'], [SHA])
         self.assertEqual(FakeServer.state['dispatched'], [(
             'android-release.yaml', {'ref': 'auto/firefox-157.0.1', 'inputs': {
-                'mode': 'full', 'update_check': 'true', 'build_date': '20261009123456'}})])
+                'mode': 'full', 'update_check': 'true', 'build_date': '20261006190000'}})])
+        self.assertIn('versionCodes 2016188824-2016188831', FakeServer.state['comments'][3][-1])
         r = self.autobuild()
         self.assertIn('outcome: already-dispatched', r.stdout)
         self.assertEqual(len(FakeServer.state['dispatched']), 1)
         r = self.autobuild(token='')
+        self.assertEqual(r.returncode, 1)
+        # GitHub unreachable: a warning, green; the next hourly run retries.
+        r = self.autobuild('--api', 'http://127.0.0.1:9')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('warning: autobuild 157.0.1:', r.stderr)
+        # A wrong token is not an outage.
+        r = self.autobuild(token='wrong')
         self.assertEqual(r.returncode, 1)
 
     def test_current_needs_no_network_beyond_fixture(self):
@@ -929,14 +960,68 @@ class EndToEnd(unittest.TestCase):
         self.assertIn('outcome: would-open', r.stdout)
 
     def test_archive_error_is_not_missing(self):
-        # A 5xx or a dead connection must fail the run, not read as "no
-        # tarball yet" -- that would hide a release for as long as it lasted.
-        r = self.script('158.0', '--archive-base', f'{self.base}/broken')
+        # A 5xx or a dead connection must not read as "no tarball yet" -- that
+        # would hide a release for as long as it lasted. It is an outage: a
+        # warning now, red once it outlasts OUTAGE_HOURS.
+        state = self.root / 'state.json'
+        for archive, text in ((f'{self.base}/broken', 'HTTP 503'),
+                              ('http://127.0.0.1:9/releases', 'HEAD')):
+            r = self.script('158.0', '--archive-base', archive, '--state-file', str(state),
+                            '--now', '20261009120000')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn(text, r.stderr)
+            self.assertIn('outcome: error', r.stdout)
+            self.assertNotIn('no-tarball', r.stdout)
+        r = self.script('158.0', '--archive-base', f'{self.base}/broken',
+                        '--state-file', str(state), '--now', '20261009190000')
         self.assertEqual(r.returncode, 1)
-        self.assertIn('HTTP 503', r.stderr)
-        r = self.script('158.0', '--archive-base', 'http://127.0.0.1:9/releases')
+        self.assertIn('Firefox release has been failing since 2026-10-09T12:00:00Z', r.stderr)
+
+    def test_outage_turns_red_after_six_hours_and_clears(self):
+        state = self.root / 'state.json'
+        FakeServer.state['tarballs'].add('158.0')
+
+        def run(now, mobile=None):
+            return self.script('158.0', '--state-file', str(state), '--now', now,
+                               mobile=mobile)
+        for now in ('20261009000000', '20261009030000', '20261009060000'):
+            r = run(now)
+            self.assertEqual(r.returncode, 0, (now, r.stderr))
+        self.assertEqual(json.loads(state.read_text()),
+                         {'failing_since': {'mobile_versions.json': '2026-10-09T00:00:00Z'}})
+        r = run('20261009060100')  # just over six hours in a row
         self.assertEqual(r.returncode, 1)
-        self.assertIn('HEAD', r.stderr)
+        self.assertIn('mobile_versions.json has been failing since 2026-10-09T00:00:00Z',
+                      r.stderr)
+        r = run('20261009070000', mobile='157.0')  # it answers: the streak ends
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(state.read_text()), {'failing_since': {}})
+        r = run('20261009080000')  # a new streak starts from zero
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # Unreadable state: start over, never red by mistake.
+        state.write_text('{not json')
+        self.assertEqual(run('20261010080000').returncode, 0)
+        # One issue throughout, none about the outage.
+        self.assertEqual(FakeServer.state['issues'][150:],
+                         ['Firefox 158.0 released: rebase Android and desktop'])
+
+    def test_logic_errors_stay_red(self):
+        state = self.root / 'state.json'
+        (self.root / 'version.android').write_text('158.0b3\n')
+        r = self.script('158.0', '--state-file', str(state))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('not a Firefox release or ESR version', r.stderr)
+        (self.root / 'version.android').write_text('157.0\n')
+        bad = self.root / 'feed.json'
+        bad.write_text(json.dumps({'FIREFOX_ESR': '153.4.0esr'}))
+        r = subprocess.run(
+            [sys.executable, str(SCRIPT), '--root', str(self.root), '--versions-file',
+             str(bad), '--mobile-versions-file', str(FIXTURES / 'mobile-versions-157.0.json'),
+             '--archive-base', f'{self.base}/releases', '--api', self.base,
+             '--repo', 'o/r', '--no-advisories'], env=clean_env('test-token'),
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('no LATEST_FIREFOX_VERSION', r.stderr)
 
     # A manual patch check (workflow_dispatch patchcheck_version): only in a
     # dry run, whatever the feeds say, and never a beta.
@@ -1303,11 +1388,191 @@ class Ntfy(unittest.TestCase):
             env={'RELEASE_WATCH_NTFY_URL': 'http://127.0.0.1:9/x'}, log=lambda *a: None), 0)
 
 
+# Release notes as published (Provenance sections, trimmed).
+STABLE_157_3_NOTES = ('## Provenance\n\n- **Source:** tag android-157.0-3.\n'
+                      '- **Build:** CI run 37441476096, with MOZ_BUILD_DATE 20261006090000.\n')
+BETA1_NOTES = ('## Provenance\n\n- **Build:** CI run 37576802707, with MOZ_BUILD_DATE '
+               '20261007050000; versionCodes 2016188904-2016188911.\n')
+
+
+def rel(tag, date=None, prerelease=False, draft=False, body=None):
+    if body is None:
+        body = f'## Provenance\n\n- **Build:** with MOZ_BUILD_DATE {date}.\n' if date else ''
+    return {'tag': tag, 'name': tag, 'prerelease': prerelease, 'draft': draft, 'body': body}
+
+
+class BuildDate(unittest.TestCase):
+    """The versionCode window (docs: "Build date and versionCode")."""
+    NOW = watch._parse_time('2026-10-09T12:34:56Z')
+    LATEST = rel('android-157.0-3', body=STABLE_157_3_NOTES)
+    BETA1 = rel('android-158.0-1-beta.1', prerelease=True, body=BETA1_NOTES)
+
+    def choose(self, releases, latest='android-157.0-3', version='157.0.1', now=None):
+        return watch.choose_build_date(version, releases, latest, now or self.NOW)
+
+    def test_codes_match_android_aab(self):
+        spec = importlib.util.spec_from_file_location('android_aab',
+                                                      ROOT / 'scripts' / 'android-aab.py')
+        aab = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(aab)
+        for date in ('20261006090000', '20261006180000', '20261007050000',
+                     '20261009160000', '20261009123456'):
+            h = watch.build_hour(date)
+            self.assertEqual(watch.version_codes(h),
+                             {abi: aab.version_code(date, abi) for abi in watch.ABI_BITS})
+            self.assertEqual(watch.code_hour(aab.version_code(date, 'universal')), h)
+        # The precedent's numbers (release-157.0.1/README.md).
+        self.assertEqual(watch._codes_text(watch.build_hour('20261006090000')),
+                         '2016188744-2016188751')
+        self.assertEqual(watch._codes_text(watch.build_hour('20261007050000')),
+                         '2016188904-2016188911')
+        self.assertEqual(watch.hour_date(watch.build_hour('20261009123456')),
+                         '20261009120000')
+
+    def test_hour_from_notes(self):
+        h = watch.release_build_hour
+        self.assertEqual(h(STABLE_157_3_NOTES), watch.build_hour('20261006090000'))
+        self.assertEqual(h(BETA1_NOTES), watch.build_hour('20261007050000'))
+        self.assertEqual(h('MOZ_BUILD_DATE=`20261005000000`'), watch.build_hour('20261005000000'))
+        # versionCodes alone are enough ...
+        self.assertEqual(h('versionCodes 2016188904-2016188911'),
+                         watch.build_hour('20261007050000'))
+        # ... but a date and codes that disagree, two dates, or nothing: unreadable.
+        self.assertIsNone(h('MOZ_BUILD_DATE 20261007050000; versionCodes 2016188744-751'))
+        self.assertIsNone(h('MOZ_BUILD_DATE 20261007050000 and MOZ_BUILD_DATE 20261006090000'))
+        self.assertIsNone(h('Beta 5. Signed on Fedora.'))
+        self.assertIsNone(h('MOZ_BUILD_DATE 20261399000000'))
+
+    def test_tag_versions(self):
+        v = watch.release_tag_version
+        self.assertEqual(v('android-158.0-1-beta.1'), '158.0')
+        self.assertEqual(v('android-157.0.1-1'), '157.0.1')
+        self.assertEqual(v('android-153.4.0esr-1-beta.3'), '153.4.0esr')
+        self.assertIsNone(v('v1.0'))
+
+    def test_precedent_window(self):
+        # 2026-10-09: 157.0-3 Latest (…09h), Beta 1 out (07 05h). Middle of
+        # the 20-hour window: 20261006190000 (the hand-picked 157.0.1-1 used 18h).
+        date, why = self.choose([self.BETA1, self.LATEST])
+        self.assertEqual(date, '20261006190000')
+        self.assertTrue(watch.build_hour('20261006090000') < watch.build_hour(date)
+                        < watch.build_hour('20261007050000'))
+        self.assertIn('`android-157.0-3` (Latest), built 20261006090000', why)
+        self.assertIn('below `android-158.0-1-beta.1` (prerelease of Firefox 158.0), built '
+                      '20261007050000, versionCodes 2016188904-2016188911', why)
+
+    def test_next_dot_after_157_0_1(self):
+        # 157.0.1-1 (…18h) is Latest now; 157.0.2 lands between it and Beta 1,
+        # and below Beta 2 too (the OLDEST newer-major build is the bound).
+        latest = rel('android-157.0.1-1', '20261006180000')
+        beta2 = rel('android-158.0-1-beta.2', '20261009160000', prerelease=True)
+        date, _ = self.choose([beta2, self.BETA1, latest, self.LATEST],
+                              latest='android-157.0.1-1', version='157.0.2')
+        self.assertEqual(date, '20261006230000')
+
+    def test_no_newer_major_uses_this_hour(self):
+        date, why = self.choose([self.LATEST])
+        self.assertEqual(date, '20261009120000')
+        self.assertIn("this run's hour", why)
+        # A superseded beta of the SAME major is no bound.
+        b5 = rel('android-157.0-1-beta.5', '20261004090000', prerelease=True)
+        self.assertEqual(self.choose([b5, self.LATEST])[0], '20261009120000')
+        # Nor is a draft of a newer major (not published).
+        draft = rel('android-158.0-1-beta.9', '20261007000000', prerelease=True, draft=True)
+        self.assertEqual(self.choose([draft, self.LATEST])[0], '20261009120000')
+
+    def test_never_in_the_future(self):
+        # The beta is far ahead; this run is just after the Latest build.
+        beta = rel('android-158.0-1-beta.1', '20261020000000', prerelease=True)
+        now = watch._parse_time('2026-10-06T12:10:00Z')
+        date, _ = self.choose([beta, self.LATEST], now=now)
+        # Window (09h, 13h exclusive) -> middle 11h, not some day in between.
+        self.assertEqual(date, '20261006110000')
+
+    def test_used_hours_are_skipped(self):
+        taken = rel('android-157.0-2', '20261006190000')
+        date, _ = self.choose([self.BETA1, self.LATEST, taken])
+        self.assertEqual(date, '20261006180000')
+
+    def test_no_fit(self):
+        latest = rel('android-157.0-4', '20261007040000')
+        date, why = self.choose([self.BETA1, latest], latest='android-157.0-4')
+        self.assertIsNone(date)
+        self.assertIn('no unused hour lies strictly between', why)
+        # One free hour exactly between: it fits.
+        latest = rel('android-157.0-4', '20261007030000')
+        self.assertEqual(self.choose([self.BETA1, latest], latest='android-157.0-4')[0],
+                         '20261007040000')
+        # Latest built after the beta: nothing fits.
+        latest = rel('android-157.0-4', '20261008000000')
+        self.assertIsNone(self.choose([self.BETA1, latest], latest='android-157.0-4')[0])
+        # No newer major, but this run's hour is not after Latest's.
+        latest = rel('android-157.0-4', '20261009120000')
+        self.assertIsNone(self.choose([latest], latest='android-157.0-4')[0])
+
+    def test_unreadable_bounds(self):
+        latest = rel('android-157.0-3', body='Signed on Fedora.')
+        date, why = self.choose([self.BETA1, latest])
+        self.assertIsNone(date)
+        self.assertIn('Latest release `android-157.0-3` cannot be read', why)
+        beta = rel('android-158.0-1-beta.1', prerelease=True, body='no provenance')
+        date, why = self.choose([beta, self.LATEST])
+        self.assertIsNone(date)
+        self.assertIn('`android-158.0-1-beta.1` is a published release of Firefox 158.0', why)
+        # An unreadable release that is no bound does not matter.
+        old = rel('android-157.0-1-beta.5', prerelease=True, body='no provenance')
+        self.assertEqual(self.choose([self.BETA1, old, self.LATEST])[0], '20261006190000')
+
+    def test_no_latest_release(self):
+        self.assertEqual(self.choose([], latest='')[0], '20261009120000')
+        self.assertEqual(self.choose([self.BETA1], latest='')[0], '20261007040000')
+
+
+class Outages(unittest.TestCase):
+    T0 = watch._parse_time('2026-10-09T00:00:00Z')
+
+    def test_streaks(self):
+        h = lambda n: self.T0 + watch.datetime.timedelta(hours=n)
+        s = watch.update_outages({}, set(), {'a': 'x'}, self.T0)
+        self.assertEqual(s, {'a': '2026-10-09T00:00:00Z'})
+        s = watch.update_outages(s, {'b'}, {'a': 'x'}, h(3))
+        self.assertEqual(s, {'a': '2026-10-09T00:00:00Z'}, 'the start is kept')
+        self.assertEqual(watch.long_outages(s, {'a': 'x'}, h(6)), [])
+        self.assertEqual(watch.long_outages(s, {'a': 'x'}, h(6.1)),
+                         [('a', '2026-10-09T00:00:00Z')])
+        # Only a source failing NOW counts: one that did not run is not red.
+        self.assertEqual(watch.long_outages(s, {}, h(9)), [])
+        self.assertEqual(watch.update_outages(s, {'a'}, {}, h(9)), {})
+
+    def test_load(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / 's.json'
+            self.assertEqual(watch.load_outages(f), {})
+            self.assertEqual(watch.load_outages(None), {})
+            f.write_text('[]')
+            self.assertEqual(watch.load_outages(f), {})
+            f.write_text(json.dumps({'failing_since': {'a': 'yesterday',
+                                                       'b': '2026-10-09T00:00:00Z'}}))
+            self.assertEqual(watch.load_outages(f), {'b': '2026-10-09T00:00:00Z'})
+            watch.save_outages(f, {'c': '2026-10-09T01:00:00Z'})
+            self.assertEqual(watch.load_outages(f), {'c': '2026-10-09T01:00:00Z'})
+
+    def test_classification(self):
+        for status in (0, 408, 429, 500, 502, 503, 504, 520):
+            self.assertIsInstance(watch.http_error('x', status), watch.TransientError, status)
+        for status in (200, 401, 403, 404, 422):
+            e = watch.http_error('x', status)
+            self.assertIsInstance(e, watch.WatchError, status)
+            self.assertNotIsInstance(e, watch.TransientError, status)
+
+
 class Autobuild(unittest.TestCase):
     NOW = watch._parse_time('2026-10-09T12:34:56Z')
 
     def setUp(self):
         self.gh = FakeGitHub([RunAdvisories.DOT])
+        self.gh.release = 'android-157.0-3'
+        self.gh.rels = [BuildDate.LATEST]
         self.log = []
 
     def verdict(self, android='pass', sha=None):
@@ -1352,11 +1617,13 @@ class Autobuild(unittest.TestCase):
         self.assertEqual(self.gh.branches, {'auto/firefox-157.0.1': f'{1:040x}'})
         self.assertEqual(self.gh.dispatched, [('android-release.yaml', 'auto/firefox-157.0.1',
                                                {'mode': 'full', 'update_check': 'true',
-                                                'build_date': '20261009123456'})])
+                                                'build_date': '20261009120000'})])
         comment = self.gh.posted[1][-1]
         self.assertTrue(comment.startswith(watch.autobuild_marker('157.0.1') + '\n@owner: '))
         self.assertIn('**unsigned**', comment)
-        self.assertIn('build_date=20261009123456', comment)
+        self.assertIn('build_date=20261009120000', comment)
+        self.assertIn("Build date `20261009120000`: this run's hour, above `android-157.0-3`",
+                      comment)
         self.assertEqual(self.go(), 'already-dispatched')
         self.assertEqual(len(self.gh.dispatched), 1)
 
@@ -1400,6 +1667,42 @@ class Autobuild(unittest.TestCase):
         self.assertEqual((self.gh.branches, self.gh.dispatched), ({}, []))
         self.gh.runs = {}
         self.assertEqual(self.go(), 'dispatched')
+
+    def test_beta_out_dispatches_inside_the_window(self):
+        self.verdict()
+        self.gh.rels = [BuildDate.BETA1, BuildDate.LATEST]
+        self.assertEqual(self.go(), 'dispatched')
+        self.assertEqual(self.gh.dispatched[0][2]['build_date'], '20261006190000')
+        comment = self.gh.posted[1][-1]
+        self.assertIn('the middle of the free window', comment)
+        self.assertIn('versionCodes 2016188824-2016188831', comment)
+
+    def test_no_fit_does_not_dispatch_and_says_why_once(self):
+        self.verdict()
+        self.gh.release = 'android-157.0-4'
+        self.gh.rels = [BuildDate.BETA1, rel('android-157.0-4', '20261007040000')]
+        self.assertEqual(self.go(), 'no-build-date')
+        comment = self.gh.posted[1][-1]
+        self.assertTrue(comment.startswith(watch.autobuild_nodate_marker('157.0.1')
+                                           + '\n@owner: no candidate build'))
+        self.assertIn('no unused hour lies strictly between', comment)
+        self.assertIn('**The owner must pick the build date**', comment)
+        self.assertIn('-f build_date=YYYYMMDDHH0000', comment)
+        self.assertEqual((self.gh.branches, self.gh.dispatched, self.gh.commits), ({}, [], []))
+        # Once per version, and never built later by itself, even if a date
+        # would fit by then (the owner may have dispatched by hand).
+        self.gh.rels = [BuildDate.LATEST]
+        self.gh.release = 'android-157.0-3'
+        self.assertEqual(self.go(), 'no-build-date')
+        self.assertEqual(len(self.gh.posted[1]), 2)
+        self.assertEqual(self.gh.dispatched, [])
+
+    def test_no_fit_dry_run_posts_nothing(self):
+        self.verdict()
+        self.gh.rels = [BuildDate.BETA1, rel('android-157.0-3', body='unsigned notes')]
+        self.assertEqual(self.go(dry_run=True), 'no-build-date')
+        self.assertEqual(len(self.gh.posted[1]), 1)
+        self.assertTrue(any('would comment' in l for l in self.log))
 
     def test_dry_run(self):
         self.verdict()

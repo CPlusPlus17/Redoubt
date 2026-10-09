@@ -12,7 +12,17 @@
 # the desktop one (an Android-only dot such as 153.0.2) gets its own issue,
 # "Firefox for Android <v> released: rebase Android", whether or not it has a
 # source tarball; the issue says which, and what to do without one. If that
-# feed is down the desktop half still runs and the run turns red.
+# feed is down the desktop half still runs.
+#
+# OUTAGES: a feed, archive.mozilla.org or GitHub API failure that a later run
+# may not see (no connection, timeout, HTTP 408/429/5xx) is a warning and a
+# job-summary line; the run stays green. Only when the same source has failed
+# for more than 6 hours in a row (OUTAGE_HOURS) does the run turn red, and
+# then every run until it answers again. The first failure's time per source
+# is kept in a small JSON file carried from run to run in the Actions cache
+# (key release-watch-outages-<run id>, restored by prefix); a lost cache only
+# restarts the count. Anything else (401/403/404, a malformed version file or
+# feed entry, a bug) is red at once.
 #
 # Unlike the other workflows here this runs on a GitHub-hosted runner, not the
 # self-hosted librewolf-android one: it builds nothing, needs no secret beyond
@@ -66,8 +76,12 @@
 #     vars.RELEASE_WATCH_AUTOBUILD: dot [default] | all | off) whose patch
 #     check passed for android a branch auto/firefox-<v> with the version
 #     files bumped and dispatches android-release.yaml on it (mode=full,
-#     update_check=true, build_date=now): UNSIGNED APKs, nothing signed or
-#     published; not while box B has a queued or running build;
+#     update_check=true): UNSIGNED APKs, nothing signed or published; not
+#     while box B has a queued or running build. build_date is an hour
+#     strictly between the Latest release's build and the oldest published
+#     build of a newer Firefox major (a beta), read from the releases' notes,
+#     so a dot release never gets a higher versionCode than a beta; if no hour
+#     fits it does not build and tells the owner to pick the date;
 #   * optional push channel: the secret RELEASE_WATCH_NTFY_URL (an ntfy topic
 #     URL; RELEASE_WATCH_NTFY_TOKEN if the server needs one). Off unless set.
 # notify_test=true opens and closes one issue assigned to the owner to check
@@ -148,9 +162,21 @@ jobs:
       - name: Test the watcher (offline)
         run: python3 scripts/tests/test-firefox-release-watch.py -v
 
+      # Since when each source has been failing (see OUTAGES above). A cache
+      # entry cannot be overwritten, so each run saves under its own key and
+      # the next restores the newest by prefix. A miss is fine: no streak.
+      - name: Restore the outage state
+        if: ${{ github.event_name != 'push' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/release-watch-outages.json
+          key: release-watch-outages-${{ github.run_id }}
+          restore-keys: release-watch-outages-
+
       # A push only proves the watcher works; it never opens an issue.
-      # Exits 1 when either feed (or GitHub) failed, after writing the outputs
-      # of whatever did succeed; the patch check below still runs for that.
+      # Exits 1 on a real error, or when a source has been failing for more
+      # than 6 hours, after writing the outputs of whatever did succeed; the
+      # patch check below still runs for that.
       - name: Check for a new Firefox release
         id: watch
         if: ${{ github.event_name != 'push' }}
@@ -169,9 +195,20 @@ jobs:
           # Optional channel; empty (the default) means off.
           RELEASE_WATCH_NTFY_URL: ${{ secrets.RELEASE_WATCH_NTFY_URL }}
           RELEASE_WATCH_NTFY_TOKEN: ${{ secrets.RELEASE_WATCH_NTFY_TOKEN }}
+          RELEASE_WATCH_STATE: ${{ runner.temp }}/release-watch-outages.json
         run: |
           python3 scripts/firefox-release-watch.py $DRY_RUN $NOTIFY_TEST \
             ${PATCHCHECK_VERSION:+--patchcheck-version "$PATCHCHECK_VERSION" --patchcheck-targets "$PATCHCHECK_TARGETS"}
+
+      # Also after a red run: the streak must survive it. The script writes
+      # the file on every run that gets past its argument checks; without it
+      # (an early refusal) the save only warns.
+      - name: Save the outage state
+        if: ${{ always() && steps.watch.outcome != 'skipped' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/release-watch-outages.json
+          key: release-watch-outages-${{ github.run_id }}
 
   # Only after the watch step ran (never on push) and said so: the issue was
   # just opened, is still open, or this is a dry run (or a manual check); and the release has a
