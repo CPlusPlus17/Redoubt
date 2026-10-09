@@ -2581,7 +2581,7 @@ def check_extension(m, res, xpi_b64, https_url, forcefail=False):
 # a timestamp or a random token in it.
 PREF_LIST = [
     # landmine L1 and the WebGL family
-    "librewolf.webgl.prompt", "librewolf.webgl.prompt.hide", "webgl.disabled",
+    "librewolf.webgl.prompt", "librewolf.webgl.prompt.hide", "librewolf.webgl.prompt.notice", "webgl.disabled",
     # fingerprinting
     "privacy.resistFingerprinting", "privacy.resistFingerprinting.pbmode",
     "privacy.fingerprintingProtection", "privacy.fingerprintingProtection.pbmode",

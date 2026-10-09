@@ -43,6 +43,18 @@
 # an offset in a res/ file, and GNU patch then leaves a .orig backup there that
 # packageReleaseResources rejects; so it is regenerated at its exact in-order
 # line numbers (git diff of its own step in the in-order 158 replay).
+#
+# LW-M7-46 (2026-10-09, for 158.0-2): no notice for quiet requests. Owner
+#   request, verbatim: "the disabled webgl popovers all the time, we disabled
+#   it be choice, so do not show this warning". OriginBoundPermissionsFeature
+#   calls onQuietRequest (the "Canvas or WebGL was protected" snackbar) only
+#   when the new Gecko pref librewolf.webgl.prompt.notice reads true (default
+#   false, StaticPrefList.yaml). A quiet request is still denied, still
+#   pending, and still listed in the site controls (trust panel > WebGL and
+#   canvas permissions), where the user can allow the site. Non-quiet prompts
+#   are unchanged. BaseBrowserFragment's hunk keeps its line count, so
+#   sync-opt-in.patch applies at the same offsets. Evidence:
+#   docs/android/evidence/lw-m7-46/README.md.
 diff --git a/dom/canvas/CanvasUtils.cpp b/dom/canvas/CanvasUtils.cpp
 index 17bfd46974..be755270f7 100644
 --- a/dom/canvas/CanvasUtils.cpp
@@ -1023,10 +1035,10 @@ index 93c75093cb..17a0fc820e 100644
 +                org.mozilla.fenix.browser.permissions.OriginBoundPermissionsFeature(
 +                    store = store,
 +                    sessionId = customTabSessionId,
-+                    shouldHide = {
-+                        val state = requireComponents.appStore.state
-+                        state.isPrivateScreenLocked && state.mode.isPrivate
-+                    },
++                    shouldHide = { requireComponents.appStore.state.run { isPrivateScreenLocked && mode.isPrivate } },
++                    // LW-M7-46 (owner, 2026-10-09): no notice for a quiet request unless the Gecko pref
++                    // librewolf.webgl.prompt.notice is true. Site controls still list the request.
++                    quietNoticeEnabled = { org.mozilla.fenix.browser.permissions.readQuietNoticePref(requireComponents.core.engine) },
 +                    onQuietRequest = { tabId, _ ->
 +                        com.google.android.material.snackbar.Snackbar.make(
 +                                view,
@@ -1468,10 +1480,10 @@ index 0000000000..be56b0d2b4
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt
 new file mode 100644
-index 0000000000..ddcf570f80
+index 0000000000..75872106fb
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,140 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1487,22 +1499,31 @@ index 0000000000..ddcf570f80
 +import kotlinx.coroutines.flow.distinctUntilChanged
 +import kotlinx.coroutines.flow.map
 +import kotlinx.coroutines.launch
++import kotlinx.coroutines.suspendCancellableCoroutine
++import mozilla.components.ExperimentalAndroidComponentsApi
 +import mozilla.components.browser.state.action.ContentAction
 +import mozilla.components.browser.state.selector.findTabOrCustomTab
 +import mozilla.components.browser.state.selector.findTabOrCustomTabOrSelectedTab
 +import mozilla.components.browser.state.store.BrowserStore
++import mozilla.components.concept.engine.preferences.BrowserPreferencesRuntime
 +import mozilla.components.concept.engine.permission.OriginBoundPermissionRequest
 +import mozilla.components.concept.engine.permission.SitePermissions.Status
 +import mozilla.components.lib.state.ext.flowScoped
 +import mozilla.components.support.base.feature.LifecycleAwareFeature
++import kotlin.coroutines.resume
 +
-+/** Presents a bounded prompt or a quiet, actionable notice for the actual requesting tab. */
++/**
++ * Presents a bounded prompt for the actual requesting tab. A quiet request (blocked by default) shows
++ * no notice unless [quietNoticeEnabled] says so (LW-M7-46); it stays pending and reviewable in the
++ * site controls either way.
++ */
 +class OriginBoundPermissionsFeature(
 +    private val store: BrowserStore,
 +    private val sessionId: String?,
 +    private val onQuietRequest: (String, OriginBoundPermissionRequest) -> Unit,
 +    private val onPromptRequest: (String, OriginBoundPermissionRequest) -> Unit,
 +    private val shouldHide: () -> Boolean = { false },
++    private val quietNoticeEnabled: suspend () -> Boolean = { false },
 +    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
 +) : LifecycleAwareFeature {
 +    private var scope: CoroutineScope? = null
@@ -1533,10 +1554,16 @@ index 0000000000..ddcf570f80
 +                                store.dispatch(ContentAction.ConsumePermissionsRequest(tab.id, request))
 +                                observed.remove(request.id)
 +                            }
-+                            if (request.isQuiet) {
-+                                onQuietRequest(tab.id, request)
-+                            } else {
++                            if (!request.isQuiet) {
 +                                onPromptRequest(tab.id, request)
++                            } else {
++                                CoroutineScope(currentCoroutineContext()).launch {
++                                    // Silent by default: the request is already denied and stays
++                                    // pending for the site controls; only the notice is optional.
++                                    if (quietNoticeEnabled() && isPending(tab.id, request)) {
++                                        onQuietRequest(tab.id, request)
++                                    }
++                                }
 +                            }
 +                        }
 +                    }
@@ -1549,7 +1576,30 @@ index 0000000000..ddcf570f80
 +        scope = null
 +        observed.clear()
 +    }
++
++    private fun isPending(tabId: String, request: OriginBoundPermissionRequest) =
++        store.state.findTabOrCustomTab(tabId)?.content?.permissionRequestsList?.any { it.id == request.id } == true
 +}
++
++/** Gecko pref that brings back the quiet-request notice (LW-M7-46). Default false: no notice. */
++internal const val QUIET_NOTICE_PREF = "librewolf.webgl.prompt.notice"
++
++/** True only when [QUIET_NOTICE_PREF] reads as boolean true; missing, other types or errors mean false. */
++@OptIn(ExperimentalAndroidComponentsApi::class)
++internal suspend fun readQuietNoticePref(prefs: BrowserPreferencesRuntime): Boolean =
++    try {
++        suspendCancellableCoroutine { continuation ->
++            prefs.getBrowserPref(
++                QUIET_NOTICE_PREF,
++                onSuccess = { pref -> if (continuation.isActive) continuation.resume(pref.value == true) },
++                onError = { if (continuation.isActive) continuation.resume(false) },
++            )
++        }
++    } catch (error: CancellationException) {
++        throw error
++    } catch (_: Exception) {
++        false
++    }
 +
 +/** Apply one explicit choice and reload only through Gecko's original-document acknowledgment. */
 +internal suspend fun applyOriginBoundDecision(
@@ -1906,10 +1956,10 @@ index 0000000000..8ba69910bc
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt
 new file mode 100644
-index 0000000000..29890673ff
+index 0000000000..fcfb5af045
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt
-@@ -0,0 +1,174 @@
+@@ -0,0 +1,286 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1923,6 +1973,7 @@ index 0000000000..29890673ff
 +import kotlinx.coroutines.test.advanceUntilIdle
 +import kotlinx.coroutines.test.runCurrent
 +import kotlinx.coroutines.test.runTest
++import mozilla.components.ExperimentalAndroidComponentsApi
 +import mozilla.components.browser.state.state.BrowserState
 +import mozilla.components.browser.state.state.ContentState
 +import mozilla.components.browser.state.state.TabSessionState
@@ -1932,6 +1983,9 @@ index 0000000000..29890673ff
 +import mozilla.components.concept.engine.permission.Permission
 +import mozilla.components.concept.engine.permission.PermissionRequest
 +import mozilla.components.concept.engine.permission.SitePermissions.Status
++import mozilla.components.concept.engine.preferences.BrowserPrefType
++import mozilla.components.concept.engine.preferences.BrowserPreference
++import mozilla.components.concept.engine.preferences.BrowserPreferencesRuntime
 +import org.junit.Assert.assertEquals
 +import org.junit.Assert.assertFalse
 +import org.junit.Assert.assertTrue
@@ -2001,7 +2055,7 @@ index 0000000000..29890673ff
 +    }
 +
 +    @Test
-+    fun `quiet request offers a notice without opening a modal and stopping keeps it actionable`() = runTest {
++    fun `quiet request shows no notice by default and stays pending until its page goes away`() = runTest {
 +        val dispatcher = StandardTestDispatcher(testScheduler)
 +        val request = OriginRequest(quiet = true)
 +        val store = requestStore(request)
@@ -2014,6 +2068,37 @@ index 0000000000..29890673ff
 +            mainDispatcher = dispatcher,
 +        )
 +        feature.start()
++        advanceUntilIdle()
++        assertEquals(0, notices)
++        assertEquals(0, modals)
++        // Still denied (no decision) and still listed for the site controls.
++        assertEquals(listOf(request), store.state.tabs.first().content.permissionRequestsList)
++        assertTrue(request.decisions.isEmpty())
++        assertEquals(0, request.rejections)
++        // Navigation or actor destruction ends it: consumed and rejected, nothing left behind.
++        request.applied.complete(false)
++        advanceUntilIdle()
++        assertTrue(store.state.tabs.first().content.permissionRequestsList.isEmpty())
++        assertEquals(1, request.rejections)
++        assertEquals(0, notices)
++        feature.stop()
++    }
++
++    @Test
++    fun `quiet notice pref true offers the old notice without opening a modal and stopping keeps it actionable`() = runTest {
++        val dispatcher = StandardTestDispatcher(testScheduler)
++        val request = OriginRequest(quiet = true)
++        val store = requestStore(request)
++        var notices = 0
++        var modals = 0
++        val feature = OriginBoundPermissionsFeature(
++            store, null,
++            onQuietRequest = { _, _ -> notices++ },
++            onPromptRequest = { _, _ -> modals++ },
++            quietNoticeEnabled = { true },
++            mainDispatcher = dispatcher,
++        )
++        feature.start()
 +        runCurrent()
 +        assertEquals(1, notices)
 +        assertEquals(0, modals)
@@ -2021,6 +2106,66 @@ index 0000000000..29890673ff
 +        advanceUntilIdle()
 +        assertEquals(listOf(request), store.state.tabs.first().content.permissionRequestsList)
 +        assertTrue(request.decisions.isEmpty())
++    }
++
++    @Test
++    fun `stopping before the pref answers shows no notice and leaves the request untouched`() = runTest {
++        val dispatcher = StandardTestDispatcher(testScheduler)
++        val request = OriginRequest(quiet = true)
++        val store = requestStore(request)
++        val answer = CompletableDeferred<Boolean>()
++        var notices = 0
++        val feature = OriginBoundPermissionsFeature(
++            store, null,
++            onQuietRequest = { _, _ -> notices++ },
++            onPromptRequest = { _, _ -> error("Must not prompt") },
++            quietNoticeEnabled = { answer.await() },
++            mainDispatcher = dispatcher,
++        )
++        feature.start()
++        runCurrent()
++        feature.stop()
++        answer.complete(true)
++        advanceUntilIdle()
++        assertEquals(0, notices)
++        assertEquals(listOf(request), store.state.tabs.first().content.permissionRequestsList)
++        assertEquals(0, request.rejections)
++    }
++
++    @Test
++    fun `a quiet request consumed before the pref answers gets no notice`() = runTest {
++        val dispatcher = StandardTestDispatcher(testScheduler)
++        val request = OriginRequest(quiet = true)
++        val store = requestStore(request)
++        val answer = CompletableDeferred<Boolean>()
++        var notices = 0
++        val feature = OriginBoundPermissionsFeature(
++            store, null,
++            onQuietRequest = { _, _ -> notices++ },
++            onPromptRequest = { _, _ -> error("Must not prompt") },
++            quietNoticeEnabled = { answer.await() },
++            mainDispatcher = dispatcher,
++        )
++        feature.start()
++        runCurrent()
++        request.applied.complete(false)
++        advanceUntilIdle()
++        assertTrue(store.state.tabs.first().content.permissionRequestsList.isEmpty())
++        answer.complete(true)
++        advanceUntilIdle()
++        assertEquals(0, notices)
++        feature.stop()
++    }
++
++    @Test
++    fun `the notice pref is on only for a boolean true`() = runTest {
++        assertTrue(readQuietNoticePref(FakePrefs(pref(true))))
++        assertFalse(readQuietNoticePref(FakePrefs(pref(false))))
++        assertFalse(readQuietNoticePref(FakePrefs(pref("true", BrowserPrefType.STRING))))
++        assertFalse(readQuietNoticePref(FakePrefs(pref(null, BrowserPrefType.INVALID))))
++        assertFalse(readQuietNoticePref(FakePrefs(null)))
++        assertFalse(readQuietNoticePref(object : BrowserPreferencesRuntime {}))
++        assertEquals(listOf(QUIET_NOTICE_PREF), FakePrefs(pref(true)).also { readQuietNoticePref(it) }.asked)
 +    }
 +
 +    @Test
@@ -2041,6 +2186,23 @@ index 0000000000..29890673ff
 +        assertTrue(store.state.tabs.first().content.permissionRequestsList.isEmpty())
 +        assertEquals(1, request.rejections)
 +        feature.stop()
++    }
++}
++
++private fun pref(value: Any?, type: BrowserPrefType = BrowserPrefType.BOOL) =
++    BrowserPreference(QUIET_NOTICE_PREF, value, value, null, false, type)
++
++/** Answers getBrowserPref with [answer], or with an error when it is null. */
++@OptIn(ExperimentalAndroidComponentsApi::class)
++private class FakePrefs(private val answer: BrowserPreference<*>?) : BrowserPreferencesRuntime {
++    val asked = mutableListOf<String>()
++    override fun getBrowserPref(
++        pref: String,
++        onSuccess: (BrowserPreference<*>) -> Unit,
++        onError: (Throwable) -> Unit,
++    ) {
++        asked += pref
++        if (answer != null) onSuccess(answer) else onError(IllegalStateException("no such pref"))
 +    }
 +}
 +
@@ -3187,7 +3349,7 @@ diff --git a/modules/libpref/init/StaticPrefList.yaml b/modules/libpref/init/Sta
 index 2e070f3752..174967968b 100644
 --- a/modules/libpref/init/StaticPrefList.yaml
 +++ b/modules/libpref/init/StaticPrefList.yaml
-@@ -12144,21 +12144,13 @@
+@@ -12144,27 +12144,27 @@
  # Prefs starting with "librewolf."
  #---------------------------------------------------------------------------
  
@@ -3213,3 +3375,17 @@ index 2e070f3752..174967968b 100644
    mirror: always
  
  - name: librewolf.webgl.prompt.hide
+   type: RelaxedAtomicBool
+   value: true
+   mirror: always
++
++# Fenix shows a notice for a quiet (blocked-by-default) WebGL or canvas
++# request only when this is true (LW-M7-46, owner decision 2026-10-09: no
++# notice). Blocked requests stay listed in the site controls either way.
++- name: librewolf.webgl.prompt.notice
++  type: bool
++  value: false
++  mirror: never
+ 
+ #---------------------------------------------------------------------------
+ # Prefs starting with "logging."
