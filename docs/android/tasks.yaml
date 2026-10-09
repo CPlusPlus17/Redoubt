@@ -5665,3 +5665,48 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: With the default settings (cookies + cache on), every cold start after a swipe, an OOM kill in the background or a reboot now logs the user out of every site. That is what the setting says (owner decision "Every non-Quit exit"), but it is new behaviour for anyone who never used Quit, including the first start after the update. The guarantee is bounded at 20 s (fail open, retried after the next unclean exit).
+
+  - id: LW-M7-49
+    title: Measure HTTPS-only, revocation, TLS floor and RFP on a build
+    milestone: M7
+    depends_on: [LW-M7-11]
+    owns:
+      - scripts/android-device-probe.py
+      - docs/android/DEVICE-CHECKS.md
+      - docs/android/evidence/lw-m7-49/
+    shared_edit:
+      - scripts/android-smoke.sh
+      - scripts/tests/test-android-smoke.py
+      - docs/android/SMOKE.md
+      - docs/android/PARITY.md
+      - docs/android/parity/network-posture.md
+      - docs/android/RFP-ANDROID.md
+      - scripts/android-network-check.sh
+      - scripts/android-rfp-check.sh
+    what: |
+      Owner decision 2026-10-09, verbatim: "lets do 1,2,7". Item 7: measure
+      the PARITY.md 'Partial' rows that need a device: HTTPS-only,
+      certificate revocation (OCSP/CRLite), TLS version floor, fingerprinting
+      (RFP) coherence. (Items 1 and 2 are separate tasks taken by parallel
+      agents; this id is highest+3 of the ids in use on 2026-10-09, LW-M7-46.)
+      Measure on the API 34 x86_64 emulator, against the published 157.0-3
+      x86_64 APK re-signed with the throwaway key, using only servers the
+      harness runs on the host loopback. Add opt-in smoke checks
+      (--check-tls-floor, --check-revocation, --check-rfp-coherence; extend
+      --check-https-only with a silent-upgrade and an exception-scope row),
+      each with an offline grader test and a tainted negative-control run
+      that makes it fail. Write a ~10-minute phone checklist for what an
+      emulator cannot show (real CRLite filters, a real device's screen,
+      fonts, GPU and time zone, public TLS-only servers) and update PARITY.md
+      with dated results, emulator-measured and device-pending kept apart.
+    acceptance:
+      - "each new check passes on 157.0-3 and fails in an LW_SMOKE_EXTRA_PREFS negative-control run that weakens the posture it measures"
+      - "python3 scripts/tests/test-android-smoke.py passes, including a passing and a failing case for every new grader"
+      - "PARITY.md rows 5, 7, 8 and 9 cite dated evidence under docs/android/evidence/lw-m7-49/ and name what is still device-pending"
+      - "DEVICE-CHECKS.md maps each phone step to a PARITY row; nothing third-party is added to site/"
+    verify: "python3 scripts/tests/test-android-smoke.py && python3 docs/android/board.py --check"
+    effort_h: "6-10"
+    skills: [python, android, tls]
+    agent_safe: yes
+    isolation: worktree
+    risk: An emulator result read as a device result. The emulator has no real CRLite filter state unless Remote Settings synced, a fake GPU and screen, and a harness-chosen time zone; the document must keep those apart.

@@ -473,6 +473,61 @@ task is genuinely done.
 | `--check-update-privacy` | LW-M6-06 | implemented | OFF window: launch, idle, open Settings — no event to an update host, and a dead capture (zero events) fails rather than passes. If the "Check for updates" row exists it must read OFF; the harness flips it, relaunches, and requires the update host to be contacted and nothing else new. A build without a row (compiled out, as a store build should be) passes the OFF half only |
 | `--check-launcher-start` | LW-M3-07 | implemented | launcher (not URL) cold starts on a fresh profile and a restart; fails on the uBO setup-failure dialog, a logged failure, or a missing readiness line. Beta 2 and the first 153.4 candidate: **FAIL** (dialog 30 s into the restart) |
 | `--check-delete-on-quit` | LW-M7-45 | implemented | needs `adb root`; recents swipe then launcher cold start, setting on (selected data deleted before restore, by the start-up guard or by a completed `onTaskRemoved`) and off (tabs restored). LW-M7-45 build: **PASS**; Beta 5: **FAIL** (2 tabs restored) |
+| `--check-tls-floor` | LW-M7-49 | implemented | four host servers, each pinned to exactly one of TLS 1.0/1.1/1.2/1.3 (a child process with its own OpenSSL config, self-handshake-tested first); 1.0 and 1.1 must be refused with an NSS TLS error and no server handshake, 1.2 and 1.3 must load on both a chrome channel and a top-level navigation. See below |
+| `--check-revocation` | LW-M7-49 | implemented | leaves under the harness CA with OCSP AIA to a harness responder: with LibreWolf's posture (OCSP off, CRLite enforce) good/revoked/unreachable-responder leaves load and **no** OCSP request arrives; a stapled "revoked" response is refused with `SEC_ERROR_REVOKED_CERTIFICATE`. Must-staple and CRLite filter state are recorded, not graded |
+| `--check-rfp-coherence` | LW-M7-49 | implemented | sets the device zone to Europe/Zurich before launch, loads a local probe page and its worker, and compares JS, worker and request-header values with the Android RFP spoof values of Firefox 157 (UA, appVersion, oscpu, platform, buildID, hardwareConcurrency 4, maxTouchPoints 5, screen = inner window, CSS device-width, colorDepth 24, time zone `Atlantic/Reykjavik` at offset 0, no Client Hints, timer >= 16 ms) |
+
+### The parity probes (LW-M7-49): `--check-tls-floor`, `--check-revocation`, `--check-rfp-coherence`
+
+They measure the honoured layer of `PARITY.md` rows 7, 8 and 9 (row 5 is
+`--check-https-only`, which now also has `https-only-upgrade` and
+`https-only-exception-scope` rows). They can be combined in one run; every
+server is on the host loopback, nothing third-party is contacted.
+
+- **TLS floor.** A host OpenSSL usually cannot *serve* TLS 1.0/1.1 (system
+  crypto policy). The legacy servers therefore run in a child process with
+  `OPENSSL_CONF` pointing at a generated config (`MinProtocol = TLSv1`,
+  `@SECLEVEL=0`, and on Fedora/RHEL `rh-allow-sha1-signatures`). Before the
+  browser is involved the child handshakes with itself at every version; a
+  version it cannot speak is a harness error (exit 2), never a pass. Each
+  version is probed twice: a system-principal channel from chrome context,
+  which goes through the same socket layer and certificate verifier as a page
+  load and exposes the NSS error name, and a real top-level navigation. A
+  version counts as "connected" only when the server logged a handshake at
+  exactly that version and both probes got the page; "refused" only when no
+  handshake completed, neither probe got the page, and the channel reported a
+  TLS error. Anything in between fails.
+- **Revocation.** Five leaves, 90 days (above
+  `security.pki.cert_short_lifetime_in_days`, which would skip revocation),
+  under the throwaway CA: `good`, `revoked` and `must-staple` with an OCSP AIA
+  URL to a responder the harness runs (`openssl ocsp -index`), `unreachable`
+  with AIA to a closed port, and `stapled-revoked` served by `openssl s_server
+  -status_file` with a pre-signed "revoked" response. LibreWolf's posture is
+  CRLite enforce + OCSP off, so the expected result is that the AIA leaves all
+  load and the responder sees zero requests, while the stapled one is refused.
+  CRLite itself cannot be exercised with a private CA (it covers only
+  CT-logged certificates from built-in roots); the check records the loaded
+  filter hashes and the `security-state/cert-revocations` collection's
+  timestamp instead. Must-staple without a staple is recorded only: Gecko's
+  own comment says it is not handled when OCSP fetching is off.
+- **RFP coherence.** Probe page `/rfp-probe` and worker `/rfp-worker.js` on the
+  harness origin. Graded items come from Gecko 157 source (`nsRFPService.h`,
+  `RuntimeService.cpp`, `nsScreen.cpp`, `Navigator.cpp`); canvas, WebGL,
+  fonts, media queries and DPR are recorded only, because their "right" value
+  is device-dependent. The spoofed zone is `Atlantic/Reykjavik`
+  (`nsRFPService::GetSpoofedJSTimeZone`), not "UTC". CSS `device-height` is
+  recorded, not graded: under RFP it is the pres context's visible area, which
+  on GeckoView moves with the dynamic toolbar (measured once equal to
+  `innerHeight`, once not, on the same build). Emulator caveats: `navigator.webdriver` is true under
+  Marionette; the AVD has 4 cores, so `hardwareConcurrency = 4` does not
+  discriminate there; the harness changes the device zone with `cmd alarm
+  set-timezone` and restores it afterwards. The same page and grader serve a
+  real phone through `scripts/android-device-probe.py` (`DEVICE-CHECKS.md`).
+
+Negative controls (tainted runs, exit 1 by design):
+`LW_SMOKE_EXTRA_PREFS='{"security.tls.version.min": 1, "security.tls.version.enable-deprecated": true}'`,
+`'{"security.OCSP.enabled": 1}'` and `'{"privacy.resistFingerprinting": false}'`.
+Results: `docs/android/evidence/lw-m7-49/`.
 
 ### `--check-search` deserves a note
 
@@ -794,6 +849,17 @@ with the probe's own evidence recorded as:
 
 Every other check passed. The build installed and browsed. That is the failure
 mode landmine L1 describes, reproduced on purpose, and the harness caught it.
+
+**Startup prefs lose to the cfg (measured, LW-M7-49).** The debug config's
+prefs are applied before autoconfig, so a `defaultPref()`/`pref()` in
+`librewolf.cfg` replaces them: an injected `security.OCSP.enabled: 1`,
+`privacy.resistFingerprinting: false` or `security.tls.version.enable-deprecated:
+true` was back at the cfg value before the first page
+(`evidence/lw-m7-49/harness/startup-injection-overridden.json`). The harness
+therefore also sets every injected pref as a user value in the running app,
+right after the session opens; the L1 canary is unaffected (its pref is not in
+the cfg). A check that runs before that point (`--first-run-capture`,
+`--check-launcher-start`) still sees only the startup injection.
 
 ---
 

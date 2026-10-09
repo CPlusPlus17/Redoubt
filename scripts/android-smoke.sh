@@ -713,8 +713,12 @@ class Origin:
         self.root = root
         self.http_port, self.https_port = http_port, https_port
         self.requests = []
+        # (time, scheme, path, {lower-case header: value}) -- what the browser
+        # actually sent, for --check-rfp-coherence's header-vs-JS comparison.
+        self.headers_log = []
         lock = threading.Lock()
         reqs = self.requests
+        heads = self.headers_log
         media = dict(media or {})
         class H(http.server.BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -723,7 +727,9 @@ class Origin:
             def do_GET(self):
                 with lock:
                     reqs.append((time.time(), self.scheme, self.path))
-                ubo = ubo_probe_response(self.path)
+                    heads.append((time.time(), self.scheme, self.path,
+                                  {k.lower(): v for k, v in self.headers.items()}))
+                ubo = ubo_probe_response(self.path) or rfp_probe_response(self.path)
                 if ubo is not None:
                     body, ctype = ubo
                 elif self.path.startswith("/fixture.webm"):
@@ -5109,6 +5115,910 @@ def check_update_privacy(app, adb, pcap, capture_seconds, res, scheme):
             evidence)
     return ok
 
+# --------------------------------------------------------------------------
+# Network and fingerprinting parity probes (LW-M7-49).
+#
+# PARITY.md rows 5, 7, 8 and 9 were "configured, honoured PENDING". These
+# probes measure the honoured layer against servers the harness owns, on the
+# host loopback (the emulator reaches it at 10.0.2.2). Nothing third-party is
+# contacted. Each grade is a pure function so the offline tests can feed it
+# both a passing and a failing observation.
+# --------------------------------------------------------------------------
+TLS_FLOOR_VERSIONS = ("1.0", "1.1", "1.2", "1.3")
+# LibreWolf's posture: security.tls.version.min left at Gecko's default (3 =
+# TLS 1.2) and security.tls.version.enable-deprecated false (common.cfg).
+TLS_FLOOR_EXPECT = {"1.0": False, "1.1": False, "1.2": True, "1.3": True}
+TLS_FLOOR_PROTOCOL = {"1.0": "TLSv1", "1.1": "TLSv1.1", "1.2": "TLSv1.2", "1.3": "TLSv1.3"}
+
+# A host OpenSSL normally refuses to *serve* TLS 1.0/1.1 (security level and,
+# on Fedora/RHEL, SHA-1 signatures are disabled by the system crypto policy).
+# The legacy servers therefore run in a child process with their own config.
+# The rh- key is ignored by non-RHEL OpenSSL builds. Whether it worked is not
+# assumed: the child handshakes with itself at every version first, and a
+# version it cannot serve stops the check as a harness error, never a pass.
+LEGACY_OPENSSL_CNF = """openssl_conf = openssl_init
+[openssl_init]
+alg_section = evp_properties
+ssl_conf = ssl_module
+[evp_properties]
+rh-allow-sha1-signatures = yes
+[ssl_module]
+system_default = sysdef
+[sysdef]
+MinProtocol = TLSv1
+CipherString = ALL:@SECLEVEL=0
+"""
+
+TLS_FLOOR_SERVER_PY = r'''
+import json, socket, ssl, sys, threading, time, warnings
+warnings.simplefilter("ignore")
+cfg = json.loads(sys.argv[1])
+VER = {"1.0": ssl.TLSVersion.TLSv1, "1.1": ssl.TLSVersion.TLSv1_1,
+       "1.2": ssl.TLSVersion.TLSv1_2, "1.3": ssl.TLSVersion.TLSv1_3}
+lock = threading.Lock()
+def emit(rec):
+    with lock:
+        with open(cfg["log"], "a") as f:
+            f.write(json.dumps(rec) + "\n")
+def server_ctx(v):
+    c = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    c.set_ciphers("ALL:@SECLEVEL=0")
+    c.minimum_version = c.maximum_version = VER[v]
+    c.load_cert_chain(cfg["pem"])
+    return c
+def selftest():
+    out = {}
+    for v in VER:
+        ls = socket.socket(); ls.bind(("127.0.0.1", 0)); ls.listen(1)
+        srv = server_ctx(v)
+        cli = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        cli.check_hostname = False; cli.verify_mode = ssl.CERT_NONE
+        cli.set_ciphers("ALL:@SECLEVEL=0")
+        cli.minimum_version = cli.maximum_version = VER[v]
+        got = {}
+        def accept():
+            c, _ = ls.accept()
+            try:
+                t = srv.wrap_socket(c, server_side=True); got["v"] = t.version(); t.close()
+            except Exception as e:
+                got["e"] = str(e)
+        th = threading.Thread(target=accept); th.start()
+        try:
+            cs = cli.wrap_socket(socket.create_connection(ls.getsockname(), timeout=10)); cs.close()
+        except Exception as e:
+            got.setdefault("e", str(e))
+        th.join(10); ls.close()
+        out[v] = got.get("v") or ("ERROR " + got.get("e", "?"))
+    return out
+def handle(v, ctx, c):
+    c.settimeout(20)
+    try:
+        t = ctx.wrap_socket(c, server_side=True)
+    except Exception as e:
+        emit({"t": time.time(), "server": v, "handshake": False, "error": str(e)[:200]})
+        c.close()
+        return
+    rec = {"t": time.time(), "server": v, "handshake": True, "version": t.version(),
+           "cipher": t.cipher()[0]}
+    try:
+        data = b""
+        while b"\r\n\r\n" not in data and len(data) < 65536:
+            d = t.recv(4096)
+            if not d:
+                break
+            data += d
+        rec["request"] = data.split(b"\r\n", 1)[0].decode("latin-1")[:200]
+        if rec["request"]:
+            body = ('<!doctype html><meta charset="utf-8"><title>tls %s</title>'
+                    '<p id="marker">tls-floor-ok-%s</p>' % (v, v)).encode()
+            t.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
+                      b"Cache-Control: no-store\r\nConnection: close\r\nContent-Length: "
+                      + str(len(body)).encode() + b"\r\n\r\n" + body)
+    except Exception as e:
+        rec["io_error"] = str(e)[:200]
+    finally:
+        emit(rec)
+        try:
+            t.close()
+        except Exception:
+            pass
+def serve(v, port):
+    ls = socket.socket(); ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    ls.bind((cfg["bind"], port)); ls.listen(16)
+    ctx = server_ctx(v)
+    while True:
+        c, _ = ls.accept()
+        threading.Thread(target=handle, args=(v, ctx, c), daemon=True).start()
+print(json.dumps({"selftest": selftest(), "openssl": ssl.OPENSSL_VERSION}), flush=True)
+for v, port in cfg["ports"].items():
+    threading.Thread(target=serve, args=(v, port), daemon=True).start()
+print("ready", flush=True)
+while True:
+    time.sleep(3600)
+'''
+
+class TlsFloorServers:
+    """One HTTPS server per protocol version, each pinned to exactly that version."""
+    def __init__(self, root, pem):
+        self.root = root
+        self.log = os.path.join(root, "tls-floor.log")
+        open(self.log, "w").close()
+        cnf = os.path.join(root, "legacy-openssl.cnf")
+        with open(cnf, "w") as f:
+            f.write(LEGACY_OPENSSL_CNF)
+        script = os.path.join(root, "tls-floor-server.py")
+        with open(script, "w") as f:
+            f.write(TLS_FLOOR_SERVER_PY)
+        self.ports = {v: free_port() for v in TLS_FLOOR_VERSIONS}
+        cfg = {"pem": pem, "log": self.log, "ports": self.ports,
+               "bind": os.environ.get("LW_SMOKE_BIND", "127.0.0.1")}
+        self.proc = subprocess.Popen([sys.executable, script, json.dumps(cfg)],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                     env=dict(os.environ, OPENSSL_CONF=cnf))
+        first = self.proc.stdout.readline()
+        ready = self.proc.stdout.readline().strip()
+        try:
+            info = json.loads(first)
+        except ValueError:
+            self.stop()
+            raise HarnessError("TLS floor server did not start: %r %s"
+                               % (first, self.proc.stderr.read()[:400] if self.proc.stderr else ""))
+        self.selftest = info.get("selftest", {})
+        self.openssl = info.get("openssl")
+        broken = [v for v in TLS_FLOOR_VERSIONS
+                  if self.selftest.get(v) != TLS_FLOOR_PROTOCOL[v]]
+        if broken or ready != "ready":
+            self.stop()
+            raise HarnessError("the host cannot serve TLS %s (self-handshake: %s); without a "
+                               "server that really speaks the version the floor is unmeasured"
+                               % (", ".join(broken) or "?", self.selftest))
+    def records(self, since=0.0):
+        out = []
+        with open(self.log) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if r.get("t", 0) >= since:
+                    out.append(r)
+        return out
+    def stop(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+            try:
+                self.proc.wait(timeout=10)
+            except Exception:
+                pass
+
+# Chrome-context TLS probe. A system-principal channel goes through the same
+# socket layer and certificate verifier as a page load, and unlike Fenix's
+# error page it exposes the NSS error name.
+JS_CHANNEL_PROBE = r"""
+const [url, done] = arguments;
+const {NetUtil} = ChromeUtils.importESModule("resource://gre/modules/NetUtil.sys.mjs");
+let settled = false;
+const finish = (v) => { if (!settled) { settled = true; done(v); } };
+// Every attribute read is guarded: on a failed handshake some
+// nsITransportSecurityInfo getters throw, and an exception inside
+// onStopRequest would swallow the result (measured: a 60 s script timeout).
+const get = (f) => { try { return f(); } catch (e) { return null; } };
+let ch;
+try {
+  ch = NetUtil.newChannel({uri: url, loadUsingSystemPrincipal: true});
+  ch.loadFlags |= Ci.nsIRequest.LOAD_BYPASS_CACHE | Ci.nsIRequest.INHIBIT_CACHING |
+                  Ci.nsIRequest.LOAD_ANONYMOUS;
+} catch (e) { finish({error: String(e)}); return; }
+let body = "";
+// nsITimer, not setTimeout: the chrome sandbox's timers are not reliable here.
+const timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+globalThis.__redoubtChannelTimer = timer;
+timer.initWithCallback({notify() {
+  try { ch.cancel(Cr.NS_BINDING_ABORTED); } catch (e) {}
+  finish({error: "no onStopRequest within 25 s"});
+}}, 25000, Ci.nsITimer.TYPE_ONE_SHOT);
+try {
+  ch.asyncOpen({
+    QueryInterface: ChromeUtils.generateQI(["nsIStreamListener", "nsIRequestObserver"]),
+    onStartRequest() {},
+    onDataAvailable(req, stream, off, count) {
+      body += NetUtil.readInputStreamToString(stream, count);
+    },
+    onStopRequest(req, status) {
+      timer.cancel();
+      const si = get(() => ch.securityInfo);
+      finish({status: "0x" + (status >>> 0).toString(16),
+              errorCodeString: si ? get(() => si.errorCodeString) : null,
+              protocolVersion: si ? get(() => si.protocolVersion) : null,
+              overridableErrorCategory: si ? get(() => si.overridableErrorCategory) : null,
+              httpStatus: get(() => ch.QueryInterface(Ci.nsIHttpChannel).responseStatus),
+              bodyLength: body.length,
+              marker: (body.match(/id="marker">([^<]*)/) || [])[1] || null});
+    },
+  });
+} catch (e) { timer.cancel(); finish({error: String(e)}); }
+"""
+
+def channel_probe(m, url):
+    return m.async_script(JS_CHANNEL_PROBE, [url], chrome=True) or {}
+
+JS_PAGE_STATE = r"""
+const mk = document.getElementById("marker");
+return {url: location.href, uri: document.documentURI, title: document.title,
+        ready: document.readyState, marker: mk ? mk.textContent : null,
+        secure: window.isSecureContext};
+"""
+
+def navigate_observe(m, url, page_timeout=20000):
+    """Top-level navigation whose failure is an expected outcome. Returns the
+    navigation error (if any) and the document that ended up in the tab."""
+    m.cmd("Marionette:SetContext", {"value": "content"})
+    m.cmd("WebDriver:SetTimeouts", {"pageLoad": page_timeout})
+    nav_error = None
+    try:
+        m.cmd("WebDriver:Navigate", {"url": url})
+    except MarionetteError as error:
+        nav_error = str(error)
+    finally:
+        m.cmd("WebDriver:SetTimeouts", {"pageLoad": 120000})
+    page = {}
+    for _attempt in range(40):
+        try:
+            page = m.script(JS_PAGE_STATE) or {}
+            if page.get("ready") in ("interactive", "complete"):
+                break
+        except MarionetteError as error:
+            page = {"transient_error": str(error)}
+        time.sleep(0.25)
+    return nav_error, page
+
+def grade_tls_floor(observations, prefs):
+    """observations: {version: {"server": [records], "channel": {...}, "page": {...}}}.
+    A version is 'connected' when the server completed a handshake at that
+    version AND the browser got the marker; 'refused' when no handshake
+    completed and the browser saw no marker. Anything else is inconsistent and
+    fails, so a half-measured version can never pass."""
+    verdicts, ok = {}, True
+    for v in TLS_FLOOR_VERSIONS:
+        o = observations.get(v) or {}
+        hs = [r for r in o.get("server", []) if r.get("handshake")]
+        wrong_version = [r for r in hs if r.get("version") != TLS_FLOOR_PROTOCOL[v]]
+        page_marker = (o.get("page") or {}).get("marker") == "tls-floor-ok-%s" % v
+        chan_marker = (o.get("channel") or {}).get("marker") == "tls-floor-ok-%s" % v
+        if hs and page_marker and chan_marker and not wrong_version:
+            outcome = "connected"
+        elif not hs and not page_marker and not chan_marker and o.get("server") is not None:
+            outcome = "refused"
+        else:
+            outcome = "inconsistent"
+        want = "connected" if TLS_FLOOR_EXPECT[v] else "refused"
+        good = outcome == want
+        if not TLS_FLOOR_EXPECT[v] and good and not (o.get("channel") or {}).get("errorCodeString"):
+            good = False   # refused, but not by TLS: the NSS error name must say why
+            outcome = "refused-without-tls-error"
+        verdicts[v] = {"want": want, "got": outcome, "ok": good,
+                       "error": (o.get("channel") or {}).get("errorCodeString"),
+                       "server_errors": sorted({r.get("error", "")[:80] for r in o.get("server", [])
+                                                if not r.get("handshake")})[:3]}
+        ok = ok and good
+    return ok, verdicts
+
+def check_tls_floor(m, res, work, pem, forcefail=False):
+    servers = TlsFloorServers(os.path.join(work, "harness"), pem)
+    try:
+        prefs = m.script(
+            'const p = Services.prefs; const g = (n) => p.getPrefType(n) ? '
+            '(p.getPrefType(n) == p.PREF_BOOL ? p.getBoolPref(n) : p.getPrefType(n) == p.PREF_INT ? '
+            'p.getIntPref(n) : p.getStringPref(n)) : null;'
+            'return {min: g("security.tls.version.min"), max: g("security.tls.version.max"), '
+            'deprecated: g("security.tls.version.enable-deprecated"), '
+            'zeroRtt: g("security.tls.enable_0rtt_data"), '
+            'safeNegotiation: g("security.ssl.require_safe_negotiation"), '
+            'minLocked: p.prefIsLocked("security.tls.version.min"), '
+            'minHasUser: p.prefHasUserValue("security.tls.version.min")};', chrome=True)
+        obs = {}
+        for v in TLS_FLOOR_VERSIONS:
+            url = "https://10.0.2.2:%d/tls-floor?v=%s&n=%s" % (servers.ports[v], v, os.urandom(4).hex())
+            since = time.time() - 1
+            chan = channel_probe(m, url)
+            nav_error, page = navigate_observe(m, url)
+            time.sleep(1)
+            obs[v] = {"url": url, "channel": chan, "navigation_error": nav_error, "page": page,
+                      "server": servers.records(since)}
+        ok, verdicts = grade_tls_floor(obs, prefs)
+        summary = ", ".join("TLS %s %s%s" % (v, verdicts[v]["got"],
+                                             " (%s)" % verdicts[v]["error"] if verdicts[v]["error"] else "")
+                            for v in TLS_FLOOR_VERSIONS)
+        res.add("tls-floor", ok and not forcefail,
+                "%s; security.tls.version.min=%s max=%s enable-deprecated=%s"
+                % (summary, prefs.get("min"), prefs.get("max"), prefs.get("deprecated")),
+                {"prefs": prefs, "verdicts": verdicts, "observations": obs,
+                 "host_selftest": servers.selftest, "host_openssl": servers.openssl,
+                 "expect": TLS_FLOOR_EXPECT})
+        return ok
+    finally:
+        servers.stop()
+
+# ---- certificate revocation --------------------------------------------------
+REVOCATION_LEAVES = (
+    # name,             OCSP index status, AIA target,   stapled response, must-staple
+    ("good",            "V",               "responder",  False,            False),
+    ("revoked",         "R",               "responder",  False,            False),
+    ("unreachable",     "R",               "closed",     False,            False),
+    ("stapled-revoked", "R",               "responder",  True,             False),
+    ("must-staple",     "V",               "responder",  False,            True),
+)
+
+def _ossl(*args, cwd=None):
+    p = subprocess.run(["openssl"] + list(args), capture_output=True, text=True, cwd=cwd)
+    if p.returncode != 0:
+        raise HarnessError("openssl %s failed: %s" % (args[0], p.stderr[-400:]))
+    return p.stdout
+
+class RevocationFixture:
+    """Leaves under the harness CA with OCSP AIA pointing at a responder the
+    harness runs (or at a closed port), one HTTPS server per leaf, and an
+    openssl s_server that staples a 'revoked' response. Every OCSP request the
+    browser makes lands in self.ocsp_requests."""
+    def __init__(self, root):
+        self.dir = os.path.join(root, "revocation")
+        os.makedirs(self.dir, exist_ok=True)
+        ca_crt, ca_key = os.path.join(root, "ca.crt"), os.path.join(root, "ca.key")
+        self.ocsp_port, self.closed_port = free_port(), free_port()
+        self.ocsp_requests = []
+        self.leaves, self.servers, self.procs = {}, [], []
+        bind = os.environ.get("LW_SMOKE_BIND", "127.0.0.1")
+        index = []
+        expiry = time.strftime("%y%m%d%H%M%SZ", time.gmtime(time.time() + 90 * 86400))
+        revoked_at = time.strftime("%y%m%d%H%M%SZ", time.gmtime(time.time() - 3600))
+        for name, status, aia, stapled, must in REVOCATION_LEAVES:
+            key, csr = os.path.join(self.dir, name + ".key"), os.path.join(self.dir, name + ".csr")
+            crt, ext = os.path.join(self.dir, name + ".crt"), os.path.join(self.dir, name + ".ext")
+            subject = "/CN=10.0.2.2 revocation %s" % name
+            _ossl("req", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", csr,
+                  "-subj", subject)
+            port = self.ocsp_port if aia == "responder" else self.closed_port
+            with open(ext, "w") as f:
+                f.write("subjectAltName=IP:10.0.2.2,IP:127.0.0.1\nbasicConstraints=CA:FALSE\n"
+                        "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                        "extendedKeyUsage=serverAuth\n"
+                        "authorityInfoAccess=OCSP;URI:http://10.0.2.2:%d/\n" % port
+                        + ("tlsfeature=status_request\n" if must else ""))
+            # 90 days: longer than security.pki.cert_short_lifetime_in_days, so
+            # Gecko does not skip revocation checking as it does for short-lived certs.
+            _ossl("x509", "-req", "-in", csr, "-CA", ca_crt, "-CAkey", ca_key,
+                  # 16 hex digits, top bit clear: no DER sign byte, so the
+                  # responder's index lookup and `x509 -serial` agree.
+                  "-set_serial", "0x4" + os.urandom(8).hex()[1:], "-out", crt, "-days", "90",
+                  "-extfile", ext)
+            serial = _ossl("x509", "-in", crt, "-noout", "-serial").strip().split("=", 1)[1]
+            index.append("%s\t%s\t%s\t%s\tunknown\t%s" % (
+                status, expiry, revoked_at if status == "R" else "", serial, subject))
+            pem = os.path.join(self.dir, name + ".pem")
+            with open(pem, "w") as f:
+                f.write(open(key).read() + open(crt).read())
+            self.leaves[name] = {"crt": crt, "key": key, "pem": pem, "serial": serial,
+                                 "status": status, "aia": aia, "stapled": stapled,
+                                 "must_staple": must, "port": free_port()}
+        self.index = os.path.join(self.dir, "index.txt")
+        with open(self.index, "w") as f:
+            f.write("\n".join(index) + "\n")
+        self.ca_crt, self.ca_key = ca_crt, ca_key
+        fixture = self
+        class Responder(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+            def log_message(self, fmt, *a):
+                pass
+            def _answer(self, der):
+                fixture.ocsp_requests.append({"t": time.time(), "method": self.command,
+                                              "path": self.path[:120], "bytes": len(der)})
+                body = fixture.respond(der)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/ocsp-response")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                self._answer(self.rfile.read(n))
+            def do_GET(self):
+                raw = urllib.parse.unquote(self.path.lstrip("/"))
+                try:
+                    der = base64.b64decode(raw + "=" * (-len(raw) % 4))
+                except Exception:
+                    der = b""
+                self._answer(der)
+        self.responder = http.server.ThreadingHTTPServer((bind, self.ocsp_port), Responder)
+        threading.Thread(target=self.responder.serve_forever, daemon=True).start()
+        page = os.path.join(self.dir, "page.html")
+        for name, leaf in self.leaves.items():
+            if leaf["stapled"]:
+                req, resp = os.path.join(self.dir, name + ".ocspreq"), os.path.join(self.dir, name + ".ocsp")
+                _ossl("ocsp", "-issuer", ca_crt, "-cert", leaf["crt"], "-reqout", req, "-no_nonce")
+                with open(resp, "wb") as f:
+                    f.write(self.respond(open(req, "rb").read()))
+                with open(page, "w") as f:
+                    f.write('<!doctype html><meta charset="utf-8"><title>revocation</title>'
+                            '<p id="marker">revocation-ok</p>')
+                log_path = os.path.join(self.dir, name + ".s_server.log")
+                self.procs.append(subprocess.Popen(
+                    ["openssl", "s_server", "-accept", "%s:%d" % (bind, leaf["port"]),
+                     "-cert", leaf["crt"], "-key", leaf["key"], "-status_file", resp, "-WWW",
+                     "-quiet"], cwd=self.dir, stdin=subprocess.DEVNULL,
+                    stdout=open(log_path, "w"), stderr=subprocess.STDOUT))
+                leaf["path"] = "/page.html"
+            else:
+                srv = http.server.ThreadingHTTPServer((bind, leaf["port"]), _RevocationPage)
+                ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                ctx.load_cert_chain(leaf["pem"])
+                srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+                threading.Thread(target=srv.serve_forever, daemon=True).start()
+                self.servers.append(srv)
+                leaf["path"] = "/revocation"
+        deadline = time.time() + 15
+        for leaf in self.leaves.values():
+            while not self._listening(leaf["port"]):
+                if time.time() > deadline:
+                    raise HarnessError("revocation fixture server on port %d did not start" % leaf["port"])
+                time.sleep(0.2)
+    @staticmethod
+    def _listening(port):
+        s = socket.socket()
+        s.settimeout(1)
+        try:
+            s.connect(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+        finally:
+            s.close()
+    def respond(self, der):
+        req, resp = os.path.join(self.dir, "in.der"), os.path.join(self.dir, "out.der")
+        with open(req, "wb") as f:
+            f.write(der)
+        _ossl("ocsp", "-index", self.index, "-CA", self.ca_crt, "-rsigner", self.ca_crt,
+              "-rkey", self.ca_key, "-reqin", req, "-respout", resp, "-ndays", "1")
+        return open(resp, "rb").read()
+    def url(self, name):
+        leaf = self.leaves[name]
+        return "https://10.0.2.2:%d%s?n=%s" % (leaf["port"], leaf["path"], os.urandom(4).hex())
+    def stop(self):
+        for s in self.servers + [self.responder]:
+            try:
+                s.shutdown()
+            except Exception:
+                pass
+        for p in self.procs:
+            if p.poll() is None:
+                p.kill()
+
+class _RevocationPage(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    def log_message(self, fmt, *a):
+        pass
+    def do_GET(self):
+        body = (b'<!doctype html><meta charset="utf-8"><title>revocation</title>'
+                b'<p id="marker">revocation-ok</p>')
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+JS_REVOCATION_STATE = r"""
+const done = arguments[arguments.length - 1];
+const p = Services.prefs;
+const g = (n) => p.getPrefType(n) ? (p.getPrefType(n) == p.PREF_BOOL ? p.getBoolPref(n) :
+  p.getPrefType(n) == p.PREF_INT ? p.getIntPref(n) : p.getStringPref(n)) : null;
+const out = {prefs: {}};
+for (const n of ["security.OCSP.enabled", "security.OCSP.require", "security.pki.crlite_mode",
+                 "security.remote_settings.crlite_filters.enabled", "security.pki.crlite_channel",
+                 "security.ssl.enable_ocsp_stapling", "security.ssl.enable_ocsp_must_staple",
+                 "security.pki.cert_short_lifetime_in_days", "security.enterprise_roots.enabled"]) {
+  out.prefs[n] = g(n);
+}
+(async () => {
+  try {
+    const cs = Cc["@mozilla.org/security/certstorage;1"].getService(Ci.nsICertStorage);
+    out.crliteFilterHashes = await new Promise((res) => {
+      try { cs.getCRLiteFilterHashes({done(rv, v) { res(Components.isSuccessCode(rv) ? v : "error " + rv); }}); }
+      catch (e) { res("unavailable: " + e); }
+    });
+  } catch (e) { out.crliteFilterHashes = "unavailable: " + e; }
+  try {
+    const {RemoteSettings} = ChromeUtils.importESModule("resource://services-settings/remote-settings.sys.mjs");
+    const client = RemoteSettings("cert-revocations", {bucketName: "security-state"});
+    out.certRevocationsLastModified = await client.db.getLastModified();
+    out.certRevocationsRecords = (await client.db.list()).length;
+  } catch (e) { out.certRevocationsLastModified = "unavailable: " + e; }
+  done(out);
+})();
+"""
+
+# What LibreWolf ships (settings/common.cfg): CRLite enforce, OCSP fetching off.
+REVOCATION_POSTURE = {"security.OCSP.enabled": 0, "security.pki.crlite_mode": 2}
+
+def grade_revocation(state, obs, ocsp_requests):
+    """state: JS_REVOCATION_STATE; obs: {leaf: {"channel":..,"page":..}};
+    ocsp_requests: what the harness responder logged during the probes.
+    Returns rows [(check, ok, detail, evidence)]."""
+    rows = []
+    prefs = state.get("prefs") or {}
+    posture = {k: prefs.get(k) for k in REVOCATION_POSTURE}
+    def loaded(name):
+        o = obs.get(name) or {}
+        return ((o.get("channel") or {}).get("marker") == "revocation-ok"
+                and (o.get("page") or {}).get("marker") == "revocation-ok")
+    def blocked(name, code):
+        o = obs.get(name) or {}
+        return ((o.get("channel") or {}).get("errorCodeString") == code
+                and (o.get("page") or {}).get("marker") is None)
+    off_ok = (posture == REVOCATION_POSTURE and loaded("good") and loaded("revoked")
+              and loaded("unreachable") and not ocsp_requests)
+    rows.append(("revocation-ocsp-off", off_ok,
+                 "OCSP.enabled=%s crlite_mode=%s; leaf with AIA to a live responder: good %s, "
+                 "revoked %s; AIA to a closed port %s; %d OCSP request(s) reached the responder"
+                 % (prefs.get("security.OCSP.enabled"), prefs.get("security.pki.crlite_mode"),
+                    "loaded" if loaded("good") else "NOT loaded",
+                    "loaded" if loaded("revoked") else "blocked",
+                    "loaded" if loaded("unreachable") else "blocked", len(ocsp_requests)),
+                 {"posture": posture, "expected": REVOCATION_POSTURE,
+                  "ocsp_requests": ocsp_requests}))
+    staple_ok = blocked("stapled-revoked", "SEC_ERROR_REVOKED_CERTIFICATE")
+    rows.append(("revocation-stapled", staple_ok,
+                 "leaf served with a stapled 'revoked' OCSP response: %s"
+                 % ((obs.get("stapled-revoked") or {}).get("channel") or {}).get("errorCodeString"),
+                 {"stapling_pref": prefs.get("security.ssl.enable_ocsp_stapling")}))
+    return rows
+
+def crlite_summary(hashes):
+    """getCRLiteFilterHashes: full filter first, then deltas; '' when none."""
+    if not isinstance(hashes, str):
+        return repr(hashes)
+    if not hashes or hashes.startswith(("unavailable", "error")):
+        return hashes or "none"
+    parts = hashes.split(",")
+    return "%d (full filter %s..., %d delta(s))" % (len(parts), parts[0][:16], len(parts) - 1)
+
+def check_revocation(m, res, work, forcefail=False):
+    fixture = RevocationFixture(os.path.join(work, "harness"))
+    try:
+        state = m.async_script(JS_REVOCATION_STATE, chrome=True) or {}
+        obs = {}
+        start = time.time()
+        for name, *_rest in REVOCATION_LEAVES:
+            url = fixture.url(name)
+            chan = channel_probe(m, url)
+            nav_error, page = navigate_observe(m, url)
+            obs[name] = {"url": url, "channel": chan, "navigation_error": nav_error, "page": page}
+        rows = grade_revocation(state, obs, [r for r in fixture.ocsp_requests if r["t"] >= start - 1])
+        for check, ok, detail, evidence in rows:
+            evidence = dict(evidence, observations=obs, leaves={
+                k: {kk: v[kk] for kk in ("serial", "status", "aia", "stapled", "must_staple", "port")}
+                for k, v in fixture.leaves.items()})
+            res.add(check, ok and not forcefail, detail, evidence)
+        # Recorded, not graded. must-staple without a staple: Gecko's own comment
+        # says OCSP-must-staple is not handled properly when fetching is off
+        # (NSSCertDBTrustDomain.cpp), so this is an observation of Gecko, not a
+        # Redoubt gate. CRLite filter state depends on Remote Settings having
+        # synced from the real network, which the harness does not cause.
+        ms = obs.get("must-staple") or {}
+        res.add("revocation-observed", True,
+                "recorded only: must-staple leaf without staple -> %s; CRLite filters loaded: %s; "
+                "cert-revocations last modified: %s"
+                % ((ms.get("channel") or {}).get("errorCodeString") or
+                   ("loaded" if (ms.get("page") or {}).get("marker") else "not loaded"),
+                   crlite_summary(state.get("crliteFilterHashes")),
+                   state.get("certRevocationsLastModified")),
+                {"state": state, "must_staple": ms})
+        return all(r[1] for r in rows)
+    finally:
+        fixture.stop()
+
+# ---- resist fingerprinting coherence ------------------------------------------
+RFP_PROBE_PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redoubt RFP probe</title></head><body>
+<h1 id="marker">rfp-probe</h1><pre id="out">collecting...</pre>
+<script>
+window.rfpReport = (async () => {
+  const r = {}; const n = navigator;
+  for (const k of ["userAgent", "appVersion", "platform", "oscpu", "buildID", "product",
+                   "productSub", "vendor", "language", "hardwareConcurrency", "maxTouchPoints",
+                   "deviceMemory", "doNotTrack", "globalPrivacyControl", "webdriver",
+                   "cookieEnabled", "pdfViewerEnabled"]) {
+    try { r[k] = n[k] === undefined ? "(undefined)" : n[k]; } catch (e) { r[k] = "error " + e; }
+  }
+  r.languages = Array.from(n.languages || []);
+  r.userAgentData = typeof n.userAgentData;
+  const s = screen;
+  r.screen = {width: s.width, height: s.height, availWidth: s.availWidth, availHeight: s.availHeight,
+              colorDepth: s.colorDepth, pixelDepth: s.pixelDepth,
+              orientation: s.orientation ? s.orientation.type : null};
+  r.window = {innerWidth, innerHeight, outerWidth, outerHeight, devicePixelRatio, screenX, screenY};
+  const q = (x) => matchMedia(x).matches;
+  r.media = {
+    "prefers-color-scheme: dark": q("(prefers-color-scheme: dark)"),
+    "prefers-reduced-motion: reduce": q("(prefers-reduced-motion: reduce)"),
+    "prefers-contrast: more": q("(prefers-contrast: more)"),
+    "forced-colors: active": q("(forced-colors: active)"),
+    "inverted-colors: inverted": q("(inverted-colors: inverted)"),
+    "dynamic-range: high": q("(dynamic-range: high)"),
+    "color-gamut: p3": q("(color-gamut: p3)"),
+    "pointer: coarse": q("(pointer: coarse)"), "pointer: fine": q("(pointer: fine)"),
+    "any-pointer: coarse": q("(any-pointer: coarse)"), "hover: hover": q("(hover: hover)"),
+    "device-width = innerWidth": q("(device-width: " + innerWidth + "px)"),
+    "device-height = innerHeight": q("(device-height: " + innerHeight + "px)"),
+    "resolution = devicePixelRatio": q("(resolution: " + devicePixelRatio + "dppx)"),
+  };
+  const cssPx = (f) => { let lo = 0, hi = 20000;
+    while (lo < hi) { const mid = Math.ceil((lo + hi) / 2);
+      if (q("(min-" + f + ": " + mid + "px)")) lo = mid; else hi = mid - 1; }
+    return lo; };
+  r.cssDevice = {width: cssPx("device-width"), height: cssPx("device-height")};
+  const ro = Intl.DateTimeFormat().resolvedOptions();
+  r.timeZone = ro.timeZone; r.intlLocale = ro.locale;
+  r.tzOffsetNow = new Date().getTimezoneOffset();
+  r.tzOffsetJan = new Date(2026, 0, 15).getTimezoneOffset();
+  r.tzOffsetJul = new Date(2026, 6, 15).getTimezoneOffset();
+  r.dateString = new Date(0).toString();
+  r.numberFormat = (1234567.891).toLocaleString();
+  const deltas = (f) => { const v = new Set(); const t0 = performance.now();
+    while (performance.now() - t0 < 150) v.add(f());
+    const a = Array.from(v).sort((x, y) => x - y); let min = Infinity;
+    for (let i = 1; i < a.length; i++) min = Math.min(min, a[i] - a[i - 1]);
+    return {distinct: a.length, minDelta: min === Infinity ? null : min}; };
+  r.performanceNow = deltas(() => performance.now());
+  r.dateNow = deltas(() => Date.now());
+  const sha = async (str) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",
+      new TextEncoder().encode(str)))).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+  try {
+    const c = document.createElement("canvas"); c.width = 16; c.height = 16;
+    const x = c.getContext("2d"); x.fillStyle = "rgb(10,20,30)"; x.fillRect(0, 0, 16, 16);
+    const d = x.getImageData(0, 0, 16, 16).data; let exact = 0; const distinct = new Set();
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] == 10 && d[i + 1] == 20 && d[i + 2] == 30 && d[i + 3] == 255) exact++;
+      distinct.add(d[i] + "," + d[i + 1] + "," + d[i + 2] + "," + d[i + 3]);
+    }
+    const t = document.createElement("canvas"); t.width = 200; t.height = 40;
+    const tx = t.getContext("2d"); tx.font = "18px sans-serif"; tx.fillStyle = "#f60";
+    tx.fillText("Redoubt fingerprint \u{1F600}", 2, 24);
+    const u1 = t.toDataURL(), u2 = t.toDataURL();
+    r.canvas = {solidExactPixels: exact, pixels: d.length / 4, distinctColors: distinct.size,
+                firstPixel: Array.from(d.slice(0, 4)), textHash1: await sha(u1),
+                textHash2: await sha(u2), textStableInPage: u1 === u2};
+  } catch (e) { r.canvas = {error: String(e)}; }
+  try {
+    const gl = document.createElement("canvas").getContext("webgl");
+    if (!gl) { r.webgl = {error: "no context"}; } else {
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      r.webgl = {vendor: gl.getParameter(gl.VENDOR), renderer: gl.getParameter(gl.RENDERER),
+                 debugRendererInfo: !!ext,
+                 unmaskedVendor: ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : null,
+                 unmaskedRenderer: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : null,
+                 maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+                 extensions: (gl.getSupportedExtensions() || []).length};
+    }
+  } catch (e) { r.webgl = {error: String(e)}; }
+  try {
+    const fc = document.createElement("canvas").getContext("2d"); const probe = "mmmmmmmmmmlli1WWW@#";
+    const w = (f) => { fc.font = "72px " + f; return fc.measureText(probe).width; };
+    const base = ["monospace", "serif", "sans-serif"].map(w);
+    const fonts = ["Roboto", "Noto Sans", "Noto Serif", "Droid Sans", "Droid Sans Mono", "Arial",
+                   "Helvetica", "Times New Roman", "Courier New", "Verdana", "Georgia",
+                   "Comic Sans MS", "DejaVu Sans", "Liberation Sans", "Cutive Mono",
+                   "Dancing Script", "Coming Soon", "Carrois Gothic SC", "Source Sans Pro",
+                   "Google Sans", "Samsung Sans", "SamsungOne", "OnePlus Sans", "MiSans"];
+    r.fontsDetected = fonts.filter((f) => ["monospace", "serif", "sans-serif"].some(
+        (b, i) => w("'" + f + "'," + b) != base[i]));
+  } catch (e) { r.fontsDetected = "error " + e; }
+  try {
+    const ac = new OfflineAudioContext(1, 128, 44100); r.audioSampleRate = ac.sampleRate;
+  } catch (e) { r.audioSampleRate = "error " + e; }
+  r.worker = await new Promise((res) => {
+    try {
+      const w = new Worker("/rfp-worker.js");
+      w.onmessage = (e) => res(e.data); w.onerror = (e) => res({error: String(e.message)});
+      setTimeout(() => res({error: "timeout"}), 10000);
+    } catch (e) { res({error: String(e)}); }
+  });
+  document.getElementById("out").textContent = JSON.stringify(r, null, 1);
+  // scripts/android-device-probe.py serves this page to a real phone and
+  // asks for the report back; the smoke harness reads #out instead.
+  if (new URLSearchParams(location.search).has("post")) {
+    fetch("/rfp-report", {method: "POST", body: JSON.stringify(r)}).catch(() => {});
+  }
+  return r;
+})();
+</script></body></html>"""
+
+RFP_WORKER_JS = r"""
+const n = self.navigator; const ro = Intl.DateTimeFormat().resolvedOptions();
+postMessage({userAgent: n.userAgent, appVersion: n.appVersion, platform: n.platform,
+             language: n.language, languages: Array.from(n.languages || []),
+             hardwareConcurrency: n.hardwareConcurrency, timeZone: ro.timeZone,
+             tzOffsetNow: new Date().getTimezoneOffset(),
+             userAgentData: typeof n.userAgentData});
+"""
+
+def rfp_probe_response(path):
+    p = urllib.parse.urlsplit(path).path
+    if p == "/rfp-probe":
+        return RFP_PROBE_PAGE.encode(), "text/html; charset=utf-8"
+    if p == "/rfp-worker.js":
+        return RFP_WORKER_JS.encode(), "application/javascript"
+    return None
+
+# Expected values: firefox-157.0 toolkit/components/resistfingerprinting/
+# nsRFPService.h (SPOOFED_* for MOZ_WIDGET_ANDROID, LEGACY_BUILD_ID),
+# nsRFPService.cpp (GetSpoofedUserAgent, RFP_TIME_ATOM_MS = 16.667,
+# GetSpoofedJSTimeZone),
+# dom/workers/RuntimeService.cpp (ClampedHardwareConcurrency: 4 off macOS),
+# dom/base/nsScreen.cpp (screen = top window inner rect), Navigator.cpp.
+RFP_ANDROID = {"appVersion": "5.0 (Android 10)", "oscpu": "Linux armv81",
+               "platform": "Linux armv81", "buildID": "20181001000000",
+               "hardwareConcurrency": 4, "maxTouchPoints": 5, "colorDepth": 24}
+RFP_TIMER_MIN_MS = 16.0
+# nsRFPService::GetSpoofedJSTimeZone (157): a UTC+0 zone without DST.
+RFP_TIMEZONE = "Atlantic/Reykjavik"
+# A zone that is not UTC in winter or summer, so a UTC report cannot be the
+# AVD's own default.
+RFP_DEVICE_TZ = "Europe/Zurich"
+
+def rfp_expected_ua(major):
+    return "Mozilla/5.0 (Android 10; Mobile; rv:%s.0) Gecko/%s.0 Firefox/%s.0" % (major, major, major)
+
+def grade_rfp_coherence(report, headers, major):
+    """report: the page's rfpReport; headers: request headers the origin saw for
+    the probe page (lower-case keys); major: Services.appinfo.version major.
+    Returns (ok, items) where items is a list of {name, ok, got, want}."""
+    r, w = report or {}, (report or {}).get("worker") or {}
+    items = []
+    def item(name, ok, got, want):
+        items.append({"name": name, "ok": bool(ok), "got": got, "want": want})
+    ua = rfp_expected_ua(major)
+    item("userAgent spoofed", r.get("userAgent") == ua, r.get("userAgent"), ua)
+    item("User-Agent header = navigator.userAgent", headers.get("user-agent") == r.get("userAgent"),
+         headers.get("user-agent"), r.get("userAgent"))
+    item("worker userAgent = navigator.userAgent", w.get("userAgent") == r.get("userAgent"),
+         w.get("userAgent"), r.get("userAgent"))
+    for k in ("appVersion", "oscpu", "platform", "buildID", "hardwareConcurrency", "maxTouchPoints"):
+        item(k, r.get(k) == RFP_ANDROID[k], r.get(k), RFP_ANDROID[k])
+    item("worker platform/appVersion/hardwareConcurrency = window",
+         (w.get("platform"), w.get("appVersion"), w.get("hardwareConcurrency"))
+         == (r.get("platform"), r.get("appVersion"), r.get("hardwareConcurrency")),
+         [w.get("platform"), w.get("appVersion"), w.get("hardwareConcurrency")],
+         [r.get("platform"), r.get("appVersion"), r.get("hardwareConcurrency")])
+    s, win = r.get("screen") or {}, r.get("window") or {}
+    item("screen = inner window (no device size)",
+         (s.get("width"), s.get("height"), s.get("availWidth"), s.get("availHeight"))
+         == (win.get("innerWidth"), win.get("innerHeight"), win.get("innerWidth"), win.get("innerHeight")),
+         [s.get("width"), s.get("height"), s.get("availWidth"), s.get("availHeight")],
+         [win.get("innerWidth"), win.get("innerHeight")] * 2)
+    # device-height is not graded: under RFP it is the pres context's visible
+    # area (nsMediaFeatures.cpp GetSize), which on GeckoView includes the
+    # dynamic toolbar's space, so it differs from innerHeight and screen.height
+    # on stock Firefox for Android as well. Measured and published instead.
+    item("CSS device-width = inner window width",
+         (r.get("media") or {}).get("device-width = innerWidth") is True,
+         (r.get("cssDevice") or {}).get("width"), win.get("innerWidth"))
+    item("colorDepth", s.get("colorDepth") == RFP_ANDROID["colorDepth"], s.get("colorDepth"),
+         RFP_ANDROID["colorDepth"])
+    zone = RFP_TIMEZONE
+    item("time zone %s, offset 0 (window and worker)" % RFP_TIMEZONE,
+         r.get("timeZone") == zone and w.get("timeZone") == zone
+         and r.get("tzOffsetNow") == 0 and r.get("tzOffsetJan") == 0 and r.get("tzOffsetJul") == 0
+         and w.get("tzOffsetNow") == 0,
+         [r.get("timeZone"), w.get("timeZone"), r.get("tzOffsetJan"), r.get("tzOffsetJul")],
+         [zone, zone, 0, 0])
+    al = (headers.get("accept-language") or "").split(",")[0].split(";")[0].strip()
+    item("Accept-Language = navigator.language = worker",
+         bool(al) and al.lower() == str(r.get("language")).lower()
+         and w.get("language") == r.get("language") and w.get("languages") == r.get("languages"),
+         [al, r.get("language"), w.get("language")], "all equal")
+    ch = sorted(k for k in headers if k.startswith("sec-ch-"))
+    item("no Client Hints (no navigator.userAgentData, no Sec-CH-* headers)",
+         r.get("userAgentData") == "undefined" and w.get("userAgentData") == "undefined" and not ch,
+         [r.get("userAgentData"), w.get("userAgentData"), ch], ["undefined", "undefined", []])
+    pn = (r.get("performanceNow") or {}).get("minDelta")
+    item("performance.now() clamped to >= 16 ms", pn is not None and pn >= RFP_TIMER_MIN_MS,
+         pn, ">= %.1f" % RFP_TIMER_MIN_MS)
+    ok = all(i["ok"] for i in items)
+    return ok, items
+
+def set_device_timezone(adb, tz):
+    """Best effort: a non-UTC device zone makes the UTC check meaningful."""
+    before = adb.shell("getprop persist.sys.timezone", timeout=30).strip()
+    adb.shell("cmd alarm set-timezone %s" % tz, timeout=30)
+    after = adb.shell("getprop persist.sys.timezone", timeout=30).strip()
+    return before, after
+
+def check_rfp_coherence(m, res, origin, https_url, device_tz, forcefail=False):
+    """device_tz: (before, during) from set_device_timezone, applied by main()
+    before the app started so that Gecko sees the non-UTC zone from launch."""
+    before, after = device_tz
+    major = m.script('return Services.appinfo.version.split(".")[0];', chrome=True)
+    rfp = m.script('return {rfp: Services.prefs.getBoolPref("privacy.resistFingerprinting", false), '
+                   'pbmode: Services.prefs.getBoolPref("privacy.resistFingerprinting.pbmode", false), '
+                   'fpp: Services.prefs.getBoolPref("privacy.fingerprintingProtection", false), '
+                   'spoofEnglish: Services.prefs.getIntPref("privacy.spoof_english", -1), '
+                   'webglDisabled: Services.prefs.getBoolPref("webgl.disabled", false), '
+                   'locked: Services.prefs.prefIsLocked("privacy.resistFingerprinting")};', chrome=True)
+    url = https_url.rstrip("/") + "/rfp-probe?n=" + os.urandom(4).hex()
+    since = time.time() - 1
+    m.cmd("Marionette:SetContext", {"value": "content"})
+    m.cmd("WebDriver:Navigate", {"url": url})
+    # The page writes its report into #out when every probe (worker
+    # included) has settled; read that text rather than crossing Xrays.
+    report = {}
+    for _attempt in range(120):
+        try:
+            text = m.script('const o = document.getElementById("out"); return o ? o.textContent : null;')
+        except MarionetteError:
+            text = None
+        if text and text.startswith("{"):
+            report = json.loads(text)
+            break
+        time.sleep(0.25)
+    heads = [h for h in origin.headers_log if h[0] >= since and h[2].startswith("/rfp-probe")]
+    headers = heads[-1][3] if heads else {}
+    ok, items = grade_rfp_coherence(report, headers, major)
+    bad = [i["name"] for i in items if not i["ok"]]
+    res.add("rfp-coherence", ok and not forcefail,
+            ("%d/%d coherence items hold (RFP=%s); device time zone %s" %
+             (len(items) - len(bad), len(items), rfp.get("rfp"), after or "?"))
+            + ("; FAILED: %s" % "; ".join(bad) if bad else ""),
+            {"items": items, "report": report, "request_headers": headers,
+             "prefs": rfp, "device_timezone": {"before": before, "during": after},
+             "harness_artifacts": "navigator.webdriver is true under Marionette; "
+                                  "on a real device it is false"})
+    return ok
+
+# ---- HTTPS-only: silent upgrade and exception scope --------------------------
+def check_https_only_extended(m, res, origin, other_origin, forcefail=False):
+    """After check_https_only granted an exception for origin A:
+    - an http:// URL on a port that speaks TLS is upgraded silently;
+    - origin A's exception holds on a second HTTP navigation;
+    - a different origin (B) still gets the interstitial: the exception is scoped.
+    The exception's permission type and lifetime are recorded."""
+    # Silent upgrade: http://10.0.2.2:<https_port>/ must end at https:// with the page.
+    since = time.time()
+    up_url = "http://10.0.2.2:%d/?upgrade-%s" % (origin.https_port, os.urandom(4).hex())
+    nav_error, page = navigate_observe(m, up_url)
+    served = [r for r in origin.got("/", since - 1) if r[1] == "https"]
+    up_ok = (str(page.get("url", "")).startswith("https://10.0.2.2:%d/" % origin.https_port)
+             and page.get("marker") == "lw-smoke-page-ok" and page.get("secure") is True
+             and bool(served))
+    res.add("https-only-upgrade", up_ok and not forcefail,
+            "%s -> %s (marker=%r, secure=%s), origin logged %d https request(s)"
+            % (up_url, page.get("url"), page.get("marker"), page.get("secure"), len(served)),
+            {"page": page, "navigation_error": nav_error})
+    # Exception kept for A, not extended to B.
+    a_url = "http://10.0.2.2:%d/?again-%s" % (origin.http_port, os.urandom(4).hex())
+    _e1, a_page = navigate_observe(m, a_url)
+    b_url = "http://10.0.2.2:%d/?other-%s" % (other_origin.http_port, os.urandom(4).hex())
+    _e2, b_page = navigate_observe(m, b_url)
+    perm = m.script(
+        'const out = [];'
+        'for (const p of Services.perms.all) {'
+        '  if (p.type.startsWith("https-only")) out.push({type: p.type, origin: p.principal.origin, '
+        '    capability: p.capability, expireType: p.expireType});'
+        '} return out;', chrome=True)
+    b_interstitial = str(b_page.get("uri", "")).startswith("resource://android/assets/") and \
+        "showContinueHttp=true" in str(b_page.get("uri", ""))
+    scope_ok = (a_page.get("marker") == "lw-smoke-page-ok" and a_page.get("secure") is False
+                and b_interstitial and b_page.get("marker") is None)
+    res.add("https-only-exception-scope", scope_ok and not forcefail,
+            "origin A after Continue: %s; origin B (other port): %s; https-only permissions: %s"
+            % ("loads over HTTP" if a_page.get("marker") else "blocked",
+               "interstitial" if b_interstitial else "NO interstitial (%s)" % b_page.get("uri"),
+               ", ".join("%s %s expireType=%s" % (p["origin"], p["type"], p["expireType"])
+                         for p in (perm or [])) or "none"),
+            {"a_page": a_page, "b_page": b_page, "permissions": perm,
+             "expire_types": "0 = never, 1 = session, 2 = time (nsIPermissionManager)"})
+    return up_ok and scope_ok
+
 NOT_IMPLEMENTED = {
 }
 
@@ -5163,7 +6073,7 @@ def main(argv):
     for f in ("ubo", "ubo-preinstall", "ubo-lifecycle", "ubo-user-disable", "search", "no-gms", "no-adjust",
               "aboutconfig", "no-suggest", "strings", "update-privacy",
               "no-remote-settings", "https-only", "launcher-start", "video",
-              "delete-on-quit"):
+              "delete-on-quit", "tls-floor", "revocation", "rfp-coherence"):
         ap.add_argument("--check-" + f, action="store_true")
     ap.add_argument("--no-suggest-negative-control", action="store_true",
                     help="with --check-no-suggest: turn 'Show search suggestions' ON before "
@@ -5222,7 +6132,8 @@ def main(argv):
         or args.check_aboutconfig or args.check_no_suggest or args.check_update_privacy
         or args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_https_only
         or args.check_launcher_start or args.check_video or args.self_test
-        or args.check_ubo_user_disable)
+        or args.check_ubo_user_disable or args.check_tls_floor or args.check_revocation
+        or args.check_rfp_coherence)
     if args.check_no_gms:
         check_no_gms(apk, res)
     if args.check_no_adjust:
@@ -5266,6 +6177,7 @@ def main(argv):
     origin = None
     m = None
     bootstrap_reverse = None
+    device_tz = None
     try:
         app.install(apk, preserve_state=args.keep_state)
         if not args.keep_state:
@@ -5388,6 +6300,11 @@ def main(argv):
         adb.run("reverse", bootstrap_reverse, bootstrap_reverse, check=True)
         bootstrap_url = "http://127.0.0.1:%d/empty" % http_port
 
+        if args.check_rfp_coherence:
+            # Before the app starts, so Gecko's own zone is the device's
+            # non-UTC one: a UTC answer is then RFP's doing, not the AVD's.
+            device_tz = set_device_timezone(adb, RFP_DEVICE_TZ)
+            log("device time zone %s -> %s for the RFP probe" % device_tz)
         cap_off = pcap_size(pcap) if pcap else 0
         m = open_session(app, bootstrap_url)
         wait_for_initial_document(m, bootstrap_url)
@@ -5401,6 +6318,23 @@ def main(argv):
                  '.getService(Ci.nsIX509CertDB);'
                  'return db.addCertFromBase64(arguments[0], "CTu,CTu,CTu").commonName;',
                  [ca_b64], chrome=True)
+        if extra_prefs:
+            # The debug config's startup prefs land before autoconfig runs, so a
+            # cfg defaultPref()/pref() silently replaces them (measured for
+            # security.OCSP.enabled, privacy.resistFingerprinting and
+            # security.tls.version.enable-deprecated, LW-M7-49). Set them again
+            # as user values in the running app so the diagnostic really runs
+            # with them; the run stays tainted either way.
+            applied = m.script(
+                'const out = {};'
+                'for (const [k, v] of Object.entries(arguments[0])) {'
+                '  if (typeof v === "boolean") Services.prefs.setBoolPref(k, v);'
+                '  else if (Number.isInteger(v)) Services.prefs.setIntPref(k, v);'
+                '  else Services.prefs.setStringPref(k, String(v));'
+                '  out[k] = Services.prefs.getPrefType(k);'
+                '} return out;', [extra_prefs], chrome=True)
+            log("DIAGNOSTIC RUN: also set as user prefs in the running app: %s"
+                % ", ".join(sorted(applied)))
         m.cmd("Marionette:SetContext", {"value": "content"})
 
         # ---- flag-driven single-purpose runs ------------------------------
@@ -5437,7 +6371,25 @@ def main(argv):
             _ok, m = check_aboutconfig(m, res, app, apk, bootstrap_url)
             return finish(res, args, work)
         if args.check_https_only:
-            check_pageload(m, res, origin, http_url, https_url)
+            if check_pageload(m, res, origin, http_url, https_url):
+                # LW-M7-49: silent upgrade and the exception's scope, against a
+                # second origin on another port.
+                other = Origin(os.path.join(work, "harness"), free_port(), free_port(), video,
+                               load_fixtures())
+                try:
+                    check_https_only_extended(m, res, origin, other)
+                finally:
+                    other.stop()
+            if not (args.check_tls_floor or args.check_revocation or args.check_rfp_coherence):
+                return finish(res, args, work)
+        if args.check_tls_floor or args.check_revocation or args.check_rfp_coherence:
+            # LW-M7-49: the honoured layer of PARITY.md rows 7, 8 and 9.
+            if args.check_tls_floor:
+                check_tls_floor(m, res, work, os.path.join(work, "harness", "srv.pem"))
+            if args.check_revocation:
+                check_revocation(m, res, work)
+            if args.check_rfp_coherence:
+                check_rfp_coherence(m, res, origin, https_url, device_tz)
             return finish(res, args, work)
         if args.check_ubo:
             check_ubo(m, res)
@@ -5504,6 +6456,11 @@ def main(argv):
             app.force_stop()
         except Exception:
             pass
+        if device_tz and device_tz[0]:
+            try:
+                adb.shell("cmd alarm set-timezone %s" % device_tz[0], timeout=30)
+            except Exception:
+                pass
         if origin:
             origin.stop()
         if bootstrap_reverse:

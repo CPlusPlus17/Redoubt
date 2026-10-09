@@ -52,7 +52,20 @@ the one **known not to be**: Fenix rewrites both trr prefs on every cold start
 applies only the code-locked subset. The gap is LW-M3-08 (ship the cfg layer on
 Android), not a per-pref disagreement.
 
-## 3. Honoured layer — PENDING
+## 3. Honoured layer — measured 2026-10-10 (LW-M7-49), was PENDING
+
+**Update.** The cfg layer is packaged and applied on Android now (§2's "at
+risk" predates that), and the honoured layer was measured on the published
+157.0-3 APK on an API 34 emulator against local servers: HTTPS-only
+interstitial, silent upgrade and per-origin exception; TLS 1.0/1.1 refused and
+1.2/1.3 connecting; no OCSP request ever sent, a stapled "revoked" response
+refused, and CRLite refusing `revoked.badssl.com` once filters synced. Each
+check has a negative control that fails. DoH is unchanged (Fenix overrides it,
+§2). Results and caveats: `PARITY.md` rows 5, 7, 8 and
+`evidence/lw-m7-49/README.md`; phone steps: `DEVICE-CHECKS.md`.
+
+The text below is the original 2026-08 record.
+
 
 The `--serial/--sdk/--apk` honoured layer dumps the running prefs and navigates
 (the HTTPS-only block, a DoH resolution with Quad9-then-dns4all fallback, a

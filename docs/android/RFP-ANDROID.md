@@ -60,6 +60,18 @@ pref that has no mobile effect.*
 
 ## 4. What is and is not verified
 
+**Update 2026-10-10 (LW-M7-49).** The live probe exists and ran on the 157.0-3
+APK (API 34 emulator): `android-smoke.sh --check-rfp-coherence` passes 17/17
+coherence items, and fails 12/17 with RFP turned off. Our build presents
+Firefox's own Android RFP profile (`Android 10; Mobile` UA, `Linux armv81`,
+4 cores, `Atlantic/Reykjavik`, screen = window, 16.67 ms timers, randomized
+canvas), consistently across window, worker and request headers: not the
+"incoherent hybrid" §2 feared. Still open: how many real phones share the
+window size, DPR, fonts and GPU values, which only a device shows
+(`DEVICE-CHECKS.md` §2, `scripts/android-device-probe.py`). Evidence:
+`evidence/lw-m7-49/README.md`. The 2026-08 text follows.
+
+
 - **Verified (configured gate, `--self-test` passes):** RFP master on,
   `block_mozAddonManager` on, GPC on, and the desktop-only sub-features (window
   size, letterboxing) not pulled into the Android composition. The gate rejects
