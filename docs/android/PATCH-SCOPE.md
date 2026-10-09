@@ -183,7 +183,7 @@ So: android 42 + 1 = 43; total 108 + 1 = 109.
 
 So: android 43 + 1 = 44; total 109 + 1 = 110.
 
-## Android patch revised: no quiet WebGL/canvas notice (2026-10-09, for 158.0-2)
+## Android patch revised: no quiet WebGL/canvas notice (2026-10-09, ships in 158.0-1 from Beta 2)
 
 - **`canvas-webgl-permissions`** (LW-M7-14, revised by LW-M7-46). Owner
   request, verbatim: "the disabled webgl popovers all the time, we disabled it

@@ -5745,8 +5745,8 @@ tasks:
       Gecko pref librewolf.webgl.prompt.notice reads boolean true (read per
       request through Engine.getBrowserPref; missing, other types or errors
       count as false), and only while the request is still pending. The pref
-      defaults to false in StaticPrefList.yaml (mirror: never), so 158.0-2
-      shows nothing; about:config can turn the notice back on. A quiet request
+      defaults to false in StaticPrefList.yaml (mirror: never), so the
+      build shows nothing; about:config can turn the notice back on. A quiet request
       is otherwise unchanged: denied, pending, listed in the site controls
       (trust panel, WebGL and canvas permissions, "Blocked attempt") until
       the page goes away, then consumed and rejected. Non-quiet prompts are
@@ -5755,7 +5755,10 @@ tasks:
       through the site controls; its check
       quiet-review-opens-permissions-in-normal-and-private-tabs is replaced
       by quiet-no-notice and no-quiet-notice-in-normal-and-private-tabs.
-      Ships with 158.0-2, not 158.0-1.
+      First planned for 158.0-2. Owner decision 2026-10-09, verbatim: "Beta 2
+      from the RC now" - merged into android/firefox-158 (cebb03c6) and shipped
+      in the 158.0-1 Beta 2 prerelease built from the 158.0 RC, then in the
+      final 158.0-1 (release-158.0/PREBASE.md section 11).
     acceptance:
       - "OriginBoundPermissionsFeatureTest: a quiet request with the pref false (the default) calls no notice, stays pending with no decision, and is consumed and rejected when its page goes away; with the pref true the notice is shown as before; a stop or a consumed request before the pref answers shows nothing; only a boolean true enables the notice"
       - "on a device, a page that tries WebGL shows no snackbar, getContext('webgl') returns null, and after allowing the site through the site controls WebGL works after the reload; a canvas readback shows no snackbar and stays protected"

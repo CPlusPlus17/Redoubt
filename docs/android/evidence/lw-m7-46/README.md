@@ -3,6 +3,12 @@
 Branch `fix/webgl-quiet-notice`, based on the local `android/firefox-158`
 (`586b310e`). It targets **158.0-2**, not 158.0-1. Nothing was pushed.
 
+**Update 2026-10-09 (owner decision, verbatim: "Beta 2 from the RC now"):**
+merged into the local `android/firefox-158` as `cebb03c6`; it ships in the
+158.0-1 Beta 2 prerelease built from the 158.0 RC and in the final 158.0-1,
+not in 158.0-2. See `../lw-m7-01/release-158.0/PREBASE.md` section 11. The
+device notes below (`158.0-2-default`) describe the test build only.
+
 ## Request
 
 Owner, 2026-10-09, verbatim: "the disabled webgl popovers all the time, we

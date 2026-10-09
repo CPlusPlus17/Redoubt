@@ -666,3 +666,46 @@ The full case set (A, B1, B2, single swipe, Quit) on 157.0-3 is in
 `docs/android/evidence/lw-m7-45/README.md`, section "Follow-up: several
 tasks". On release day, re-run `--check-delete-on-quit` with the rest of the
 acceptance (step 9).
+
+## 11. Owner decision, 2026-10-09: Beta 2 from the RC, with LW-M7-46
+
+Owner decision, verbatim: **"Beta 2 from the RC now"**.
+
+What it means:
+
+- A **158.0-1 Beta 2 prerelease** is built today from Mozilla's 158.0 release
+  candidate (`candidates/158.0-candidates/build2`, the newest build on
+  2026-10-09; the tarball is GPG-verified against the pinned
+  `assets/mozilla-release-key.asc`, sha256
+  `fc77f7801d7580a600af683cc367e261eb1ec74647e84a91b4a1e3c1dd5aa2bb`,
+  814889676 bytes). It carries LW-M7-46 (no "Canvas or WebGL was protected"
+  snackbar), merged into this branch as `cebb03c6`. LW-M7-46 therefore ships
+  in 158.0-1, not 158.0-2 as its first notes said.
+- The **final 158.0-1** follows on **2026-10-13** (Mozilla's official 158.0
+  release, 14:00 UTC) from `releases/158.0/source/`, by section 5.
+- **157.0-3 stays Latest.** The in-app update check must not announce Beta 2:
+  `site/update/` is not touched.
+- `android/firefox-158` stays **local-only**. Beta 2 is built from a pushed
+  copy branch, `android/158-beta2` (this branch plus one config commit, never
+  merged), as Beta 1 was from `android/158-beta1`.
+
+How Beta 2 is built from the RC: `android-release.yaml` runs a plain
+`make fetch TARGETS=android` and has no input for `FF_CHANNEL`/`FF_BUILD`. The
+copy branch therefore changes only the Makefile defaults,
+`FF_CHANNEL ?= candidates` and `FF_BUILD ?= build2`, which makes `make fetch`
+take `candidates/158.0-candidates/build2/source/firefox-158.0.source.tar.xz`
+and check its signature exactly as for a release. No workflow change. This
+branch keeps `releases`/`build1`; the final release must not inherit the RC
+defaults (the copy branch is never merged).
+
+**Telling Beta 2 and the final release apart.** Both have version `158.0`
+and `release.android` `1`, so both report **versionName `158.0-1-default`**
+(the 157.0-1 Beta 5 precedent: same versionName, higher versionCode). They are
+told apart by **versionCode and build date**: Beta 2's codes come from its
+`build_date` on 2026-10-09 and lie above Beta 1's (2016188904-911, build date
+20261007050000). The final 158.0-1 is built on or after 2026-10-13 with a
+later `build_date`, so its codes are higher and it installs over Beta 2. The
+GitHub prerelease tag (`android-158.0-1-beta.2`) and its notes name the RC
+build, the tarball sha256, the build date and the versionCodes. If Mozilla's
+release tarball differs from RC build2, the final release is re-gated against
+it (section 5, steps 1-3).
