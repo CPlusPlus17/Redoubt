@@ -158,8 +158,11 @@ patch_lists := assets/patches/common.txt $(foreach t,$(target_list),assets/patch
 patcher_cmd := python3 scripts/librewolf-patches.py $(version) $(release) --targets=$(TARGETS)
 
 FF_BASE_URL ?= https://archive.mozilla.org/pub/firefox/releases
-FF_CHANNEL ?= releases
-FF_BUILD ?= build1
+# android/158-beta2 only (never merged): Beta 2 is built from Mozilla's 158.0
+# release candidate, so make fetch takes candidates/158.0-candidates/build2
+# (same pinned-key signature check). The final 158.0-1 uses releases/build1.
+FF_CHANNEL ?= candidates
+FF_BUILD ?= build2
 
 # Beta minor suffix (e.g "b9")
 FF_BETA_SUFFIX ?=
