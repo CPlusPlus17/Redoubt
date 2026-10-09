@@ -1,0 +1,21 @@
+$ python3 scripts/check-patch-order.py
+patch order ok: 38/38 declared constraint(s) enforced across 2 target sequence(s); 157 shared-file pair(s) derived and classified.
+exit 0
+$ python3 scripts/lint-patch-scope.py
+lint-patch-scope: OK - 111 patch file(s), no scope violations, no hunk header without line numbers
+exit 0
+$ python3 docs/android/board.py --check
+ok: 128 tasks, 32 waves, 0 warning(s)
+exit 0
+$ python3 docs/android/board.py --check-scope
+ok: 111 listed patch files — 22 common, 46 desktop, 43 android, 0 straddlers parked; PATCH-SCOPE.md agrees
+exit 0
+$ python3 docs/android/board.py --check-cfg-split
+ok: 182 common / 199 desktop / 15 android calls; librewolf.cfg regenerates exactly
+exit 0
+$ python3 docs/android/board.py --diff-mozconfig --strict
+ok: hardening parity holds (0 documented difference(s))
+exit 0
+$ python3 scripts/site-check.py
+PASS: 8 pages checked in <repo>/site, 0 problem(s)
+exit 0
