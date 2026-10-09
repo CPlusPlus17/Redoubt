@@ -183,6 +183,25 @@ So: android 42 + 1 = 43; total 108 + 1 = 109.
 
 So: android 43 + 1 = 44; total 109 + 1 = 110.
 
+## Android patch revised: no quiet WebGL/canvas notice (2026-10-09, for 158.0-2)
+
+- **`canvas-webgl-permissions`** (LW-M7-14, revised by LW-M7-46). Owner
+  request, verbatim: "the disabled webgl popovers all the time, we disabled it
+  be choice, so do not show this warning". A WebGL or canvas attempt that is
+  blocked by default (a quiet request, `librewolf.webgl.prompt.hide=true`)
+  showed the snackbar "Canvas or WebGL was protected. Review in site
+  permissions." on every page that tried. `OriginBoundPermissionsFeature` now
+  calls that notice only when the new Gecko pref
+  `librewolf.webgl.prompt.notice` reads `true`; it defaults to `false`
+  (`StaticPrefList.yaml`, `mirror: never`), so nothing is shown. The request
+  is unchanged otherwise: denied, pending, and listed in the site controls
+  (trust panel, WebGL and canvas permissions) until the page goes away, and
+  the user can allow the site there. Non-quiet prompts are unchanged. Same
+  patch file and tree paths, plus the pref; `BaseBrowserFragment.kt`'s hunk
+  keeps its line count, so `sync-opt-in` applies at unchanged offsets.
+
+No new list entry: android stays 44, total 110.
+
 ## The Firefox 157 desktop merge — what moved, and why Android did not (history, superseded 2026-10-02)
 
 Desktop moved to Firefox 157.0 (LibreWolf upstream `main`); Android stays on
@@ -403,7 +422,7 @@ own line in this table.
 | `patches/android/disable-data-reporting-android.patch` | LW-M1-02 | `mobile/android/moz.configure:131-132` implies the *opposite* pair to `browser/moz.configure` (`MOZ_NORMANDY` False, `MOZ_SERVICES_HEALTHREPORT` **True**), so the common half alone leaves `MOZ_DATA_REPORTING` on for Android. Must be applied *with* the common half (`disable-data-reporting-common`, common.txt), never instead of it. Pre-merge bytes; applies to 157 unchanged. |
 | `patches/android/neterror-jar.patch` | LW-M1-07 | Packages `illustrations/warning.svg` for `toolkit/themes/mobile`, which never includes `desktop-jar.inc.mn`. Insurance, not a fix — see the LW-M1-07 row below for why the reference is unreachable on Android three ways over. |
 | `patches/android/webgl-prompt-default.patch` | LW-M1-08 | **Landmine L1.** Defaults `librewolf.webgl.prompt` to false on Android, where the prompt's UI and observers are all `browser/`-only. Without it `IsWebGLAllowed_impl` fails closed and every WebGL context dies silently. Shipped in the same change as the split, never as a follow-up. |
-| `patches/android/canvas-webgl-permissions.patch` | LW-M7-14 | Android exact-origin native/GV/Fenix WebGL and canvas permissions, explicit session/private/remembered lifetime, acknowledged document-bound reload and saved exception controls. Supersedes the earlier prompt=false block only with the complete bridge. Source and mocked bridge tests exist; target ABI builds, Android tests and runtime rendering/consent checks remain pending. |
+| `patches/android/canvas-webgl-permissions.patch` | LW-M7-14, revised by LW-M7-46 | Android exact-origin native/GV/Fenix WebGL and canvas permissions, explicit session/private/remembered lifetime, acknowledged document-bound reload and saved exception controls. Quiet (blocked-by-default) requests show no notice since LW-M7-46 unless `librewolf.webgl.prompt.notice` is true (default false); they stay reviewable in the site controls. Supersedes the earlier prompt=false block only with the complete bridge. Source and mocked bridge tests exist; target ABI builds, Android tests and runtime rendering/consent checks remain pending. |
 | `patches/android/translation-assets.patch` | LW-M7-16 | Android packaged full catalog and verified WASM, explicit cancellable pinned model downloads, cache-only passive translation/status paths, bounded verified decompression and local cache deletion. Desktop Remote Settings path and both Android allowlists are unchanged. Source/packaging tests pass; target build, actual DOM translation and offline/cancellation behavior remain pending. |
 | `patches/android/home-section-defaults.patch` | LW-M7-24 | Default ordinary top sites, recent tabs, bookmarks and history home sections off on every channel. Existing stored section choices and real customization controls remain available; no history/bookmark database changes. Target tests and actual home/restart behavior remain pending. |
 | `patches/android/addon-state-durability.patch` | LW-M7-19 | Android serializes and acknowledges database/cache persistence before extension lifecycle completion, restores/reconciles cached identities before startup, and preserves corrupt-database recovery and desktop writer behavior. Thirty-six actual-source tests pass; target build and immediate-restart behavior remain pending. |

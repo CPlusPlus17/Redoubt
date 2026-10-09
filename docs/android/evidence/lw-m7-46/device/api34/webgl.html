@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>LW-M7-46 WebGL probe</title>
+<style>body{font:28px sans-serif;margin:16px}#r{font-size:40px;font-weight:bold}</style>
+<h1>WebGL probe</h1><div id="r">running</div>
+<script>
+const c=document.createElement('canvas');const gl=c.getContext('webgl');
+const gl2=document.createElement('canvas').getContext('webgl2');
+const r=document.getElementById('r');
+r.textContent='webgl='+(gl?'CONTEXT':'NULL')+' webgl2='+(gl2?'CONTEXT':'NULL');
+if(gl){gl.clearColor(0,1,0,1);gl.clear(gl.COLOR_BUFFER_BIT);const p=new Uint8Array(4);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,p);r.textContent+=' pixel='+p.join(',');}
+document.title='webgl '+(gl?'CONTEXT':'NULL');
+</script>

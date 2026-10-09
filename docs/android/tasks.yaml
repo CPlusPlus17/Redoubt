@@ -5710,3 +5710,60 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: With the default settings (cookies + cache on), every cold start after a swipe, an OOM kill in the background or a reboot now logs the user out of every site. That is what the setting says (owner decision "Every non-Quit exit"), but it is new behaviour for anyone who never used Quit, including the first start after the update. The guarantee is bounded at 20 s (fail open, retried after the next unclean exit).
+
+  - id: LW-M7-46
+    title: Show no notice for WebGL and canvas blocked by default
+    milestone: M7
+    depends_on: [LW-M7-14, LW-M7-18, LW-M7-12]   # LW-M7-18 owns the graphics harness, LW-M7-12 PATCH-SCOPE.md
+    owns:
+      - docs/android/evidence/lw-m7-46/
+    shared_edit:
+      - patches/android/canvas-webgl-permissions.patch
+      - docs/android/PATCH-SCOPE.md
+      - docs/android/expected-prefs.txt
+      - scripts/android-graphics-smoke.py
+      - scripts/tests/test-android-graphics-smoke.py
+      - scripts/android-smoke.sh
+      - docs/android/SMOKE.md
+    tree_paths:
+      - modules/libpref/init/StaticPrefList.yaml
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt
+    reads:
+      - mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/BrowserPreferencesRuntime.kt
+      - mobile/shared/components/geckoview/GeckoViewPreferences.sys.mjs
+    what: |
+      Owner request 2026-10-09, verbatim: "the disabled webgl popovers all the
+      time, we disabled it be choice, so do not show this warning". With
+      librewolf.webgl.prompt.hide=true (LW-M7-14), a WebGL or canvas attempt
+      that is blocked by default is a quiet request, and Fenix showed the
+      snackbar "Canvas or WebGL was protected. Review in site permissions."
+      (origin_permissions_quiet_notice, BaseBrowserFragment onQuietRequest)
+      on every page that tried. Fix, in canvas-webgl-permissions.patch:
+      OriginBoundPermissionsFeature calls onQuietRequest only when the new
+      Gecko pref librewolf.webgl.prompt.notice reads boolean true (read per
+      request through Engine.getBrowserPref; missing, other types or errors
+      count as false), and only while the request is still pending. The pref
+      defaults to false in StaticPrefList.yaml (mirror: never), so 158.0-2
+      shows nothing; about:config can turn the notice back on. A quiet request
+      is otherwise unchanged: denied, pending, listed in the site controls
+      (trust panel, WebGL and canvas permissions, "Blocked attempt") until
+      the page goes away, then consumed and rejected. Non-quiet prompts are
+      unchanged. The graphics harness now requires the pref to read false,
+      fails any UI dump that shows the notice, and opens the permissions
+      through the site controls; its check
+      quiet-review-opens-permissions-in-normal-and-private-tabs is replaced
+      by quiet-no-notice and no-quiet-notice-in-normal-and-private-tabs.
+      Ships with 158.0-2, not 158.0-1.
+    acceptance:
+      - "OriginBoundPermissionsFeatureTest: a quiet request with the pref false (the default) calls no notice, stays pending with no decision, and is consumed and rejected when its page goes away; with the pref true the notice is shown as before; a stop or a consumed request before the pref answers shows nothing; only a boolean true enables the notice"
+      - "on a device, a page that tries WebGL shows no snackbar, getContext('webgl') returns null, and after allowing the site through the site controls WebGL works after the reload; a canvas readback shows no snackbar and stays protected"
+      - "android-graphics-smoke.py passes on a build with the change (librewolf.webgl.prompt.notice=false, no notice in any dump); a build without the change shows the notice, which the dump check detects"
+      - "canvas-webgl-permissions.patch applies in list order to 158.0b4 and 158.0 and compiles in a real Android build"
+    verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope && python3 scripts/tests/test-android-graphics-smoke.py && python3 scripts/tests/test-android-smoke.py"
+    effort_h: "3-5"
+    skills: [kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: Users no longer learn that a site tried WebGL or canvas; a site that needs WebGL just looks broken until the user opens the site controls. That is the owner's choice; librewolf.webgl.prompt.notice=true restores the notice.

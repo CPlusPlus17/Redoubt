@@ -1,0 +1,13 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>LW-M7-46 canvas probe</title>
+<style>body{font:28px sans-serif;margin:16px}#r{font-size:40px;font-weight:bold}</style>
+<h1>Canvas readback probe</h1><div id="r">running</div>
+<script>
+const c=document.createElement('canvas');c.width=c.height=8;const x=c.getContext('2d');
+x.fillStyle='rgb(10,200,30)';x.fillRect(0,0,8,8);
+const d=x.getImageData(0,0,8,8).data;let exact=true;
+for(let i=0;i<d.length;i+=4){if(d[i]!==10||d[i+1]!==200||d[i+2]!==30||d[i+3]!==255){exact=false;break;}}
+const url=c.toDataURL();
+document.getElementById('r').textContent='readback='+(exact?'EXACT':'PROTECTED')+' first='+[d[0],d[1],d[2],d[3]].join(',')+' dataURL.len='+url.length;
+document.title='canvas '+(exact?'EXACT':'PROTECTED');
+</script>

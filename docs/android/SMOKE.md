@@ -570,7 +570,7 @@ default). The switch is put back OFF afterwards; failing to restore it is
 reported too. The result row is called `check-no-suggest-negative-control`, so
 it cannot be mistaken for the gate.
 
-### Graphics acceptance: the soft keyboard and the quiet Review
+### Graphics acceptance: the soft keyboard and no quiet notice
 
 `scripts/android-graphics-smoke.py` (run as part of the baseline) taps controls
 it found in a uiautomator dump. A dump contains only the app window, so it
@@ -578,7 +578,9 @@ cannot see a window above the app. On the rc2 emulator, a URL submitted from
 the tab-counter menu's New (private) tab leaves the soft keyboard on screen and
 taking touches over the bottom of the screen, even though
 `InputMethodManagerService` reports it hidden. A tap on the quiet "Review"
-snackbar then landed on a key (rc2 defect C, commit `f7f519f6`).
+snackbar then landed on a key (rc2 defect C, commit `f7f519f6`). That
+snackbar is gone since LW-M7-46 (below), but the toolbar and permission
+controls are still tapped the same way.
 
 - **Every tap is checked against the input dispatcher.** Before tapping, the
   harness reads `dumpsys input` and refuses to tap through any foreign window.
@@ -590,17 +592,19 @@ snackbar then landed on a key (rc2 defect C, commit `f7f519f6`).
   Before doing so the harness checks that the covering window belongs to that
   IME's uid, and afterwards it waits up to 5 s for the window to go. The event
   is recorded as `soft-keyboard-closed`.
-- **Review-expiry fallback, and its requirement.** The quiet notice is a
-  LENGTH_LONG snackbar and can expire between the dump and the tap (rc2 had one
-  such miss in a normal tab). A missed Review counts as expired only if the
-  notice is gone **and** no other permission UI opened; the harness then opens
-  the permissions through the site controls instead. A Review that is still
-  shown after the tap, or that opened something other than the permissions
-  list, is a failure. To stop the fallback from hiding a broken Review action,
-  the run must still have had Review open the permissions list **at least once
-  in a normal tab and at least once in a private tab**. That is the check
-  `quiet-review-opens-permissions-in-normal-and-private-tabs`, and its evidence
-  lists every attempt.
+- **No quiet notice (LW-M7-46).** Redoubt ships
+  `librewolf.webgl.prompt.notice=false`: a WebGL or canvas attempt that is
+  blocked by default stays denied and silent, with no "Canvas or WebGL was
+  protected" snackbar. `facts()` requires the pref to read `false`, and every
+  uiautomator dump of the run fails if the snackbar's text or its `Review`
+  action is on screen. The harness opens the permissions through the site
+  controls (toolbar site information, then the WebGL and canvas entry), the
+  path users have. The checks are `quiet-no-notice` (after the first blocked
+  matrix) and `no-quiet-notice-in-normal-and-private-tabs` (dumps counted per
+  tab kind, both must be non-zero). Until 158.0-1 the run instead required the
+  Review action to open the list in a normal and a private tab
+  (`quiet-review-opens-permissions-in-normal-and-private-tabs`); that check
+  is gone with the notice.
 - After "Close tab" closes the last private tab, Fenix shows the empty private
   home, whose tab-counter menu has no "New private tab". The next private page
   is typed into that home's address bar.
