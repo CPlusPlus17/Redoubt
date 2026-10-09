@@ -27,6 +27,9 @@ What recovers **most, not all**, of it:
   so most web video failed. Both are pinned off from the fix for that defect
   (LW-M7-43, `evidence/video-playback/`); content runs under the app's uid, as in
   stock Fenix.
+  Restoring it without breaking video is studied in
+  [`ISOLATION-MEDIA-STUDY.md`](ISOLATION-MEDIA-STUDY.md) (LW-M7-48): upstream's
+  NDK-in-RDD decoder route, prefs only, planned for Firefox 159 at the earliest.
 - **JS/WASM sandboxing** — 52 RLBox modules are built (measured in `libxul.so`).
 
 The two **irreducible** gaps, stated plainly, are the **Gecko content-process

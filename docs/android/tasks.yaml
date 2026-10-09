@@ -5665,3 +5665,63 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: With the default settings (cookies + cache on), every cold start after a swipe, an OOM kill in the background or a reboot now logs the user out of every site. That is what the setting says (owner decision "Every non-Quit exit"), but it is new behaviour for anyone who never used Quit, including the first start after the update. The guarantee is bounded at 20 s (fail open, retried after the next unclean exit).
+
+  - id: LW-M7-48
+    title: Isolated content processes again, with H.264/AAC (feasibility study)
+    milestone: M7
+    depends_on: [LW-M7-43, LW-M5-02]
+    owns:
+      - docs/android/ISOLATION-MEDIA-STUDY.md
+      - docs/android/evidence/lw-m7-48/
+    shared_edit:
+      - docs/android/SANDBOX-SPIKE.md
+      - docs/android/PARITY.md
+    reads:
+      - dom/media/platforms/android/AndroidDecoderModule.cpp
+      - dom/media/platforms/PDMFactory.cpp
+      - dom/media/ipc/RemoteMediaManagerChild.cpp
+      - dom/media/platforms/ffmpeg/FFmpegDecoderModule.h
+      - dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
+      - dom/media/hls/HLSDecoder.cpp
+      - mobile/android/geckoview/src/main/java/org/mozilla/gecko/media/RemoteManager.java
+      - mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
+      - mobile/android/geckoview/src/main/AndroidManifest_overlay.jinja
+      - modules/libpref/init/StaticPrefList.yaml
+    what: |
+      Owner decision 2026-10-09, verbatim: "lets do 1,2,7". Item (2): a
+      feasibility study (analysis, no product code) for restoring Android
+      isolated content processes (LW-M5-02, turned off by LW-M7-43 in 157.0-3)
+      without breaking H.264/AAC video (upstream bug 1810736).
+      Result (docs/android/ISOLATION-MEDIA-STUDY.md, cited to file:line in the
+      Firefox 158.0 tarball): Firefox 158 already has a second MediaCodec path,
+      the NDK AMediaCodec driven by ffvpx in the RDD process (bug 1934009, 143).
+      Upstream made it the default for its own isolated-process test variant on
+      2026-10-06 (bug 1988531 part 1, 159), with 11 prefs and no code change.
+      Designs compared: (a) Utility/GPU decode, (b) handing the :media binder
+      to isolated content, (c) per-site hybrid (rejected: the attacker picks
+      the weaker process), (d) wait, (e) upstream's NDK-in-RDD prefs.
+      Recommended: (e), prototyped behind a build flag, shipped no earlier than
+      Firefox 159 (draining fix, bug 1987001), with --check-video passing with
+      isolation on and a new --check-isolation step (ps -Z isolated_app for
+      content, CCodec allocations only in :rdd, no isolated_app avc denials).
+      Known residual: native HLS (<video src=.m3u8>) stays off under isolation
+      (HLSDecoder.cpp:360-363, bug 2043165); hls.js/MSE plays.
+      Spike 2026-10-09 (emulator, isolated 157.0-2 APK sha256 ef2e5204...62ed1,
+      evidence/lw-m7-48/): with only the 11 prefs, H.264, AAC, AV1+AAC and
+      hls.js/MSE play from isolated_app content (20/20 across two runs);
+      H.264/VP9 are allocated in :rdd, AAC in :utility, nothing in content;
+      no new isolated_app SELinux denial. Native HLS fails, as predicted. The
+      GPU-process variant also plays H.264. Two unexplained muted-autoplay
+      stalls (no error) are open for the prototype stage.
+    acceptance:
+      - "the study cites file:line in the 158 source and bug numbers for every claim, graded S/U/M/I"
+      - "each design states the changes, size, risk, whether content stays isolated, the rebase cost and the upstream direction"
+      - "the recommendation has an effort estimate, a staged plan (spike, prototype behind a flag, harness, ship) and the evidence that proves the security property"
+      - "the spike result is measured on an APK whose sha256 is recorded, or the study says plainly that it was not run"
+      - "SANDBOX-SPIKE.md and PARITY.md link the study; no product code, patch or shipped pref changes"
+    verify: "python3 docs/android/board.py --check && test -s docs/android/ISOLATION-MEDIA-STUDY.md"
+    effort_h: "8-16"
+    skills: [android, media, c++]
+    agent_safe: yes
+    isolation: worktree
+    risk: The study's recommendation moves codec parsing (including software VP9/AV1) from content into the RDD process, which on Android runs with the app's uid and no Gecko sandbox. Against 157.0-3 that is no loss, since content has the app's uid today; against 157.0-2 it is slightly weaker. The NDK decoder is not upstream's release default yet (bug 1981478 NEW), so device-specific MediaCodec failures reach Redoubt before Fenix.
