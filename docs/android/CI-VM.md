@@ -484,6 +484,40 @@ ssh -i ~/.ssh/id_boxb -o IdentitiesOnly=yes user@10.0.0.154 \
   ".local/lib/redoubt-ci-vm/ssh.sh 'free -h; df -h /home; sudo systemctl status redoubt-actions-runner.service --no-pager'"
 ```
 
+### Box B troubleshooting
+
+**Poller logs "box B not reachable or boxb-ctl failed" every minute, with
+`Failed to connect to user scope bus via local transport: $DBUS_SESSION_BUS_ADDRESS
+and $XDG_RUNTIME_DIR not defined`** (2026-10-09 13:02 to 2026-10-10 21:01).
+
+- *Cause:* systemd-logind on box B had reached its `SessionsMax` of 8192. On
+  2026-10-10 21:02, 8185 of the 8192 sessions belonged to the other project's
+  hasteheart slot accounts (`fivur-ci-2` 3641, `fivur-ci-3` 3628, `fivur-ci-5` 462,
+  `fivur-ci-4` 454). The sampled ones were `Class=background`, `Service=login`, and
+  `State=closing`, so they had leaked and were never reaped. Because logind accepted
+  no new session, pam_systemd could not register the poller's SSH session and set
+  no `XDG_RUNTIME_DIR`. `loginctl show-user user` showed `State=closing` and
+  `Linger=yes`. `user@1000.service` and `/run/user/1000` were fine the whole time.
+- *Owner:* the other project owns those sessions. Redoubt never terminates
+  sessions, touches those accounts or logind's configuration, or reboots box B.
+  The cleanup is an owner action.
+- *Fix in Redoubt (fix/boxb-xdg):* `boxb-ctl.sh` no longer depends on the SSH
+  session. If `XDG_RUNTIME_DIR` is unset, it uses `/run/user/$(id -u)`, but only if
+  that is a directory (not a symlink) owned by the account. It then sets
+  `DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus`. If the user manager
+  cannot be reached (no such directory, or no `systemd/private` and no `bus`
+  socket), it exits 4 with a message that names lingering, the documented setup.
+  It never enables lingering itself. The gate, `Restart=no`, and the lock file are
+  unchanged; the lock is in the derived runtime directory.
+- *Check:* `REDOUBT_DRY_RUN=1 ~/.local/lib/redoubt-boxb-ondemand/redoubt-boxb-ondemand.sh`
+  on box A should print "box B reachable" and the gate line. On box B,
+  `loginctl list-sessions --no-legend | wc -l` near 8192 means the leak is back.
+
+**Unit `failed (Result: oom-kill)`:** this is the expected result of
+`OOMScoreAdjust=700` and `Restart=no`. One example: 2026-10-10 05:00, after 5 h 29 min and a 26 G peak.
+`start` resets the failed state, and the poller restarts the unit when a job is
+queued.
+
 Limits: the poller lives on box A, so box B's VM is not started while box A is
 off (queued jobs wait). Both pollers share box A's `gh` rate limit (about 20
 requests per minute each while 19 box A jobs are queued). The VM is persistent

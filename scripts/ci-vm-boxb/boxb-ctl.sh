@@ -10,6 +10,9 @@
 #   start REASON  start the VM unit only if the gate says there is room (exit 3 otherwise)
 #   stop          stop the VM unit (ExecStop powers the guest down over QMP)
 #
+# It finds the user manager itself (XDG_RUNTIME_DIR=/run/user/UID) when the SSH session has none;
+# exit 4 means the user manager is not reachable.
+#
 # Box B decides about its own memory, whoever asks: the poller only knows GitHub's queue. Every
 # start, deferral and stop is logged to box B's journal (journalctl -t redoubt-boxb-ctl).
 #
@@ -120,6 +123,28 @@ reason=${words[*]:1}
 reason=${reason//[^A-Za-z0-9 ._:\/()=,-]/}
 reason=${reason:0:300}
 
+# Reach the user manager without relying on the SSH session. pam_systemd normally sets
+# XDG_RUNTIME_DIR, but it does not when logind refuses to register the session (seen 2026-10-09:
+# logind at its 8192-session limit, filled by another project's leaked sessions; CI-VM.md "Box B
+# troubleshooting"). The user manager runs regardless (lingering is on), so derive its runtime
+# directory and bus from our own uid, and say plainly when it is not running.
+user_bus() {
+  local uid dir
+  uid=$(id -u)
+  dir=${XDG_RUNTIME_DIR:-/run/user/$uid}
+  if [[ -L $dir || ! -d $dir || $(stat -c %u "$dir" 2>/dev/null) != "$uid" ]]; then
+    echo "boxb-ctl: no runtime directory $dir owned by uid $uid, so the user manager user@$uid.service is not reachable (is it running? lingering is the documented setup: loginctl show-user $(id -un) -p Linger -p State); owner action" >&2
+    exit 4
+  fi
+  export XDG_RUNTIME_DIR=$dir
+  export DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-unix:path=$dir/bus}
+  if [[ ! -S $dir/systemd/private && ! -S $dir/bus ]]; then
+    echo "boxb-ctl: the user manager user@$uid.service is not running (no socket in $dir); lingering is the documented setup (loginctl show-user $(id -un) -p Linger); owner action" >&2
+    exit 4
+  fi
+}
+user_bus
+
 state=$(systemctl --user show "$UNIT" -p ActiveState --value)
 case $verb in
   status)
@@ -128,7 +153,7 @@ case $verb in
   gate)
     if gate; then echo "gate ok: $GATE_DETAIL"; else echo "gate defer: $GATE_DETAIL"; exit 3; fi ;;
   start)
-    exec 9>"${XDG_RUNTIME_DIR:-/tmp}/redoubt-boxb-ctl.lock"
+    exec 9>"$XDG_RUNTIME_DIR/redoubt-boxb-ctl.lock"
     flock -w 30 9
     state=$(systemctl --user show "$UNIT" -p ActiveState --value)
     if [[ $state != inactive && $state != failed ]]; then
@@ -141,7 +166,7 @@ case $verb in
     systemctl --user reset-failed "$UNIT" 2>/dev/null || true
     systemctl --user start --no-block "$UNIT" ;;
   stop)
-    exec 9>"${XDG_RUNTIME_DIR:-/tmp}/redoubt-boxb-ctl.lock"
+    exec 9>"$XDG_RUNTIME_DIR/redoubt-boxb-ctl.lock"
     flock -w 30 9
     log "stopping $UNIT (${reason:-requested})"
     systemctl --user stop "$UNIT" ;;
