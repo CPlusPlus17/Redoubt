@@ -37,8 +37,9 @@ onto the same version — `version.android` and `version` move together unless
 one target is deliberately held back for a release (`TRACK.md` §6).
 
 **The trigger is automatic.** `.github/workflows/firefox-release-watch.yaml`
-runs `scripts/firefox-release-watch.py` once a day (07:23 UTC, and by hand from
-the Actions tab, optionally as a dry run). It:
+runs `scripts/firefox-release-watch.py` every hour (at :23, since LW-M7-47;
+once a day before), and by hand from the Actions tab, optionally as a dry
+run. It:
 
 1. reads `LATEST_FIREFOX_VERSION` from
    <https://product-details.mozilla.org/1.0/firefox_versions.json> (and logs
@@ -49,7 +50,7 @@ the Actions tab, optionally as a dry run). It:
 3. if it is newer than either, checks that
    `releases/<v>/source/firefox-<v>.source.tar.xz` is on archive.mozilla.org. A
    release can be announced before the source tarball is published; until it
-   is there is nothing to rebase onto, so no issue is opened and the next day's
+   is there is nothing to rebase onto, so no issue is opened and the next
    run tries again;
 4. opens **one** issue per version, titled exactly
    `Firefox <v> released: rebase Android and desktop` with label
@@ -87,7 +88,7 @@ self-hosted Android runner) runs `scripts/firefox-release-watch.py patchcheck`:
    this commit** (a hidden `<!-- redoubt-patchcheck version=… sha=… -->`
    marker), it stops before downloading anything. A new commit on the default
    branch while the issue is open (patches fixed, say) gets a fresh comment
-   on the next daily run; a re-run on the same commit posts nothing;
+   on the next run; a re-run on the same commit posts nothing;
 2. downloads `firefox-<v>.source.tar.xz` and its `.asc`, fetches Mozilla's
    release key the way §3 / the Makefile does (the pinned assets/mozilla-release-key.asc; formerly keys.openpgp.org, by
    fingerprint) into a throwaway keyring, and refuses unless the key is
@@ -124,12 +125,18 @@ python3 scripts/tests/test-firefox-release-watch.py      # offline, fixtures onl
 What it does **not** do:
 
 - **It flags only the latest release.** If two releases land between two runs
-  (rare on a daily schedule), only the newer one gets an issue; rebase straight
+  (rare on an hourly schedule), only the newer one gets an issue; rebase straight
   to it.
-- **It does not bump or rebase anything.** It opens an issue and pre-runs
-  §3–§4 into a comment; §1 onward is still a human (or an agent) working
-  through this file. It never pushes, never commits, and does not start the
-  self-hosted Android build.
+- **It does not rebase anything.** It opens an issue and pre-runs §3–§4 into
+  a comment; §1 onward is still a human (or an agent) working through this
+  file. Since LW-M7-47 it does three more things, described in
+  [`RELEASE-WATCH.md`](RELEASE-WATCH.md). It assigns every issue to the owner
+  and mentions them. It reads Mozilla's security advisories into the issue
+  (label `security`, a daily reminder while the shipped release is behind).
+  For a dot release on the current major whose android patch check passed,
+  it creates the branch `auto/firefox-<v>` (version files only) and
+  dispatches the unsigned `android-release.yaml` build on box B. It never
+  pushes to main, never signs and never publishes.
 - **It does not re-check a closed issue.** Once the rebase lands and the
   issue is closed, the patch check stops for that version.
 - **It reads the default branch.** A rebase sitting on a branch does not

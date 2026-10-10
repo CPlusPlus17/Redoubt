@@ -12,7 +12,17 @@
 # the desktop one (an Android-only dot such as 153.0.2) gets its own issue,
 # "Firefox for Android <v> released: rebase Android", whether or not it has a
 # source tarball; the issue says which, and what to do without one. If that
-# feed is down the desktop half still runs and the run turns red.
+# feed is down the desktop half still runs.
+#
+# OUTAGES: a feed, archive.mozilla.org or GitHub API failure that a later run
+# may not see (no connection, timeout, HTTP 408/429/5xx) is a warning and a
+# job-summary line; the run stays green. Only when the same source has failed
+# for more than 6 hours in a row (OUTAGE_HOURS) does the run turn red, and
+# then every run until it answers again. The first failure's time per source
+# is kept in a small JSON file carried from run to run in the Actions cache
+# (key release-watch-outages-<run id>, restored by prefix); a lost cache only
+# restarts the count. Anything else (401/403/404, a malformed version file or
+# feed entry, a bug) is red at once.
 #
 # Unlike the other workflows here this runs on a GitHub-hosted runner, not the
 # self-hosted librewolf-android one: it builds nothing, needs no secret beyond
@@ -48,14 +58,44 @@
 # android-test.yaml lists this file, the script and its test under push
 # paths-ignore, so a push that touches only the watcher does not start the
 # self-hosted Android build. The watcher's own tests run here instead.
+#
+# SINCE LW-M7-47 (owner decision 2026-10-09; docs/android/RELEASE-WATCH.md):
+# Firefox 157.0.1 was flagged on 2026-10-06 (#3) and sat unseen for three
+# days. So:
+#   * it runs hourly, not daily;
+#   * every issue it opens is assigned to vars.RELEASE_WATCH_NOTIFY (default:
+#     the repository owner) and @-mentions them, and an open issue nobody is
+#     assigned to gets assigned on the next run;
+#   * it reads Mozilla's security advisories (mozilla/foundation-security-
+#     advisories) and, for one fixed in a Firefox newer than the shipped
+#     release, comments the impact and CVEs on the release issue, labels it
+#     `security` (+ `priority: critical|high`), prefixes its title, pins it
+#     for critical/high, or opens an advisory issue when no open release
+#     issue covers it; an open `security` issue is re-mentioned every 24 h;
+#   * a third job, autobuild, gives a dot release on Redoubt's major (policy
+#     vars.RELEASE_WATCH_AUTOBUILD: dot [default] | all | off) whose patch
+#     check passed for android a branch auto/firefox-<v> with the version
+#     files bumped and dispatches android-release.yaml on it (mode=full,
+#     update_check=true): UNSIGNED APKs, nothing signed or published; not
+#     while box B has a queued or running build. build_date is an hour
+#     strictly between the Latest release's build and the oldest published
+#     build of a newer Firefox major (a beta), read from the releases' notes,
+#     so a dot release never gets a higher versionCode than a beta; if no hour
+#     fits it does not build and tells the owner to pick the date;
+#   * optional push channel: the secret RELEASE_WATCH_NTFY_URL (an ntfy topic
+#     URL; RELEASE_WATCH_NTFY_TOKEN if the server needs one). Off unless set.
+# notify_test=true opens and closes one issue assigned to the owner to check
+# the notification path end to end.
 
 name: Firefox release watch
 
 on:
   schedule:
-    # Daily, at an off-minute: GitHub delays, and under load drops, scheduled
-    # runs that start on the hour.
-    - cron: '23 7 * * *'
+    # Hourly, at an off-minute: GitHub delays, and under load drops, scheduled
+    # runs that start on the hour. Hourly so that a release or an advisory
+    # reaches the owner within about an hour (LW-M7-47); the daily 07:23 run
+    # it replaces started hours late (14:16-16:10 UTC, 2026-10-05..09).
+    - cron: '23 * * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -77,6 +117,11 @@ on:
           - desktop,android
           - desktop
           - android
+      notify_test:
+        description: "Only open and close one test issue assigned to the owner (and push to ntfy if configured), to check the notification path."
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - main
@@ -87,9 +132,8 @@ on:
       - scripts/tests/test-firefox-release-watch.py
       - scripts/tests/fixtures/firefox-release-watch/**
 
-permissions:
-  contents: read
-  issues: write
+# Per job below; nothing by default.
+permissions: {}
 
 concurrency:
   # Two overlapping runs could both miss each other's issue and open two, or
@@ -101,10 +145,15 @@ jobs:
   watch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read   # checkout, the latest release
+      issues: write    # open, comment, label, assign, pin
     outputs:
       # JSON list of {version, issue, targets, label}; empty when the step
       # did not run (push).
       checks: ${{ steps.watch.outputs.checks }}
+      # The subset of checks that gets a candidate build (autobuild policy).
+      autobuild: ${{ steps.watch.outputs.autobuild }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -113,9 +162,21 @@ jobs:
       - name: Test the watcher (offline)
         run: python3 scripts/tests/test-firefox-release-watch.py -v
 
+      # Since when each source has been failing (see OUTAGES above). A cache
+      # entry cannot be overwritten, so each run saves under its own key and
+      # the next restores the newest by prefix. A miss is fine: no streak.
+      - name: Restore the outage state
+        if: ${{ github.event_name != 'push' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/release-watch-outages.json
+          key: release-watch-outages-${{ github.run_id }}
+          restore-keys: release-watch-outages-
+
       # A push only proves the watcher works; it never opens an issue.
-      # Exits 1 when either feed (or GitHub) failed, after writing the outputs
-      # of whatever did succeed; the patch check below still runs for that.
+      # Exits 1 on a real error, or when a source has been failing for more
+      # than 6 hours, after writing the outputs of whatever did succeed; the
+      # patch check below still runs for that.
       - name: Check for a new Firefox release
         id: watch
         if: ${{ github.event_name != 'push' }}
@@ -126,9 +187,28 @@ jobs:
           # without DRY_RUN, and refuses a non-release version.
           PATCHCHECK_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.patchcheck_version || '' }}
           PATCHCHECK_TARGETS: ${{ github.event_name == 'workflow_dispatch' && inputs.patchcheck_targets || 'desktop,android' }}
+          NOTIFY_TEST: ${{ github.event_name == 'workflow_dispatch' && inputs.notify_test && '--notify-test' || '' }}
+          # Empty: the script falls back to GITHUB_REPOSITORY_OWNER.
+          RELEASE_WATCH_NOTIFY: ${{ vars.RELEASE_WATCH_NOTIFY }}
+          # Empty: dot.
+          RELEASE_WATCH_AUTOBUILD: ${{ vars.RELEASE_WATCH_AUTOBUILD }}
+          # Optional channel; empty (the default) means off.
+          RELEASE_WATCH_NTFY_URL: ${{ secrets.RELEASE_WATCH_NTFY_URL }}
+          RELEASE_WATCH_NTFY_TOKEN: ${{ secrets.RELEASE_WATCH_NTFY_TOKEN }}
+          RELEASE_WATCH_STATE: ${{ runner.temp }}/release-watch-outages.json
         run: |
-          python3 scripts/firefox-release-watch.py $DRY_RUN \
+          python3 scripts/firefox-release-watch.py $DRY_RUN $NOTIFY_TEST \
             ${PATCHCHECK_VERSION:+--patchcheck-version "$PATCHCHECK_VERSION" --patchcheck-targets "$PATCHCHECK_TARGETS"}
+
+      # Also after a red run: the streak must survive it. The script writes
+      # the file on every run that gets past its argument checks; without it
+      # (an early refusal) the save only warns.
+      - name: Save the outage state
+        if: ${{ always() && steps.watch.outcome != 'skipped' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/release-watch-outages.json
+          key: release-watch-outages-${{ github.run_id }}
 
   # Only after the watch step ran (never on push) and said so: the issue was
   # just opened, is still open, or this is a dry run (or a manual check); and the release has a
@@ -147,6 +227,9 @@ jobs:
     runs-on: ubuntu-latest
     # Download ~800 MB, two extractions of ~5 GB and two patch runs.
     timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write    # the patch-check comment
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -182,3 +265,44 @@ jobs:
       - name: Disk after
         if: ${{ always() }}
         run: df -h "$RUNNER_TEMP" .
+
+  # A candidate build of a flagged dot release whose patch check passed
+  # (LW-M7-47). Reads the verdict back from the patch-check comment for this
+  # run's commit, waits while box B is busy, creates auto/firefox-<v> (version
+  # files only, through the git data API) and dispatches android-release.yaml
+  # on it. A ref made with GITHUB_TOKEN starts no workflow by itself; the
+  # dispatch is explicit. Once per version (a marker comment). Never signs,
+  # publishes or merges: android-release.yaml has no code path that does.
+  autobuild:
+    needs: [watch, patchcheck]
+    if: ${{ !cancelled() && needs.watch.outputs.autobuild != '' && needs.watch.outputs.autobuild != '[]' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJSON(needs.watch.outputs.autobuild) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write  # the auto/firefox-<v> branch
+      actions: write   # dispatch android-release.yaml; read box B's queue
+      issues: write    # the build comment
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Branch and dispatch the unsigned candidate build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ matrix.version }}
+          ISSUE: ${{ matrix.issue }}
+          TARGETS: ${{ matrix.targets }}
+          BASE_SHA: ${{ github.sha }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
+          RELEASE_WATCH_NOTIFY: ${{ vars.RELEASE_WATCH_NOTIFY }}
+          RELEASE_WATCH_NTFY_URL: ${{ secrets.RELEASE_WATCH_NTFY_URL }}
+          RELEASE_WATCH_NTFY_TOKEN: ${{ secrets.RELEASE_WATCH_NTFY_TOKEN }}
+        run: |
+          python3 scripts/firefox-release-watch.py autobuild \
+            --version "$VERSION" --issue "$ISSUE" --targets "$TARGETS" \
+            --base-sha "$BASE_SHA" $DRY_RUN
