@@ -264,6 +264,10 @@ Isolated process not allowed to call registerReceiver by Jetpack's Media3",
 1969818 "Fenix content process always crash when GeckoView is isolated process
 build". That is not a finished feature behind a flag. See §9.
 
+(2026-10-09: 1810736 now has an upstream answer for isolated builds, decoding
+through the NDK in RDD; bug 1988531, landed for 159. See
+[`ISOLATION-MEDIA-STUDY.md`](ISOLATION-MEDIA-STUDY.md).)
+
 ---
 
 ## 6. The real question: what would `MOZ_SANDBOX` add *on top of* what we are already shipping?
@@ -451,6 +455,12 @@ board's `adb shell ps -A -Z | grep -c isolated` verify will pass while media,
 IME or audio are broken, because it only counts processes. That is exactly the
 verify-that-passes-but-proves-nothing shape from lesson 2. LW-M5-02 should
 exercise video playback, audio and IME on device.
+
+*Follow-up, 2026-10-09 (LW-M7-48):* the media-decoding blocker came true in
+157.0-2 (LW-M7-43), and isolation is off again since 157.0-3. How to get it back
+without losing H.264/AAC, with upstream's chosen route (NDK MediaCodec through
+ffvpx in the RDD process, bug 1988531, Firefox 159), is studied in
+[`ISOLATION-MEDIA-STUDY.md`](ISOLATION-MEDIA-STUDY.md).
 
 **(c) LW-M5-06 wording.** See §10.
 
