@@ -5770,3 +5770,84 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: Users no longer learn that a site tried WebGL or canvas; a site that needs WebGL just looks broken until the user opens the site controls. That is the owner's choice; librewolf.webgl.prompt.notice=true restores the notice.
+
+  - id: LW-M7-50
+    title: Isolated content with H.264/AAC via RDD, behind a build switch
+    milestone: M7
+    depends_on: [LW-M7-43, LW-M7-46]   # LW-M7-43 pinned isolation off (GeckoProvider.kt); LW-M7-46 is the 158 branch's last task
+    owns:
+      - docs/android/evidence/lw-m7-50/
+      - docs/android/ISOLATION-MEDIA.md
+      - docs/android/expected-prefs-isolation-media.txt
+      - assets/patches/overlay-isolation-media.txt
+      - assets/patches/overlay-isolation-media.cfg
+      - assets/patches/overlay-dev-app.txt
+      - patches/android/isolation-media-process.patch
+      - patches/android/isolation-media-codecs-in-content.patch
+      - patches/android/isolation-media-drain-backport.patch
+      - patches/android/dev-app.patch
+      - scripts/android-sign-dev.sh
+    shared_edit:
+      - scripts/librewolf-patches.py
+      - Makefile
+      - scripts/android-apk.sh
+      - scripts/check-patchfail.sh
+      - scripts/check-patch-order.py
+      - scripts/lint-patch-scope.py
+      - docs/android/board.py
+      - docs/android/PATCH-SCOPE.md
+      - scripts/android-smoke.sh
+      - scripts/tests/test-android-smoke.py
+      - docs/android/SMOKE.md
+    tree_paths:
+      - dom/media/ipc/RemoteDecoderModule.cpp
+      - dom/media/platforms/PDMFactory.cpp
+      - dom/media/platforms/ffmpeg/FFmpegAudioDecoder.cpp
+      - dom/media/platforms/ffmpeg/FFmpegAudioDecoder.h
+      - dom/media/platforms/ffmpeg/FFmpegDataDecoder.cpp
+      - dom/media/platforms/ffmpeg/FFmpegDataDecoder.h
+      - dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
+      - dom/media/platforms/ffmpeg/FFmpegVideoDecoder.h
+      - mobile/android/fenix/app/src/release/res/values/static_strings.xml
+      - mobile/android/fenix/app/src/release/res/values/colors.xml
+    reads:
+      - docs/android/ISOLATION-MEDIA-STUDY.md   # LW-M7-48, on main (b5d6ed97)
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+      - mobile/android/fenix/app/build.gradle
+      - dom/media/ipc/RemoteMediaManagerChild.cpp
+      - dom/media/hls/HLSDecoder.cpp
+      - dom/media/platforms/ffmpeg/FFmpegDecoderModule.h
+    what: |
+      Follow-up of the LW-M7-48 study (design (e), docs/android/ISOLATION-MEDIA-STUDY.md
+      on main). Owner decisions 2026-10-10, verbatim: plan "Prototype now, ship ON
+      in a 158 dot release if it tests clean"; trade-off "Keep software codecs in
+      the page process"; phone testing "Yes, separate dev app".
+      Built on feature/isolation-media, cut from android/firefox-158 so it can go
+      into a 158 dot release, behind a build switch that is OFF by default:
+      scripts/librewolf-patches.py --overlays=isolation-media[,dev-app]
+      (Makefile OVERLAYS=). Without the switch the patcher, the Makefile stamp,
+      lists and command are unchanged and the patched tree is identical.
+      isolation-media: isolated content + app zygote back on; upstream's eleven
+      isolated-process media prefs locked (bug 1988531 part 1, e0286afb5f68),
+      recorded in expected-prefs-isolation-media.txt; a Redoubt-only Gecko change
+      that sends only H.264/HEVC/AAC to RDD/Utility (NDK MediaCodec) and keeps
+      VP8/VP9/AV1/Opus/Vorbis/FLAC/MP3/WAV software decoding in the isolated
+      content process; native HLS fails closed (MSE/hls.js plays); the bug
+      1987001 drain fix backported from Firefox 159 (14 of 15 hunks clean, one
+      adapted). dev-app: org.redoubtbrowser.dev, "Redoubt Dev", amber icon, no
+      update check, signed only with a dev key (scripts/android-sign-dev.sh
+      refuses the release fingerprint). android-smoke.sh --check-isolation
+      measures isolated content, where each codec runs, the locked prefs, SELinux
+      denials against the LW-M7-48 baseline, and the profile directory.
+    acceptance:
+      - "a build without --overlays is unchanged: the patched tree is identical to android/firefox-158's, and the x86_64 APK matches Beta 2's contents apart from build-id-derived bytes"
+      - "check-patchfail --targets=android with and without --overlays=isolation-media,dev-app, and --targets=desktop, pass against the 158.0 RC build2 tarball; check-patch-order, lint-patch-scope and board.py --check/--check-scope/--check-cfg-split/--diff-mozconfig --strict pass"
+      - "the switch-ON x86_64 build compiles (-Werror) and on the API 34 emulator --check-isolation passes: content isolated_app from the app zygote, H.264 in :rdd, AAC in :utility, VP8/VP9/AV1/Opus decoded in content, the 11 prefs locked, no isolated_app denial beyond the baseline"
+      - "--check-video passes 3 times with isolation on; the matrix (long clips, short clips, AAC-only, muted autoplay and click, hls.js TS/fMP4) passes 3 rounds; native HLS fails closed with error 4"
+      - "the dev app installs next to a throwaway-signed org.redoubtbrowser and both run"
+    verify: "./scripts/check-patchfail.sh --targets=android --overlays=isolation-media,dev-app && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope && python3 scripts/tests/test-android-smoke.py && ./scripts/android-smoke.sh --serial <emulator> --apk <dev apk> --check-isolation"
+    effort_h: "16-24"
+    skills: [cpp, android, kotlin]
+    agent_safe: yes
+    isolation: worktree
+    risk: Prototype. RDD and Utility run with the app uid and parse H.264/AAC there; a codec exploit in RDD reaches the profile. Device-specific MediaCodec behaviour reaches Redoubt before Fenix (upstream bug 1981478 is not default anywhere). Native-HLS-only pages stop playing. VP9/AV1 decode in software in content (battery). The drain backport is upstream code on 158, not upstream's 158.

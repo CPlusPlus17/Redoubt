@@ -512,6 +512,263 @@ AAAAAAAAAgAAAAAAAAAEAAAAAAAAAAAAAAAAAAAExwEBAQAAAAAAAGQAAAAAAAAAD4UBAQEAAAAA
 AADAAAAAAAAAABlhAQEBAAAAAAABIAAAAAAAAAAjmAEBAQAAABBtZnJvAAAAAAAAAOA=
 H264FRAGEOF
 
+# The software-codec fixtures (LW-M7-50, --check-isolation): 64x64, 1 s, solid
+# #1F66CC with a 440 Hz Opus tone, one VP9 and one AV1. With the isolation-media
+# overlay these must decode INSIDE the isolated content process (the overlay keeps
+# software codecs there), while H.264/AAC go to RDD/Utility. Reproducible with the
+# host ffmpeg 8.1.2 (two runs gave identical bytes):
+#   C="-f lavfi -i color=c=0x1F66CC:s=64x64:r=30:d=1 -f lavfi -i sine=f=440:r=48000:d=1
+#      -map 0:v -map 1:a -pix_fmt yuv420p -c:a libopus -b:a 32k -ac 1 -shortest
+#      -map_metadata -1 -fflags +bitexact -flags:v +bitexact -flags:a +bitexact"
+#   ffmpeg $C -c:v libvpx-vp9 -b:v 64k -g 15 -cpu-used 8 -threads 1 -row-mt 0 vp9-opus.webm  # sha256 d94843c6...
+#   ffmpeg $C -c:v libaom-av1 -b:v 64k -g 15 -cpu-used 8 -threads 1 -row-mt 0 av1-opus.webm  # sha256 7200d9fe...
+cat > "$WORK/harness/fixture-vp9.b64" <<'VP9EOF'
+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
+VP9EOF
+
+cat > "$WORK/harness/fixture-av1.b64" <<'AV1EOF'
+GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQRChYECGFOAZwEAAAAAABuwEU2bdLpNu4tT
+q4QVSalmU6yBoU27i1OrhBZUrmtTrIHGTbuMU6uEElTDZ1OsggNqTbuMU6uEHFO7a1OsghuH7AEA
+AAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmoCrXsYMPQkBNgIRMYXZm
+V0GETGF2ZkSJiECPgAAAAAAAFlSua0KergEAAAAAAAIw14EBc8WIAAAAAAAAAAGcgQAitZyDdW5k
+iIEAhoVWX0FWMYOBASPjg4QB/KBV4JCwgUC6gUCagQJVsIRVuYEBY6KQgQAMAAoKAAAAAq//m18w
+COwBAAAAAAAB1QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAACuAQAAAAAAAFzXgQJzxYgAAAAAAAAAApyBACK1nIN1bmSI
+gQCGhkFfT1BVU1aqg2MuoFa7hATEtACDgQLhkZ+BAbWIQOdwAAAAAABiZIEQY6KTT3B1c0hlYWQB
+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
+94EB8YIEFfCCCrU=
+AV1EOF
+
 cat > "$DRIVER" <<'PYDRIVEREOF'
 #!/usr/bin/env python3
 # ---------------------------------------------------------------------------
@@ -654,6 +911,10 @@ FIXTURES = {
                           "309ebc3aeb22d858524dcdd92288256e91a42d484e6f70200d2a729d8414aef9"),
     "/fixture-h264-frag.mp4": ("fixture-h264-frag.b64", "video/mp4",
                                "c2397c5fcc2bd2dd7707db6dd5f4979646cd41b48884af3e7b9b9262e0017ed3"),
+    "/fixture-vp9.webm": ("fixture-vp9.b64", "video/webm",
+                          "d94843c60806a2070f15f3a7c7cb58b17fa2821ecdd8dff9ec85b797cda9825c"),
+    "/fixture-av1.webm": ("fixture-av1.b64", "video/webm",
+                          "7200d9fe2e1394d973bc18b1511aa11b21c0ce4603e32c5b461cb6b04f3ed13b"),
 }
 MSE_TYPE = 'video/mp4; codecs="avc1.42E01E,mp4a.40.2"'
 
@@ -2337,6 +2598,265 @@ def check_video(m, res, origin, forcefail=False):
           % (json.dumps(r)[:400], len(served)))
     res.add("video-mse", ok, why, {"mse": r, "origin_requests": len(served)})
     return all_ok and ok
+
+# --------------------------------------------------------------------------
+# --check-isolation (LW-M7-50): with the isolation-media overlay, web content
+# must run isolated AND the codecs must run where the overlay says, measured on
+# the running build rather than claimed. docs/android/ISOLATION-MEDIA-STUDY.md
+# section 8 lists the properties; docs/android/ISOLATION-MEDIA.md the design.
+# --------------------------------------------------------------------------
+JS_DECODER_PROBE = r"""
+var done = arguments[arguments.length-1];
+var url = arguments[0], ctype = arguments[1];
+var out = {url: url, ok: false, events: []};
+var v = document.createElement("video");
+v.muted = true; v.playsInline = true; v.loop = true; v.preload = "auto";
+out.canPlayType = v.canPlayType(ctype);
+["error","stalled","abort"].forEach(function(n){
+  v.addEventListener(n, function(){ out.events.push(n + (v.error ? (":" + v.error.code) : "")); });
+});
+document.body.appendChild(v);
+v.src = url;
+var t0 = Date.now();
+v.play().then(function(){ out.play = "resolved"; }, function(e){ out.play = "rejected: " + e; });
+var iv = setInterval(function(){
+  out.currentTime = v.currentTime;
+  out.decoded = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality().totalVideoFrames : null;
+  out.mediaError = v.error ? (v.error.code + ":" + v.error.message) : null;
+  var playing = v.readyState >= 3 && v.currentTime > 0.25 && out.decoded >= 4;
+  if (playing || v.error || Date.now() - t0 > 30000) {
+    clearInterval(iv);
+    out.ok = playing;
+    var fin = function(info) {
+      out.info = info; try { v.pause(); v.remove(); } catch (e) {}
+      done(out);
+    };
+    try {
+      v.mozRequestDebugInfo().then(function(d){
+        var r = (d && d.decoder && d.decoder.reader) || {};
+        fin({audio: r.audioDecoderName || null, video: r.videoDecoderName || null,
+             hw: !!r.videoHardwareAccelerated});
+      }, function(e){ fin({error: String(e)}); });
+    } catch (e) { fin({error: "mozRequestDebugInfo: " + e}); }
+  }
+}, 250);
+"""
+
+# (row suffix, URL, type, where the video decoder must run, where the audio one must)
+# "content": the decoder name carries no "remote" (ffvpx/dav1d inside the
+# isolated content process). "RDD"/"Utility": "(RDD remote)" /
+# "(Utility Generic remote)". The overlay's rule: only codecs that need Android
+# MediaCodec (H.264, HEVC, AAC) leave the content process.
+ISOLATION_MEDIA_CASES = (
+    ("h264-aac", "/fixture-h264.mp4", 'video/mp4; codecs="avc1.42C00A,mp4a.40.2"', "RDD", "Utility"),
+    ("vp8-opus", "/fixture.webm", 'video/webm; codecs="vp8,opus"', "content", "content"),
+    ("vp9-opus", "/fixture-vp9.webm", 'video/webm; codecs="vp9,opus"', "content", "content"),
+    ("av1-opus", "/fixture-av1.webm", 'video/webm; codecs="av01.0.00M.08,opus"', "content", "content"),
+)
+
+# The isolated_app denials LW-M7-48 measured on API 34 with AND without the media
+# prefs (evidence/lw-m7-48/README.md "SELinux denials from isolated content"): the
+# platform's own probing, nothing media-related. Anything else from isolated_app
+# fails the check, and so does any denial on app_data_file.
+ISOLATION_DENIAL_BASELINE = (
+    ("sysfs product_name", re.compile(r'name="product_name"')),
+    ("sysfs product_sku", re.compile(r'name="product_sku"')),
+    ("/proc/filesystems", re.compile(r'name="filesystems"|path="/proc/filesystems"')),
+    ("incremental_prop", re.compile(r'incremental_prop')),
+)
+
+# The eleven prefs the isolation-media overlay locks (assets/patches/
+# overlay-isolation-media.cfg; upstream bug 1988531 part 1, e0286afb5f68). The
+# switched build's expected values are recorded in
+# docs/android/expected-prefs-isolation-media.txt; a unit test keeps the three
+# copies equal.
+ISOLATION_MEDIA_PREFS = (
+    ("media.android-media-codec.enabled", False),
+    ("media.android-media-codec.preferred", False),
+    ("media.ffmpeg.encoder.enabled", True),
+    ("media.ffvpx-hw.enabled", True),
+    ("media.rdd-ffvpx.enabled", True),
+    ("media.rdd-opus.enabled", True),
+    ("media.rdd-process.enabled", True),
+    ("media.rdd-vorbis.enabled", True),
+    ("media.rdd-vpx.enabled", True),
+    ("media.rdd-wav.enabled", True),
+    ("media.use-remote-encoder.video.platform", True),
+)
+
+def _decoder_site(name):
+    if not name or name == "unavailable":
+        return None
+    if "RDD remote" in name:
+        return "RDD"
+    if "Utility" in name and "remote" in name:
+        return "Utility"
+    if "GPU remote" in name or "Gpu" in name:
+        return "GPU"
+    if "remote" in name.lower():
+        return "other-remote"
+    return "content"
+
+def _ps_rows(adb, pkg):
+    out = adb.shell("ps -A -o LABEL,USER,PID,PPID,NAME", timeout=60)
+    rows = []
+    for line in out.splitlines()[1:]:
+        f = line.split()
+        if len(f) >= 5 and f[4].startswith(pkg):
+            rows.append({"label": f[0], "user": f[1], "pid": f[2], "ppid": f[3], "name": f[4]})
+    return rows
+
+def check_isolation(m, res, app, adb, origin, https_url, forcefail=False):
+    pkg = app.pkg
+    got = m.script('return arguments[0].map(function(n){ return {name: n, '
+                   'value: Services.prefs.getPrefType(n) === Services.prefs.PREF_BOOL ? '
+                   'Services.prefs.getBoolPref(n) : null, locked: Services.prefs.prefIsLocked(n)}; });',
+                   [[n for n, _ in ISOLATION_MEDIA_PREFS]], chrome=True) or []
+    m.cmd("Marionette:SetContext", {"value": "content"})
+    want = dict(ISOLATION_MEDIA_PREFS)
+    wrong = [g for g in got if g.get("value") != want.get(g.get("name")) or not g.get("locked")]
+    ok = len(got) == len(want) and not wrong and not forcefail
+    res.add("isolation-prefs", ok,
+            "the %d isolated-process media prefs of bug 1988531 are set and locked" % len(want)
+            if ok else "media prefs not as the overlay locks them: %s" % (wrong or got),
+            {"prefs": got})
+    m.cmd("WebDriver:Navigate", {"url": https_url})
+    click_page(m)
+    cases = []
+    for suffix, path, ctype, want_v, want_a in ISOLATION_MEDIA_CASES:
+        r = m.cmd("WebDriver:ExecuteAsyncScript",
+                  {"script": JS_DECODER_PROBE, "args": [path, ctype], "sandbox": "system"})
+        r = r.get("value", r) if isinstance(r, dict) else r
+        info = (r or {}).get("info") or {}
+        got_v, got_a = _decoder_site(info.get("video")), _decoder_site(info.get("audio"))
+        ok = bool((r or {}).get("ok")) and got_v == want_v and got_a == want_a and not forcefail
+        cases.append({"case": suffix, "ok": ok, "want": [want_v, want_a], "got": [got_v, got_a],
+                      "probe": r})
+        res.add("isolation-decoder-" + suffix, ok,
+                ("played (%s frames); video decoder %r -> %s, audio decoder %r -> %s, as required"
+                 % (r.get("decoded"), info.get("video"), got_v, info.get("audio"), got_a)) if ok else
+                ("want video in %s and audio in %s, got %s/%s; probe %s"
+                 % (want_v, want_a, got_v, got_a, json.dumps(r)[:400])),
+                {"probe": r})
+    caps = m.script('var v=document.createElement("video");'
+                    'return {canPlayType: v.canPlayType(\'video/mp4; codecs="avc1.42E01E"\'),'
+                    ' isTypeSupported: MediaSource.isTypeSupported(\'video/mp4; codecs="avc1.42E01E,mp4a.40.2"\'),'
+                    ' hls: v.canPlayType("application/vnd.apple.mpegurl")};')
+    ok = caps.get("canPlayType") == "probably" and caps.get("isTypeSupported") is True and not forcefail
+    res.add("isolation-codec-caps", ok,
+            "canPlayType(avc1)=%r, MediaSource.isTypeSupported(avc1+mp4a)=%r; native HLS "
+            "canPlayType=%r (\"\" means native HLS is off, as designed under isolation)"
+            % (caps.get("canPlayType"), caps.get("isTypeSupported"), caps.get("hls")), caps)
+
+    # ---- processes ----------------------------------------------------------
+    rows = _ps_rows(adb, pkg)
+    by_pid = {r["pid"]: r for r in rows}
+    content = [r for r in rows if re.search(r":(tab|isolatedTab|zygoteTab)", r["name"])]
+    zygote = [r for r in rows if r["name"] == pkg + "_zygote"]
+    app_uid_content = [r for r in content if not r["user"].startswith("u0_i")
+                       and not re.match(r"u\d+_i\d+", r["user"])]
+    not_isolated = [r for r in content if "isolated_app" not in r["label"]]
+    sdk = int((adb.shell("getprop ro.build.version.sdk", timeout=30) or "0").strip() or 0)
+    problems = []
+    if not content:
+        problems.append("no content process is running")
+    if not_isolated:
+        problems.append("content process(es) not in isolated_app: %s" % not_isolated)
+    if app_uid_content:
+        problems.append("content process(es) with a non-isolated uid: %s" % app_uid_content)
+    if sdk >= 29:
+        if not zygote:
+            problems.append("no %s_zygote process (API %d)" % (pkg, sdk))
+        else:
+            zpid = zygote[0]["pid"]
+            stray = [r for r in content if r["ppid"] != zpid]
+            if stray:
+                problems.append("content process(es) not forked by the app zygote %s: %s" % (zpid, stray))
+    # GeckoView names its services "<pkg>:rdd_disable_art_image_" etc.
+    rdd = [r for r in rows if re.search(r":rdd(?:$|_)", r["name"])]
+    if not rdd:
+        problems.append("no :rdd process: H.264 cannot have been decoded there")
+    ok = not problems and not forcefail
+    res.add("isolation-processes", ok,
+            ("%d content process(es), all u:r:isolated_app with isolated uids (%s)%s; :rdd runs as "
+             "%s %s (NOT isolated: it can read the profile, by design)"
+             % (len(content), ", ".join(sorted({r["user"] for r in content})),
+                ", forked by the app zygote" if sdk >= 29 else "",
+                rdd[0]["label"] if rdd else "-", rdd[0]["user"] if rdd else "-"))
+            if ok else "; ".join(problems) or "forced failure",
+            {"ps": rows, "sdk": sdk})
+
+    # ---- which process allocated each MediaCodec ---------------------------
+    log_text = adb.out("logcat", "-d", "-b", "all", "-v", "threadtime", timeout=120)
+    allocs = []
+    for line in log_text.splitlines():
+        # Codec2 (API 31+ images): "CCodec : allocate(c2.x)". OMX (API 30
+        # images): the client logs "MediaCodec: [OMX.x] ..." once per codec.
+        mm = (re.search(r"\sCCodec\s*:\s*allocate\(([^)]*)\)", line)
+              or re.search(r"\sMediaCodec\s*:\s*\[(OMX\.[^\]]+)\] setting surface generation", line)
+              or re.search(r"\sMediaCodec\s*:\s*\[(OMX\.[^\]]+)\]", line)
+              if "CCodec" in line or "OMX." in line else None)
+        if mm and "OMX." in mm.group(1) and any(
+                a["pid"] == line.split()[2] and a["codec"] == mm.group(1) for a in allocs):
+            mm = None
+        if mm:
+            f = line.split()
+            pid = f[2] if len(f) > 2 else "?"
+            proc = by_pid.get(pid, {})
+            allocs.append({"pid": pid, "codec": mm.group(1), "process": proc.get("name"),
+                           "label": proc.get("label")})
+    in_isolated = [a for a in allocs if a["label"] and "isolated_app" in a["label"]]
+    h264_rdd = [a for a in allocs if "264" in a["codec"] and re.search(r":rdd(?:$|_)", a["process"] or "")]
+    unknown = [a for a in allocs if a["process"] is None]
+    problems = []
+    if in_isolated:
+        problems.append("MediaCodec allocated in an isolated process: %s" % in_isolated)
+    if not h264_rdd:
+        problems.append("no H.264 MediaCodec allocation in :rdd (allocations: %s)" % allocs[:10])
+    ok = not problems and not forcefail
+    res.add("isolation-codec-processes", ok,
+            ("%d MediaCodec allocation(s): %s; none in an isolated process%s"
+             % (len(allocs), ", ".join(sorted({"%s in %s" % (a["codec"], (a["process"] or "exited pid " + a["pid"]).split(":")[-1])
+                                               for a in allocs})),
+                (" (%d by a process that has exited)" % len(unknown)) if unknown else ""))
+            if ok else "; ".join(problems) or "forced failure",
+            {"allocations": allocs})
+
+    # ---- SELinux denials from isolated content ------------------------------
+    denials = [l for l in log_text.splitlines() if "avc:" in l and "denied" in l]
+    iso = [l for l in denials if "scontext=u:r:isolated_app" in l]
+    kinds, unexpected = set(), []
+    for l in iso:
+        hit = next((name for name, rx in ISOLATION_DENIAL_BASELINE if rx.search(l)), None)
+        if hit:
+            kinds.add(hit)
+        else:
+            unexpected.append(l.strip()[:300])
+    data_file = [l.strip()[:300] for l in iso if "app_data_file" in l]
+    ok = not unexpected and not data_file and not forcefail
+    res.add("isolation-denials", ok,
+            ("%d isolated_app denial(s), all in the measured platform baseline (%s); none involves "
+             "media or app_data_file" % (len(iso), ", ".join(sorted(kinds)) or "none"))
+            if ok else ("isolated_app denial(s) outside the baseline: %s" % (unexpected + data_file)[:6]),
+            {"isolated_app_denials": [l.strip()[:300] for l in iso][:100],
+             "all_denials": len(denials)})
+
+    # ---- the profile directory is not readable by an isolated uid -----------
+    # The shell user cannot stat another app's data directory; an emulator
+    # image with su (google_apis, default) can. Without it the row fails
+    # rather than passing on an empty answer.
+    st = adb.shell("ls -ldZ /data/data/%s" % pkg, timeout=60).strip()
+    uid_name = adb.shell("stat -c %%U /data/data/%s" % pkg, timeout=60).strip()
+    if not st.startswith("d"):
+        st = adb.shell("su 0 ls -ldZ /data/data/%s" % pkg, timeout=60).strip()
+        uid_name = adb.shell("su 0 stat -c %%U /data/data/%s" % pkg, timeout=60).strip()
+    ok = (st.startswith("drwx------") and "app_data_file" in st and uid_name
+          and not uid_name.startswith("u0_i") and not forcefail)
+    res.add("isolation-profile-dir", ok,
+            "%s (mode 0700, owner %s, app_data_file; an isolated_app uid is neither the owner "
+            "nor allowed by policy)" % (st, uid_name) if ok else "unexpected profile directory: %r" % st,
+            {"ls": st, "owner": uid_name})
+    return all(r["ok"] for r in res.rows if r["check"].startswith("isolation-"))
 
 JS_GUM = r"""
 var done = arguments[arguments.length-1];
@@ -5163,7 +5683,7 @@ def main(argv):
     for f in ("ubo", "ubo-preinstall", "ubo-lifecycle", "ubo-user-disable", "search", "no-gms", "no-adjust",
               "aboutconfig", "no-suggest", "strings", "update-privacy",
               "no-remote-settings", "https-only", "launcher-start", "video",
-              "delete-on-quit"):
+              "delete-on-quit", "isolation"):
         ap.add_argument("--check-" + f, action="store_true")
     ap.add_argument("--no-suggest-negative-control", action="store_true",
                     help="with --check-no-suggest: turn 'Show search suggestions' ON before "
@@ -5222,7 +5742,7 @@ def main(argv):
         or args.check_aboutconfig or args.check_no_suggest or args.check_update_privacy
         or args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_https_only
         or args.check_launcher_start or args.check_video or args.self_test
-        or args.check_ubo_user_disable)
+        or args.check_ubo_user_disable or args.check_isolation)
     if args.check_no_gms:
         check_no_gms(apk, res)
     if args.check_no_adjust:
@@ -5389,6 +5909,10 @@ def main(argv):
         bootstrap_url = "http://127.0.0.1:%d/empty" % http_port
 
         cap_off = pcap_size(pcap) if pcap else 0
+        if args.check_isolation:
+            # LW-M7-50: the SELinux and MediaCodec evidence must cover the
+            # content processes' start-up, so the log window opens before launch.
+            adb.run("logcat", "-b", "all", "-c", timeout=60)
         m = open_session(app, bootstrap_url)
         wait_for_initial_document(m, bootstrap_url)
         build = m.script('return {version: Services.appinfo.version, '
@@ -5450,6 +5974,11 @@ def main(argv):
             # from the local origin exactly as the baseline suite runs them.
             m.cmd("WebDriver:Navigate", {"url": https_url})
             check_video(m, res, origin)
+            return finish(res, args, work)
+        if args.check_isolation:
+            # LW-M7-50: isolated content + where each codec runs (isolation-media
+            # overlay). Fails on a build without the overlay: content is not isolated.
+            check_isolation(m, res, app, adb, origin, https_url)
             return finish(res, args, work)
 
         # ---- the default suite --------------------------------------------
