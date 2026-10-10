@@ -109,5 +109,6 @@ Redoubt:         ______ (Settings > About)
 4 revocation:    badssl.com loads yes/no | revoked.badssl.com refused yes/no
 ```
 
-Then update the row's "device" column in `PARITY.md` with the date and the
+Then raise rows 5, 7 and 8 in `PARITY.md` from **Partial** (they stay there
+until this pass, owner decision 2026-10-10) and update row 9, citing the date and the
 evidence path.
