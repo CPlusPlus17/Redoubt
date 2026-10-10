@@ -1,0 +1,110 @@
+# Redoubt isolation-media-codecs-in-content.patch  (Android, OVERLAY isolation-media)
+# Owner: LW-M7-50. Redoubt-only Gecko change; not upstream.
+#
+# Applied ONLY with --overlays=isolation-media (assets/patches/overlay-isolation-media.txt).
+#
+# Owner decision 2026-10-10, verbatim: "Keep software codecs in the page process".
+# (Plan: "Prototype now, ship ON in a 158 dot release if it tests clean".)
+#
+# Upstream files touched
+# ----------------------
+#   dom/media/ipc/RemoteDecoderModule.cpp   RemoteDecoderModule::Supports()
+#   dom/media/platforms/PDMFactory.cpp      PDMFactory::AllDecodersAreRemote()
+#
+# What upstream does, and what Redoubt wants instead
+# --------------------------------------------------
+# With upstream's isolated-process prefs (overlay-isolation-media.cfg) the
+# content process puts RemoteDecoderModule(RDD) FIRST in its PDM list
+# (PDMFactory::CreateContentPDMs(), PDMFactory.cpp:723-725 in 158.0) and
+# RemoteDecoderModule(Utility_Generic) second, both ahead of the in-process
+# ffvpx and Agnostic modules. So EVERY codec leaves content: the LW-M7-48 spike
+# measured software AV1 (dav1d) in RDD and Opus in Utility (study section 9).
+# RDD and Utility run as untrusted_app with the app uid and, on Android, no
+# Gecko sandbox (MOZ_SANDBOX is not built). Parsing VP9/AV1/Opus bitstreams
+# there moves attacker-controlled parsing OUT of the isolated process into one
+# that can read the profile.
+#
+# Redoubt sends only the codecs that NEED Android MediaCodec out of content:
+# H.264, HEVC and AAC. Gecko has no software decoder for them on Android (the
+# ffvpx build has none, FFmpegDecoderModule.h:104-110 in 158.0), so for them the
+# choice is "RDD/Utility or no playback". Every codec ffvpx/dav1d decode in
+# software (VP8, VP9, AV1, Opus, Vorbis, FLAC, MP3, WAV) is refused by the
+# remote modules, so PDMFactory falls through to the in-process ffvpx/Agnostic
+# modules, exactly as it did in 157.0-2 (isolated, no RDD) where VP9 and AV1
+# with Opus played in content. The cost: VP9/AV1 hardware decoding through RDD
+# is not used; they decode in software in the isolated process, as in 157.0-2.
+#
+# The filter sits in the Android block that already narrows remote support
+# (CDM requests go to RDD only, non-CDM audio to Utility_Generic only). CDM
+# requests are untouched; Redoubt ships media.eme.enabled=false anyway.
+#
+# AllDecodersAreRemote() returns false on Android, because with this change
+# they are not all remote even though every media.rdd-* pref is on. Its only
+# Android consumer is WebRenderBridgeChild::GetForMedia(), which then keeps
+# initialising the content-side graphics devices for local decoding, as it does
+# in every Android build today (media.rdd-process.enabled is false by default
+# there, so the function already returns false).
+#
+# About 20 lines on a hot upstream file: re-check at every rebase that
+# RemoteDecoderModule::Supports() still has the `#ifdef ANDROID` filter block,
+# and that upstream's isolated variant still sends software codecs to RDD (if
+# upstream adopts this split itself, drop this patch).
+#
+--- a/dom/media/ipc/RemoteDecoderModule.cpp
++++ b/dom/media/ipc/RemoteDecoderModule.cpp
+@@ -4,6 +4,7 @@
+ #include "RemoteDecoderModule.h"
+ 
+ #include "AOMDecoder.h"
++#include "MP4Decoder.h"
+ #include "RemoteAudioDecoder.h"
+ #include "RemoteMediaDataDecoder.h"
+ #include "RemoteMediaManagerChild.h"
+@@ -76,6 +77,20 @@
+        mLocation != RemoteMediaIn::UtilityProcess_Generic)) {
+     support = {};
+   }
++  // Redoubt (LW-M7-50, isolation-media overlay): only the codecs that need
++  // Android MediaCodec leave the content process. H.264, HEVC and AAC have no
++  // software decoder in Gecko on Android, so they go to RDD/Utility, where
++  // ffvpx drives the NDK MediaCodec. Everything ffvpx and dav1d decode in
++  // software (VP8, VP9, AV1, Opus, Vorbis, FLAC, MP3, WAV) is refused here, so
++  // PDMFactory falls through to the in-process modules and the bitstream is
++  // parsed in the isolated content process instead of the app-uid RDD/Utility
++  // process. Owner decision 2026-10-10: "Keep software codecs in the page
++  // process".
++  if (!aParams.mCDM && !MP4Decoder::IsH264(aParams.MimeType()) &&
++      !MP4Decoder::IsHEVC(aParams.MimeType()) &&
++      !MP4Decoder::IsAAC(aParams.MimeType())) {
++    support = {};
++  }
+ #endif
+   MOZ_LOG_FMT(
+       sPDMLog, LogLevel::Debug, "Sandbox {} decoder {} requested type {}",
+--- a/dom/media/platforms/PDMFactory.cpp
++++ b/dom/media/platforms/PDMFactory.cpp
+@@ -1009,14 +1009,22 @@
+ 
+ /* static */
+ bool PDMFactory::AllDecodersAreRemote() {
++#ifdef MOZ_WIDGET_ANDROID
++  // Redoubt (LW-M7-50, isolation-media overlay): the software decoders stay in
++  // the content process (RemoteDecoderModule::Supports), so even with every
++  // media.rdd-* pref on, not all decoders are remote. Callers use this to skip
++  // content-side setup for local decoding (WebRenderBridgeChild::GetForMedia).
++  return false;
++#else
+   return StaticPrefs::media_rdd_process_enabled() &&
+          StaticPrefs::media_rdd_opus_enabled() &&
+          StaticPrefs::media_rdd_vorbis_enabled() &&
+          StaticPrefs::media_rdd_vpx_enabled() &&
+-#if defined(MOZ_WMF)
++#  if defined(MOZ_WMF)
+          StaticPrefs::media_rdd_wmf_enabled() &&
+-#endif
++#  endif
+          StaticPrefs::media_rdd_wav_enabled();
++#endif
+ }
+ 
+ #undef PDM_INIT_LOG

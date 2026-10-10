@@ -365,16 +365,22 @@ def cmd_check_scope():
     desktop = _list_entries(ld / "desktop.txt")
     android = _list_entries(ld / "android.txt")
     parked = _straddlers(ld / "desktop.txt")
+    # LW-M7-50: opt-in Android overlays (librewolf-patches.py --overlays). Their
+    # patches are listed, but in no build unless named, so they are counted on
+    # their own and kept out of the common/android/desktop/straddler total.
+    overlay_lists = {p.stem: _list_entries(p) for p in sorted(ld.glob("overlay-*.txt"))}
+    overlay = [e for entries in overlay_lists.values() for e in entries]
     errs, warns = [], []
 
     # 1. every listed patch exists on disk
-    for name in common + desktop + android:
+    for name in common + desktop + android + overlay:
         if not (REPO / name).exists():
             errs.append(f"listed but missing on disk: {name}")
 
     # 2. no patch appears in more than one list
     seen = {}
-    for label, entries in (("common", common), ("desktop", desktop), ("android", android)):
+    for label, entries in (("common", common), ("desktop", desktop), ("android", android),
+                           *overlay_lists.items()):
         for name in entries:
             if name in seen:
                 errs.append(f"{name} is in both {seen[name]}.txt and {label}.txt")
@@ -436,7 +442,7 @@ def cmd_check_scope():
             ("android", s_android, len(android)),
             ("desktop-only", s_desktop, real_desktop),
             ("straddlers", s_strad, real_strad),
-            ("total", s_total, len(on_disk) - len(pending)),
+            ("total", s_total, len(on_disk) - len(pending) - len(overlay)),
         ):
             if stated_n != real_n:
                 errs.append(f"PATCH-SCOPE.md says {stated_n} {label}, lists have {real_n}")
@@ -446,6 +452,14 @@ def cmd_check_scope():
         if parts != s_total:
             errs.append(f"PATCH-SCOPE.md's own arithmetic does not add up: "
                         f"{s_common}+{s_android}+{s_desktop}+{s_strad} = {parts}, not {s_total}")
+    if overlay:
+        stated_o = re.search(r"\*\*(\d+) overlay patch files\*\*", doc)
+        if not stated_o:
+            errs.append("assets/patches/overlay-*.txt list patches but PATCH-SCOPE.md has no "
+                        "'**N overlay patch files**' statement")
+        elif int(stated_o.group(1)) != len(overlay):
+            errs.append(f"PATCH-SCOPE.md says {stated_o.group(1)} overlay patch files, "
+                        f"overlay lists have {len(overlay)}")
     if android and not re.search(r"/ \d+ android /", doc):
         errs.append(f"android.txt has {len(android)} entries but PATCH-SCOPE.md's summary "
                     f"omits the android category entirely")
@@ -457,9 +471,11 @@ def cmd_check_scope():
     if errs:
         print(f"\n{len(errs)} error(s)")
         return 1
-    print(f"ok: {len(on_disk) - len(pending)} listed patch files — {len(common)} common, "
+    print(f"ok: {len(on_disk) - len(pending) - len(overlay)} listed patch files — {len(common)} common, "
           f"{len(desktop) - len(parked)} desktop, {len(android)} android, "
-          f"{len(parked)} straddlers parked; PATCH-SCOPE.md agrees")
+          f"{len(parked)} straddlers parked"
+          + (f"; {len(overlay)} overlay patch files ({', '.join(overlay_lists)})" if overlay else "")
+          + "; PATCH-SCOPE.md agrees")
     return 0
 
 

@@ -1,0 +1,15 @@
+# OVERLAY isolation-media (LW-M7-50) -- applied ONLY by
+#   scripts/librewolf-patches.py --overlays=isolation-media
+#   make android-dir TARGETS=android OVERLAYS=isolation-media
+# after common.txt and android.txt, in this order. Its prefs are in
+# assets/patches/overlay-isolation-media.cfg (appended to lw/librewolf.cfg).
+# A build without the overlay applies none of this. See
+# docs/android/ISOLATION-MEDIA.md.
+#
+# Owner decisions 2026-10-10, verbatim: "Prototype now, ship ON in a 158 dot
+# release if it tests clean"; "Keep software codecs in the page process";
+# "Yes, separate dev app" (that one is overlay-dev-app.txt).
+
+patches/android/isolation-media-process.patch             # isolated content + app zygote back ON (after isolated-process.patch)
+patches/android/isolation-media-codecs-in-content.patch   # only H.264/HEVC/AAC leave content; software codecs stay isolated
+patches/android/isolation-media-drain-backport.patch      # upstream bug 1987001 (Firefox 159), NDK MediaCodec drain fix

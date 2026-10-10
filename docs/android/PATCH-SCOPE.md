@@ -20,6 +20,15 @@ patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
 
+Opt-in overlays (LW-M7-50): **4 overlay patch files** sit outside that count, in
+`assets/patches/overlay-isolation-media.txt` (3) and
+`assets/patches/overlay-dev-app.txt` (1). They are Android-scoped
+(`lint-patch-scope.py` applies the android rules to them) and are applied only
+when a build names the overlay (`scripts/librewolf-patches.py --overlays=...`,
+`make ... OVERLAYS=...`), after every android.txt entry. A build that names no
+overlay applies none of them. `board.py --check-scope` checks this number too.
+See `docs/android/ISOLATION-MEDIA.md`.
+
 ## Android moves to Firefox 157 (2026-10-02) — the `-esr` split undone
 
 The maintainer reversed the ESR track (`docs/android/TRACK.md`, "Decision

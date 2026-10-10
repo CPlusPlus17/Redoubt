@@ -1,0 +1,70 @@
+# Redoubt isolation-media-process.patch  (Android, OVERLAY isolation-media)
+# Owner: LW-M7-50 ("Isolated content with MediaCodec in RDD: prototype behind a
+# build switch"), follow-up of the LW-M7-48 study (docs/android/ISOLATION-MEDIA-STUDY.md)
+#
+# Applied ONLY by `scripts/librewolf-patches.py --overlays=isolation-media`
+# (Makefile: OVERLAYS=isolation-media), from assets/patches/overlay-isolation-media.txt,
+# after every patch in android.txt. A normal build never applies it, so its
+# tree is the one patches/android/isolated-process.patch leaves: isolation OFF.
+#
+# Owner decisions 2026-10-10, verbatim:
+#   plan        "Prototype now, ship ON in a 158 dot release if it tests clean"
+#   trade-off   "Keep software codecs in the page process"
+#   testing     "Yes, separate dev app"
+#
+# Upstream file touched
+# ---------------------
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+#
+# The two literals that isolated-process.patch (LW-M5-02, revised by LW-M7-43)
+# pins to false go back to true: content runs in `isolatedTabN`/`zygoteTab`
+# services, as u:r:isolated_app with its own isolated uid, forked from the app
+# zygote, and cannot read the profile directory (isolated-process.patch,
+# "How this was verified", items 1-2). They stay literals: no setting and no
+# Nimbus value can lower them (isolated-process.patch, "Why the value is
+# hard-coded").
+#
+# Why this is safe for video now: LW-M7-43 turned isolation off because an
+# isolated content process has no H.264/HEVC/AAC decoder
+# (AndroidDecoderModule::IsJavaDecoderModuleAllowed() is false there, bug
+# 1810736). The same overlay sets upstream's eleven isolated-process media prefs
+# (assets/patches/overlay-isolation-media.cfg, bug 1988531 part 1), which decode
+# those codecs with ffvpx + the NDK MediaCodec in the RDD process (video) and the
+# Utility process (audio), and keeps every software codec in the isolated
+# content process (isolation-media-codecs-in-content.patch).
+#
+# Native HLS, decided: FAIL CLOSED, no workaround. HLSDecoder::IsEnabled() is
+# `media_hls_enabled() && !GeckoAppShell::IsIsolatedProcess()`
+# (dom/media/hls/HLSDecoder.cpp:360-363 in 158.0), because the ExoPlayer-based
+# GeckoHlsPlayer cannot bind services from an isolated process (bug 2043165).
+# So canPlayType("application/vnd.apple.mpegurl") is "" and a page whose ONLY
+# source is a native <video src=".m3u8"> gets MEDIA_ERR_SRC_NOT_SUPPORTED
+# (error 4). Any page that feature-detects (hls.js, video.js, Shaka, every
+# major player) falls back to MSE, which plays H.264/AAC through RDD. No pref
+# turns native HLS back on: re-enabling it would mean running ExoPlayer in a
+# non-isolated process, which is design (b) of the study and rejected there.
+# Measured in docs/android/evidence/lw-m7-50/.
+#
+# Ordering: must apply AFTER patches/android/isolated-process.patch (its context
+# is that patch's comment block and literals). Guaranteed structurally, because
+# overlay lists apply after android.txt, and recorded as a constraint in
+# scripts/check-patch-order.py.
+#
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+@@ -158,8 +158,13 @@
+                 // Turn this back on only after a Firefox release decodes H.264 from an
+                 // isolated content process; the measurement is in
+                 // docs/android/evidence/video-playback/README.md.
+-                .isolatedProcessEnabled(false)
+-                .appZygoteProcessEnabled(false)
++                // Redoubt LW-M7-50 (isolation-media overlay, opt-in build): back ON. H.264,
++                // HEVC and AAC are decoded by the NDK MediaCodec in the RDD/Utility process
++                // (prefs in assets/patches/overlay-isolation-media.cfg), so the isolated
++                // content process no longer needs the Java decoder module it cannot reach.
++                // Still literals, so no setting or experiment can turn them off.
++                .isolatedProcessEnabled(true)
++                .appZygoteProcessEnabled(true)
+ 
+         if (FxNimbus.features.fission.value().shouldUseNimbus) {
+             builder.fissionEnabled(FxNimbus.features.fission.value().enabled)

@@ -147,15 +147,25 @@ endif
 # NOTE: this rename means the first `make dir` after this change re-extracts
 # once on every existing builder, because no stamp under the new name exists
 # yet. That is a one-time cost, not a recurring one.
-targets_stamp := librewolf-targets-$(version)-$(release)-$(subst $(comma),-,$(TARGETS))
+#
+# OVERLAYS (LW-M7-50) names opt-in Android build overlays, e.g.
+#   make android-dir TARGETS=android OVERLAYS=isolation-media,dev-app
+# (scripts/librewolf-patches.py --overlays, docs/android/ISOLATION-MEDIA.md).
+# Empty by default, and every use below expands to exactly the string it had
+# before OVERLAYS existed when it is empty: same stamp name, same patch lists,
+# same patcher command, so a build that does not name an overlay is unchanged.
+# A non-empty value is part of the stamp name, so switching overlays re-extracts.
+OVERLAYS ?=
+overlay_list := $(subst $(comma), ,$(OVERLAYS))
+targets_stamp := librewolf-targets-$(version)-$(release)-$(subst $(comma),-,$(TARGETS))$(if $(strip $(OVERLAYS)),-overlays-$(subst $(comma),-,$(OVERLAYS)))
 
 # The patch lists the patcher actually reads. Only the ones in effect: editing
 # android.txt must not re-extract a desktop tree. assets/patches.txt is a
 # generated shim (see assets/patches/common.txt) that nothing in this recipe
 # reads any more, so it is deliberately not a prerequisite.
-patch_lists := assets/patches/common.txt $(foreach t,$(target_list),assets/patches/$(t).txt)
+patch_lists := assets/patches/common.txt $(foreach t,$(target_list),assets/patches/$(t).txt)$(foreach o,$(overlay_list), assets/patches/overlay-$(o).txt $(wildcard assets/patches/overlay-$(o).cfg))
 
-patcher_cmd := python3 scripts/librewolf-patches.py $(version) $(release) --targets=$(TARGETS)
+patcher_cmd := python3 scripts/librewolf-patches.py $(version) $(release) --targets=$(TARGETS)$(if $(strip $(OVERLAYS)), --overlays=$(OVERLAYS))
 
 FF_BASE_URL ?= https://archive.mozilla.org/pub/firefox/releases
 FF_CHANNEL ?= releases

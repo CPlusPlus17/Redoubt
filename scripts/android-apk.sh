@@ -433,6 +433,14 @@ SRCDIR=$(cd "$SRCDIR" && pwd)
 [ -x "$SRCDIR/mach" ] || die "'$SRCDIR' has no executable mach -- is that an extracted Firefox tree?"
 [ -f "$SRCDIR/mobile/android/fenix/app/build.gradle" ] ||
     die "'$SRCDIR' has no mobile/android/fenix/app/build.gradle -- this tree has no in-tree Fenix"
+# LW-M7-50: a tree patched with the dev-app overlay (patches/android/dev-app.patch,
+# applicationId org.redoubtbrowser.dev) never gets the update check. It is a test
+# app; offering it a release APK as an "update" would be a different app.
+if grep -q 'applicationIdSuffix ".dev"' "$SRCDIR/mobile/android/fenix/app/build.gradle"; then
+    [ -z "$LW_UPDATE_CHECK_PROPS" ] ||
+        die "this tree carries the dev-app overlay (org.redoubtbrowser.dev): it is built without the update check; drop --update-check / LW_UPDATE_CHECK_PUBKEY / LW_UPDATE_CHECK_ENDPOINT"
+    log "dev-app overlay present: applicationId org.redoubtbrowser.dev, update check compiled out"
+fi
 [ -f "$SRCDIR/python/mozbuild/mozbuild/action/fat_aar.py" ] ||
     die "'$SRCDIR' has no python/mozbuild/mozbuild/action/fat_aar.py -- this tree has no fat-AAR support"
 # settings.gradle is what turns MOZ_ANDROID_SUBPROJECT into a :fenix project.
