@@ -1,0 +1,58 @@
+Document: signing-bundle/update/latest.json (sha256 2d0ea8713521f0167b9c9b9a72fcedca23a30596a3c2e24afb744a085dfaefe1), signed here with a THROWAWAY P-256 key (the 157.0-2 acceptance's test key, public key MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEN8sJVdsLyXeHMYNtd/czzEAJ6f4eNlt5idLq8JQbfz84b/UX6FYZevyyqnRQK5udZ8t3x7706TYzNRLoKeyuSA==). Not the owner's key.
+
+$ update-manifest.py verify latest.json --metadata <CI output-metadata.json>   (committed key = what the app embeds)
+REJECTED: signature did not verify (the app would show nothing)
+exit 1
+
+$ ... --pubkey <throwaway> --metadata <CI output-metadata.json>   (positive control)
+signature OK; latest_version=157.0.1-1 version_code=2016188816 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0.1-1
+verdict for the given install: up to date
+matches /home/mgysin/redoubt-artifacts/release-157.0.1-1/ci/redoubt-android-unsigned/output-metadata.json: version_code is the lowest of [2016188816, 2016188818, 2016188822, 2016188823]
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016188750 --current-version 157.0-3-default (157.0-3 x86_64)
+signature OK; latest_version=157.0.1-1 version_code=2016188816 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0.1-1
+verdict for the given install: update offered
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016188744 --current-version 157.0-3-default (157.0-3 armeabi-v7a, the lowest 157.0-3 code)
+signature OK; latest_version=157.0.1-1 version_code=2016188816 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0.1-1
+verdict for the given install: update offered
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016188751 --current-version 157.0-3-default (157.0-3 universal, the highest 157.0-3 code)
+signature OK; latest_version=157.0.1-1 version_code=2016188816 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0.1-1
+verdict for the given install: update offered
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016188822 --current-version 157.0.1-1-default (157.0.1-1 x86_64, this build)
+signature OK; latest_version=157.0.1-1 version_code=2016188816 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0.1-1
+verdict for the given install: up to date
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016188904 --current-version 158.0b4-1-default (158.0-1 Beta 1 armeabi-v7a, the lowest beta code)
+signature OK; latest_version=157.0.1-1 version_code=2016188816 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0.1-1
+verdict for the given install: up to date
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016188910 --current-version 158.0b4-1-default (158.0-1 Beta 1 x86_64)
+signature OK; latest_version=157.0.1-1 version_code=2016188816 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0.1-1
+verdict for the given install: up to date
+exit 0
+
+$ signing-bundle/update/sign-update-manifest.sh <throwaway key> <copy of latest.json>   (must refuse any key but the pinned one)
+== document: /home/mgysin/redoubt-artifacts/release-157.0.1-1/x/hostdoc/l2.json
+   sha256   2d0ea8713521f0167b9c9b9a72fcedca23a30596a3c2e24afb744a085dfaefe1
+   compare this digest with the one printed on the build host before going on.
+   | {
+   |   "latest_version": "157.0.1-1",
+   |   "version_code": 2016188816,
+   |   "download_url": "https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0.1-1",
+   |   "release_notes_url": "https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0.1-1",
+   |   "published_at": "2026-10-10T02:32:26Z"
+   | }
+== signing (openssl will ask for the update-signing key's passphrase)
+== verifying against the pinned public key
+sign-update-manifest: the signature does NOT verify against /home/mgysin/redoubt-artifacts/release-157.0.1-1/signing-bundle/update/update-check.android.pubkey -- wrong key? Nothing was written.
+exit 2
+ls: cannot access '/home/mgysin/redoubt-artifacts/release-157.0.1-1/x/hostdoc/l2.json.sig': No such file or directory

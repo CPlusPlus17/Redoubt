@@ -1,0 +1,178 @@
+{
+ "checks": [
+  {
+   "check": "ubo-user-disable-reload-control-provision",
+   "ok": true,
+   "detail": "bundled-list script blocked; allowed script must execute and reach the origin",
+   "evidence": {
+    "page": {
+     "url": "http://127.0.0.1:36413/ubo-probe?token=reload-control-provision-f0fd65c99e93dd19",
+     "uri": "http://127.0.0.1:36413/ubo-probe?token=reload-control-provision-f0fd65c99e93dd19",
+     "ready": "complete",
+     "probe": {
+      "token": "reload-control-provision-f0fd65c99e93dd19",
+      "blocked": false,
+      "allowed": true
+     }
+    },
+    "page_requests": [
+     [
+      1791599632.4689176,
+      "http",
+      "/ubo-probe?token=reload-control-provision-f0fd65c99e93dd19"
+     ]
+    ],
+    "blocked_requests": [],
+    "allowed_requests": [
+     [
+      1791599632.521645,
+      "http",
+      "/redoubt-allowed.js?token=reload-control-provision-f0fd65c99e93dd19"
+     ]
+    ],
+    "expected_blocked": true
+   }
+  },
+  {
+   "check": "ubo-user-disable-user-disable-provision",
+   "ok": true,
+   "detail": "bundled-list script blocked; allowed script must execute and reach the origin",
+   "evidence": {
+    "page": {
+     "url": "http://127.0.0.1:36413/ubo-probe?token=user-disable-provision-93300a215d3b0f60",
+     "uri": "http://127.0.0.1:36413/ubo-probe?token=user-disable-provision-93300a215d3b0f60",
+     "ready": "complete",
+     "probe": {
+      "token": "user-disable-provision-93300a215d3b0f60",
+      "blocked": false,
+      "allowed": true
+     }
+    },
+    "page_requests": [
+     [
+      1791599693.2551956,
+      "http",
+      "/ubo-probe?token=user-disable-provision-93300a215d3b0f60"
+     ]
+    ],
+    "blocked_requests": [],
+    "allowed_requests": [
+     [
+      1791599693.3587954,
+      "http",
+      "/redoubt-allowed.js?token=user-disable-provision-93300a215d3b0f60"
+     ]
+    ],
+    "expected_blocked": true
+   }
+  },
+  {
+   "check": "check-ubo-user-disable",
+   "ok": true,
+   "detail": "a reload during the readiness wait still pauses browsing; a user disable continues unfiltered with no failure dialog",
+   "evidence": {
+    "phases": [
+     {
+      "ok": true,
+      "problems": [],
+      "dialog": true,
+      "failed_lines": [
+       "10-10 04:34:04.805 10997 10997 E LibreWolfUboPreinstaller: uBlock Origin startup failed; browsing remains paused"
+      ],
+      "ready_lines": [],
+      "user_disabled_lines": [],
+      "ready_disabled_lines": [],
+      "phase": "reload-control",
+      "mutation": {
+       "before": {
+        "active": true,
+        "userDisabled": false
+       },
+       "after": {
+        "active": true,
+        "userDisabled": false
+       }
+      },
+      "page": {
+       "origin_requests": []
+      },
+      "marionette_attached_s": 4.3,
+      "mutated_s": 5.2,
+      "waited_seconds": 47.3
+     },
+     {
+      "ok": true,
+      "problems": [],
+      "dialog": false,
+      "failed_lines": [],
+      "ready_lines": [],
+      "user_disabled_lines": [
+       "10-10 04:35:05.522 11928 11928 I LibreWolfUboPreinstaller: uBlock Origin was disabled by the user during startup"
+      ],
+      "ready_disabled_lines": [
+       "10-10 04:35:05.522 11928 11928 I LibreWolfUboPreinstaller: uBlock Origin startup ready: Ready(installed=true, enabled=false)"
+      ],
+      "phase": "user-disable",
+      "mutation": {
+       "before": {
+        "active": true,
+        "userDisabled": false
+       },
+       "after": {
+        "active": false,
+        "userDisabled": true
+       }
+      },
+      "page": {
+       "page": {
+        "url": "http://127.0.0.1:36413/ubo-probe?token=user-disable-bbcfdeec23658ebf",
+        "uri": "http://127.0.0.1:36413/ubo-probe?token=user-disable-bbcfdeec23658ebf",
+        "ready": "complete",
+        "probe": {
+         "token": "user-disable-bbcfdeec23658ebf",
+         "blocked": true,
+         "allowed": true
+        }
+       },
+       "page_requests": [
+        [
+         1791599705.6475787,
+         "http",
+         "/ubo-probe?token=user-disable-bbcfdeec23658ebf"
+        ]
+       ],
+       "blocked_requests": [
+        [
+         1791599705.6741316,
+         "http",
+         "/banner_ads/redoubt-probe.js?token=user-disable-bbcfdeec23658ebf"
+        ]
+       ],
+       "allowed_requests": [
+        [
+         1791599705.6755803,
+         "http",
+         "/redoubt-allowed.js?token=user-disable-bbcfdeec23658ebf"
+        ]
+       ]
+      },
+      "marionette_attached_s": 4.3,
+      "mutated_s": 4.3,
+      "waited_seconds": 47.2
+     }
+    ]
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/release-157.0.1-1/work",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/release-157.0.1-1/apk/fenix-x86_64-157.0.1-1-throwaway.apk",
+  "sha256": "22d15fdd91c6b063c807816f4941f9a2f9d2508a8378df581171b9ce1d67d153",
+  "size": 135254092,
+  "harness_sha256": "ef85ddfb2a4d742073f7a56856af4907c32ae882d5c557593493899d12438f23"
+ },
+ "status": "completed",
+ "error": null
+}

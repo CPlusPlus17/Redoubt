@@ -1,0 +1,264 @@
+{
+ "checks": [
+  {
+   "check": "check-no-gms",
+   "ok": true,
+   "detail": "no com.google.android.gms strings in any classes*.dex, no GMS class references and no gms entries in the apk",
+   "evidence": {
+    "exempted": {},
+    "unexpected_strings": [],
+    "gms_type_descriptors": [],
+    "apk_entries": [],
+    "androidx_activity_version": "1.13.0",
+    "version_floor": "1.10.0",
+    "version_condition_ok": true,
+    "declaring_class_present": false,
+    "declaring_class_gms_methods": [],
+    "hits": {}
+   }
+  },
+  {
+   "check": "check-no-adjust",
+   "ok": true,
+   "detail": "no Adjust or INSTALL_REFERRER strings in any classes*.dex",
+   "evidence": {
+    "hits": {}
+   }
+  },
+  {
+   "check": "https-only-interstitial",
+   "ok": true,
+   "detail": "HTTP must reach the HTTPS-only interstitial before the user grants an exception",
+   "evidence": {
+    "prefs": {
+     "enabled": true,
+     "locked": false
+    },
+    "page": {
+     "url": "https://10.0.2.2:36741/?https-only-c4a946172f5bf730",
+     "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+site+not+available&button=Try+Again&description=Most+likely%2C+the+website+simply+does+not+support+HTTPS.%3Cbr%3E%3Cbr%3EHowever%2C+it%E2%80%99s+also+possible+that+an+attacker+is+involved.+If+you+continue+to+the+website%2C+you+should+not+enter+any+sensitive+info.+If+you+continue%2C+HTTPS-Only+mode+will+be+turned+off+temporarily+for+the+site.&image=mozac_error_lock.svg&showSSL=false&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=true&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+     "title": "Secure site not available",
+     "ready": "interactive",
+     "marker": null,
+     "continueVisible": true,
+     "canAddException": true
+    },
+    "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms"
+   }
+  },
+  {
+   "check": "page-load-http",
+   "ok": true,
+   "detail": "http://10.0.2.2:36741/?https-only-c4a946172f5bf730 ready=complete secure=False marker='lw-smoke-page-ok', origin logged 4 request(s)",
+   "evidence": {
+    "page": {
+     "url": "http://10.0.2.2:36741/?https-only-c4a946172f5bf730",
+     "proto": "http:",
+     "secure": false,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 4
+   }
+  },
+  {
+   "check": "page-load-https",
+   "ok": true,
+   "detail": "https://10.0.2.2:55085/ ready=complete secure=True marker='lw-smoke-page-ok', origin logged 7 request(s)",
+   "evidence": {
+    "page": {
+     "url": "https://10.0.2.2:55085/",
+     "proto": "https:",
+     "secure": true,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 7
+   }
+  },
+  {
+   "check": "webgl",
+   "ok": true,
+   "detail": "Real release UI consent, pixels, revoke, lifetimes and frame isolation passed",
+   "evidence": {
+    "report": "/home/mgysin/redoubt-artifacts/release-157.0.1-1/work30/graphics-acceptance/43273aeea4ec3211/graphics-results.json",
+    "report_sha256": "145535acf19a464f7b89a2aa3f8d8fc96698776d24f29cbe84544692a6f4302a",
+    "runner_exit": 0,
+    "graphics_status": "PASS",
+    "acceptanceComplete": true,
+    "apk_sha256": "22d15fdd91c6b063c807816f4941f9a2f9d2508a8378df581171b9ce1d67d153"
+   }
+  },
+  {
+   "check": "video",
+   "ok": true,
+   "detail": "decoded 13 frames, currentTime=0.455 readyState=4 64x64, origin served the file 1 time(s)",
+   "evidence": {
+    "video": {
+     "events": [],
+     "ok": true,
+     "element": "v",
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.455376,
+     "readyState": 4,
+     "videoWidth": 64,
+     "videoHeight": 64,
+     "paused": false,
+     "decoded": 13,
+     "dropped": 0,
+     "mediaError": null,
+     "autoplay_prefs": {
+      "default": 5,
+      "policy": 0
+     }
+    },
+    "origin_requests": 1
+   }
+  },
+  {
+   "check": "video-h264",
+   "ok": true,
+   "detail": "decoded 14 frames, currentTime=0.482 readyState=4 64x64, origin served the file 1 time(s)",
+   "evidence": {
+    "video": {
+     "events": [],
+     "ok": true,
+     "element": "v264",
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.481759,
+     "readyState": 4,
+     "videoWidth": 64,
+     "videoHeight": 64,
+     "paused": false,
+     "decoded": 14,
+     "dropped": 0,
+     "mediaError": null,
+     "autoplay_prefs": {
+      "default": 5,
+      "policy": 0
+     }
+    },
+    "origin_requests": 1
+   }
+  },
+  {
+   "check": "video-mse",
+   "ok": true,
+   "detail": "isTypeSupported(video/mp4; codecs=\"avc1.42E01E,mp4a.40.2\")=true, appended 11963 bytes, decoded 12 frames, currentTime=0.403 readyState=4 64x64",
+   "evidence": {
+    "mse": {
+     "ok": true,
+     "type": "video/mp4; codecs=\"avc1.42E01E,mp4a.40.2\"",
+     "events": [],
+     "isTypeSupported": true,
+     "addSourceBuffer": "ok",
+     "bytes": 11963,
+     "buffered": [
+      0,
+      2.021333
+     ],
+     "play": "resolved",
+     "currentTime": 0.403012,
+     "readyState": 4,
+     "videoWidth": 64,
+     "videoHeight": 64,
+     "decoded": 12,
+     "mediaError": null
+    },
+    "origin_requests": 1
+   }
+  },
+  {
+   "check": "getusermedia",
+   "ok": true,
+   "detail": "prompt(s) raised ['com.android.permissioncontroller:id/permission_deny_button'], harness tapped deny 2 time(s), getUserMedia rejected with NotAllowedError in 4583ms",
+   "evidence": {
+    "gum": {
+     "t0": 1791604352670,
+     "hasMediaDevices": true,
+     "hasRTCPeerConnection": true,
+     "state": "rejected",
+     "error": "NotAllowedError",
+     "message": "The request is not allowed by the user agent or the platform in the current context.",
+     "ms": 4583
+    },
+    "prompt_seen": true,
+    "taps": 2,
+    "dialogs": [
+     "com.android.permissioncontroller:id/permission_deny_button"
+    ],
+    "alive": true,
+    "crashed": false
+   }
+  },
+  {
+   "check": "extension",
+   "ok": true,
+   "detail": "installed smoke-probe@librewolf.invalid and its content script ran on a real page (marker='alive-webext'); 7 extensions active",
+   "evidence": {
+    "id": "smoke-probe@librewolf.invalid",
+    "marker": "alive-webext",
+    "addons": [
+     {
+      "id": "icons@mozac.org",
+      "name": "Mozilla Android Components - Browser Icons",
+      "active": true
+     },
+     {
+      "id": "readerview@mozac.org",
+      "name": "Mozilla Android Components - ReaderView",
+      "active": true
+     },
+     {
+      "id": "ads@mozac.org",
+      "name": "Mozilla Android Components - Ads Telemetry",
+      "active": true
+     },
+     {
+      "id": "cookies@mozac.org",
+      "name": "Mozilla Android Components - Search Telemetry",
+      "active": true
+     },
+     {
+      "id": "webcompat@mozilla.org",
+      "name": "Web Compatibility Interventions",
+      "active": true
+     },
+     {
+      "id": "uBlock0@raymondhill.net",
+      "name": "uBlock Origin",
+      "active": true
+     },
+     {
+      "id": "smoke-probe@librewolf.invalid",
+      "name": "LibreWolf smoke probe",
+      "active": true
+     }
+    ]
+   }
+  },
+  {
+   "check": "pref-dump",
+   "ok": true,
+   "detail": "written to /home/mgysin/redoubt-artifacts/release-157.0.1-1/work30/prefs.txt (58 prefs; librewolf.webgl.prompt=True)",
+   "evidence": {
+    "path": "/home/mgysin/redoubt-artifacts/release-157.0.1-1/work30/prefs.txt"
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/release-157.0.1-1/work30",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/release-157.0.1-1/apk/fenix-x86_64-157.0.1-1-throwaway.apk",
+  "sha256": "22d15fdd91c6b063c807816f4941f9a2f9d2508a8378df581171b9ce1d67d153",
+  "size": 135254092,
+  "harness_sha256": "ef85ddfb2a4d742073f7a56856af4907c32ae882d5c557593493899d12438f23"
+ },
+ "status": "completed",
+ "error": null
+}
