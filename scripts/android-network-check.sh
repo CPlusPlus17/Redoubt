@@ -4,6 +4,8 @@
 # Android packages autoconfig, but cfg text alone cannot prove its effective
 # values after profile loading, overrides and Fenix Settings initialization.
 # Live parity probes belong to LW-M7-11 and remain pending here, even with adb.
+# The live probes are in scripts/android-smoke.sh (LW-M7-49): --check-https-only,
+# --check-tls-floor and --check-revocation. This wrapper stays static by design.
 #
 # Exit codes:
 #   0  selected static cfg expectations pass, or all self-test controls pass
@@ -35,7 +37,7 @@ while [ "$#" -gt 0 ]; do
             esac
             shift 2 ;;
         --self-test) SELF_TEST=1; shift ;;
-        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done

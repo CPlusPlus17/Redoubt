@@ -2,7 +2,9 @@
 """Regression tests for capture evidence that handshake-only parsing missed."""
 from pathlib import Path
 import json
+import shutil
 import socket
+import subprocess
 import struct
 import io
 import os
@@ -1124,6 +1126,234 @@ class UpdatePrivacyAttributionTests(unittest.TestCase):
         self.assertIn('grade_update_privacy_flows(', body)
         self.assertIn('attribute_typing_flows(pcap, guest, off1, on_end)', body)
         self.assertNotIn('seen_off', body)
+
+
+def tls_observation(version, connected, error=None):
+    if connected:
+        server = [{"handshake": True, "version": harness.TLS_FLOOR_PROTOCOL[version]}]
+        marker = "tls-floor-ok-%s" % version
+    else:
+        server = [{"handshake": False, "error": "unsupported protocol"}]
+        marker = None
+    return {"server": server, "page": {"marker": marker},
+            "channel": {"marker": marker, "errorCodeString": error}}
+
+
+class TlsFloorGateTests(unittest.TestCase):
+    """LW-M7-49: TLS 1.0/1.1 refused by TLS, TLS 1.2/1.3 connected, both ends agree."""
+    def floor(self, **override):
+        obs = {"1.0": tls_observation("1.0", False, "SSL_ERROR_PROTOCOL_VERSION_ALERT"),
+               "1.1": tls_observation("1.1", False, "SSL_ERROR_PROTOCOL_VERSION_ALERT"),
+               "1.2": tls_observation("1.2", True), "1.3": tls_observation("1.3", True)}
+        obs.update(override)
+        return harness.grade_tls_floor(obs, {"min": 3})
+
+    def test_librewolf_floor_passes(self):
+        ok, verdicts = self.floor()
+        self.assertTrue(ok)
+        self.assertEqual(verdicts["1.0"]["got"], "refused")
+        self.assertEqual(verdicts["1.3"]["got"], "connected")
+
+    def test_legacy_version_connecting_fails(self):
+        for v in ("1.0", "1.1"):
+            with self.subTest(v=v):
+                ok, verdicts = self.floor(**{v: tls_observation(v, True)})
+                self.assertFalse(ok)
+                self.assertEqual(verdicts[v]["got"], "connected")
+
+    def test_modern_version_refused_fails(self):
+        ok, _ = self.floor(**{"1.2": tls_observation("1.2", False, "SSL_ERROR_NO_CYPHER_OVERLAP")})
+        self.assertFalse(ok)
+
+    def test_refusal_needs_a_tls_error_and_a_server_record(self):
+        ok, verdicts = self.floor(**{"1.0": tls_observation("1.0", False, None)})
+        self.assertFalse(ok)
+        self.assertEqual(verdicts["1.0"]["got"], "refused-without-tls-error")
+        ok, _ = self.floor(**{"1.1": {"page": {}, "channel": {"errorCodeString": "X"}}})
+        self.assertFalse(ok)
+
+    def test_one_sided_success_is_inconsistent(self):
+        half = tls_observation("1.2", True)
+        half["page"] = {"marker": None}
+        ok, verdicts = self.floor(**{"1.2": half})
+        self.assertFalse(ok)
+        self.assertEqual(verdicts["1.2"]["got"], "inconsistent")
+        wrong = tls_observation("1.3", True)
+        wrong["server"] = [{"handshake": True, "version": "TLSv1.2"}]
+        self.assertFalse(self.floor(**{"1.3": wrong})[0])
+
+
+class RevocationGateTests(unittest.TestCase):
+    STATE = {"prefs": {"security.OCSP.enabled": 0, "security.pki.crlite_mode": 2,
+                       "security.ssl.enable_ocsp_stapling": True}}
+
+    @staticmethod
+    def loaded():
+        return {"channel": {"marker": "revocation-ok"}, "page": {"marker": "revocation-ok"}}
+
+    @staticmethod
+    def blocked(code):
+        return {"channel": {"marker": None, "errorCodeString": code}, "page": {"marker": None}}
+
+    def obs(self, **override):
+        o = {"good": self.loaded(), "revoked": self.loaded(), "unreachable": self.loaded(),
+             "stapled-revoked": self.blocked("SEC_ERROR_REVOKED_CERTIFICATE"),
+             "must-staple": self.loaded()}
+        o.update(override)
+        return o
+
+    def rows(self, state=None, obs=None, requests=()):
+        return {r[0]: r[1] for r in harness.grade_revocation(state or self.STATE, obs or self.obs(),
+                                                             list(requests))}
+
+    def test_librewolf_posture_passes(self):
+        self.assertEqual(self.rows(), {"revocation-ocsp-off": True, "revocation-stapled": True})
+
+    def test_any_ocsp_fetch_fails_the_ocsp_off_row(self):
+        rows = self.rows(requests=[{"t": 1, "method": "POST"}])
+        self.assertFalse(rows["revocation-ocsp-off"])
+
+    def test_ocsp_on_negative_control_fails(self):
+        state = {"prefs": {"security.OCSP.enabled": 1, "security.pki.crlite_mode": 2}}
+        obs = self.obs(revoked=self.blocked("SEC_ERROR_REVOKED_CERTIFICATE"))
+        rows = self.rows(state, obs, [{"t": 1}])
+        self.assertFalse(rows["revocation-ocsp-off"])
+
+    def test_pref_drift_fails_even_if_pages_load(self):
+        state = {"prefs": {"security.OCSP.enabled": 0, "security.pki.crlite_mode": 0}}
+        self.assertFalse(self.rows(state)["revocation-ocsp-off"])
+
+    def test_staple_must_block_with_the_revoked_error(self):
+        self.assertFalse(self.rows(obs=self.obs(**{"stapled-revoked": self.loaded()}))["revocation-stapled"])
+        wrong = self.obs(**{"stapled-revoked": self.blocked("SEC_ERROR_UNKNOWN_ISSUER")})
+        self.assertFalse(self.rows(obs=wrong)["revocation-stapled"])
+
+
+class RfpCoherenceGateTests(unittest.TestCase):
+    UA = "Mozilla/5.0 (Android 10; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0"
+
+    def report(self, **override):
+        r = {"userAgent": self.UA, "appVersion": "5.0 (Android 10)", "oscpu": "Linux armv81",
+             "platform": "Linux armv81", "buildID": "20181001000000", "hardwareConcurrency": 4,
+             "maxTouchPoints": 5, "language": "en-US", "languages": ["en-US", "en"],
+             "userAgentData": "undefined",
+             "screen": {"width": 412, "height": 815, "availWidth": 412, "availHeight": 815,
+                        "colorDepth": 24},
+             "window": {"innerWidth": 412, "innerHeight": 815},
+             "media": {"device-width = innerWidth": True, "device-height = innerHeight": False},
+             "timeZone": "Atlantic/Reykjavik", "tzOffsetNow": 0, "tzOffsetJan": 0, "tzOffsetJul": 0,
+             "performanceNow": {"minDelta": 16.667},
+             "worker": {"userAgent": self.UA, "appVersion": "5.0 (Android 10)",
+                        "platform": "Linux armv81", "hardwareConcurrency": 4, "language": "en-US",
+                        "languages": ["en-US", "en"], "timeZone": "Atlantic/Reykjavik", "tzOffsetNow": 0,
+                        "userAgentData": "undefined"}}
+        r.update(override)
+        return r
+
+    HEADERS = {"user-agent": UA, "accept-language": "en-US,en;q=0.5"}
+
+    def grade(self, report=None, headers=None):
+        return harness.grade_rfp_coherence(report or self.report(), headers or self.HEADERS, "157")
+
+    def test_spoofed_android_profile_passes(self):
+        ok, items = self.grade()
+        self.assertTrue(ok, [i for i in items if not i["ok"]])
+
+    def test_rfp_off_values_fail(self):
+        real = self.report(userAgent="Mozilla/5.0 (Android 14; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0",
+                           buildID="20261001000000", timeZone="Europe/Zurich", tzOffsetJan=-60,
+                           tzOffsetJul=-120, tzOffsetNow=-120,
+                           screen={"width": 1080, "height": 1920, "availWidth": 1080,
+                                   "availHeight": 1920, "colorDepth": 24},
+                           performanceNow={"minDelta": 0.02})
+        ok, items = self.grade(real, dict(self.HEADERS, **{"user-agent": real["userAgent"]}))
+        self.assertFalse(ok)
+        failed = {i["name"] for i in items if not i["ok"]}
+        for name in ("userAgent spoofed", "buildID", "time zone Atlantic/Reykjavik, offset 0 (window and worker)",
+                     "screen = inner window (no device size)", "performance.now() clamped to >= 16 ms"):
+            self.assertIn(name, failed)
+
+    def test_incoherent_surfaces_fail(self):
+        cases = {
+            "header": (None, dict(self.HEADERS, **{"user-agent": "Mozilla/5.0 (X11; Linux x86_64)"})),
+            "worker": (self.report(worker=dict(self.report()["worker"], userAgent="other")), None),
+            "client hints": (None, dict(self.HEADERS, **{"sec-ch-ua": '"Firefox"'})),
+            "language": (None, dict(self.HEADERS, **{"accept-language": "de-CH,de;q=0.8"})),
+            "worker tz": (self.report(worker=dict(self.report()["worker"], timeZone="Europe/Zurich")), None),
+            "plain UTC": (self.report(timeZone="UTC"), None),
+            "device width": (self.report(media={"device-width = innerWidth": False}), None),
+        }
+        for name, (report, headers) in cases.items():
+            with self.subTest(name=name):
+                self.assertFalse(self.grade(report, headers)[0])
+
+    def test_crlite_summary(self):
+        self.assertEqual(harness.crlite_summary(""), "none")
+        self.assertEqual(harness.crlite_summary("a" * 64 + "," + "b" * 64),
+                         "2 (full filter aaaaaaaaaaaaaaaa..., 1 delta(s))")
+
+    def test_empty_report_cannot_pass(self):
+        self.assertFalse(harness.grade_rfp_coherence({}, {}, "157")[0])
+
+    def test_probe_routes_serve_page_and_worker(self):
+        page = harness.rfp_probe_response("/rfp-probe?n=1")
+        worker = harness.rfp_probe_response("/rfp-worker.js")
+        self.assertIn(b'id="out"', page[0])
+        self.assertEqual(worker[1], "application/javascript")
+        self.assertIsNone(harness.rfp_probe_response("/other"))
+
+
+class ParityFixtureIntegrationTests(unittest.TestCase):
+    """Host-only: the fixtures the device probes depend on actually behave."""
+    def setUp(self):
+        if not shutil.which("openssl"):
+            self.skipTest("openssl not installed")
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = self.temp.name
+        harness.mint_certs(self.root)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_tls_floor_servers_speak_exactly_their_version(self):
+        try:
+            servers = harness.TlsFloorServers(self.root, os.path.join(self.root, "srv.pem"))
+        except harness.HarnessError as error:
+            self.skipTest("host OpenSSL cannot serve legacy TLS: %s" % error)
+        try:
+            self.assertEqual(servers.selftest, {v: harness.TLS_FLOOR_PROTOCOL[v]
+                                                for v in harness.TLS_FLOOR_VERSIONS})
+            import ssl as _ssl
+            ctx = _ssl.create_default_context(cafile=os.path.join(self.root, "ca.crt"))
+            ctx.check_hostname = False
+            with socket.create_connection(("127.0.0.1", servers.ports["1.3"]), timeout=10) as raw:
+                with ctx.wrap_socket(raw) as tls:
+                    tls.sendall(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+                    self.assertIn(b"tls-floor-ok-1.3", tls.recv(4096))
+            with self.assertRaises(_ssl.SSLError):
+                with socket.create_connection(("127.0.0.1", servers.ports["1.0"]), timeout=10) as raw:
+                    ctx.wrap_socket(raw).close()
+        finally:
+            servers.stop()
+
+    def test_revocation_fixture_staples_revoked_and_answers_ocsp(self):
+        fixture = harness.RevocationFixture(self.root)
+        try:
+            leaf = fixture.leaves["stapled-revoked"]
+            out = subprocess.run(["openssl", "s_client", "-status", "-connect",
+                                  "127.0.0.1:%d" % leaf["port"]], input="", capture_output=True,
+                                 text=True, timeout=20).stdout
+            self.assertIn("Cert Status: revoked", out)
+            for name, want in (("good", ": good"), ("revoked", ": revoked")):
+                r = subprocess.run(["openssl", "ocsp", "-issuer", os.path.join(self.root, "ca.crt"),
+                                    "-cert", fixture.leaves[name]["crt"], "-no_nonce",
+                                    "-url", "http://127.0.0.1:%d/" % fixture.ocsp_port,
+                                    "-CAfile", os.path.join(self.root, "ca.crt")],
+                                   capture_output=True, text=True, timeout=20)
+                self.assertIn(want, r.stdout)
+            self.assertEqual(len(fixture.ocsp_requests), 2)
+        finally:
+            fixture.stop()
 
 
 if __name__ == '__main__':

@@ -1,0 +1,997 @@
+{
+ "checks": [
+  {
+   "check": "https-only-interstitial",
+   "ok": true,
+   "detail": "HTTP must reach the HTTPS-only interstitial before the user grants an exception",
+   "evidence": {
+    "prefs": {
+     "enabled": true,
+     "locked": false
+    },
+    "page": {
+     "url": "https://10.0.2.2:38295/?https-only-bdd542ac09a1f291",
+     "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+site+not+available&button=Try+Again&description=Most+likely%2C+the+website+simply+does+not+support+HTTPS.%3Cbr%3E%3Cbr%3EHowever%2C+it%E2%80%99s+also+possible+that+an+attacker+is+involved.+If+you+continue+to+the+website%2C+you+should+not+enter+any+sensitive+info.+If+you+continue%2C+HTTPS-Only+mode+will+be+turned+off+temporarily+for+the+site.&image=mozac_error_lock.svg&showSSL=false&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=true&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+     "title": "Secure site not available",
+     "ready": "interactive",
+     "marker": null,
+     "continueVisible": true,
+     "canAddException": true
+    },
+    "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms"
+   }
+  },
+  {
+   "check": "page-load-http",
+   "ok": true,
+   "detail": "http://10.0.2.2:38295/?https-only-bdd542ac09a1f291 ready=complete secure=False marker='lw-smoke-page-ok', origin logged 4 request(s)",
+   "evidence": {
+    "page": {
+     "url": "http://10.0.2.2:38295/?https-only-bdd542ac09a1f291",
+     "proto": "http:",
+     "secure": false,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 4
+   }
+  },
+  {
+   "check": "page-load-https",
+   "ok": true,
+   "detail": "https://10.0.2.2:48853/ ready=complete secure=True marker='lw-smoke-page-ok', origin logged 7 request(s)",
+   "evidence": {
+    "page": {
+     "url": "https://10.0.2.2:48853/",
+     "proto": "https:",
+     "secure": true,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 7
+   }
+  },
+  {
+   "check": "https-only-upgrade",
+   "ok": true,
+   "detail": "http://10.0.2.2:48853/?upgrade-d8d6a1e0 -> https://10.0.2.2:48853/?upgrade-d8d6a1e0 (marker='lw-smoke-page-ok', secure=True), origin logged 4 https request(s)",
+   "evidence": {
+    "page": {
+     "url": "https://10.0.2.2:48853/?upgrade-d8d6a1e0",
+     "uri": "https://10.0.2.2:48853/?upgrade-d8d6a1e0",
+     "title": "LibreWolf Android smoke",
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "secure": true
+    },
+    "navigation_error": null
+   }
+  },
+  {
+   "check": "https-only-exception-scope",
+   "ok": true,
+   "detail": "origin A after Continue: loads over HTTP; origin B (other port): interstitial; https-only permissions: http://10.0.2.2:38295 https-only-load-insecure expireType=1",
+   "evidence": {
+    "a_page": {
+     "url": "http://10.0.2.2:38295/?again-cbadd4fa",
+     "uri": "http://10.0.2.2:38295/?again-cbadd4fa",
+     "title": "LibreWolf Android smoke",
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "secure": false
+    },
+    "b_page": {
+     "url": "https://10.0.2.2:50285/?other-1187ea4a",
+     "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+site+not+available&button=Try+Again&description=Most+likely%2C+the+website+simply+does+not+support+HTTPS.%3Cbr%3E%3Cbr%3EHowever%2C+it%E2%80%99s+also+possible+that+an+attacker+is+involved.+If+you+continue+to+the+website%2C+you+should+not+enter+any+sensitive+info.+If+you+continue%2C+HTTPS-Only+mode+will+be+turned+off+temporarily+for+the+site.&image=mozac_error_lock.svg&showSSL=false&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=true&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+     "title": "Secure site not available",
+     "ready": "interactive",
+     "marker": null,
+     "secure": true
+    },
+    "permissions": [
+     {
+      "type": "https-only-load-insecure",
+      "origin": "http://10.0.2.2:38295",
+      "capability": 9,
+      "expireType": 1
+     }
+    ],
+    "expire_types": "0 = never, 1 = session, 2 = time (nsIPermissionManager)"
+   }
+  },
+  {
+   "check": "tls-floor",
+   "ok": true,
+   "detail": "TLS 1.0 refused (SSL_ERROR_PROTOCOL_VERSION_ALERT), TLS 1.1 refused (SSL_ERROR_PROTOCOL_VERSION_ALERT), TLS 1.2 connected, TLS 1.3 connected; security.tls.version.min=3 max=4 enable-deprecated=False",
+   "evidence": {
+    "prefs": {
+     "min": 3,
+     "max": 4,
+     "deprecated": false,
+     "zeroRtt": false,
+     "safeNegotiation": true,
+     "minLocked": false,
+     "minHasUser": false
+    },
+    "verdicts": {
+     "1.0": {
+      "want": "refused",
+      "got": "refused",
+      "ok": true,
+      "error": "SSL_ERROR_PROTOCOL_VERSION_ALERT",
+      "server_errors": [
+       "[SSL: UNSUPPORTED_PROTOCOL] unsupported protocol (_ssl.c:1082)"
+      ]
+     },
+     "1.1": {
+      "want": "refused",
+      "got": "refused",
+      "ok": true,
+      "error": "SSL_ERROR_PROTOCOL_VERSION_ALERT",
+      "server_errors": [
+       "[SSL: UNSUPPORTED_PROTOCOL] unsupported protocol (_ssl.c:1082)"
+      ]
+     },
+     "1.2": {
+      "want": "connected",
+      "got": "connected",
+      "ok": true,
+      "error": "",
+      "server_errors": []
+     },
+     "1.3": {
+      "want": "connected",
+      "got": "connected",
+      "ok": true,
+      "error": "",
+      "server_errors": []
+     }
+    },
+    "observations": {
+     "1.0": {
+      "url": "https://10.0.2.2:42601/tls-floor?v=1.0&n=f79f05bf",
+      "channel": {
+       "status": "0x805a2f9e",
+       "errorCodeString": "SSL_ERROR_PROTOCOL_VERSION_ALERT",
+       "protocolVersion": null,
+       "overridableErrorCategory": 0,
+       "httpStatus": null,
+       "bodyLength": 0,
+       "marker": null
+      },
+      "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms",
+      "page": {
+       "url": "https://10.0.2.2:42601/tls-floor?v=1.0&n=f79f05bf",
+       "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+Connection+Failed&button=Try+Again&description=%3Cul+role%3D%22presentation%22%3E+%3Cli%3EThe+page+you+are+trying+to+view+cannot+be+shown+because+the+authenticity+of+the+received+data+could+not+be+verified.%3C%2Fli%3E+%3Cli%3EPlease+contact+the+website+owners+to+inform+them+of+this+problem.%3C%2Fli%3E+%3C%2Ful%3E&image=mozac_error_lock.svg&showSSL=false&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=false&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+       "title": "Secure Connection Failed",
+       "ready": "interactive",
+       "marker": null,
+       "secure": true
+      },
+      "server": [
+       {
+        "t": 1791586790.0607858,
+        "server": "1.0",
+        "handshake": false,
+        "error": "[SSL: UNSUPPORTED_PROTOCOL] unsupported protocol (_ssl.c:1082)"
+       },
+       {
+        "t": 1791586790.131276,
+        "server": "1.0",
+        "handshake": false,
+        "error": "[SSL: UNSUPPORTED_PROTOCOL] unsupported protocol (_ssl.c:1082)"
+       }
+      ]
+     },
+     "1.1": {
+      "url": "https://10.0.2.2:53553/tls-floor?v=1.1&n=b18681fe",
+      "channel": {
+       "status": "0x805a2f9e",
+       "errorCodeString": "SSL_ERROR_PROTOCOL_VERSION_ALERT",
+       "protocolVersion": null,
+       "overridableErrorCategory": 0,
+       "httpStatus": null,
+       "bodyLength": 0,
+       "marker": null
+      },
+      "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms",
+      "page": {
+       "url": "https://10.0.2.2:53553/tls-floor?v=1.1&n=b18681fe",
+       "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+Connection+Failed&button=Try+Again&description=%3Cul+role%3D%22presentation%22%3E+%3Cli%3EThe+page+you+are+trying+to+view+cannot+be+shown+because+the+authenticity+of+the+received+data+could+not+be+verified.%3C%2Fli%3E+%3Cli%3EPlease+contact+the+website+owners+to+inform+them+of+this+problem.%3C%2Fli%3E+%3C%2Ful%3E&image=mozac_error_lock.svg&showSSL=false&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=false&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+       "title": "Secure Connection Failed",
+       "ready": "interactive",
+       "marker": null,
+       "secure": true
+      },
+      "server": [
+       {
+        "t": 1791586811.2775915,
+        "server": "1.1",
+        "handshake": false,
+        "error": "[SSL: UNSUPPORTED_PROTOCOL] unsupported protocol (_ssl.c:1082)"
+       },
+       {
+        "t": 1791586812.2765903,
+        "server": "1.1",
+        "handshake": false,
+        "error": "[SSL: UNSUPPORTED_PROTOCOL] unsupported protocol (_ssl.c:1082)"
+       },
+       {
+        "t": 1791586812.276955,
+        "server": "1.1",
+        "handshake": false,
+        "error": "[SSL: UNSUPPORTED_PROTOCOL] unsupported protocol (_ssl.c:1082)"
+       }
+      ]
+     },
+     "1.2": {
+      "url": "https://10.0.2.2:34597/tls-floor?v=1.2&n=781bb5f8",
+      "channel": {
+       "status": "0x0",
+       "errorCodeString": "",
+       "protocolVersion": 3,
+       "overridableErrorCategory": 0,
+       "httpStatus": 200,
+       "bodyLength": 94,
+       "marker": "tls-floor-ok-1.2"
+      },
+      "navigation_error": null,
+      "page": {
+       "url": "https://10.0.2.2:34597/tls-floor?v=1.2&n=781bb5f8",
+       "uri": "https://10.0.2.2:34597/tls-floor?v=1.2&n=781bb5f8",
+       "title": "tls 1.2",
+       "ready": "complete",
+       "marker": "tls-floor-ok-1.2",
+       "secure": true
+      },
+      "server": [
+       {
+        "t": 1791586834.9984543,
+        "server": "1.2",
+        "handshake": true,
+        "version": "TLSv1.2",
+        "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+        "request": "GET /tls-floor?v=1.2&n=781bb5f8 HTTP/1.1"
+       },
+       {
+        "t": 1791586836.0004718,
+        "server": "1.2",
+        "handshake": true,
+        "version": "TLSv1.2",
+        "cipher": "ECDHE-RSA-AES256-GCM-SHA384",
+        "request": "GET /tls-floor?v=1.2&n=781bb5f8 HTTP/1.1"
+       }
+      ]
+     },
+     "1.3": {
+      "url": "https://10.0.2.2:53611/tls-floor?v=1.3&n=051aa244",
+      "channel": {
+       "status": "0x0",
+       "errorCodeString": "",
+       "protocolVersion": 4,
+       "overridableErrorCategory": 0,
+       "httpStatus": 200,
+       "bodyLength": 94,
+       "marker": "tls-floor-ok-1.3"
+      },
+      "navigation_error": null,
+      "page": {
+       "url": "https://10.0.2.2:53611/tls-floor?v=1.3&n=051aa244",
+       "uri": "https://10.0.2.2:53611/tls-floor?v=1.3&n=051aa244",
+       "title": "tls 1.3",
+       "ready": "complete",
+       "marker": "tls-floor-ok-1.3",
+       "secure": true
+      },
+      "server": [
+       {
+        "t": 1791586838.0033355,
+        "server": "1.3",
+        "handshake": true,
+        "version": "TLSv1.3",
+        "cipher": "TLS_AES_256_GCM_SHA384",
+        "request": "GET /tls-floor?v=1.3&n=051aa244 HTTP/1.1"
+       },
+       {
+        "t": 1791586839.0056112,
+        "server": "1.3",
+        "handshake": true,
+        "version": "TLSv1.3",
+        "cipher": "TLS_AES_256_GCM_SHA384",
+        "request": "GET /tls-floor?v=1.3&n=051aa244 HTTP/1.1"
+       }
+      ]
+     }
+    },
+    "host_selftest": {
+     "1.0": "TLSv1",
+     "1.1": "TLSv1.1",
+     "1.2": "TLSv1.2",
+     "1.3": "TLSv1.3"
+    },
+    "host_openssl": "OpenSSL 3.5.8 25 Aug 2026",
+    "expect": {
+     "1.0": false,
+     "1.1": false,
+     "1.2": true,
+     "1.3": true
+    }
+   }
+  },
+  {
+   "check": "revocation-ocsp-off",
+   "ok": true,
+   "detail": "OCSP.enabled=0 crlite_mode=2; leaf with AIA to a live responder: good loaded, revoked loaded; AIA to a closed port loaded; 0 OCSP request(s) reached the responder",
+   "evidence": {
+    "posture": {
+     "security.OCSP.enabled": 0,
+     "security.pki.crlite_mode": 2
+    },
+    "expected": {
+     "security.OCSP.enabled": 0,
+     "security.pki.crlite_mode": 2
+    },
+    "ocsp_requests": [],
+    "observations": {
+     "good": {
+      "url": "https://10.0.2.2:39593/revocation?n=53f41f5a",
+      "channel": {
+       "status": "0x0",
+       "errorCodeString": "",
+       "protocolVersion": 4,
+       "overridableErrorCategory": 0,
+       "httpStatus": 200,
+       "bodyLength": 94,
+       "marker": "revocation-ok"
+      },
+      "navigation_error": null,
+      "page": {
+       "url": "https://10.0.2.2:39593/revocation?n=53f41f5a",
+       "uri": "https://10.0.2.2:39593/revocation?n=53f41f5a",
+       "title": "revocation",
+       "ready": "complete",
+       "marker": "revocation-ok",
+       "secure": true
+      }
+     },
+     "revoked": {
+      "url": "https://10.0.2.2:54297/revocation?n=46132a84",
+      "channel": {
+       "status": "0x0",
+       "errorCodeString": "",
+       "protocolVersion": 4,
+       "overridableErrorCategory": 0,
+       "httpStatus": 200,
+       "bodyLength": 94,
+       "marker": "revocation-ok"
+      },
+      "navigation_error": null,
+      "page": {
+       "url": "https://10.0.2.2:54297/revocation?n=46132a84",
+       "uri": "https://10.0.2.2:54297/revocation?n=46132a84",
+       "title": "revocation",
+       "ready": "complete",
+       "marker": "revocation-ok",
+       "secure": true
+      }
+     },
+     "unreachable": {
+      "url": "https://10.0.2.2:54153/revocation?n=89463724",
+      "channel": {
+       "status": "0x0",
+       "errorCodeString": "",
+       "protocolVersion": 4,
+       "overridableErrorCategory": 0,
+       "httpStatus": 200,
+       "bodyLength": 94,
+       "marker": "revocation-ok"
+      },
+      "navigation_error": null,
+      "page": {
+       "url": "https://10.0.2.2:54153/revocation?n=89463724",
+       "uri": "https://10.0.2.2:54153/revocation?n=89463724",
+       "title": "revocation",
+       "ready": "complete",
+       "marker": "revocation-ok",
+       "secure": true
+      }
+     },
+     "stapled-revoked": {
+      "url": "https://10.0.2.2:59083/page.html?n=4e1c307f",
+      "channel": {
+       "status": "0x805a1ff4",
+       "errorCodeString": "SEC_ERROR_REVOKED_CERTIFICATE",
+       "protocolVersion": null,
+       "overridableErrorCategory": 0,
+       "httpStatus": null,
+       "bodyLength": 0,
+       "marker": null
+      },
+      "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms",
+      "page": {
+       "url": "https://10.0.2.2:59083/page.html?n=4e1c307f",
+       "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+Connection+Failed&button=Try+Again&description=%3Cul+role%3D%22presentation%22%3E+%3Cli%3EThis+could+be+a+problem+with+the+server%E2%80%99s+configuration%2C+or+it+could+be+someone+trying+to+impersonate+the+server.%3C%2Fli%3E+%3Cli%3EIf+you+have+connected+to+this+server+successfully+in+the+past%2C+the+error+may+be+temporary%2C+and+you+can+try+again+later.%3C%2Fli%3E+%3C%2Ful%3E&image=mozac_error_lock.svg&showSSL=true&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=%3Clabel%3ESomeone+could+be+trying+to+impersonate+the+site+and+you+should+not+continue.%3C%2Flabel%3E+%3Cbr%3E%3Cbr%3E+%3Clabel%3EWebsites+prove+their+identity+via+certificates.+Redoubt+does+not+trust+%3Cb%3Ehttps%3A%2F%2F10.0.2.2%3A59083%2Fpage.html%3Fn%3D4e1c307f%3C%2Fb%3E+because+its+certificate+issuer+is+unknown%2C+the+certificate+is+self-signed%2C+or+the+server+is+not+sending+the+correct+intermediate+certificates.%3C%2Flabel%3E&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=false&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+       "title": "Secure Connection Failed",
+       "ready": "interactive",
+       "marker": null,
+       "secure": true
+      }
+     },
+     "must-staple": {
+      "url": "https://10.0.2.2:36343/revocation?n=b6d57c4a",
+      "channel": {
+       "status": "0x805a3ff6",
+       "errorCodeString": "MOZILLA_PKIX_ERROR_REQUIRED_TLS_FEATURE_MISSING",
+       "protocolVersion": null,
+       "overridableErrorCategory": 0,
+       "httpStatus": null,
+       "bodyLength": 0,
+       "marker": null
+      },
+      "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms",
+      "page": {
+       "url": "https://10.0.2.2:36343/revocation?n=b6d57c4a",
+       "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+Connection+Failed&button=Try+Again&description=%3Cul+role%3D%22presentation%22%3E+%3Cli%3EThe+page+you+are+trying+to+view+cannot+be+shown+because+the+authenticity+of+the+received+data+could+not+be+verified.%3C%2Fli%3E+%3Cli%3EPlease+contact+the+website+owners+to+inform+them+of+this+problem.%3C%2Fli%3E+%3C%2Ful%3E&image=mozac_error_lock.svg&showSSL=false&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=false&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+       "title": "Secure Connection Failed",
+       "ready": "interactive",
+       "marker": null,
+       "secure": true
+      }
+     }
+    },
+    "leaves": {
+     "good": {
+      "serial": "445CEB276E8B45FF",
+      "status": "V",
+      "aia": "responder",
+      "stapled": false,
+      "must_staple": false,
+      "port": 39593
+     },
+     "revoked": {
+      "serial": "459E2914D002C3CD",
+      "status": "R",
+      "aia": "responder",
+      "stapled": false,
+      "must_staple": false,
+      "port": 54297
+     },
+     "unreachable": {
+      "serial": "4A1B4339A25DE052",
+      "status": "R",
+      "aia": "closed",
+      "stapled": false,
+      "must_staple": false,
+      "port": 54153
+     },
+     "stapled-revoked": {
+      "serial": "4C3D81D7C951EA88",
+      "status": "R",
+      "aia": "responder",
+      "stapled": true,
+      "must_staple": false,
+      "port": 59083
+     },
+     "must-staple": {
+      "serial": "4CF09BA972DD528E",
+      "status": "V",
+      "aia": "responder",
+      "stapled": false,
+      "must_staple": true,
+      "port": 36343
+     }
+    }
+   }
+  },
+  {
+   "check": "revocation-stapled",
+   "ok": true,
+   "detail": "leaf served with a stapled 'revoked' OCSP response: SEC_ERROR_REVOKED_CERTIFICATE",
+   "evidence": {
+    "stapling_pref": true,
+    "observations": {
+     "good": {
+      "url": "https://10.0.2.2:39593/revocation?n=53f41f5a",
+      "channel": {
+       "status": "0x0",
+       "errorCodeString": "",
+       "protocolVersion": 4,
+       "overridableErrorCategory": 0,
+       "httpStatus": 200,
+       "bodyLength": 94,
+       "marker": "revocation-ok"
+      },
+      "navigation_error": null,
+      "page": {
+       "url": "https://10.0.2.2:39593/revocation?n=53f41f5a",
+       "uri": "https://10.0.2.2:39593/revocation?n=53f41f5a",
+       "title": "revocation",
+       "ready": "complete",
+       "marker": "revocation-ok",
+       "secure": true
+      }
+     },
+     "revoked": {
+      "url": "https://10.0.2.2:54297/revocation?n=46132a84",
+      "channel": {
+       "status": "0x0",
+       "errorCodeString": "",
+       "protocolVersion": 4,
+       "overridableErrorCategory": 0,
+       "httpStatus": 200,
+       "bodyLength": 94,
+       "marker": "revocation-ok"
+      },
+      "navigation_error": null,
+      "page": {
+       "url": "https://10.0.2.2:54297/revocation?n=46132a84",
+       "uri": "https://10.0.2.2:54297/revocation?n=46132a84",
+       "title": "revocation",
+       "ready": "complete",
+       "marker": "revocation-ok",
+       "secure": true
+      }
+     },
+     "unreachable": {
+      "url": "https://10.0.2.2:54153/revocation?n=89463724",
+      "channel": {
+       "status": "0x0",
+       "errorCodeString": "",
+       "protocolVersion": 4,
+       "overridableErrorCategory": 0,
+       "httpStatus": 200,
+       "bodyLength": 94,
+       "marker": "revocation-ok"
+      },
+      "navigation_error": null,
+      "page": {
+       "url": "https://10.0.2.2:54153/revocation?n=89463724",
+       "uri": "https://10.0.2.2:54153/revocation?n=89463724",
+       "title": "revocation",
+       "ready": "complete",
+       "marker": "revocation-ok",
+       "secure": true
+      }
+     },
+     "stapled-revoked": {
+      "url": "https://10.0.2.2:59083/page.html?n=4e1c307f",
+      "channel": {
+       "status": "0x805a1ff4",
+       "errorCodeString": "SEC_ERROR_REVOKED_CERTIFICATE",
+       "protocolVersion": null,
+       "overridableErrorCategory": 0,
+       "httpStatus": null,
+       "bodyLength": 0,
+       "marker": null
+      },
+      "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms",
+      "page": {
+       "url": "https://10.0.2.2:59083/page.html?n=4e1c307f",
+       "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+Connection+Failed&button=Try+Again&description=%3Cul+role%3D%22presentation%22%3E+%3Cli%3EThis+could+be+a+problem+with+the+server%E2%80%99s+configuration%2C+or+it+could+be+someone+trying+to+impersonate+the+server.%3C%2Fli%3E+%3Cli%3EIf+you+have+connected+to+this+server+successfully+in+the+past%2C+the+error+may+be+temporary%2C+and+you+can+try+again+later.%3C%2Fli%3E+%3C%2Ful%3E&image=mozac_error_lock.svg&showSSL=true&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=%3Clabel%3ESomeone+could+be+trying+to+impersonate+the+site+and+you+should+not+continue.%3C%2Flabel%3E+%3Cbr%3E%3Cbr%3E+%3Clabel%3EWebsites+prove+their+identity+via+certificates.+Redoubt+does+not+trust+%3Cb%3Ehttps%3A%2F%2F10.0.2.2%3A59083%2Fpage.html%3Fn%3D4e1c307f%3C%2Fb%3E+because+its+certificate+issuer+is+unknown%2C+the+certificate+is+self-signed%2C+or+the+server+is+not+sending+the+correct+intermediate+certificates.%3C%2Flabel%3E&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=false&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+       "title": "Secure Connection Failed",
+       "ready": "interactive",
+       "marker": null,
+       "secure": true
+      }
+     },
+     "must-staple": {
+      "url": "https://10.0.2.2:36343/revocation?n=b6d57c4a",
+      "channel": {
+       "status": "0x805a3ff6",
+       "errorCodeString": "MOZILLA_PKIX_ERROR_REQUIRED_TLS_FEATURE_MISSING",
+       "protocolVersion": null,
+       "overridableErrorCategory": 0,
+       "httpStatus": null,
+       "bodyLength": 0,
+       "marker": null
+      },
+      "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms",
+      "page": {
+       "url": "https://10.0.2.2:36343/revocation?n=b6d57c4a",
+       "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+Connection+Failed&button=Try+Again&description=%3Cul+role%3D%22presentation%22%3E+%3Cli%3EThe+page+you+are+trying+to+view+cannot+be+shown+because+the+authenticity+of+the+received+data+could+not+be+verified.%3C%2Fli%3E+%3Cli%3EPlease+contact+the+website+owners+to+inform+them+of+this+problem.%3C%2Fli%3E+%3C%2Ful%3E&image=mozac_error_lock.svg&showSSL=false&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=false&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+       "title": "Secure Connection Failed",
+       "ready": "interactive",
+       "marker": null,
+       "secure": true
+      }
+     }
+    },
+    "leaves": {
+     "good": {
+      "serial": "445CEB276E8B45FF",
+      "status": "V",
+      "aia": "responder",
+      "stapled": false,
+      "must_staple": false,
+      "port": 39593
+     },
+     "revoked": {
+      "serial": "459E2914D002C3CD",
+      "status": "R",
+      "aia": "responder",
+      "stapled": false,
+      "must_staple": false,
+      "port": 54297
+     },
+     "unreachable": {
+      "serial": "4A1B4339A25DE052",
+      "status": "R",
+      "aia": "closed",
+      "stapled": false,
+      "must_staple": false,
+      "port": 54153
+     },
+     "stapled-revoked": {
+      "serial": "4C3D81D7C951EA88",
+      "status": "R",
+      "aia": "responder",
+      "stapled": true,
+      "must_staple": false,
+      "port": 59083
+     },
+     "must-staple": {
+      "serial": "4CF09BA972DD528E",
+      "status": "V",
+      "aia": "responder",
+      "stapled": false,
+      "must_staple": true,
+      "port": 36343
+     }
+    }
+   }
+  },
+  {
+   "check": "revocation-observed",
+   "ok": true,
+   "detail": "recorded only: must-staple leaf without staple -> MOZILLA_PKIX_ERROR_REQUIRED_TLS_FEATURE_MISSING; CRLite filters loaded: 76 (full filter 95be52f55843522b..., 75 delta(s)); cert-revocations last modified: 1791557825593",
+   "evidence": {
+    "state": {
+     "prefs": {
+      "security.OCSP.enabled": 0,
+      "security.OCSP.require": false,
+      "security.pki.crlite_mode": 2,
+      "security.remote_settings.crlite_filters.enabled": true,
+      "security.pki.crlite_channel": "compat",
+      "security.ssl.enable_ocsp_stapling": true,
+      "security.ssl.enable_ocsp_must_staple": true,
+      "security.pki.cert_short_lifetime_in_days": 10,
+      "security.enterprise_roots.enabled": false
+     },
+     "crliteFilterHashes": "95be52f55843522b1d75511d9179118a64089f664c5b4049290e6181914da5c8,ecc1d781957d8c9a192e0b805181a2eec2e688e67aa7a5f9671cfeb1437d83b6,846ebecd2bb392f9319a117f83c28c1971661a3bdae2713a702e43978e266e14,dd5fa8c5eedc765759d244ea9c4dfbf5d880ac9d97863224c2cca2c35ba01807,3e36818478699d8739ee5807d3e7d7e56b03314a49a7a14aa4e03179fecc21fe,ac77165c83ad6b33127f33a599e606c7293718a85da47aebdb628f8f92e2a334,9806ce9843c7562f90d82e365541db976f47bf77852154742db5ac8eae25fcfd,2173e4c8003424b64f7aa50cf8f3791d587d8989383b5e61910d8a6150b0726b,682664ed538e8345e832ac2be4cd2f5dfe30fafbd799cf792d0e89678f46f0bb,d55564ba439406ad0b85e29d061c2679e480ac8dedeaa412fd69d7ea90aab30d,3fe338df4d0b9b968bbd757617153edc4bdd9a5e9b515b5d29ff11b7cec32ab8,4b5cfce920ab4978ec49f2d5f4c229788ac3b404b11f287b9509942e7cdda2a1,374bed1a63f9df4c87537e1423f6865c4864c33c786c00f09d7a3dcc206226bf,7ace51d4b81159a466a82a9ef9be9df135682e7a111b093b7814b3317163090e,d9883f2adb7d12b1dc879abfc3e73993e30d07cf423b7d926120f70872589dea,99251a9be40971be20544688591666ac74f53aab9a9915ce17216db4549c5167,fa4b4f30386e9cffb37ec62cf92829aea16bcb27df5579d441aa9c1eff29f233,f812d4fbbdf1105a18c747bc5665f434ec69968a5a18cdc1f8b2946764045e6f,b791342c829c5adc5c5857a5aa36b9339a466730a003f882610d80bb915916b5,09f2828cef75f148c00f09a925e2ce639a3290fea9a16995b95ea39be303b6d1,c16e6c20c2556165552d9d0c1baf7a9d0cf4b45a2efe611b5f200806c476c3e6,a7ceadd84e6fbb3803df9c2b0432f06d84b18fcea865efe2b8e4179b4edf9e35,32620d5442a137fbdd439830fcd76cd4bdd11325f02fd8a551fc3b14bbd82668,97daebff7a7e05d877f4dd25c10c0ff669e226d448bea914b00838492ca05a92,d290c3ecd70c04f0941393c559fe924b9dbaaa358279d317a56cecacb7971606,9d6edf4ca94776a6da6be9d8c4c2bb04fd821c02837f30c95c213c60b947c14c,611d39cf43d1bd3a04a2828a28ee36fe2eb71e08dbbcfb026150ae3b6e24c236,677ebee0ac5a89fc7339d7e5686c8cd00e5a0cf8379227c922c0f29609e7f7cb,92cf09639b184c2a863c1bd3a1baba5d5bf521f2076ae0e41553968d58b18874,77a6c1add5f6ab587e8cc2af51e75fb349fd932544e57f473e757cd5871b55ba,70576fd4a49218905170403e46700513ba960fd2a93ccdb5f05b486178a4b1d9,65ba1bf6599bf5afc4475a706696298973d81bec0b56894f7d8f6438722f3155,88d0a01674e639cbf8f8770689cc168173c41ee85d519f4f27e0cc7fbcc79040,1e6a269ddef14377a0da32c7d10e5e7d8cf9854ad5e12c93340c17b96104d6a4,697c2eb88afc386296073cce05cf05fc17d14adba0c80516a55108f4b6570b0c,1f817402f1b3d96358954cfdebf153b1a28210ec65251a48c3961bd16385180a,5122753992d98c69394aeae6d52c3ecc603198e2a7a01a9ca3c5b95619170c87,f2a3bd10b217a427d16680694ffc8f1bbd269b3a523eb1dc105c2d01dc64be4e,71369c7bcc950c0afb71121f2b6f89a51de0e01f348d01475c5a576037543240,c6568f2a7668ffe136adbfedd0fbef3559ea6a4ebc304c719f4f683a4e71fdb7,e4e3cc902c9f40ac4c1cf64699361062ced204d3573d643378933fdfdb0ebba0,a04696fc66ae3034c794fd9a681c538d6e0fcc68b738b53063f151aba630934a,b0b3e1e67223bd2db89c4bc359f946c49471b7de70f682f06aef1e42d7a688cf,ef5a523d5037406b09a752490085947b83b3fe2cba406b33e140b8a5d26de189,6ce8788ea8cfb9c0133b5f245fd4f649665f8b36488c314e5eb55086fbdb8f6e,6c85ba51830d855a3ad1ec44b20b0f1343b21f43ce5acb8bdd3a792edaea3421,ad6368d3b7fafb27856543b7e850103a0adfc42f2c736c3108def88957e44512,1def43405b8df3be1456a5e374ea1a1311b842c48b1658bd3f24e2d6d238011b,4f5957a18b393bb3131e18b53e8507289b9d5e15bf91fc971c54d03a08a8d674,8ef5c876624cd6d4f3101311c243de5ed8589b6e7be4a071b3c7b784413ec81c,2963fe6e90412c96a380e176fd4263ff80de7423c3d3c2a5f1763db80566228f,c4fbec5f0eab2cd94e7eb18f0eeb29f3f9f8c7dd502e8927654e5f849a1e2ba4,96dfd9f50fd25d022fafc4642a61cf86c893364d0ad68e5eab9d4da97b572931,c7fec925c8d1be3a3250becdd8d25977f877d8566bbf361e9ff44ccd4e07d10c,fd1a064c37980c5a49f05902c79a4bcb8786b8f2a8b2803bba222264801aee02,353c05dabf21ccafabd839eeed6234145b5730167232e3579192c10053c6df87,5a35725bac6a4a1fa238931cfa3fca73ca1fa5927945e12b6c817b7c3271af31,8d550e727e3ffc8f6e1104ecfd7ba9d0eb1762dbbd079b5bd5ff3882dd17840f,746638e4f8f96fd7bf080c8478c5f0c74244cabf047b52434d0a8d5f14e9307c,f9ae53f69ba985c269c8f5b4e286c8045b57cdf1a1bc3908d8bcdd9e8d014f78,1415779f42749a62c8fec0d232b1a2a36c051fb5cc84160ec7ee7bae8e3fc8c3,76a826a5a5d545913d54a2648fec7c2d743b8f2d322c61acdfcb7781cc73564f,64395cfb0188d3d523bb4ee8c0702da79f9c0cfdcd86fb7821ea46a0ae7331b8,94d6917387021d3f68bbeffd2527becffd2c1cf14394e20b19dfad2b2010e59a,f8220df4b91672fe35413a327d5d237ff3c699576cc17379e7f6a084be2e2b93,f87568e39189998dd42cfcf7ed5f2a4f989aeee1111d86a34e78f74534921c4a,e9fefda5f92efaa95be9cae49db627ac38a56c7177ab7e6028aac27cddf1e31f,5e0653fd4ae2ac355c3644489182f3c1163c6695bb1eb53b68c82b99a97d1fdf,29cdac337e2ac3fc5130842f1cd0f83d02e323981240b1b51a69937a2dd6c99a,70957acdec022b4ec61b42ce344624e510f78bfd5a5f736c53b0d4dc3f15f766,566928b31f809899df1ffa4e2c1fee49d62dd6a79bd739e49dcf72ff8711d484,f90121febfeda73d20d897d00f471e1f08b0e490b14af9888059eabdc632a7c2,9d8be4abd9e397c2e023456f61db503e657a9df87216acb03a8d909e5b7d157e,f808a2507caf4ac437f6a7a9bd615713a86e2f206fe22af6662cb3f804658644,dec02ff377a3a8791a03c70dafe91ff029bac13f6b8f863d6afd6cb004089cbb,8c4b40c2603f8c9b20ca528b65fdcf399d2702a903f7dac0c880b3504053190f",
+     "certRevocationsLastModified": 1791557825593,
+     "certRevocationsRecords": 152
+    },
+    "must_staple": {
+     "url": "https://10.0.2.2:36343/revocation?n=b6d57c4a",
+     "channel": {
+      "status": "0x805a3ff6",
+      "errorCodeString": "MOZILLA_PKIX_ERROR_REQUIRED_TLS_FEATURE_MISSING",
+      "protocolVersion": null,
+      "overridableErrorCategory": 0,
+      "httpStatus": null,
+      "bodyLength": 0,
+      "marker": null
+     },
+     "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms",
+     "page": {
+      "url": "https://10.0.2.2:36343/revocation?n=b6d57c4a",
+      "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+Connection+Failed&button=Try+Again&description=%3Cul+role%3D%22presentation%22%3E+%3Cli%3EThe+page+you+are+trying+to+view+cannot+be+shown+because+the+authenticity+of+the+received+data+could+not+be+verified.%3C%2Fli%3E+%3Cli%3EPlease+contact+the+website+owners+to+inform+them+of+this+problem.%3C%2Fli%3E+%3C%2Ful%3E&image=mozac_error_lock.svg&showSSL=false&showHSTS=false&badCertAdvanced=Advanced%E2%80%A6&badCertTechInfo=&badCertGoBack=Go+Back+%28Recommended%29&badCertAcceptTemporary=Accept+the+Risk+and+Continue&showContinueHttp=false&continueHttpButton=Continue+to+HTTP+Site&errorCode=&isPrivate=false",
+      "title": "Secure Connection Failed",
+      "ready": "interactive",
+      "marker": null,
+      "secure": true
+     }
+    }
+   }
+  },
+  {
+   "check": "rfp-coherence",
+   "ok": true,
+   "detail": "17/17 coherence items hold (RFP=True); device time zone Europe/Zurich",
+   "evidence": {
+    "items": [
+     {
+      "name": "userAgent spoofed",
+      "ok": true,
+      "got": "Mozilla/5.0 (Android 10; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0",
+      "want": "Mozilla/5.0 (Android 10; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0"
+     },
+     {
+      "name": "User-Agent header = navigator.userAgent",
+      "ok": true,
+      "got": "Mozilla/5.0 (Android 10; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0",
+      "want": "Mozilla/5.0 (Android 10; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0"
+     },
+     {
+      "name": "worker userAgent = navigator.userAgent",
+      "ok": true,
+      "got": "Mozilla/5.0 (Android 10; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0",
+      "want": "Mozilla/5.0 (Android 10; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0"
+     },
+     {
+      "name": "appVersion",
+      "ok": true,
+      "got": "5.0 (Android 10)",
+      "want": "5.0 (Android 10)"
+     },
+     {
+      "name": "oscpu",
+      "ok": true,
+      "got": "Linux armv81",
+      "want": "Linux armv81"
+     },
+     {
+      "name": "platform",
+      "ok": true,
+      "got": "Linux armv81",
+      "want": "Linux armv81"
+     },
+     {
+      "name": "buildID",
+      "ok": true,
+      "got": "20181001000000",
+      "want": "20181001000000"
+     },
+     {
+      "name": "hardwareConcurrency",
+      "ok": true,
+      "got": 4,
+      "want": 4
+     },
+     {
+      "name": "maxTouchPoints",
+      "ok": true,
+      "got": 5,
+      "want": 5
+     },
+     {
+      "name": "worker platform/appVersion/hardwareConcurrency = window",
+      "ok": true,
+      "got": [
+       "Linux armv81",
+       "5.0 (Android 10)",
+       4
+      ],
+      "want": [
+       "Linux armv81",
+       "5.0 (Android 10)",
+       4
+      ]
+     },
+     {
+      "name": "screen = inner window (no device size)",
+      "ok": true,
+      "got": [
+       414,
+       647,
+       414,
+       647
+      ],
+      "want": [
+       414,
+       647,
+       414,
+       647
+      ]
+     },
+     {
+      "name": "CSS device-width = inner window width",
+      "ok": true,
+      "got": 414,
+      "want": 414
+     },
+     {
+      "name": "colorDepth",
+      "ok": true,
+      "got": 24,
+      "want": 24
+     },
+     {
+      "name": "time zone Atlantic/Reykjavik, offset 0 (window and worker)",
+      "ok": true,
+      "got": [
+       "Atlantic/Reykjavik",
+       "Atlantic/Reykjavik",
+       0,
+       0
+      ],
+      "want": [
+       "Atlantic/Reykjavik",
+       "Atlantic/Reykjavik",
+       0,
+       0
+      ]
+     },
+     {
+      "name": "Accept-Language = navigator.language = worker",
+      "ok": true,
+      "got": [
+       "en-US",
+       "en-US",
+       "en-US"
+      ],
+      "want": "all equal"
+     },
+     {
+      "name": "no Client Hints (no navigator.userAgentData, no Sec-CH-* headers)",
+      "ok": true,
+      "got": [
+       "undefined",
+       "undefined",
+       []
+      ],
+      "want": [
+       "undefined",
+       "undefined",
+       []
+      ]
+     },
+     {
+      "name": "performance.now() clamped to >= 16 ms",
+      "ok": true,
+      "got": 16.666999999999916,
+      "want": ">= 16.0"
+     }
+    ],
+    "report": {
+     "userAgent": "Mozilla/5.0 (Android 10; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0",
+     "appVersion": "5.0 (Android 10)",
+     "platform": "Linux armv81",
+     "oscpu": "Linux armv81",
+     "buildID": "20181001000000",
+     "product": "Gecko",
+     "productSub": "20100101",
+     "vendor": "",
+     "language": "en-US",
+     "hardwareConcurrency": 4,
+     "maxTouchPoints": 5,
+     "deviceMemory": "(undefined)",
+     "doNotTrack": "unspecified",
+     "globalPrivacyControl": true,
+     "webdriver": true,
+     "cookieEnabled": true,
+     "pdfViewerEnabled": true,
+     "languages": [
+      "en-US"
+     ],
+     "userAgentData": "undefined",
+     "screen": {
+      "width": 414,
+      "height": 647,
+      "availWidth": 414,
+      "availHeight": 647,
+      "colorDepth": 24,
+      "pixelDepth": 24,
+      "orientation": "portrait-primary"
+     },
+     "window": {
+      "innerWidth": 414,
+      "innerHeight": 647,
+      "outerWidth": 414,
+      "outerHeight": 647,
+      "devicePixelRatio": 2,
+      "screenX": 0,
+      "screenY": 0
+     },
+     "media": {
+      "prefers-color-scheme: dark": false,
+      "prefers-reduced-motion: reduce": false,
+      "prefers-contrast: more": false,
+      "forced-colors: active": false,
+      "inverted-colors: inverted": false,
+      "dynamic-range: high": false,
+      "color-gamut: p3": false,
+      "pointer: coarse": true,
+      "pointer: fine": false,
+      "any-pointer: coarse": true,
+      "hover: hover": false,
+      "device-width = innerWidth": true,
+      "device-height = innerHeight": false,
+      "resolution = devicePixelRatio": true
+     },
+     "cssDevice": {
+      "width": 414,
+      "height": 647
+     },
+     "timeZone": "Atlantic/Reykjavik",
+     "intlLocale": "en-US",
+     "tzOffsetNow": 0,
+     "tzOffsetJan": 0,
+     "tzOffsetJul": 0,
+     "dateString": "Thu Jan 01 1970 00:00:00 GMT+0000 (Greenwich Mean Time)",
+     "numberFormat": "1,234,567.891",
+     "performanceNow": {
+      "distinct": 9,
+      "minDelta": 16.666999999999916
+     },
+     "dateNow": {
+      "distinct": 10,
+      "minDelta": 16
+     },
+     "canvas": {
+      "solidExactPixels": 0,
+      "pixels": 256,
+      "distinctColors": 8,
+      "firstPixel": [
+       194,
+       128,
+       163,
+       240
+      ],
+      "textHash1": "62d23c5577dc638f",
+      "textHash2": "f41737f81accaf4e",
+      "textStableInPage": false
+     },
+     "webgl": {
+      "error": "no context"
+     },
+     "fontsDetected": [
+      "Roboto",
+      "Noto Serif",
+      "Droid Sans Mono",
+      "Cutive Mono",
+      "Dancing Script",
+      "Coming Soon",
+      "Carrois Gothic SC",
+      "Source Sans Pro"
+     ],
+     "audioSampleRate": 44100,
+     "worker": {
+      "userAgent": "Mozilla/5.0 (Android 10; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0",
+      "appVersion": "5.0 (Android 10)",
+      "platform": "Linux armv81",
+      "language": "en-US",
+      "languages": [
+       "en-US"
+      ],
+      "hardwareConcurrency": 4,
+      "timeZone": "Atlantic/Reykjavik",
+      "tzOffsetNow": 0,
+      "userAgentData": "undefined"
+     }
+    },
+    "request_headers": {
+     "host": "10.0.2.2:48853",
+     "user-agent": "Mozilla/5.0 (Android 10; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0",
+     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+     "accept-language": "en-US",
+     "accept-encoding": "gzip, deflate, br, zstd",
+     "sec-gpc": "1",
+     "connection": "keep-alive",
+     "upgrade-insecure-requests": "1",
+     "sec-fetch-dest": "document",
+     "sec-fetch-mode": "navigate",
+     "sec-fetch-site": "none",
+     "sec-fetch-user": "?1",
+     "priority": "u=0, i"
+    },
+    "prefs": {
+     "rfp": true,
+     "pbmode": false,
+     "fpp": true,
+     "spoofEnglish": 0,
+     "webglDisabled": false,
+     "locked": false
+    },
+    "device_timezone": {
+     "before": "Europe/Zurich",
+     "during": "Europe/Zurich"
+    },
+    "harness_artifacts": "navigator.webdriver is true under Marionette; on a real device it is false"
+   }
+  }
+ ],
+ "work": "~/redoubt-artifacts/sec-parity/work",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "~/redoubt-artifacts/sec-parity/apk/fenix-x86_64-157.0-3-throwaway.apk",
+  "sha256": "464d1213aeecdf7dc24608591bda81bf3c66cdfcbb0c8e0a369187b8b34792d8",
+  "size": 135217228,
+  "harness_sha256": "580ef1e66bc941c5071a6e49fdc1171a9acabe8e5aaae8e1e42dbe12fe1cf8a1"
+ },
+ "status": "completed",
+ "error": null
+}

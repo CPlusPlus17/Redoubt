@@ -1,0 +1,24 @@
+[smoke] !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[smoke] DIAGNOSTIC RUN: injecting prefs into the app at startup: {"privacy.resistFingerprinting": false, "security.OCSP.enabled": 1, "security.tls.version.enable-deprecated": true, "security.tls.version.min": 1}
+[smoke] This run cannot report success. It is not a gate.
+[smoke] !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[smoke] apk=~/redoubt-artifacts/sec-parity/apk/fenix-x86_64-157.0-3-throwaway.apk
+[smoke] package=org.redoubtbrowser
+[smoke] using device emulator-5584
+[smoke] installing fenix-x86_64-157.0-3-throwaway.apk (135 MB)
+[smoke] display kept awake for this run (mWakefulness=Awake)
+[smoke] origin: http://10.0.2.2:53267/ and https://10.0.2.2:55875/
+[smoke] device time zone Europe/Zurich -> Europe/Zurich for the RFP probe
+[smoke] org.redoubtbrowser is not debuggable; opened GeckoView's debug config via Settings.Global.DEBUG_APP (am set-debug-app)
+[smoke] under test: Redoubt 157.0-3 buildID=20261006090000
+[smoke] DIAGNOSTIC RUN: also set as user prefs in the running app: privacy.resistFingerprinting, security.OCSP.enabled, security.tls.version.enable-deprecated, security.tls.version.min
+[smoke] tls-floor              FAIL  TLS 1.0 connected, TLS 1.1 connected, TLS 1.2 connected, TLS 1.3 connected; security.tls.version.min=1 max=4 enable-deprecated=True
+[smoke] revocation-ocsp-off    FAIL  OCSP.enabled=1 crlite_mode=2; leaf with AIA to a live responder: good loaded, revoked blocked; AIA to a closed port loaded; 6 OCSP request(s) reached the responder
+[smoke] revocation-stapled     PASS  leaf served with a stapled 'revoked' OCSP response: SEC_ERROR_REVOKED_CERTIFICATE
+[smoke] revocation-observed    PASS  recorded only: must-staple leaf without staple -> MOZILLA_PKIX_ERROR_REQUIRED_TLS_FEATURE_MISSING; CRLite filters loaded: none; cert-revocations last modified: unavailable: EmptyDatabaseError: "security-state/cert-revocations" has not been synced yet
+[smoke] rfp-coherence          FAIL  12/17 coherence items hold (RFP=False); device time zone Europe/Zurich; FAILED: userAgent spoofed; appVersion; screen = inner window (no device size); time zone Atlantic/Reykjavik, offset 0 (window and worker); performance.now() clamped to >= 16 ms
+[smoke] ------------------------------------------------------------
+[smoke] 5 check(s) run, 3 failed. Detail: runs/final-negative.json
+[smoke]   FAILED tls-floor            TLS 1.0 connected, TLS 1.1 connected, TLS 1.2 connected, TLS 1.3 connected; security.tls.version.min=1 max=4 enable-deprecated=True
+[smoke]   FAILED revocation-ocsp-off  OCSP.enabled=1 crlite_mode=2; leaf with AIA to a live responder: good loaded, revoked blocked; AIA to a closed port loaded; 6 OCSP request(s) reached the responder
+[smoke]   FAILED rfp-coherence        12/17 coherence items hold (RFP=False); device time zone Europe/Zurich; FAILED: userAgent spoofed; appVersion; screen = inner window (no device size); time zone Atlantic/Reykjavik, offset 0 (window and worker); performance.now() clamped to >= 16 ms

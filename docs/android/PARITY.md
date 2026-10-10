@@ -50,11 +50,11 @@ assertion.
 | 2 | Per-site process isolation (Fission) | `ISOLATE_HIGH_VALUE` | **Equivalent (stronger than stock)** | Locked to `ISOLATE_HIGH_VALUE` (LW-M5-01); stock Fenix ships `0`. Measured by: running-build pref read. [no-nimbus.patch, LW-M5-01] |
 | 3 | JS/WASM sandboxing (RLBox) | ON | **Equivalent** | 52 RLBox modules present. Measured by: binary scan of `libxul.so`. [SANDBOX-SPIKE] |
 | 4 | Compiler memory hardening (CFI, PHC, rosegment, …) | ON | **Equivalent (some stronger)** | All desktop flags present + PHC + rosegment; Android STL hardening (libc++ EXTENSIVE) is stronger than desktop `_GLIBCXX_ASSERTIONS`. Residual: 32-bit ARM lacks `-fstack-clash-protection`. Measured by: binary scan of `libxul.so`. [hardening-flags.md] |
-| 5 | HTTPS-only mode | ON | **Partial** | `upgrade_insecure_requests` + `upgrade_local` + error-page-suggestions configured; the main switch is not force-set (a desktop design choice, not an Android regression); on Android the cfg layer is not packaged (LW-M3-08), so the configured value is at-risk of not being honoured — only `[ANDROID: LOCK]` prefs are. Measured by: config parse (network-check.sh). [network-posture §1–2] |
+| 5 | HTTPS-only mode | ON | **Equivalent** (emulator-measured 2026-10-10; phone check pending) | On by default through Fenix's own setting (`privacy-defaults.patch`; `dom.security.https_only_mode=true`, not locked, so the user can turn it off in Settings). **Measured on 157.0-3** (API 34 emulator, local servers): a top-level `http://` load shows the HTTPS-only interstitial and loads only after "Continue to HTTP site"; an `http://` URL to a host that speaks TLS is upgraded silently and ends as a secure context; the exception is per origin (another port still gets the interstitial) and stored as `https-only-load-insecure` with `expireType=1` (session). Device-pending: public sites, and whether the exception really ends with the session. Measured by: `android-smoke.sh --check-https-only` (rows `https-only-interstitial`, `https-only-upgrade`, `https-only-exception-scope`). [evidence/lw-m7-49, DEVICE-CHECKS §1] |
 | 6 | DNS-over-HTTPS | ON (mode 5, Quad9, dns4all fallback) | **Absent — Fenix overrides it (DoH off)** | `common.cfg:259-260` set `network.trr.mode=5` and the Quad9 URI, but `Core.kt:190-191` → `GeckoEngine.kt:2032-2033` overwrite both on every cold start with Fenix's own defaults (mode 0, empty URI); the equality guard cannot save them because `PrefWithoutDefault` starts at null. Locking is not the remedy: Settings > Privacy > DNS over HTTPS owns both prefs, so a lock would leave the provider list interactive while discarding every choice (`must-not-lock.txt`, `network.trr.*`). The user can turn DoH on in that screen; our configured provider does not reach Gecko. Fix is Fenix-side and owned by no task yet. Measured by: code trace, commit 7c92b22. [must-not-lock.txt] |
-| 7 | Certificate revocation (CRLite + OCSP off) | ON (CRLite mode 2, OCSP disabled) | **Partial** | Cfg-only, at-risk (LW-M3-08). Naming note: LibreWolf ships **CRLite mode 2 with OCSP disabled**, not "OCSP hard-fail" (report item e). Measured by: config parse. [network-posture §5] |
-| 8 | Modern TLS floor (min ≥ 3, no 0-RTT, no deprecated ciphers) | ON | **Partial** | Cfg-only, at-risk (LW-M3-08). Measured by: config parse (network-check.sh). [network-posture] |
-| 9 | Resist Fingerprinting | ON (incl. window-size normalization) | **Partial** | RFP master ON (shared `common.cfg`) + `block_mozAddonManager` + GPC; window-size/letterboxing are desktop-only prefs (letterboxing is off on desktop too, so not a loss); **live coherence PENDING** — no device. Measured by: config parse (rfp-check.sh) + cross-platform comparison. [RFP-ANDROID] |
+| 7 | Certificate revocation (CRLite + OCSP off) | ON (CRLite mode 2, OCSP disabled) | **Equivalent** (emulator-measured 2026-10-10; phone check pending) | The cfg posture is applied on the running build (`OCSP.enabled=0`, `crlite_mode=2`; startup-injected opposites were overwritten by the cfg). **Measured on 157.0-3**: no OCSP request is ever sent (0 requests to a live responder named in the AIA of good, revoked and closed-port leaves, which all load); a stapled "revoked" response is refused (`SEC_ERROR_REVOKED_CERTIFICATE`); must-staple without a staple is refused. With the real network, CRLite filters were loaded about 45 s after a first start (76 filters later) and `revoked.badssl.com` was refused by CRLite (it loaded with `crlite_mode=0`). Shared with desktop, not an Android gap: no WebPKI revocation check before the first filter sync, and none for revocations newer than the filters (a Let's Encrypt test certificate revoked two days earlier still loaded). Naming note: LibreWolf ships **CRLite mode 2 with OCSP disabled**, not "OCSP hard-fail" (report item e). Measured by: `android-smoke.sh --check-revocation` + a live CRLite run. [evidence/lw-m7-49, DEVICE-CHECKS §4] |
+| 8 | Modern TLS floor (min ≥ 3, no 0-RTT, no deprecated ciphers) | ON | **Equivalent** (emulator-measured 2026-10-10; phone check pending) | Running build: `security.tls.version.min=3`, `max=4`, `enable-deprecated=false`, `enable_0rtt_data=false`. **Measured on 157.0-3** against four local servers pinned to one version each: TLS 1.0 and 1.1 refused (`SSL_ERROR_PROTOCOL_VERSION_ALERT`, no handshake completed on the server), TLS 1.2 and 1.3 connect. The negative control (`min=1`, deprecated on) lets all four connect, so the probe can fail. Device-pending: public servers (BadSSL). Measured by: `android-smoke.sh --check-tls-floor`. [evidence/lw-m7-49, DEVICE-CHECKS §3] |
+| 9 | Resist Fingerprinting | ON (incl. window-size normalization) | **Partial** — coherent on the emulator (2026-10-10); real-device values pending | RFP master ON (shared `common.cfg`) + `block_mozAddonManager` + GPC; window-size/letterboxing are desktop-only prefs (letterboxing is off on desktop too, so not a loss). **Measured on 157.0-3** (17/17 items): window, worker and the request header agree on Firefox's Android spoof profile (`Android 10; Mobile` UA with the real major version, `Linux armv81`, buildID `20181001000000`, 4 cores, 5 touch points), `screen` = window size, colour depth 24, time zone `Atlantic/Reykjavik` with the device on Europe/Zurich, timers clamped to 16.67 ms, no Client Hints; canvas readback is randomized. With RFP off the probe fails 12/17. Still Partial because it is a mobile profile, not desktop's (by design), and the values that identify a real phone (window size and DPR, installed fonts, GPU) can only be read on one. Measured by: `android-smoke.sh --check-rfp-coherence`; phone: `android-device-probe.py`. [RFP-ANDROID, evidence/lw-m7-49, DEVICE-CHECKS §2] |
 | 10 | Global Privacy Control | ON | **Equivalent** | Not locked, and must not be: a visible Fenix switch owns `privacy.globalprivacycontrol.enabled` (`tracking_protection_preferences.xml:127-130`), but the only value it can push through `GeckoView:SetDefaultPrefs` is `true`, which is ours; `functionality.enabled` / `pbmode.enabled` are reached by nothing at stage 5b. Measured by: code trace (`must-not-lock.txt`, commit 7c92b22). [RFP-ANDROID] |
 | 11 | Enhanced Tracking Protection (strict) | ON | **Equivalent** | `lockPref` in `settings/android.cfg:341` (`must-lock.txt`); the Fenix Tracking Protection selector still moves but no longer changes behaviour — the same UI/pref split desktop ships (`bare-prefs.md`). Measured by: source + running-build pref read (LW-M3-09). [RFP-ANDROID, POLICIES] |
 | 12 | Cookie partitioning / SameSite | ON | **Equivalent** | `network.cookie.cookieBehavior` and its `.pbmode` / `.optInPartitioning` variants are `lockPref` (`must-lock.txt`), so stage 5b cannot move them. Measured by: source (`must-lock.txt`, generated by `gen-android-locks.py`). [network-posture] |
@@ -97,19 +97,25 @@ neither may be decided carelessly (IDENTITY.md, ROADMAP).
 
 ## 4. What is NOT verified (PENDING)
 
-The rows above rest on the **configured / static** layer. The **live / honoured**
-layer could not be measured this session: there is no device and no test server.
-Per rule G (two failures → stop and park), these are **parked, not faked**:
+**Updated 2026-10-10 (LW-M7-49).** The honoured layer of rows 5, 7, 8 and 9 is
+now measured on the 157.0-3 APK on an API 34 emulator against local servers,
+each check with a negative control that makes it fail
+(`evidence/lw-m7-49/README.md`). What stays pending is what an emulator cannot
+show, listed with the phone steps in `DEVICE-CHECKS.md`:
 
-- **Honoured-on-a-live-page** for HTTPS-only (row 5), revocation (row 7), TLS
-  floor (row 8): `scripts/android-network-check.sh` returns exit 3 (PENDING)
-  without a `--serial`; its configured layer passes and its `--self-test`
-  negative control **passed** (it rejects 4 synthetic bad cfgs and accepts the
-  real `common.cfg`).
-- **Live fingerprint coherence** for RFP (row 9):
-  `scripts/android-rfp-check.sh`'s configured layer passes and its `--self-test`
-  negative control **passed** (rejects `bad-rfpoff` and `bad-letterbox`); the
-  "more identifiable than desktop" risk still needs a device.
+- **Rows 5, 7, 8 on a phone:** HTTPS-only and the TLS floor against public
+  servers, CRLite filter sync on the phone's network, and whether an
+  HTTPS-only exception really ends with the session.
+- **Row 9 on a phone:** the values that identify a real device (window size and
+  DPR, installed fonts, GPU/WebGL, locale) under RFP. The emulator measured
+  coherence of the spoofed values, not how many real phones share them.
+
+`scripts/android-network-check.sh` and `scripts/android-rfp-check.sh` remain
+the static gates (exit 3 for their own honoured layer); the live probes are the
+`android-smoke.sh` flags above.
+
+Still pending from before:
+
 - **Honoured** behaviour for policy gaps P1–P8 (row 15): needs a device to
   confirm each Kotlin-side behaviour.
 - **Cookie-notice lists selected on a device** (row 17): needs a fresh
@@ -118,11 +124,10 @@ Per rule G (two failures → stop and park), these are **parked, not faked**:
   check stays PENDING until `assets/uBOAssets.android.json` is on Redoubt's
   `main` branch, and until then uBO uses the catalog inside its XPI.
 
-Both check scripts are **gates with a passing negative control**, so a
-regression in the *configured* layer is caught automatically. What they cannot
-prove is the *honoured* layer — which is exactly what the task's "not a pref
-read" acceptance requires. That is the remaining work, and it is a
-device-equipped session, not a documentation session.
+Both static check scripts are **gates with a passing negative control**, so a
+regression in the *configured* layer is caught automatically. The *honoured*
+layer of rows 5, 7, 8 and 9 is caught by the smoke flags; for rows 15 and 17,
+and for the phone-only values above, it still needs a device-equipped session.
 
 ## 5. The agreed public wording
 
