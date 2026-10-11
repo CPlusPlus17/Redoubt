@@ -165,16 +165,73 @@ the shipping app. The matrix's strict "all frames" criterion therefore marks
 these rows red in `iso-on-dev.json`; read them against the control columns.
 The drain fix still needs the phone (real vendor codecs, section 6).
 
-## 5. Device: API 30 (`device-api30/`)
+## 5. Device: API 30 (`device-api30/`): passes, with intermittent failures that come from upstream's prefs
 
-Harness-booted AVD, API 30 `default` x86_64. Full default suite on the dev APK:
-**all PASS**, including `webgl` (the graphics acceptance: release UI consent,
-pixels, revoke, lifetimes, frame isolation), video rows, getUserMedia,
-extension and pref dump (`full-suite-api30-dev-2.*`; the first attempt, `…-dev.*`,
-timed out in `adb input` while two Gecko builds loaded the host). See section 6
-for `--check-isolation` on API 30.
+Harness-booted AVD, API 30 `default` x86_64 (OMX goldfish codecs, not Codec2),
+`-gpu swiftshader`/`swangle` as the harness picks, 3 GB. Fresh boots as
+`emulator-5584` and later `emulator-5582`.
 
-## 6. Not covered here
+**What passed:** the full default suite on the dev APK, including the graphics
+acceptance `webgl` row (release UI consent, pixels, revoke, lifetimes, frame
+isolation), video rows, getUserMedia, extension and pref dump
+(`full-suite-api30-dev-2.*`); `--check-isolation` 10/10 rows in 3 runs
+(`-1`, `-5`, `-6`); `--check-video` 3/3 rows in 5 consecutive runs (`-6`..`-10`).
+On API 30 the client logs `MediaCodec: [OMX.android.goldfish.h264.decoder]`
+instead of `CCodec allocate`; the check reads both (`OMX.android.goldfish.h264.decoder in :rdd`).
+
+**What failed, intermittently.** Of 17 dev-app runs of `--check-isolation`
+and `--check-video` on API 30, 9 did not pass:
+
+| failure | dev-app runs |
+|---|---|
+| bootstrap page never loads (`initial browser document did not finish loading`) | isolation `-3`, video `-1`, `-4`, `-5` |
+| `WebDriver:Navigate` timeout to the local https page | isolation `-2`, video `-2` (and the first full-suite run) |
+| H.264 decoder created in the right place (`RDD remote` / `Utility Generic remote`) but 0 frames in 30 s | isolation `-4` and one earlier run |
+| MSE: data buffered, `readyState 1`, 0 frames | video `-3` |
+
+The failures cluster in time (02:15-03:00 UTC on 10-11) and then stop. To find
+out whose they are, the same AVD ran controls in that window and after it:
+
+| build | prefs | result |
+|---|---|---|
+| OFF (no overlay, Java MediaCodec, not isolated), throwaway-signed | none | **5/5 pass**, including runs between failing ones |
+| 157.0-2 (isolated, no media prefs) | none | 3/3 load and play VP8; H.264 has no decoder, as known |
+| 157.0-2 (isolated) | upstream's 11 via the debug config | 1 MSE stall, 1 bootstrap failure, 1 pass |
+| OFF (not isolated) | upstream's 11 via the debug config | 3 bootstrap failures, then 3 passes |
+| OFF | subsets (`rdd-process`; `ffvpx-hw`; both; the two `android-media-codec` prefs; the two encoder prefs; the seven `rdd`/`ffvpx` prefs) | 18 runs: one bootstrap failure (both `android-media-codec` prefs off); otherwise only the expected H.264 failure when Java MediaCodec is off and RDD is not on |
+
+So the API 30 failures reproduce **with upstream's isolated-process prefs alone,
+on a non-isolated build and on 157.0-2**, without Redoubt's codec patch or the
+drain backport; builds without those prefs never failed on this AVD. They were
+not seen on API 34 (Codec2) in any harness run or in the 84 matrix runs. The root
+cause is not established: the cluster in time also points at the host (other
+VMs ran on it). **This is the one result that is not clean**, and it bears on
+devices with OMX-era codec stacks (Android 10/11). See section 7.
+
+## 6. arm64 dev APK for the phone
+
+Built locally (disk allowed it): same commit, `OVERLAYS=isolation-media,dev-app`,
+arm64-v8a only, build date 20261010220000.
+
+| file | sha256 |
+|---|---|
+| `fenix-arm64-v8a-release-unsigned.apk` | `761c6501b04248dff16729f20fc93f446a9a5f71f53460ea120f1312315012d2` |
+| `redoubt-dev-iso-arm64-v8a.apk` (dev key, cert `1dfc331a…55a5`) | `9033647bea4c6d656deedc00d98cac6d80c10f3d2f1ec0efaa5af83628a80493` |
+
+`aapt2 dump badging`: `org.redoubtbrowser.dev`, versionCode 2016189618,
+`158.0-1-default`, label `Redoubt Dev`, native code `arm64-v8a`. Not run on
+any device yet. No CI run and no push were needed.
+
+## 7. Verdict for "ship ON in a 158 dot release if it tests clean"
+
+Clean on API 34 (Codec2), on every check. Not clean on API 30 (OMX), where
+upstream's own pref set misbehaves intermittently in this lab. Before a dot
+release turns it on: the owner's phone run (Android 14+, real vendor codecs),
+and a decision on Android 10/11 devices (for example keep the overlay off for
+SDK < 31, which would need a runtime gate this prototype does not have).
+
+## 8. Not covered here
 
 - arm64 hardware and a real phone's vendor codecs; the drain fix on hardware.
 - WebRTC H.264 encode (now in RDD by upstream's prefs).
+- The root cause of the API 30 failures.

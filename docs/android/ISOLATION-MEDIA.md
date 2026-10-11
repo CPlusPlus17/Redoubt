@@ -178,3 +178,32 @@ Everything in study §10, plus:
 3. `variants.yml` `geckoview-isolated-process`: still the eleven prefs? Copy
    any change into `overlay-isolation-media.cfg`, the expected-prefs file and
    the harness constant (the unit test will insist).
+
+## 6. Status (2026-10-11) and the phone test
+
+Clean on the API 34 emulator (Codec2): `--check-isolation`, `--check-video`, the
+3-round video matrix, delete-on-quit, launcher, uBO and autofill. On the API 30
+emulator (OMX) the full suite incl. graphics passes, but 9 of 17 media/isolation
+runs failed intermittently (page never loads, or H.264/MSE stalls), and the same
+failures reproduce with upstream's eleven prefs on builds **without** this
+overlay's Gecko code. Details: evidence §5. Not yet run on a real device.
+
+**Phone test (owner, Android 14+ arm64).** The dev APK is
+`redoubt-dev-iso-arm64-v8a.apk` (sha256 in evidence §6), signed with the dev key.
+It installs next to the release Redoubt and does not touch its data.
+
+1. Copy it to the phone and open it, or run `adb install redoubt-dev-iso-arm64-v8a.apk`.
+   It is a separate app (new applicationId, own signer), so it never replaces
+   or updates the release app.
+2. Allow "install unknown apps" for the file manager if asked; Android shows
+   "Redoubt Dev" with an amber icon.
+3. Check before trusting it: `apksigner verify --print-certs` shows SHA-256
+   `1dfc331a114e241a994ea9a0eba56e5b13a24553a277bf009bf38224483655a5`, which is
+   NOT the release fingerprint in `SIGNING.md`.
+4. Try the sites from LW-M7-43 (redgifs.com, pornhub.com), YouTube, a few short
+   clips (GIF-style MP4s), and an audio-only page. Report any video that plays
+   in release Redoubt and not in Redoubt Dev.
+5. Optional, with USB debugging:
+   `adb shell ps -A -o LABEL,USER,NAME | grep redoubtbrowser.dev` must show the
+   tab processes as `isolated_app` with `u0_i…` users.
+6. Uninstall when done: `adb uninstall org.redoubtbrowser.dev`.

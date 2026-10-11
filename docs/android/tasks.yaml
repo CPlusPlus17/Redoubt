@@ -5845,6 +5845,8 @@ tasks:
       - "the switch-ON x86_64 build compiles (-Werror) and on the API 34 emulator --check-isolation passes: content isolated_app from the app zygote, H.264 in :rdd, AAC in :utility, VP8/VP9/AV1/Opus decoded in content, the 11 prefs locked, no isolated_app denial beyond the baseline"
       - "--check-video passes 3 times with isolation on; the matrix (long clips, short clips, AAC-only, muted autoplay and click, hls.js TS/fMP4) passes 3 rounds; native HLS fails closed with error 4"
       - "the dev app installs next to a throwaway-signed org.redoubtbrowser and both run"
+      - "API 30 (OMX) emulator: the full suite passes; intermittent media/page-load failures are measured against controls and attributed (2026-10-11: they reproduce with upstream's prefs alone; open before shipping ON)"
+      - "the owner runs the arm64 dev APK on the phone (docs/android/ISOLATION-MEDIA.md section 6) before a dot release turns the overlay on"
     verify: "./scripts/check-patchfail.sh --targets=android --overlays=isolation-media,dev-app && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope && python3 scripts/tests/test-android-smoke.py && ./scripts/android-smoke.sh --serial <emulator> --apk <dev apk> --check-isolation"
     effort_h: "16-24"
     skills: [cpp, android, kotlin]
