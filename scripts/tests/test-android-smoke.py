@@ -1148,10 +1148,21 @@ class IsolationCheckTests(unittest.TestCase):
         '/fixture-av1.webm': ('dav1d video decoder', 'ffvpx audio decoder'),
     }
 
+    # What RDD/Utility log when content asks for VP9/Opus (the test hook on).
+    REFUSALS = ("10-11 00:00:09.000   400   420 I Gecko   : Redoubt isolation-media: RDD process "
+                "refused a decoder for 'video/vp9' (allowlist: H.264, HEVC, AAC)\n"
+                "10-11 00:00:09.100   500   520 I Gecko   : Redoubt isolation-media: Utility process "
+                "refused a decoder for 'audio/opus' (allowlist: H.264, HEVC, AAC)\n")
+
     def run_check(self, ps=None, log=None, decoders=None, prefs=None,
-                  profile='drwx------ 5 u0_a190 u0_a190 u:object_r:app_data_file:s0:c1,c2 4096 /data/data/x'):
+                  profile='drwx------ 5 u0_a190 u0_a190 u:object_r:app_data_file:s0:c1,c2 4096 /data/data/x',
+                  refusals=None, refusals_before='', hook_decoders=None, hook_raises=False, state=None):
         decoders = decoders or self.DECODERS
         calls = []
+        hook = state if state is not None else {}
+        hook.setdefault('on', False)
+        hook.setdefault('set', 0)
+        hook.setdefault('cleared', 0)
 
         class Adb:
             def run(self, *a, **k):
@@ -1167,18 +1178,32 @@ class IsolationCheckTests(unittest.TestCase):
                     return 'u0_a190\n'
                 return ''
             def out(self, *a, **k):
+                if 'Gecko:I' in a:
+                    after = (IsolationCheckTests.REFUSALS if refusals is None else refusals)
+                    return refusals_before + (after if hook['set'] else '')
                 return log if log is not None else IsolationCheckTests.LOG
 
         class M:
             def cmd(self, name, params=None):
                 if name == 'WebDriver:ExecuteAsyncScript':
-                    v, a = decoders[params['args'][0]]
+                    if hook['on'] and hook_raises:
+                        raise RuntimeError('probe timed out')
+                    v, a = ((hook_decoders or decoders) if hook['on'] else decoders)[params['args'][0]]
                     return {'value': {'ok': True, 'decoded': 30,
                                       'info': {'video': v, 'audio': a, 'hw': False}}}
                 if name == 'WebDriver:FindElement':
                     return {'value': {harness.WEBDRIVER_ELEMENT_KEY: 'e'}}
                 return {}
             def script(self, js, args=None, chrome=False, sandbox='smoke'):
+                if chrome and 'setBoolPref' in js:
+                    assert args == [harness.ISOLATION_TEST_HOOK_PREF], args
+                    hook['on'] = True
+                    hook['set'] += 1
+                    return None
+                if chrome and 'clearUserPref' in js:
+                    hook['on'] = False
+                    hook['cleared'] += 1
+                    return None
                 if chrome:
                     return [{'name': n, 'value': v, 'locked': True}
                             for n, v in (prefs if prefs is not None else harness.ISOLATION_MEDIA_PREFS)]
@@ -1193,6 +1218,51 @@ class IsolationCheckTests(unittest.TestCase):
         ok, rows = self.run_check()
         self.assertTrue(ok, [r['detail'] for r in rows.values() if not r['ok']])
         self.assertIn('isolation-decoder-av1-opus', rows)
+
+    def test_remote_refusal_of_vp9_and_opus_with_content_fallback_passes(self):
+        state = {}
+        ok, rows = self.run_check(state=state)
+        row = rows['isolation-remote-refusal']
+        self.assertTrue(row['ok'], row['detail'])
+        self.assertEqual(state['set'], 1)
+        self.assertEqual(state['cleared'], 1)
+        self.assertFalse(state['on'])
+
+    def test_rdd_accepting_vp9_fails_the_refusal_row(self):
+        # No refusal logged, and the decoder ran in RDD: the parent-side check is missing.
+        dec = dict(self.DECODERS)
+        dec['/fixture-vp9.webm'] = ('ffvpx video decoder (RDD remote)', 'ffvpx audio decoder (Utility Generic remote)')
+        ok, rows = self.run_check(refusals='', hook_decoders=dec)
+        self.assertFalse(ok)
+        self.assertFalse(rows['isolation-remote-refusal']['ok'])
+        self.assertTrue(rows['isolation-decoder-vp9-opus']['ok'])
+
+    def test_a_refusal_from_the_wrong_process_does_not_count(self):
+        # Logged by a content pid (301), not by :rdd/:utility.
+        ok, rows = self.run_check(refusals=self.REFUSALS.replace('   400   420 ', '   301   420 ')
+                                  .replace('   500   520 ', '   301   520 '))
+        self.assertFalse(rows['isolation-remote-refusal']['ok'])
+
+    def test_only_the_video_refused_fails(self):
+        ok, rows = self.run_check(refusals=self.REFUSALS.splitlines(True)[0])
+        self.assertFalse(rows['isolation-remote-refusal']['ok'])
+
+    def test_a_refusal_on_the_honest_path_fails(self):
+        ok, rows = self.run_check(refusals_before=self.REFUSALS.splitlines(True)[0])
+        self.assertFalse(rows['isolation-remote-refusal']['ok'])
+
+    def test_no_fallback_to_content_after_the_refusal_fails(self):
+        dec = dict(self.DECODERS)
+        dec['/fixture-vp9.webm'] = (None, None)
+        ok, rows = self.run_check(hook_decoders=dec)
+        self.assertFalse(rows['isolation-remote-refusal']['ok'])
+
+    def test_the_test_hook_is_cleared_even_when_the_probe_fails(self):
+        state = {}
+        ok, rows = self.run_check(hook_raises=True, state=state)
+        self.assertFalse(rows['isolation-remote-refusal']['ok'])
+        self.assertEqual(state['cleared'], 1)
+        self.assertFalse(state['on'])
 
     def test_content_running_as_the_app_uid_fails(self):
         ps = self.PS.replace('u:r:isolated_app:s0:c512,c768 u0_i3 301 200',

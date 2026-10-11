@@ -209,6 +209,10 @@ LW_UPDATE_CHECK_PROPS=""
 # build type and --disable-debug-signing only: the AAB exists to be signed by
 # the owner's Play upload key (docs/android/PLAY.md), never by a debug key.
 BUNDLE=0
+# LW-M7-50 review: a tree patched with a build overlay (isolation-media, dev-app;
+# docs/android/ISOLATION-MEDIA.md) is refused for the release build type unless
+# the caller says so with --allow-overlays. No release path passes it.
+ALLOW_OVERLAYS=0
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -264,6 +268,12 @@ is the fat AAR built by scripts/android-fat-aar.sh.
                     the update check compiled OUT regardless of --update-check.
                     Needs --variant=release and --disable-debug-signing.
                     docs/android/PLAY.md.
+  --allow-overlays  build the release type from a tree patched with build
+                    overlays (scripts/librewolf-patches.py --overlays, e.g.
+                    the isolation-media prototype or the dev app). Without it
+                    such a tree is refused for --variant=release, so an
+                    overlay cannot reach a release build unnoticed.
+                    docs/android/ISOLATION-MEDIA.md section 1.
   --update-check    compile the opt-in update check in, with the committed
                     public key assets/update-check.android.pubkey (direct-APK
                     releases only; F-Droid/Accrescent builds never pass it).
@@ -349,6 +359,7 @@ while [ $# -gt 0 ]; do
         --disable-debug-signing) DISABLE_DEBUG_SIGNING="-PdisableDebugSigning"; shift ;;
         --update-check)   UPDATE_CHECK=1; shift ;;
         --bundle)         BUNDLE=1; shift ;;
+        --allow-overlays) ALLOW_OVERLAYS=1; shift ;;
         -n|--dry-run)     DRY_RUN=1; shift ;;
         -h|--help)        usage; exit 0 ;;
         *)                usage >&2; die "unknown argument: $1" ;;
@@ -433,6 +444,22 @@ SRCDIR=$(cd "$SRCDIR" && pwd)
 [ -x "$SRCDIR/mach" ] || die "'$SRCDIR' has no executable mach -- is that an extracted Firefox tree?"
 [ -f "$SRCDIR/mobile/android/fenix/app/build.gradle" ] ||
     die "'$SRCDIR' has no mobile/android/fenix/app/build.gradle -- this tree has no in-tree Fenix"
+# LW-M7-50 review: overlay trees and release builds. The patcher marks an overlay
+# tree with redoubt-overlays.txt at its root; the two overlay fingerprints are
+# checked too, so a tree patched before the marker existed is caught as well.
+overlays_in_tree=
+[ -f "$SRCDIR/redoubt-overlays.txt" ] &&
+    overlays_in_tree=$(tr '\n' ' ' < "$SRCDIR/redoubt-overlays.txt")
+grep -qs 'OVERLAY isolation-media' "$SRCDIR/lw/librewolf.cfg" &&
+    overlays_in_tree="$overlays_in_tree isolation-media(cfg)"
+grep -qs 'applicationIdSuffix ".dev"' "$SRCDIR/mobile/android/fenix/app/build.gradle" &&
+    overlays_in_tree="$overlays_in_tree dev-app(build.gradle)"
+if [ -n "$overlays_in_tree" ]; then
+    if [ "$VARIANT" = release ] && [ "$ALLOW_OVERLAYS" -ne 1 ]; then
+        die "this tree carries build overlays [${overlays_in_tree# }]: a release build of it needs --allow-overlays (docs/android/ISOLATION-MEDIA.md section 1); release CI never passes it"
+    fi
+    log "build overlays in this tree: ${overlays_in_tree# }"
+fi
 # LW-M7-50: a tree patched with the dev-app overlay (patches/android/dev-app.patch,
 # applicationId org.redoubtbrowser.dev) never gets the update check. It is a test
 # app; offering it a release APK as an "update" would be a different app.

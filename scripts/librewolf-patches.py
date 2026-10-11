@@ -74,6 +74,9 @@ parser.add_option('-t', '--targets', dest='targets', default='desktop',
 # lw/librewolf.cfg. Overlays apply in KNOWN_OVERLAYS order, whatever order the
 # option names them in.
 KNOWN_OVERLAYS = ("isolation-media", "dev-app")
+# Written at the root of an overlay tree (never otherwise); read by
+# scripts/android-apk.sh and .github/workflows/android-release.yaml.
+OVERLAY_MARKER = "redoubt-overlays.txt"
 parser.add_option('--overlays', dest='overlays', default='',
                   help="comma separated Android build overlays, from {} "
                        "(default: none). See docs/android/ISOLATION-MEDIA.md."
@@ -842,6 +845,15 @@ def librewolf_patches():
     exec('cp -v ../../settings/distribution/policies.json .')
     exec('cp -v ../../settings/defaults/pref/local-settings.js .')
     leave_srcdir();
+    # LW-M7-50 review: an overlay tree says so at its root, one overlay per
+    # line, so scripts/android-apk.sh and the release workflow can refuse it
+    # without parsing patches. Written only when an overlay is named: a tree
+    # without overlays gets no such file and stays byte-identical.
+    if overlays and not options.no_execute:
+        with open(OVERLAY_MARKER, "w") as f:
+            f.write("".join(o + "\n" for o in overlays))
+        print("# wrote {} ({})".format(OVERLAY_MARKER, ", ".join(overlays)))
+        sys.stdout.flush()
 
 
 

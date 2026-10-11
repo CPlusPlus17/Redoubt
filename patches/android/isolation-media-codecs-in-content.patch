@@ -8,8 +8,10 @@
 #
 # Upstream files touched
 # ----------------------
-#   dom/media/ipc/RemoteDecoderModule.cpp   RemoteDecoderModule::Supports()
-#   dom/media/platforms/PDMFactory.cpp      PDMFactory::AllDecodersAreRemote()
+#   dom/media/ipc/RemoteDecoderModule.cpp       RemoteDecoderModule::Supports()
+#   dom/media/platforms/PDMFactory.cpp          PDMFactory::CreateDecoder(),
+#                                               PDMFactory::AllDecodersAreRemote()
+#   modules/libpref/init/StaticPrefList.yaml    one test-hook pref (below)
 #
 # What upstream does, and what Redoubt wants instead
 # --------------------------------------------------
@@ -38,6 +40,30 @@
 # (CDM requests go to RDD only, non-CDM audio to Utility_Generic only). CDM
 # requests are untouched; Redoubt ships media.eme.enabled=false anyway.
 #
+# Enforced on BOTH sides (review of LW-M7-50)
+# -------------------------------------------
+# Supports() runs in the isolated content process, which is the process this
+# design assumes can be compromised; it only ROUTES. The decoder processes
+# enforce the allowlist themselves: PDMFactory::CreateDecoder(), which both
+# RemoteVideoDecoderParent::RecvConstruct() and
+# RemoteAudioDecoderParent::RecvConstruct() call, refuses in the RDD, Utility
+# and GPU processes every decoder whose mime type is not H.264
+# (video/avc, video/mp4), HEVC (video/hevc) or AAC (audio/mp4a-latm), CDM or
+# not (Redoubt ships EME off). The refusal is NS_ERROR_DOM_MEDIA_FATAL_ERR back
+# to content plus a logcat line, tag Gecko:
+#   Redoubt isolation-media: RDD process refused a decoder for 'video/vp9' ...
+# On the honest path content never asks, so the line never appears.
+#
+# Test hook: media.redoubt-test.skip-content-codec-filter (static pref, default
+# false, set by no Redoubt pref file) makes Supports() skip the filter, so
+# content asks RDD/Utility for VP9/Opus exactly as a compromised content
+# process could. RDD/Utility refuse, PDMFactory in content falls through to its
+# in-process ffvpx (the remote Construct() is part of creation, so the refusal
+# is a creation failure, not a playback error), and the media still plays,
+# decoded in the isolated process. Turning the pref on therefore moves no
+# decoding out of the isolated process; scripts/android-smoke.sh
+# --check-isolation (row isolation-remote-refusal) does exactly that.
+#
 # AllDecodersAreRemote() returns false on Android, because with this change
 # they are not all remote even though every media.rdd-* pref is on. Its only
 # Android consumer is WebRenderBridgeChild::GetForMedia(), which then keeps
@@ -45,10 +71,12 @@
 # in every Android build today (media.rdd-process.enabled is false by default
 # there, so the function already returns false).
 #
-# About 20 lines on a hot upstream file: re-check at every rebase that
+# About 60 lines on hot upstream files: re-check at every rebase that
 # RemoteDecoderModule::Supports() still has the `#ifdef ANDROID` filter block,
-# and that upstream's isolated variant still sends software codecs to RDD (if
-# upstream adopts this split itself, drop this patch).
+# that every remote decoder is still created through
+# PDMFactory::CreateDecoder() (RemoteVideoDecoderParent/RemoteAudioDecoderParent
+# ::RecvConstruct()), and that upstream's isolated variant still sends software
+# codecs to RDD (if upstream adopts this split itself, drop this patch).
 #
 --- a/dom/media/ipc/RemoteDecoderModule.cpp
 +++ b/dom/media/ipc/RemoteDecoderModule.cpp
@@ -60,7 +88,15 @@
  #include "RemoteAudioDecoder.h"
  #include "RemoteMediaDataDecoder.h"
  #include "RemoteMediaManagerChild.h"
-@@ -76,6 +77,20 @@
+@@ -11,6 +12,7 @@
+ #include "VideoUtils.h"
+ #include "gfxConfig.h"
+ #include "mozilla/RemoteDecodeUtils.h"
++#include "mozilla/StaticPrefs_media.h"
+ 
+ namespace mozilla {
+ 
+@@ -76,6 +78,29 @@
         mLocation != RemoteMediaIn::UtilityProcess_Generic)) {
      support = {};
    }
@@ -73,7 +109,16 @@
 +  // parsed in the isolated content process instead of the app-uid RDD/Utility
 +  // process. Owner decision 2026-10-10: "Keep software codecs in the page
 +  // process".
-+  if (!aParams.mCDM && !MP4Decoder::IsH264(aParams.MimeType()) &&
++  // This filter only routes: the RDD/Utility side enforces the same allowlist
++  // on its own (PDMFactory::CreateDecoder), because an isolated content
++  // process that is compromised does not have to call Supports() at all.
++  // media.redoubt-test.skip-content-codec-filter is the TEST HOOK that proves
++  // it: with it on, content asks RDD/Utility for VP9/Opus, they refuse, and
++  // PDMFactory falls through to the in-process decoders
++  // (scripts/android-smoke.sh --check-isolation, row isolation-remote-refusal).
++  if (!aParams.mCDM &&
++      !StaticPrefs::media_redoubt_test_skip_content_codec_filter() &&
++      !MP4Decoder::IsH264(aParams.MimeType()) &&
 +      !MP4Decoder::IsHEVC(aParams.MimeType()) &&
 +      !MP4Decoder::IsAAC(aParams.MimeType())) {
 +    support = {};
@@ -83,7 +128,54 @@
        sPDMLog, LogLevel::Debug, "Sandbox {} decoder {} requested type {}",
 --- a/dom/media/platforms/PDMFactory.cpp
 +++ b/dom/media/platforms/PDMFactory.cpp
-@@ -1009,14 +1009,22 @@
+@@ -29,6 +29,7 @@
+ #include "mozilla/SyncRunnable.h"
+ #include "mozilla/TaskQueue.h"
+ #include "mozilla/gfx/gfxVars.h"
++#include "mozilla/glue/Debug.h"  // printf_stderr
+ #include "mozilla/ipc/UtilityMediaServiceParent.h"
+ #include "nsIXULRuntime.h"  // for BrowserTabsRemoteAutostart
+ #include "nsPrintfCString.h"
+@@ -336,6 +337,38 @@
+ 
+ RefPtr<PlatformDecoderModule::CreateDecoderPromise> PDMFactory::CreateDecoder(
+     const CreateDecoderParams& aParams) {
++#ifdef MOZ_WIDGET_ANDROID
++  // Redoubt (LW-M7-50, isolation-media overlay): the decoder processes enforce
++  // the codec allowlist themselves. RDD and Utility run as untrusted_app with
++  // the app uid and no Gecko sandbox, and they carry every software decoder
++  // (ffvpx, dav1d, Agnostic). RemoteDecoderModule::Supports() keeps everything
++  // but H.264, HEVC and AAC in the isolated content process, but a compromised
++  // content process can skip that and ask for any decoder over IPC. Every
++  // remote decoder is created here (RemoteVideoDecoderParent and
++  // RemoteAudioDecoderParent::RecvConstruct), so here is where anything else
++  // is refused: a decode error back to content, and a logcat line (tag Gecko).
++  if ((XRE_IsRDDProcess() || XRE_IsUtilityProcess() || XRE_IsGPUProcess()) &&
++      !MP4Decoder::IsH264(aParams.mConfig.mMimeType) &&
++      !MP4Decoder::IsHEVC(aParams.mConfig.mMimeType) &&
++      !MP4Decoder::IsAAC(aParams.mConfig.mMimeType)) {
++    const char* proc = XRE_IsRDDProcess()       ? "RDD"
++                       : XRE_IsUtilityProcess() ? "Utility"
++                                                : "GPU";
++    printf_stderr(
++        "Redoubt isolation-media: %s process refused a decoder for '%.64s' "
++        "(allowlist: H.264, HEVC, AAC)\n",
++        proc, aParams.mConfig.mMimeType.get());
++    MOZ_LOG_FMT(sPDMLog, LogLevel::Warning,
++                "Redoubt isolation-media: {} refused decoder for {}", proc,
++                aParams.mConfig.mMimeType.get());
++    return PlatformDecoderModule::CreateDecoderPromise::CreateAndReject(
++        MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
++                    nsPrintfCString("Redoubt isolation-media: %s refuses %s",
++                                    proc, aParams.mConfig.mMimeType.get())
++                        .get()),
++        __func__);
++  }
++#endif
+   if (aParams.mUseNullDecoder.mUse) {
+     MOZ_ASSERT(mNullPDM);
+     return CreateDecoderWithPDM(mNullPDM, aParams);
+@@ -1009,14 +1042,22 @@
  
  /* static */
  bool PDMFactory::AllDecodersAreRemote() {
@@ -108,3 +200,24 @@
  }
  
  #undef PDM_INIT_LOG
+--- a/modules/libpref/init/StaticPrefList.yaml
++++ b/modules/libpref/init/StaticPrefList.yaml
+@@ -12841,6 +12841,18 @@
+ #endif
+   mirror: always
+ 
++# Redoubt (LW-M7-50, isolation-media overlay). TEST HOOK, off by default and
++# not set by any Redoubt pref file: when true, RemoteDecoderModule::Supports()
++# in the content process stops keeping software codecs local and asks
++# RDD/Utility for them, as a compromised content process could. RDD/Utility
++# must refuse (PDMFactory::CreateDecoder) and content falls back to its own
++# decoders, so turning this on moves no decoding out of the isolated process.
++# Read by scripts/android-smoke.sh --check-isolation.
++- name: media.redoubt-test.skip-content-codec-filter
++  type: RelaxedAtomicBool
++  value: false
++  mirror: always
++
+ - name: media.rdd-wav.enabled
+   type: RelaxedAtomicBool
+ #if defined(XP_WIN)

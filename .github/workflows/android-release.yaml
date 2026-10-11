@@ -209,10 +209,32 @@ jobs:
           # The build happens in the EXTRACTED tree, not at the repo root:
           # ./mach does not exist here. `make dir` produces
           # librewolf-<version>-<release>/ and that is where mach lives.
+          # Build overlays (LW-M7-50: isolation-media, dev-app) never reach a
+          # release from here. This workflow has no input that names one, the
+          # Makefile takes OVERLAYS only from its command line (an environment
+          # value is a hard error), and the tree is checked after patching: the
+          # patcher writes redoubt-overlays.txt into an overlay tree, and the two
+          # overlay fingerprints are checked as well. scripts/android-apk.sh
+          # refuses such a tree for the release type without --allow-overlays,
+          # which this file never passes. Shipping an overlay ON needs a new,
+          # explicit dispatch input and a change here (docs/android/ISOLATION-MEDIA.md
+          # section 1).
+          if [ -n "${OVERLAYS:-}" ]; then
+            echo "FATAL: OVERLAYS='$OVERLAYS' is set in the environment; release builds take no overlay" >&2
+            exit 1
+          fi
           make fetch TARGETS=android
           make dir   TARGETS=android
-          test -x "librewolf-$(cat version.android)-$(cat release.android)/mach" \
+          tree="librewolf-$(cat version.android)-$(cat release.android)"
+          test -x "$tree/mach" \
             || { echo "FATAL: mach not found in the extracted tree" >&2; exit 1; }
+          if [ -e "$tree/redoubt-overlays.txt" ] \
+             || grep -qs 'OVERLAY isolation-media' "$tree/lw/librewolf.cfg" \
+             || grep -qs 'applicationIdSuffix ".dev"' "$tree/mobile/android/fenix/app/build.gradle"; then
+            echo "FATAL: the release tree carries a build overlay; release builds take none" >&2
+            exit 1
+          fi
+          echo "build overlays: none"
 
       - name: Build image from this commit's Dockerfile
         if: ${{ env.MODE == 'full' }}

@@ -155,7 +155,22 @@ endif
 # before OVERLAYS existed when it is empty: same stamp name, same patch lists,
 # same patcher command, so a build that does not name an overlay is unchanged.
 # A non-empty value is part of the stamp name, so switching overlays re-extracts.
-OVERLAYS ?=
+#
+# Only the make COMMAND LINE sets OVERLAYS (review of LW-M7-50): a value from
+# the environment (`export OVERLAYS=...`, a CI runner's env, `make -e`) must
+# never turn an overlay on silently. A non-empty environment value is a hard
+# error; an empty one is dropped. Anything else that is not the command line
+# is reset to empty, so the expansions below see either the command-line value
+# or nothing. The release workflow and scripts/android-apk.sh refuse an overlay
+# tree on their own as well (docs/android/ISOLATION-MEDIA.md section 1).
+ifneq ($(filter environment%,$(origin OVERLAYS)),)
+ifneq ($(strip $(OVERLAYS)),)
+$(error OVERLAYS='$(OVERLAYS)' comes from the environment; overlays are taken only from the make command line (make android-dir TARGETS=android OVERLAYS=...), unset it)
+endif
+endif
+ifneq ($(origin OVERLAYS),command line)
+override OVERLAYS :=
+endif
 overlay_list := $(subst $(comma), ,$(OVERLAYS))
 targets_stamp := librewolf-targets-$(version)-$(release)-$(subst $(comma),-,$(TARGETS))$(if $(strip $(OVERLAYS)),-overlays-$(subst $(comma),-,$(OVERLAYS)))
 

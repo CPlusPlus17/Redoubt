@@ -2706,6 +2706,93 @@ def _ps_rows(adb, pkg):
             rows.append({"label": f[0], "user": f[1], "pid": f[2], "ppid": f[3], "name": f[4]})
     return rows
 
+# The codec allowlist is enforced twice (patches/android/isolation-media-codecs-
+# in-content.patch): RemoteDecoderModule::Supports() in content only ROUTES, and
+# PDMFactory::CreateDecoder() in RDD/Utility refuses anything that is not H.264,
+# HEVC or AAC, logging this line (logcat tag Gecko) from the refusing process.
+ISOLATION_REFUSAL_RE = re.compile(
+    r"Redoubt isolation-media: (RDD|Utility|GPU) process refused a decoder for '([^']*)'")
+# Test hook (static pref, default false, set by no Redoubt pref file): content
+# stops filtering and asks RDD/Utility for VP9/Opus, as a compromised content
+# process could. It moves no decoding out of content: the remote side refuses.
+ISOLATION_TEST_HOOK_PREF = "media.redoubt-test.skip-content-codec-filter"
+
+def _refusals(adb, by_pid):
+    text = adb.out("logcat", "-d", "-b", "main", "-v", "threadtime", "-s", "Gecko:I", timeout=120)
+    hits = []
+    for line in text.splitlines():
+        mm = ISOLATION_REFUSAL_RE.search(line)
+        if mm:
+            f = line.split()
+            pid = f[2] if len(f) > 2 else "?"
+            hits.append({"pid": pid, "process": (by_pid.get(pid) or {}).get("name"),
+                         "site": mm.group(1), "mime": mm.group(2)})
+    return hits
+
+def isolation_remote_refusal(m, res, adb, pkg, https_url, forcefail=False):
+    """Row isolation-remote-refusal: ask RDD/Utility for VP9+Opus through the
+    test hook; both must refuse (a logcat line from the :rdd and the :utility
+    process) and the clip must still play, decoded in the isolated content
+    process (the content PDMFactory falls through after the refusal). Before
+    the hook is set, the honest path must have produced no refusal at all."""
+    by_pid = {r["pid"]: r for r in _ps_rows(adb, pkg)}
+    before = _refusals(adb, by_pid)
+    probe, err = None, None
+    try:
+        m.script("Services.prefs.setBoolPref(arguments[0], true);",
+                 [ISOLATION_TEST_HOOK_PREF], chrome=True)
+        m.cmd("Marionette:SetContext", {"value": "content"})
+        m.cmd("WebDriver:Navigate", {"url": https_url})
+        click_page(m)
+        r = m.cmd("WebDriver:ExecuteAsyncScript",
+                  {"script": JS_DECODER_PROBE,
+                   "args": ["/fixture-vp9.webm", 'video/webm; codecs="vp9,opus"'],
+                   "sandbox": "system"})
+        probe = r.get("value", r) if isinstance(r, dict) else r
+    except Exception as e:  # report, then always clear the hook
+        err = "%s: %s" % (type(e).__name__, e)
+    finally:
+        try:
+            m.script("Services.prefs.clearUserPref(arguments[0]);",
+                     [ISOLATION_TEST_HOOK_PREF], chrome=True)
+        finally:
+            m.cmd("Marionette:SetContext", {"value": "content"})
+    by_pid.update({r["pid"]: r for r in _ps_rows(adb, pkg)})
+    after = _refusals(adb, by_pid)
+    new = after[len(before):]
+    info = (probe or {}).get("info") or {}
+    got_v, got_a = _decoder_site(info.get("video")), _decoder_site(info.get("audio"))
+    rdd_vp9 = [h for h in new if h["site"] == "RDD" and "vp9" in h["mime"]
+               and re.search(r":rdd(?:$|_)", h["process"] or "")]
+    util_opus = [h for h in new if h["site"] == "Utility" and "opus" in h["mime"]
+                 and re.search(r":utility", h["process"] or "")]
+    problems = []
+    if err:
+        problems.append("probe failed: " + err)
+    if before:
+        problems.append("%d refusal(s) logged BEFORE the test hook was set (content asked "
+                        "RDD/Utility for a non-allowlisted codec on its own): %s" % (len(before), before[:4]))
+    if not rdd_vp9:
+        problems.append("no refusal of video/vp9 logged by the :rdd process (new lines: %s)" % new[:6])
+    if not util_opus:
+        problems.append("no refusal of audio/opus logged by the :utility process (new lines: %s)" % new[:6])
+    if got_v in ("RDD", "Utility", "GPU", "other-remote") or got_a in ("RDD", "Utility", "GPU", "other-remote"):
+        problems.append("VP9/Opus decoded remotely despite the refusal: video %r, audio %r"
+                        % (info.get("video"), info.get("audio")))
+    if not (probe or {}).get("ok") or got_v != "content" or got_a != "content":
+        problems.append("VP9+Opus did not fall back to the isolated content process: probe %s"
+                        % json.dumps(probe)[:300])
+    ok = not problems and not forcefail
+    res.add("isolation-remote-refusal", ok,
+            ("with %s on, content asked RDD/Utility for VP9+Opus: :rdd refused video/vp9 (pid %s), "
+             ":utility refused audio/opus (pid %s); the clip played anyway, video %r and audio %r "
+             "in the isolated content process; no refusal on the honest path before"
+             % (ISOLATION_TEST_HOOK_PREF, rdd_vp9[0]["pid"], util_opus[0]["pid"],
+                info.get("video"), info.get("audio")))
+            if ok else "; ".join(problems) or "forced failure",
+            {"refusals_before": before, "refusals_new": new, "probe": probe})
+    return ok
+
 def check_isolation(m, res, app, adb, origin, https_url, forcefail=False):
     pkg = app.pkg
     got = m.script('return arguments[0].map(function(n){ return {name: n, '
@@ -2856,6 +2943,8 @@ def check_isolation(m, res, app, adb, origin, https_url, forcefail=False):
             "%s (mode 0700, owner %s, app_data_file; an isolated_app uid is neither the owner "
             "nor allowed by policy)" % (st, uid_name) if ok else "unexpected profile directory: %r" % st,
             {"ls": st, "owner": uid_name})
+    # ---- RDD/Utility refuse what content must keep (review of LW-M7-50) ----
+    isolation_remote_refusal(m, res, adb, pkg, https_url, forcefail=forcefail)
     return all(r["ok"] for r in res.rows if r["check"].startswith("isolation-"))
 
 JS_GUM = r"""

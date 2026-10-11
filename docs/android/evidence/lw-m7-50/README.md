@@ -235,3 +235,78 @@ SDK < 31, which would need a runtime gate this prototype does not have).
 - arm64 hardware and a real phone's vendor codecs; the drain fix on hardware.
 - WebRTC H.264 encode (now in RDD by upstream's prefs).
 - The root cause of the API 30 failures.
+
+## 9. Review fixes (2026-10-11, `review/`)
+
+An independent review found the codec allowlist enforced only in content
+(medium), no attack-surface statement (medium), and `OVERLAYS ?=` in the
+Makefile (low). Fixes: `ISOLATION-MEDIA.md` sections 1, 2b and 7. Inputs as
+above (158.0 RC build2, sha256 `fc77f780…a2bb`, downloaded again from
+`candidates/158.0-candidates/build2` and verified against the pinned
+`assets/mozilla-release-key.asc`: `GOODSIG 678E455D76767AA3`), build date
+20261011030000.
+
+**Decoder-process enforcement.** `isolation-media-codecs-in-content.patch` now
+also refuses, in `PDMFactory::CreateDecoder()` in the RDD/Utility/GPU process,
+every decoder that is not H.264/HEVC/AAC, and adds one test-hook static pref.
+On the API 34 emulator (`device-api34/`, fresh `-wipe-data` AVD `iso34`, serial
+`emulator-5594`) `--check-isolation` passes **3 of 3** runs, all 11 rows,
+including the new `isolation-remote-refusal`: with the hook on, every run logged
+
+```
+:rdd      Redoubt isolation-media: RDD process refused a decoder for 'video/vp9'
+:rdd      ... 'video/vp8'   (the probe page's own VP8 element)
+:utility  Redoubt isolation-media: Utility process refused a decoder for 'audio/opus'
+```
+
+and the VP9+Opus clip still played (13-14 frames), with `ffvpx video decoder`
+and `ffvpx audio decoder` in the isolated content process. No refusal line
+appeared before the hook was set, after the H.264/VP8/VP9/AV1 rows had played:
+the content-side filter never asks RDD/Utility for a software codec.
+**Negative control:** the same row against the previous dev APK (d8effdb6,
+no decoder-process check) FAILS, no refusal logged
+(`check-isolation-negative-d8effdb6.*`). `--check-video` passes **3 of 3**.
+A gtest was not used (section 4 of the design doc says why).
+
+**Switch OFF is still today's build** (`off-identity/`): `make android-dir
+TARGETS=android` from `android/firefox-158` (0f2665fe, unchanged) and from this
+branch with the fixes: `diff -r` exit 0, 524,522 files each, file-manifest
+sha256 `754743ea…2b5d` for both (the same value as section 1).
+
+**Gates** (`gates/`), against that tarball: `check-patchfail.sh
+--targets=android` exit 0 (8 fuzz notes, as before), with
+`--overlays=isolation-media,dev-app` exit 0 (the codecs patch applies without
+offset or fuzz), `--targets=desktop` exit 0; `check-patch-order.py` 39/39, 171
+shared-file pairs (13 list/overlay pairs: the new `StaticPrefList.yaml` hunk
+pairs with the three WebGL patches); `lint-patch-scope.py` OK, 114 files;
+`board.py --check`, `--check-scope`, `--check-cfg-split`, `--diff-mozconfig
+--strict` ok; `test-android-smoke.py` OK (117 tests, 7 new for the refusal row).
+
+**Build with -Werror.** The ON x86_64 build ran with
+`ac_add_options --enable-warnings-as-errors` added to the mozconfig
+(`WARNINGS_AS_ERRORS = -Werror` in `autoconf.mk`; `dom/media` has no
+`AllowCompilerWarnings`, so `RemoteDecoderModule.cpp` and
+`Unified_cpp_dom_media_platforms0.cpp` with `PDMFactory.cpp` compiled under it,
+no warning in `dom/media`). That option also turns rustc warnings into errors,
+and the first attempt stopped in the in-tree app-services `remote_settings`
+crate (10 dead-code/unused-import errors, not Redoubt's code); the build that
+produced the APK capped Rust lints back to warnings (`RUSTFLAGS="--cap-lints
+warn"`) and kept `-Werror` for C/C++. The Fenix Kotlin build is `-Werror` as
+always. Same for arm64.
+
+**Guards** (`guards/guards.txt`): `OVERLAYS=... make ...` and `make -e` stop
+with an error; an empty environment value is dropped; the command line works
+and an empty `OVERLAYS` expands exactly as before. `android-apk.sh
+--variant=release` refuses the ON tree without `--allow-overlays`. The workflow
+check in `android-release.yaml` has not run in CI (nothing pushed).
+
+| APK | sha256 |
+|---|---|
+| `fenix-x86_64-release-unsigned.apk` (ON, x86_64) | `75829d3a49b517ad1db56fa7d84921b06084445dfe5ed35b38830b901c631118` |
+| `redoubt-dev-iso-x86_64.apk` (dev key, cert `1dfc331a…55a5`, versionCode 2016189662) | `aff46147fc9c9234b1390b4a6e8e701f012223134925f15e168afa8eb453f2ae` |
+| `fenix-arm64-v8a-release-unsigned.apk` (ON, arm64) | `65504efabde31010b9ea2a95e9dbe60a0bf5d795999073c273b280a921d49559` |
+| `redoubt-dev-iso-arm64-v8a.apk` (dev key, versionCode 2016189658) | `61b977982b8a29703abae0ed00ff86c53842b9f696e6b7a3daf2460211d8b2c3` |
+
+These replace the APKs of sections "APKs" and 6 for the phone test. On the build
+host: `~/redoubt-artifacts/iso-proto/apk/` (the previous ones moved to
+`apk/superseded-d8effdb6/`), unsigned copies in `iso-proto/keep/unsigned-review/`.

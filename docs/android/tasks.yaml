@@ -5799,9 +5799,11 @@ tasks:
       - scripts/android-smoke.sh
       - scripts/tests/test-android-smoke.py
       - docs/android/SMOKE.md
+      - .github/workflows/android-release.yaml   # review fix: refuse overlay trees in release builds
     tree_paths:
       - dom/media/ipc/RemoteDecoderModule.cpp
       - dom/media/platforms/PDMFactory.cpp
+      - modules/libpref/init/StaticPrefList.yaml   # one test-hook pref, media.redoubt-test.skip-content-codec-filter
       - dom/media/platforms/ffmpeg/FFmpegAudioDecoder.cpp
       - dom/media/platforms/ffmpeg/FFmpegAudioDecoder.h
       - dom/media/platforms/ffmpeg/FFmpegDataDecoder.cpp
@@ -5839,12 +5841,21 @@ tasks:
       refuses the release fingerprint). android-smoke.sh --check-isolation
       measures isolated content, where each codec runs, the locked prefs, SELinux
       denials against the LW-M7-48 baseline, and the profile directory.
+      Review fixes (2026-10-11): the allowlist is enforced in RDD/Utility/GPU too
+      (PDMFactory::CreateDecoder refuses everything but H.264/HEVC/AAC there), and
+      --check-isolation proves it with a test-hook pref that makes content ask for
+      VP9/Opus remotely (row isolation-remote-refusal); ISOLATION-MEDIA.md gains an
+      attack-surface section; the Makefile takes OVERLAYS only from the command
+      line, and android-apk.sh / android-release.yaml refuse overlay trees for
+      release builds (android-apk.sh unless --allow-overlays).
     acceptance:
       - "a build without --overlays is unchanged: the patched tree is identical to android/firefox-158's, and the x86_64 APK matches Beta 2's contents apart from build-id-derived bytes"
       - "check-patchfail --targets=android with and without --overlays=isolation-media,dev-app, and --targets=desktop, pass against the 158.0 RC build2 tarball; check-patch-order, lint-patch-scope and board.py --check/--check-scope/--check-cfg-split/--diff-mozconfig --strict pass"
       - "the switch-ON x86_64 build compiles (-Werror) and on the API 34 emulator --check-isolation passes: content isolated_app from the app zygote, H.264 in :rdd, AAC in :utility, VP8/VP9/AV1/Opus decoded in content, the 11 prefs locked, no isolated_app denial beyond the baseline"
       - "--check-video passes 3 times with isolation on; the matrix (long clips, short clips, AAC-only, muted autoplay and click, hls.js TS/fMP4) passes 3 rounds; native HLS fails closed with error 4"
       - "the dev app installs next to a throwaway-signed org.redoubtbrowser and both run"
+      - "RDD and Utility refuse every decoder but H.264/HEVC/AAC on their own: with the test hook on, --check-isolation row isolation-remote-refusal sees :rdd refuse video/vp9 and :utility refuse audio/opus, and the clip still plays decoded in isolated content"
+      - "an OVERLAYS value from the environment is a make error; android-apk.sh refuses an overlay tree for --variant=release without --allow-overlays; android-release.yaml refuses an overlay tree"
       - "API 30 (OMX) emulator: the full suite passes; intermittent media/page-load failures are measured against controls and attributed (2026-10-11: they reproduce with upstream's prefs alone; open before shipping ON)"
       - "the owner runs the arm64 dev APK on the phone (docs/android/ISOLATION-MEDIA.md section 6) before a dot release turns the overlay on"
     verify: "./scripts/check-patchfail.sh --targets=android --overlays=isolation-media,dev-app && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope && python3 scripts/tests/test-android-smoke.py && ./scripts/android-smoke.sh --serial <emulator> --apk <dev apk> --check-isolation"
@@ -5852,4 +5863,4 @@ tasks:
     skills: [cpp, android, kotlin]
     agent_safe: yes
     isolation: worktree
-    risk: Prototype. RDD and Utility run with the app uid and parse H.264/AAC there; a codec exploit in RDD reaches the profile. Device-specific MediaCodec behaviour reaches Redoubt before Fenix (upstream bug 1981478 is not default anywhere). Native-HLS-only pages stop playing. VP9/AV1 decode in software in content (battery). The drain backport is upstream code on 158, not upstream's 158.
+    risk: Prototype. RDD and Utility run with the app uid and parse H.264/HEVC/AAC there (ISOLATION-MEDIA.md section 7); a codec exploit in RDD reaches the profile. Device-specific MediaCodec behaviour reaches Redoubt before Fenix (upstream bug 1981478 is not default anywhere). Native-HLS-only pages stop playing. VP9/AV1 decode in software in content (battery). The drain backport is upstream code on 158, not upstream's 158.

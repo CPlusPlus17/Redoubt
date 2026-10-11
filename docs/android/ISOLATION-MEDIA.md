@@ -37,6 +37,26 @@ path it took before. The patched tree of `feature/isolation-media` without
 overlays is byte-identical to `android/firefox-158`'s (evidence §1), and the
 x86_64 APK is compared with Beta 2's in evidence §2.
 
+**Only on purpose.** Three guards keep an overlay out of a build that did not
+ask for one (review of LW-M7-50):
+
+- The Makefile takes `OVERLAYS` **only from its command line**. A non-empty
+  value from the environment (`export OVERLAYS=...`, a runner's env, `make -e`)
+  stops make with an error; an empty one is dropped; any other origin is reset to
+  empty. (Before, `OVERLAYS ?=` let an exported variable switch overlays on
+  without a word.)
+- The patcher writes `redoubt-overlays.txt` (one overlay per line) at the root of
+  an overlay tree, and only there. `scripts/android-apk.sh` refuses a tree that
+  has it, or either overlay fingerprint (`OVERLAY isolation-media` in
+  `lw/librewolf.cfg`, `applicationIdSuffix ".dev"` in Fenix's `build.gradle`), for
+  `--variant=release` unless the caller passes **`--allow-overlays`**. The dev
+  builds pass it; no release path does.
+- `.github/workflows/android-release.yaml` has no input that names an overlay,
+  fails if `OVERLAYS` is set in its environment, and fails if the patched tree
+  carries the marker or a fingerprint. Shipping an overlay ON in a dot release
+  needs a new, explicit dispatch input there and a change to that check; that
+  is deliberately not in place.
+
 The gates know the overlays:
 
 | gate | what it does with them |
@@ -106,6 +126,32 @@ Cost: VP9/AV1 are not hardware-decoded under isolation (as in 157.0-2). Gain:
 attacker-controlled VP9/AV1/Opus bitstreams are parsed in a process that cannot
 read the profile.
 
+**Enforced in the decoder processes too.** `Supports()` runs in the isolated
+content process, the one this design assumes an attacker may control, so on its
+own it only routes. The same patch makes the decoder processes enforce the
+allowlist: `PDMFactory::CreateDecoder()`, which `RemoteVideoDecoderParent` and
+`RemoteAudioDecoderParent::RecvConstruct()` both call, refuses in the RDD, Utility
+and GPU processes every decoder whose mime type is not H.264 (`video/avc`,
+`video/mp4`), HEVC (`video/hevc`) or AAC (`audio/mp4a-latm`), with or without a
+CDM. Content gets `NS_ERROR_DOM_MEDIA_FATAL_ERR`, and the refusing process logs
+(logcat tag `Gecko`):
+
+```
+Redoubt isolation-media: RDD process refused a decoder for 'video/vp9' (allowlist: H.264, HEVC, AAC)
+```
+
+On the honest path content never asks, so the line never appears. A test hook
+proves the refusal on a device: the static pref
+`media.redoubt-test.skip-content-codec-filter` (default false, set by no Redoubt
+pref file, not locked) makes `Supports()` skip its filter, so content asks
+RDD/Utility for VP9 and Opus as a compromised content process could. Both refuse;
+the remote `Construct()` is part of decoder creation, so content's `PDMFactory`
+falls through to its own ffvpx and the clip still plays, decoded in the isolated
+process. Turning the pref on therefore moves no decoding out of the isolated
+process, which is why it can stay in a shipping build. `--check-isolation` row
+`isolation-remote-refusal` sets it, checks the refusals and the fallback, and
+clears it again.
+
 ### 2c. Native HLS: fail closed
 
 `HLSDecoder::IsEnabled()` is false in an isolated process
@@ -161,7 +207,14 @@ scripts/android-sign-dev.sh --ks ~/redoubt-artifacts/keep/dev-keys/redoubt-dev.p
   VP8/VP9/AV1/Opus in content (decoder names from `mozRequestDebugInfo()`); every
   `CCodec allocate` outside isolated processes and H.264 in `:rdd`; no
   `isolated_app` SELinux denial outside the LW-M7-48 baseline; the profile
-  directory 0700 `app_data_file`. It fails on a build without the overlay.
+  directory 0700 `app_data_file`; and (`isolation-remote-refusal`) with the test
+  hook on, `:rdd` refuses `video/vp9` and `:utility` refuses `audio/opus` while
+  the clip still plays from content, and no refusal appeared before the hook was
+  set. It fails on a build without the overlay.
+  A gtest was not used: `dom/media/gtest` exists, but the check is Android-only
+  (`MOZ_WIDGET_ANDROID`) and needs real RDD/Utility processes, and no gtest
+  binary is built or run for Android here; the device row exercises the real
+  IPC path instead.
 - `--check-video` with isolation on, repeated.
 - The video matrix from LW-M7-48 (`evidence/lw-m7-50/scripts/matrix.py`):
   long clips, short clips (0.3 s and 0.5 s, the drain bug's case), AAC-only,
@@ -173,7 +226,10 @@ scripts/android-sign-dev.sh --ks ~/redoubt-artifacts/keep/dev-keys/redoubt-dev.p
 Everything in study §10, plus:
 
 1. `RemoteDecoderModule::Supports()` still has the `#ifdef ANDROID` filter
-   block the codecs patch extends.
+   block the codecs patch extends, and every remote decoder is still created
+   through `PDMFactory::CreateDecoder()` (`RemoteVideoDecoderParent` and
+   `RemoteAudioDecoderParent::RecvConstruct()`): if upstream adds another
+   creation path in RDD/Utility, the allowlist must cover it.
 2. Drop the drain backport from 159 on.
 3. `variants.yml` `geckoview-isolated-process`: still the eleven prefs? Copy
    any change into `overlay-isolation-media.cfg`, the expected-prefs file and
@@ -188,8 +244,14 @@ runs failed intermittently (page never loads, or H.264/MSE stalls), and the same
 failures reproduce with upstream's eleven prefs on builds **without** this
 overlay's Gecko code. Details: evidence §5. Not yet run on a real device.
 
+After the review fixes (evidence §9): RDD/Utility refuse every decoder but
+H.264/HEVC/AAC on their own, measured on API 34 with the test hook
+(`isolation-remote-refusal`, 3 of 3 runs; it fails on the previous build), and
+`--check-video` 3 of 3. The phone APKs below are the rebuilt ones.
+
 **Phone test (owner, Android 14+ arm64).** The dev APK is
-`redoubt-dev-iso-arm64-v8a.apk` (sha256 in evidence §6), signed with the dev key.
+`redoubt-dev-iso-arm64-v8a.apk` (sha256 in evidence §9; the §6 one is
+superseded), signed with the dev key.
 It installs next to the release Redoubt and does not touch its data.
 
 1. Copy it to the phone and open it, or run `adb install redoubt-dev-iso-arm64-v8a.apk`.
@@ -207,3 +269,60 @@ It installs next to the release Redoubt and does not touch its data.
    `adb shell ps -A -o LABEL,USER,NAME | grep redoubtbrowser.dev` must show the
    tab processes as `isolated_app` with `u0_i…` users.
 6. Uninstall when done: `adb uninstall org.redoubtbrowser.dev`.
+
+## 7. Attack surface
+
+What an attacker who controls an isolated content process can still reach, and
+what changes against the release Redoubt.
+
+**Still reachable: H.264, HEVC and AAC parsing outside the isolated process.**
+Isolated content can make the RDD process (`:rdd`) parse attacker-controlled
+H.264 and HEVC, and the Utility process (`:utility`) parse attacker-controlled
+AAC. Both run as `untrusted_app` with the **app uid**, so they can read and write
+the profile, and Android builds of Gecko have **no Gecko sandbox** (`MOZ_SANDBOX`
+is not built); only the platform's per-app SELinux domain and seccomp filter
+apply. The bytes are handled there by ffvpx in its hardware mode (FFmpeg's
+MediaCodec wrapper, which among other things parses the H.264/HEVC parameter
+sets in the `avcC`/`hvcC` extradata) and by Gecko's remote-decoder glue, then
+handed to the NDK MediaCodec. MediaCodec itself decodes in the platform's media server
+processes (`media.swcodec` for Android's software codecs, the vendor Codec2/OMX
+HAL for hardware ones), outside Redoubt, as for every Android app that plays
+video. A memory-safety bug in that H.264/HEVC/AAC path is a way from the
+isolated process to the profile.
+
+**After the decoder-process allowlist (section 2b): no other decoder.** RDD,
+Utility and GPU refuse every other decoder whatever content asks for: VP8, VP9,
+AV1, Opus, Vorbis, FLAC, MP3, WAV and the rest are parsed only inside the
+isolated content process. `--check-isolation` row `isolation-remote-refusal`
+measures this on the device by making content ask.
+
+What the allowlist does not narrow, stated so that nobody reads more into it:
+it limits which **decoders** can be created, not the IPC protocols themselves.
+Isolated content still talks to RDD and Utility over `PRemoteMediaManager` and
+the decoder actors (sample buffers in shared memory, flush/drain, readback),
+can ask RDD for a platform video **encoder** (the locked
+`media.use-remote-encoder.video.platform`; its input is raw frames, not a
+compressed bitstream), and can construct the MediaDrm CDM actor even though EME
+is off by pref. And, as in every Gecko build, it still talks to the parent
+process and the GPU process. None of that is new with this overlay; under
+isolation it is the set of doors out of the isolated process.
+
+**Compared with today.** The released Redoubt (157.0.1-1, and 158.0-1) has **no
+content isolation at all**: since 157.0-3, web content runs as `untrusted_app`
+with the app uid, like Firefox. There, a bug in any content-process parser
+(HTML, JavaScript and its JIT, images, fonts, every codec decoded in content) is
+already code execution with profile access; VP8/VP9 go to Java MediaCodec via
+`:media` where the device offers it, and Opus/Vorbis/FLAC/MP3/WAV to `:utility`,
+all app uid. With this
+overlay, a content-process bug alone gives an `isolated_app` process with an
+isolated uid that cannot open the profile; reaching the profile takes a second
+bug, in the H.264/HEVC/AAC path above, in the remaining RDD/Utility IPC, or in
+the parent or GPU process.
+
+| | 157.0.1-1 / 158.0-1 (isolation off) | isolation-media overlay |
+|---|---|---|
+| web content process | `untrusted_app`, app uid: profile readable | `isolated_app`, isolated uid: profile not readable |
+| H.264, HEVC, AAC parsed by | content (app uid), Java MediaCodec via `:media` | `:rdd` / `:utility` (app uid), NDK MediaCodec |
+| VP8, VP9, AV1 parsed by | content or `:media` (app uid) | isolated content only (RDD/Utility refuse them) |
+| Opus, Vorbis, FLAC, MP3, WAV parsed by | `:utility` (app uid) | isolated content only (Utility refuses them) |
+| bugs needed from a web page to the profile | one, in any content parser | two: one in content, one in a door out of it |
