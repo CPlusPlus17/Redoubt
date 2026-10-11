@@ -32,7 +32,9 @@ upstream's eleven isolated-process prefs on builds without any Redoubt code
 (evidence §5); the cause is unknown. API 34 (Codec2) is clean, and the owner's
 Pixel 10 Pro (Android 17) played every video with the dev APK. Android 8-11
 keep today's behaviour until the API 30 flake is understood. The line at API 31
-is the owner's choice; no device between API 31 and 33 has been measured.
+is the owner's choice; between API 31 and 33 only the API 31 `google_apis` emulator
+has been measured (isolation ON, `--check-isolation` 2/2, `--check-video` 2/2;
+evidence `release-158.0-2/README.md` section 7), no real device.
 
 **One decision, everything follows it.** The decision is made in exactly one
 place, and every other piece reads the result rather than re-deciding:
@@ -451,6 +453,7 @@ before). Evidence: `evidence/lw-m7-50/release-158.0-2/README.md`.
 | API 34 (isolation ON) | `--check-isolation` 3/3 (gate true and locked, H.264 in `:rdd`, AAC in `:utility`, software codecs in isolated content, RDD/Utility refuse VP9/Opus); `--check-video` 3/3; full suite all rows but `webgl` (the API 34 graphics-harness limitation) |
 | API 30 (isolation OFF) | `--check-isolation` 3/3 (gate false and locked, the eleven at 158.0-1 values and unlocked, Java MediaCodec, Opus in Utility, no refusal with the test hook); Beta 2 on the same AVD gives the same rows except `isolation-mode`; `--check-video` 3/3; full suite 10/10 including graphics acceptance |
 | dev variant | x86_64 `--check-isolation` passes on both levels; arm64 APK built and signed, not yet on the phone (it was offline) |
+| review fix `956b05ea` (drain backport gated) | gates all pass; both builds `-Werror` clean; API 31 emulator (isolation ON) `--check-isolation` 2/2, `--check-video` 2/2; API 30 (OFF) `--check-isolation` and `--check-video` 1/1 with the same decoders as Beta 2; new arm64 dev APK `b00b29c8…3685`, phone offline, not installed (evidence section 7) |
 
 ## 7. Attack surface
 

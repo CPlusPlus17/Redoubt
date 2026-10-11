@@ -5868,6 +5868,10 @@ tasks:
       locks the eleven prefs; the codec allowlist reads the same pref. The prefs
       fragment overlay-isolation-media.cfg is gone. dev-app stays an overlay.
       158.0-1 (2026-10-13) is built from android/firefox-158 without any of this.
+      Review fixes (956b05ea): the bug 1987001 drain backport changed software
+      ffvpx on every Android version, so every changed path is now conditional on
+      the gate pref (false: 158.0's code); REBASE.md 6f records the
+      GeckoRuntime.init() ordering caveat; first API 31 emulator measurement.
     acceptance:
       - "a build without --overlays is unchanged: the patched tree is identical to android/firefox-158's, and the x86_64 APK matches Beta 2's contents apart from build-id-derived bytes"
       - "check-patchfail --targets=android with and without --overlays=isolation-media,dev-app, and --targets=desktop, pass against the 158.0 RC build2 tarball; check-patch-order, lint-patch-scope and board.py --check/--check-scope/--check-cfg-split/--diff-mozconfig --strict pass"
@@ -5883,10 +5887,11 @@ tasks:
       - "158.0-2: x86_64 release variant (throwaway key) and dev variant (dev key) and the arm64 dev APK compile with C/C++ -Werror (Rust lints capped to warnings, documented)"
       - "158.0-2 on API 34: --check-isolation passes 3 times with isolation ON (row isolation-mode: gate true and locked), --check-video 3 times, and the full smoke suite passes"
       - "158.0-2 on API 30: --check-isolation passes with isolation OFF (gate false and locked; content untrusted_app; no :rdd; the eleven prefs at their 158.0-1 values, unlocked; H.264/AAC on Java MediaCodec; Opus in Utility; no allowlist refusal with the test hook on), the same decoders and processes as Beta 2 on that AVD; --check-video 3 times; graphics acceptance passes"
-      - "158.0-2: the arm64 dev APK from release/158.0-2-isolation is installed over org.redoubtbrowser.dev on the owner's phone and its content processes run as isolated_app (2026-10-11: built and signed, sha256 58edf016...bf85; the phone was offline, install pending)"
+      - "158.0-2: the arm64 dev APK from release/158.0-2-isolation is installed over org.redoubtbrowser.dev on the owner's phone and its content processes run as isolated_app (2026-10-11: built and signed, sha256 58edf016...bf85, superseded by the 956b05ea build b00b29c8...3685; the phone was offline both times, install pending)"
+      - "158.0-2: the drain backport is behind the gate: with media.redoubt-isolation-media.enabled false every changed FFmpeg decoder path takes 158.0's branch (patch header, ISOLATION-MEDIA.md 2d); API 30 --check-isolation and --check-video pass with the same decoders as Beta 2; API 31 emulator --check-isolation 2/2 and --check-video 2/2 with isolation ON"
     verify: "./scripts/check-patchfail.sh --targets=android && ./scripts/check-patchfail.sh --targets=android --overlays=dev-app && python3 scripts/check-patch-order.py && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope && python3 scripts/tests/test-android-smoke.py && ./scripts/android-smoke.sh --serial <emulator> --apk <dev apk> --check-isolation"
     effort_h: "16-24"
     skills: [cpp, android, kotlin]
     agent_safe: yes
     isolation: worktree
-    risk: Ships ON for Android 12+ in 158.0-2 (owner decision 2026-10-11). Android 8-11 stay unisolated until the API 30 flake is understood; no API 31-33 device was measured. RDD and Utility run with the app uid and parse H.264/HEVC/AAC there (ISOLATION-MEDIA.md section 7); a codec exploit in RDD reaches the profile. Device-specific MediaCodec behaviour reaches Redoubt before Fenix (upstream bug 1981478 is not default anywhere). Native-HLS-only pages stop playing. VP9/AV1 decode in software in content (battery). The drain backport is upstream code on 158, not upstream's 158.
+    risk: Ships ON for Android 12+ in 158.0-2 (owner decision 2026-10-11). Android 8-11 stay unisolated until the API 30 flake is understood; of API 31-33 only the API 31 emulator was measured, no real device. RDD and Utility run with the app uid and parse H.264/HEVC/AAC there (ISOLATION-MEDIA.md section 7); a codec exploit in RDD reaches the profile. Device-specific MediaCodec behaviour reaches Redoubt before Fenix (upstream bug 1981478 is not default anywhere). Native-HLS-only pages stop playing. VP9/AV1 decode in software in content (battery). The drain backport is upstream code on 158, not upstream's 158 (gated, Android 12+ only).

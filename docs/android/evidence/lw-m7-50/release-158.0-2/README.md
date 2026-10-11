@@ -118,3 +118,64 @@ isolation ON, which 158.0-2 does not do on API 30.
   (`device-api34/dev-check-isolation-1`) 12/12 PASS, isolation ON.
 - arm64 dev APK for the owner's phone: built and signed, **not installed**: the
   phone was not reachable over adb when the APK was ready (`phone/README.md`).
+
+## 7. Review fix: drain backport behind the gate (`956b05ea`)
+
+Review finding (MEDIUM): `isolation-media-drain-backport.patch` changed software
+ffvpx on every Android version (video `AVERROR_EOF`-on-send mapping, audio
+drain-packet handling, flush/shutdown rejecting a pending drain), so Android
+8-11 did not behave as 158.0-1. Fix in `956b05ea`: every changed path reads
+`FFmpegDataDecoder::mDrainFixEnabled`, taken once per decoder from the locked
+gate pref; gate false runs 158.0's code. Path-by-path reading in the patch
+header and `ISOLATION-MEDIA.md` section 2d. The gated tree was checked by
+applying the patch to the 158.0 sources and diffing against a hand-edited copy
+(identical). Evidence in `review-drain-gate/`.
+
+**Gates** (`review-drain-gate/gates/`, tree of `956b05ea`, same tarball):
+`check-patchfail.sh` android (70 patches), android + `dev-app`, desktop (66):
+success, rc 0. `check-patch-order.py` ok (39/39, 172 pairs); `lint-patch-scope.py`
+OK (115); `board.py --check` / `--check-scope` / `--check-cfg-split` /
+`--diff-mozconfig --strict` ok; `test-android-smoke.py` 132 tests OK.
+
+**Builds** (`chain2.sh` = `chain.sh` with the Gradle step serialised by a lock;
+build date `20261011180000`, C/C++ `-Werror`, Rust lints capped as before):
+both Gecko builds `exit=0` (`build-*-commands.log`).
+
+| build | APK | sha256 |
+|---|---|---|
+| x86_64 release variant, no overlay | `redoubt-158.0-2r2-x86_64-throwaway.apk`, `org.redoubtbrowser`, versionCode 2016189782, throwaway key (cert `31e9a40f…b760`) | `3fa213a5e3a680b72fe0571010199cf3dbb084d50cd17d809d13f07e261be16e` |
+| (unsigned) | `fenix-x86_64-release-unsigned.apk` | `d1023160e4b759b578c8f03a6b447e18ac90c719bec7b18a033e55e7e3a30304` |
+| arm64-v8a dev variant, `OVERLAYS=dev-app` | `redoubt-dev-158.0-2r2-arm64-v8a.apk`, `org.redoubtbrowser.dev`, versionCode 2016189778, dev key (cert `1dfc331a…55a5`) | `b00b29c8125f687fe1e798c634726f59acee3ce92d98f4a7eefc413b120a3685` |
+| (unsigned) | `fenix-arm64-v8a-release-unsigned.apk` | `76c131be7b8486a0cb6c81e299512b2749e1ded435b822fd17891ae3a66350a0` |
+
+The section 2 APKs (`b78d361d`) are superseded.
+
+**API 31 emulator, isolation ON** (`review-drain-gate/device-api31/`): first
+measurement between API 31 and 33. Image `system-images;android-31;google_apis;x86_64`
+installed with `sdkmanager` (cmdline-tools 16111833, zip sha1 matching
+Google's `repository2-3.xml`), `Pkg.Revision=12`, fingerprint
+`google/sdk_gphone64_x86_64/emulator64_x86_64_arm64:12/SE1A.220826.008/10564458:userdebug/dev-keys`,
+`system.img` sha256 `e4a4b343…1cf3`. AVD `iso31` (`emu31.sh`), 4 vCPU, 4 GB,
+`-gpu swangle`, `-wipe-data`, serial `emulator-5574`; the x86_64 APK above.
+
+- `--check-isolation` **2/2 PASS**, 12 rows each: "API 31: isolation expected
+  ON (gate: SDK >= 31); media.redoubt-isolation-media.enabled=true, locked";
+  eleven prefs set and locked; H.264 `ffvpx video decoder (RDD remote)`, AAC
+  `ffvpx audio decoder (Utility Generic remote)`; VP8/VP9/AV1/Opus in content;
+  3 content processes `isolated_app` (`u0_i0..2`) from the app zygote;
+  `c2.goldfish.h264.decoder` in `:rdd`, `c2.android.aac.decoder` in `:utility`;
+  14 `isolated_app` denials, all in the platform baseline; `:rdd` refused
+  `video/vp9` and `:utility` `audio/opus` with the test hook on.
+- `--check-video` **2/2 PASS**.
+
+**API 30 emulator, isolation OFF** (`review-drain-gate/device-api30/`, AVD
+`iso30` as in section 4, same APK): `--check-isolation` **1/1 PASS** (gate false
+and locked; the eleven at 158.0-1 values, unlocked; H.264/AAC `android decoder
+(remote)`; Opus `ffvpx audio decoder (Utility Generic remote)` and AV1 `ffvpx
+video decoder` in content, i.e. the software ffvpx decoders whose drain paths
+the gate now holds at 158.0's code, play; no `:rdd`; no refusal with the test
+hook); `--check-video` **1/1 PASS**. Same rows and decoders as section 4 and as
+the Beta 2 control.
+
+**Phone**: not installed; `10.0.0.168` did not answer ping and `adb mdns
+services` listed nothing (see `phone/README.md`). No other adb device touched.

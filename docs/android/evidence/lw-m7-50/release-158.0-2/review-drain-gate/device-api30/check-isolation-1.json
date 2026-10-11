@@ -1,0 +1,334 @@
+{
+ "checks": [
+  {
+   "check": "isolation-mode",
+   "ok": true,
+   "detail": "API 30: isolation expected OFF (gate: SDK >= 31); media.redoubt-isolation-media.enabled=false, locked",
+   "evidence": {
+    "sdk": 30,
+    "expect_isolation": false,
+    "gate": {
+     "name": "media.redoubt-isolation-media.enabled",
+     "value": false,
+     "locked": true
+    }
+   }
+  },
+  {
+   "check": "isolation-prefs",
+   "ok": true,
+   "detail": "the 11 media prefs keep their 158.0-1 values, unlocked (no isolation below API 31)",
+   "evidence": {
+    "prefs": [
+     {
+      "name": "media.android-media-codec.enabled",
+      "value": true,
+      "locked": false
+     },
+     {
+      "name": "media.android-media-codec.preferred",
+      "value": true,
+      "locked": false
+     },
+     {
+      "name": "media.ffmpeg.encoder.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.ffvpx-hw.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-ffvpx.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-opus.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-process.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-vorbis.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-vpx.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-wav.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.use-remote-encoder.video.platform",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.redoubt-isolation-media.enabled",
+      "value": false,
+      "locked": true
+     }
+    ]
+   }
+  },
+  {
+   "check": "isolation-decoder-h264-aac",
+   "ok": true,
+   "detail": "played (14 frames); video decoder 'android decoder (remote)', audio decoder 'android decoder (remote)', as in 158.0-1",
+   "evidence": {
+    "probe": {
+     "url": "/fixture-h264.mp4",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.482983,
+     "decoded": 14,
+     "mediaError": null,
+     "info": {
+      "audio": "android decoder (remote)",
+      "video": "android decoder (remote)",
+      "hw": true
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-decoder-vp8-opus",
+   "ok": true,
+   "detail": "played (11 frames); video decoder 'android decoder (remote)', audio decoder 'ffvpx audio decoder (Utility Generic remote)', as in 158.0-1",
+   "evidence": {
+    "probe": {
+     "url": "/fixture.webm",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.375134,
+     "decoded": 11,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder (Utility Generic remote)",
+      "video": "android decoder (remote)",
+      "hw": true
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-decoder-vp9-opus",
+   "ok": true,
+   "detail": "played (12 frames); video decoder 'android decoder (remote)', audio decoder 'ffvpx audio decoder (Utility Generic remote)', as in 158.0-1",
+   "evidence": {
+    "probe": {
+     "url": "/fixture-vp9.webm",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.401637,
+     "decoded": 12,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder (Utility Generic remote)",
+      "video": "android decoder (remote)",
+      "hw": true
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-decoder-av1-opus",
+   "ok": true,
+   "detail": "played (13 frames); video decoder 'ffvpx video decoder', audio decoder 'ffvpx audio decoder (Utility Generic remote)', as in 158.0-1",
+   "evidence": {
+    "probe": {
+     "url": "/fixture-av1.webm",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.441313,
+     "decoded": 13,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder (Utility Generic remote)",
+      "video": "ffvpx video decoder",
+      "hw": false
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-codec-caps",
+   "ok": true,
+   "detail": "canPlayType(avc1)='probably', MediaSource.isTypeSupported(avc1+mp4a)=True; native HLS canPlayType='maybe' (kept below API 31, as in 158.0-1)",
+   "evidence": {
+    "canPlayType": "probably",
+    "isTypeSupported": true,
+    "hls": "maybe"
+   }
+  },
+  {
+   "check": "isolation-processes",
+   "ok": true,
+   "detail": "3 content process(es), all untrusted_app with the app uid (u0_a130), no app zygote, no :rdd: isolation OFF below API 31, as in 158.0-1",
+   "evidence": {
+    "ps": [
+     {
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768",
+      "user": "u0_a130",
+      "pid": "2579",
+      "ppid": "301",
+      "name": "org.redoubtbrowser"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768",
+      "user": "u0_a130",
+      "pid": "2673",
+      "ppid": "301",
+      "name": "org.redoubtbrowser:tab_disable_art_image_16"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768",
+      "user": "u0_a130",
+      "pid": "2710",
+      "ppid": "301",
+      "name": "org.redoubtbrowser:gpu_disable_art_image_"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768",
+      "user": "u0_a130",
+      "pid": "2827",
+      "ppid": "301",
+      "name": "org.redoubtbrowser:tab_disable_art_image_15"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768",
+      "user": "u0_a130",
+      "pid": "2888",
+      "ppid": "301",
+      "name": "org.redoubtbrowser:tab_disable_art_image_38"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768",
+      "user": "u0_a130",
+      "pid": "2975",
+      "ppid": "301",
+      "name": "org.redoubtbrowser:utility_disable_art_image_"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768",
+      "user": "u0_a130",
+      "pid": "2998",
+      "ppid": "301",
+      "name": "org.redoubtbrowser:media"
+     }
+    ],
+    "sdk": 30
+   }
+  },
+  {
+   "check": "isolation-codec-processes",
+   "ok": true,
+   "detail": "5 MediaCodec allocation(s): OMX.android.goldfish.h264.decoder in media, OMX.android.goldfish.vp8.decoder in media, OMX.android.goldfish.vp9.decoder in media, c2.android.aac.decoder in media; H.264 in :media (Java MediaCodec), none in :rdd or an isolated process",
+   "evidence": {
+    "allocations": [
+     {
+      "pid": "2998",
+      "codec": "OMX.android.goldfish.vp8.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768"
+     },
+     {
+      "pid": "2998",
+      "codec": "c2.android.aac.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768"
+     },
+     {
+      "pid": "2998",
+      "codec": "OMX.android.goldfish.h264.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768"
+     },
+     {
+      "pid": "2998",
+      "codec": "c2.android.aac.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768"
+     },
+     {
+      "pid": "2998",
+      "codec": "OMX.android.goldfish.vp9.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c130,c256,c512,c768"
+     }
+    ]
+   }
+  },
+  {
+   "check": "isolation-denials",
+   "ok": true,
+   "detail": "no isolated_app denial (no isolated process runs below API 31)",
+   "evidence": {
+    "isolated_app_denials": []
+   }
+  },
+  {
+   "check": "isolation-profile-dir",
+   "ok": true,
+   "detail": "drwx------ 9 u0_a130 u0_a130 u:object_r:app_data_file:s0:c130,c256,c512,c768  4096 2026-10-11 16:52 /data/data/org.redoubtbrowser (mode 0700, app_data_file)",
+   "evidence": {
+    "ls": "drwx------ 9 u0_a130 u0_a130 u:object_r:app_data_file:s0:c130,c256,c512,c768  4096 2026-10-11 16:52 /data/data/org.redoubtbrowser"
+   }
+  },
+  {
+   "check": "isolation-allowlist-inactive",
+   "ok": true,
+   "detail": "no allowlist refusal before or with media.redoubt-test.skip-content-codec-filter on; VP9+Opus played, audio 'ffvpx audio decoder (Utility Generic remote)' in Utility as in 158.0-1",
+   "evidence": {
+    "refusals_before": [],
+    "refusals_after": [],
+    "probe": {
+     "url": "/fixture-vp9.webm",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.328111,
+     "decoded": 9,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder (Utility Generic remote)",
+      "video": "android decoder (remote)",
+      "hw": true
+     }
+    }
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/iso-158-2/emu/work-emulator-5584",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/iso-158-2/apk/redoubt-158.0-2r2-x86_64-throwaway.apk",
+  "sha256": "3fa213a5e3a680b72fe0571010199cf3dbb084d50cd17d809d13f07e261be16e",
+  "size": 136585547,
+  "harness_sha256": "8d8bb3efc58a0bc858f6b74fe5946476c53ac9d491280aa0de6127dfa8d3a567"
+ },
+ "status": "completed",
+ "error": null
+}
