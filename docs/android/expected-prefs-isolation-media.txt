@@ -1,8 +1,10 @@
 # librewolf-android-smoke pref-dump v1
 # name	type	value	locked	user
-# LW-M7-50: ONLY for a build with the isolation-media overlay (assets/patches/overlay-isolation-media.cfg).
-# On top of docs/android/expected-prefs.txt, which is unchanged. Checked on a running build by android-smoke.sh --check-isolation (row isolation-prefs).
-# Source: upstream bug 1988531 part 1, mozilla-firefox e0286afb5f6836d607a3f218a527db69979c0bbd, variants.yml geckoview-isolated-process.
+# LW-M7-50, Redoubt 158.0-2: the SDK-DEPENDENT media prefs, ANDROID 12+ (API >= 31), where web content runs isolated.
+# Set and locked at startup by Gecko (patches/android/isolation-media-prefs.patch) because GeckoView reports isolated content; no pref file carries them.
+# On top of docs/android/expected-prefs.txt, which does not list these names. API < 31: docs/android/expected-prefs-no-isolation.txt.
+# Checked on a running build by android-smoke.sh --check-isolation (rows isolation-mode, isolation-prefs).
+# Source of the eleven: upstream bug 1988531 part 1, mozilla-firefox e0286afb5f6836d607a3f218a527db69979c0bbd, variants.yml geckoview-isolated-process.
 media.android-media-codec.enabled	bool	false	locked	-
 media.android-media-codec.preferred	bool	false	locked	-
 media.ffmpeg.encoder.enabled	bool	true	locked	-
@@ -14,3 +16,4 @@ media.rdd-vorbis.enabled	bool	true	locked	-
 media.rdd-vpx.enabled	bool	true	locked	-
 media.rdd-wav.enabled	bool	true	locked	-
 media.use-remote-encoder.video.platform	bool	true	locked	-
+media.redoubt-isolation-media.enabled	bool	true	locked	-

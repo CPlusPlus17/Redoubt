@@ -209,7 +209,8 @@ LW_UPDATE_CHECK_PROPS=""
 # build type and --disable-debug-signing only: the AAB exists to be signed by
 # the owner's Play upload key (docs/android/PLAY.md), never by a debug key.
 BUNDLE=0
-# LW-M7-50 review: a tree patched with a build overlay (isolation-media, dev-app;
+# LW-M7-50 review: a tree patched with a build overlay (dev-app; before 158.0-2 also
+# the isolation-media prototype;
 # docs/android/ISOLATION-MEDIA.md) is refused for the release build type unless
 # the caller says so with --allow-overlays. No release path passes it.
 ALLOW_OVERLAYS=0
@@ -270,7 +271,7 @@ is the fat AAR built by scripts/android-fat-aar.sh.
                     docs/android/PLAY.md.
   --allow-overlays  build the release type from a tree patched with build
                     overlays (scripts/librewolf-patches.py --overlays, e.g.
-                    the isolation-media prototype or the dev app). Without it
+                    the dev app). Without it
                     such a tree is refused for --variant=release, so an
                     overlay cannot reach a release build unnoticed.
                     docs/android/ISOLATION-MEDIA.md section 1.
@@ -447,6 +448,9 @@ SRCDIR=$(cd "$SRCDIR" && pwd)
 # LW-M7-50 review: overlay trees and release builds. The patcher marks an overlay
 # tree with redoubt-overlays.txt at its root; the two overlay fingerprints are
 # checked too, so a tree patched before the marker existed is caught as well.
+# ('OVERLAY isolation-media' is the PROTOTYPE's cfg fragment; 158.0-2 ships the
+# feature as regular android.txt patches with no cfg fragment, so only a stale
+# prototype tree carries it.)
 overlays_in_tree=
 [ -f "$SRCDIR/redoubt-overlays.txt" ] &&
     overlays_in_tree=$(tr '\n' ' ' < "$SRCDIR/redoubt-overlays.txt")

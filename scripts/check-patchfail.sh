@@ -75,7 +75,7 @@ KNOWN_TARGETS="desktop android"
 # --overlays=NAME[,NAME] walks assets/patches/overlay-NAME.txt after the target
 # lists, in this order, exactly as the patcher applies them. Without the option
 # nothing changes.
-KNOWN_OVERLAYS="isolation-media dev-app"
+KNOWN_OVERLAYS="dev-app"   # isolation-media moved into android.txt (158.0-2)
 overlays=""
 
 targets="desktop"

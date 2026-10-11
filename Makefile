@@ -149,7 +149,9 @@ endif
 # yet. That is a one-time cost, not a recurring one.
 #
 # OVERLAYS (LW-M7-50) names opt-in Android build overlays, e.g.
-#   make android-dir TARGETS=android OVERLAYS=isolation-media,dev-app
+#   make android-dir TARGETS=android OVERLAYS=dev-app
+# (isolation-media was an overlay in the prototype; since 158.0-2 it is in
+# assets/patches/android.txt behind a runtime gate, Android 12+ only.)
 # (scripts/librewolf-patches.py --overlays, docs/android/ISOLATION-MEDIA.md).
 # Empty by default, and every use below expands to exactly the string it had
 # before OVERLAYS existed when it is empty: same stamp name, same patch lists,

@@ -1156,7 +1156,8 @@ class IsolationCheckTests(unittest.TestCase):
 
     def run_check(self, ps=None, log=None, decoders=None, prefs=None,
                   profile='drwx------ 5 u0_a190 u0_a190 u:object_r:app_data_file:s0:c1,c2 4096 /data/data/x',
-                  refusals=None, refusals_before='', hook_decoders=None, hook_raises=False, state=None):
+                  refusals=None, refusals_before='', hook_decoders=None, hook_raises=False, state=None,
+                  sdk=34, gate=(True, True), caps=None):
         decoders = decoders or self.DECODERS
         calls = []
         hook = state if state is not None else {}
@@ -1171,7 +1172,7 @@ class IsolationCheckTests(unittest.TestCase):
                 if cmd.startswith('ps -A'):
                     return ps or IsolationCheckTests.PS
                 if cmd.startswith('getprop'):
-                    return '34\n'
+                    return '%d\n' % sdk
                 if cmd.startswith('ls -ldZ'):
                     return profile
                 if cmd.startswith('stat -c %U'):
@@ -1205,9 +1206,13 @@ class IsolationCheckTests(unittest.TestCase):
                     hook['cleared'] += 1
                     return None
                 if chrome:
-                    return [{'name': n, 'value': v, 'locked': True}
-                            for n, v in (prefs if prefs is not None else harness.ISOLATION_MEDIA_PREFS)]
-                return {'canPlayType': 'probably', 'isTypeSupported': True, 'hls': ''}
+                    table = {n: (v, locked) for n, v, locked in (
+                        prefs if prefs is not None else
+                        [(n, v, True) for n, v in harness.ISOLATION_MEDIA_PREFS])}
+                    table[harness.ISOLATION_GATE_PREF] = gate
+                    return [{'name': n, 'value': table.get(n, (None, False))[0],
+                             'locked': table.get(n, (None, False))[1]} for n in args[0]]
+                return caps or {'canPlayType': 'probably', 'isTypeSupported': True, 'hls': ''}
 
         res = harness.Results()
         app = types.SimpleNamespace(pkg=self.PKG)
@@ -1324,22 +1329,131 @@ class IsolationCheckTests(unittest.TestCase):
         self.assertFalse(rows['isolation-profile-dir']['ok'])
 
     def test_an_unlocked_or_wrong_media_pref_fails(self):
-        prefs = list(harness.ISOLATION_MEDIA_PREFS)
-        prefs[6] = ('media.rdd-process.enabled', False)
+        prefs = [(n, v, True) for n, v in harness.ISOLATION_MEDIA_PREFS]
+        prefs[6] = ('media.rdd-process.enabled', False, True)
+        ok, rows = self.run_check(prefs=prefs)
+        self.assertFalse(rows['isolation-prefs']['ok'])
+        prefs = [(n, v, n != 'media.ffvpx-hw.enabled') for n, v in harness.ISOLATION_MEDIA_PREFS]
         ok, rows = self.run_check(prefs=prefs)
         self.assertFalse(rows['isolation-prefs']['ok'])
 
-    def test_the_three_copies_of_the_media_prefs_agree(self):
+    def test_the_media_prefs_agree_with_the_patch_and_the_expected_prefs_files(self):
         import re
-        cfg = (ROOT / 'assets/patches/overlay-isolation-media.cfg').read_text()
-        from_cfg = tuple((n, v == 'true') for n, v in
-                         re.findall(r'^lockPref\("([^"]+)", (true|false)\);', cfg, re.M))
-        self.assertEqual(from_cfg, harness.ISOLATION_MEDIA_PREFS)
-        doc = (ROOT / 'docs/android/expected-prefs-isolation-media.txt').read_text()
-        rows = [l.split('\t') for l in doc.splitlines() if l and not l.startswith('#')]
-        from_doc = tuple((r[0], r[2] == 'true') for r in rows)
-        self.assertEqual(from_doc, harness.ISOLATION_MEDIA_PREFS)
-        self.assertTrue(all(r[1] == 'bool' and r[3] == 'locked' for r in rows))
+        patch = (ROOT / 'patches/android/isolation-media-prefs.patch').read_text()
+        from_patch = tuple((n, v == 'true') for n, v in
+                           re.findall(r'^\+\s+\{"(media\.[^"]+)", (true|false)\},$', patch, re.M))
+        self.assertEqual(from_patch, harness.ISOLATION_MEDIA_PREFS)
+        for name, want, locked, gate in (
+                ('expected-prefs-isolation-media.txt', harness.ISOLATION_MEDIA_PREFS, 'locked', 'true'),
+                ('expected-prefs-no-isolation.txt', harness.NO_ISOLATION_MEDIA_PREFS, '-', 'false')):
+            doc = (ROOT / 'docs/android' / name).read_text()
+            rows = [l.split('\t') for l in doc.splitlines() if l and not l.startswith('#')]
+            media = [r for r in rows if r[0] != harness.ISOLATION_GATE_PREF]
+            self.assertEqual(tuple((r[0], r[2] == 'true') for r in media), want, name)
+            self.assertTrue(all(r[1] == 'bool' and r[3] == locked for r in media), name)
+            g = [r for r in rows if r[0] == harness.ISOLATION_GATE_PREF]
+            self.assertEqual([(r[2], r[3]) for r in g], [(gate, 'locked')], name)
+        self.assertEqual([n for n, _ in harness.NO_ISOLATION_MEDIA_PREFS],
+                         [n for n, _ in harness.ISOLATION_MEDIA_PREFS])
+
+    def test_the_sdk_rule_matches_the_gecko_provider_patch(self):
+        patch = (ROOT / 'patches/android/isolation-media-process.patch').read_text()
+        self.assertIn('+        sdkInt >= Build.VERSION_CODES.S\n', patch)
+        self.assertEqual(harness.ISOLATION_MIN_SDK, 31)   # Build.VERSION_CODES.S
+        self.assertTrue(harness.isolation_expected(31))
+        self.assertFalse(harness.isolation_expected(30))
+
+    def test_gate_off_on_api34_fails_the_mode_row(self):
+        ok, rows = self.run_check(gate=(False, True))
+        self.assertFalse(ok)
+        self.assertFalse(rows['isolation-mode']['ok'])
+
+    def test_unlocked_gate_fails_the_mode_row(self):
+        ok, rows = self.run_check(gate=(True, False))
+        self.assertFalse(rows['isolation-mode']['ok'])
+
+    def test_a_build_without_the_gate_pref_fails_the_mode_row(self):
+        ok, rows = self.run_check(gate=(None, False))
+        self.assertFalse(rows['isolation-mode']['ok'])
+
+    # ---- API < 31: isolation OFF, media exactly as 158.0-1 -----------------
+    PS30 = ('LABEL USER PID PPID NAME\n'
+            'u:r:untrusted_app:s0:c1,c2 u0_a190 100 1 org.redoubtbrowser.dev\n'
+            'u:r:untrusted_app:s0:c1,c2 u0_a190 301 1 org.redoubtbrowser.dev:tab_disable_art_image_9\n'
+            'u:r:untrusted_app:s0:c1,c2 u0_a190 500 1 org.redoubtbrowser.dev:utility\n'
+            'u:r:untrusted_app:s0:c1,c2 u0_a190 600 1 org.redoubtbrowser.dev:media\n')
+    LOG30 = ('10-11 01:29:46.272   600   610 I MediaCodec: [OMX.android.goldfish.h264.decoder] setting surface generation to 1\n'
+             '10-11 01:29:46.300   600   610 I MediaCodec: [OMX.google.aac.decoder] something\n')
+    DECODERS30 = {
+        '/fixture-h264.mp4': ('android decoder (remote)', 'android decoder (remote)'),
+        '/fixture.webm': ('android decoder (remote)', 'ffvpx audio decoder (Utility Generic remote)'),
+        '/fixture-vp9.webm': ('android decoder (remote)', 'ffvpx audio decoder (Utility Generic remote)'),
+        '/fixture-av1.webm': ('ffvpx video decoder', 'ffvpx audio decoder (Utility Generic remote)'),
+    }
+    CAPS30 = {'canPlayType': 'probably', 'isTypeSupported': True, 'hls': 'maybe'}
+
+    def run30(self, **kw):
+        args = dict(sdk=30, gate=(False, True), ps=self.PS30, log=self.LOG30, decoders=self.DECODERS30,
+                    prefs=[(n, v, False) for n, v in harness.NO_ISOLATION_MEDIA_PREFS],
+                    refusals='', caps=self.CAPS30)
+        args.update(kw)
+        return self.run_check(**args)
+
+    def test_api30_without_isolation_and_158_0_1_media_passes(self):
+        state = {}
+        ok, rows = self.run30(state=state)
+        self.assertTrue(ok, [r['detail'] for r in rows.values() if not r['ok']])
+        self.assertIn('isolation-allowlist-inactive', rows)
+        self.assertNotIn('isolation-remote-refusal', rows)
+        self.assertEqual((state['set'], state['cleared'], state['on']), (1, 1, False))
+
+    def test_api30_with_the_gate_on_fails(self):
+        ok, rows = self.run30(gate=(True, True))
+        self.assertFalse(rows['isolation-mode']['ok'])
+
+    def test_api30_with_isolated_content_fails(self):
+        ok, rows = self.run30(ps=self.PS)
+        self.assertFalse(rows['isolation-processes']['ok'])
+
+    def test_api30_with_the_isolated_media_prefs_fails(self):
+        ok, rows = self.run30(prefs=[(n, v, True) for n, v in harness.ISOLATION_MEDIA_PREFS])
+        self.assertFalse(rows['isolation-prefs']['ok'])
+
+    def test_api30_with_a_locked_but_unchanged_media_pref_fails(self):
+        prefs = [(n, v, n == 'media.rdd-process.enabled') for n, v in harness.NO_ISOLATION_MEDIA_PREFS]
+        ok, rows = self.run30(prefs=prefs)
+        self.assertFalse(rows['isolation-prefs']['ok'])
+
+    def test_api30_opus_kept_out_of_utility_fails(self):
+        # What the allowlist would do if it were active below API 31.
+        dec = dict(self.DECODERS30)
+        dec['/fixture-vp9.webm'] = ('android decoder (remote)', 'ffvpx audio decoder')
+        ok, rows = self.run30(decoders=dec)
+        self.assertFalse(rows['isolation-decoder-vp9-opus']['ok'])
+        self.assertFalse(rows['isolation-allowlist-inactive']['ok'])
+
+    def test_api30_h264_in_rdd_fails(self):
+        dec = dict(self.DECODERS30)
+        dec['/fixture-h264.mp4'] = ('ffvpx video decoder (RDD remote)', 'ffvpx audio decoder (Utility Generic remote)')
+        ok, rows = self.run30(decoders=dec)
+        self.assertFalse(rows['isolation-decoder-h264-aac']['ok'])
+
+    def test_api30_a_refusal_fails(self):
+        ok, rows = self.run30(refusals=self.REFUSALS)
+        self.assertFalse(rows['isolation-allowlist-inactive']['ok'])
+
+    def test_api30_native_hls_off_fails(self):
+        ok, rows = self.run30(caps={'canPlayType': 'probably', 'isTypeSupported': True, 'hls': ''})
+        self.assertFalse(rows['isolation-codec-caps']['ok'])
+
+    def test_api30_h264_not_in_media_fails(self):
+        ok, rows = self.run30(log=self.LOG30.replace('   600   610 ', '   500   510 '))
+        self.assertFalse(rows['isolation-codec-processes']['ok'])
+
+    def test_api30_an_rdd_process_fails(self):
+        ps = self.PS30 + 'u:r:untrusted_app:s0:c1,c2 u0_a190 700 1 org.redoubtbrowser.dev:rdd_disable_art_image_\n'
+        ok, rows = self.run30(ps=ps)
+        self.assertFalse(rows['isolation-processes']['ok'])
 
     def test_decoder_site_names(self):
         self.assertEqual(harness._decoder_site('ffvpx video decoder (RDD remote)'), 'RDD')

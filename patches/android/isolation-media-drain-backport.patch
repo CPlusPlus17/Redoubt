@@ -1,4 +1,4 @@
-# Redoubt isolation-media-drain-backport.patch  (Android, OVERLAY isolation-media)
+# Redoubt isolation-media-drain-backport.patch  (Android, android.txt, 158.0-2)
 # Owner: LW-M7-50. BACKPORT of upstream bug 1987001, not Redoubt code.
 #
 #   Bug 1987001 - Improve draining in FFmpegVideoDecoder and FFmpegAudioDecoder
@@ -9,15 +9,27 @@
 #   Upstream patch sha256 (github.com/.../commit/<sha>.patch, fetched 2026-10-10):
 #   8d7cc715260958f792d83a2aa26b3bfb01aa20fef0d4ee19d86683d7f8faa2ec
 #
-# Applied ONLY with --overlays=isolation-media (assets/patches/overlay-isolation-media.txt).
+# Unconditional (not behind the Android 12+ runtime gate): it is upstream's
+# own code for every Android build from Firefox 159 on.
 #
-# Why: with the overlay, H.264/AAC decode through ffvpx's NDK MediaCodec
+# Why: with isolated content (Android 12+), H.264/AAC decode through ffvpx's NDK MediaCodec
 # wrapper. In 158 that wrapper completes a drain while MediaCodec still holds
 # frames (an output format change before the first frame, or no free output
 # buffer until the compositor releases one), so the last frames of a stream are
 # lost and a SHORT clip may show no frame at all (upstream commit message).
 # Upstream's own isolated-process configuration (bug 1988531) runs with this fix
-# in 159; a 158 dot release with the overlay must carry it too.
+# in 159; a 158 dot release with isolation on must carry it too.
+#
+# On Android 8-11 (isolation off, media prefs as in 158.0-1) its code does not
+# run in practice: the video/audio parts act only on a MediaCodec-backed ffvpx
+# decoder, which needs media.ffvpx-hw.enabled (false there, its 158.0-1 value);
+# the audio decoder no longer re-sends an empty drain packet it already sent
+# (158 ended the drain loop on the AVERROR_EOF FFmpeg returns for the second
+# one; now the loop ends because that DoDecode() yields no frame, and the drain
+# promise resolves with the same frames either way); and the flush/shutdown RejectIfExists() finds no pending drain promise,
+# because a software ffvpx drain settles before ProcessDrain() returns. API 30
+# --check-video and --check-isolation show the same decoders and playback as
+# Beta 2 (docs/android/evidence/lw-m7-50/release-158.0-2/).
 #
 # Upstream files touched (all six of the upstream commit)
 # -------------------------------------------------------

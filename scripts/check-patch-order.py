@@ -118,7 +118,7 @@ OUT_OF_LIST_TAIL = ()
 # always comes after the whole list and is written against the patched tree), so
 # it is classified automatically; pairs of two overlay patches, and declared
 # CONSTRAINTS rows that name an overlay patch, are checked like any other.
-KNOWN_OVERLAYS = ("isolation-media", "dev-app")
+KNOWN_OVERLAYS = ("dev-app",)   # isolation-media moved into android.txt (158.0-2)
 OVERLAY_SEQUENCE = "android+overlays"
 
 
@@ -155,8 +155,9 @@ OVERLAY_SEQUENCE = "android+overlays"
 _M157_ANDROID = 'measured on firefox-157.0, per shared file, list order vs B-before-A vs A-after-B'
 
 CONSTRAINTS = (
-    # LW-M7-50: the overlay patch rewrites the two literals (and sits under the
-    # comment block) that isolated-process.patch writes; it cannot apply first.
+    # LW-M7-50: isolation-media-process.patch rewrites the two literals (and sits
+    # under the comment block) that isolated-process.patch writes; it cannot apply
+    # first. Both are in android.txt since 158.0-2 (was an overlay).
     ('patches/android/isolated-process.patch',
      'patches/android/isolation-media-process.patch',
      'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt',
@@ -429,6 +430,12 @@ _DOH_MULLVAD_ORDER_FREE = (
 )
 
 REVIEWED_ORDER_FREE = (
+    ('patches/android/about-config.patch', 'patches/android/isolation-media-process.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 e0bb4847...c839 (about-config edits .aboutConfigEnabled, the process patch the import line, a new function before createRuntimeSettings and the isolation literals).'),
+    ('patches/android/no-crashreporter.patch', 'patches/android/isolation-media-process.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 e0bb4847...c839 (disjoint regions).'),
+    ('patches/android/extension-update-controls.patch', 'patches/android/isolation-media-prefs.patch', ('modules/libpref/Preferences.cpp',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 aef1f2a5...afe6d (the prefs patch adds a function before GetInstanceForService() and a call after the MOZ_DEFAULT_PREFS parse; disjoint from extension-update-controls).'),
+    ('patches/webgl-permission-common.patch', 'patches/android/isolation-media-codecs-in-content.patch', ('modules/libpref/init/StaticPrefList.yaml',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 91b48814...9a26 (the codecs patch adds two media.redoubt* prefs in the media.rdd-* block, far from the webgl block).'),
+    ('patches/android/webgl-prompt-default.patch', 'patches/android/isolation-media-codecs-in-content.patch', ('modules/libpref/init/StaticPrefList.yaml',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 91b48814...9a26 (disjoint regions).'),
+    ('patches/android/canvas-webgl-permissions.patch', 'patches/android/isolation-media-codecs-in-content.patch', ('modules/libpref/init/StaticPrefList.yaml',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 91b48814...9a26 (disjoint regions).'),
     ('patches/android/no-glean.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml',), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
     ('patches/android/update-check.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt', 'mobile/android/fenix/app/src/main/res/xml/preferences.xml'), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
     ('patches/android/ubo-readiness.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/geckoview/api.txt', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs'), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),

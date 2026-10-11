@@ -2600,9 +2600,16 @@ def check_video(m, res, origin, forcefail=False):
     return all_ok and ok
 
 # --------------------------------------------------------------------------
-# --check-isolation (LW-M7-50): with the isolation-media overlay, web content
-# must run isolated AND the codecs must run where the overlay says, measured on
-# the running build rather than claimed. docs/android/ISOLATION-MEDIA-STUDY.md
+# --check-isolation (LW-M7-50): since 158.0-2 the expectation depends on the
+# device's SDK level, the same runtime gate the build uses (GeckoProvider,
+# owner decision 2026-10-11 "158.0-2, Android 12+ only"):
+#   API >= 31  web content must run isolated AND the codecs must run where the
+#              isolation-media patches say;
+#   API <  31  isolation must be OFF and media must behave as in 158.0-1: no
+#              isolated process, no RDD, the media prefs at their 158.0-1 values
+#              and unlocked, Java MediaCodec for H.264/AAC, Opus in Utility (the
+#              codec allowlist inactive).
+# Measured on the running build rather than claimed. docs/android/ISOLATION-MEDIA-STUDY.md
 # section 8 lists the properties; docs/android/ISOLATION-MEDIA.md the design.
 # --------------------------------------------------------------------------
 JS_DECODER_PROBE = r"""
@@ -2665,11 +2672,11 @@ ISOLATION_DENIAL_BASELINE = (
     ("incremental_prop", re.compile(r'incremental_prop')),
 )
 
-# The eleven prefs the isolation-media overlay locks (assets/patches/
-# overlay-isolation-media.cfg; upstream bug 1988531 part 1, e0286afb5f68). The
-# switched build's expected values are recorded in
-# docs/android/expected-prefs-isolation-media.txt; a unit test keeps the three
-# copies equal.
+# The eleven prefs Gecko sets and locks while content runs isolated
+# (patches/android/isolation-media-prefs.patch, RedoubtApplyIsolationMediaPrefs;
+# upstream bug 1988531 part 1, e0286afb5f68). The expected values are recorded
+# in docs/android/expected-prefs-isolation-media.txt (API >= 31); a unit test
+# keeps the patch, that file and this constant equal.
 ISOLATION_MEDIA_PREFS = (
     ("media.android-media-codec.enabled", False),
     ("media.android-media-codec.preferred", False),
@@ -2682,6 +2689,33 @@ ISOLATION_MEDIA_PREFS = (
     ("media.rdd-vpx.enabled", True),
     ("media.rdd-wav.enabled", True),
     ("media.use-remote-encoder.video.platform", True),
+)
+
+# The runtime gate (owner decision 2026-10-11, "158.0-2, Android 12+ only"):
+# GeckoProvider.isolatedContentEnabled() is SDK_INT >= 31, and GeckoView passes
+# the resulting process model to Gecko as this pref, locked.
+ISOLATION_MIN_SDK = 31
+ISOLATION_GATE_PREF = "media.redoubt-isolation-media.enabled"
+
+def isolation_expected(sdk):
+    return sdk >= ISOLATION_MIN_SDK
+
+# Below API 31 none of the eleven may move: their 158.0-1 values (Firefox 158.0
+# StaticPrefList.yaml defaults on Android, measured unlocked on Beta 2 in
+# docs/android/evidence/lw-m7-50/device-api34/check-isolation-negative-beta2.json),
+# recorded in docs/android/expected-prefs-no-isolation.txt.
+NO_ISOLATION_MEDIA_PREFS = (
+    ("media.android-media-codec.enabled", True),
+    ("media.android-media-codec.preferred", True),
+    ("media.ffmpeg.encoder.enabled", False),
+    ("media.ffvpx-hw.enabled", False),
+    ("media.rdd-ffvpx.enabled", False),
+    ("media.rdd-opus.enabled", False),
+    ("media.rdd-process.enabled", False),
+    ("media.rdd-vorbis.enabled", False),
+    ("media.rdd-vpx.enabled", False),
+    ("media.rdd-wav.enabled", False),
+    ("media.use-remote-encoder.video.platform", False),
 )
 
 def _decoder_site(name):
@@ -2793,20 +2827,55 @@ def isolation_remote_refusal(m, res, adb, pkg, https_url, forcefail=False):
             {"refusals_before": before, "refusals_new": new, "probe": probe})
     return ok
 
-def check_isolation(m, res, app, adb, origin, https_url, forcefail=False):
-    pkg = app.pkg
+def _read_prefs(m, names):
     got = m.script('return arguments[0].map(function(n){ return {name: n, '
                    'value: Services.prefs.getPrefType(n) === Services.prefs.PREF_BOOL ? '
                    'Services.prefs.getBoolPref(n) : null, locked: Services.prefs.prefIsLocked(n)}; });',
-                   [[n for n, _ in ISOLATION_MEDIA_PREFS]], chrome=True) or []
+                   [list(names)], chrome=True) or []
     m.cmd("Marionette:SetContext", {"value": "content"})
-    want = dict(ISOLATION_MEDIA_PREFS)
-    wrong = [g for g in got if g.get("value") != want.get(g.get("name")) or not g.get("locked")]
-    ok = len(got) == len(want) and not wrong and not forcefail
+    return got
+
+def isolation_mode_and_prefs(m, res, sdk, forcefail=False):
+    """Rows isolation-mode and isolation-prefs, for either expectation.
+    Returns True when isolation is expected (API >= 31)."""
+    expect_on = isolation_expected(sdk)
+    names = [n for n, _ in ISOLATION_MEDIA_PREFS] + [ISOLATION_GATE_PREF]
+    got = _read_prefs(m, names)
+    by_name = {g.get("name"): g for g in got}
+    gate = by_name.get(ISOLATION_GATE_PREF) or {}
+    ok = gate.get("value") is expect_on and bool(gate.get("locked")) and not forcefail
+    res.add("isolation-mode", ok,
+            ("API %d: isolation expected %s (gate: SDK >= %d); %s=%s, locked"
+             % (sdk, "ON" if expect_on else "OFF", ISOLATION_MIN_SDK, ISOLATION_GATE_PREF,
+                str(expect_on).lower()))
+            if ok else ("API %d expects isolation %s, but %s is %r (locked=%r): the build's "
+                        "gate disagrees with the SDK rule or the build predates 158.0-2"
+                        % (sdk, "ON" if expect_on else "OFF", ISOLATION_GATE_PREF,
+                           gate.get("value"), gate.get("locked"))),
+            {"sdk": sdk, "expect_isolation": expect_on, "gate": gate})
+    if expect_on:
+        want, want_locked = dict(ISOLATION_MEDIA_PREFS), True
+    else:
+        want, want_locked = dict(NO_ISOLATION_MEDIA_PREFS), False
+    media = [g for g in got if g.get("name") in want]
+    wrong = [g for g in media
+             if g.get("value") != want[g["name"]] or bool(g.get("locked")) != want_locked]
+    ok = len(media) == len(want) and not wrong and not forcefail
     res.add("isolation-prefs", ok,
-            "the %d isolated-process media prefs of bug 1988531 are set and locked" % len(want)
-            if ok else "media prefs not as the overlay locks them: %s" % (wrong or got),
+            ("the %d isolated-process media prefs of bug 1988531 are set and locked" % len(want))
+            if ok and expect_on else
+            ("the %d media prefs keep their 158.0-1 values, unlocked (no isolation below API %d)"
+             % (len(want), ISOLATION_MIN_SDK)) if ok else
+            ("media prefs not as expected for API %d (%s): %s"
+             % (sdk, "set and locked" if expect_on else "158.0-1 values, unlocked", wrong or media)),
             {"prefs": got})
+    return expect_on
+
+def check_isolation(m, res, app, adb, origin, https_url, forcefail=False):
+    pkg = app.pkg
+    sdk = int((adb.shell("getprop ro.build.version.sdk", timeout=30) or "0").strip() or 0)
+    if not isolation_mode_and_prefs(m, res, sdk, forcefail=forcefail):
+        return check_no_isolation(m, res, app, adb, origin, https_url, sdk, forcefail=forcefail)
     m.cmd("WebDriver:Navigate", {"url": https_url})
     click_page(m)
     cases = []
@@ -2843,7 +2912,6 @@ def check_isolation(m, res, app, adb, origin, https_url, forcefail=False):
     app_uid_content = [r for r in content if not r["user"].startswith("u0_i")
                        and not re.match(r"u\d+_i\d+", r["user"])]
     not_isolated = [r for r in content if "isolated_app" not in r["label"]]
-    sdk = int((adb.shell("getprop ro.build.version.sdk", timeout=30) or "0").strip() or 0)
     problems = []
     if not content:
         problems.append("no content process is running")
@@ -2945,6 +3013,166 @@ def check_isolation(m, res, app, adb, origin, https_url, forcefail=False):
             {"ls": st, "owner": uid_name})
     # ---- RDD/Utility refuse what content must keep (review of LW-M7-50) ----
     isolation_remote_refusal(m, res, adb, pkg, https_url, forcefail=forcefail)
+    return all(r["ok"] for r in res.rows if r["check"].startswith("isolation-"))
+
+def _codec_allocations(log_text, by_pid):
+    allocs = []
+    for line in log_text.splitlines():
+        mm = (re.search(r"\sCCodec\s*:\s*allocate\(([^)]*)\)", line)
+              or re.search(r"\sMediaCodec\s*:\s*\[(OMX\.[^\]]+)\]", line)
+              if "CCodec" in line or "OMX." in line else None)
+        if mm and "OMX." in mm.group(1) and any(
+                a["pid"] == line.split()[2] and a["codec"] == mm.group(1) for a in allocs):
+            mm = None
+        if mm:
+            f = line.split()
+            pid = f[2] if len(f) > 2 else "?"
+            proc = by_pid.get(pid, {})
+            allocs.append({"pid": pid, "codec": mm.group(1), "process": proc.get("name"),
+                           "label": proc.get("label")})
+    return allocs
+
+def check_no_isolation(m, res, app, adb, origin, https_url, sdk, forcefail=False):
+    """--check-isolation below API 31 (158.0-2 runtime gate OFF): no isolation,
+    and media exactly as in 158.0-1. Rows isolation-mode and isolation-prefs
+    are already in `res`."""
+    pkg = app.pkg
+    m.cmd("WebDriver:Navigate", {"url": https_url})
+    click_page(m)
+    for suffix, path, ctype, _v, _a in ISOLATION_MEDIA_CASES:
+        r = m.cmd("WebDriver:ExecuteAsyncScript",
+                  {"script": JS_DECODER_PROBE, "args": [path, ctype], "sandbox": "system"})
+        r = r.get("value", r) if isinstance(r, dict) else r
+        info = (r or {}).get("info") or {}
+        v, a = info.get("video"), info.get("audio")
+        got_v, got_a = _decoder_site(v), _decoder_site(a)
+        problems = []
+        if not (r or {}).get("ok"):
+            problems.append("did not play")
+        if "RDD" in (got_v, got_a):
+            problems.append("a decoder ran in RDD, which 158.0-1 does not use on Android")
+        if suffix == "h264-aac" and not ("android decoder" in (v or "") and "android decoder" in (a or "")):
+            problems.append("H.264/AAC not on the Java MediaCodec path ('android decoder') as in 158.0-1")
+        if suffix.endswith("-opus") and got_a != "Utility":
+            problems.append("Opus not decoded in the Utility process as in 158.0-1 (allowlist active?)")
+        ok = not problems and not forcefail
+        res.add("isolation-decoder-" + suffix, ok,
+                ("played (%s frames); video decoder %r, audio decoder %r, as in 158.0-1"
+                 % ((r or {}).get("decoded"), v, a)) if ok else
+                "%s; probe %s" % ("; ".join(problems) or "forced failure", json.dumps(r)[:400]),
+                {"probe": r})
+    caps = m.script('var v=document.createElement("video");'
+                    'return {canPlayType: v.canPlayType(\'video/mp4; codecs="avc1.42E01E"\'),'
+                    ' isTypeSupported: MediaSource.isTypeSupported(\'video/mp4; codecs="avc1.42E01E,mp4a.40.2"\'),'
+                    ' hls: v.canPlayType("application/vnd.apple.mpegurl")};')
+    ok = (caps.get("canPlayType") == "probably" and caps.get("isTypeSupported") is True
+          and caps.get("hls") not in ("", None) and not forcefail)
+    res.add("isolation-codec-caps", ok,
+            "canPlayType(avc1)=%r, MediaSource.isTypeSupported(avc1+mp4a)=%r; native HLS "
+            "canPlayType=%r (kept below API %d, as in 158.0-1)"
+            % (caps.get("canPlayType"), caps.get("isTypeSupported"), caps.get("hls"), ISOLATION_MIN_SDK), caps)
+
+    rows = _ps_rows(adb, pkg)
+    by_pid = {r["pid"]: r for r in rows}
+    content = [r for r in rows if re.search(r":(tab|isolatedTab|zygoteTab)", r["name"])]
+    problems = []
+    if not content:
+        problems.append("no content process is running")
+    isolated = [r for r in content if "isolated_app" in r["label"] or re.match(r"u\d+_i\d+", r["user"])
+                or re.search(r":(isolatedTab|zygoteTab)", r["name"])]
+    if isolated:
+        problems.append("isolated content process(es) below API %d: %s" % (ISOLATION_MIN_SDK, isolated))
+    zygote = [r for r in rows if r["name"] == pkg + "_zygote"]
+    if zygote:
+        problems.append("an app zygote is running: %s" % zygote)
+    rdd = [r for r in rows if re.search(r":rdd(?:$|_)", r["name"])]
+    if rdd:
+        problems.append("an :rdd process is running: %s" % rdd)
+    ok = not problems and not forcefail
+    res.add("isolation-processes", ok,
+            ("%d content process(es), all %s with the app uid (%s), no app zygote, no :rdd: "
+             "isolation OFF below API %d, as in 158.0-1"
+             % (len(content), "untrusted_app", ", ".join(sorted({r["user"] for r in content})), ISOLATION_MIN_SDK))
+            if ok else "; ".join(problems) or "forced failure",
+            {"ps": rows, "sdk": sdk})
+
+    log_text = adb.out("logcat", "-d", "-b", "all", "-v", "threadtime", timeout=120)
+    allocs = _codec_allocations(log_text, by_pid)
+    in_isolated = [a for a in allocs if a["label"] and "isolated_app" in a["label"]]
+    in_rdd = [a for a in allocs if re.search(r":rdd(?:$|_)", a["process"] or "")]
+    h264_media = [a for a in allocs if "264" in a["codec"] and re.search(r":media$", a["process"] or "")]
+    problems = []
+    if in_isolated:
+        problems.append("MediaCodec allocated in an isolated process: %s" % in_isolated)
+    if in_rdd:
+        problems.append("MediaCodec allocated in :rdd: %s" % in_rdd)
+    if not h264_media:
+        problems.append("no H.264 MediaCodec allocation in :media, the 158.0-1 Java path (allocations: %s)" % allocs[:10])
+    ok = not problems and not forcefail
+    res.add("isolation-codec-processes", ok,
+            ("%d MediaCodec allocation(s): %s; H.264 in :media (Java MediaCodec), none in :rdd or an isolated process"
+             % (len(allocs), ", ".join(sorted({"%s in %s" % (a["codec"], (a["process"] or "exited pid " + a["pid"]).split(":")[-1])
+                                               for a in allocs}))))
+            if ok else "; ".join(problems) or "forced failure",
+            {"allocations": allocs})
+
+    iso = [l.strip()[:300] for l in log_text.splitlines()
+           if "avc:" in l and "denied" in l and "scontext=u:r:isolated_app" in l]
+    ok = not iso and not forcefail
+    res.add("isolation-denials", ok,
+            "no isolated_app denial (no isolated process runs below API %d)" % ISOLATION_MIN_SDK
+            if ok else "isolated_app denial(s) on a build that must not isolate: %s" % iso[:6],
+            {"isolated_app_denials": iso[:100]})
+
+    st = adb.shell("ls -ldZ /data/data/%s" % pkg, timeout=60).strip()
+    if not st.startswith("d"):
+        st = adb.shell("su 0 ls -ldZ /data/data/%s" % pkg, timeout=60).strip()
+    ok = st.startswith("drwx------") and "app_data_file" in st and not forcefail
+    res.add("isolation-profile-dir", ok,
+            "%s (mode 0700, app_data_file)" % st if ok else "unexpected profile directory: %r" % st,
+            {"ls": st})
+
+    # The codec allowlist must be INACTIVE: with the test hook on, content asks
+    # Utility for Opus as 158.0-1 does, Utility decodes it, nothing is refused.
+    by_pid = {r["pid"]: r for r in _ps_rows(adb, pkg)}
+    before = _refusals(adb, by_pid)
+    probe, err = None, None
+    try:
+        m.script("Services.prefs.setBoolPref(arguments[0], true);",
+                 [ISOLATION_TEST_HOOK_PREF], chrome=True)
+        m.cmd("Marionette:SetContext", {"value": "content"})
+        m.cmd("WebDriver:Navigate", {"url": https_url})
+        click_page(m)
+        r = m.cmd("WebDriver:ExecuteAsyncScript",
+                  {"script": JS_DECODER_PROBE,
+                   "args": ["/fixture-vp9.webm", 'video/webm; codecs="vp9,opus"'],
+                   "sandbox": "system"})
+        probe = r.get("value", r) if isinstance(r, dict) else r
+    except Exception as e:
+        err = "%s: %s" % (type(e).__name__, e)
+    finally:
+        try:
+            m.script("Services.prefs.clearUserPref(arguments[0]);",
+                     [ISOLATION_TEST_HOOK_PREF], chrome=True)
+        finally:
+            m.cmd("Marionette:SetContext", {"value": "content"})
+    by_pid.update({r["pid"]: r for r in _ps_rows(adb, pkg)})
+    after = _refusals(adb, by_pid)
+    info = (probe or {}).get("info") or {}
+    problems = []
+    if err:
+        problems.append("probe failed: " + err)
+    if after:
+        problems.append("%d allowlist refusal(s) logged below API %d: %s" % (len(after), ISOLATION_MIN_SDK, after[:4]))
+    if not (probe or {}).get("ok"):
+        problems.append("VP9+Opus did not play with the test hook on: %s" % json.dumps(probe)[:300])
+    if _decoder_site(info.get("audio")) != "Utility":
+        problems.append("Opus not decoded in Utility with the test hook on: %r" % info.get("audio"))
+    ok = not problems and not forcefail
+    res.add("isolation-allowlist-inactive", ok,
+            ("no allowlist refusal before or with %s on; VP9+Opus played, audio %r in Utility as in 158.0-1"
+             % (ISOLATION_TEST_HOOK_PREF, info.get("audio"))) if ok else "; ".join(problems) or "forced failure",
+            {"refusals_before": before, "refusals_after": after, "probe": probe})
     return all(r["ok"] for r in res.rows if r["check"].startswith("isolation-"))
 
 JS_GUM = r"""

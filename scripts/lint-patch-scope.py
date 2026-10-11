@@ -245,7 +245,6 @@ LIST_RULES: dict[str, tuple[RuleSet, ...]] = {
 # are applied only on top of an android build, so they get the android rules.
 # They are optional lists: a checkout without one is not an error.
 OVERLAY_LISTS: dict[str, tuple[RuleSet, ...]] = {
-    "overlay-isolation-media": (DESKTOP_ONLY,),
     "overlay-dev-app": (DESKTOP_ONLY,),
 }
 

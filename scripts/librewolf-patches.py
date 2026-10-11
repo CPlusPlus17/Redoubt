@@ -60,11 +60,9 @@ parser.add_option('-t', '--targets', dest='targets', default='desktop',
 # build without --overlays runs exactly the code path it ran before this option
 # existed and produces the same tree, byte for byte. Overlays are Android-only:
 #
-#   isolation-media  isolated content processes ON, H.264/HEVC/AAC decoded by the
-#                    NDK MediaCodec in the RDD/Utility process, software codecs
-#                    kept in the isolated content process (LW-M7-50, owner
-#                    decision 2026-10-10 "Prototype now, ship ON in a 158 dot
-#                    release if it tests clean")
+#   (isolation-media, the LW-M7-50 prototype, is no longer an overlay: since
+#    158.0-2 its patches are in assets/patches/android.txt behind a runtime gate,
+#    Android 12+ only; owner decision 2026-10-11 "158.0-2, Android 12+ only")
 #   dev-app          applicationId org.redoubtbrowser.dev, label "Redoubt Dev",
 #                    for side-by-side phone testing; never signed with the
 #                    release key (owner decision 2026-10-10 "Yes, separate dev app")
@@ -73,7 +71,7 @@ parser.add_option('-t', '--targets', dest='targets', default='desktop',
 # target lists) and, if present, appends assets/patches/overlay-NAME.cfg to
 # lw/librewolf.cfg. Overlays apply in KNOWN_OVERLAYS order, whatever order the
 # option names them in.
-KNOWN_OVERLAYS = ("isolation-media", "dev-app")
+KNOWN_OVERLAYS = ("dev-app",)
 # Written at the root of an overlay tree (never otherwise); read by
 # scripts/android-apk.sh and .github/workflows/android-release.yaml.
 OVERLAY_MARKER = "redoubt-overlays.txt"

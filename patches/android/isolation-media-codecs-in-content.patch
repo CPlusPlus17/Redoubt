@@ -1,21 +1,30 @@
-# Redoubt isolation-media-codecs-in-content.patch  (Android, OVERLAY isolation-media)
+# Redoubt isolation-media-codecs-in-content.patch  (Android, android.txt, 158.0-2)
 # Owner: LW-M7-50. Redoubt-only Gecko change; not upstream.
 #
-# Applied ONLY with --overlays=isolation-media (assets/patches/overlay-isolation-media.txt).
+# Owner decisions, verbatim: 2026-10-10 "Keep software codecs in the page
+# process" (plan: "Prototype now, ship ON in a 158 dot release if it tests
+# clean"); 2026-10-11 rollout "158.0-2, Android 12+ only".
 #
-# Owner decision 2026-10-10, verbatim: "Keep software codecs in the page process".
-# (Plan: "Prototype now, ship ON in a 158 dot release if it tests clean".)
+# RUNTIME GATE. Every Redoubt line below acts only while
+# media.redoubt-isolation-media.enabled is true. That pref is defined here and
+# set + locked from GeckoView's process model (isolation-media-prefs.patch):
+# true exactly when web content runs isolated, i.e. Android 12+ (Fenix's
+# GeckoProvider, isolation-media-process.patch). On Android 8-11 it is false and
+# locked, and Supports(), CreateDecoder() and AllDecodersAreRemote() behave as
+# upstream, as in 158.0-1: Opus/Vorbis/FLAC/MP3/WAV keep going to the Utility
+# process, which must not refuse them there (measured on API 30, evidence
+# docs/android/evidence/lw-m7-50/release-158.0-2/).
 #
 # Upstream files touched
 # ----------------------
 #   dom/media/ipc/RemoteDecoderModule.cpp       RemoteDecoderModule::Supports()
 #   dom/media/platforms/PDMFactory.cpp          PDMFactory::CreateDecoder(),
 #                                               PDMFactory::AllDecodersAreRemote()
-#   modules/libpref/init/StaticPrefList.yaml    one test-hook pref (below)
+#   modules/libpref/init/StaticPrefList.yaml    the gate pref and one test-hook pref (below)
 #
 # What upstream does, and what Redoubt wants instead
 # --------------------------------------------------
-# With upstream's isolated-process prefs (overlay-isolation-media.cfg) the
+# With upstream's isolated-process prefs (isolation-media-prefs.patch) the
 # content process puts RemoteDecoderModule(RDD) FIRST in its PDM list
 # (PDMFactory::CreateContentPDMs(), PDMFactory.cpp:723-725 in 158.0) and
 # RemoteDecoderModule(Utility_Generic) second, both ahead of the in-process
@@ -96,19 +105,22 @@
  
  namespace mozilla {
  
-@@ -76,6 +78,29 @@
+@@ -76,6 +78,32 @@
         mLocation != RemoteMediaIn::UtilityProcess_Generic)) {
      support = {};
    }
-+  // Redoubt (LW-M7-50, isolation-media overlay): only the codecs that need
-+  // Android MediaCodec leave the content process. H.264, HEVC and AAC have no
-+  // software decoder in Gecko on Android, so they go to RDD/Utility, where
-+  // ffvpx drives the NDK MediaCodec. Everything ffvpx and dav1d decode in
-+  // software (VP8, VP9, AV1, Opus, Vorbis, FLAC, MP3, WAV) is refused here, so
-+  // PDMFactory falls through to the in-process modules and the bitstream is
-+  // parsed in the isolated content process instead of the app-uid RDD/Utility
-+  // process. Owner decision 2026-10-10: "Keep software codecs in the page
-+  // process".
++  // Redoubt (LW-M7-50, 158.0-2): when web content runs isolated
++  // (media.redoubt-isolation-media.enabled, locked, set from GeckoView's process
++  // model: Android 12+), only the codecs that need Android MediaCodec leave the
++  // content process. H.264, HEVC and AAC have no software decoder in Gecko on
++  // Android, so they go to RDD/Utility, where ffvpx drives the NDK MediaCodec.
++  // Everything ffvpx and dav1d decode in software (VP8, VP9, AV1, Opus, Vorbis,
++  // FLAC, MP3, WAV) is refused here, so PDMFactory falls through to the
++  // in-process modules and the bitstream is parsed in the isolated content
++  // process instead of the app-uid RDD/Utility process. Owner decision
++  // 2026-10-10: "Keep software codecs in the page process".
++  // When the pref is false (Android 8-11, not isolated) this block does
++  // nothing and routing is upstream's, as in 158.0-1.
 +  // This filter only routes: the RDD/Utility side enforces the same allowlist
 +  // on its own (PDMFactory::CreateDecoder), because an isolated content
 +  // process that is compromised does not have to call Supports() at all.
@@ -116,7 +128,7 @@
 +  // it: with it on, content asks RDD/Utility for VP9/Opus, they refuse, and
 +  // PDMFactory falls through to the in-process decoders
 +  // (scripts/android-smoke.sh --check-isolation, row isolation-remote-refusal).
-+  if (!aParams.mCDM &&
++  if (StaticPrefs::media_redoubt_isolation_media_enabled() && !aParams.mCDM &&
 +      !StaticPrefs::media_redoubt_test_skip_content_codec_filter() &&
 +      !MP4Decoder::IsH264(aParams.MimeType()) &&
 +      !MP4Decoder::IsHEVC(aParams.MimeType()) &&
@@ -136,13 +148,14 @@
  #include "mozilla/ipc/UtilityMediaServiceParent.h"
  #include "nsIXULRuntime.h"  // for BrowserTabsRemoteAutostart
  #include "nsPrintfCString.h"
-@@ -336,6 +337,38 @@
+@@ -336,6 +337,43 @@
  
  RefPtr<PlatformDecoderModule::CreateDecoderPromise> PDMFactory::CreateDecoder(
      const CreateDecoderParams& aParams) {
 +#ifdef MOZ_WIDGET_ANDROID
-+  // Redoubt (LW-M7-50, isolation-media overlay): the decoder processes enforce
-+  // the codec allowlist themselves. RDD and Utility run as untrusted_app with
++  // Redoubt (LW-M7-50, 158.0-2): while web content runs isolated
++  // (media.redoubt-isolation-media.enabled, locked, Android 12+), the decoder
++  // processes enforce the codec allowlist themselves. RDD and Utility run as untrusted_app with
 +  // the app uid and no Gecko sandbox, and they carry every software decoder
 +  // (ffvpx, dav1d, Agnostic). RemoteDecoderModule::Supports() keeps everything
 +  // but H.264, HEVC and AAC in the isolated content process, but a compromised
@@ -150,7 +163,11 @@
 +  // remote decoder is created here (RemoteVideoDecoderParent and
 +  // RemoteAudioDecoderParent::RecvConstruct), so here is where anything else
 +  // is refused: a decode error back to content, and a logcat line (tag Gecko).
-+  if ((XRE_IsRDDProcess() || XRE_IsUtilityProcess() || XRE_IsGPUProcess()) &&
++  // When the pref is false (Android 8-11, content not isolated) nothing is
++  // refused: Utility decodes Opus/Vorbis/FLAC/MP3/WAV for content as in
++  // 158.0-1, so the allowlist must not be active there.
++  if (StaticPrefs::media_redoubt_isolation_media_enabled() &&
++      (XRE_IsRDDProcess() || XRE_IsUtilityProcess() || XRE_IsGPUProcess()) &&
 +      !MP4Decoder::IsH264(aParams.mConfig.mMimeType) &&
 +      !MP4Decoder::IsHEVC(aParams.mConfig.mMimeType) &&
 +      !MP4Decoder::IsAAC(aParams.mConfig.mMimeType)) {
@@ -175,43 +192,52 @@
    if (aParams.mUseNullDecoder.mUse) {
      MOZ_ASSERT(mNullPDM);
      return CreateDecoderWithPDM(mNullPDM, aParams);
-@@ -1009,14 +1042,22 @@
+@@ -1009,6 +1047,17 @@
  
  /* static */
  bool PDMFactory::AllDecodersAreRemote() {
 +#ifdef MOZ_WIDGET_ANDROID
-+  // Redoubt (LW-M7-50, isolation-media overlay): the software decoders stay in
-+  // the content process (RemoteDecoderModule::Supports), so even with every
++  // Redoubt (LW-M7-50, 158.0-2): while web content runs isolated
++  // (media.redoubt-isolation-media.enabled), the software decoders stay in the
++  // content process (RemoteDecoderModule::Supports), so even with every
 +  // media.rdd-* pref on, not all decoders are remote. Callers use this to skip
 +  // content-side setup for local decoding (WebRenderBridgeChild::GetForMedia).
-+  return false;
-+#else
++  // Not isolated: upstream's answer below, unchanged.
++  if (StaticPrefs::media_redoubt_isolation_media_enabled()) {
++    return false;
++  }
++#endif
    return StaticPrefs::media_rdd_process_enabled() &&
           StaticPrefs::media_rdd_opus_enabled() &&
           StaticPrefs::media_rdd_vorbis_enabled() &&
-          StaticPrefs::media_rdd_vpx_enabled() &&
--#if defined(MOZ_WMF)
-+#  if defined(MOZ_WMF)
-          StaticPrefs::media_rdd_wmf_enabled() &&
--#endif
-+#  endif
-          StaticPrefs::media_rdd_wav_enabled();
-+#endif
- }
- 
- #undef PDM_INIT_LOG
 --- a/modules/libpref/init/StaticPrefList.yaml
 +++ b/modules/libpref/init/StaticPrefList.yaml
-@@ -12841,6 +12841,18 @@
+@@ -12841,6 +12841,34 @@
  #endif
    mirror: always
  
-+# Redoubt (LW-M7-50, isolation-media overlay). TEST HOOK, off by default and
-+# not set by any Redoubt pref file: when true, RemoteDecoderModule::Supports()
-+# in the content process stops keeping software codecs local and asks
-+# RDD/Utility for them, as a compromised content process could. RDD/Utility
-+# must refuse (PDMFactory::CreateDecoder) and content falls back to its own
-+# decoders, so turning this on moves no decoding out of the isolated process.
++# Redoubt (LW-M7-50, 158.0-2): true exactly when web content runs in an
++# isolated process. NOT a setting: GeckoRuntime (Java) passes the value from its
++# process manager in MOZ_DEFAULT_PREFS and Preferences::GetInstanceForService()
++# locks it, and, when true, sets and locks upstream's eleven isolated-process
++# media prefs (isolation-media-prefs.patch). Fenix turns isolation on for
++# Android 12+ only (owner decision 2026-10-11, "158.0-2, Android 12+ only").
++# Read by RemoteDecoderModule::Supports() (software codecs stay in content),
++# PDMFactory::CreateDecoder() (RDD/Utility/GPU refuse all but H.264/HEVC/AAC)
++# and PDMFactory::AllDecodersAreRemote(). False (Android 8-11): all three behave
++# as upstream, as in 158.0-1.
++- name: media.redoubt-isolation-media.enabled
++  type: RelaxedAtomicBool
++  value: false
++  mirror: always
++
++# Redoubt (LW-M7-50). TEST HOOK, off by default and not set by any Redoubt
++# pref file: when true, RemoteDecoderModule::Supports() in the content process
++# stops keeping software codecs local and asks RDD/Utility for them, as a
++# compromised content process could. RDD/Utility must refuse
++# (PDMFactory::CreateDecoder) and content falls back to its own decoders, so
++# turning this on moves no decoding out of the isolated process. It has an
++# effect only while media.redoubt-isolation-media.enabled is true.
 +# Read by scripts/android-smoke.sh --check-isolation.
 +- name: media.redoubt-test.skip-content-codec-filter
 +  type: RelaxedAtomicBool
