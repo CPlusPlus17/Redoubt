@@ -1,28 +1,127 @@
 # Isolated content with H.264/AAC: the isolation-media prototype
 
-**Owner: LW-M7-50.** Prototype of design (e) from the LW-M7-48 study
-(`docs/android/ISOLATION-MEDIA-STUDY.md`, on `main` since b5d6ed97). Branch
-`feature/isolation-media`, cut from `android/firefox-158` so that it can ship in
-a 158 dot release and later merge into `main`.
+**Owner: LW-M7-50.** Design (e) from the LW-M7-48 study
+(`docs/android/ISOLATION-MEDIA-STUDY.md`, on `main` since b5d6ed97). Prototyped
+on branch `feature/isolation-media` (cut from `android/firefox-158`, behind a
+build overlay, default off); **shipped for Redoubt 158.0-2 on branch
+`release/158.0-2-isolation`** (cut from `feature/isolation-media`) as regular
+`android.txt` patches with a runtime gate: **ON for Android 12+ (API 31+), OFF
+below.** 158.0-1 (2026-10-13) is built from `android/firefox-158` without any of
+it.
 
-Owner decisions 2026-10-10, verbatim:
+Owner decisions, verbatim:
 
-| question | answer |
-|---|---|
-| plan | "Prototype now, ship ON in a 158 dot release if it tests clean" |
-| trade-off | "Keep software codecs in the page process" |
-| phone testing | "Yes, separate dev app" |
+| date | question | answer |
+|---|---|---|
+| 2026-10-10 | plan | "Prototype now, ship ON in a 158 dot release if it tests clean" |
+| 2026-10-10 | trade-off | "Keep software codecs in the page process" |
+| 2026-10-10 | phone testing | "Yes, separate dev app" |
+| 2026-10-11 | phone test result (Pixel 10 Pro, Android 17, dev APK) | "1. worked 2. no problems" (all videos played, no problems) |
+| 2026-10-11 | rollout | "158.0-2, Android 12+ only" |
+
+## 0. Rollout in 158.0-2: the runtime gate
+
+**What ships.** Isolated content processes, with the media configuration that
+lets them play H.264/HEVC/AAC, are ON by default on **Android 12 (API 31) and
+newer**. On **Android 8-11** the app behaves exactly as 158.0-1: no isolated
+process, no isolation-media prefs, no codec allowlist.
+
+**Why Android 12+ only.** On the API 30 emulator (OMX codec stack) 9 of 17
+media runs failed intermittently, and the same failures reproduce with
+upstream's eleven isolated-process prefs on builds without any Redoubt code
+(evidence §5); the cause is unknown. API 34 (Codec2) is clean, and the owner's
+Pixel 10 Pro (Android 17) played every video with the dev APK. Android 8-11
+keep today's behaviour until the API 30 flake is understood. The line at API 31
+is the owner's choice; no device between API 31 and 33 has been measured.
+
+**One decision, everything follows it.** The decision is made in exactly one
+place, and every other piece reads the result rather than re-deciding:
+
+```
+Fenix GeckoProvider.isolatedContentEnabled()   = Build.VERSION.SDK_INT >= 31
+  -> GeckoRuntimeSettings.isolatedProcessEnabled(x) / appZygoteProcessEnabled(x)
+  -> GeckoRuntime.init(): GeckoProcessManager configured from the settings
+       media.redoubt-isolation-media.enabled = pm.isContentIsolated()
+         (= GeckoProcessType.determineContentProcessType() != CONTENT,
+          the allocator's own choice of content process type)
+       added to the initial prefs AFTER the debug-config merge
+  -> MOZ_DEFAULT_PREFS (default branch, before prefs.js and autoconfig)
+  -> Preferences::GetInstanceForService() (parent, Android only):
+       lock media.redoubt-isolation-media.enabled at that value;
+       only if true: set + lock the eleven media prefs (section 2a)
+  -> Gecko media code reads media.redoubt-isolation-media.enabled:
+       RemoteDecoderModule::Supports()      software codecs stay in content
+       PDMFactory::CreateDecoder()          RDD/Utility/GPU allowlist
+       PDMFactory::AllDecodersAreRemote()   false while isolated
+```
+
+| piece | file | follows the decision how |
+|---|---|---|
+| the decision | `patches/android/isolation-media-process.patch` (Fenix `GeckoProvider.kt`) | `SDK_INT >= 31`, both settings; not readable from Settings or Nimbus |
+| gate pref + eleven prefs | `patches/android/isolation-media-prefs.patch` (GeckoView `GeckoRuntime.java`, `GeckoProcessManager.java`; `modules/libpref/Preferences.cpp`) | derived from the process manager GeckoView configured from those settings; locked |
+| codec placement and allowlist | `patches/android/isolation-media-codecs-in-content.patch` | every Redoubt line is conditional on the gate pref |
+| drain fix | `patches/android/isolation-media-drain-backport.patch` | unconditional upstream code (Firefox 159); inert while `media.ffvpx-hw.enabled` is false, i.e. below API 31 |
+
+Why this mechanism and not the alternatives:
+
+- **Not static prefs in `librewolf.cfg`** (the prototype's
+  `overlay-isolation-media.cfg`): autoconfig cannot see the SDK level or the
+  process model, so a cfg would have had to re-implement the SDK rule and could
+  drift from it. No Redoubt pref file sets any of the twelve names any more
+  (`settings/common.cfg` and `android.cfg` never did), so no `lockPref` fights
+  the gate, and `board.py --check-cfg-split` is unchanged.
+- **Not `GeckoAppShell::IsIsolatedProcess()` in Gecko**: it answers only inside
+  the content process. The allowlist runs in RDD/Utility/GPU and the prefs are
+  read by the parent, none of which is isolated; they need the decision as a
+  value, and a pref is how Gecko distributes one value to every process.
+- **Not a Fenix `Pref.commit()` / `GeckoView:SetDefaultPrefs`**: that runs after
+  autoconfig and after Gecko started (AGENTS.md landmine L2, stage 5b), so media
+  code could already have read the old values, and it carries no lock.
+- **Locked, set before anything reads them**: `MOZ_DEFAULT_PREFS` is parsed in
+  `GetInstanceForService()`, before the profile's `prefs.js` and before
+  autoconfig (L2 stages 2-4), and the lock beats every later stage. A user value
+  in `about:config` for any of the twelve is ignored while locked.
+- **The debug config cannot desync it**: GeckoView merges
+  `/data/local/tmp/<pkg>-geckoview-config.yaml` (debuggable apps, or
+  `am set-debug-app`, which the smoke harness uses) into the prefs before the
+  gate pref is added, so the gate always reflects the process model. On the ON
+  path the eleven are overwritten and locked after that merge as well.
+
+**Below API 31 nothing changes against 158.0-1, by construction and measured.**
+With the gate false: no media pref is set or locked (only the new gate pref
+exists, false and locked); `Supports()`, `CreateDecoder()` and
+`AllDecodersAreRemote()` take upstream's path (each Redoubt branch starts with
+`StaticPrefs::media_redoubt_isolation_media_enabled() &&`); the content process
+is plain `:tab` as before. The parent-side allowlist must NOT stay active when
+isolation is off: in 158.0-1 the Utility process decodes Opus, Vorbis, FLAC,
+MP3 and WAV for content (measured on Beta 2: `ffvpx audio decoder (Utility
+Generic remote)`), and an active allowlist would refuse them there. So it is
+gated like the rest. The drain backport is the one code change that reaches
+Android 8-11, and it is inert there (its header in the patch explains why). On
+the API 30 emulator `--check-isolation` asserts all of this (isolation OFF,
+prefs at the 158.0-1 values and unlocked, Java MediaCodec for H.264/AAC, Opus
+in Utility, no refusal even with the test hook on), and the same check on
+Beta 2 shows the same decoders and processes (evidence `release-158.0-2/`).
+
+**Release builds.** `assets/patches/android.txt` carries the four patches, so a
+normal `make android-dir TARGETS=android` (and the release workflow) builds
+158.0-2 with the gate; there is no build switch for isolation any more. The
+`dev-app` overlay (section 3) remains an overlay, refused for release builds as
+before.
 
 Measured results are in [`evidence/lw-m7-50/README.md`](evidence/lw-m7-50/README.md).
 
-## 1. The build switch
+## 1. Build overlays (since 158.0-2: `dev-app` only)
 
-Everything is behind **build overlays**, which are off unless a build names them:
+In the prototype everything was behind **build overlays**. Since 158.0-2 the
+isolation-media patches are regular `android.txt` entries with the runtime gate
+of section 0, and `isolation-media` is no longer an overlay
+(`KNOWN_OVERLAYS = ("dev-app",)`). The text below describes the overlay
+mechanism, which the dev app still uses:
 
 ```
-make android-dir TARGETS=android OVERLAYS=isolation-media            # the feature
-make android-dir TARGETS=android OVERLAYS=isolation-media,dev-app    # + the dev app
-python3 scripts/librewolf-patches.py 158.0 1 --targets=android --overlays=isolation-media,dev-app
+make android-dir TARGETS=android OVERLAYS=dev-app
+python3 scripts/librewolf-patches.py 158.0 2 --targets=android --overlays=dev-app
 ```
 
 An overlay `NAME` is `assets/patches/overlay-NAME.txt` (a patch list, same syntax
@@ -30,7 +129,8 @@ as `android.txt`, applied after it) plus an optional
 `assets/patches/overlay-NAME.cfg` (appended to `lw/librewolf.cfg` after
 `common.cfg` + `android.cfg`, so its `lockPref` calls run last).
 
-**OFF is today's build.** With `OVERLAYS` empty, the Makefile's stamp name,
+**OFF is the normal build.** (Prototype-era measurement; since 158.0-2 the normal
+build contains the isolation patches, section 0.) With `OVERLAYS` empty, the Makefile's stamp name,
 patch-list prerequisites and patcher command expand to exactly the strings they
 had before (checked with `make -pn`), and the patcher takes exactly the code
 path it took before. The patched tree of `feature/isolation-media` without
@@ -48,31 +148,31 @@ ask for one (review of LW-M7-50):
 - The patcher writes `redoubt-overlays.txt` (one overlay per line) at the root of
   an overlay tree, and only there. `scripts/android-apk.sh` refuses a tree that
   has it, or either overlay fingerprint (`OVERLAY isolation-media` in
-  `lw/librewolf.cfg`, `applicationIdSuffix ".dev"` in Fenix's `build.gradle`), for
+  `lw/librewolf.cfg`, which only a stale prototype tree can carry now, and
+  `applicationIdSuffix ".dev"` in Fenix's `build.gradle`), for
   `--variant=release` unless the caller passes **`--allow-overlays`**. The dev
   builds pass it; no release path does.
 - `.github/workflows/android-release.yaml` has no input that names an overlay,
   fails if `OVERLAYS` is set in its environment, and fails if the patched tree
-  carries the marker or a fingerprint. Shipping an overlay ON in a dot release
-  needs a new, explicit dispatch input there and a change to that check; that
-  is deliberately not in place.
+  carries the marker or a fingerprint. 158.0-2 does not need that: its
+  isolation patches are in `android.txt`, not in an overlay.
 
 The gates know the overlays:
 
 | gate | what it does with them |
 |---|---|
-| `check-patchfail.sh --targets=android --overlays=isolation-media,dev-app` | applies the overlay lists after common + android against the tarball |
-| `check-patch-order.py` | models a fourth sequence, common + android + every overlay; a list patch and an overlay patch sharing a file are ordered by construction; `isolated-process.patch -> isolation-media-process.patch` is a declared constraint |
+| `check-patchfail.sh --targets=android --overlays=dev-app` | applies the overlay list after common + android against the tarball |
+| `check-patch-order.py` | models a fourth sequence, common + android + every overlay; a list patch and an overlay patch sharing a file are ordered by construction. Since 158.0-2 the isolation-media patches are list patches: `isolated-process.patch -> isolation-media-process.patch` is a declared constraint, and six new shared-file pairs are recorded order-free (measured on the 158.0 RC build2 tarball) |
 | `lint-patch-scope.py` | applies the android scope rules to the overlay lists |
-| `board.py --check-scope` | counts overlay patches apart (`PATCH-SCOPE.md`: "**4 overlay patch files**") |
+| `board.py --check-scope` | counts overlay patches apart (`PATCH-SCOPE.md`: "**1 overlay patch files**") |
 
-## 2. Overlay `isolation-media`
+## 2. The isolation-media patches (android.txt since 158.0-2)
 
 | piece | file | what |
 |---|---|---|
-| process model | `patches/android/isolation-media-process.patch` | `.isolatedProcessEnabled(true)` / `.appZygoteProcessEnabled(true)` in `GeckoProvider.kt`; still literals |
-| media prefs | `assets/patches/overlay-isolation-media.cfg` | upstream's eleven isolated-process prefs, locked (below) |
-| codec placement | `patches/android/isolation-media-codecs-in-content.patch` | Redoubt-only Gecko change, ~20 lines |
+| process model | `patches/android/isolation-media-process.patch` | `.isolatedProcessEnabled(x)` / `.appZygoteProcessEnabled(x)` in `GeckoProvider.kt`, `x = SDK_INT >= 31` (prototype: literal `true`) |
+| media prefs | `patches/android/isolation-media-prefs.patch` | upstream's eleven isolated-process prefs, set and locked by Gecko only while content is isolated (prototype: `overlay-isolation-media.cfg`) |
+| codec placement | `patches/android/isolation-media-codecs-in-content.patch` | Redoubt-only Gecko change, conditional on the gate pref |
 | drain fix | `patches/android/isolation-media-drain-backport.patch` | backport of upstream bug 1987001 (Firefox 159) |
 
 ### 2a. The eleven prefs
@@ -96,12 +196,17 @@ media.use-remote-encoder.video.platform=true
 ```
 
 All eleven are `mirror: always` static prefs in 158.0 and nothing under
-`mobile/android` writes them, so they go in through the pref-locking model the
-rest of Redoubt uses: autoconfig `lockPref`, in a fragment that only overlay
-builds append. `docs/android/expected-prefs-isolation-media.txt` records them
-for the switched build (on top of `expected-prefs.txt`, which is unchanged), and
-`--check-isolation` reads them back (row `isolation-prefs`). A unit test keeps
-the cfg, the expected-prefs file and the harness constant equal.
+`mobile/android` writes them. Since 158.0-2 they are SDK-dependent (section 0):
+on Android 12+ Gecko sets them on the default branch and locks them at startup
+(`RedoubtApplyIsolationMediaPrefs()` in `Preferences.cpp`); on Android 8-11
+they are not touched. The two sides are recorded in
+`docs/android/expected-prefs-isolation-media.txt` (API 31+, locked) and
+`docs/android/expected-prefs-no-isolation.txt` (API < 31, the 158.0-1 values,
+unlocked), each with the gate pref `media.redoubt-isolation-media.enabled`
+(true / false, locked); `expected-prefs.txt` lists none of these names and is
+unchanged. `--check-isolation` reads them back (rows `isolation-mode`,
+`isolation-prefs`). A unit test keeps the patch's table, both files and the
+harness constants equal.
 
 ### 2b. Software codecs stay in the page process
 
@@ -115,7 +220,7 @@ ffvpx/Agnostic modules, as it did in 157.0-2. `PDMFactory::AllDecodersAreRemote(
 returns false on Android to match (its one Android consumer keeps initialising
 content-side media devices, as every Android build does today).
 
-| codec | where it decodes with the overlay | with upstream's prefs alone | 157.0-3 (isolation off) |
+| codec | where it decodes when isolated (Android 12+) | with upstream's prefs alone | 157.0-3 / 158.0-1 / 158.0-2 below Android 12 (isolation off) |
 |---|---|---|---|
 | H.264, HEVC | `:rdd`, NDK MediaCodec | `:rdd` | content, Java MediaCodec via `:media` |
 | AAC | `:utility`, NDK MediaCodec | `:utility` | content, Java MediaCodec via `:media` |
@@ -210,7 +315,13 @@ scripts/android-sign-dev.sh --ks ~/redoubt-artifacts/keep/dev-keys/redoubt-dev.p
   directory 0700 `app_data_file`; and (`isolation-remote-refusal`) with the test
   hook on, `:rdd` refuses `video/vp9` and `:utility` refuses `audio/opus` while
   the clip still plays from content, and no refusal appeared before the hook was
-  set. It fails on a build without the overlay.
+  set. Since 158.0-2 the check grades against the device's SDK level, like the
+  build's gate: row `isolation-mode` requires the locked gate pref to equal
+  `SDK >= 31`, and below API 31 the other rows require isolation OFF and media
+  as in 158.0-1 (no RDD, the eleven prefs at their 158.0-1 values and unlocked,
+  Java MediaCodec for H.264/AAC, Opus in Utility, no allowlist refusal even with
+  the test hook on; row `isolation-allowlist-inactive`). A build without the gate
+  (158.0-1, the prototype) fails `isolation-mode`.
   A gtest was not used: `dom/media/gtest` exists, but the check is Android-only
   (`MOZ_WIDGET_ANDROID`) and needs real RDD/Utility processes, and no gtest
   binary is built or run for Android here; the device row exercises the real
@@ -225,6 +336,13 @@ scripts/android-sign-dev.sh --ks ~/redoubt-artifacts/keep/dev-keys/redoubt-dev.p
 
 Everything in study §10, plus:
 
+0. The gate chain of section 0: `GeckoRuntime.init()` still configures
+   `GeckoProcessManager` before it builds `GeckoThread.InitInfo`;
+   `GeckoProcessType.determineContentProcessType()` is still the only place the
+   content process type is chosen; `MOZ_DEFAULT_PREFS` is still parsed in
+   `Preferences::GetInstanceForService()`; no Redoubt pref file sets any of the
+   twelve names (`grep` `settings/*.cfg`).
+
 1. `RemoteDecoderModule::Supports()` still has the `#ifdef ANDROID` filter
    block the codecs patch extends, and every remote decoder is still created
    through `PDMFactory::CreateDecoder()` (`RemoteVideoDecoderParent` and
@@ -232,8 +350,11 @@ Everything in study §10, plus:
    creation path in RDD/Utility, the allowlist must cover it.
 2. Drop the drain backport from 159 on.
 3. `variants.yml` `geckoview-isolated-process`: still the eleven prefs? Copy
-   any change into `overlay-isolation-media.cfg`, the expected-prefs file and
-   the harness constant (the unit test will insist).
+   any change into `isolation-media-prefs.patch`, both expected-prefs files and
+   the harness constants (the unit test will insist).
+4. The API 30 flake (section 6): if it is understood and fixed, lowering the
+   SDK floor is a one-line change in `isolation-media-process.patch` plus
+   `ISOLATION_MIN_SDK` in the harness, and needs an owner decision.
 
 ## 6. Status (2026-10-11) and the phone test
 
@@ -242,7 +363,8 @@ Clean on the API 34 emulator (Codec2): `--check-isolation`, `--check-video`, the
 emulator (OMX) the full suite incl. graphics passes, but 9 of 17 media/isolation
 runs failed intermittently (page never loads, or H.264/MSE stalls), and the same
 failures reproduce with upstream's eleven prefs on builds **without** this
-overlay's Gecko code. Details: evidence §5. Not yet run on a real device.
+overlay's Gecko code. Details: evidence §5. (Prototype status; the phone test and
+the 158.0-2 results are below and in section 8.)
 
 After the review fixes (evidence §9): RDD/Utility refuse every decoder but
 H.264/HEVC/AAC on their own, measured on API 34 with the test hook
@@ -269,6 +391,19 @@ It installs next to the release Redoubt and does not touch its data.
    `adb shell ps -A -o LABEL,USER,NAME | grep redoubtbrowser.dev` must show the
    tab processes as `isolated_app` with `u0_i…` users.
 6. Uninstall when done: `adb uninstall org.redoubtbrowser.dev`.
+
+## 8. Redoubt 158.0-2 (2026-10-11)
+
+Built from `release/158.0-2-isolation` (`b78d361d`) against the GPG-verified
+158.0 RC build2 tarball, C/C++ `-Werror` (Rust lints capped to warnings, as
+before). Evidence: `evidence/lw-m7-50/release-158.0-2/README.md`.
+
+| where | result |
+|---|---|
+| gates | `check-patchfail` android, android + `dev-app`, desktop; `check-patch-order`; `lint-patch-scope`; `board.py --check/--check-scope/--check-cfg-split/--diff-mozconfig --strict`; 132 harness unit tests: all pass |
+| API 34 (isolation ON) | `--check-isolation` 3/3 (gate true and locked, H.264 in `:rdd`, AAC in `:utility`, software codecs in isolated content, RDD/Utility refuse VP9/Opus); `--check-video` 3/3; full suite all rows but `webgl` (the API 34 graphics-harness limitation) |
+| API 30 (isolation OFF) | `--check-isolation` 3/3 (gate false and locked, the eleven at 158.0-1 values and unlocked, Java MediaCodec, Opus in Utility, no refusal with the test hook); Beta 2 on the same AVD gives the same rows except `isolation-mode`; `--check-video` 3/3; full suite 10/10 including graphics acceptance |
+| dev variant | x86_64 `--check-isolation` passes on both levels; arm64 APK built and signed, not yet on the phone (it was offline) |
 
 ## 7. Attack surface
 
@@ -304,7 +439,7 @@ can ask RDD for a platform video **encoder** (the locked
 `media.use-remote-encoder.video.platform`; its input is raw frames, not a
 compressed bitstream), and can construct the MediaDrm CDM actor even though EME
 is off by pref. And, as in every Gecko build, it still talks to the parent
-process and the GPU process. None of that is new with this overlay; under
+process and the GPU process. None of that is new with isolation; under
 isolation it is the set of doors out of the isolated process.
 
 **Compared with today.** The released Redoubt (157.0.1-1, and 158.0-1) has **no
@@ -313,13 +448,12 @@ with the app uid, like Firefox. There, a bug in any content-process parser
 (HTML, JavaScript and its JIT, images, fonts, every codec decoded in content) is
 already code execution with profile access; VP8/VP9 go to Java MediaCodec via
 `:media` where the device offers it, and Opus/Vorbis/FLAC/MP3/WAV to `:utility`,
-all app uid. With this
-overlay, a content-process bug alone gives an `isolated_app` process with an
+all app uid. With isolation (158.0-2 on Android 12+), a content-process bug alone gives an `isolated_app` process with an
 isolated uid that cannot open the profile; reaching the profile takes a second
 bug, in the H.264/HEVC/AAC path above, in the remaining RDD/Utility IPC, or in
 the parent or GPU process.
 
-| | 157.0.1-1 / 158.0-1 (isolation off) | isolation-media overlay |
+| | 157.0.1-1 / 158.0-1, and 158.0-2 on Android 8-11 (isolation off) | 158.0-2 on Android 12+ (isolated) |
 |---|---|---|
 | web content process | `untrusted_app`, app uid: profile readable | `isolated_app`, isolated uid: profile not readable |
 | H.264, HEVC, AAC parsed by | content (app uid), Java MediaCodec via `:media` | `:rdd` / `:utility` (app uid), NDK MediaCodec |
