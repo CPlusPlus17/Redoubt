@@ -60,7 +60,7 @@ Fenix GeckoProvider.isolatedContentEnabled()   = Build.VERSION.SDK_INT >= 31
 | the decision | `patches/android/isolation-media-process.patch` (Fenix `GeckoProvider.kt`) | `SDK_INT >= 31`, both settings; not readable from Settings or Nimbus |
 | gate pref + eleven prefs | `patches/android/isolation-media-prefs.patch` (GeckoView `GeckoRuntime.java`, `GeckoProcessManager.java`; `modules/libpref/Preferences.cpp`) | derived from the process manager GeckoView configured from those settings; locked |
 | codec placement and allowlist | `patches/android/isolation-media-codecs-in-content.patch` | every Redoubt line is conditional on the gate pref |
-| drain fix | `patches/android/isolation-media-drain-backport.patch` | unconditional upstream code (Firefox 159); inert while `media.ffvpx-hw.enabled` is false, i.e. below API 31 |
+| drain fix | `patches/android/isolation-media-drain-backport.patch` | upstream code (Firefox 159) behind the gate pref: every changed path is taken only while it is true; false gives 158.0's branch, software ffvpx included (section 2d) |
 
 Why this mechanism and not the alternatives:
 
@@ -96,8 +96,9 @@ is plain `:tab` as before. The parent-side allowlist must NOT stay active when
 isolation is off: in 158.0-1 the Utility process decodes Opus, Vorbis, FLAC,
 MP3 and WAV for content (measured on Beta 2: `ffvpx audio decoder (Utility
 Generic remote)`), and an active allowlist would refuse them there. So it is
-gated like the rest. The drain backport is the one code change that reaches
-Android 8-11, and it is inert there (its header in the patch explains why). On
+gated like the rest. So is the drain backport (section 2d): upstream's change
+also alters software ffvpx decoding on every Android version, so each changed
+path checks the gate and, when it is false, runs 158.0's code. On
 the API 30 emulator `--check-isolation` asserts all of this (isolation OFF,
 prefs at the 158.0-1 values and unlocked, Java MediaCodec for H.264/AAC, Opus
 in Utility, no refusal even with the test hook on), and the same check on
@@ -275,8 +276,37 @@ frames, so the end of a stream is lost and a short clip may show no frame.
 Upstream fixed it in 159 (`5cf346157068a285144cfb2f0409e81a2796ac59`). It
 backports to 158 almost cleanly: 14 of 15 hunks apply with offsets only; one adds
 a line to an `FFmpegAudioDecoder::ProcessFlush()` override that 158 lacks, so the
-backport adds that override. It is a separate patch, behind the same switch,
-with attribution in its header. Drop it at the 159 rebase.
+backport adds that override. It is a separate patch with attribution in its
+header. Drop it at the 159 rebase.
+
+**Gated since the 158.0-2 review.** Upstream's change is not limited to the
+MediaCodec-backed decoder. On any Android version it also changes software
+ffvpx: the video decoder maps `AVERROR_EOF` from `avcodec_send_packet` the other
+way round (158 returns `NS_ERROR_NOT_AVAILABLE` there without MediaCodec, 159
+`NS_ERROR_DOM_MEDIA_END_OF_STREAM`), the audio decoder stops re-sending the empty
+drain packet, and flush/shutdown reject a pending drain promise. The first
+158.0-2 build shipped it unconditionally, which broke "Android 8-11 behave as
+158.0-1". Now `FFmpegDataDecoder` reads the gate
+(`StaticPrefs::media_redoubt_isolation_media_enabled()`, the locked pref of
+section 0) once per decoder into `mDrainFixEnabled`, and every changed path
+tests it:
+
+| path | gate true (Android 12+) | gate false (Android 8-11) |
+|---|---|---|
+| `FFmpegDataDecoder::ProcessDrain` | cancel the drain timer on resolve/reject | 158.0: no timer exists (only gated paths arm it) |
+| `FFmpegDataDecoder::ProcessFlush` / `ProcessShutdown` | reject a pending drain promise, cancel the timer | 158.0: neither |
+| `FFmpegAudioDecoder` hw init | `mIsMediaCodec` recorded | stays false |
+| `FFmpegAudioDecoder::ProcessFlush` (new override) | reset `mHasSentDrainPacket` | only forwards to the base |
+| `FFmpegAudioDecoder` send packet | empty drain packet sent once | 158.0: every packet sent, same `switch` |
+| `FFmpegAudioDecoder` `EAGAIN` while draining | defer the drain while MediaCodec holds frames | 158.0: no deferral |
+| `FFmpegVideoDecoder` `AVERROR_EOF` on send | upstream's fixed mapping | 158.0's mapping, verbatim |
+| `FFmpegVideoDecoder` `EAGAIN` on receive | defer while draining | 158.0: `NS_OK` at once |
+| `FFmpegVideoDecoder::ResumeDrain` | upstream (via the base) | 158.0's body, verbatim |
+| `FFmpegVideoDecoder::MaybeQueueDrain` | upstream (`MaybeDeferDrain`) | 158.0's condition, verbatim |
+
+The new members, the timer helpers and the `virtual` on `ResumeDrain()` exist
+on both paths but do nothing unless a gated branch calls them. API 30 runs with
+the gated build: evidence `release-158.0-2/README.md`, section 7.
 
 ## 3. Overlay `dev-app`
 
@@ -348,13 +378,30 @@ Everything in study §10, plus:
    through `PDMFactory::CreateDecoder()` (`RemoteVideoDecoderParent` and
    `RemoteAudioDecoderParent::RecvConstruct()`): if upstream adds another
    creation path in RDD/Utility, the allowlist must cover it.
-2. Drop the drain backport from 159 on.
+2. Drop the drain backport from 159 on, and with it its gate: from 159 software
+   ffvpx behaves as upstream on every Android version.
 3. `variants.yml` `geckoview-isolated-process`: still the eleven prefs? Copy
    any change into `isolation-media-prefs.patch`, both expected-prefs files and
    the harness constants (the unit test will insist).
 4. The API 30 flake (section 6): if it is understood and fixed, lowering the
    SDK floor is a one-line change in `isolation-media-process.patch` plus
    `ISOLATION_MIN_SDK` in the harness, and needs an owner decision.
+5. **`GeckoRuntime.init()` ordering.** The gate pref is computed once, in the
+   `init()` that starts Gecko, from the process manager that same call
+   configured. `init()` reconfigures the process-manager singleton
+   (`setIsolatedProcessEnabled`, `setAppZygoteEnabled`) *before* it learns
+   that `GeckoThread.init()` refuses a second start. So a later default
+   `GeckoRuntime` (`GeckoRuntime.getDefault()`, whose `GeckoRuntimeSettings`
+   leave isolation off) or a second `GeckoRuntime.create()` with other settings
+   would switch new content processes back to plain `:tab` while the gate, and
+   with it the media prefs and the allowlist, stays true. Fenix 158 never does
+   this: `GeckoProvider` creates the one runtime with `GeckoRuntime.create()`
+   and passes it to `GeckoEngine` and `GeckoViewFetchClient` explicitly
+   (`Core.kt`), so their `getDefault()` default arguments are never evaluated,
+   and `fenix/app/src/main` calls `getDefault()` nowhere. At every rebase,
+   `grep -rn 'GeckoRuntime.getDefault\|GeckoRuntime.create(' mobile/android/fenix/app/src/main
+   mobile/android/android-components/components/*/*/src/main` and confirm that
+   still holds (REBASE.md section 6f).
 
 ## 6. Status (2026-10-11) and the phone test
 
