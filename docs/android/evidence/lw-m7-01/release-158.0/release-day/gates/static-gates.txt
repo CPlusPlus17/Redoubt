@@ -1,0 +1,37 @@
+$ python3 scripts/check-patch-order.py
+patch order ok: 38/38 declared constraint(s) enforced across 2 target sequence(s); 157 shared-file pair(s) derived and classified.
+exit 0
+$ python3 scripts/lint-patch-scope.py
+lint-patch-scope: OK - 110 patch file(s), no scope violations, no hunk header without line numbers
+exit 0
+$ python3 docs/android/board.py --check
+ok: 133 tasks, 32 waves, 0 warning(s)
+exit 0
+$ python3 docs/android/board.py --check-scope
+ok: 110 listed patch files — 22 common, 44 desktop, 44 android, 0 straddlers parked; PATCH-SCOPE.md agrees
+exit 0
+$ python3 docs/android/board.py --check-cfg-split
+ok: 182 common / 199 desktop / 15 android calls; librewolf.cfg regenerates exactly
+exit 0
+$ python3 docs/android/board.py --diff-mozconfig --strict
+ok: hardening parity holds (0 documented difference(s))
+exit 0
+$ python3 scripts/site-check.py
+PASS: 8 pages checked in <repo>/site, 0 problem(s)
+exit 0
+$ ~/.cache/fivur-tools/actionlint-1.7.12/actionlint .github/workflows/android-release.yaml .github/workflows/android-test.yaml .github/workflows/firefox-release-watch.yaml .github/workflows/pages.yaml
+.github/workflows/android-release.yaml:107:28: label "redoubt-boxb" is unknown. available labels are "windows-latest", "windows-latest-8-cores", "windows-2025", "windows-2025-vs2026", "windows-2022", "windows-11-arm", "ubuntu-slim", "ubuntu-latest", "ubuntu-latest-4-cores", "ubuntu-latest-8-cores", "ubuntu-latest-16-cores", "ubuntu-24.04", "ubuntu-24.04-arm", "ubuntu-22.04", "ubuntu-22.04-arm", "macos-latest", "macos-latest-xlarge", "macos-latest-large", "macos-26-intel", "macos-26-xlarge", "macos-26-large", "macos-26", "macos-15-intel", "macos-15-xlarge", "macos-15-large", "macos-15", "macos-14-xlarge", "macos-14-large", "macos-14", "self-hosted", "x64", "arm", "arm64", "linux", "macos", "windows". if it is a custom label for self-hosted runner, set list of labels in actionlint.yaml config file [runner-label]
+    |
+107 |     runs-on: [self-hosted, redoubt-boxb]
+    |                            ^~~~~~~~~~~~~
+.github/workflows/android-test.yaml:90:28: label "redoubt-boxb" is unknown. available labels are "windows-latest", "windows-latest-8-cores", "windows-2025", "windows-2025-vs2026", "windows-2022", "windows-11-arm", "ubuntu-slim", "ubuntu-latest", "ubuntu-latest-4-cores", "ubuntu-latest-8-cores", "ubuntu-latest-16-cores", "ubuntu-24.04", "ubuntu-24.04-arm", "ubuntu-22.04", "ubuntu-22.04-arm", "macos-latest", "macos-latest-xlarge", "macos-latest-large", "macos-26-intel", "macos-26-xlarge", "macos-26-large", "macos-26", "macos-15-intel", "macos-15-xlarge", "macos-15-large", "macos-15", "macos-14-xlarge", "macos-14-large", "macos-14", "self-hosted", "x64", "arm", "arm64", "linux", "macos", "windows". if it is a custom label for self-hosted runner, set list of labels in actionlint.yaml config file [runner-label]
+   |
+90 |     runs-on: [self-hosted, redoubt-boxb]
+   |                            ^~~~~~~~~~~~~
+.github/workflows/android-test.yaml:214:28: label "redoubt-boxb" is unknown. available labels are "windows-latest", "windows-latest-8-cores", "windows-2025", "windows-2025-vs2026", "windows-2022", "windows-11-arm", "ubuntu-slim", "ubuntu-latest", "ubuntu-latest-4-cores", "ubuntu-latest-8-cores", "ubuntu-latest-16-cores", "ubuntu-24.04", "ubuntu-24.04-arm", "ubuntu-22.04", "ubuntu-22.04-arm", "macos-latest", "macos-latest-xlarge", "macos-latest-large", "macos-26-intel", "macos-26-xlarge", "macos-26-large", "macos-26", "macos-15-intel", "macos-15-xlarge", "macos-15-large", "macos-15", "macos-14-xlarge", "macos-14-large", "macos-14", "self-hosted", "x64", "arm", "arm64", "linux", "macos", "windows". if it is a custom label for self-hosted runner, set list of labels in actionlint.yaml config file [runner-label]
+    |
+214 |     runs-on: [self-hosted, redoubt-boxb]
+    |                            ^~~~~~~~~~~~~
+exit 1
+$ actionlint -ignore 'label "redoubt-boxb" is unknown' .github/workflows/*.yaml
+exit 0
