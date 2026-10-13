@@ -1,0 +1,11 @@
+check-update-privacy (API 30) flagged flow: tcp 2606:50c0:8003::153:443 (no name), window_out_bytes 0 (src_port 48630)
+dig +short AAAA redoubtbrowser.org @9.9.9.9 (2026-10-13T20:14:24Z):
+  2606:50c0:8001::153
+  2606:50c0:8003::153
+  2606:50c0:8000::153
+  2606:50c0:8002::153
+tcpdump -nn -tt -r work30/capture.pcap 'host 2606:50c0:8003::153 or (host 185.199.108.153 and tcp[tcpflags] & tcp-syn != 0)':
+  1791917741.183680 IP6 fec0::c9d6:4d32:cd56:840e.55444 > 2606:50c0:8003::153.443: Flags [S], seq 3935009454, win 65535, options [mss 1440,sackOK,TS val 3649125929 ecr 0,nop,wscale 6], length 0
+  1791918765.070507 IP6 fec0::c9d6:4d32:cd56:840e.48630 > 2606:50c0:8003::153.443: Flags [S], seq 147164375, win 65535, options [mss 1440,sackOK,TS val 3650149794 ecr 0,nop,wscale 6], length 0
+  1791918765.075214 IP 10.0.2.16.38100 > 185.199.108.153.443: Flags [S], seq 3310066150, win 65535, options [mss 1460,sackOK,TS val 3783868863 ecr 0,nop,wscale 6], length 0
+  1791918765.094106 IP 185.199.108.153.443 > 10.0.2.16.38100: Flags [S.], seq 131904001, ack 3310066151, win 8192, options [mss 1460], length 0
