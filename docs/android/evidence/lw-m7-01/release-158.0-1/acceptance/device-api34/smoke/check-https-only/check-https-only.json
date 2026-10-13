@@ -1,0 +1,116 @@
+{
+ "checks": [
+  {
+   "check": "https-only-interstitial",
+   "ok": true,
+   "detail": "HTTP must reach the HTTPS-only interstitial before the user grants an exception",
+   "evidence": {
+    "prefs": {
+     "enabled": true,
+     "locked": false
+    },
+    "page": {
+     "url": "https://10.0.2.2:56001/?https-only-9177e5996e27422f",
+     "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+site+not+available&button=Try+Again&description=Most+likely%2C+the+website+simply+does+not+support+HTTPS.%3Cbr%3E%3Cbr%3EHowever%2C+it%E2%80%99s+also+possible+that+an+attacker+is+involved.+If+you+continue+to+the+website%2C+you+should+not+enter+any+sensitive+info.+If+you+continue%2C+HTTPS-Only+mode+will+be+turned+off+temporarily+for+the+site.&image=mozac_error_lock.svg&errorCode=&isPrivate=false&showContinueHttp=true&continueHttpButton=Continue+to+HTTP+Site&backFromHttpButton=Go+Back+%28Recommended%29",
+     "title": "Secure site not available",
+     "ready": "interactive",
+     "marker": null,
+     "continueVisible": true,
+     "canAddException": true
+    },
+    "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms"
+   }
+  },
+  {
+   "check": "page-load-http",
+   "ok": true,
+   "detail": "http://10.0.2.2:56001/?https-only-9177e5996e27422f ready=complete secure=False marker='lw-smoke-page-ok', origin logged 4 request(s)",
+   "evidence": {
+    "page": {
+     "url": "http://10.0.2.2:56001/?https-only-9177e5996e27422f",
+     "proto": "http:",
+     "secure": false,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 4
+   }
+  },
+  {
+   "check": "page-load-https",
+   "ok": true,
+   "detail": "https://10.0.2.2:36699/ ready=complete secure=True marker='lw-smoke-page-ok', origin logged 7 request(s)",
+   "evidence": {
+    "page": {
+     "url": "https://10.0.2.2:36699/",
+     "proto": "https:",
+     "secure": true,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 7
+   }
+  },
+  {
+   "check": "https-only-upgrade",
+   "ok": true,
+   "detail": "http://10.0.2.2:36699/?upgrade-79c4d8e8 -> https://10.0.2.2:36699/?upgrade-79c4d8e8 (marker='lw-smoke-page-ok', secure=True), origin logged 4 https request(s)",
+   "evidence": {
+    "page": {
+     "url": "https://10.0.2.2:36699/?upgrade-79c4d8e8",
+     "uri": "https://10.0.2.2:36699/?upgrade-79c4d8e8",
+     "title": "LibreWolf Android smoke",
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "secure": true
+    },
+    "navigation_error": null
+   }
+  },
+  {
+   "check": "https-only-exception-scope",
+   "ok": true,
+   "detail": "origin A after Continue: loads over HTTP; origin B (other port): interstitial; https-only permissions: http://10.0.2.2:56001 https-only-load-insecure expireType=1",
+   "evidence": {
+    "a_page": {
+     "url": "http://10.0.2.2:56001/?again-db7daee2",
+     "uri": "http://10.0.2.2:56001/?again-db7daee2",
+     "title": "LibreWolf Android smoke",
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "secure": false
+    },
+    "b_page": {
+     "url": "https://10.0.2.2:51981/?other-ea1224d7",
+     "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+site+not+available&button=Try+Again&description=Most+likely%2C+the+website+simply+does+not+support+HTTPS.%3Cbr%3E%3Cbr%3EHowever%2C+it%E2%80%99s+also+possible+that+an+attacker+is+involved.+If+you+continue+to+the+website%2C+you+should+not+enter+any+sensitive+info.+If+you+continue%2C+HTTPS-Only+mode+will+be+turned+off+temporarily+for+the+site.&image=mozac_error_lock.svg&errorCode=&isPrivate=false&showContinueHttp=true&continueHttpButton=Continue+to+HTTP+Site&backFromHttpButton=Go+Back+%28Recommended%29",
+     "title": "Secure site not available",
+     "ready": "interactive",
+     "marker": null,
+     "secure": true
+    },
+    "permissions": [
+     {
+      "type": "https-only-load-insecure",
+      "origin": "http://10.0.2.2:56001",
+      "capability": 9,
+      "expireType": 1
+     }
+    ],
+    "expire_types": "0 = never, 1 = session, 2 = time (nsIPermissionManager)"
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/release-158.0-1/work",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/release-158.0-1/apk/fenix-x86_64-158.0-1-throwaway.apk",
+  "sha256": "c91d7fa972ba2c27f8eb4460a310357b56960e5d750ee98a15a0f1e69b67afb5",
+  "size": 136638795,
+  "harness_sha256": "a062f09177f3b3a3bce6a1a6a8414786844adc2c0ecb18918a8527835acc3a03"
+ },
+ "status": "completed",
+ "error": null
+}
