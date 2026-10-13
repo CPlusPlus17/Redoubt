@@ -15,7 +15,7 @@ read in full, every file it touches was traced to the `moz.build` / `jar.mn` /
 preprocessor guard that decides whether that file is built on Android, and the
 decision below follows from that guard rather than from the path.
 
-Current classification: **22 common / 43 android / 46 desktop-only / 0 straddlers = 111
+Current classification: **22 common / 44 android / 44 desktop-only / 0 straddlers = 110
 patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
@@ -118,6 +118,40 @@ So: android 42 − 1 = 41; total 110 − 1 = 109.
 
 So: android 41 + 1 = 42; total 109 + 1 = 110.
 
+## Desktop patches retired in the Firefox 158 pre-rebase (2026-10-04, against 158.0b3)
+
+Two `desktop.txt` entries are upstream in Firefox 158 and are deleted with
+their list entries. Their 157 text stays in git history.
+
+- **`hide-disabled-urlbar-suggests`**. 158's
+  `browser/components/urlbar/QuickActionsLoaderDefault.sys.mjs` already has all
+  three hunks verbatim (the ExperimentAPI getter and the two `isUnsupported`
+  callbacks); `patch` refused them as "previously applied".
+- **`refresh`**. 158 keys the Firefox migrators on `AppConstants.MOZ_APP_NAME`
+  (all JS hunks, plus `Nightly`), and renamed the wizard's display-name string
+  to `migration-wizard-migrator-display-name-self = { -brand-product-name }`.
+
+Desktop-only, so no Android parity changes. The other rebases of this
+pre-rebase change text, not scope; the list is in
+`docs/android/evidence/lw-m7-01/release-158.0/PREBASE.md`.
+
+So: desktop-only 46 − 2 = 44; total 110 − 2 = 108.
+
+## Android patch added on the Firefox 158 branch (2026-10-05)
+
+- **`autofill-shadow-dom`** (LW-M7-42). Login fields inside open shadow roots
+  (reddit.com/login's `faceplate-text-input`) never reached Android Autofill:
+  `GeckoViewAutoFillChild` registers fields only through non-composed events
+  and a `querySelectorAll` scan, both blind to shadow roots. The patch
+  registers such a field when it is focused, next to upstream's datalist
+  fallback in `onFocus`. One file, `mobile/shared/actors/GeckoViewAutoFillChild.sys.mjs`
+  (GeckoView JS, packaged in omni.ja; `mobile/shared` is built only for
+  Android). No other patch touches it, so it is order-free. It was the last
+  `android.txt` entry until main's `delete-on-quit-swipe` (LW-M7-45) was merged
+  after it. It exists only on `android/firefox-158`; 157 has no such entry.
+
+So: android 42 + 1 = 43; total 108 + 1 = 109.
+
 ## Android patch added for delete-on-quit after swipe-away (2026-10-06)
 
 - **`delete-on-quit-swipe`** (LW-M7-45). Owner report: "Delete browsing data
@@ -147,7 +181,26 @@ So: android 41 + 1 = 42; total 109 + 1 = 110.
   starts, the gate opens even without Gecko's confirmation (fail open), and the
   deletion is retried after the next exit that is not Quit.
 
-So: android 42 + 1 = 43; total 110 + 1 = 111.
+So: android 43 + 1 = 44; total 109 + 1 = 110.
+
+## Android patch revised: no quiet WebGL/canvas notice (2026-10-09, ships in 158.0-1 from Beta 2)
+
+- **`canvas-webgl-permissions`** (LW-M7-14, revised by LW-M7-46). Owner
+  request, verbatim: "the disabled webgl popovers all the time, we disabled it
+  be choice, so do not show this warning". A WebGL or canvas attempt that is
+  blocked by default (a quiet request, `librewolf.webgl.prompt.hide=true`)
+  showed the snackbar "Canvas or WebGL was protected. Review in site
+  permissions." on every page that tried. `OriginBoundPermissionsFeature` now
+  calls that notice only when the new Gecko pref
+  `librewolf.webgl.prompt.notice` reads `true`; it defaults to `false`
+  (`StaticPrefList.yaml`, `mirror: never`), so nothing is shown. The request
+  is unchanged otherwise: denied, pending, and listed in the site controls
+  (trust panel, WebGL and canvas permissions) until the page goes away, and
+  the user can allow the site there. Non-quiet prompts are unchanged. Same
+  patch file and tree paths, plus the pref; `BaseBrowserFragment.kt`'s hunk
+  keeps its line count, so `sync-opt-in` applies at unchanged offsets.
+
+No new list entry: android stays 44, total 110.
 
 ## The Firefox 157 desktop merge — what moved, and why Android did not (history, superseded 2026-10-02)
 
@@ -284,7 +337,7 @@ claimed an application order the build never uses.
 |---|---|---|
 | `common.txt` | 22 | 15 pure-common (the 17 originals minus `bootstrap` and `fix-canvas-extraction-permission`, deleted upstream for 157) **+ all 7 common halves of the split straddlers** |
 | `desktop.txt` | 46 | 27 pure desktop + `msix` (not a straddler) **+ the 7 desktop halves** + `pref-pane/pref-pane-small` (moved in from its own call site by LW-M1-13), as of the pre-merge 36; then the Firefox 157 merge: − 5 dropped upstream, + 15 of the 17 new upstream patches (`updater` and `ui-patches/allow-disabling-updater` declined, see above) |
-| `android.txt` | 43 | the three Android-side patches the M1 splits pulled in, plus `build-fixes` (LW-M2-02), `no-nimbus` (LW-M4-03), `no-nimbus-toolkit` (LW-M4-13), `isolated-process` (LW-M5-02), `autoconfig-resource-fallback` (LW-M3-08/LW-M3-02), `no-onboarding` (LW-M4-10), `no-gms` (LW-M4-05), `branding` (LW-M4-07), `gradle-no-config-cache` (LW-M3-13), `rs-blocker-android` (LW-M4-08), `no-suggest` (LW-M4-11), `search-config` (LW-M4-06), `update-check` (LW-M6-06), `deterministic-version-code` (LW-M6-08), `ubo-readiness` and `ubo-preinstall` (LW-M3-07), `privacy-defaults` (LW-M7-07/LW-M7-12), `canvas-webgl-permissions` (LW-M7-14), `translation-assets` (LW-M7-16), `home-section-defaults` (LW-M7-24), `addon-state-durability` (LW-M7-19), `sync-opt-in` (LW-M7-20), `firefox-suggest-policy` (LW-M7-26), `no-default-shortcuts` (LW-M7-30), `extension-permission-durability` (LW-M7-31), `firefox-suggest-data` (LW-M7-29), `extension-update-controls` (LW-M7-35), `global-privacy-controls` (LW-M7-36), `session-cleanup` (LW-M7-37), `doh-mullvad-migration` (Mullvad DoH shutdown), `ubo-cookie-lists-migration` (LW-M7-41), `delete-on-quit-swipe` (LW-M7-45) and the M4 dependency removals landing alongside it — one row each in the table below. |
+| `android.txt` | 44 | the three Android-side patches the M1 splits pulled in, plus `build-fixes` (LW-M2-02), `no-nimbus` (LW-M4-03), `no-nimbus-toolkit` (LW-M4-13), `isolated-process` (LW-M5-02), `autoconfig-resource-fallback` (LW-M3-08/LW-M3-02), `no-onboarding` (LW-M4-10), `no-gms` (LW-M4-05), `branding` (LW-M4-07), `gradle-no-config-cache` (LW-M3-13), `rs-blocker-android` (LW-M4-08), `no-suggest` (LW-M4-11), `search-config` (LW-M4-06), `update-check` (LW-M6-06), `deterministic-version-code` (LW-M6-08), `ubo-readiness` and `ubo-preinstall` (LW-M3-07), `privacy-defaults` (LW-M7-07/LW-M7-12), `canvas-webgl-permissions` (LW-M7-14), `translation-assets` (LW-M7-16), `home-section-defaults` (LW-M7-24), `addon-state-durability` (LW-M7-19), `sync-opt-in` (LW-M7-20), `firefox-suggest-policy` (LW-M7-26), `no-default-shortcuts` (LW-M7-30), `extension-permission-durability` (LW-M7-31), `firefox-suggest-data` (LW-M7-29), `extension-update-controls` (LW-M7-35), `global-privacy-controls` (LW-M7-36), `session-cleanup` (LW-M7-37), `doh-mullvad-migration` (Mullvad DoH shutdown), `ubo-cookie-lists-migration` (LW-M7-41), `autofill-shadow-dom` (LW-M7-42), `delete-on-quit-swipe` (LW-M7-45) and the M4 dependency removals landing alongside it — one row each in the table below. |
 
 The arithmetic, and it is now boring on purpose: **every patch file on disk is in
 exactly one list**, so the three lists sum straight to the total, and
@@ -369,7 +422,7 @@ own line in this table.
 | `patches/android/disable-data-reporting-android.patch` | LW-M1-02 | `mobile/android/moz.configure:131-132` implies the *opposite* pair to `browser/moz.configure` (`MOZ_NORMANDY` False, `MOZ_SERVICES_HEALTHREPORT` **True**), so the common half alone leaves `MOZ_DATA_REPORTING` on for Android. Must be applied *with* the common half (`disable-data-reporting-common`, common.txt), never instead of it. Pre-merge bytes; applies to 157 unchanged. |
 | `patches/android/neterror-jar.patch` | LW-M1-07 | Packages `illustrations/warning.svg` for `toolkit/themes/mobile`, which never includes `desktop-jar.inc.mn`. Insurance, not a fix — see the LW-M1-07 row below for why the reference is unreachable on Android three ways over. |
 | `patches/android/webgl-prompt-default.patch` | LW-M1-08 | **Landmine L1.** Defaults `librewolf.webgl.prompt` to false on Android, where the prompt's UI and observers are all `browser/`-only. Without it `IsWebGLAllowed_impl` fails closed and every WebGL context dies silently. Shipped in the same change as the split, never as a follow-up. |
-| `patches/android/canvas-webgl-permissions.patch` | LW-M7-14 | Android exact-origin native/GV/Fenix WebGL and canvas permissions, explicit session/private/remembered lifetime, acknowledged document-bound reload and saved exception controls. Supersedes the earlier prompt=false block only with the complete bridge. Source and mocked bridge tests exist; target ABI builds, Android tests and runtime rendering/consent checks remain pending. |
+| `patches/android/canvas-webgl-permissions.patch` | LW-M7-14, revised by LW-M7-46 | Android exact-origin native/GV/Fenix WebGL and canvas permissions, explicit session/private/remembered lifetime, acknowledged document-bound reload and saved exception controls. Quiet (blocked-by-default) requests show no notice since LW-M7-46 unless `librewolf.webgl.prompt.notice` is true (default false); they stay reviewable in the site controls. Supersedes the earlier prompt=false block only with the complete bridge. Source and mocked bridge tests exist; target ABI builds, Android tests and runtime rendering/consent checks remain pending. |
 | `patches/android/translation-assets.patch` | LW-M7-16 | Android packaged full catalog and verified WASM, explicit cancellable pinned model downloads, cache-only passive translation/status paths, bounded verified decompression and local cache deletion. Desktop Remote Settings path and both Android allowlists are unchanged. Source/packaging tests pass; target build, actual DOM translation and offline/cancellation behavior remain pending. |
 | `patches/android/home-section-defaults.patch` | LW-M7-24 | Default ordinary top sites, recent tabs, bookmarks and history home sections off on every channel. Existing stored section choices and real customization controls remain available; no history/bookmark database changes. Target tests and actual home/restart behavior remain pending. |
 | `patches/android/addon-state-durability.patch` | LW-M7-19 | Android serializes and acknowledges database/cache persistence before extension lifecycle completion, restores/reconciles cached identities before startup, and preserves corrupt-database recovery and desktop writer behavior. Thirty-six actual-source tests pass; target build and immediate-restart behavior remain pending. |
@@ -383,6 +436,7 @@ own line in this table.
 | `patches/android/doh-mullvad-migration.patch` | Mullvad DoH shutdown (153.4.0esr) | Mullvad is discontinuing its DNS over HTTPS service, and the 153 ESR beta offered it in the Fenix DoH picker. Once per profile, before `Core.engine` reads `dohProviderUrl`, `org.mozilla.fenix.lw.DohProviderMigration` replaces a stored `dns.mullvad.net` / `*.dns.mullvad.net` / `doh.mullvad.net` provider with `Settings.LIBREWOLF_DOH_PROVIDER_URI` (`https://dns10.quad9.net/dns-query`, also `common.cfg`'s `network.trr.uri`) and leaves the mode alone; the provider and the done/notice flags are one `SharedPreferences` edit. When the mode was Increased or Max, `HomeActivity.onResume` shows a one-time dialog (the update-check mechanism) until the user acknowledges it; an activity recreated under it shows it again. A Mullvad URI entered by hand afterwards is respected. Known limitation: a Mullvad `network.trr.uri` set by hand in about:config (user branch) is not migrated. Mullvad also leaves `privacy-defaults`' built-in catalog, matching `common.cfg`'s `doh-rollout.provider-list`. Must apply after `privacy-defaults` (declared); the Core.kt/HomeActivity.kt hunks were measured order-free. Fenix Kotlin only; 9 Robolectric tests authored. Applies at fuzz 0; the two `lw/` files compile under `-Werror` against stubs of the Fenix types, but the patch is unbuilt and its tests unrun until the stage B build. |
 | `patches/android/disable-157-cloud-features.patch` | LW-M7-40 | Owner decision 2026-10-02. `Settings.shakeToSummarizeFeatureFlagEnabled`, `googleLensIntegrationEnabled` and `enableAddShortcutsImprovement` read a constant `false` (their setters are no-ops, so upstream callers and tests compile), `isIPProtectionAvailable` is `false`, `FenixApplication` no longer initialises IP Protection, `IPProtection.eligibilityStorage` is a constant Ineligible, the `settings_ip_protection` deep link is unmapped, and `ManifestEntry.toPopularSite()` drops the Merino CDN icon URL. Removes the four Secret Settings switches. Every summarize surface (menu item, CFR, toolbar highlight, settings, shake listener, `PageSummaryFeature` registration) reads the one flag; MLPA and `lens.google.com/upload` are reachable only behind the flags. `:components:lib-llm-mlpa` stays linked (five Fenix files import it). Two upstream tests of removed behaviour are deleted, one deep-link test inverted, `LibreWolfCloudFeaturesTest` added. Last in `android.txt`; shares `Settings.kt`/`SecretSettingsFragment.kt` with `no-gms`, `no-glean`, `firefox-suggest-policy` and others. |
 | `patches/android/ubo-cookie-lists-migration.patch` | LW-M7-41 | Owner decision for Beta 5. In the main-process branch of `ExtensionStorageIDB.selectBackend`, which uBO's first `storage.local` call of every start waits on (ahead of `setSharedData("storageIDBBackend")`, so no uBO context can bypass it), reads uBO's `selectedFilterLists` (while the migration is pending, `Extension.sys.mjs` leaves uBO's backend unannounced at startup, so that call really does go through `selectBackend`; upstream announces it for every migrated extension and the hook alone was never reached, measured on Beta 4); if it names neither `fanboy-cookiemonster` nor `ublock-cookies-easylist`, appends both and, after the transaction completed, sets `librewolf.uBO.cookieListsMigrated`. A selection naming one or both only sets the pref; a fresh profile is watched until uBO writes its first selection and is only inspected (pref set if the catalog gave the lists, else the next start applies). Never rejects, so uBO always starts. uBO's managed storage was rejected: it re-applies every start and replaces the whole selection. Generic toolkit JavaScript, Android list only; order-free (no other patch touches either file). Tested by `scripts/tests/test-ubo-cookie-lists-migration.js` against the patch's own added lines; unbuilt until the next Android build. |
+| `patches/android/autofill-shadow-dom.patch` | LW-M7-42 | In `GeckoViewAutoFillChild.onFocus`, an unregistered login field (password, or a username-type field LoginHelper infers as username/email or LoginManagerChild picks as the username, whose FormLike holds a password field, as upstream requires) inside a shadow tree whose roots are all open is registered with a FormLike whose elements include the fields of every open shadow root under its root, so Android Autofill gets the field, its `webDomain` and the username/password hints. Light DOM, closed and UA-widget roots and non-login inputs (including email fields with no password field beside them) keep the upstream path. `mobile/shared/actors/` is GeckoView-only; evidence `docs/android/evidence/lw-m7-42/autofill-shadow-dom/` |
 | `patches/android/delete-on-quit-swipe.patch` | LW-M7-45 | Owner decisions 2026-10-06: "lets build both as fallback"; trigger rule "Every non-Quit exit"; link starts "Yes, hard gate". A marker file (`noBackupFilesDir/redoubt_session_end`, temp + fsync + rename + directory fsync) reads "clean" only after Quit's deletion was confirmed; any activity start sets it back to "running". On a cold start with "Delete browsing data on quit" on and a marker that is not "clean", `FenixApplication` deletes the selected categories before `restoreBrowserState()`/`restoreDownloads()`: Gecko `clearData` and the site-permissions DB are dispatched asynchronously from `Application.onCreate` (before any GeckoSession); the local stores are deleted on IO while the main thread waits at most 5 s. Until Gecko and every store confirm (bounded: 20 s, then fail open, retried after the next non-Quit exit), both restores wait and `DeleteOnQuitStartGateMiddleware` holds every engine-session creation, so no page loads from a restore, link, custom tab, PWA or widget. With HISTORY selected, restored tabs come back without back/forward history. The attempt is recorded before deleting; after 3 unfinished attempts the start continues without deleting. A `stopWithTask=false` started service runs the same deletion from `onTaskRemoved` as a best effort. Setting off: nothing is deleted or held. JVM tests `DeleteOnQuitGuardTest`, `DeleteOnQuitStartGateMiddlewareTest`; device evidence `docs/android/evidence/lw-m7-45/`. |
 | `patches/android/no-default-shortcuts.patch` | LW-M7-30 | Empty bundled default shortcut seed matches the desktop default.sites input while preserving stored and manually added user data. JSON/hash/replay checks pass; packaged resource and fresh/upgrade/manual-add behavior remain pending. Separate bookmark seeding is still unverified. |
 | `patches/android/autoconfig-resource-fallback.patch` | LW-M3-08, landed by LW-M3-02 | **The autoconfig/`lockPref` channel — landmine L2's mitigation.** Three hunks, one mechanism: `nsReadConfig::openAndEvaluateJSFile` takes the `resource:` branch on Android (`#if defined(MOZ_WIDGET_ANDROID)`, *not* keyed off a failed `NS_GRE_DIR` lookup — that lookup succeeds and answers the APK's `lib/<abi>` dir, so the obvious patch is dead code and was measured to be); `lw/moz.build` also installs the `.cfg` as `defaults/autoconfig/librewolf.cfg`, the only shape `OmniJarSubFormatter.is_resource` lets into `omni.ja`; and `mobile/android/installer/package-manifest.in` names that file and `defaults/pref/local-settings.js` by hand, because it is an explicit list with no root wildcard. Ordering: **after `xmas-common`**, declared in `scripts/check-patch-order.py`. |
@@ -440,7 +494,7 @@ back in `common.txt` at their 157 text.
 | `moz-configure` | `toolkit/moz.configure` | **Not inert on Android.** `MOZ_APP_PROFILE` is defined only by this `project_flag` (`toolkit/moz.configure:35`) — nothing under `mobile/` implies it — so the added `default="librewolf"` reaches the Android build and lands in `application.ini` via `build/moz.build:88-89`, i.e. `gAppData->profile`. |
 | `mozilla_dirs` | `NativeManifests.sys.mjs`, `toolkit/xre/nsXREDirProvider.cpp`, `xpcom/build/nsXULAppAPI.h` | **The heuristic guess ("native messaging is desktop-only") was wrong about the file, right about the feature.** `XP_UNIX` is set for every unix target including Android (`build/moz.configure/init.configure:867`), so the `#if defined(XP_UNIX) \|\| defined(XP_MACOSX)` blocks at `nsXULAppAPI.h:108-116`, `nsXREDirProvider.cpp:326-362` and `:416-430` all **compile on Android**, and the `AppendSysUserExtensionPath` `.mozilla` → `.librewolf` rename (`:1293-1302`, `#elif defined(XP_UNIX)`) takes effect there. Only the JS half is dead: `NativeManifests.init()` throws on Android before it reaches the patched `dirs` array. Dropping this would be a real Android branding regression. Must apply **before** `xdg-dir`. |
 | `profile-directory` | `extensions/pref/autoconfig/src/prefcalls.js` | Same file and same reasoning as `autoconfig-setEnv`; must apply **after** it. The `HOME`/`XDG_CONFIG_HOME` lookup resolves to a non-existent path on Android, which is harmless — the file ships, so the patch stays with its partner rather than splitting the pair across lists. |
-| `remove-openai` | `toolkit/components/ml/*`, `toolkit/content/license.html` | **157:** regenerated from the firefox-157.0 tree. **Mandatory on Android, not merely allowed.** `toolkit/components/moz.build:59` puts `ml` in the unconditional `DIRS`, and `scripts/librewolf-patches.py:325-328` deletes `OpenAIPipeline.mjs` and `vendor/openai/` for *every* target. Leaving the patch off an Android build would leave `toolkit/components/ml/jar.mn` referencing files that no longer exist. This is landmine L4 pointing at scope. (The `aboutinference` hunk is `NIGHTLY_BUILD`-only per `toolkit/components/moz.build:155-156`, on every platform; that does not change the classification.) |
+| `remove-openai` | `toolkit/components/ml/*` (`toolkit/content/license.html` before 158) | **158:** about:license is generated from `LICENSED_UNDER` declarations, so the license.html hunk became a `toolkit/components/ml/moz.build` hunk. **157:** regenerated from the firefox-157.0 tree. **Mandatory on Android, not merely allowed.** `toolkit/components/moz.build:59` puts `ml` in the unconditional `DIRS`, and `scripts/librewolf-patches.py:325-328` deletes `OpenAIPipeline.mjs` and `vendor/openai/` for *every* target. Leaving the patch off an Android build would leave `toolkit/components/ml/jar.mn` referencing files that no longer exist. This is landmine L4 pointing at scope. (The `aboutinference` hunk is `NIGHTLY_BUILD`-only per `toolkit/components/moz.build:155-156`, on every platform; that does not change the classification.) |
 | `rs-blocker` | `services/settings/*`, `toolkit/components/search/SearchEngineSelector.sys.mjs` (157 text also `services/settings/remote-settings.sys.mjs`, `toolkit/components/search/ConfigSearchEngine.sys.mjs`) | **157:** upstream's 157 text (5b4201be, 3536d182). `services/moz.build:12` traverses `settings` unconditionally; `toolkit/components/moz.build:79` traverses `search` and `search/moz.build:21` ships `SearchEngineSelector.sys.mjs`. Both halves are live on Android. **Caveat for LW-M4-08:** the allowlist defaults to the empty pref, and `"".split(",")` is `[""]`, i.e. deny-everything. Android must populate `librewolf.services.settings.allowedCollections{,FromDump}` with its own collections or remote settings is dead there — that is the LW-M4-08 work, and it is a configuration gap, not a reason to move this patch. |
 | `rust-gentoo-musl` | `build/moz.configure/rust.configure` | **Does not disturb the NDK path.** The added block sits between the existing vendor narrowing and the terminal `return None` in `find_candidate`, i.e. it only runs on the path that would otherwise `die("Don't know how to translate …")`. Android targets (`aarch64-linux-android` &c.) resolve earlier, at the `sub_configure_alias`/`raw_os` narrowing. It strictly widens; it can never displace a candidate that would otherwise have won. And `detect_rustc_target` runs for the **host** as well as the target, so a Gentoo/musl build host cross-compiling to Android needs it. |
 | `vendor-name` | `toolkit/components/extensions/parent/ext-runtime.js`, `toolkit/xre/nsAppRunner.cpp` | **157:** upstream 81e96593 (`version_display` in `getBrowserInfo()`). Both files are core and built on Android. |
@@ -515,7 +569,7 @@ one.
 
 …and, new with the Firefox 157 merge (file lists checked from the `+++` lines,
 the same rule applied): `delete-cookie-permission` · `eme-migrator` ·
-`hide-disabled-urlbar-suggests` · `mullvad-dns-migration` · `refresh` ·
+`mullvad-dns-migration` ·
 `ui-patches/eme-enable` · `ui-patches/newtab-wordmark-css` ·
 `ui-patches/remove-branding` · `ui-patches/wallpapers`. (`hide-passwordmgr`,
 `ui-patches/firefox-view`, `ui-patches/hide-default-browser` and

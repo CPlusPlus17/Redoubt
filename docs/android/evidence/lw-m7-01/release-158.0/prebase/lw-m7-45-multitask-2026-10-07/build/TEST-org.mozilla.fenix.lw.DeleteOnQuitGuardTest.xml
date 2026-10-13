@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" tests="29" skipped="0" failures="0" errors="0" timestamp="2026-10-06T23:06:13.470Z" hostname="688dd1a5e60c" time="3.057">
+  <properties/>
+  <testcase name="history deletion without tabs asks the restore to drop back-forward history" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.196"/>
+  <testcase name="a deletion that keeps killing the process is retried a bounded number of times" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.044"/>
+  <testcase name="no history purge without HISTORY or without a deletion" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.006"/>
+  <testcase name="marker round-trips and leaves no temporary file" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.001"/>
+  <testcase name="a failing directory fsync does not fail the write" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.001"/>
+  <testcase name="a custom tab inside another app's task keeps the session alive when the main task is swiped" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.005"/>
+  <testcase name="a local step that never returns does not hold the main thread" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.057"/>
+  <testcase name="the gate bound counts from the start of the deletion and fails open" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.305"/>
+  <testcase name="an unknown task list never deletes" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.002"/>
+  <testcase name="the activity callbacks feed the task tracker" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="2.334"/>
+  <testcase name="quit marks clean only after the deletion is confirmed" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.007"/>
+  <testcase name="foreground without a preceding quit writes nothing" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.002"/>
+  <testcase name="swiping one of two tasks deletes nothing, swiping the last one deletes and marks clean" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.003"/>
+  <testcase name="clean quit skips the deletion and marks the new session running" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.001"/>
+  <testcase name="engine that never answers does not hold restore forever" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.052"/>
+  <testcase name="app-side failure is contained" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.009"/>
+  <testcase name="absent marker reads as null" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.001"/>
+  <testcase name="session end with the setting off does nothing" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.002"/>
+  <testcase name="startup decision table" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.001"/>
+  <testcase name="every activity start counts, not only the first one of the process" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.004"/>
+  <testcase name="unclean exit deletes before restore and records the attempt first" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.002"/>
+  <testcase name="setting off deletes nothing whatever the marker says" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.002"/>
+  <testcase name="unreadable or unknown marker content counts as unclean" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.001"/>
+  <testcase name="quit whose deletion fails stays unclean" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.008"/>
+  <testcase name="returning to the foreground before the deletion finished keeps the marker unclean" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.003"/>
+  <testcase name="a stale recents entry without a live activity does not keep the session alive" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.0"/>
+  <testcase name="a torn temporary file never replaces the marker" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.001"/>
+  <testcase name="the directory is fsynced after the rename" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.001"/>
+  <testcase name="missing marker with the setting on counts as unclean" classname="org.mozilla.fenix.lw.DeleteOnQuitGuardTest" time="0.002"/>
+  <system-out><![CDATA[W [RedoubtDeleteOnQuit] cold start after unclean exit (marker running/0): deleting HISTORY,COOKIES before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker cleaning/1): deleting COOKIES,CACHE,TABS before session restore, attempt 2/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker cleaning/2): deleting COOKIES,CACHE,TABS before session restore, attempt 3/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+E [RedoubtDeleteOnQuit] cold start: 3 deletion attempts did not finish; continuing WITHOUT deleting COOKIES,CACHE,TABS
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker running/0): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker running/0): deleting COOKIES,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+I [RedoubtDeleteOnQuit] cold start: no deletion (last session ended with Quit); marker was clean/0
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+W [RedoubtDeleteOnQuit] task-removed: 1 other task(s) of the app still open; session continues, nothing deleted, marker stays unclean
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker running/0): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=false); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker running/0): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=false); waiting for the engine
+E [RedoubtDeleteOnQuit] cold start: deletion incomplete (app=false engine=false) within 300ms; continuing (fail open), retried after the next unclean exit
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+W [RedoubtDeleteOnQuit] task-removed: other tasks unknown; session continues, nothing deleted, marker stays unclean
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+W [RedoubtDeleteOnQuit] quit: deleting COOKIES,CACHE,TABS
+W [RedoubtDeleteOnQuit] quit: deletion confirmed; marked clean
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+W [RedoubtDeleteOnQuit] task-removed: 1 other task(s) of the app still open; session continues, nothing deleted, marker stays unclean
+W [RedoubtDeleteOnQuit] task-removed: deleting COOKIES,CACHE,TABS
+W [RedoubtDeleteOnQuit] task-removed: deletion confirmed; marked clean
+I [RedoubtDeleteOnQuit] cold start: no deletion (last session ended with Quit); marker was clean/0
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker running/0): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+E [RedoubtDeleteOnQuit] cold start: deletion incomplete (app=true engine=false) within 50ms; continuing (fail open), retried after the next unclean exit
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+E [RedoubtDeleteOnQuit] app-side deletion failed
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=false); waiting for the engine
+E [RedoubtDeleteOnQuit] app-side deletion failed
+E [RedoubtDeleteOnQuit] cold start: deletion incomplete (app=false engine=true) within 2000ms; continuing (fail open), retried after the next unclean exit
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+I [RedoubtDeleteOnQuit] task-removed: setting off, nothing to do
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+W [RedoubtDeleteOnQuit] quit: deleting COOKIES,CACHE,TABS
+W [RedoubtDeleteOnQuit] quit: deletion confirmed; marked clean
+W [RedoubtDeleteOnQuit] quit: deleting COOKIES,CACHE,TABS
+W [RedoubtDeleteOnQuit] quit: deletion confirmed; marked clean
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker running/0): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+I [RedoubtDeleteOnQuit] cold start: no deletion (setting off); marker was absent
+I [RedoubtDeleteOnQuit] cold start: no deletion (setting off); marker was running/0
+I [RedoubtDeleteOnQuit] cold start: no deletion (setting off); marker was cleaning/1
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+W [RedoubtDeleteOnQuit] quit: deleting COOKIES,CACHE,TABS
+E [RedoubtDeleteOnQuit] quit: deletion incomplete (app=true engine=false); marker stays unclean
+W [RedoubtDeleteOnQuit] quit: deleting COOKIES,CACHE,TABS
+E [RedoubtDeleteOnQuit] quit: deletion incomplete (app=false engine=true); marker stays unclean
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+W [RedoubtDeleteOnQuit] task-removed: deleting COOKIES,CACHE,TABS
+I [RedoubtDeleteOnQuit] task-removed: app returned to the foreground; marker stays unclean
+W [RedoubtDeleteOnQuit] cold start after unclean exit (marker absent): deleting COOKIES,CACHE,TABS before session restore, attempt 1/3
+I [RedoubtDeleteOnQuit] cold start: app-side deletion done (ok=true); waiting for the engine
+W [RedoubtDeleteOnQuit] cold start: deletion complete; session restore and page loads may proceed
+]]></system-out>
+  <system-err><![CDATA[java.lang.IllegalStateException: boom
+	at org.mozilla.fenix.lw.DeleteOnQuitGuardTest$FakeRunner.deleteAppData(DeleteOnQuitGuardTest.kt:65)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard$coldStart$local$1.invokeSuspend(DeleteOnQuitGuard.kt:302)
+	at _COROUTINE._BOUNDARY._(CoroutineDebugging.kt:42)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard$awaitDeferred$2.invokeSuspend(DeleteOnQuitGuard.kt:418)
+	at kotlinx.coroutines.TimeoutKt.withTimeoutOrNull(Timeout.kt:156)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard.awaitDeferred(DeleteOnQuitGuard.kt:418)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard$coldStart$appOkNow$1.invokeSuspend(DeleteOnQuitGuard.kt:303)
+Caused by: java.lang.IllegalStateException: boom
+	at org.mozilla.fenix.lw.DeleteOnQuitGuardTest$FakeRunner.deleteAppData(DeleteOnQuitGuardTest.kt:65)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard$coldStart$local$1.invokeSuspend(DeleteOnQuitGuard.kt:302)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.internal.DispatchedContinuationKt.resumeCancellableWithInternal(DispatchedContinuation.kt:384)
+	at kotlinx.coroutines.intrinsics.CancellableKt.startCoroutineCancellable(Cancellable.kt:26)
+	at kotlinx.coroutines.CoroutineStart.invoke(CoroutineStart.kt:358)
+	at kotlinx.coroutines.AbstractCoroutine.start(AbstractCoroutine.kt:134)
+	at kotlinx.coroutines.BuildersKt__Builders_commonKt.async(Builders.common.kt:293)
+	at kotlinx.coroutines.BuildersKt.async(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__Builders_commonKt.async$default(Builders.common.kt:284)
+	at kotlinx.coroutines.BuildersKt.async$default(Unknown Source)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard.coldStart(DeleteOnQuitGuard.kt:302)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard.onColdStart(DeleteOnQuitGuard.kt:267)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuardTest$app-side failure is contained$1.invokeSuspend(DeleteOnQuitGuardTest.kt:311)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:256)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:54)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlockingImpl(Builders.kt:30)
+	at kotlinx.coroutines.BuildersKt.runBlockingImpl(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__Builders_concurrentKt.runBlockingK(Builders.concurrent.kt:172)
+	at kotlinx.coroutines.BuildersKt.runBlockingK(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__Builders_concurrentKt.runBlockingK$default(Builders.concurrent.kt:157)
+	at kotlinx.coroutines.BuildersKt.runBlockingK$default(Unknown Source)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuardTest.app-side failure is contained(DeleteOnQuitGuardTest.kt:311)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
+	at org.junit.rules.ExternalResource$1.evaluate(ExternalResource.java:54)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.junit.runners.BlockJUnit4ClassRunner$1.evaluate(BlockJUnit4ClassRunner.java:100)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:366)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:103)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:63)
+	at org.junit.runners.ParentRunner$4.run(ParentRunner.java:331)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:79)
+	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:329)
+	at org.junit.runners.ParentRunner.access$100(ParentRunner.java:66)
+	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:293)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.junit.runners.ParentRunner.run(ParentRunner.java:413)
+	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
+	at org.junit.runner.JUnitCore.run(JUnitCore.java:115)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.runRequest(JUnitTestExecutor.java:174)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.accept(JUnitTestExecutor.java:84)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.accept(JUnitTestExecutor.java:47)
+	at org.gradle.api.internal.tasks.testing.junit.AbstractJUnitTestDefinitionProcessor.processTestDefinition(AbstractJUnitTestDefinitionProcessor.java:65)
+	at org.gradle.api.internal.tasks.testing.SuiteTestDefinitionProcessor.processTestDefinition(SuiteTestDefinitionProcessor.java:53)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.gradle.internal.dispatch.MethodInvocation.invokeOn(MethodInvocation.java:77)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:28)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:19)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:88)
+	at jdk.proxy2/jdk.proxy2.$Proxy6.processTestDefinition(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$2.run(TestWorker.java:178)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:126)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:122)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:72)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+java.lang.IllegalStateException: boom
+	at org.mozilla.fenix.lw.DeleteOnQuitGuardTest$FakeRunner.deleteAppData(DeleteOnQuitGuardTest.kt:65)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard$coldStart$local$1.invokeSuspend(DeleteOnQuitGuard.kt:302)
+	at _COROUTINE._BOUNDARY._(CoroutineDebugging.kt:42)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard$awaitDeferred$2.invokeSuspend(DeleteOnQuitGuard.kt:418)
+	at kotlinx.coroutines.TimeoutKt.withTimeoutOrNull(Timeout.kt:156)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard.awaitDeferred(DeleteOnQuitGuard.kt:418)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard$coldStart$2$1.invokeSuspend(DeleteOnQuitGuard.kt:312)
+	at kotlinx.coroutines.TimeoutKt.withTimeoutOrNull(Timeout.kt:156)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard$coldStart$2.invokeSuspend(DeleteOnQuitGuard.kt:311)
+Caused by: java.lang.IllegalStateException: boom
+	at org.mozilla.fenix.lw.DeleteOnQuitGuardTest$FakeRunner.deleteAppData(DeleteOnQuitGuardTest.kt:65)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard$coldStart$local$1.invokeSuspend(DeleteOnQuitGuard.kt:302)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.internal.DispatchedContinuationKt.resumeCancellableWithInternal(DispatchedContinuation.kt:384)
+	at kotlinx.coroutines.intrinsics.CancellableKt.startCoroutineCancellable(Cancellable.kt:26)
+	at kotlinx.coroutines.CoroutineStart.invoke(CoroutineStart.kt:358)
+	at kotlinx.coroutines.AbstractCoroutine.start(AbstractCoroutine.kt:134)
+	at kotlinx.coroutines.BuildersKt__Builders_commonKt.async(Builders.common.kt:293)
+	at kotlinx.coroutines.BuildersKt.async(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__Builders_commonKt.async$default(Builders.common.kt:284)
+	at kotlinx.coroutines.BuildersKt.async$default(Unknown Source)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard.coldStart(DeleteOnQuitGuard.kt:302)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuard.onColdStart(DeleteOnQuitGuard.kt:267)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuardTest$app-side failure is contained$1.invokeSuspend(DeleteOnQuitGuardTest.kt:311)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:256)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:54)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlockingImpl(Builders.kt:30)
+	at kotlinx.coroutines.BuildersKt.runBlockingImpl(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__Builders_concurrentKt.runBlockingK(Builders.concurrent.kt:172)
+	at kotlinx.coroutines.BuildersKt.runBlockingK(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__Builders_concurrentKt.runBlockingK$default(Builders.concurrent.kt:157)
+	at kotlinx.coroutines.BuildersKt.runBlockingK$default(Unknown Source)
+	at org.mozilla.fenix.lw.DeleteOnQuitGuardTest.app-side failure is contained(DeleteOnQuitGuardTest.kt:311)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
+	at org.junit.rules.ExternalResource$1.evaluate(ExternalResource.java:54)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.junit.runners.BlockJUnit4ClassRunner$1.evaluate(BlockJUnit4ClassRunner.java:100)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:366)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:103)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:63)
+	at org.junit.runners.ParentRunner$4.run(ParentRunner.java:331)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:79)
+	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:329)
+	at org.junit.runners.ParentRunner.access$100(ParentRunner.java:66)
+	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:293)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.junit.runners.ParentRunner.run(ParentRunner.java:413)
+	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
+	at org.junit.runner.JUnitCore.run(JUnitCore.java:115)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.runRequest(JUnitTestExecutor.java:174)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.accept(JUnitTestExecutor.java:84)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestExecutor.accept(JUnitTestExecutor.java:47)
+	at org.gradle.api.internal.tasks.testing.junit.AbstractJUnitTestDefinitionProcessor.processTestDefinition(AbstractJUnitTestDefinitionProcessor.java:65)
+	at org.gradle.api.internal.tasks.testing.SuiteTestDefinitionProcessor.processTestDefinition(SuiteTestDefinitionProcessor.java:53)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.gradle.internal.dispatch.MethodInvocation.invokeOn(MethodInvocation.java:77)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:28)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:19)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:88)
+	at jdk.proxy2/jdk.proxy2.$Proxy6.processTestDefinition(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$2.run(TestWorker.java:178)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:126)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:122)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:72)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+]]></system-err>
+</testsuite>

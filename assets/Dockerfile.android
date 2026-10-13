@@ -9,20 +9,24 @@
 # The line numbers below are from the Firefox 153.0.4 tree, except the two SDK
 # rows marked (157), which were re-read on firefox-157.0 when Android moved to
 # Firefox release: 157's configure dies with "Android cmdline-tools 21.0 not
-# found" on a 153 image, and asks for platform android-37.1. The other rows
-# still need their 157 re-check.
+# found" on a 153 image, and asks for platform android-37.1. The four rows
+# marked (158) were re-read on firefox-158.0b3 (the 158 pre-rebase,
+# 2026-10-04): 158 asks for NDK r30, cmdline-tools 23.0 (16111833), platform
+# android-37.2 and Temurin 17.0.20.1+1. Rust (linux64-rust-android is 1.95.0
+# on both 157 and 158), cbindgen, Node, bundletool and build-tools are
+# unchanged between 157 and 158. The other rows still need their re-check.
 #
 #   pin                       value              read from
 #   ------------------------  -----------------  ---------------------------------------------
-#   JDK (Temurin)             17.0.18+8          python/mozboot/mozboot/android.py:52-54
+#   JDK (Temurin) (158)       17.0.20.1+1        python/mozboot/mozboot/android.py:54-56
 #                                                taskcluster/kinds/toolchain/android.yml:196
 #                                                gradle/gradle-daemon-jvm.properties:8
-#   Android NDK               r29                python/mozboot/mozboot/android.py:28
+#   Android NDK (158)         r30                python/mozboot/mozboot/android.py:30
 #                                                build/moz.configure/android-ndk.configure:8-13,114-119
-#   SDK cmdline-tools (157)   21.0 / 15641748    python/mozboot/mozboot/android.py:31-32
+#   SDK cmdline-tools (158)   23.0 / 16111833    python/mozboot/mozboot/android.py:31-32
 #   SDK build-tools           37.0.0             build/moz.configure/android-sdk.configure:154-156
 #                                                python/mozboot/mozboot/android-packages.txt:3
-#   SDK platform (157)        android-37.1       build/moz.configure/android-sdk.configure:154,227-228
+#   SDK platform (158)        android-37.2       build/moz.configure/android-sdk.configure:154,227-228
 #                                                python/mozboot/mozboot/android-packages.txt:4
 #   SDK platform-tools        latest             python/mozboot/mozboot/android-packages.txt:2
 #   SDK emulator              latest             python/mozboot/mozboot/android-packages.txt:1
@@ -100,13 +104,13 @@ RUN for t in bash curl find git gzip make patch perl python3 tar unzip wget zstd
 # Pinned versions. Changing any of these means re-reading the source above.
 # ---------------------------------------------------------------------------
 ENV LW_JAVA_MAJOR=17
-ENV LW_JDK_VERSION=17.0.18
-ENV LW_JDK_BUILD=8
-ENV LW_ANDROID_NDK_VERSION=r29
-ENV LW_ANDROID_CMDLINE_TOOLS_VERSION=21.0
-ENV LW_ANDROID_CMDLINE_TOOLS_BUILD=15641748
+ENV LW_JDK_VERSION=17.0.20.1
+ENV LW_JDK_BUILD=1
+ENV LW_ANDROID_NDK_VERSION=r30
+ENV LW_ANDROID_CMDLINE_TOOLS_VERSION=23.0
+ENV LW_ANDROID_CMDLINE_TOOLS_BUILD=16111833
 ENV LW_ANDROID_BUILD_TOOLS_VERSION=37.0.0
-ENV LW_ANDROID_PLATFORM=android-37.1
+ENV LW_ANDROID_PLATFORM=android-37.2
 ENV LW_BUNDLETOOL_VERSION=1.18.3
 ENV LW_RUST_VERSION=1.94.1
 
@@ -145,7 +149,7 @@ ENV CARGO_HOME=${MOZBUILD_STATE_PATH}/cargo
 ENV PATH=${CARGO_HOME}/bin:${JAVA_HOME}/bin:${ANDROID_SDK_ROOT}/platform-tools:${ANDROID_SDK_ROOT}/cmdline-tools/${LW_ANDROID_CMDLINE_TOOLS_VERSION}/bin:${PATH}
 
 # ---------------------------------------------------------------------------
-# JDK — Temurin 17.0.18+8.
+# JDK — Temurin 17.0.20.1+1.
 # URL shape copied from python/mozboot/mozboot/android.py:899-903.
 # Every layer from here down fails hard on error (no `; true`): a silently
 # missing toolchain is exactly the fail-open mode this image exists to avoid.
@@ -166,7 +170,7 @@ RUN mkdir -p /root/.gradle \
  && echo "org.gradle.java.installations.paths=${JAVA_HOME}" > /root/.gradle/gradle.properties
 
 # ---------------------------------------------------------------------------
-# Android SDK command-line tools — 21.0, build 15641748.
+# Android SDK command-line tools — 23.0, build 16111833.
 # URL and the cmdline-tools/<version-string>/ relayout are both from
 # python/mozboot/mozboot/android.py:422-450 (ensure_android_sdk); configure
 # looks for the tool at that exact path (android.py:285-293).
@@ -180,11 +184,12 @@ RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools \
  && rm -f /tmp/cmdline-tools.zip \
  && test -x "${ANDROID_SDK_ROOT}/cmdline-tools/${LW_ANDROID_CMDLINE_TOOLS_VERSION}/bin/sdkmanager"
 
-# Accept the SDK licences non-interactively. An image that stops at a licence
-# prompt is useless in CI. `yes |` is the same trick mozboot uses
-# (python/mozboot/mozboot/android.py:674-679 feeds 100 "y" lines to sdkmanager).
-RUN yes | sdkmanager --sdk_root=${ANDROID_SDK_ROOT} --licenses > /dev/null \
- && test -d ${ANDROID_SDK_ROOT}/licenses
+# Licences are accepted by the `yes |` on the package install below, which is
+# what mozboot does (python/mozboot/mozboot/android.py:676-681 feeds 100 "y"
+# lines to the install command and nothing else). Up to cmdline-tools 21.0 this
+# image ran a separate `sdkmanager --licenses` first; cmdline-tools 23.0
+# (Firefox 158) deprecates sdkmanager in favour of the `android` CLI, prints
+# "The --licenses option is no longer needed." and exits 1 on it.
 
 # SDK packages, verbatim from python/mozboot/mozboot/android-packages.txt:1-4.
 # `emulator` looks like a test-only package but is NOT optional: configure runs
@@ -202,14 +207,14 @@ RUN yes | sdkmanager --sdk_root=${ANDROID_SDK_ROOT} \
  && test -f "${ANDROID_SDK_ROOT}/platforms/${LW_ANDROID_PLATFORM}/android.jar"
 
 # ---------------------------------------------------------------------------
-# Android NDK — r29 exactly.
+# Android NDK — r30 exactly.
 # URL shape from python/mozboot/mozboot/android.py:733-742 (android_ndk_url);
 # the archive unpacks to a top-level android-ndk-$VER directory (android.py:418-419).
 #
 # The Pkg.Revision assertion below is deliberate. build/moz.configure/android-ndk.configure:114-119
-# dies unless get_ndk_version() renders exactly "r29", and that function
+# dies unless get_ndk_version() renders exactly "r30", and that function
 # (python/mozboot/mozboot/android.py:240-272) derives the letter suffix from the
-# MINOR field: 29.0.x => "r29", 29.1.x => "r29b". So a drop-in "latest r29x" is a
+# MINOR field: 30.0.x => "r30", 30.1.x => "r30b". So a drop-in "latest r30x" is a
 # hard failure, not a compatible upgrade — catch it here rather than at link time.
 # ---------------------------------------------------------------------------
 RUN wget -q -O /tmp/android-ndk.zip \
@@ -217,7 +222,7 @@ RUN wget -q -O /tmp/android-ndk.zip \
  && unzip -q /tmp/android-ndk.zip -d ${MOZBUILD_STATE_PATH} \
  && rm -f /tmp/android-ndk.zip \
  && test -f "${ANDROID_NDK_HOME}/source.properties" \
- && grep -Eq '^Pkg\.Revision *= *29\.0\.' "${ANDROID_NDK_HOME}/source.properties" \
+ && grep -Eq '^Pkg\.Revision *= *30\.0\.' "${ANDROID_NDK_HOME}/source.properties" \
  && test -x "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
 
 # bundletool 1.18.3 — python/mozboot/mozboot/android.py:32-33. configure requires

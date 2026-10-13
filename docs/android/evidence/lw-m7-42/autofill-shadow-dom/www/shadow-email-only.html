@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LW-M7-42 shadow email only</title></head>
+<body style="font-size:20px"><h3>LW-M7-42 open shadow-DOM email fields, no password (must stay unregistered)</h3>
+<!-- A newsletter sign-up (formless) and a checkout contact field (inside a
+     <form> in its own shadow root), each type=email autocomplete=email in an
+     OPEN shadow root. No password field anywhere on the page, so neither is a
+     login field: upstream registers only forms that hold a password field. -->
+<my-input data-name="email" data-ph="Newsletter email"></my-input><br>
+<my-input data-name="checkout-email" data-ph="Checkout email" data-form="1"></my-input><br>
+<button style="font-size:24px">Subscribe</button>
+<script>
+customElements.define('my-input', class extends HTMLElement { constructor(){ super(); const r=this.attachShadow({mode:'open'});
+ const f='<label>'+this.dataset.name+' <input name="'+this.dataset.name+'" type="email" autocomplete="email" placeholder="'+this.dataset.ph+'" style="font-size:24px;width:90%;height:60px"></label>';
+ r.innerHTML=this.dataset.form ? '<form action="/checkout" style="margin:0">'+f+'</form>' : f; }});
+</script></body></html>

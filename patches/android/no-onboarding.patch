@@ -782,6 +782,16 @@
 # from prod-images.merino.prod.webservices.mozgcp.net when the user OPENS that sheet.
 # Not a first-run request, so outside this patch's measured scope; owner decision.
 # The 153 measurement sections above were not re-run on 157 (no 157 APK exists yet).
+#
+# 158 REBASE (2026-10-04, pre-rebase against Firefox 158.0b3)
+# ------------------------------------------------------------
+# Same intent, same files. ContentRecommendationsFeatureHelper.kt lost its
+# CONTENT_RECOMMENDATIONS_SUPPORTED_LOCALE list on 158: the locale check moved
+# to android-components (isContentRecommendationsLocaleSupported(), which also
+# adds en-IE and pl-PL and drops region-less tags). Both helpers are still a
+# constant false and the now-unused imports go. The LW-M4-14 test keeps its
+# shape (no locale turns either feature on) and its literal locale list grows
+# by en-IE and pl-PL. Every other hunk is the 157 change at its 158 position.
 diff --git a/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt b/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
 index 44b5a2f..335a1ba 100644
 --- a/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
@@ -920,21 +930,19 @@ index ffbc86d..5198411 100644
              is ContentRecommendationsAction.PocketStoriesCategoriesChange -> {
                  // Intercept the original action which would only update categories and
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelper.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelper.kt
-index 9911655..20e8f8c 100644
+index 5a16d18..b444ce3 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelper.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelper.kt
-@@ -5,8 +5,6 @@
+@@ -5,23 +5,17 @@
  package org.mozilla.fenix.home.pocket
  
  import android.content.Context
+-import mozilla.components.service.pocket.isContentRecommendationsLocaleSupported
 -import mozilla.components.support.locale.LocaleManager
 -import mozilla.components.support.locale.LocaleManager.getSystemDefault
  
  /** Utility singleton for providing helper functions related to content recommendations feature flags. */
  object ContentRecommendationsFeatureHelper {
-@@ -30,16 +28,13 @@ object ContentRecommendationsFeatureHelper {
-         )
- 
      /** Show Pocket sponsored stories in between Pocket recommended stories on home. */
 -    fun isPocketSponsoredStoriesFeatureEnabled(context: Context): Boolean {
 -        return isContentRecommendationsFeatureEnabled(context)
@@ -947,8 +955,8 @@ index 9911655..20e8f8c 100644
       * otherwise.
       */
 -    fun isContentRecommendationsFeatureEnabled(context: Context): Boolean {
--        val langTag = LocaleManager.getCurrentLocale(context)?.toLanguageTag() ?: getSystemDefault().toLanguageTag()
--        return CONTENT_RECOMMENDATIONS_SUPPORTED_LOCALE.contains(langTag)
+-        val locale = LocaleManager.getCurrentLocale(context) ?: getSystemDefault()
+-        return isContentRecommendationsLocaleSupported(locale)
 -    }
 +    @Suppress("UNUSED_PARAMETER")
 +    fun isContentRecommendationsFeatureEnabled(context: Context): Boolean = false
@@ -1054,10 +1062,10 @@ index 420b369..831813d 100644
          settings.hasAcceptedTermsOfService = true
          settings.termsOfUseAcceptedVersion = TOU_VERSION
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index 7881995..a5be9d7 100644
+index aa45564..f7f89fc 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2340,25 +2340,12 @@ class Settings(
+@@ -2360,25 +2360,12 @@ class Settings(
       *   benchmark builds onboarding is suppressed by default so generators don't spend emulator time dismissing it;
       *   ignored in every shipped build.
       */
@@ -1085,7 +1093,7 @@ index 7881995..a5be9d7 100644
  
      /**
       * Secret setting preference that forces the onboarding flow to be shown every time `HomeActivity` is created. When
-@@ -2374,7 +2361,7 @@ class Settings(
+@@ -2394,7 +2381,7 @@ class Settings(
          )
  
      /** Indicates if the onboarding feature is enabled. */
@@ -1094,7 +1102,7 @@ index 7881995..a5be9d7 100644
  
      /** The current onboarding page index. */
      var onboardingCurrentPageIndex by
-@@ -2950,31 +2937,17 @@ class Settings(
+@@ -2985,31 +2972,17 @@ class Settings(
              default = false,
          )
  
@@ -1215,10 +1223,10 @@ index fd8d751..9c31a4f 100644
      fun `GIVEN pocket settings are false WHEN App is Started THEN don't start the Pocket workers`() = runTest {
          val pocketService: PocketStoriesService = mockk(relaxed = true)
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelperTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelperTest.kt
-index 596bf15..242025e 100644
+index 874d89f..f0f8539 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelperTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelperTest.kt
-@@ -10,14 +10,48 @@ import mozilla.components.support.locale.LocaleManager
+@@ -10,14 +10,52 @@ import mozilla.components.support.locale.LocaleManager
  import mozilla.components.support.test.robolectric.testContext
  import org.junit.After
  import org.junit.Assert.assertFalse
@@ -1241,9 +1249,11 @@ index 596bf15..242025e 100644
 + * and discards writes.
 + *
 + * The locale list below is a literal in the test rather than a read of the production
-+ * constant, deliberately: a loop over the constant would still pass if a rebase
++ * code, deliberately: a loop over upstream's list would still pass if a rebase
 + * reinstated the locale check and shrank the list. These are the exact fourteen tags the
-+ * deleted tests covered, plus the ro-RO they used as the unsupported control.
++ * deleted 157 tests covered, plus en-IE and pl-PL, which Firefox 158 added when the
++ * locale check moved to android-components' isContentRecommendationsLocaleSupported(),
++ * plus the ro-RO they used as the unsupported control.
 + */
  @RunWith(AndroidJUnit4::class)
  class ContentRecommendationsFeatureHelperTest {
@@ -1263,12 +1273,14 @@ index 596bf15..242025e 100644
 +        "de-DE",
 +        "de-AT",
 +        "de-CH",
++        "en-IE",
++        "pl-PL",
 +    )
 +
      @Before
      @After
      fun cleanUp() {
-@@ -25,146 +59,48 @@ class ContentRecommendationsFeatureHelperTest {
+@@ -25,68 +63,48 @@ class ContentRecommendationsFeatureHelperTest {
      }
  
      @Test
@@ -1312,127 +1324,51 @@ index 596bf15..242025e 100644
      }
  
      @Test
-     fun `GIVEN unsupported locale WHEN content recommendations feature enabled check is invoked THEN return false`() {
--        val locale = Locale.Builder().setLanguage("ro").setRegion("RO").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-    fun `GIVEN unsupported locales WHEN content recommendations feature enabled check is invoked THEN return false`() {
+-        listOf("ro-RO", "es-AR").forEach {
+-            LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = Locale.forLanguageTag(it))
++    fun `GIVEN unsupported locale WHEN content recommendations feature enabled check is invoked THEN return false`() {
 +        setLocale("ro-RO")
  
-         assertFalse(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-            assertFalse(it, ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-        }
++        assertFalse(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
      }
  
      @Test
--    fun `GIVEN supported fr locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("fr").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-    fun `GIVEN locales with a supported language and region WHEN content recommendations feature enabled check is invoked THEN return true`() {
+-        val locales =
+-            listOf(
+-                "fr-FR",
+-                "es-ES",
+-                "it-IT",
+-                "en-CA",
+-                "en-GB",
+-                "en-IE",
+-                "en-US",
+-                "de-DE",
+-                "de-AT",
+-                "de-CH",
+-                "pl-PL",
+-            )
 -
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported fr-FR locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("fr").setRegion("FR").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
--
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported es locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("es").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
--
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported es-ES locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("es").setRegion("ES").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
--
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported it locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("it").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
--
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported it-IT locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("it").setRegion("IT").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
--
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported en locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("en").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
--
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported en-CA locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("en").setRegion("CA").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
--
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported en-GB locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("en").setRegion("GB").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
--
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported en-US locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("en").setRegion("US").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
--
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported de locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("de").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
--
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported de-DE locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("de").setRegion("DE").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
--
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
--    }
--
--    @Test
--    fun `GIVEN supported de-AT locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("de").setRegion("AT").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-        locales.forEach {
+-            LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = Locale.forLanguageTag(it))
 +    fun `GIVEN unsupported locale WHEN pocket sponsored stories feature enabled check is invoked THEN return false`() {
 +        setLocale("ro-RO")
  
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-            assertTrue(it, ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-        }
 +        assertFalse(ContentRecommendationsFeatureHelper.isPocketSponsoredStoriesFeatureEnabled(testContext))
      }
  
 -    @Test
--    fun `GIVEN supported de-CH locale WHEN content recommendations feature enabled check is invoked THEN return true`() {
--        val locale = Locale.Builder().setLanguage("de").setRegion("CH").build()
--        LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = locale)
+-    fun `GIVEN locales without a region WHEN content recommendations feature enabled check is invoked THEN return false`() {
+-        listOf("fr", "es", "it", "en", "de", "pl").forEach {
+-            LocaleManager.setNewLocale(testContext, localeUseCase = null, locale = Locale.forLanguageTag(it))
 -
--        assertTrue(ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-            assertFalse(it, ContentRecommendationsFeatureHelper.isContentRecommendationsFeatureEnabled(testContext))
+-        }
 +    private fun setLocale(languageTag: String) {
 +        LocaleManager.setNewLocale(
 +            testContext,
@@ -1702,7 +1638,7 @@ index 373735a..d57cd69 100644
  
      @Test
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
-index 9a8a93f..e6f7670 100644
+index ecb9dc8..99cd6cd 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
 @@ -841,8 +841,14 @@ class SettingsTest {
@@ -1775,7 +1711,7 @@ index 9a8a93f..e6f7670 100644
              settings.shouldShowOnboarding(
                  featureEnabled = true,
                  hasUserBeenOnboarded = false,
-@@ -1184,13 +1206,18 @@ class SettingsTest {
+@@ -1215,13 +1237,18 @@ class SettingsTest {
          assertFalse(settings.shouldShowSetAsDefaultPrompt())
      }
  
@@ -1796,7 +1732,7 @@ index 9a8a93f..e6f7670 100644
      }
  
      @Test
-@@ -1203,30 +1230,30 @@ class SettingsTest {
+@@ -1234,30 +1261,30 @@ class SettingsTest {
      }
  
      @Test

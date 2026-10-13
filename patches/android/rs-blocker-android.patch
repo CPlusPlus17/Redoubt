@@ -69,6 +69,13 @@
 # own unit tests that drive fetch_changes/make_request against mockito
 # expect network behaviour this patch removes, as on 153.
 
+# 158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3)
+# -----------------------------------------------------------
+# Same three choke points. client.rs: 158 split ViaductApiClient::make_request()
+# into a thin wrapper that only logs errors (breadcrumb!) and _make_request(),
+# which does the send. The blocking body now replaces _make_request(), the
+# function that performs the request; make_request() is left as upstream wrote
+# it, so every caller still gets the same Err. service.rs and sync() unchanged.
 --- a/third_party/application-services/components/remote_settings/src/client.rs
 +++ b/third_party/application-services/components/remote_settings/src/client.rs
 @@ -379,25 +379,9 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
@@ -100,11 +107,10 @@
          Ok(())
      }
  
-@@ -647,22 +631,14 @@ impl ViaductApiClient {
+@@ -652,21 +636,14 @@ impl ViaductApiClient {
      }
  
-     fn make_request(&mut self, url: Url) -> Result<Response> {
--        breadcrumb!("make_request: {url}");
+     fn _make_request(&mut self, url: Url) -> Result<Response> {
 -        self.remote_state.ensure_no_backoff()?;
 -
 -        let req = Request::get(url);

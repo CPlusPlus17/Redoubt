@@ -223,6 +223,20 @@ def ubo_added_notice_present(xml, package):
                for node in parse_ui(xml).iter("node"))
 
 
+# LW-M7-46: Redoubt ships librewolf.webgl.prompt.notice=false, so a quiet
+# (blocked-by-default) WebGL or canvas request must show no notice at all. This
+# is the English snackbar text 157.0/158.0b4 builds showed, and its action.
+QUIET_NOTICE_TEXT = "Canvas or WebGL was protected. Review in site permissions."
+
+
+def quiet_notice_present(xml, package):
+    """True when the quiet-request snackbar (its text or its Review action) is on screen."""
+    return any(node.get("package") == package and (
+                   node.get("text") == QUIET_NOTICE_TEXT or
+                   (node.get("resource-id") == package + ":id/snackbar_action" and node.get("text") == "Review"))
+               for node in parse_ui(xml).iter("node"))
+
+
 def menu_item(xml, label, package):
     """The unique visible menu entry labelled `label`, by text or content-desc.
 
@@ -602,7 +616,7 @@ class Evidence:
 
 
 PREFS_JS = r"""
-const names = ['librewolf.webgl.prompt','librewolf.webgl.prompt.hide','webgl.disabled',
+const names = ['librewolf.webgl.prompt','librewolf.webgl.prompt.hide','librewolf.webgl.prompt.notice','webgl.disabled',
  'privacy.resistFingerprinting','privacy.fingerprintingProtection','privacy.fingerprintingProtection.pbmode',
  'privacy.fingerprintingProtection.overrides','permissions.isolateBy.privateBrowsing',
  'permissions.isolateBy.userContext','dom.security.https_only_mode','network.trr.mode'];
@@ -641,7 +655,11 @@ class UI:
         self.remote = "/sdcard/lw-graphics-" + run + ".xml"
         self.remote_used = False
         self.timeout, self.screenshots = timeout, screenshots
-        self.review_results = []
+        # With forbid_quiet_notice (the graphics Runner sets it), every dump is also a check
+        # that no quiet notice is visible (LW-M7-46). Subclasses for other harnesses leave it off.
+        self.forbid_quiet_notice = False
+        self.notice_checks = {"normal": 0, "private": 0}
+        self.private = False
 
     def node(self, xml, **selector):
         return select_node(xml, package=self.package, **selector)
@@ -655,10 +673,15 @@ class UI:
         xml = self.shell("cat", self.remote)
         parse_ui(xml)
         self.evidence.artifact(label, xml, "xml")
-        if screenshot and self.screenshots:
+        notice = self.forbid_quiet_notice and quiet_notice_present(xml, self.package)
+        if (screenshot or notice) and self.screenshots:
             shot = subprocess.run(self.adb._argv(["exec-out", "screencap", "-p"]), capture_output=True, timeout=30)
             if shot.returncode == 0 and shot.stdout.startswith(b"\x89PNG"):
                 self.evidence.artifact(label, shot.stdout, "png")
+        require(not notice, "A quiet WebGL/canvas request showed a notice, but Redoubt ships none "
+                            "(librewolf.webgl.prompt.notice=false, LW-M7-46); seen in dump " + repr(label))
+        if self.forbid_quiet_notice:
+            self.notice_checks["private" if self.private else "normal"] += 1
         return xml
 
     def wait(self, *, label="wait-control", timeout=None, **selector):
@@ -771,54 +794,14 @@ class UI:
                 return
         raise Failure("Permission controls did not close")
 
-    def quiet_review(self, notice, private):
-        """Tap the quiet notice's Review; True when it opened the permissions list.
-
-        The notice is a LENGTH_LONG snackbar shown on the first blocked request,
-        so it can expire between the dump that found it and the tap (rc2 had one
-        such miss in 34 normal-tab taps). A miss counts as expired only when the
-        notice is gone and no permission UI opened; the caller then uses the site
-        controls instead. run() still requires Review to have opened the list in
-        a normal and in a private tab, so a broken Review action cannot pass.
-        """
-        self.tap(notice, "quiet-review")
-        deadline = time.monotonic() + 6
-        while True:
-            xml = self.dump("quiet-review-list")
-            if self.node(xml, rid="origin_permissions_dialog_list", required=False):
-                self.review_results.append({"private": private, "opened": True})
-                self.evidence.event("quiet-review", {"private": private, "opened": True})
-                return True
-            if time.monotonic() >= deadline:
-                break
-            time.sleep(0.25)
-        xml = self.dump("quiet-review-missed", screenshot=True)
-        if self.node(xml, rid="origin_permissions_dialog_list", required=False):
-            self.review_results.append({"private": private, "opened": True})
-            self.evidence.event("quiet-review", {"private": private, "opened": True})
-            return True
-        require(self.node(xml, rid="snackbar_action", text="Review", required=False) is None,
-                "Review was tapped and is still shown, but the permissions list did not open")
-        require(not any(self.node(xml, rid=rid, required=False) for rid in
-                        ("origin_permissions_entry", "origin_permission_allow", "origin_permission_reload")),
-                "Review opened something other than the permissions list")
-        self.review_results.append({"private": private, "opened": False})
-        self.evidence.event("quiet-review", {"private": private, "opened": False,
-                                             "fallback": "notice expired before the tap; using site controls"})
-        return False
-
     def open_permissions(self, private=False):
+        # Quiet requests have no notice to tap (LW-M7-46): the site controls are the way in.
         xml = self.dump("before-open-permissions", screenshot=True)
         xml = self.acknowledge_ubo_added_notice(xml)
         if self.node(xml, rid="origin_permissions_dialog_list", required=False):
             return
         entry = self.node(xml, rid="origin_permissions_entry", required=False)
         if not entry:
-            notice = self.node(xml, text="Review", required=False)
-            if notice and self.quiet_review(notice, private):
-                return
-            if notice:
-                xml = self.dump("after-expired-review")
             for rid in ("mozac_browser_toolbar_tracking_protection_indicator",
                         "mozac_browser_toolbar_site_info_indicator"):
                 indicator = self.node(xml, rid=rid, required=False)
@@ -828,7 +811,7 @@ class UI:
             else:
                 indicator = self.node(xml, description="Site information", required=False)
                 if not indicator:
-                    raise Failure("No quiet Review action or real Fenix site-info control was visible")
+                    raise Failure("No real Fenix site-info control was visible")
                 self.tap(indicator, "open-site-information")
         self.click(rid="origin_permissions_entry", label="open-graphics-permissions")
         self.wait(rid="origin_permissions_dialog_list", label="graphics-permissions-list")
@@ -907,7 +890,7 @@ class UI:
         require(value == "" or (hint and value == hint), "New private address field is not empty")
         self.shell("input", "text", url)
         self.shell("input", "keyevent", "66")
-        # The page's quiet snackbar sits where the keyboard is; see close_soft_keyboard.
+        # A stuck keyboard covers the page's lower half; see close_soft_keyboard.
         self.close_soft_keyboard("after private URL submission")
 
 
@@ -915,6 +898,7 @@ class Runner:
     def __init__(self, args, evidence, protocol, adb):
         self.args, self.evidence, self.protocol, self.adb = args, evidence, protocol, adb
         self.ui = UI(adb, args.package, evidence, evidence.data["run"], args.ui_timeout, not args.no_screenshots)
+        self.ui.forbid_quiet_notice = True
         self.fixtures, self.marionette, self.forward_port = [], None, None
         self.forward_created = False
         self.reversed_ports = []
@@ -1062,6 +1046,7 @@ class Runner:
         if connect:
             self.connect()
         self.active_url, self.private = url, private
+        self.ui.private = private
         result = self.snapshot()
         self.evidence.check("current-fixture-document", result)
         return result
@@ -1072,6 +1057,8 @@ class Runner:
         values = {item["name"]: item["value"] for item in prefs}
         require(values.get("librewolf.webgl.prompt") is True, "The installed default graphics gate is disabled")
         require(values.get("librewolf.webgl.prompt.hide") is True, "The shipped quiet WebGL policy is disabled")
+        require(values.get("librewolf.webgl.prompt.notice") is False,
+                "librewolf.webgl.prompt.notice is not false: quiet requests would show a notice (LW-M7-46)")
         require(values.get("webgl.disabled") is False, "WebGL is globally disabled instead of usable with consent")
         require(values.get("permissions.isolateBy.privateBrowsing") is True, "Private permission isolation is disabled")
         return values
@@ -1176,6 +1163,9 @@ class Runner:
         require(self.ui.node(xml, rid="origin_permissions_dialog_list", required=False) is None,
                 "A pre-gesture quiet attempt opened the permission list automatically")
         self.evidence.check("quiet-no-automatic-dialog", {"origin": fixture.origin})
+        # The matrix above made blocked WebGL, WebGL2 and canvas attempts in every mode; the
+        # dumps since then (each one checks) and this one show no notice for them.
+        self.evidence.check("quiet-no-notice", {"origin": fixture.origin, "dumps": dict(self.ui.notice_checks)})
         self.choose(fixture, "webgl", "allow")
         self.probe(fixture, "canvas", context_allowed=True, readback_allowed=False)
         self.choose(fixture, "canvas", "allow")
@@ -1278,6 +1268,7 @@ class Runner:
                     self.marionette.cmd("WebDriver:SwitchToWindow", {"handle": handles[0], "focus": False})
                     if self.marionette.script(PRIVATE_WINDOWS_JS, chrome=True) == 0:
                         self.private = False
+                        self.ui.private = False
                         return
             except (self.protocol.MarionetteError, OSError):
                 pass
@@ -1332,13 +1323,10 @@ class Runner:
         for installed in self.evidence.data["installed"]["apk"]:
             final_hash = self.shell("sha256sum", installed["path"]).strip().split()[0]
             require(final_hash == installed["sha256"], "Installed APK changed during acceptance")
-        for private in (False, True):
-            require(any(r["opened"] and r["private"] == private for r in self.ui.review_results),
-                    "The quiet Review action never opened the permissions list in a %s tab"
-                    % ("private" if private else "normal"))
-        self.evidence.check("quiet-review-opens-permissions-in-normal-and-private-tabs",
-                            {"attempts": self.ui.review_results})
-        required = {"core-real-ui-consent-and-revoke", "session-exceptions-expire-on-process-restart",
+        for mode in ("normal", "private"):
+            require(self.ui.notice_checks[mode] > 0, "No UI dump checked for a quiet notice in a %s tab" % mode)
+        self.evidence.check("no-quiet-notice-in-normal-and-private-tabs", {"dumps": dict(self.ui.notice_checks)})
+        required = {"core-real-ui-consent-and-revoke", "quiet-no-notice", "no-quiet-notice-in-normal-and-private-tabs", "session-exceptions-expire-on-process-restart",
                     "remembered-exceptions-survive-process-restart",
                     "private-choices-isolated-and-cleared-on-last-private-close", "frame-origin-port-and-revoke-isolation"}
         require(required <= {check["name"] for check in self.evidence.data["checks"]}, "Acceptance stages are incomplete")

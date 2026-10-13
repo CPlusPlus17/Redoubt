@@ -442,6 +442,20 @@
 #   Same measurement repeated on fenix-arm64-v8a-debug.apk (the shipping-shaped
 #   ABI): same result, 0 for every needle and every class group.
 #
+# 158 REBASE (2026-10-04, pre-rebase against Firefox 158.0b3)
+# ------------------------------------------------------------
+# Intent unchanged, same file set. Only InstallReferrerHandlingService.kt and
+# its test needed work: 158 added a pairing-campaign check to both (it reads
+# the install referrer's utm_content against Nimbus
+# pairingSigninPrompt.campaignUtmContent and stores
+# Settings.isUserPairingCampaignAttributed), so the 153/157 deletion hunks no
+# longer matched the file. Both files are still deleted whole. The new
+# isUserPairingCampaignAttributed pref is left, default false, like the other
+# isUser*Attributed prefs: its only writer was the deleted service and nothing
+# in main/ reads it on 158 (checked). Every other hunk is the 157 change at its
+# 158 position (libs.versions.toml, build.gradle and detekt-baseline.xml had
+# drifted to fuzz 1-2), regenerated at fuzz 0.
+#
 # One methodological note worth carrying forward: the FIRST version of this patch
 # expressed its 15 deletions the way `diff -urN` writes them -- `+++ b/<path>`
 # with a 1970 timestamp -- and the timestamps were then stripped to match the
@@ -454,7 +468,7 @@
 # this patch does, and the check is `find` before/after: 33 files in, 18 out.
 --- a/gradle/libs.versions.toml
 +++ b/gradle/libs.versions.toml
-@@ -56,7 +56,6 @@
+@@ -56,7 +56,6 @@ work = "2.11.2"
  # Google other
  accompanist = "0.37.3"
  firebase-messaging = "25.0.2"
@@ -462,15 +476,15 @@
  ksp = "2.3.11"
  material = "1.14.0"
  mlkit-prompt = "1.0.0-beta4"
-@@ -105,7 +104,6 @@
- robolectric = "4.16.1"
+@@ -105,7 +104,6 @@ mockk = "1.14.11"
+ robolectric = "4.17"
  
  # Third party libraries
 -adjust = "5.8.0"
  androidsvg = "1.4"
  disklrucache = "2.0.2"
- jetbrains-markdown = "0.7.12"
-@@ -232,7 +230,6 @@
+ jetbrains-markdown = "0.7.14"
+@@ -232,7 +230,6 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
  accompanist-drawablepainter = { module = "com.google.accompanist:accompanist-drawablepainter", version.ref = "accompanist" }
  firebase-messaging = { module = "com.google.firebase:firebase-messaging", version.ref = "firebase-messaging" }
  google-material = { module = "com.google.android.material:material", version.ref = "material" }
@@ -478,7 +492,7 @@
  ksp-symbol-processing-aa = { module = "com.google.devtools.ksp:symbol-processing-aa", version.ref = "ksp" }
  ksp-symbol-processing-aa-embeddable = { module = "com.google.devtools.ksp:symbol-processing-aa-embeddable", version.ref = "ksp" }
  ksp-symbol-processing-api = { module = "com.google.devtools.ksp:symbol-processing-api", version.ref = "ksp" }
-@@ -300,7 +297,6 @@
+@@ -300,7 +297,6 @@ mockk-android = { module = "io.mockk:mockk-android", version.ref = "mockk" }
  robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
  
  # Third party libraries
@@ -488,7 +502,7 @@
  jetbrains-markdown = { module = "org.jetbrains:markdown", version.ref = "jetbrains-markdown" }
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -333,13 +333,6 @@
+@@ -333,13 +333,6 @@ android.defaultConfig.with {
      def buildDate = LocalDateTime.parse(getBuildId(gradle.mozconfig.topobjdir, providers.environmentVariable("MOZ_BUILD_DATE").getOrNull()), DateTimeFormatter.ofPattern("yyyyMMddHHmmss")).toString()
      buildConfigField 'String', 'BUILD_DATE', '"' + buildDate + '"'
  
@@ -502,7 +516,7 @@
      try {
          def url = new File("${rootDir}/.nimbus").text.trim()
          buildConfigField 'String', 'NIMBUS_ENDPOINT', '"' + url + '"'
-@@ -391,7 +384,6 @@
+@@ -391,7 +384,6 @@ android.buildTypes.debug.with {
      buildConfigField 'boolean', 'TELEMETRY', 'false'
      buildConfigField 'String', 'BUILD_DATE', '"debug build"'
      buildConfigField 'String', 'SENTRY_TOKEN', 'null'
@@ -510,15 +524,15 @@
  
      if (gradle.hasProperty("localProperties.nimbus.remote-settings.url")) {
          def url = gradle.getProperty("localProperties.nimbus.remote-settings.url")
-@@ -553,7 +545,6 @@
-     implementation ComponentsDependencies.mozilla_appservices_merino
+@@ -555,7 +547,6 @@ dependencies {
+     implementation ComponentsDependencies.mozilla_appservices_syncmanager
  
      implementation libs.accompanist.drawablepainter
 -    implementation libs.adjust
      implementation libs.androidx.activity
      implementation libs.androidx.annotation
      implementation libs.androidx.appcompat
-@@ -600,7 +591,6 @@
+@@ -602,7 +593,6 @@ dependencies {
      implementation libs.androidx.viewpager2
      implementation libs.androidx.work.runtime
      implementation libs.google.material
@@ -539,7 +553,7 @@
      <uses-permission android:name="${applicationId}.permission.PROFILER_INTERNAL" />
  
      <!-- Needed to prompt the user directly for app uninstallation as part of an
-@@ -861,17 +857,6 @@
+@@ -877,17 +873,6 @@
                  tools:node="remove" />
          </provider>
  
@@ -559,7 +573,7 @@
              <intent-filter>
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -416,10 +416,6 @@
+@@ -416,10 +416,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
                          components.settings.hasMadeMarketingTelemetrySelection,
                  isDailyUsagePingEnabled = components.settings.isDailyUsagePingEnabled,
              )
@@ -572,7 +586,7 @@
          setupPush()
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -125,7 +125,6 @@
+@@ -126,7 +126,6 @@ import org.mozilla.fenix.components.menu.MenuAccessPoint
  import org.mozilla.fenix.components.menu.share.QRCodeDialogFragment
  import org.mozilla.fenix.components.metrics.BreadcrumbsRecorder
  import org.mozilla.fenix.components.metrics.GrowthDataWorker
@@ -580,7 +594,7 @@
  import org.mozilla.fenix.components.metrics.fonts.FontEnumerationWorker
  import org.mozilla.fenix.components.share.QR_CODE_URI_KEY
  import org.mozilla.fenix.components.share.SEND_TO_DEVICES_ACTION
-@@ -519,7 +518,7 @@
+@@ -524,7 +523,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
                  }
  
          SplashScreenManager(
@@ -589,7 +603,7 @@
                  scope = lifecycleScope,
                  splashScreenTimeout = FxNimbus.features.splashScreen.value().maximumDurationMs.toLong(),
                  storage = DefaultSplashScreenStorage(components.settings),
-@@ -1444,7 +1443,7 @@
+@@ -1455,7 +1454,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          return false
      }
  
@@ -598,7 +612,7 @@
          val nimbusOperation =
              if (FxNimbus.features.splashScreen.value().offTrainOnboarding) {
                  ApplyExperimentsOperation(
-@@ -1458,10 +1457,6 @@
+@@ -1469,10 +1468,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
                  )
              }
  
@@ -619,7 +633,7 @@
  import android.app.PendingIntent
  import android.content.Context
  import android.content.Intent
-@@ -29,13 +28,11 @@
+@@ -29,13 +28,11 @@ import org.mozilla.fenix.Config
  import org.mozilla.fenix.HomeActivity
  import org.mozilla.fenix.R
  import org.mozilla.fenix.ReleaseChannel
@@ -633,7 +647,7 @@
  import org.mozilla.fenix.components.metrics.MetricController
  import org.mozilla.fenix.components.metrics.MetricsStorage
  import org.mozilla.fenix.crashes.CrashFactCollector
-@@ -168,13 +165,7 @@
+@@ -178,13 +175,7 @@ class Analytics(
          MetricController.create(
              listOf(
                  GleanMetricsService(context),
@@ -649,7 +663,7 @@
              isDataTelemetryEnabled = { settings.isTelemetryEnabled },
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-@@ -402,7 +402,6 @@
+@@ -422,7 +422,6 @@ class Components(
              browserStoreProvider = DefaultDistributionBrowserStoreProvider(core.store),
              distributionProviderChecker = DefaultDistributionProviderChecker(context),
              distributionSettings = DefaultDistributionSettings(settings),
@@ -1179,7 +1193,7 @@
 -}
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallReferrerHandlingService.kt
 +++ /dev/null
-@@ -1,281 +0,0 @@
+@@ -1,306 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1263,6 +1277,11 @@
 -                                    isRakutenAttribution(installReferrerResponse)
 -                                context.components.settings.isUserSkyflagAttributed =
 -                                    isSkyflagAttribution(installReferrerResponse)
+-                                context.components.settings.isUserPairingCampaignAttributed =
+-                                    isPairingCampaignAttribution(
+-                                        installReferrerResponse,
+-                                        FxNimbus.features.pairingSigninPrompt.value().campaignUtmContent,
+-                                    )
 -                                distributionIdManager.updateDistributionIdFromUtmParams(
 -                                    UTMParams.parseUTMParameters(installReferrerResponse)
 -                                )
@@ -1409,6 +1428,26 @@
 -            val decoded = decodeInstallReferrer(installReferrerResponse)
 -
 -            return UTMParams.parseUTMParameters(decoded).source.equals(SKYFLAG_UTM_SOURCE, ignoreCase = true)
+-        }
+-
+-        /**
+-         * Whether [installReferrerResponse] contains a `utm_content` value that matches the given [campaignUtmContent]
+-         * value, ignoring case.
+-         *
+-         * Unlike the partner checks, this identifies installs from a pairing link so we can show the sign-in prompt
+-         * earlier in onboarding.
+-         */
+-        @VisibleForTesting
+-        internal fun isPairingCampaignAttribution(
+-            installReferrerResponse: String?,
+-            campaignUtmContent: String,
+-        ): Boolean {
+-            if (installReferrerResponse.isNullOrBlank()) return false
+-            if (campaignUtmContent.isBlank()) return false
+-
+-            val decoded = decodeInstallReferrer(installReferrerResponse)
+-
+-            return UTMParams.parseUTMParameters(decoded).content.equals(campaignUtmContent, ignoreCase = true)
 -        }
 -
 -        @Suppress("ReturnCount")
@@ -2150,7 +2189,7 @@
 -}
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/distributions/DistributionTools.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/distributions/DistributionTools.kt
-@@ -28,7 +28,6 @@
+@@ -28,7 +28,6 @@ import mozilla.components.compose.base.theme.PreviewThemeProvider
  import mozilla.components.compose.base.theme.Theme
  import org.mozilla.fenix.R
  import org.mozilla.fenix.components.components
@@ -2158,7 +2197,7 @@
  import org.mozilla.fenix.distributions.DefaultDistributionProviderChecker
  import org.mozilla.fenix.theme.FirefoxTheme
  
-@@ -48,7 +47,6 @@
+@@ -48,7 +47,6 @@ fun DistributionTools() {
      val playInstallReferrer: String by remember {
          mutableStateOf(
              """
@@ -2168,7 +2207,7 @@
                  utmSource: ${settings.utmSource}
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/distributions/DistributionIdManager.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/distributions/DistributionIdManager.kt
-@@ -13,12 +13,7 @@
+@@ -13,12 +13,7 @@ import mozilla.components.support.base.log.logger.Logger
  import mozilla.components.support.utils.ext.PackageManagerWrapper
  import mozilla.telemetry.glean.Glean
  import mozilla.telemetry.glean.internal.DistributionMetrics
@@ -2181,7 +2220,7 @@
  
  /**
   * This file will be present on vivo devices that have Firefox preinstalled. Note: The file is added by the
-@@ -27,8 +22,6 @@
+@@ -27,8 +22,6 @@ import org.mozilla.fenix.components.metrics.UTMParams
  private const val VIVO_PREINSTALLED_FIREFOX_FILE_PATH = "/data/yzfswj/another/vivo_firefox.txt"
  private const val VIVO_MANUFACTURER = "vivo"
  
@@ -2190,7 +2229,7 @@
  private const val DT_PROVIDER = "digital_turbine"
  private const val DT_TELEFONICA_PACKAGE = "com.dti.telefonica"
  private const val DT_VERIZON_PACKAGE = "com.logiagroup.logiadeck"
-@@ -46,7 +39,6 @@
+@@ -46,7 +39,6 @@ private val logger = Logger(DistributionIdManager::class.simpleName)
   * @param browserStoreProvider used to update and fetch the stored distribution Id
   * @param distributionProviderChecker used for checking content providers for a distribution provider
   * @param distributionSettings used to persist and retrieve the distribution ID
@@ -2198,7 +2237,7 @@
   * @param appPreinstalledOnVivoDevice checks if the vivo preinstalled file exists.
   * @param isDtTelefonicaInstalled checks if the DT telefonica app is installed on the device
   * @param isDtUsaInstalled checks if one of the DT USA carrier apps is installed on the device
-@@ -56,7 +48,6 @@
+@@ -56,7 +48,6 @@ class DistributionIdManager(
      private val browserStoreProvider: DistributionBrowserStoreProvider,
      private val distributionProviderChecker: DistributionProviderChecker,
      private val distributionSettings: DistributionSettings,
@@ -2206,7 +2245,7 @@
      private val appPreinstalledOnVivoDevice: () -> Boolean = { wasAppPreinstalledOnVivoDevice() },
      private val isDtTelefonicaInstalled: () -> Boolean = { isDtTelefonicaInstalled(packageManager) },
      private val isDtUsaInstalled: () -> Boolean = { isDtUsaInstalled(packageManager) },
-@@ -105,99 +96,6 @@
+@@ -105,99 +96,6 @@ class DistributionIdManager(
          return Distribution.fromId(getDistributionId())
      }
  
@@ -2306,7 +2345,7 @@
      private fun isDeviceVivo(): Boolean {
          return Build.MANUFACTURER?.lowercase(Locale.getDefault())?.contains(VIVO_MANUFACTURER) ?: false
      }
-@@ -233,23 +131,6 @@
+@@ -233,23 +131,6 @@ class DistributionIdManager(
      }
  }
  
@@ -2332,7 +2371,7 @@
      return try {
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/distributions/DistributionSettings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/distributions/DistributionSettings.kt
-@@ -21,12 +21,6 @@
+@@ -21,12 +21,6 @@ interface DistributionSettings {
       * @param id A non-null string representing the distribution ID to store.
       */
      fun saveDistributionId(id: String)
@@ -2345,7 +2384,7 @@
  }
  
  /**
-@@ -51,9 +45,4 @@
+@@ -51,9 +45,4 @@ class DefaultDistributionSettings(private val settings: Settings) : Distribution
      override fun saveDistributionId(id: String) {
          settings.distributionId = id
      }
@@ -2357,7 +2396,7 @@
  }
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/messaging/CustomAttributeProvider.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/messaging/CustomAttributeProvider.kt
-@@ -15,15 +15,21 @@
+@@ -15,15 +15,21 @@ import mozilla.components.support.base.ext.areNotificationsEnabledSafe
  import mozilla.components.support.base.ext.isNotificationChannelEnabled
  import mozilla.components.support.utils.Browsers
  import org.json.JSONObject
@@ -2386,7 +2425,7 @@
      private val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
-@@ -41,8 +41,6 @@
+@@ -41,8 +41,6 @@ import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
  import org.mozilla.fenix.components.appstate.AppAction
  import org.mozilla.fenix.components.appstate.SupportedMenuNotifications
  import org.mozilla.fenix.components.initializeGlean
@@ -2395,7 +2434,7 @@
  import org.mozilla.fenix.components.metrics.installSourcePackage
  import org.mozilla.fenix.components.startMetricsIfEnabled
  import org.mozilla.fenix.ext.application
-@@ -74,10 +72,6 @@
+@@ -74,10 +72,6 @@ class OnboardingFragment : Fragment() {
  
      private val addMarketingFeature = ViewBoundFeatureWrapper<MarketingPageAdditionSupport>()
  
@@ -2406,7 +2445,7 @@
      private val termsOfServiceEventHandler by lazy {
          DefaultOnboardingTermsOfServiceEventHandler(
              telemetryRecorder = telemetryRecorder,
-@@ -366,8 +360,6 @@
+@@ -366,8 +360,6 @@ class OnboardingFragment : Fragment() {
              Pings.onboardingOptOut.submit()
          }
  
@@ -2417,7 +2456,7 @@
              logger = logger,
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
-@@ -42,7 +42,6 @@
+@@ -42,7 +42,6 @@ import org.mozilla.fenix.GleanMetrics.Preferences
  import org.mozilla.fenix.GleanMetrics.SearchDefaultEngine
  import org.mozilla.fenix.GleanMetrics.TabStrip
  import org.mozilla.fenix.GleanMetrics.TopSites
@@ -2425,7 +2464,7 @@
  import org.mozilla.fenix.components.metrics.MozillaProductDetector
  import org.mozilla.fenix.components.toolbar.ToolbarPosition
  import org.mozilla.fenix.distributions.DefaultDistributionBrowserStoreProvider
-@@ -79,8 +78,6 @@
+@@ -79,8 +78,6 @@ class FenixApplicationTest {
              override fun getDistributionId(): String = ""
  
              override fun saveDistributionId(id: String) = Unit
@@ -2434,7 +2473,7 @@
          }
  
      @Before
-@@ -100,7 +97,6 @@
+@@ -100,7 +97,6 @@ class FenixApplicationTest {
                  browserStoreProvider = DefaultDistributionBrowserStoreProvider(browserStore),
                  distributionProviderChecker = testDistributionProviderChecker,
                  distributionSettings = testDistributionSettings,
@@ -3024,7 +3063,7 @@
 -}
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallReferrerHandlingServiceTest.kt
 +++ /dev/null
-@@ -1,887 +0,0 @@
+@@ -1,1028 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -3038,7 +3077,6 @@
 -import io.mockk.every
 -import io.mockk.mockk
 -import kotlinx.coroutines.CoroutineScope
--import kotlinx.coroutines.Dispatchers
 -import kotlinx.coroutines.ExperimentalCoroutinesApi
 -import kotlinx.coroutines.runBlocking
 -import kotlinx.coroutines.test.advanceUntilIdle
@@ -3060,6 +3098,7 @@
 -import org.mozilla.fenix.ext.components
 -import org.mozilla.fenix.nimbus.FxNimbus
 -import org.mozilla.fenix.nimbus.MarketingOnboardingCard
+-import org.mozilla.fenix.nimbus.PairingSigninPrompt
 -import org.mozilla.fenix.utils.Settings
 -
 -@OptIn(ExperimentalCoroutinesApi::class)
@@ -3131,58 +3170,84 @@
 -        }
 -
 -    @Test
--    fun `GIVEN a non-null referrer on OK response WHEN start is called THEN response is stored`() {
+-    fun `GIVEN a non-null referrer on OK response WHEN start is called THEN response is stored`() = runTest {
 -        val referrer = "utm_source=addons.mozilla.org&utm_medium=referral&utm_content=rta%3Atest"
 -        val service =
--            fakeService(responseCode = InstallReferrerClient.InstallReferrerResponse.OK, referrerResponse = referrer)
+-            fakeService(
+-                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                referrerResponse = referrer,
+-                scope = this,
+-            )
 -
 -        service.start()
+-        advanceUntilIdle()
 -
 -        assertEquals(referrer, InstallReferrerHandlingService.response)
 -    }
 -
 -    @Test
--    fun `GIVEN FEATURE_NOT_SUPPORTED WHEN start is called THEN shouldShowMarketingOnboarding is false`() {
--        val service = fakeService(responseCode = InstallReferrerClient.InstallReferrerResponse.FEATURE_NOT_SUPPORTED)
+-    fun `GIVEN FEATURE_NOT_SUPPORTED WHEN start is called THEN shouldShowMarketingOnboarding is false`() = runTest {
+-        val service =
+-            fakeService(
+-                responseCode = InstallReferrerClient.InstallReferrerResponse.FEATURE_NOT_SUPPORTED,
+-                scope = this,
+-            )
 -
 -        service.start()
+-        advanceUntilIdle()
 -
 -        assertNull(InstallReferrerHandlingService.response)
 -        assertFalse(testContext.components.settings.shouldShowMarketingOnboarding)
 -    }
 -
 -    @Test
--    fun `GIVEN DEVELOPER_ERROR WHEN start is called THEN shouldShowMarketingOnboarding is false`() {
--        val service = fakeService(responseCode = InstallReferrerClient.InstallReferrerResponse.DEVELOPER_ERROR)
+-    fun `GIVEN DEVELOPER_ERROR WHEN start is called THEN shouldShowMarketingOnboarding is false`() = runTest {
+-        val service =
+-            fakeService(
+-                responseCode = InstallReferrerClient.InstallReferrerResponse.DEVELOPER_ERROR,
+-                scope = this,
+-            )
 -
 -        service.start()
+-        advanceUntilIdle()
 -
 -        assertFalse(testContext.components.settings.shouldShowMarketingOnboarding)
 -    }
 -
 -    @Test
--    fun `GIVEN SERVICE_UNAVAILABLE WHEN start is called THEN shouldShowMarketingOnboarding is false`() {
--        val service = fakeService(responseCode = InstallReferrerClient.InstallReferrerResponse.SERVICE_UNAVAILABLE)
+-    fun `GIVEN SERVICE_UNAVAILABLE WHEN start is called THEN shouldShowMarketingOnboarding is false`() = runTest {
+-        val service =
+-            fakeService(
+-                responseCode = InstallReferrerClient.InstallReferrerResponse.SERVICE_UNAVAILABLE,
+-                scope = this,
+-            )
 -
 -        service.start()
+-        advanceUntilIdle()
 -
 -        assertFalse(testContext.components.settings.shouldShowMarketingOnboarding)
 -    }
 -
 -    @Test
--    fun `GIVEN PERMISSION_ERROR WHEN start is called THEN shouldShowMarketingOnboarding is false`() {
--        val service = fakeService(responseCode = InstallReferrerClient.InstallReferrerResponse.PERMISSION_ERROR)
+-    fun `GIVEN PERMISSION_ERROR WHEN start is called THEN shouldShowMarketingOnboarding is false`() = runTest {
+-        val service =
+-            fakeService(
+-                responseCode = InstallReferrerClient.InstallReferrerResponse.PERMISSION_ERROR,
+-                scope = this,
+-            )
 -
 -        service.start()
+-        advanceUntilIdle()
 -
 -        assertFalse(testContext.components.settings.shouldShowMarketingOnboarding)
 -    }
 -
 -    @Test
--    fun `GIVEN a service disconnect WHEN start is called THEN shouldShowMarketingOnboarding is false`() {
--        val service = fakeService(simulateDisconnect = true)
+-    fun `GIVEN a service disconnect WHEN start is called THEN shouldShowMarketingOnboarding is false`() = runTest {
+-        val service = fakeService(simulateDisconnect = true, scope = this)
 -
 -        service.start()
+-        advanceUntilIdle()
 -
 -        assertFalse(testContext.components.settings.shouldShowMarketingOnboarding)
 -    }
@@ -3191,7 +3256,7 @@
 -        responseCode: Int = InstallReferrerClient.InstallReferrerResponse.OK,
 -        referrerResponse: String? = null,
 -        simulateDisconnect: Boolean = false,
--        scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
+-        scope: CoroutineScope,
 -    ) =
 -        InstallReferrerHandlingService(testContext, scope = scope).apply {
 -            clientFactory = {
@@ -3391,30 +3456,35 @@
 -    }
 -
 -    @Test
--    fun `GIVEN a Meta-attributed referrer on OK response WHEN start is called THEN isUserMetaAttributed is true`() {
--        val referrer =
--            """utm_source=apps.facebook.com&utm_medium=paid&utm_content={"app":12345,"t":1234567890,"source":{"data":"DATA","nonce":"NONCE"}}"""
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = referrer,
--            )
+-    fun `GIVEN a Meta-attributed referrer on OK response WHEN start is called THEN isUserMetaAttributed is true`() =
+-        runTest {
+-            val referrer =
+-                """utm_source=apps.facebook.com&utm_medium=paid&utm_content={"app":12345,"t":1234567890,"source":{"data":"DATA","nonce":"NONCE"}}"""
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = referrer,
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertTrue(testContext.components.settings.isUserMetaAttributed)
--    }
+-            assertTrue(testContext.components.settings.isUserMetaAttributed)
+-        }
 -
 -    @Test
--    fun `GIVEN a non-Meta referrer on OK response WHEN start is called THEN isUserMetaAttributed is false`() {
+-    fun `GIVEN a non-Meta referrer on OK response WHEN start is called THEN isUserMetaAttributed is false`() = runTest {
 -        testContext.components.settings.isUserMetaAttributed = true
 -        val service =
 -            fakeService(
 -                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
 -                referrerResponse = "utm_source=google&utm_medium=cpc",
+-                scope = this,
 -            )
 -
 -        service.start()
+-        advanceUntilIdle()
 -
 -        assertFalse(testContext.components.settings.isUserMetaAttributed)
 -    }
@@ -3471,32 +3541,38 @@
 -    }
 -
 -    @Test
--    fun `GIVEN a TikTok-attributed referrer on OK response WHEN start is called THEN isUserTikTokAttributed is true`() {
--        val referrer = "adjust_external_click_id=E.C.P.C.04.AAA&utm_medium=paid"
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = referrer,
--            )
+-    fun `GIVEN a TikTok-attributed referrer on OK response WHEN start is called THEN isUserTikTokAttributed is true`() =
+-        runTest {
+-            val referrer = "adjust_external_click_id=E.C.P.C.04.AAA&utm_medium=paid"
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = referrer,
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertTrue(testContext.components.settings.isUserTikTokAttributed)
--    }
+-            assertTrue(testContext.components.settings.isUserTikTokAttributed)
+-        }
 -
 -    @Test
--    fun `GIVEN a non-TikTok referrer on OK response WHEN start is called THEN isUserTikTokAttributed is false`() {
--        testContext.components.settings.isUserTikTokAttributed = true
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = "utm_source=google&utm_medium=cpc",
--            )
+-    fun `GIVEN a non-TikTok referrer on OK response WHEN start is called THEN isUserTikTokAttributed is false`() =
+-        runTest {
+-            testContext.components.settings.isUserTikTokAttributed = true
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = "utm_source=google&utm_medium=cpc",
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertFalse(testContext.components.settings.isUserTikTokAttributed)
--    }
+-            assertFalse(testContext.components.settings.isUserTikTokAttributed)
+-        }
 -
 -    @Test
 -    fun `WHEN installReferrerResponse is a TikTok attribution THEN we should show marketing onboarding`() =
@@ -3565,32 +3641,38 @@
 -    }
 -
 -    @Test
--    fun `GIVEN a Reddit-attributed referrer on OK response WHEN start is called THEN isUserRedditAttributed is true`() {
--        val referrer = "adjust_external_click_id=reddit_abc123&utm_medium=paid"
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = referrer,
--            )
+-    fun `GIVEN a Reddit-attributed referrer on OK response WHEN start is called THEN isUserRedditAttributed is true`() =
+-        runTest {
+-            val referrer = "adjust_external_click_id=reddit_abc123&utm_medium=paid"
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = referrer,
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertTrue(testContext.components.settings.isUserRedditAttributed)
--    }
+-            assertTrue(testContext.components.settings.isUserRedditAttributed)
+-        }
 -
 -    @Test
--    fun `GIVEN a non-Reddit referrer on OK response WHEN start is called THEN isUserRedditAttributed is false`() {
--        testContext.components.settings.isUserRedditAttributed = true
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = "utm_source=google&utm_medium=cpc",
--            )
+-    fun `GIVEN a non-Reddit referrer on OK response WHEN start is called THEN isUserRedditAttributed is false`() =
+-        runTest {
+-            testContext.components.settings.isUserRedditAttributed = true
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = "utm_source=google&utm_medium=cpc",
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertFalse(testContext.components.settings.isUserRedditAttributed)
--    }
+-            assertFalse(testContext.components.settings.isUserRedditAttributed)
+-        }
 -
 -    @Test
 -    fun `WHEN installReferrerResponse is a Reddit attribution THEN we should show marketing onboarding`() =
@@ -3642,32 +3724,38 @@
 -    }
 -
 -    @Test
--    fun `GIVEN an X-attributed referrer on OK response WHEN start is called THEN isUserXTwitterAttributed is true`() {
--        val referrer = "utm_source=x&utm_medium=paid"
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = referrer,
--            )
+-    fun `GIVEN an X-attributed referrer on OK response WHEN start is called THEN isUserXTwitterAttributed is true`() =
+-        runTest {
+-            val referrer = "utm_source=x&utm_medium=paid"
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = referrer,
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertTrue(testContext.components.settings.isUserXTwitterAttributed)
--    }
+-            assertTrue(testContext.components.settings.isUserXTwitterAttributed)
+-        }
 -
 -    @Test
--    fun `GIVEN a non-X referrer on OK response WHEN start is called THEN isUserXTwitterAttributed is false`() {
--        testContext.components.settings.isUserXTwitterAttributed = true
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = "utm_source=google&utm_medium=cpc",
--            )
+-    fun `GIVEN a non-X referrer on OK response WHEN start is called THEN isUserXTwitterAttributed is false`() =
+-        runTest {
+-            testContext.components.settings.isUserXTwitterAttributed = true
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = "utm_source=google&utm_medium=cpc",
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertFalse(testContext.components.settings.isUserXTwitterAttributed)
--    }
+-            assertFalse(testContext.components.settings.isUserXTwitterAttributed)
+-        }
 -
 -    @Test
 -    fun `WHEN installReferrerResponse is an X attribution THEN we should show marketing onboarding`() = runBlocking {
@@ -3717,32 +3805,38 @@
 -    }
 -
 -    @Test
--    fun `GIVEN a Moloco-attributed referrer on OK response WHEN start is called THEN isUserMolocoAttributed is true`() {
--        val referrer = "adjust_external_click_id=moloco_9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d41a6&utm_medium=paid"
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = referrer,
--            )
+-    fun `GIVEN a Moloco-attributed referrer on OK response WHEN start is called THEN isUserMolocoAttributed is true`() =
+-        runTest {
+-            val referrer = "adjust_external_click_id=moloco_9b1deb4d-3b7d-4bad-9bdd-2b0d7b3d41a6&utm_medium=paid"
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = referrer,
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertTrue(testContext.components.settings.isUserMolocoAttributed)
--    }
+-            assertTrue(testContext.components.settings.isUserMolocoAttributed)
+-        }
 -
 -    @Test
--    fun `GIVEN a non-Moloco referrer on OK response WHEN start is called THEN isUserMolocoAttributed is false`() {
--        testContext.components.settings.isUserMolocoAttributed = true
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = "utm_source=google&utm_medium=cpc",
--            )
+-    fun `GIVEN a non-Moloco referrer on OK response WHEN start is called THEN isUserMolocoAttributed is false`() =
+-        runTest {
+-            testContext.components.settings.isUserMolocoAttributed = true
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = "utm_source=google&utm_medium=cpc",
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertFalse(testContext.components.settings.isUserMolocoAttributed)
--    }
+-            assertFalse(testContext.components.settings.isUserMolocoAttributed)
+-        }
 -
 -    @Test
 -    fun `WHEN installReferrerResponse is a Moloco attribution THEN we should show marketing onboarding`() =
@@ -3792,32 +3886,38 @@
 -    }
 -
 -    @Test
--    fun `GIVEN a Rakuten-attributed referrer on OK response WHEN start is called THEN isUserRakutenAttributed is true`() {
--        val referrer = "utm_source=Rakuten&utm_medium=paid"
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = referrer,
--            )
+-    fun `GIVEN a Rakuten-attributed referrer on OK response WHEN start is called THEN isUserRakutenAttributed is true`() =
+-        runTest {
+-            val referrer = "utm_source=Rakuten&utm_medium=paid"
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = referrer,
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertTrue(testContext.components.settings.isUserRakutenAttributed)
--    }
+-            assertTrue(testContext.components.settings.isUserRakutenAttributed)
+-        }
 -
 -    @Test
--    fun `GIVEN a non-Rakuten referrer on OK response WHEN start is called THEN isUserRakutenAttributed is false`() {
--        testContext.components.settings.isUserRakutenAttributed = true
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = "utm_source=google&utm_medium=cpc",
--            )
+-    fun `GIVEN a non-Rakuten referrer on OK response WHEN start is called THEN isUserRakutenAttributed is false`() =
+-        runTest {
+-            testContext.components.settings.isUserRakutenAttributed = true
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = "utm_source=google&utm_medium=cpc",
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertFalse(testContext.components.settings.isUserRakutenAttributed)
--    }
+-            assertFalse(testContext.components.settings.isUserRakutenAttributed)
+-        }
 -
 -    @Test
 -    fun `WHEN installReferrerResponse is a Rakuten attribution THEN we should show marketing onboarding`() =
@@ -3857,32 +3957,38 @@
 -    }
 -
 -    @Test
--    fun `GIVEN a Skyflag-attributed referrer on OK response WHEN start is called THEN isUserSkyflagAttributed is true`() {
--        val referrer = "utm_source=skyflag&utm_medium=paid"
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = referrer,
--            )
+-    fun `GIVEN a Skyflag-attributed referrer on OK response WHEN start is called THEN isUserSkyflagAttributed is true`() =
+-        runTest {
+-            val referrer = "utm_source=skyflag&utm_medium=paid"
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = referrer,
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertTrue(testContext.components.settings.isUserSkyflagAttributed)
--    }
+-            assertTrue(testContext.components.settings.isUserSkyflagAttributed)
+-        }
 -
 -    @Test
--    fun `GIVEN a non-Skyflag referrer on OK response WHEN start is called THEN isUserSkyflagAttributed is false`() {
--        testContext.components.settings.isUserSkyflagAttributed = true
--        val service =
--            fakeService(
--                responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
--                referrerResponse = "utm_source=google&utm_medium=cpc",
--            )
+-    fun `GIVEN a non-Skyflag referrer on OK response WHEN start is called THEN isUserSkyflagAttributed is false`() =
+-        runTest {
+-            testContext.components.settings.isUserSkyflagAttributed = true
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = "utm_source=google&utm_medium=cpc",
+-                    scope = this,
+-                )
 -
--        service.start()
+-            service.start()
+-            advanceUntilIdle()
 -
--        assertFalse(testContext.components.settings.isUserSkyflagAttributed)
--    }
+-            assertFalse(testContext.components.settings.isUserSkyflagAttributed)
+-        }
 -
 -    @Test
 -    fun `WHEN installReferrerResponse is a Skyflag attribution THEN we should show marketing onboarding`() =
@@ -3891,6 +3997,80 @@
 -            assertTrue(
 -                InstallReferrerHandlingService.shouldShowMarketingOnboarding(skyflagReferrer, distributionIdManager)
 -            )
+-        }
+-
+-    @Test
+-    fun `WHEN installReferrerResponse is null or blank THEN isPairingCampaignAttribution returns false`() {
+-        assertFalse(InstallReferrerHandlingService.isPairingCampaignAttribution(null, "pairing123"))
+-        assertFalse(InstallReferrerHandlingService.isPairingCampaignAttribution("", "pairing123"))
+-        assertFalse(InstallReferrerHandlingService.isPairingCampaignAttribution(" ", "pairing123"))
+-    }
+-
+-    @Test
+-    fun `WHEN no campaign utm_content is configured THEN isPairingCampaignAttribution returns false`() {
+-        assertFalse(
+-            InstallReferrerHandlingService.isPairingCampaignAttribution("utm_source=google&utm_content=pairing123", "")
+-        )
+-    }
+-
+-    @Test
+-    fun `WHEN installReferrerResponse utm_content matches the configured campaign value THEN isPairingCampaignAttribution returns true`() {
+-        assertTrue(
+-            InstallReferrerHandlingService.isPairingCampaignAttribution(
+-                "utm_source=google&utm_content=pairing123",
+-                "pairing123",
+-            )
+-        )
+-    }
+-
+-    @Test
+-    fun `WHEN installReferrerResponse utm_content differs only by case THEN isPairingCampaignAttribution returns true`() {
+-        assertTrue(InstallReferrerHandlingService.isPairingCampaignAttribution("utm_content=Pairing123", "pairing123"))
+-    }
+-
+-    @Test
+-    fun `WHEN installReferrerResponse utm_content does not match the configured campaign value THEN isPairingCampaignAttribution returns false`() {
+-        assertFalse(InstallReferrerHandlingService.isPairingCampaignAttribution("utm_content=other", "pairing123"))
+-    }
+-
+-    @Test
+-    fun `GIVEN a pairing-attributed referrer on OK response WHEN start is called THEN isUserPairingCampaignAttributed is true`() =
+-        runTest {
+-            FxNimbus.features.pairingSigninPrompt.withCachedValue(
+-                PairingSigninPrompt(campaignUtmContent = "pairing123")
+-            )
+-            val referrer = "utm_source=google&utm_content=pairing123"
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = referrer,
+-                    scope = this,
+-                )
+-
+-            service.start()
+-            advanceUntilIdle()
+-
+-            assertTrue(testContext.components.settings.isUserPairingCampaignAttributed)
+-        }
+-
+-    @Test
+-    fun `GIVEN a non-pairing referrer on OK response WHEN start is called THEN isUserPairingCampaignAttributed is false`() =
+-        runTest {
+-            FxNimbus.features.pairingSigninPrompt.withCachedValue(
+-                PairingSigninPrompt(campaignUtmContent = "pairing123")
+-            )
+-            testContext.components.settings.isUserPairingCampaignAttributed = true
+-            val service =
+-                fakeService(
+-                    responseCode = InstallReferrerClient.InstallReferrerResponse.OK,
+-                    referrerResponse = "utm_source=google&utm_content=pairing456",
+-                    scope = this,
+-                )
+-
+-            service.start()
+-            advanceUntilIdle()
+-
+-            assertFalse(testContext.components.settings.isUserPairingCampaignAttributed)
 -        }
 -}
 -
@@ -5120,7 +5300,7 @@
  import kotlinx.coroutines.runBlocking
  import mozilla.components.support.test.robolectric.testContext
  import mozilla.components.support.utils.ext.packageManagerWrapper
-@@ -14,9 +13,6 @@
+@@ -14,9 +13,6 @@ import org.junit.Assert.assertEquals
  import org.junit.Rule
  import org.junit.Test
  import org.junit.runner.RunWith
@@ -5130,7 +5310,7 @@
  import org.mozilla.fenix.helpers.FenixGleanTestRule
  import org.robolectric.RobolectricTestRunner
  import org.robolectric.shadows.ShadowBuild
-@@ -52,8 +48,6 @@
+@@ -52,8 +48,6 @@ class DistributionIdManagerTest {
              override fun saveDistributionId(id: String) {
                  savedId = id
              }
@@ -5139,7 +5319,7 @@
          }
  
      @After
-@@ -74,7 +68,6 @@
+@@ -74,7 +68,6 @@ class DistributionIdManagerTest {
                      testBrowserStoreProvider,
                      distributionProviderChecker = testDistributionProviderChecker,
                      distributionSettings = testDistributionSettings,
@@ -5147,7 +5327,7 @@
                      appPreinstalledOnVivoDevice = { true },
                  )
  
-@@ -99,7 +92,6 @@
+@@ -99,7 +92,6 @@ class DistributionIdManagerTest {
                      testBrowserStoreProvider,
                      distributionProviderChecker = testDistributionProviderChecker,
                      distributionSettings = testDistributionSettings,
@@ -5155,7 +5335,7 @@
                      appPreinstalledOnVivoDevice = { true },
                  )
  
-@@ -121,7 +113,6 @@
+@@ -121,7 +113,6 @@ class DistributionIdManagerTest {
                      testBrowserStoreProvider,
                      distributionProviderChecker = testDistributionProviderChecker,
                      distributionSettings = testDistributionSettings,
@@ -5163,7 +5343,7 @@
                      appPreinstalledOnVivoDevice = { false },
                  )
  
-@@ -146,7 +137,6 @@
+@@ -146,7 +137,6 @@ class DistributionIdManagerTest {
                      testBrowserStoreProvider,
                      distributionProviderChecker = testDistributionProviderChecker,
                      distributionSettings = testDistributionSettings,
@@ -5171,7 +5351,7 @@
                  )
  
              val distributionId = subject.getDistributionId()
-@@ -167,7 +157,6 @@
+@@ -167,7 +157,6 @@ class DistributionIdManagerTest {
                      testBrowserStoreProvider,
                      distributionProviderChecker = testDistributionProviderChecker,
                      distributionSettings = testDistributionSettings,
@@ -5179,7 +5359,7 @@
                      isDtTelefonicaInstalled = { true },
                  )
  
-@@ -190,7 +179,6 @@
+@@ -190,7 +179,6 @@ class DistributionIdManagerTest {
                      testBrowserStoreProvider,
                      distributionProviderChecker = testDistributionProviderChecker,
                      distributionSettings = testDistributionSettings,
@@ -5187,7 +5367,7 @@
                      isDtTelefonicaInstalled = { true },
                  )
  
-@@ -213,7 +201,6 @@
+@@ -213,7 +201,6 @@ class DistributionIdManagerTest {
                      testBrowserStoreProvider,
                      distributionProviderChecker = testDistributionProviderChecker,
                      distributionSettings = testDistributionSettings,
@@ -5195,7 +5375,7 @@
                      isDtTelefonicaInstalled = { false },
                  )
  
-@@ -235,7 +222,6 @@
+@@ -235,7 +222,6 @@ class DistributionIdManagerTest {
                  testBrowserStoreProvider,
                  distributionProviderChecker = testDistributionProviderChecker,
                  distributionSettings = testDistributionSettings,
@@ -5203,7 +5383,7 @@
                  isDtTelefonicaInstalled = { true },
              )
  
-@@ -257,7 +243,6 @@
+@@ -257,7 +243,6 @@ class DistributionIdManagerTest {
                  testBrowserStoreProvider,
                  distributionProviderChecker = testDistributionProviderChecker,
                  distributionSettings = testDistributionSettings,
@@ -5211,7 +5391,7 @@
                  isDtTelefonicaInstalled = { false },
              )
  
-@@ -271,126 +256,6 @@
+@@ -271,126 +256,6 @@ class DistributionIdManagerTest {
          assertEquals(DistributionIdManager.Distribution.DEFAULT, distribution)
      }
  
@@ -5338,7 +5518,7 @@
      @Test
      fun `WHEN the provider is aura THEN the proper distribution ID is returned`() = runBlocking {
          val subject =
-@@ -399,7 +264,6 @@
+@@ -399,7 +264,6 @@ class DistributionIdManagerTest {
                  testBrowserStoreProvider,
                  distributionProviderChecker = testDistributionProviderChecker,
                  distributionSettings = testDistributionSettings,
@@ -5346,7 +5526,7 @@
              )
  
          providerValue = "aura"
-@@ -421,7 +285,6 @@
+@@ -421,7 +285,6 @@ class DistributionIdManagerTest {
                      testBrowserStoreProvider,
                      distributionProviderChecker = testDistributionProviderChecker,
                      distributionSettings = testDistributionSettings,
@@ -5354,7 +5534,7 @@
                      isDtUsaInstalled = { true },
                  )
  
-@@ -444,7 +307,6 @@
+@@ -444,7 +307,6 @@ class DistributionIdManagerTest {
                      testBrowserStoreProvider,
                      distributionProviderChecker = testDistributionProviderChecker,
                      distributionSettings = testDistributionSettings,
@@ -5362,7 +5542,7 @@
                      isDtUsaInstalled = { true },
                  )
  
-@@ -467,7 +329,6 @@
+@@ -467,7 +329,6 @@ class DistributionIdManagerTest {
                      testBrowserStoreProvider,
                      distributionProviderChecker = testDistributionProviderChecker,
                      distributionSettings = testDistributionSettings,
@@ -5370,7 +5550,7 @@
                  )
  
              providerValue = "digital_turbine"
-@@ -480,99 +341,6 @@
+@@ -480,99 +341,6 @@ class DistributionIdManagerTest {
              assertEquals(DistributionIdManager.Distribution.DT_003, distribution)
          }
  
@@ -5470,7 +5650,7 @@
      @Test
      fun `WHEN there is a saved ID THEN the saved ID is returned`() = runBlocking {
          val subject =
-@@ -581,7 +349,6 @@
+@@ -581,7 +349,6 @@ class DistributionIdManagerTest {
                  testBrowserStoreProvider,
                  distributionProviderChecker = testDistributionProviderChecker,
                  distributionSettings = testDistributionSettings,
@@ -5478,7 +5658,7 @@
              )
  
          testDistributionSettings.saveDistributionId("vivo-001")
-@@ -603,7 +370,6 @@
+@@ -603,7 +370,6 @@ class DistributionIdManagerTest {
                  testBrowserStoreProvider,
                  distributionProviderChecker = testDistributionProviderChecker,
                  distributionSettings = testDistributionSettings,
@@ -5486,7 +5666,7 @@
              )
  
          val distributionId = subject.getDistributionId()
-@@ -615,28 +381,6 @@
+@@ -615,28 +381,6 @@ class DistributionIdManagerTest {
          assertEquals(DistributionIdManager.Distribution.DEFAULT, distribution)
      }
  
@@ -5515,7 +5695,7 @@
      @Test
      fun `WHEN getDistributionId is called THEN Glean distribution is updated with the distribution ID`() = runBlocking {
          val subject =
-@@ -645,7 +389,6 @@
+@@ -645,7 +389,6 @@ class DistributionIdManagerTest {
                  testBrowserStoreProvider,
                  distributionProviderChecker = testDistributionProviderChecker,
                  distributionSettings = testDistributionSettings,
@@ -5523,7 +5703,7 @@
              )
  
          subject.getDistributionId()
-@@ -662,7 +405,6 @@
+@@ -662,7 +405,6 @@ class DistributionIdManagerTest {
                      testBrowserStoreProvider,
                      distributionProviderChecker = testDistributionProviderChecker,
                      distributionSettings = testDistributionSettings,
@@ -5533,7 +5713,7 @@
              subject.setDistribution(DistributionIdManager.Distribution.VIVO_001)
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/distributions/DistributionSettingsTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/distributions/DistributionSettingsTest.kt
-@@ -6,7 +6,6 @@
+@@ -6,7 +6,6 @@ package org.mozilla.fenix.distributions
  
  import mozilla.components.support.test.robolectric.testContext
  import org.junit.Assert.assertEquals
@@ -5541,7 +5721,7 @@
  import org.junit.Before
  import org.junit.Test
  import org.junit.runner.RunWith
-@@ -37,11 +36,4 @@
+@@ -37,11 +36,4 @@ class DistributionSettingsTest {
          subject.saveDistributionId("test")
          assertEquals("test", subject.getDistributionId())
      }
@@ -5555,9 +5735,9 @@
  }
 --- a/mobile/android/fenix/config/detekt-baseline.xml
 +++ b/mobile/android/fenix/config/detekt-baseline.xml
-@@ -9,10 +9,8 @@
-     <ID>ClassAcronymCasing:ClientUUID.kt$PrefsBackedClientUUID : ClientUUID</ID>
-     <ID>ClassAcronymCasing:FakeClientUUID.kt$FakeClientUUID : ClientUUID</ID>
+@@ -6,10 +6,8 @@
+     <ID>ClassAcronymCasing:BookmarksAction.kt$EditBookmarkAction$URLChanged : EditBookmarkAction</ID>
+     <ID>ClassAcronymCasing:CfrToolsStore.kt$CfrToolsAction$ResetLastCFRTimestampButtonClicked : CfrToolsAction</ID>
      <ID>ClassAcronymCasing:FenixFxAEntryPoint.kt$FenixFxAEntryPoint$CREATOR : Creator</ID>
 -    <ID>ClassAcronymCasing:InstallReferrerWorker.kt$UTMParams</ID>
      <ID>ClassAcronymCasing:MARSUseCases.kt$MARSUseCases</ID>
@@ -5566,7 +5746,7 @@
      <ID>ClassAcronymCasing:SaveToPDFInteractor.kt$SaveToPDFInteractor</ID>
      <ID>ClassAcronymCasing:SaveToPDFMiddleware.kt$SaveToPDFMiddleware : Middleware</ID>
      <ID>ClassAcronymCasing:SnackbarState.kt$SnackbarState$URLCopiedToClipboard : SnackbarState</ID>
-@@ -429,7 +427,6 @@
+@@ -428,7 +426,6 @@
      <ID>UndocumentedPublicClass:AccountUiView.kt$AccountUiView</ID>
      <ID>UndocumentedPublicClass:ActivationPing.kt$ActivationPing</ID>
      <ID>UndocumentedPublicClass:AddonDetailsBindingDelegate.kt$AddonDetailsInteractor</ID>
@@ -5643,7 +5823,7 @@
 -The application has no use for this information and ignores it.
 --- a/mobile/android/fenix/docs/index.md
 +++ b/mobile/android/fenix/docs/index.md
-@@ -27,7 +27,6 @@
+@@ -27,7 +27,6 @@ Tabs Tray Item Animations <Tabs-Tray-Item-Animations.md>
  Telemetry - Implementation, Reviews, Renewals <Telemetry-implementation,-reviews,-renewals.md>
  Test Telemetry Pings <Test-telemetry-pings.md>
  Working with Strings <Working-with-Strings.md>

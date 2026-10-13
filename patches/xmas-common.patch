@@ -36,12 +36,18 @@
 # patch list; this half now runs from common.txt, i.e. earlier, which is safe
 # for exactly that reason. The desktop half kept the old trailing position.
 #
-# NOTE ON FUZZ: the moz.build hunk's leading context does not match pristine
-# 153.0.4 - upstream added SPHINX_TREES["ai-agent-tools"] between the jsloader
-# line and the include(). It has always applied with fuzz, and the hunk text
-# below is byte-identical to the one in the pre-split xmas.patch so that it
-# still lands in exactly the same place. Do not "fix" the context: doing so
-# changes nothing about the result and loses the equivalence proof.
+# NOTE ON FUZZ (history): the moz.build hunk used to be byte-identical to the
+# one in the pre-split xmas.patch and applied with fuzz, because upstream had
+# added SPHINX_TREES["ai-agent-tools"] between the jsloader line and the
+# include(). That stopped working on Firefox 158, see below.
+#
+# 158 rebase (2026-10-04, against Firefox 158.0b3): moz.build no longer ends
+# with include("build/templates.mozbuild"); 158 appends an
+# `if CONFIG["MOZ_GENERATE_SBOM"]:` block after it, so the end-of-file hunk
+# rejected even with fuzz. The moz.build hunk is regenerated at fuzz 0 and
+# makes the same change in the same place: DIRS += ["lw"] directly after the
+# include(), before the new SBOM block. The lw/moz.build hunk is unchanged
+# (kept byte-for-byte, including its empty-file form).
 #
 diff --git a/lw/moz.build b/lw/moz.build
 index e69de29..8589aac 100644
@@ -61,12 +67,15 @@ index e69de29..8589aac 100644
 +  "local-settings.js",
 +]
 diff --git a/moz.build b/moz.build
-index 4b7fabd..734eee8 100644
+index 291f569..a49b2be 100644
 --- a/moz.build
 +++ b/moz.build
-@@ -244,3 +244,5 @@ SPHINX_TREES["content-security"] = "docs/content-security"
- SPHINX_TREES["jsloader"] = "docs/jsloader"
+@@ -363,6 +363,8 @@ SPHINX_TREES["ai-agent-tools"] = "docs/ai-agent-tools"
  
  include("build/templates.mozbuild")
-+
+ 
 +DIRS += ["lw"]
++
+ if CONFIG["MOZ_GENERATE_SBOM"]:
+     # The document covers the whole tree rather than any one directory, and it
+     # reads the licenses.json the backend writes from the tree-wide LICENSES

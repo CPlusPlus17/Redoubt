@@ -1,7 +1,16 @@
+158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3): in
+XPIInstall.sys.mjs uninstallAddon(), 158 shortened the comment above the
+"migrate back to the existing addon" branch (the colorway-theme clause is
+gone), which was this hunk's context. Same change: the uninstall callback
+still waits for XPIStates.flushAndroid() before onUninstalled on Android, and
+the update/uninstall/shutdown paths still await the flush. Other hunks
+unchanged.
+
 diff --git a/toolkit/mozapps/extensions/internal/AddonTestUtils.sys.mjs b/toolkit/mozapps/extensions/internal/AddonTestUtils.sys.mjs
+index ea31507..e67d4a7 100644
 --- a/toolkit/mozapps/extensions/internal/AddonTestUtils.sys.mjs
 +++ b/toolkit/mozapps/extensions/internal/AddonTestUtils.sys.mjs
-@@ -12,6 +12,7 @@
+@@ -12,6 +12,7 @@ import {
    AddonManagerPrivate,
    AMTelemetry,
  } from "resource://gre/modules/AddonManager.sys.mjs";
@@ -9,7 +18,7 @@ diff --git a/toolkit/mozapps/extensions/internal/AddonTestUtils.sys.mjs b/toolki
  import { AsyncShutdown } from "resource://gre/modules/AsyncShutdown.sys.mjs";
  import { FileUtils } from "resource://gre/modules/FileUtils.sys.mjs";
  import { NetUtil } from "resource://gre/modules/NetUtil.sys.mjs";
-@@ -1026,7 +1027,11 @@
+@@ -1028,7 +1029,11 @@ export var AddonTestUtils = {
          "resource://gre/modules/addons/XPIExports.sys.mjs"
        );
        XPIExports.XPIInternal.XPIStates.save();
@@ -23,6 +32,8 @@ diff --git a/toolkit/mozapps/extensions/internal/AddonTestUtils.sys.mjs b/toolki
  
      this.addonsList = new AddonsList(this.addonStartup);
 diff --git a/toolkit/mozapps/extensions/internal/AndroidAddonState.sys.mjs b/toolkit/mozapps/extensions/internal/AndroidAddonState.sys.mjs
+new file mode 100644
+index 0000000..20541e6
 --- /dev/null
 +++ b/toolkit/mozapps/extensions/internal/AndroidAddonState.sys.mjs
 @@ -0,0 +1,64 @@
@@ -91,6 +102,7 @@ diff --git a/toolkit/mozapps/extensions/internal/AndroidAddonState.sys.mjs b/too
 +  }
 +}
 diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs
+index e9bab9d..b49de94 100644
 --- a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs
 +++ b/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs
 @@ -11,6 +11,7 @@
@@ -101,7 +113,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
  
  import { XPIExports } from "resource://gre/modules/addons/XPIExports.sys.mjs";
  
-@@ -702,7 +703,10 @@
+@@ -694,7 +695,10 @@ export class AddonInternal {
    }
  
    async setUserDisabled(val, allowSystemAddons = false) {
@@ -113,7 +125,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
        return;
      }
  
-@@ -1324,7 +1328,7 @@
+@@ -1316,7 +1320,7 @@ export class AddonWrapper {
      }
  
      let addon = addonFor(this);
@@ -122,7 +134,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
        return val;
      }
  
-@@ -1351,7 +1355,7 @@
+@@ -1343,7 +1347,7 @@ export class AddonWrapper {
  
    async setSoftDisabled(val) {
      let addon = addonFor(this);
@@ -131,7 +143,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
        return val;
      }
  
-@@ -1485,7 +1489,10 @@
+@@ -1477,7 +1481,10 @@ export class AddonWrapper {
  
    cancelUninstall() {
      let addon = addonFor(this);
@@ -143,7 +155,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
    }
  
    findUpdates(aListener, aReason, aAppVersion, aPlatformVersion) {
-@@ -1820,8 +1827,12 @@
+@@ -1811,8 +1818,12 @@ export const XPIDatabase = {
      try {
        await IOUtils.writeJSON(this.jsonFilePath, this, {
          tmpPath: `${this.jsonFilePath}.tmp`,
@@ -156,7 +168,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
        if (!this._schemaVersionSet) {
          // Update the XPIDB schema version preference the first time we
          // successfully save the database.
-@@ -1842,7 +1853,11 @@
+@@ -1833,7 +1844,11 @@ export const XPIDatabase = {
        logger.warn("Failed to save XPI database", error);
        this._saveError = error;
  
@@ -169,7 +181,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
          throw error;
        }
      }
-@@ -1865,6 +1880,11 @@
+@@ -1856,6 +1871,11 @@ export const XPIDatabase = {
        Glean.xpiDatabase.lateStack.set(stack);
      }
  
@@ -181,7 +193,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
      if (!this._saveTask) {
        this._saveTask = new lazy.DeferredTask(
          () => this._saveNow(),
-@@ -1876,6 +1896,10 @@
+@@ -1867,6 +1887,10 @@ export const XPIDatabase = {
    },
  
    async finalize() {
@@ -192,7 +204,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
      // handle the "in memory only" and "saveChanges never called" cases
      if (!this._saveTask) {
        return;
-@@ -2169,7 +2193,9 @@
+@@ -2160,7 +2184,9 @@ export const XPIDatabase = {
          this.saveChanges();
        }
  
@@ -203,7 +215,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
  
        // If we're shutting down while still loading, finish loading
        // before everything else!
-@@ -2179,6 +2205,7 @@
+@@ -2170,6 +2196,7 @@ export const XPIDatabase = {
  
        // Await any pending DB writes and finish cleaning up.
        await this.finalize();
@@ -211,7 +223,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
  
        if (this._saveError) {
          // If our last attempt to read or write the DB failed, force a new
-@@ -3015,7 +3042,31 @@
+@@ -3006,7 +3033,31 @@ export const XPIDatabase = {
     *           - false: The add-on became enabled
     * @throws if addon is not a AddonInternal
     */
@@ -244,7 +256,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
      aAddon,
      { userDisabled, softDisabled, embedderDisabled, becauseSelecting } = {}
    ) {
-@@ -3060,9 +3111,14 @@
+@@ -3051,9 +3102,14 @@ export const XPIDatabase = {
        return undefined;
      }
  
@@ -261,7 +273,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
  
      // If appDisabled changes but addon.disabled doesn't,
      // no onDisabling/onEnabling is sent - so send a onPropertyChanged.
-@@ -3124,11 +3180,17 @@
+@@ -3115,11 +3171,17 @@ export const XPIDatabase = {
        let bootstrap = XPIExports.XPIInternal.BootstrapScope.get(aAddon);
        if (isDisabled) {
          await bootstrap.disable();
@@ -279,7 +291,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
          lazy.AddonManagerPrivate.callAddonListeners("onEnabled", wrapper);
        }
      }
-@@ -3978,7 +4040,9 @@
+@@ -3969,7 +4031,9 @@ export const XPIDatabaseReconcile = {
      let promise;
      let { id } = currentAddon;
  
@@ -291,9 +303,10 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs b/toolkit/m
  
      if (previousAddon) {
 diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs
+index e91ca1e..58cafeb 100644
 --- a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs
 +++ b/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs
-@@ -1869,7 +1869,35 @@
+@@ -1869,7 +1869,35 @@ class AddonInstall {
     * Installs the add-on into the install location.
     */
    async startInstall() {
@@ -329,7 +342,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
      if (!this._callInstallListeners("onInstallStarted")) {
        this.state = AddonManager.STATE_DOWNLOADED;
        this.removeTemporaryFile();
-@@ -1890,12 +1918,27 @@
+@@ -1890,12 +1918,27 @@ class AddonInstall {
        this.existingAddon.userDisabled &&
        !this.existingAddon.pendingUninstall
      ) {
@@ -337,8 +350,6 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 -        this.existingAddon,
 -        {
 -          userDisabled: false,
--        }
--      );
 +      try {
 +        const database = XPIExports.XPIDatabase;
 +        const updateState = AppConstants.platform == "android"
@@ -347,7 +358,8 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 +        await updateState(this.existingAddon, { userDisabled: false });
 +        if (AppConstants.platform == "android") {
 +          await XPIExports.XPIInternal.XPIStates.flushAndroid();
-+        }
+         }
+-      );
 +      } catch (error) {
 +        if (AppConstants.platform != "android") {
 +          throw error;
@@ -363,7 +375,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
        this.state = AddonManager.STATE_INSTALLED;
        this._callInstallListeners("onInstallEnded", this.existingAddon.wrapper);
        this._cleanup();
-@@ -1991,6 +2034,9 @@
+@@ -1991,6 +2034,9 @@ class AddonInstall {
            XPIExports.XPIDatabase.saveChanges();
          }
          XPIExports.XPIInternal.XPIStates.save();
@@ -373,7 +385,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
  
          AddonManagerPrivate.callAddonListeners(
            "onInstalled",
-@@ -4922,6 +4968,15 @@
+@@ -4922,6 +4968,15 @@ export var XPIInstall = {
     * @returns {Promise<void>}
     */
    async _activateAddon(addon, extraParams = {}) {
@@ -389,7 +401,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
      if (addon.appDisabled) {
        let message = `Add-on ${addon.id} is not compatible with application version.`;
  
-@@ -4990,6 +5045,9 @@
+@@ -4990,6 +5045,9 @@ export var XPIInstall = {
        await bootstrap.install(undefined, true, extraParams);
      }
  
@@ -399,7 +411,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
      AddonManagerPrivate.callInstallListeners(
        "onExternalInstall",
        null,
-@@ -5019,6 +5077,25 @@
+@@ -5019,6 +5077,25 @@ export var XPIInstall = {
     *         location that does not allow it
     */
    async uninstallAddon(aAddon, aForcePending) {
@@ -425,14 +437,12 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
      if (!aAddon.inDatabase) {
        throw new Error(
          `Cannot uninstall addon ${aAddon.id} because it is not installed`
-@@ -5106,36 +5183,51 @@
+@@ -5106,36 +5183,51 @@ export var XPIInstall = {
          }
          XPIExports.XPIDatabase.removeAddonMetadata(aAddon);
          aAddon.location.removeAddon(aAddon.id);
 -        AddonManagerPrivate.callAddonListeners("onUninstalled", wrapper);
-+        const finish = () => {
-+          AddonManagerPrivate.callAddonListeners("onUninstalled", wrapper);
- 
+-
 -        if (existing) {
 -          XPIExports.XPIDatabase.makeAddonVisible(existing);
 -          AddonManagerPrivate.callAddonListeners(
@@ -440,6 +450,9 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 -            existing.wrapper,
 -            false
 -          );
++        const finish = () => {
++          AddonManagerPrivate.callAddonListeners("onUninstalled", wrapper);
++
 +          if (existing) {
 +            XPIExports.XPIDatabase.makeAddonVisible(existing);
 +            AddonManagerPrivate.callAddonListeners(
@@ -461,7 +474,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
 +        finish();
        };
  
-       // Migrate back to the existing addon, unless it was a builtin colorway theme.
+       // Migrate back to the existing addon.
        if (existing) {
          await bootstrap.update(existing, !existing.disabled, uninstall);
 +        if (AppConstants.platform == "android") {
@@ -489,7 +502,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
        XPIExports.XPIDatabase.updateAddonActive(aAddon, false);
      }
  
-@@ -5153,6 +5245,21 @@
+@@ -5153,6 +5245,21 @@ export var XPIInstall = {
     *        The DBAddonInternal to cancel uninstall for
     */
    cancelUninstallAddon(aAddon) {
@@ -511,7 +524,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
      if (!aAddon.inDatabase) {
        throw new Error("Can only cancel uninstall for installed addons.");
      }
-@@ -5180,13 +5287,18 @@
+@@ -5180,13 +5287,18 @@ export var XPIInstall = {
        XPIExports.XPIDatabase.updateAddonActive(aAddon, true);
      }
  
@@ -537,9 +550,10 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs b/toolkit/mo
  
    DirectoryInstaller,
 diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs
+index 74d738e..8bd59d8 100644
 --- a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs
 +++ b/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs
-@@ -26,6 +26,7 @@
+@@ -26,6 +26,7 @@ const lazy = {};
  
  ChromeUtils.defineESModuleGetters(lazy, {
    AddonSettings: "resource://gre/modules/addons/AddonSettings.sys.mjs",
@@ -547,7 +561,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
    AsyncShutdown: "resource://gre/modules/AsyncShutdown.sys.mjs",
    Dictionary: "resource://gre/modules/Extension.sys.mjs",
    Extension: "resource://gre/modules/Extension.sys.mjs",
-@@ -669,7 +670,10 @@
+@@ -669,7 +670,10 @@ class XPIState {
      // We don't use aDBAddon.active here because it's not updated until after restart.
      let mustGetMod = aDBAddon.visible && !aDBAddon.disabled && !this.enabled;
  
@@ -559,7 +573,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
  
      this.version = aDBAddon.version;
      this.type = aDBAddon.type;
-@@ -1653,7 +1657,14 @@
+@@ -1653,7 +1657,14 @@ var XPIStates = {
        if (
          !isEnumerableBuiltin &&
          !loc.size &&
@@ -575,7 +589,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
        ) {
          continue;
        }
-@@ -1672,7 +1683,12 @@
+@@ -1672,7 +1683,12 @@ var XPIStates = {
            // will function.
            if (
              !loc.isSystem &&
@@ -589,7 +603,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
            ) {
              continue;
            }
-@@ -1839,7 +1855,74 @@
+@@ -1839,7 +1855,74 @@ var XPIStates = {
    /**
     * Save the current state of installed add-ons.
     */
@@ -664,7 +678,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
      if (!this._jsonFile) {
        this._jsonFile = new lazy.JSONFile({
          path: PathUtils.join(
-@@ -1847,33 +1930,7 @@
+@@ -1847,33 +1930,7 @@ var XPIStates = {
            FILE_XPI_STATES
          ),
          finalizeAt: AddonManagerPrivate.finalShutdown,
@@ -699,7 +713,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
          compression: "lz4",
        });
        this._jsonFile.data = this;
-@@ -3336,12 +3393,29 @@
+@@ -3336,12 +3393,29 @@ export var XPIProvider = {
  
      // Keep track of whether and why we need to open and update the database at
      // startup time.
@@ -729,7 +743,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
      if (installChanged) {
        updateReasons.push("directoryState");
      }
-@@ -3412,6 +3486,9 @@
+@@ -3412,6 +3486,9 @@ export var XPIProvider = {
              );
          } catch (e) {
            logger.error("Failed to process extension changes at startup", e);
@@ -739,7 +753,7 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
          }
        }
  
-@@ -3425,6 +3502,11 @@
+@@ -3425,6 +3502,11 @@ export var XPIProvider = {
        logger.debug("No changes found");
      } catch (e) {
        logger.error("Error during startup file checks", e);
@@ -752,9 +766,10 @@ diff --git a/toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs b/toolkit/m
    },
  
 diff --git a/toolkit/mozapps/extensions/internal/moz.build b/toolkit/mozapps/extensions/internal/moz.build
+index 2d89b84..dfa2c5b 100644
 --- a/toolkit/mozapps/extensions/internal/moz.build
 +++ b/toolkit/mozapps/extensions/internal/moz.build
-@@ -16,6 +16,9 @@
+@@ -16,6 +16,9 @@ EXTRA_JS_MODULES.addons += [
      "XPIProvider.sys.mjs",
  ]
  
@@ -765,9 +780,10 @@ diff --git a/toolkit/mozapps/extensions/internal/moz.build b/toolkit/mozapps/ext
      EXTRA_JS_MODULES.addons += [
          "GMPProvider.sys.mjs",
 diff --git a/toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_failures.js b/toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_failures.js
+index 0197e72..5486b7d 100644
 --- a/toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_failures.js
 +++ b/toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_failures.js
-@@ -31,27 +31,61 @@
+@@ -31,27 +31,61 @@ async function testXPIStateWriteErrorTelemetry({
    Services.fog.testResetFOG();
    await promiseStartupManager();
    let XPIStates = AddonTestUtils.getXPIExports().XPIInternal.XPIStates;
@@ -849,6 +865,8 @@ diff --git a/toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_fai
  
  add_task(async function test_save_failure_on_new_profile() {
 diff --git a/toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js b/toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js
+new file mode 100644
+index 0000000..411819c
 --- /dev/null
 +++ b/toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js
 @@ -0,0 +1,191 @@
@@ -1044,9 +1062,10 @@ diff --git a/toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.j
 +  }
 +});
 diff --git a/toolkit/mozapps/extensions/test/xpcshell/xpcshell.toml b/toolkit/mozapps/extensions/test/xpcshell/xpcshell.toml
+index 6ad5370..e97e799 100644
 --- a/toolkit/mozapps/extensions/test/xpcshell/xpcshell.toml
 +++ b/toolkit/mozapps/extensions/test/xpcshell/xpcshell.toml
-@@ -507,3 +507,6 @@
+@@ -507,3 +507,6 @@ skip-if = [
  ]
  
  ["test_xpi_relocated_location.js"]

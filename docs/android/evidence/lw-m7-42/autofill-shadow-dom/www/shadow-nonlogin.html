@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LW-M7-42 shadow non-login</title></head>
+<body style="font-size:20px"><h3>LW-M7-42 open shadow-DOM, no login field (must stay unregistered)</h3>
+<!-- A search box and a one-time-code field, each in an OPEN shadow root, no
+     password field anywhere: none of them is a login field. -->
+<my-input data-name="q" data-type="search" data-ac="off" data-ph="Search"></my-input><br>
+<my-input data-name="code" data-type="text" data-ac="one-time-code" data-ph="Code"></my-input><br>
+<script>
+customElements.define('my-input', class extends HTMLElement { constructor(){ super(); const r=this.attachShadow({mode:'open'});
+ r.innerHTML='<label>'+this.dataset.name+' <input name="'+this.dataset.name+'" type="'+this.dataset.type+'" autocomplete="'+this.dataset.ac+'" placeholder="'+this.dataset.ph+'" style="font-size:24px;width:90%;height:60px"></label>'; }});
+</script></body></html>

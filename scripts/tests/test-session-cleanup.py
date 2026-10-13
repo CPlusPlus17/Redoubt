@@ -168,8 +168,11 @@ def target_checks(scratch, source):
     tasks = re.findall(r'add_task\(async function (\w+)\(', (source / js).read_text())
     kotlin = source / 'mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/SessionCleanupTest.kt'
     methods = re.findall(r'@Test\s+(?:@[^\n]+\s+)*fun\s+(\w+)\(', kotlin.read_text())
-    assert len(set(tasks)) == 9 and len(set(methods)) == 5
-    print('PASS JS syntax, JSON/TOML, inherited35 test API and 9 cookie / 5 frame target test definitions')
+    # 8 cookie tasks since the Firefox 158 rebase: 158 removed
+    # nsICookieManager.runInTransaction(), and the task that drove it
+    # (ambient_transactions_cannot_claim_cleanup_completion) went with it.
+    assert len(set(tasks)) == 8 and len(set(methods)) == 5
+    print('PASS JS syntax, JSON/TOML, inherited35 test API and 8 cookie / 5 frame target test definitions')
 
 
 if __name__ == '__main__':

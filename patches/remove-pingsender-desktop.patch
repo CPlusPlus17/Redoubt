@@ -1,3 +1,7 @@
+158 rebase (2026-10-04, against Firefox 158.0b3): shared.nsh's PushFilesToCheck
+list moved up (~350 lines) and gained "notification-helper.exe" right before
+pingsender.exe. The same line is removed; the other two files are unchanged.
+
 diff --git a/browser/app/macbuild/Contents/MacOS-files.in b/browser/app/macbuild/Contents/MacOS-files.in
 index 2f420f7..3551c66 100644
 --- a/browser/app/macbuild/Contents/MacOS-files.in
@@ -11,10 +15,10 @@ index 2f420f7..3551c66 100644
  /ssltunnel
  /xpcshell
 diff --git a/browser/installer/package-manifest.in b/browser/installer/package-manifest.in
-index dbfb287..7d47b40 100644
+index ae503c2..bf9b758 100644
 --- a/browser/installer/package-manifest.in
 +++ b/browser/installer/package-manifest.in
-@@ -397,10 +397,6 @@ bin/libfreebl_64int_3.so
+@@ -410,10 +410,6 @@ bin/libfreebl_64int_3.so
  @BINPATH@/crashhelper@BIN_SUFFIX@
  #endif
  
@@ -26,13 +30,13 @@ index dbfb287..7d47b40 100644
  ;
  #if defined(XP_WIN) || defined(XP_MACOSX)
 diff --git a/browser/installer/windows/nsis/shared.nsh b/browser/installer/windows/nsis/shared.nsh
-index 8e5e75d..1fbc59f 100644
+index 8cd458b..b05ec32 100755
 --- a/browser/installer/windows/nsis/shared.nsh
 +++ b/browser/installer/windows/nsis/shared.nsh
-@@ -1765,7 +1765,6 @@ FunctionEnd
-   Push "crashreporter.exe"
+@@ -1412,7 +1412,6 @@ FunctionEnd
    Push "default-browser-agent.exe"
    Push "nmhproxy.exe"
+   Push "notification-helper.exe"
 -  Push "pingsender.exe"
    Push "updater.exe"
    Push "mozwer.dll"

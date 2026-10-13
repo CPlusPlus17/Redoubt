@@ -284,61 +284,69 @@ class KeyboardGuardTests(unittest.TestCase):
         self.assertFalse(ui.stopped)
 
 
-class ScriptedReviewUI(g.UI):
-    """Plays back uiautomator dumps after the Review tap."""
-
-    def __init__(self, dumps):
-        self.package, self.evidence, self.timeout = PKG, FakeEvidence(), 5
-        self.review_results, self.dumps, self.taps = [], list(dumps), []
-
-    def dump(self, label="ui", screenshot=False):
-        return self.dumps.pop(0) if len(self.dumps) > 1 else self.dumps[0]
-
-    def tap(self, node, label, long=False):
-        self.taps.append(label)
-
-
 SNACKBAR = node(text="Review", rid=PKG + ":id/snackbar_action", cls="android.widget.Button",
                 bounds="[854,1742][1038,1868]")
-LIST = node(rid=PKG + ":id/origin_permissions_dialog_list", cls="android.widget.LinearLayout",
-            bounds="[100,500][980,1400]")
+SNACKBAR_TEXT = node(text=g.QUIET_NOTICE_TEXT, rid=PKG + ":id/snackbar_text", cls="android.widget.TextView",
+                     bounds="[42,1742][854,1868]")
 PAGE = node(text="Graphics acceptance fixture", bounds="[6,248][291,275]")
 
 
-class QuietReviewTests(unittest.TestCase):
-    def setUp(self):
-        self.clock = iter(range(0, 10000))
-        self.saved = g.time.monotonic, g.time.sleep
-        g.time.monotonic = lambda: next(self.clock)
-        g.time.sleep = lambda _seconds: None
+class DumpEvidence(FakeEvidence):
+    def artifact(self, label, data, suffix):
+        pass
 
-    def tearDown(self):
-        g.time.monotonic, g.time.sleep = self.saved
 
-    def notice(self):
-        return g.select_node(hierarchy(SNACKBAR), text="Review", package=PKG)
+class DumpUI(g.UI):
+    """g.UI.dump against a scripted uiautomator answer."""
 
-    def test_review_that_opens_the_list_is_recorded(self):
-        ui = ScriptedReviewUI([hierarchy(PAGE), hierarchy(PAGE, LIST)])
-        self.assertTrue(ui.quiet_review(self.notice(), private=True))
-        self.assertEqual(ui.review_results, [{"private": True, "opened": True}])
+    def __init__(self, xml):
+        self.package, self.evidence, self.timeout, self.screenshots = PKG, DumpEvidence(), 5, False
+        self.remote, self.remote_used, self.xml = "/sdcard/test.xml", False, xml
+        self.notice_checks, self.private = {"normal": 0, "private": 0}, False
+        self.forbid_quiet_notice = True
 
-    def test_expired_notice_falls_back_and_is_recorded(self):
-        ui = ScriptedReviewUI([hierarchy(PAGE)])
-        self.assertFalse(ui.quiet_review(self.notice(), private=False))
-        self.assertEqual(ui.review_results, [{"private": False, "opened": False}])
-        self.assertIn("fallback", ui.evidence.events[-1][1])
+    def shell(self, *args, timeout=30):
+        return self.xml if args[0] == "cat" else ""
 
-    def test_notice_still_shown_after_the_tap_is_a_failure(self):
-        ui = ScriptedReviewUI([hierarchy(PAGE, SNACKBAR)])
-        with self.assertRaises(g.Failure):
-            ui.quiet_review(self.notice(), private=True)
 
-    def test_other_permission_ui_after_the_tap_is_a_failure(self):
-        entry = node(rid=PKG + ":id/origin_permissions_entry", bounds="[0,1400][1080,1500]")
-        ui = ScriptedReviewUI([hierarchy(PAGE, entry)])
-        with self.assertRaises(g.Failure):
-            ui.quiet_review(self.notice(), private=True)
+class QuietNoticeTests(unittest.TestCase):
+    """LW-M7-46: a quiet WebGL/canvas request shows no notice; any dump that sees one fails."""
+
+    def test_snackbar_text_or_review_action_is_a_notice(self):
+        self.assertTrue(g.quiet_notice_present(hierarchy(PAGE, SNACKBAR_TEXT), PKG))
+        self.assertTrue(g.quiet_notice_present(hierarchy(PAGE, SNACKBAR), PKG))
+
+    def test_page_text_or_another_package_is_not(self):
+        self.assertFalse(g.quiet_notice_present(hierarchy(PAGE), PKG))
+        other = node(text=g.QUIET_NOTICE_TEXT, package="org.example.other")
+        self.assertFalse(g.quiet_notice_present(hierarchy(PAGE, other), PKG))
+        # A plain "Review" button that is not the snackbar action is not the notice.
+        self.assertFalse(g.quiet_notice_present(hierarchy(node(text="Review", rid=PKG + ":id/other")), PKG))
+
+    def test_dump_without_notice_is_counted_per_tab_kind(self):
+        ui = DumpUI(hierarchy(PAGE))
+        ui.dump("normal")
+        ui.private = True
+        ui.dump("private")
+        ui.dump("private-2")
+        self.assertEqual(ui.notice_checks, {"normal": 1, "private": 2})
+
+    def test_dump_with_notice_fails(self):
+        for shown in (SNACKBAR, SNACKBAR_TEXT):
+            ui = DumpUI(hierarchy(PAGE, shown))
+            with self.assertRaises(g.Failure):
+                ui.dump("quiet-protection")
+            self.assertEqual(ui.notice_checks, {"normal": 0, "private": 0})
+
+    def test_other_harnesses_do_not_check_unless_asked(self):
+        ui = DumpUI(hierarchy(PAGE, SNACKBAR))
+        ui.forbid_quiet_notice = False
+        ui.dump("addon")
+        self.assertEqual(ui.notice_checks, {"normal": 0, "private": 0})
+
+    def test_review_tap_path_is_gone(self):
+        self.assertFalse(hasattr(g.UI, "quiet_review"))
+        self.assertIn("librewolf.webgl.prompt.notice", g.PREFS_JS)
 
 
 if __name__ == "__main__":

@@ -17,8 +17,23 @@
 #   - include lists in CookieService.cpp, CookieStorage.cpp,
 #     CookiePersistentStorage.{h,cpp} were re-sorted upstream.
 #
+# 158 rebase (2026-10-04, pre-rebase against Firefox 158.0b3):
+#   - Firefox 158 removed nsICookieManager.runInTransaction() and
+#     CookieStorage::RunInTransaction() with it (no nsICookieTransactionCallback
+#     anywhere in the tree). The last caller-owned batch scope is gone, so the
+#     RunInTransaction guard, the mParentCookieTransaction flag it set, the
+#     flag's check in CleanupConnectionIsCurrent(), the AutoRestore include
+#     and the xpcshell task ambient_transactions_cannot_claim_cleanup_completion
+#     go with it. Every other guard (lease, generation, write-queue flush) is
+#     unchanged.
+#   - CookieStorage.h: context moved (fuzz 2 on 158), same declarations.
+#   - This is one of the four hash-pinned patches: its 158.0 source receipt
+#     (docs/android/evidence/lw-m7-01/release-158.0/receipts) is owed on
+#     release day, with extension-update-controls, global-privacy-controls
+#     and translation-assets.
+#
 diff --git a/dom/base/nsFrameLoader.cpp b/dom/base/nsFrameLoader.cpp
-index 391b1a5414..13f065212d 100644
+index d053fbe..b1a6919 100644
 --- a/dom/base/nsFrameLoader.cpp
 +++ b/dom/base/nsFrameLoader.cpp
 @@ -7,6 +7,7 @@
@@ -29,7 +44,7 @@ index 391b1a5414..13f065212d 100644
  #include "nsFrameLoader.h"
  
  #include "BrowserParent.h"
-@@ -151,7 +152,8 @@ using PrintPreviewResolver = std::function<void(const PrintPreviewResultInfo&)>;
+@@ -148,7 +149,8 @@ using PrintPreviewResolver = std::function<void(const PrintPreviewResultInfo&)>;
  
  NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(nsFrameLoader, mPendingBrowsingContext,
                                        mMessageManager, mChildMessageManager,
@@ -39,7 +54,7 @@ index 391b1a5414..13f065212d 100644
  NS_IMPL_CYCLE_COLLECTING_ADDREF(nsFrameLoader)
  NS_IMPL_CYCLE_COLLECTING_RELEASE(nsFrameLoader)
  
-@@ -173,6 +175,7 @@ nsFrameLoader::nsFrameLoader(Element* aOwner, BrowsingContext* aBrowsingContext,
+@@ -170,6 +172,7 @@ nsFrameLoader::nsFrameLoader(Element* aOwner, BrowsingContext* aBrowsingContext,
        mDepthTooGreat(false),
        mIsTopLevelContent(false),
        mDestroyCalled(false),
@@ -47,7 +62,7 @@ index 391b1a5414..13f065212d 100644
        mNeedsAsyncDestroy(false),
        mInSwap(false),
        mInShow(false),
-@@ -2054,6 +2057,14 @@ void nsFrameLoader::DestroyComplete() {
+@@ -2050,6 +2053,14 @@ void nsFrameLoader::DestroyComplete() {
  
    mMessageManager = nullptr;
    mChildMessageManager = nullptr;
@@ -62,7 +77,7 @@ index 391b1a5414..13f065212d 100644
  }
  
  void nsFrameLoader::SetOwnerContent(Element* aContent) {
-@@ -3174,6 +3185,22 @@ SessionStoreParent* nsFrameLoader::GetSessionStoreParent() {
+@@ -3170,6 +3181,22 @@ SessionStoreParent* nsFrameLoader::GetSessionStoreParent() {
    return nullptr;
  }
  
@@ -86,7 +101,7 @@ index 391b1a5414..13f065212d 100644
      ErrorResult& aRv) {
    MOZ_DIAGNOSTIC_ASSERT(XRE_IsParentProcess());
 diff --git a/dom/base/nsFrameLoader.h b/dom/base/nsFrameLoader.h
-index 7a6b7da2b8..8ba693ca09 100644
+index b2db03b..7d0d258 100644
 --- a/dom/base/nsFrameLoader.h
 +++ b/dom/base/nsFrameLoader.h
 @@ -228,6 +228,8 @@ class nsFrameLoader final : public nsStubMutationObserver,
@@ -98,7 +113,7 @@ index 7a6b7da2b8..8ba693ca09 100644
    already_AddRefed<Promise> RequestTabStateFlush(mozilla::ErrorResult& aRv);
  
    void RequestEpochUpdate(uint32_t aEpoch);
-@@ -527,12 +529,15 @@ class nsFrameLoader final : public nsStubMutationObserver,
+@@ -529,12 +531,15 @@ class nsFrameLoader final : public nsStubMutationObserver,
    // refcounted cycles early.
    RefPtr<mozilla::dom::SessionStoreChild> mSessionStoreChild;
  
@@ -115,7 +130,7 @@ index 7a6b7da2b8..8ba693ca09 100644
    bool mInSwap : 1;
    bool mInShow : 1;
 diff --git a/dom/chrome-webidl/FrameLoader.webidl b/dom/chrome-webidl/FrameLoader.webidl
-index 4bc469d50d..bf0df7c3e3 100644
+index 4bc469d..bf0df7c 100644
 --- a/dom/chrome-webidl/FrameLoader.webidl
 +++ b/dom/chrome-webidl/FrameLoader.webidl
 @@ -52,6 +52,15 @@ interface FrameLoader {
@@ -135,7 +150,7 @@ index 4bc469d50d..bf0df7c3e3 100644
    readonly attribute MessageSender? messageManager;
  
 diff --git a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
-index 5dd83f0135..b82439ef6c 100644
+index 71c860b..145b087 100644
 --- a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
 +++ b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
 @@ -267,8 +267,112 @@ this.test = class extends ExtensionAPI {
@@ -252,7 +267,7 @@ index 5dd83f0135..b82439ef6c 100644
            return runPrefSaveFileAsyncIOTest(scenario, allowProfileShutdown);
          },
 diff --git a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
-index 519c616fb1..92c4549bde 100644
+index d5924b0..66ad24f 100644
 --- a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
 +++ b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
 @@ -3,6 +3,46 @@
@@ -304,7 +319,7 @@ index 519c616fb1..92c4549bde 100644
          "type": "function",
 diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/SessionCleanupTest.kt b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/SessionCleanupTest.kt
 new file mode 100644
-index 0000000000..9a86062616
+index 0000000..9a86062
 --- /dev/null
 +++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/SessionCleanupTest.kt
 @@ -0,0 +1,118 @@
@@ -427,10 +442,10 @@ index 0000000000..9a86062616
 +    fun firstPromiseCanBeCreatedAfterOwnerDetachment() = inProcess(true)
 +}
 diff --git a/netwerk/cookie/CookiePersistentStorage.cpp b/netwerk/cookie/CookiePersistentStorage.cpp
-index 29eabae9d2..20660829da 100644
+index 4ad483f..285b1cf 100644
 --- a/netwerk/cookie/CookiePersistentStorage.cpp
 +++ b/netwerk/cookie/CookiePersistentStorage.cpp
-@@ -15,9 +15,12 @@
+@@ -15,6 +15,8 @@
  #include "mozIStorageBindingParamsArray.h"
  #include "mozIStorageError.h"
  #include "mozIStorageFunction.h"
@@ -439,11 +454,7 @@ index 29eabae9d2..20660829da 100644
  #include "mozIStorageService.h"
  #include "mozStorageHelper.h"
  #include "mozilla/AppShutdown.h"
-+#include "mozilla/AutoRestore.h"
- #include "mozilla/Components.h"
- #include "mozilla/FileUtils.h"
- #include "mozilla/ProfilerMarkers.h"
-@@ -627,7 +630,209 @@ void CookiePersistentStorage::CleanupCachedStatements() {
+@@ -627,7 +629,209 @@ void CookiePersistentStorage::CleanupCachedStatements() {
  // will not null out the statements, cancel a pending read or
  // asynchronously close the connection -- these must be done
  // beforehand if necessary.
@@ -541,7 +552,7 @@ index 29eabae9d2..20660829da 100644
 +    uint64_t aGeneration) const {
 +  MOZ_ASSERT(NS_IsMainThread());
 +  return mInitialized && mInitializedDBConn && mDBConn && mCorruptFlag == OK &&
-+         !mParentCookieTransaction && mCleanupGeneration == aGeneration;
++         mCleanupGeneration == aGeneration;
 +}
 +
 +RefPtr<CookiePersistentStorage::CleanupPromise>
@@ -653,24 +664,8 @@ index 29eabae9d2..20660829da 100644
    MOZ_ASSERT(!mStmtInsert, "mStmtInsert has been cleaned up");
    MOZ_ASSERT(!mStmtDelete, "mStmtDelete has been cleaned up");
    MOZ_ASSERT(!mStmtUpdate, "mStmtUpdate has been cleaned up");
-@@ -2393,6 +2598,15 @@ nsresult CookiePersistentStorage::CreateTableForSchemaVersion5() {
- 
- nsresult CookiePersistentStorage::RunInTransaction(
-     nsICookieTransactionCallback* aCallback) {
-+  // A caller-owned batch scope: its writes are buffered and only dispatched
-+  // when it ends. Do not let a reentrant cleanup begin (and later acknowledge
-+  // its work) inside this scope, and do not open one while a lease is held.
-+  if (CookieService::CookieMutationBlocked()) {
-+    return NS_ERROR_NOT_AVAILABLE;
-+  }
-+  AutoRestore<bool> transactionScope(mParentCookieTransaction);
-+  mParentCookieTransaction = true;
-+
-   if (NS_WARN_IF(!mDBConn)) {
-     return NS_ERROR_NOT_AVAILABLE;
-   }
 diff --git a/netwerk/cookie/CookiePersistentStorage.h b/netwerk/cookie/CookiePersistentStorage.h
-index 889042ff68..774079525c 100644
+index 1af7e99..950e774 100644
 --- a/netwerk/cookie/CookiePersistentStorage.h
 +++ b/netwerk/cookie/CookiePersistentStorage.h
 @@ -12,6 +12,7 @@
@@ -681,7 +676,7 @@ index 889042ff68..774079525c 100644
  #include "mozilla/UniquePtr.h"
  #include "mozilla/net/NeckoChannelParams.h"
  #include "nsIAsyncShutdown.h"
-@@ -38,6 +39,14 @@ class CookiePersistentStorage final : public CookieStorage,
+@@ -37,6 +38,14 @@ class CookiePersistentStorage final : public CookieStorage,
  
    static already_AddRefed<CookiePersistentStorage> Create();
  
@@ -696,7 +691,7 @@ index 889042ff68..774079525c 100644
    void HandleCorruptDB();
  
    void StaleCookies(const nsTArray<RefPtr<Cookie>>& aCookieList,
-@@ -83,6 +92,9 @@ class CookiePersistentStorage final : public CookieStorage,
+@@ -80,6 +89,9 @@ class CookiePersistentStorage final : public CookieStorage,
   private:
    friend class CookieDBWriteQueue;
  
@@ -706,17 +701,16 @@ index 889042ff68..774079525c 100644
    CookiePersistentStorage();
    ~CookiePersistentStorage();
  
-@@ -146,6 +158,8 @@ class CookiePersistentStorage final : public CookieStorage,
+@@ -143,6 +155,7 @@ class CookiePersistentStorage final : public CookieStorage,
  
    nsCOMPtr<nsIFile> mCookieFile;
    nsCOMPtr<mozIStorageConnection> mDBConn;
 +  uint64_t mCleanupGeneration = 0;
-+  bool mParentCookieTransaction = false;
    nsCOMPtr<mozIStorageAsyncStatement> mStmtInsert;
    nsCOMPtr<mozIStorageAsyncStatement> mStmtDelete;
    nsCOMPtr<mozIStorageAsyncStatement> mStmtUpdate;
 diff --git a/netwerk/cookie/CookieService.cpp b/netwerk/cookie/CookieService.cpp
-index 16570b54fd..411ab5e843 100644
+index 95bb428..de1915a 100644
 --- a/netwerk/cookie/CookieService.cpp
 +++ b/netwerk/cookie/CookieService.cpp
 @@ -22,6 +22,8 @@
@@ -970,7 +964,7 @@ index 16570b54fd..411ab5e843 100644
  nsresult CookieService::Init() {
    nsresult rv;
    mTLDService = mozilla::components::EffectiveTLD::Service(&rv);
-@@ -778,6 +1008,10 @@ nsresult CookieService::AddInternal(
+@@ -761,6 +991,10 @@ nsresult CookieService::AddInternal(
      OriginAttributes* aOriginAttributes, int32_t aSameSite,
      nsICookie::schemeType aSchemeMap, bool aIsPartitioned, bool aFromHttp,
      const nsID* aOperationID, nsICookieValidation** aValidation) {
@@ -982,7 +976,7 @@ index 16570b54fd..411ab5e843 100644
  
    if (NS_WARN_IF(!aOriginAttributes)) {
 diff --git a/netwerk/cookie/CookieService.h b/netwerk/cookie/CookieService.h
-index 7b8e7cfaa8..6a7aaaa9fc 100644
+index 8b5b7f2..1925f19 100644
 --- a/netwerk/cookie/CookieService.h
 +++ b/netwerk/cookie/CookieService.h
 @@ -6,6 +6,7 @@
@@ -1030,7 +1024,7 @@ index 7b8e7cfaa8..6a7aaaa9fc 100644
                         const nsACString& aPath, const nsACString& aName,
                         const nsACString& aValue, bool aIsSecure,
 diff --git a/netwerk/cookie/CookieStorage.cpp b/netwerk/cookie/CookieStorage.cpp
-index fbcf49c0e3..ce3a5ac52d 100644
+index 991a9a7..a3aab2d 100644
 --- a/netwerk/cookie/CookieStorage.cpp
 +++ b/netwerk/cookie/CookieStorage.cpp
 @@ -5,6 +5,7 @@
@@ -1090,7 +1084,7 @@ index fbcf49c0e3..ce3a5ac52d 100644
  void CookieStorage::GetCookies(nsTArray<RefPtr<nsICookie>>& aCookies) const {
    aCookies.SetCapacity(mCookieCount);
    for (const auto& entry : mHostTable) {
-@@ -686,6 +729,12 @@ void CookieStorage::AddCookie(CookieParser* aCookieParser,
+@@ -693,6 +736,12 @@ void CookieStorage::AddCookie(CookieParser* aCookieParser,
                                bool aFromHttp, bool aIsThirdParty,
                                dom::BrowsingContext* aBrowsingContext,
                                const nsID* aOperationID) {
@@ -1104,12 +1098,12 @@ index fbcf49c0e3..ce3a5ac52d 100644
            aCookie, aBaseDomain, aOriginAttributes)) {
      COOKIE_LOGFAILURE(SET_COOKIE, aHostURI, aCookieHeader,
 diff --git a/netwerk/cookie/CookieStorage.h b/netwerk/cookie/CookieStorage.h
-index c0418e8f3d..d5e4ea1511 100644
+index ee8b114..fc94d36 100644
 --- a/netwerk/cookie/CookieStorage.h
 +++ b/netwerk/cookie/CookieStorage.h
-@@ -24,6 +24,18 @@ namespace net {
+@@ -23,6 +23,18 @@ namespace mozilla {
+ namespace net {
  
- class Cookie;
  class CookieParser;
 +class CookiePersistentStorage;
 +
@@ -1126,7 +1120,7 @@ index c0418e8f3d..d5e4ea1511 100644
  
  // Inherit from CookieKey so this can be stored in nsTHashTable
  // TODO: why aren't we using nsClassHashTable<CookieKey, ArrayType>?
-@@ -61,6 +73,10 @@ class CookieStorage : public nsIObserver, public nsSupportsWeakReference {
+@@ -60,6 +72,10 @@ class CookieStorage : public nsIObserver, public nsSupportsWeakReference {
  
    size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
  
@@ -1138,7 +1132,7 @@ index c0418e8f3d..d5e4ea1511 100644
  
    void GetSessionCookies(nsTArray<RefPtr<nsICookie>>& aCookies) const;
 diff --git a/netwerk/cookie/nsICookieManager.idl b/netwerk/cookie/nsICookieManager.idl
-index d09d2e1019..5af386fd2b 100644
+index d4719d9..ea61588 100644
 --- a/netwerk/cookie/nsICookieManager.idl
 +++ b/netwerk/cookie/nsICookieManager.idl
 @@ -30,6 +30,40 @@ interface nsICookieValidation;
@@ -1184,10 +1178,10 @@ index d09d2e1019..5af386fd2b 100644
     */
 diff --git a/netwerk/cookie/test/unit/test_cookie_session_cleanup.js b/netwerk/cookie/test/unit/test_cookie_session_cleanup.js
 new file mode 100644
-index 0000000000..c3316edf97
+index 0000000..5c9b39c
 --- /dev/null
 +++ b/netwerk/cookie/test/unit/test_cookie_session_cleanup.js
-@@ -0,0 +1,271 @@
+@@ -0,0 +1,246 @@
 +/* Any copyright is dedicated to the Public Domain.
 + * http://creativecommons.org/publicdomain/zero/1.0/ */
 +
@@ -1333,31 +1327,6 @@ index 0000000000..c3316edf97
 +  Assert.deepEqual(memoryNames(), ["after-release"], "ordinary admission resumes only on release");
 +});
 +
-+add_task(async function ambient_transactions_cannot_claim_cleanup_completion() {
-+  await clearFixture();
-+  add("transaction.example", "transaction");
-+  await withLease(token => manager.getSessionCleanupScopes(token));
-+  let called = 0;
-+  manager.runInTransaction({
-+    QueryInterface: ChromeUtils.generateQI(["nsICookieTransactionCallback"]),
-+    callback() {
-+      ++called;
-+      Assert.throws(() => manager.beginSessionCleanup(), /NS_ERROR_NOT_AVAILABLE/,
-+        "cleanup cannot begin inside a parent-owned transaction");
-+    },
-+  });
-+  Assert.equal(called, 1);
-+  await withLease(async token => {
-+    Assert.throws(() => manager.runInTransaction({
-+      QueryInterface: ChromeUtils.generateQI(["nsICookieTransactionCallback"]),
-+      callback() { ++called; },
-+    }), /NS_ERROR_NOT_AVAILABLE/);
-+    Assert.equal(called, 1, "blocked transaction did not run its callback");
-+    const scopes = await manager.getSessionCleanupScopes(token);
-+    await manager.removeSessionCleanupScopes(token, scopes.map(scope => scope.id));
-+  });
-+});
-+
 +add_task(async function failed_delete_batch_rolls_back_and_retry_keeps_retained_data() {
 +  await clearFixture();
 +  add("first.example", "first");
@@ -1460,7 +1429,7 @@ index 0000000000..c3316edf97
 +  });
 +});
 diff --git a/netwerk/cookie/test/unit/xpcshell.toml b/netwerk/cookie/test/unit/xpcshell.toml
-index ee8ae1a686..daddc2c0c2 100644
+index ee8ae1a..daddc2c 100644
 --- a/netwerk/cookie/test/unit/xpcshell.toml
 +++ b/netwerk/cookie/test/unit/xpcshell.toml
 @@ -31,3 +31,6 @@ prefs = ["dom.security.https_first=false"]
