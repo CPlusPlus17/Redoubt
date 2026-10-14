@@ -47,6 +47,10 @@ class SiteCheckFdroid(unittest.TestCase):
         shutil.copytree(ROOT / "site", self.tmp / "site")
         for leftover in ("fdroid.html", "fdroid-qr.svg"):
             (self.tmp / "site" / leftover).unlink(missing_ok=True)
+        # The live site links to fdroid.html (repository published 2026-10-14). These
+        # cases model a site without the page, so point those links elsewhere.
+        for page in (self.tmp / "site").glob("*.html"):
+            page.write_text(page.read_text().replace('href="fdroid.html"', 'href="install.html"'))
         (self.tmp / "assets/fdroid").mkdir(parents=True)
         self.conf()
 
@@ -77,7 +81,7 @@ class SiteCheckFdroid(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn(needle, out)
 
-    def test_today_no_bucket_no_page(self):
+    def test_no_bucket_no_page(self):
         self.assertPass()
 
     def test_rendered_page_for_the_bucket(self):
