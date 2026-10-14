@@ -6170,3 +6170,46 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: With media.eme.enabled true on Firefox 158, any web page that probes EME (video sites do) crash-loops its tab on Android 12+. Do not land before that is re-measured clean. Once landed, a profile that stored "Allowed" or "Ask to allow" for DRM-controlled content earlier (no effect until then) gets DRM on after the update.
+
+  - id: LW-M7-51
+    title: Port the 2026-09-24 gaps branch onto Firefox 158 main
+    milestone: M7
+    depends_on: [LW-M7-38, LW-M7-39]
+    owns:
+      - docs/android/evidence/lw-m7-51/
+    shared_edit:
+      - docs/android/tasks.yaml
+      - docs/android/PARITY.md           # row 6, DoH
+      - docs/android/FEATURE-PARITY.md   # F17 (LW-M7-38), F20 (LW-M7-39)
+    reads:
+      - docs/android/evidence/lw-m7-45/
+      - docs/android/evidence/lw-m7-41/
+      - docs/android/evidence/lw-m7-49/
+      - docs/android/evidence/lw-m7-01/release-158.0-2/
+    what: |
+      OWNER DECISION 2026-10-14, verbatim: "go" -- review the branch and port what is
+      still worth having onto current main, cleanly, under the owner identity; then
+      the branch can be deleted.
+      The branch claude/librewolf-gaps-ublock-setup-k0ri3t (tip a11a2306, 11 commits
+      of 2026-09-24, 153 ESR era, author noreply@anthropic.com) was never merged.
+      Each commit gets a verdict (already on main, obsolete, superseded, ported or
+      held back) in docs/android/evidence/lw-m7-51/README.md. Rewritten for 158
+      rather than cherry-picked: LW-M7-38 (no Report broken site, listed) and LW-M7-39
+      (DRM switch, held back on disk: on 158 it crash-loops isolated tabs on Android
+      12+), and PARITY row 6 (DoH), whose text still described Beta 1. Not ported:
+      the uBO fixes (main fixed the same defects differently: LW-M3-07 388df549,
+      LW-M7-41, LW-M7-44), the interrupted-session cleanup (main's LW-M7-45 covers
+      it), the 153.3 ESR rebase and the Beta 3 notes (obsolete). The branch's
+      LW-M7-37 id is main's different LW-M7-37; its LW-M7-38/39 ids were free on main
+      and keep their meaning.
+    acceptance:
+      - "a verdict per branch commit, with the main commit or document that supersedes it"
+      - "ported work is rewritten against 158.0, registered (android.txt, PATCH-SCOPE, tasks.yaml) and signed under the owner identity; nothing is pushed and the old branch is not deleted by this task"
+      - "gates on the 158.0 tarball pass: check-patchfail android + desktop, check-patch-order, lint-patch-scope, board --check/--check-scope/--check-cfg-split/--diff-mozconfig --strict, site-check, scripts/tests"
+      - "an x86_64 build of the final branch state compiles (C/C++ -Werror, Rust lints capped) and on the API 34 emulator: no Report broken site in the menu, no new first-run hosts against 158.0-2, the default smoke suite (webgl excepted, API 34 harness limit), --check-isolation and --check-video pass"
+    verify: "python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope && python3 scripts/check-patch-order.py"
+    effort_h: "4-8"
+    skills: [kotlin, android, review]
+    agent_safe: yes
+    isolation: worktree
+    risk: LW-M7-39 stays open; DRM remains impossible to enable from Settings until it lands.

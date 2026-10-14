@@ -1,0 +1,11 @@
+# www.google.com TLS ClientHellos in the final session's emulator capture (work-final/capture.pcap). Times as printed by `tcpdump -tttt` on this host; they read 1 h after host UTC (matched by the OS-only control below).
+# SYN of each connection whose ClientHello carries SNI www.google.com:
+2026-10-14 23:44:25.881319 IP 10.0.2.15.53938 > 142.251.152.119.443: Flags [S], seq 161102
+2026-10-14 23:48:21.926341 IP 10.0.2.15.46738 > 142.251.156.119.443: Flags [S], seq 283128
+2026-10-14 23:48:39.349178 IP 10.0.2.15.51366 > 142.251.155.119.443: Flags [S], seq 475627
+2026-10-14 23:52:50.566986 IP 10.0.2.15.53488 > 142.251.155.119.443: Flags [S], seq 118982
+2026-10-14 23:56:34.741779 IP 10.0.2.15.35744 > 142.251.153.119.443: Flags [S], seq 815937
+2026-10-14 23:56:42.423741 IP 10.0.2.15.38558 > 142.251.154.119.443: Flags [S], seq 126646
+# host UTC events: wifi disable before final-first-run-capture-1 ~22:48:2x; final-first-run-capture-1 22:48:25-22:49:33;
+# ctl-first-run-capture-2 (158.0-2) 22:51:49-22:52:56; OS-only control: org.redoubtbrowser force-stopped (pidof empty), svc wifi enable 22:56:00, svc wifi disable ~22:56:40;
+# ClientHellos with that SNI in the pcap: 4 before the OS-only control, 6 after it (the two at 23:56:34/23:56:42 pcap time, Redoubt not running).
