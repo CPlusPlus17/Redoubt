@@ -4,11 +4,9 @@
 
 **Android leaves ESR. It moves to Firefox release 157.0 now and follows Firefox
 release from here on, the same track as desktop.** Decided 2026-10-02 by the
-maintainer, Manuel Gysin:
-
-> "we do the jump to 157 now and then follow mainstream from firefoxx, move fast and forward, its the timeage of ai."
-
-(Quoted verbatim, spelling included.)
+maintainer: jump to Firefox 157 now and follow Firefox release from then on, so
+security fixes arrive when Mozilla ships them, and accept the per-release rebase
+cost by automating it.
 
 This supersedes the decision below (LW-M0-07, 2026-08-15). Everything from
 "Decision" down is the original analysis, kept unedited as the record of what
@@ -197,8 +195,7 @@ estimate, not as a veto.
   2026-09-01), about 46 releases a year in total. Each major means re-deriving
   the patch set, the Fenix Kotlin removals and the pref delivery against a moved
   tree. The analysis called this "where the port dies" for a one-person team.
-  The maintainer's answer is to accept the per-release cost and automate it
-  ("move fast and forward").
+  The maintainer's answer is to accept the per-release cost and automate it.
 - **§5.1: the jump is paid in one go.** 153.4.0esr → 157.0 spans four majors
   (154 to 157) with no intermediate green build to bisect against. When the
   decision was taken, `check-patchfail --targets=android` on 157.0 failed 29

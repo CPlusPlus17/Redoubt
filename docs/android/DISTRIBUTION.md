@@ -1,5 +1,24 @@
 # Distribution and the update-check contract — Redoubt (Android)
 
+> **Current state (2026-10-14).**
+> - **GitHub Releases:** live; Latest is Redoubt 158.0-2. Stable releases since 157.0-2
+>   (2026-10-05). The beta releases (Betas 1–5 and the 158.0-1 betas) are no longer on
+>   GitHub Releases; their `android-*-beta.*` tags remain.
+> - **Redoubt F-Droid repository:** live since 2026-10-14 (`FDROID.md`).
+> - **Obtainium:** tracks the GitHub releases; **not tested** with Redoubt yet. Read from
+>   Obtainium's source, not measured: the installed version string `158.0-2-default` may not
+>   match its version detection, so it may offer a version you already have; a fresh install
+>   through Obtainium compares release tags and is expected to work.
+> - **In-app update check:** live, opt-in, off by default; the signed document at
+>   `https://redoubtbrowser.org/update/android/latest.json` announces 158.0-2.
+> - **Accrescent:** not published.
+> - **Google Play:** not published. The 2026-10-05 plan to upload the release key to Play
+>   App Signing was **reversed on 2026-10-14**: the release key is never given to Google. If
+>   Redoubt is ever published on Play, it uses a separate Play-only key, and Play installs
+>   and GitHub/F-Droid installs then cannot update each other (`PLAY.md`, `SIGNING.md`).
+>
+> The sections below are the dated record of how each part got there.
+
 ## First Android beta on GitHub
 
 **Release channel (owner decision 2026-10-04):** each beta is published as a full GitHub
@@ -19,8 +38,8 @@ is verified in the [publication record](evidence/lw-m6-11/README.md).
 
 Betas 1-5 have no in-app update check (it is compiled out: no key was given to
 those builds); later APKs must be obtained from Releases and installed over the
-current build. Obtainium integration has not been verified. F-Droid and Accrescent
-publication remain separate work.
+current build. Obtainium integration has not been verified (still true on 2026-10-14). The
+F-Droid repository went live on 2026-10-14; Accrescent is not published.
 
 **Status 2026-10-04 (owner decision: in-app check from the next build).** The
 publishing side now exists in the repository; what is still missing is owner-held:
@@ -32,7 +51,7 @@ publishing side now exists in the repository; what is still missing is owner-hel
 | owner's signer (`scripts/sign-update-manifest.sh`) | implemented; refuses any key but the pinned one |
 | build wiring (`scripts/android-apk.sh --update-check`) | implemented; refuses to build until the public key is committed |
 | tests (`scripts/tests/test-update-manifest.py`, `test-update-check-jvm.sh`) | implemented, throwaway keys only |
-| hosting (`site/update/android/` on `redoubtbrowser.org`, GitHub Pages) | the site publishes `site/update/**` verbatim; **nothing is there yet** |
+| hosting (`site/update/android/` on `redoubtbrowser.org`, GitHub Pages) | the site publishes `site/update/**` verbatim; live since 157.0-2, announcing 158.0-2 on 2026-10-14 |
 | update-signing key | generated 2026-10-04 by the owner; custody in `SIGNING.md` "The update-signing key" (stays on the Fedora host, owner decision 2026-10-04) |
 | `assets/update-check.android.pubkey` | committed 2026-10-04 (merge `7c724f60`); builds made with `--update-check` carry it |
 | first signed document | published with the first build made with `--update-check`: the stable release **Redoubt 157.0-2** (see "Stable release" below), not a Beta 6 |
@@ -48,8 +67,8 @@ It is the contract half of LW-M6-06. The code half is
 `patches/android/update-check.patch` (`org.mozilla.fenix.lw.UpdateCheck`, landed
 2026-09-02); the endpoint is served from `redoubtbrowser.org`
 (`docs/android/IDENTITY.md`), which the owner decided on 2026-10-04 to publish as a
-GitHub Page from `site/` (`docs/android/WEBSITE.md`). **No document is published
-yet.** The verification key is checked in since 2026-10-04; a build made without
+GitHub Page from `site/` (`docs/android/WEBSITE.md`). The first signed document was
+published with 157.0-2; on 2026-10-14 it announces 158.0-2. The verification key is checked in since 2026-10-04; a build made without
 `--update-check` still has the check compiled out (see "F-Droid and Accrescent do
 not double-notify").
 
@@ -350,7 +369,8 @@ custody"). The step list above applies unchanged; this is the delta.
    `> **Superseded** by [Redoubt 157.0-2](https://github.com/CPlusPlus17/Redoubt/releases/tag/android-157.0-2).
    Install that release over this one; it keeps your data.` (`gh release edit
    android-157.0-1-beta.5 --notes-file ...`). `--latest` on 157.0-2 already moves
-   the Latest marker; Beta 5 is not deleted.
+   the Latest marker; Beta 5 is not deleted. (Later the beta releases were removed from
+   GitHub Releases; on 2026-10-14 only their tags remain.)
 7. **Site:** `site/index.html` and `site/install.html` still say "beta" and "no
    update check of their own"; update them for the stable release in the same
    publishing pass. The parity sentence and the fingerprint stay verbatim.
@@ -542,7 +562,14 @@ in-app prompt, or the same update is announced twice through two mechanisms.
 
 ## Google Play: no in-app check, compiled out (LW-M6-12)
 
-Owner decision 2026-10-05: Redoubt goes on Google Play with the existing release key
+> **Reversed 2026-10-14:** Redoubt is not on Google Play, and the release key is never
+> uploaded to Play App Signing. If Redoubt is ever published on Play, it uses a separate
+> Play-only key; a Play install and a GitHub/F-Droid install are then different apps to
+> Android and cannot update each other. The build-side rule below (no update check in a
+> Play bundle) still holds for any future Play build. The paragraph that follows is the
+> 2026-10-05 record.
+
+Owner decision 2026-10-05 (reversed 2026-10-14, above): Redoubt goes on Google Play with the existing release key
 (`PLAY.md`). Play is a store with its own updater, like F-Droid and Accrescent, and
 Play's Device and Network Abuse policy also forbids an app "distributed via Google
 Play" from updating itself "using any method other than Google Play's update
@@ -553,16 +580,17 @@ time:
 |---|---|---|---|---|
 | direct APK (GitHub Releases, Obtainium) | `fenix-<abi>-release.apk` | compiled in with `--update-check`, opt-in, off by default | the user, prompted by the check or Obtainium | live |
 | own F-Droid repository (LW-M6-03) | `fenix-<abi>-release.apk` from the GitHub release, unchanged (universal excluded) | compiled in, hidden at runtime when the installer of record is a store client (see LW-M6-03) | the F-Droid client | live since 2026-10-14 (158.0-2) |
-| Google Play (LW-M6-12) | `fenix-release.aab`, signed by the owner's upload key; Google signs the APKs with the release key | **compiled out**, always | Google Play | **pending**: no account yet |
+| Google Play (LW-M6-12) | `fenix-release.aab`, signed by the owner's upload key; Google would sign the APKs with a separate Play-only key (2026-10-14) | **compiled out**, always | Google Play | **not published**; no account |
 
 - `scripts/android-apk.sh --bundle` builds the AAB in a separate Gradle pass with
   `-PlwUpdateCheckPubkey=` empty, whatever `--update-check` says for the APKs.
   `scripts/android-aab.py inspect --forbid-key-file` fails the build, and the CI gate
   fails the run, if any dex in the bundle carries the committed key.
-- A device moving between the direct APK and Play keeps one key, so the move is an
-  ordinary update. The build it ends up with has the check or does not. That is the
-  same "no conflict to reconcile" rule as above, and it is measured in
-  `evidence/lw-m6-12/README.md`.
+- Under the 2026-10-05 plan, a device moving between the direct APK and Play would have
+  kept one key, so the move would have been an ordinary update, measured in
+  `evidence/lw-m6-12/README.md`. With a separate Play-only key (2026-10-14) the move is a
+  reinstall, and the profile does not move with it. Either way the build a device ends up
+  with has the check or does not: the same "no conflict to reconcile" rule as above.
 
 ## What this page does not decide
 

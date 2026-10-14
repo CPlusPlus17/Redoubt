@@ -1,5 +1,11 @@
 # Android APK build reproducibility (LW-M6-02)
 
+> **Scope today (2026-10-14).** What is verified: two same-machine builds of the APK stage
+> (from shared prebuilt Gecko/AAR inputs) produce byte-identical unsigned APKs, last run on
+> the ESR 153 beta candidate on 2026-09-08. It has not been repeated on the Firefox 157/158
+> releases. Not verified: cross-machine reproducibility and a reproducible Gecko/AAR build.
+> Redoubt therefore does not claim reproducible builds.
+
 This document records how the unsigned release APK is built reproducibly,
 what was measured, what is known to be nondeterministic (and why), and what
 could *not* be verified. It accompanies the check script

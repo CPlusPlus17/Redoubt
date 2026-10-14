@@ -52,7 +52,7 @@ assertion.
 |---|---|---|---|---|
 | 1 | Gecko content-process sandbox (`MOZ_SANDBOX`) | ON | **Absent** | Not compiled; `toolkit.mozbuild:37` skips `security/sandbox`; `security.sandbox.*` inert. Upstream port unfinished (bugs 1660102, 2040639). Mitigated by rows 2–4. Measured by: build config + upstream bugs. [ROADMAP, SANDBOX-SPIKE] |
 | 2 | Per-site process isolation (Fission) | `ISOLATE_HIGH_VALUE` | **Equivalent (stronger than stock)** | Locked to `ISOLATE_HIGH_VALUE` (LW-M5-01); stock Fenix ships `0`. Measured by: running-build pref read. [no-nimbus.patch, LW-M5-01] |
-| 2a | Content process isolation (separate uid, `isolated_app`) | n/a on desktop (the Gecko sandbox, row 1, is the desktop mechanism) | **Partial: Android 12+ isolated; Android 8-11 not** | From 158.0-2 (LW-M7-50, owner decision 2026-10-11 "158.0-2, Android 12+ only"): `GeckoProvider` turns `isolatedProcess` + app zygote on for SDK >= 31; web content runs as `u:r:isolated_app` with an isolated uid and cannot open the profile. H.264/HEVC/AAC are parsed in `:rdd`/`:utility` (app uid), every other codec only in the isolated process. Android 8-11: content under the app uid as in 158.0-1 and stock Fenix. Measured by: `android-smoke.sh --check-isolation` on API 34 and API 31 (ON) and API 30 (OFF), and `ps -A -o LABEL` on a Pixel 10 Pro (Android 17), of the prototype dev APK (`2fa22e51`), not of a 158.0-2 build; the 158.0-2 dev APK has not been measured on the phone yet. [ISOLATION-MEDIA, evidence/lw-m7-50/release-158.0-2] |
+| 2a | Content process isolation (separate uid, `isolated_app`) | n/a on desktop (the Gecko sandbox, row 1, is the desktop mechanism) | **Partial: Android 12+ isolated; Android 8-11 not** | From 158.0-2 (LW-M7-50, owner decision 2026-10-11 "158.0-2, Android 12+ only"): `GeckoProvider` turns `isolatedProcess` + app zygote on for SDK >= 31; web content runs as `u:r:isolated_app` with an isolated uid and cannot open the profile. H.264/HEVC/AAC are parsed in `:rdd`/`:utility` (app uid), every other codec only in the isolated process. Android 8-11: content under the app uid as in 158.0-1 and stock Fenix. Measured by: `android-smoke.sh --check-isolation` on API 34 and API 31 (ON) and API 30 (OFF), and `ps -A -o LABEL` on a Pixel 10 Pro (Android 17), of the prototype dev APK (`2fa22e51`), not of a 158.0-2 build; the 158.0-2 dev APK has not been measured on the phone yet. **2026-10-14 (launch QA):** the signed 158.0-2 arm64 release on a Pixel 9a (Android 17) and a Xiaomi Mi 8 (LineageOS, Android 15): web content ran as `isolated_app` (`ps -A -Z`) on both, and 1080p H.264, VP9 and AV1 test clips played to the end with 0 dropped frames. [ISOLATION-MEDIA, evidence/lw-m7-50/release-158.0-2] |
 | 3 | JS/WASM sandboxing (RLBox) | ON | **Equivalent** | 52 RLBox modules present. Measured by: binary scan of `libxul.so`. [SANDBOX-SPIKE] |
 | 4 | Compiler memory hardening (CFI, PHC, rosegment, …) | ON | **Equivalent (some stronger)** | All desktop flags present + PHC + rosegment; Android STL hardening (libc++ EXTENSIVE) is stronger than desktop `_GLIBCXX_ASSERTIONS`. Residual: 32-bit ARM lacks `-fstack-clash-protection`. Measured by: binary scan of `libxul.so`. [hardening-flags.md] |
 | 5 | HTTPS-only mode | ON | **Partial** (emulator-measured 2026-10-09/10 on 157.0-3; phone check pending) | On by default through Fenix's own setting (`privacy-defaults.patch`; `dom.security.https_only_mode=true`, not locked, so the user can turn it off in Settings). **Measured on 157.0-3** (API 34 emulator, local servers): a top-level `http://` load shows the HTTPS-only interstitial and loads only after "Continue to HTTP site"; an `http://` URL to a host that speaks TLS is upgraded silently and ends as a secure context; the exception is per origin (another port still gets the interstitial) and stored as `https-only-load-insecure` with `expireType=1` (session). Device-pending: public sites, and whether the exception really ends with the session. Kept at Partial until the phone check passes (owner decision 2026-10-10: the emulator result does not raise a row on its own). Measured by: `android-smoke.sh --check-https-only` (rows `https-only-interstitial`, `https-only-upgrade`, `https-only-exception-scope`). [evidence/lw-m7-49, DEVICE-CHECKS §1] |
@@ -277,6 +277,12 @@ list it.
 
 ### 7.4 Open gaps
 
+> **Update 2026-10-14.** Since this check: Firefox 157.0.1 (MFSA 2026-104, 2026-10-06)
+> shipped as Redoubt 157.0.1-1 on 2026-10-10; Firefox 158.0 (MFSA 2026-106, 2026-10-13)
+> shipped as Redoubt 158.0-1 on 2026-10-14, followed by 158.0-2 the same day. The next
+> scheduled Firefox release is 2026-10-23 (product-details `NEXT_RELEASE_DATE`, read
+> 2026-10-14). The bullets below are the 2026-10-04 record.
+
 - **After 157.0: none.** As of 2026-10-04 there is no Firefox 157.0.x:
   `https://archive.mozilla.org/pub/firefox/releases/157.0.1/` is a 404, and
   product-details reports `LATEST_FIREFOX_VERSION` `157.0`
@@ -304,7 +310,7 @@ list it.
   sandbox, DoH overridden) are unchanged. This section is about Mozilla
   advisories only.
 
-## 8. Known limitations: passwords and passkeys (2026-10-05)
+## 8. Known limitations: passwords and passkeys (2026-10-05, updated 2026-10-14)
 
 These are not security-parity rows. They are listed here because users
 experience them as limits of Redoubt. Desktop LibreWolf does not have them in
@@ -316,13 +322,24 @@ for Android 157 was run in the same setup for comparison.
 - **Password autofill works through any Android autofill service on normal
   forms.** The probe service received the page's username and password fields
   with web domain and autofill hints from `org.redoubtbrowser`.
-- **Shadow-DOM login forms get no autofill in 157.** Reddit's inputs live in
-  open shadow roots (`faceplate-text-input`). `GeckoViewAutoFillChild` only
-  registers fields from the non-composed `DOMFormHasPassword` /
+- **Shadow-DOM login forms: fixed in 158.0-1.** Reddit's inputs live in
+  open shadow roots (`faceplate-text-input`). In 157, `GeckoViewAutoFillChild` only
+  registered fields from the non-composed `DOMFormHasPassword` /
   `DOMInputPasswordAdded` events and from `scanDocument`'s
-  `querySelectorAll`, and neither reaches into shadow roots. `onFocus` only
-  resolves fields that were registered. Stock Firefox for Android 157 behaves
-  the same. A fix is planned for Redoubt 158 and is **not** in 157.0-2.
+  `querySelectorAll`, and neither reaches into shadow roots; stock Firefox for
+  Android 157 behaves the same. Since 158.0-1, `autofill-shadow-dom.patch`
+  (LW-M7-42) registers a focused login field in an **open** shadow root when its
+  form holds a password field. Measured with the probe service (158.0-2
+  acceptance, row AF): the open-shadow-root login page gets a fill request,
+  closed shadow roots and non-login fields do not. Not yet tested with Bitwarden,
+  KeePassDX or Proton Pass.
+- **reddit.com/login does not render** on a fresh profile: the page stays blank,
+  while `www.reddit.com` itself loads. Seen on emulators since 157 and on two
+  phones with the 158.0-2 release (2026-10-14); turning off tracking protection
+  for the site, allowing WebGL, turning off resist-fingerprinting, disabling
+  uBlock Origin or requesting the desktop site did not change it. Under
+  investigation; the autofill fix above could therefore not be tried on Reddit
+  itself.
 - **Passkeys need Android 14+ and go through Android Credential Manager.**
   `no-gms.patch` removes `play-services-fido`, Gecko's FIDO2 path for older
   Android, so there is no fallback below Android 14.
@@ -338,8 +355,8 @@ for Android 157 was run in the same setup for comparison.
   use; `PasskeysPrivilegedAppsPreferenceDialogFragmentCompat`, KeePassDX
   4.5.5). Bitwarden offers **Trust** on its "Unrecognized browser" prompt
   (`TrustPrivilegedAddPrompt`, since PM-19107). Adding Redoubt to Bitwarden's
-  and KeePassDX's community lists, and asking Proton to add it, is in
-  progress. The KeePassDX and Bitwarden steps come from their source and are
+  and KeePassDX's community lists, and asking Proton to add it, is
+  planned; no request had been filed by 2026-10-14. The KeePassDX and Bitwarden steps come from their source and are
   **PENDING** a device test with Redoubt.
 - **Conditional-mediation passkeys (autofill-style suggestions in the
   username field) are unavailable.** `PublicKeyCredential::

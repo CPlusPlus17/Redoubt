@@ -8,12 +8,12 @@ arrive; §7 holds the owner's stable-release decision (GO, 2026-10-04).
 The owner changed the original closed-beta channel to a public GitHub prerelease
 on 2026-09-08; see §3 and the [publication record](evidence/lw-m6-11/README.md).
 
-> **Programme ended (2026-10-04).** The owner, Manuel Gysin, decided GO for the
-> stable release on 2026-10-04: *"we start now, testers are early adaptors"*. The
-> 14-day device-slot programme below (§2-§4) did not run as written and is
-> replaced by public early-adopter feedback after release, through the same
-> Android bug-report form. The first stable release is **Redoubt 157.0-2**
-> (Firefox 157; *"157 is our releae we want to go"* (verbatim)), a new build from `main`
+> **Programme ended (2026-10-04).** The maintainer, Manuel Gysin, decided GO for the
+> stable release on 2026-10-04: start now, and treat the first users as early
+> adopters in place of testers. The 14-day device-slot programme below (§2-§4) did
+> not run as written and is replaced by public early-adopter feedback after release,
+> through the same Android bug-report form. The first stable release is
+> **Redoubt 157.0-2** (Firefox 157, the maintainer's choice), a new build from `main`
 > with the in-app update check compiled in, not Beta 5's binary. §7 records the
 > decision and, for every no-go item, what is evidenced and what was waived. The
 > rest of this file is kept as written: it is the record of what the beta was
@@ -199,11 +199,11 @@ crashes, with the warning that it contains visited URLs.
 
 ## 7. Go / no-go
 
-Recorded by the agent on the owner's instruction of 2026-10-04 (the owner's words,
-verbatim: *"1. we start now, testers are early adaptors 2. 157 is our releae we want
-to go. 3. like said, testers are early adapotrs. 4. done"*). The decision is the
-owner's; the evidence lines below are the agent's reading of the repository and say
-plainly where real-device evidence does not exist.
+Recorded by the agent on the maintainer's instruction of 2026-10-04. In substance:
+start now; the stable release is Firefox 157 (Redoubt 157.0-2); early adopters take
+the testers' place. The decision is the maintainer's; the evidence lines below are
+the agent's reading of the repository and say plainly where real-device evidence
+does not exist.
 
 ```
 DECISION:     GO   (owner decision, early-adopter release model)

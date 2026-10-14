@@ -77,8 +77,8 @@ species of overclaim as "provably zero-GMS".
 
 **The domain is live (since 2026-10-04).** Registered 2026-08-23 at Namecheap; it
 serves the project site (GitHub Pages, built from `site/`, HTTPS enforced, apex
-`redoubtbrowser.org` with `www` redirecting to it) and, from Beta 6, the update-check
-document at `/update/android/latest.json`. The domain is verified for the owner's
+`redoubtbrowser.org` with `www` redirecting to it) and, since Redoubt 157.0-2, the
+update-check document at `/update/android/latest.json`. The domain is verified for the owner's
 GitHub account, so no one else can claim it on GitHub Pages.
 
 ## The space is occupied
@@ -88,20 +88,21 @@ successor to Divested's Mull: a privacy-hardened Firefox for Android, shipped on
 F-Droid, maintained. Iceraven and Fennec are also live.
 
 This is not a reason to stop, but it does mean Redoubt has to be able to say what
-it does that they do not. The honest answer is the build model: Redoubt compiles
-Gecko from source with LibreWolf's patch set and pref configuration shared with
-the desktop build, rather than patching a prebuilt Fennec. That is a real
-difference and it is also the expensive one. LW-M7-03 owns saying it accurately
-and without overclaiming.
+it does differently. **Corrected 2026-10-14:** an earlier version of this paragraph
+named the build model (compiling Gecko from source) as the difference. That is not
+one: IronFox also builds Gecko from source. The difference is the base: LibreWolf's
+own preference file and patch set, kept in step with LibreWolf desktop and measured
+against it in `PARITY.md`. [`POSITIONING.md`](POSITIONING.md) (LW-M7-03) has the
+dated comparison, including where IronFox is ahead.
 
 **`org.redoubtbrowser` is one-way.** A changed applicationId is a different app
 to Android: no upgrade path, no data migration, every user reinstalls by hand. It
 is the same severity as losing the signing key, and F-Droid and Accrescent both
 key on it. It is decided; do not revisit it after the first public build.
 
-Note the current build still ships as `org.mozilla` + `.fenix.debug`. That must
-change before anything is published: it is Mozilla's namespace *and* it collides
-with a real Firefox install.
+Every published build ships as `org.redoubtbrowser` (checked on the 158.0-2 APKs,
+2026-10-14). The early development builds shipped as `org.mozilla` + `.fenix.debug`,
+Mozilla's namespace, which also collided with a real Firefox install.
 
 ## What stays "librewolf" and is not a naming question
 

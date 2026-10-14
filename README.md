@@ -7,7 +7,7 @@
 A privacy-hardened Android browser, built from Firefox's source and LibreWolf's
 privacy configuration.
 
-**[redoubtbrowser.org](https://redoubtbrowser.org)**
+**[redoubtbrowser.org](https://redoubtbrowser.org)** · [FAQ](https://redoubtbrowser.org/faq.html)
 
 </div>
 
@@ -18,25 +18,30 @@ privacy configuration.
 
 ## Status
 
-**Stable.** The current release is **Redoubt 158.0-2**, which turns content-process isolation back on for Android 12 and newer, published as the
-[latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest).
-It is based on Firefox 158.0 (Firefox's regular release track), needs Android 8.0 or
-later, and installs over earlier releases and the 158.0-1 betas as an update. It has an opt-in in-app
-update check (Settings → Check for updates), off by default.
+**Stable.** The current release is **Redoubt 158.0-2**, published as the
+[latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest). It is
+based on Firefox 158.0 (Firefox's regular release track), needs Android 8.0 or
+later, and installs over any earlier Redoubt release as an update. Since 158.0-2,
+web content runs in Android's isolated processes on Android 12 and newer.
 
-Redoubt has its own **F-Droid repository** (not f-droid.org's main repository):
-add `https://redoubtbrowser.hel1.your-objectstorage.com/repo` in F-Droid and check that it shows the repository fingerprint
-`B0A8CDBB61AA4FC3CA1FED71F4CAECEB7B00E39D4E6E0583A637070862AC5567` (SHA-256 of the key that signs the index; the APKs inside are
-the release APKs with the signing fingerprint below; the repository is hosted in
-a Hetzner Object Storage bucket, which is why its address is not redoubtbrowser.org).
-How-to and QR code:
-https://redoubtbrowser.org/fdroid.html. Otherwise turn on the update check, use
-Obtainium (below), or watch the Releases page, and install new APKs over the old one.
+Three ways to install and stay up to date:
+
+- **The Redoubt F-Droid repository** (not f-droid.org's main repository). Add
+  `https://redoubtbrowser.hel1.your-objectstorage.com/repo` in the F-Droid app
+  and check that it shows the repository fingerprint
+  `B0A8CDBB61AA4FC3CA1FED71F4CAECEB7B00E39D4E6E0583A637070862AC5567` (SHA-256 of
+  the key that signs the index). The APKs inside are the release APKs, signed with
+  the key below. The repository is a Hetzner Object Storage bucket, which is why
+  its address is not redoubtbrowser.org. How-to and QR code:
+  https://redoubtbrowser.org/fdroid.html
+- **Obtainium**, tracking the GitHub releases (see below).
+- **The APK from the [latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest)**,
+  installed over the old one. Redoubt has an opt-in update check
+  (Settings → Check for updates), off by default.
 
 ## Install and verify
 
-Download from the latest release on the
-[latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest):
+Download from the [latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest):
 
 | file | for |
 |---|---|
@@ -53,9 +58,16 @@ Check the download before installing:
     sha256sum -c --ignore-missing SHA256SUMS.signed
     apksigner verify --print-certs fenix-<abi>-release.apk | grep -i SHA-256
 
-The signing certificate's SHA-256 digest must be:
+`SHA256SUMS.signed` lists the hashes of the signed APKs; the file itself is not
+signed. It catches a corrupted download. The signing-certificate check is what
+proves an APK is Redoubt's. The certificate's SHA-256 digest must be:
 
     64:14:EB:33:46:81:CF:6E:92:90:34:B5:6A:06:2D:2B:8D:A0:90:82:21:72:F7:A3:95:2C:85:FD:D1:28:3B:D0
+
+`apksigner` prints the same digest in lower case without colons:
+`6414eb334681cf6e929034b56a062d2b8da090822172f7a3952c85fdd1283bd0`. To check on
+the phone instead, an app such as AppVerifier compares package name
+`org.redoubtbrowser` with that digest.
 
 Every Redoubt APK is signed with this one key (APK signature schemes v2 and v3).
 If the digest differs, do not install it, and report it privately (see
@@ -67,11 +79,13 @@ in [`docs/android/SIGNING.md`](docs/android/SIGNING.md).
 [Obtainium](https://github.com/ImranR98/Obtainium) and set **Filter APKs by
 regular expression** to `arm64-v8a` (or your ABI). Obtainium does not check the
 signing certificate for you: verify the first install as above. After that,
-Android refuses any update not signed with the same key.
+Android refuses any update not signed with the same key. The project has not yet
+tested Obtainium itself; if it offers the version you already have, install it
+once, and from then on it tracks releases by tag.
 
 ## What it changes compared with Firefox for Android
 
-The approved summary, and the full measured comparison behind it:
+In one sentence, and the full measured comparison behind it:
 
 > Redoubt ships the same privacy configuration and the same Gecko-level security
 > patches as LibreWolf desktop, on a platform whose process containment is
@@ -79,17 +93,18 @@ The approved summary, and the full measured comparison behind it:
 
 That "where" is [`docs/android/PARITY.md`](docs/android/PARITY.md). In short:
 
-- **Built from source.** Gecko and the Android app are compiled from Firefox's
-  source with LibreWolf's shared patch set and preference configuration applied,
-  rather than patching a prebuilt browser.
+- **LibreWolf's configuration, built in.** Gecko and the Android app are compiled
+  from Firefox's source with LibreWolf's shared patch set and preference
+  configuration applied.
 - **Telemetry and experiments removed**: the Glean upload path, Adjust, Nimbus
   experiments, crash-report uploads and Google Play Services are patched out;
   sponsored shortcuts are removed and search suggestions are off by default.
-- **LibreWolf's privacy defaults**: resist-fingerprinting, strict Enhanced
+- **LibreWolf's privacy defaults**: resist-fingerprinting (with a switch in
+  Settings → Privacy and security → Global privacy controls), strict Enhanced
   Tracking Protection and cookie partitioning (both locked), Global Privacy
-  Control on.
+  Control on, WebGL only for sites you allow.
 - **Stronger site isolation than stock**: Fission is locked to isolate
-  high-value sites; stock Firefox for Android ships with it off.
+  high-value sites; stock Firefox for Android does not turn it on by default.
 - **uBlock Origin preinstalled**, with its cookie-notice lists on by default.
 - **Cloud features off**, such as Shake to Summarize, IP Protection and Google Lens.
 
@@ -102,29 +117,68 @@ That "where" is [`docs/android/PARITY.md`](docs/android/PARITY.md). In short:
   non-isolated decoder process, which is the remaining attack surface
   ([`docs/android/ISOLATION-MEDIA.md`](docs/android/ISOLATION-MEDIA.md)). On
   **Android 8–11** isolated processes are not used.
-- **Not everything is proven on a live page.** HTTPS-only, certificate revocation,
-  the TLS floor and fingerprinting coherence are configured but marked *Partial*
-  in `PARITY.md` until measured on a device. The DNS-over-HTTPS setting in the
-  configuration is overridden by the app; use Settings > DNS over HTTPS instead.
-- **Automated device testing so far covers an x86_64 emulator only.** ARM builds
-  are checked but have not been run on a physical phone by the project. Reports
-  from real devices are welcome.
-- **One person holds the signing key.** There is no second key holder yet.
-- **Some password managers do not offer passkeys to Redoubt yet**, and login
-  forms built inside shadow DOM (Reddit's, for example) do not get autofill
-  suggestions in 157. See [Passwords and passkeys](#passwords-and-passkeys).
+- **Not everything is proven on a phone.** HTTPS-only, certificate revocation,
+  the TLS floor and fingerprinting coherence pass on emulators but stay marked
+  *Partial* in `PARITY.md` until measured on a phone. The DNS-over-HTTPS setting in
+  the configuration is overridden by the app; use Settings > DNS over HTTPS instead.
+- **Testing is mostly on emulators.** Every release passes automated acceptance on
+  Android 11, 12 and 14 emulators. On 2026-10-14 the signed 158.0-2 release also
+  ran on two phones, a Pixel 9a (Android 17) and a Xiaomi Mi 8 (LineageOS,
+  Android 15): isolated content processes, 1080p H.264, VP9 and AV1 video with no
+  dropped frames, common sites, no crashes. The maintainer also tested an arm64
+  development build on a Pixel 10 Pro. **Not yet tested:** phones with 4 GB of RAM
+  or less, Android 8–11 hardware, and real password managers. Reports from real
+  devices are welcome.
+- **One person holds the signing key, and it is not offline.** The release key and
+  the update-signing key are passphrase-protected files on the maintainer's
+  workstation, with offline backups; CI builds on a separate machine and never has
+  a key. Moving the keys to a hardware security key is planned
+  ([`docs/android/YUBIKEY.md`](docs/android/YUBIKEY.md)). There is no second key
+  holder. Redoubt is not on Google Play, and this key will not be given to Google.
+- **Some password managers do not offer passkeys to Redoubt yet.** See
+  [Passwords and passkeys](#passwords-and-passkeys).
 - **A small project.** If you want a mature, widely used hardened Firefox for
-  Android today, [IronFox](https://github.com/ironfox-oss/IronFox) is that, and it
+  Android today, [IronFox](https://gitlab.com/ironfox-oss/IronFox) is that, and it
   is the browser LibreWolf itself recommends to Android users. How Redoubt differs
   is in [`docs/android/POSITIONING.md`](docs/android/POSITIONING.md).
+
+### Known issues
+
+- **Logging in on reddit.com does not work yet.** `reddit.com/login` stays blank
+  (a white page), on a fresh profile and after visiting reddit.com; reading Reddit
+  works. Turning off tracking protection for the site, allowing WebGL, turning off
+  resist-fingerprinting or uBlock Origin, or requesting the desktop site did not
+  fix it in our tests. Under investigation.
+- **Two Firefox leftovers** are still in the app: the fox illustration in the
+  site-protection panel, and a "Rate on Google Play" entry in Settings → About
+  (Redoubt is not on Google Play). Both are to be removed in a coming release.
+
+## How Redoubt is made
+
+Redoubt has one maintainer. AI coding agents (Claude Code, Codex and local
+models) write and check most of the code, patches, tests and documentation, run
+the gates (the build, the Fenix unit-test suite, emulator acceptance) and record
+the evidence. The maintainer sets the direction, decides the trade-offs, tests on
+devices and signs the releases.
+
+What you can check yourself:
+
+- The preference configuration and the shared patch set are LibreWolf's; Gecko and
+  Firefox for Android are Mozilla's.
+- Redoubt's own changes are the 48 Android patches listed in
+  [`assets/patches/android.txt`](assets/patches/android.txt) (files in
+  [`patches/android/`](patches/android/)).
+- Every release names its source commit and the SHA-256 of Mozilla's source tarball.
+- The test evidence for every release is in
+  [`docs/android/evidence/`](docs/android/evidence/).
 
 ## Sync with LibreWolf desktop
 
 Sync is off by default. You can turn on Firefox Sync with a Mozilla account on
 both Redoubt and LibreWolf desktop to share bookmarks, passwords, history and
-open tabs. The maintainer tested this on 2026-10-04. There is no instant push,
-because Redoubt has no Google services. See
-[`docs/android/SYNC.md`](docs/android/SYNC.md).
+open tabs. The maintainer tested this on 2026-10-04 with a 157 build; it has not
+been re-tested on 158. There is no instant push, because Redoubt has no Google
+services. See [`docs/android/SYNC.md`](docs/android/SYNC.md).
 
 ## Passwords and passkeys
 
@@ -133,11 +187,10 @@ KeePassDX, Proton Pass, Google Password Manager and others. Choose yours as
 the autofill service in Android's settings. Normal login forms get
 suggestions. Redoubt's own password saving is off by default.
 
-One gap: Redoubt 157 does not see login fields built inside shadow DOM, so
-your password manager gets no suggestion there. Reddit's login is one example.
-Stock Firefox for Android 157 has the same gap. A fix is planned for the next
-release, Redoubt 158. Until then, copy the username and password from your
-password manager.
+Since 158.0-1, login fields inside open shadow roots (Reddit-style login forms,
+for example) also reach your autofill service. This was tested with a test
+autofill service, not yet with Bitwarden, KeePassDX or Proton Pass. Fields inside
+closed shadow roots are still out of reach.
 
 **Passkeys** need Android 14 or later. Redoubt passes passkey requests to
 Android's Credential Manager, along with the site's address. Each password
@@ -149,8 +202,8 @@ manager then decides whether it trusts Redoubt as a browser:
   filling > Passkeys settings > Privileged apps, then tick Redoubt.
 - **Bitwarden**: when you pick a passkey, Bitwarden says Redoubt is an
   "Unrecognized browser". Choose **Trust** to add it to your own list of
-  trusted apps. Redoubt is not on Bitwarden's community list of browsers yet.
-  We are working on adding it, so that this step will no longer be needed.
+  trusted apps. Redoubt is not on Bitwarden's community list of browsers yet;
+  we plan to ask Bitwarden to add it, so that this step is no longer needed.
 - **Proton Pass and Google Password Manager** check browsers against fixed
   lists that do not include Redoubt yet. Neither lets you add a browser
   yourself, so they offer no passkeys to Redoubt until their makers add it.
@@ -181,19 +234,28 @@ identifiers, kept so the fork can keep rebasing on upstream; they are not brandi
 Redoubt is also **not affiliated with or endorsed by Mozilla**. It is built from
 Mozilla's Firefox (Gecko and Firefox for Android) source code. Firefox is a
 trademark of the Mozilla Foundation; Redoubt does not use Mozilla's trademarks in
-its branding.
+its branding (two leftovers in the app are listed under [Known issues](#known-issues)).
+
+**Third-party components** shipped in the app: uBlock Origin 1.75.0 by Raymond
+Hill (GPL-3.0; the unmodified addons.mozilla.org build, with its licence inside;
+source at [github.com/gorhill/uBlock](https://github.com/gorhill/uBlock)), the
+Firefox Translations engine and models (MPL-2.0; see
+[`assets/translations/`](assets/translations/)), and Mozilla's localisation
+strings (MPL-2.0, pinned by hash).
 
 ## Security and bug reports
 
 - **Security vulnerabilities, signature mismatches or a suspicious download**:
   report privately via
-  [GitHub private vulnerability reporting](https://github.com/CPlusPlus17/Redoubt/security/advisories/new).
+  [GitHub private vulnerability reporting](https://github.com/CPlusPlus17/Redoubt/security/advisories/new)
+  or by email to **security@redoubtbrowser.org** (no GitHub account needed).
   Process: [`docs/android/SECURITY.md`](docs/android/SECURITY.md).
 - **Bugs in Gecko or Firefox for Android itself** belong with Mozilla
   (Bugzilla); the issue form asks whether stock Firefox shows the same problem.
 - **Other bugs**: [open an issue](https://github.com/CPlusPlus17/Redoubt/issues/new/choose)
   using the Android bug form. Triage is described in
-  [`docs/android/TRIAGE.md`](docs/android/TRIAGE.md).
+  [`docs/android/TRIAGE.md`](docs/android/TRIAGE.md). Questions go to
+  [Discussions](https://github.com/CPlusPlus17/Redoubt/discussions).
 
 ## Where things are
 
@@ -202,10 +264,18 @@ its branding.
 | [`docs/android/`](docs/android/) | the Android work: plan, decisions, evidence ([`README.md`](docs/android/README.md) is the index) |
 | [`docs/android/PARITY.md`](docs/android/PARITY.md) | what Redoubt does and does not match, measured |
 | [`docs/android/IDENTITY.md`](docs/android/IDENTITY.md) | why this is called Redoubt, and what stays named `librewolf` |
-| [`docs/android/BUILD.md`](docs/android/BUILD.md), [`REPRODUCIBLE.md`](docs/android/REPRODUCIBLE.md) | building GeckoView and the APK, and reproducing a release |
+| [`docs/android/SIGNING.md`](docs/android/SIGNING.md), [`YUBIKEY.md`](docs/android/YUBIKEY.md) | the signing keys, their custody, and the planned move to a hardware key |
+| [`docs/android/BUILD.md`](docs/android/BUILD.md), [`REPRODUCIBLE.md`](docs/android/REPRODUCIBLE.md) | building GeckoView and the APK; reproducibility so far covers same-machine APK assembly only |
 | [`patches/`](patches/), [`assets/patches/`](assets/patches/) | patches, and the common / desktop / android lists that select them |
-| [`settings/`](settings/) | submodule with the preference configuration ([Redoubt-settings](https://github.com/CPlusPlus17/Redoubt-settings), from LibreWolf's settings) |
+| `settings/` | submodule with the preference configuration ([Redoubt-settings](https://github.com/CPlusPlus17/Redoubt-settings), from LibreWolf's settings) |
 | [`.github/workflows/`](.github/workflows/) | Android test and release builds |
+
+The repository is large (about 600 MB), mostly per-release test evidence. To read
+the code without it:
+
+    git clone --filter=blob:none --sparse https://github.com/CPlusPlus17/Redoubt.git
+    cd Redoubt
+    git sparse-checkout set --no-cone '/*' '!/docs/android/evidence/'
 
 ## The desktop patch set
 

@@ -25,8 +25,8 @@ repository's default branch; labels are repository settings.
 ```
 OWNER:        Manuel Gysin                  (launch-window triage owner)
 BACKUP:       -- none --                    (see the note below)
-WINDOW OPEN:  __________  (date the download page goes live — LW-M7-02)
-WINDOW CLOSE: __________  (OPEN + 14 days, or the exit condition in §5)
+WINDOW OPEN:  the day of the public announcement (the first forum post)
+WINDOW CLOSE: OPEN + 14 days, or the exit condition in §5
 ```
 
 **Named 2026-09-06.** The recorded owner decision is to operate without a backup.
@@ -44,8 +44,9 @@ follow-up: if this field is empty, the Android download page (LW-M7-02) does not
 live and the F-Droid repo (LW-M6-03) does not get its first published index.
 
 The reason is specific rather than procedural. On launch day this tracker gets a
-burst of reports from people on hardware nobody on the project owns, through three
-distribution channels that have never carried a release, on a build with **no crash
+burst of reports from people on hardware nobody on the project owns, through two
+distribution channels (GitHub Releases with Obtainium, and the Redoubt F-Droid
+repository) that have carried only a few releases, on a build with **no crash
 reporter** — Socorro is removed in M4, so a crash produces no crash ID and no
 automatic report. Every signal we get in that window arrives as a hand-written
 issue. A tracker with 40 unsorted Android issues and no owner is
@@ -56,9 +57,9 @@ The named owner performs the daily pass ([§5](#5-the-launch-window-rotation)).
 If a backup joins later, record that person's name here. The dated solo-owner
 decision above is the accepted exception to having a backup.
 
-The closed beta starts its own 14-day feedback period at the first install
-(`BETA.md` §3). The public-launch dates above begin when the download page goes
-live; they do not start the beta or replace its results log.
+The closed beta did not run: the maintainer waived it on 2026-10-04 in favour of
+early-adopter feedback through this tracker (`BETA.md` §7). The launch window above
+starts with the public announcement.
 
 ---
 
@@ -238,6 +239,10 @@ re-reported).
 
 ### 1.3 Channel labels (strongly recommended)
 
+> **2026-10-14:** Accrescent is not published. `Build Accrescent` stays defined for a
+> later Accrescent release; the live channels are `Build APK` (GitHub Releases,
+> Obtainium) and `Build F-Droid`.
+
 The public-release plan has three channels with three different update paths and three
 different ways to be broken while the APK is fine. Without these, "everyone on
 Accrescent is stuck on the old version" reads as thirty unrelated bug reports. They
@@ -328,6 +333,10 @@ A Markdown fallback is in [Appendix A](#appendix-a--markdown-fallback-template) 
 the case where the form is rejected or a maintainer prefers it.
 
 ### 2.2 `.github/ISSUE_TEMPLATE/android-bug.yml`
+
+> **The live form is the file itself**, [`.github/ISSUE_TEMPLATE/android-bug.yml`](../../.github/ISSUE_TEMPLATE/android-bug.yml),
+> revised for the launch on 2026-10-14. The copy below is the 2026-09-08 publication
+> record and still lists Accrescent and the ESR-era version placeholder.
 
 The referenced `Android` and `Type Bug` labels were created before publication.
 Keep that ordering for later template changes: GitHub will not create a label
@@ -614,10 +623,11 @@ Two things that look closable and are **not**:
 
 - **"It is slow / it runs out of memory on my phone."** This is the single most
   likely real defect at launch. Site isolation (LW-M5-01) plus `isolatedProcess`
-  plus the app zygote (LW-M5-02) cost memory that is invisible on a flagship and
-  decisive on a 3 GB device — which is exactly why LW-M7-06 weights the closed beta
-  toward low-RAM hardware. Label `Android`, keep it open, ask for the device and
-  total RAM, and make sure the beta owner sees it.
+  plus the app zygote (LW-M5-02, on for Android 12+ since 158.0-2) cost memory that
+  is invisible on a flagship and decisive on a 3 GB device. Low-RAM phones are
+  untested: the closed beta that would have measured this was waived (`BETA.md` §7).
+  Label `Android`, keep it open, ask for the device and total RAM, and treat a
+  confirmed report as a release-blocking finding.
 - **"WebGL does not work on any site."** Never close this as a site bug. It is the
   signature of landmine L1 — see [§3.4](#34-upstream-gecko-or-ours). Escalate.
 
@@ -629,18 +639,19 @@ brush-off does not file the second, better report.
 **B1 — Play Store**
 
 ```
-Thanks for asking. The Play Store is out of scope for Redoubt on Android, and it
-is a deliberate decision rather than a to-do item.
+Thanks for asking. Redoubt is not on Google Play, and that is a deliberate decision
+rather than a to-do item.
 
-Play requires either Google's app signing (which means handing over the signing key)
-or Play App Signing enrollment, and our release model is that the key never exists
-anywhere but offline: CI publishes unsigned artifacts and hashes, and a maintainer
-signs by hand. That is not compatible with Play, so this is not something we plan to
-revisit.
+Play requires Play App Signing for new apps: Google holds the key that signs what Play
+serves. Giving Google a copy of Redoubt's release key would let Google sign an update
+that every Redoubt install accepts, including the ones from GitHub and our F-Droid
+repository. We will not do that. If Redoubt ever goes on Play, it will use a separate,
+Play-only key, so a Play install and a GitHub or F-Droid install would be different
+apps to Android and could not update each other.
 
-Redoubt is available from our own F-Droid repository, from Accrescent,
-and as a direct APK that works with Obtainium. All three carry the same signing
-fingerprint, which is published on the download page.
+Redoubt is available from GitHub Releases, from our own F-Droid repository, and
+through Obtainium. All of them carry the same APKs with the same signing fingerprint,
+which is published in the README and on redoubtbrowser.org.
 
 Closing as not planned — but please do file anything else you run into.
 ```
@@ -656,11 +667,12 @@ preference you can see in about:config is inert. That is upstream Gecko's situat
 on Android, not something LibreWolf turned off, and we cannot turn it on from where
 we sit.
 
-What we do instead is use Android's own containment, which stock Firefox for Android
-does not: per-site process isolation (fission.webContentIsolationStrategy), which
-Android Firefox ships disabled. Isolated processes and the app zygote are not used:
-in Firefox 157 an isolated content process cannot play H.264 video (upstream bug
-1810736). That recovers part of the gap and we do not claim it recovers all of it.
+What we do instead is use what Android and Gecko offer: per-site process isolation
+(fission.webContentIsolationStrategy), which stock Firefox for Android does not turn
+on, and, on Android 12 and newer since 158.0-2, Android's isolated processes for web
+content, with H.264/HEVC/AAC decoded in a separate decoder process. On Android 8–11
+isolated processes are not used. That recovers part of the gap and we do not claim
+it recovers all of it.
 
 Our position, in full: Redoubt ships the same privacy configuration and
 the same Gecko-level security patches as LibreWolf desktop, on a platform whose
@@ -672,9 +684,6 @@ fails to hold, that is a different and very welcome report — please use the pr
 security contact for it.
 ```
 
-*Until LW-M5-06 lands, replace the `PARITY.md` reference with "the security section
-of the Android download page" — do not link a URL that 404s.*
-
 **B3 — missing information**
 
 ```
@@ -683,8 +692,8 @@ need three things that are not in the issue yet:
 
 - your device model (Android Settings → About phone)
 - your Android version, including the vendor skin or custom ROM if you are on one
-- where you installed the APK from (our F-Droid repo, Accrescent, direct download,
-  Obtainium, or built from source)
+- where you installed the APK from (our F-Droid repo, GitHub Releases, Obtainium,
+  or built from source)
 
 and, if you have it, your Redoubt version and build ID from Settings → About
 Redoubt.
@@ -719,8 +728,8 @@ Bugzilla bug in a comment so anyone who finds this issue can follow it.
 ```
 Thanks for the report, but we cannot act on this one: that build is not ours.
 
-We publish Redoubt through our own F-Droid repository, Accrescent, and
-a direct APK download. Anything else — a mirror, a repackage, a modified APK — is
+We publish Redoubt through GitHub Releases (which Obtainium reads) and our own
+F-Droid repository. Anything else — a mirror, a repackage, a modified APK — is
 built and signed by someone we do not control, so we cannot tell whether the problem
 is in our source or in their build, and we cannot verify what is actually in the
 binary you are running.
@@ -739,7 +748,8 @@ this *before* deleting anything)
 ```
 Thank you for finding this, and please contact us privately about it:
 
-  <private security contact>
+  security@redoubtbrowser.org
+  or https://github.com/CPlusPlus17/Redoubt/security/advisories/new
 
 We are going to remove this issue shortly so that the details are not public while a
 fix is unreleased. That is not a dismissal of the report — we have a copy, we are
@@ -749,19 +759,24 @@ a preference about credit in the eventual advisory, tell us there.
 Apologies for the abruptness; the alternative is leaving it up.
 ```
 
-**B7 — the IronFox reversal**
+**B7 — why not just use IronFox**
 
 ```
-Fair question, and the short answer is that our previous answer was "use IronFox",
-that was honest advice at the time, and it changed because we now have an Android
-build of our own rather than because anything got worse over there.
+Fair question. If you want a mature, widely used hardened Firefox for Android, IronFox
+is that, and it is a good choice. It is also what LibreWolf recommends to Android
+users; Redoubt is not a LibreWolf project and does not change that.
 
-IronFox has served users who wanted a hardened Android browser for years, does real
-work we did not do, and remains a reasonable choice. The comparison on our FAQ is
-meant to be factual about what differs rather than a pitch, and if you think a
-specific line of it is unfair, say which line — that is a correction we would make.
+Redoubt exists for a narrower reason: it ships LibreWolf's own preference file and
+patch set on Android, kept in step with LibreWolf desktop and measured row by row
+against it (PARITY.md), so the two behave alike and can share a Sync account.
+IronFox makes its own, different choices, and in several places it is ahead: a
+longer track record (it continues Mull), Accrescent, UnifiedPush, and stricter
+defaults such as JIT and WebGL off.
 
-Moving this to a discussion; the FAQ has the longer version.
+The longer, dated comparison is in docs/android/POSITIONING.md. If you think a line
+of it is unfair, say which one; that is a correction we would make.
+
+Moving this to a discussion.
 ```
 
 **B8 — locked pref**
@@ -926,7 +941,7 @@ from scratch. This is a prediction, not data; correct it after the first week.
 | Sandbox / site-isolation observations | **B2**, `Status Known issue` |
 | Play Store requests | **B1** |
 | Update did not arrive on one channel | channel label + `Component: Infrastructure`; check the channel index before assuming it is the app |
-| Slow / OOM on low-RAM devices | keep open, get device + RAM, route to the beta owner — treat as a real defect |
+| Slow / OOM on low-RAM devices | keep open, get device + RAM — treat as a real defect (low-RAM phones are untested, `BETA.md` §7) |
 | Site breakage from RFP or ETP | `Component Settings`; the same on desktop, so check there first |
 | "Extension X does not work" | `Android`, then ask whether it works in stock Firefox for Android — the add-on story is Fenix's, not ours |
 | A real Gecko bug | ladder in [§3.4](#34-upstream-gecko-or-ours) |
@@ -1024,9 +1039,10 @@ The authenticated test submission below is a separate, unperformed LW-M7-04 chec
     `is:issue label:"Android Security"`), so the saved-search URLs only exist once
     those labels exist and cannot be written here.
 
-Not in scope for this checklist, owned by other tasks: reopening or updating
-**issue #2169** and the FAQ's IronFox recommendation are **LW-M7-03**; the Android
-disclosure process is **LW-M7-05**; `PARITY.md` is **LW-M5-06**.
+Not in scope for this checklist: LibreWolf's **issue #2169** and its FAQ's IronFox
+recommendation belong to LibreWolf, and Redoubt does not edit them (**LW-M7-03** was
+re-scoped to `POSITIONING.md`); the Android disclosure process is **LW-M7-05**;
+`PARITY.md` is **LW-M5-06**.
 
 ---
 
@@ -1084,9 +1100,9 @@ labels:
 - **Total device RAM (optional):** <!-- total RAM, e.g. 3 GB / 4 GB / 8 GB -->
 - **Android version:**           <!-- e.g. Android 14, One UI 6.1 / GrapheneOS -->
 - **Installed from:**            <!-- GitHub Releases /
-                                      Redoubt F-Droid repo / Accrescent / direct APK
-                                      from our site / Obtainium / another F-Droid
-                                      repo (which?) / built from source / not sure -->
+                                      Redoubt F-Droid repo / Obtainium / another
+                                      F-Droid repo (which?) / built from source /
+                                      not sure -->
 - **Redoubt version + build ID:**  <!-- Settings → About Redoubt, whole line -->
 - **CPU architecture (optional):**   <!-- arm64-v8a on nearly all phones -->
 

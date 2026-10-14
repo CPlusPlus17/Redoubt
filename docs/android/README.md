@@ -1,72 +1,71 @@
-# Redoubt
+# Redoubt: the Android work
 
-An Android browser that compiles Gecko from source and applies LibreWolf's patch
-set and privacy configuration, sharing both with the desktop build rather than
-patching a prebuilt Fennec.
+Redoubt is a privacy-hardened Android browser built from Firefox's source with
+LibreWolf's shared patch set and privacy configuration applied.
 
 **Redoubt is a fork. It is not the LibreWolf project and is not endorsed by it.**
 The privacy configuration is LibreWolf's work and the MPL grants their code, not
-their name — read [`IDENTITY.md`](IDENTITY.md) before touching anything that names
+their name. Read [`IDENTITY.md`](IDENTITY.md) before touching anything that names
 the project.
 
-This directory is the work plan and the record of what has been done against it.
-Looking for the browser itself? Start at the [repository README](../../README.md);
-beta APKs are on [GitHub Releases](https://github.com/CPlusPlus17/Redoubt/releases).
-The status paragraphs below are a dated 2026-08-22 snapshot; later status is in
-[`STATUS.md`](STATUS.md) and [`BETA.md`](BETA.md).
+**Current release: Redoubt 158.0-2** (Firefox 158.0, regular release track). Downloads,
+fingerprints and install steps are in the [repository README](../../README.md) and on
+[GitHub Releases](https://github.com/CPlusPlus17/Redoubt/releases). This directory is the
+work plan, the decisions and the evidence behind them.
 
-**Status: M0 and M1 complete, M2 done, M3/M4 well advanced.** Gecko builds from
-source for aarch64-linux-android with the full patch set and every hardening flag
-intact; a three-ABI fat AAR and an installable APK exist and run *our* GeckoView
-(verified from the packaged `omni.ja`, not inferred).
+## For reviewers
 
-**A fresh release build from current HEAD now validates the core claims.**
-`lw-fresh-2026-08-22` (HEAD `5d8af8f`, built 2026-08-22) is built from the
-**full** `assets/patches/android.txt` (42 patches, verified byte-for-byte) with
-R8 on. Measured on it (release, x86_64): **0 GMS and 0 Adjust dex strings**
-(both removed); for Glean, **the generated metrics classes remain** (475
-`GleanMetrics` in the dex) **but the upload path is gone**
-(`org.mozilla.components.service.glean` = 0, `GleanHelper` = 0) — the metrics
-definitions stay, the thing that would send them does not; **14 first-run network
-events over 4 Mozilla hostnames** (down
-from 27 on the partial-patch-set `lw-m3-08`), and `lockPref("librewolf.cfg.version")`
-from `common.cfg:68` **present at runtime and locked** — so the packaged
-configuration **is** now applied. [`PRIVACY-BASELINE-2026-08-21.md`](PRIVACY-BASELINE-2026-08-21.md)
-keeps the earlier `lw-m3-08` baseline this supersedes; the 2026-08-22 build's
-numbers and reproducing commands are in `~/lw-fresh-2026-08-22/measurements-2026-08-22.md`.
+| file | what it answers |
+|---|---|
+| [`PARITY.md`](PARITY.md) | what Redoubt does and does not match against LibreWolf desktop, row by row, measured |
+| [`ISOLATION-MEDIA.md`](ISOLATION-MEDIA.md) | isolated content processes on Android 12+ (since 158.0-2) and where media is decoded |
+| [`SIGNING.md`](SIGNING.md) | the signing key, its fingerprint and its custody, stated as it is |
+| [`YUBIKEY.md`](YUBIKEY.md) | the planned move of the signing keys to a hardware token |
+| [`SECURITY.md`](SECURITY.md) | how to report a vulnerability (also without a GitHub account) and what happens next |
+| [`REPRODUCIBLE.md`](REPRODUCIBLE.md) | what has been reproduced so far, and what has not |
+| [`POSITIONING.md`](POSITIONING.md) | how Redoubt relates to LibreWolf, IronFox and Firefox, and how it is made |
+| [`DISTRIBUTION.md`](DISTRIBUTION.md) | the channels (GitHub Releases, the Redoubt F-Droid repository, Obtainium) and the update check |
+| [`FDROID.md`](FDROID.md) | the Redoubt F-Droid repository |
 
-Re-checked against this build: **LW-M4-05's `--check-no-gms` gate now passes** —
-the zero-GMS result is a real removal (0 `com/google/android/gms` dex strings,
-verified on a build that boots), not the R8-deletion artefact that LW-M4-16's
-earlier "zero-GMS" was. **LW-M4-16 is now closed**: its two residual strings are
-gone (GMS = 0), so the allowlist it was hardening is unnecessary — the gate holds
-on its own. Still not done: the UI still says "Firefox" (LW-M4-12); and nothing
-is signed or distributed.
+## How Redoubt is made
 
-78 patch files: 24 common, 36 desktop, 18 android.
+Redoubt has one maintainer. AI coding agents (Claude Code, Codex and local models)
+write and check most of the code, patches, tests and documentation, run the gates
+(the build, the Fenix unit-test suite, emulator acceptance) and record the evidence
+in [`evidence/`](evidence/). The maintainer sets direction, decides the trade-offs,
+tests on devices and signs releases.
 
-Not done: the UI still says "Firefox" (LW-M4-12), and nothing is signed or
-distributed. (LW-M3-10's common+android composition is now proven on the running
-`lw-fresh-2026-08-22` build — the packaged cfg loads and the `common.cfg:68`
-canary is locked at runtime.)
+What you can check without trusting that process:
 
-## Read in this order
+- the preference configuration (`settings/`, derived from LibreWolf's `librewolf.cfg`)
+  and the shared patch set (`assets/patches/common.txt`, LibreWolf's patches split into
+  common and desktop halves) are LibreWolf's work; Gecko and Firefox for Android are Mozilla's;
+- Redoubt's own changes are the 48 Android patches listed in
+  [`assets/patches/android.txt`](../../assets/patches/android.txt) (files in
+  [`patches/android/`](../../patches/android/));
+- every release names its source commit and the SHA-256 of Mozilla's source tarball;
+- the test evidence for every release is in [`evidence/`](evidence/).
+
+## For contributors
 
 | file | what it is |
 |---|---|
-| [`HANDOVER.md`](HANDOVER.md) | **start here** — current state, open blockers, how work has actually failed here |
-| [`IDENTITY.md`](IDENTITY.md) | this is a fork, not the LibreWolf project, and what that constrains |
-| [`ROADMAP.md`](ROADMAP.md) | the shape: strategy, milestones, what we can and cannot promise |
-| [`AGENTS.md`](AGENTS.md) | the rules: how to claim a task, ownership, the five landmines |
-| [`tasks.yaml`](tasks.yaml) | the board: every task with dependencies, acceptance criteria, verify commands |
-| [`PATCH-SCOPE.md`](PATCH-SCOPE.md) | which patches reach Android — reviewed, one justification per patch |
-| [`BUILD.md`](BUILD.md) | how to reproduce the Android Gecko build |
-| [`TRACK.md`](TRACK.md) | the esr153 decision, with the rebase and security-latency numbers |
-| [`UPSTREAM-REPORTS.md`](UPSTREAM-REPORTS.md) | three defects found in LibreWolf's build, worth reporting back |
-| [`STATUS.md`](STATUS.md) | what is landed versus verified at the last checkpoint |
-| [`board.py`](board.py) | validator and query tool for the board |
+| [`AGENTS.md`](AGENTS.md) | the working rules: claiming a task, ownership, the landmines |
+| [`tasks.yaml`](tasks.yaml) and [`board.py`](board.py) | the board: every task with dependencies, acceptance criteria and verify commands |
+| [`REBASE.md`](REBASE.md) | the runbook for a Firefox release rebase |
+| [`RELEASE-WATCH.md`](RELEASE-WATCH.md) | how new Firefox releases and Mozilla advisories reach the maintainer |
+| [`PATCH-SCOPE.md`](PATCH-SCOPE.md) | which patches reach Android, one justification per patch |
+| [`TRACK.md`](TRACK.md) | why Android follows Firefox release (since 157; the earlier ESR 153 decision is kept for the record) |
+| [`TRIAGE.md`](TRIAGE.md) | labels, the issue form and canned replies |
+| [`UPSTREAM-REPORTS.md`](UPSTREAM-REPORTS.md) | defects found in LibreWolf's build while porting |
 
-## Start here
+[`STATUS.md`](STATUS.md), [`HANDOVER.md`](HANDOVER.md), [`BUILD.md`](BUILD.md) and
+[`BETA.md`](BETA.md) describe earlier stages (the ESR 153 builds and the beta) and are
+kept as the record; where they disagree with the files above, the files above are current.
+
+Patch lists today: 22 common, 44 desktop, 48 Android.
+
+## Gates
 
 ```sh
 python3 docs/android/board.py --check        # board integrity — must be green
@@ -77,14 +76,7 @@ python3 scripts/lint-patch-scope.py          # no patch in a list that cannot bu
 python3 docs/android/board.py --ready --done <finished task ids>
 ```
 
-All five gates above are green on the current tree. `--ready` takes the tasks
-already finished and prints what that unblocks.
-
-Two of the completed M0 tasks fix the **desktop** build and are worth landing on
-their own, independently of Android: `LW-M0-04` pinned the l10n fetch, which was
-pulling an unverified `refs/heads/main` into every release build, and `LW-M0-11`
-fixed `check-patchfail`, which silently reported success when a patch's target file
-was missing.
+`--ready` takes the tasks already finished and prints what that unblocks.
 
 ## Why the board looks like this
 
@@ -110,9 +102,3 @@ and passes any smoke test that does not specifically check for a live WebGL cont
 
 That is landmine L1 in [`AGENTS.md`](AGENTS.md), and it is representative: the
 failure modes in this port are quiet ones. The board is built around catching them.
-
-## Status
-
-See [`STATUS.md`](STATUS.md) for what is landed versus verified. `tasks.yaml` is
-the source of truth for the board and should be edited in the same commit as the
-work it describes.

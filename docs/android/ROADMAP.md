@@ -168,6 +168,16 @@ convenience commit undoes the whole model.
 **Exit:** two machines produce byte-identical unsigned APKs, and every channel
 publishes the same fingerprint.
 
+> **Superseded in part (2026-10-14).** Custody: signing does not happen offline; the
+> release and update-signing keys are passphrase-encrypted files on the maintainer's
+> workstation, with offline backups, and CI still never has a key (`SIGNING.md`, decision
+> of 2026-10-04; the planned move to a YubiKey is in `YUBIKEY.md`). Channels: the Redoubt
+> F-Droid repository and GitHub Releases (with Obtainium) are live; Accrescent is not
+> published. Play: still not used. A 2026-10-05 plan to put Redoubt on Play with this
+> release key was reversed on 2026-10-14: the key is never uploaded to Google, and any
+> future Play build would use a separate Play-only key. Reproducibility: same-machine only
+> so far (`REPRODUCIBLE.md`), so the exit line above is not met.
+
 ### M7 — Launch and sustain · 6 tasks · 23–43h
 
 The rebase runbook, the website pages, the FAQ reversal (it currently points

@@ -1,22 +1,29 @@
 # The Redoubt F-Droid repository (LW-M6-03)
 
-Redoubt runs its **own** F-Droid repository. It is not in f-droid.org's main repository,
-because f-droid.org builds and signs apps with its own key, which would give Redoubt a second
-fingerprint (`WEBSITE.md` §5, `SIGNING.md`).
+Redoubt runs its **own** F-Droid repository. It is not in f-droid.org's main repository.
+f-droid.org builds every app itself; it ships the developer's signature only when its build
+reproduces the developer's APK bit for bit, and otherwise signs with its own key, which would
+make it a different app to Android, with a second fingerprint (`WEBSITE.md` §5, `SIGNING.md`).
+Redoubt's build has been reproduced on one machine only, not across machines
+(`REPRODUCIBLE.md`), so that path is not open yet.
 
     repository URL   https://redoubtbrowser.hel1.your-objectstorage.com/repo
                      (bucket and location: assets/fdroid/deploy.conf)
     archive URL      https://redoubtbrowser.hel1.your-objectstorage.com/archive
     human page       https://redoubtbrowser.org/fdroid.html   (rendered by `publish-page`)
-    index key        RSA 4096, held by the owner only; its fingerprint is published by the
-                     owner after `init`, never before ("Publishing the fingerprint" below)
+    index key        RSA 4096, held by the owner only; fingerprint
+                     B0A8CDBB61AA4FC3CA1FED71F4CAECEB7B00E39D4E6E0583A637070862AC5567
+                     (pinned in assets/fdroid/repo-fingerprint). Planned: move it to a
+                     YubiKey with the release key (YUBIKEY.md)
     APKs             the GitHub release's per-ABI APKs, byte for byte, release key
                      64:14:EB:...:28:3B:D0 (`SIGNING.md`)
     hosting          the owner's Hetzner Object Storage bucket (owner decision 2026-10-05)
     retention        every release: the newest 5 in repo/, all older ones in archive/
-    state            tooling and throwaway-key proof against a local S3 server done
-                     2026-10-05; the owner has not created the bucket or run `init`, so
-                     nothing is published
+    state            LIVE since 2026-10-14 (commit 01682afb): first content Redoubt 158.0-2
+                     (arm64-v8a, armeabi-v7a, x86_64), deployed and verified by the owner;
+                     index signatures and APK hashes re-checked independently the same
+                     day (launch QA). Tooling and the throwaway-key proof date from
+                     2026-10-05
 
 ## Decisions (2026-10-05)
 
@@ -235,7 +242,7 @@ delete anything.
 | `assets/fdroid/bucket-policy.json.in` | the public-read policy equivalent to Hetzner's Public visibility, for tests and the record |
 | `assets/fdroid/metadata/org.redoubtbrowser.yml` | name, summary, description, MPL-2.0, links, `Tracking`, `AllowedAPKSigningKeys` |
 | `assets/fdroid/fdroid.html.in`, `repo-icon.png` | the human page template, the repository icon |
-| `assets/fdroid/repo-fingerprint` | **written by the first `publish-page`**: the pinned index-key fingerprint, plain hex. It does not exist until the owner runs `init` |
+| `assets/fdroid/repo-fingerprint` | **written by the first `publish-page`**: the pinned index-key fingerprint, plain hex. Committed on 2026-10-14 (`01682afb`) |
 | `site/fdroid.html`, `site/fdroid-qr.svg` | **written by `publish-page`**: the human page and its QR code (`fdroidrepos://` link with the fingerprint) |
 | `scripts/site-check.py`, `scripts/tests/test-site-check-fdroid.py` | the site check's F-Droid rules and 14 hermetic tests, run by `pages.yaml` |
 
@@ -363,6 +370,9 @@ exactly those paths. Review, commit (signed) and push to `main`. `pages.yaml` de
 
 ### Publishing the fingerprint (first time only)
 
+**Done on 2026-10-14** (`01682afb`): the fingerprint is on `site/fdroid.html`, `site/install.html`,
+`site/index.html` and in `README.md`. The steps below are kept for a key change.
+
 LW-M6-03 requires the fingerprint in at least two independent places. After the first
 `publish-page`, the rendered `site/fdroid.html` is the first. Prepared edits for
 `site/install.html`, `site/index.html` and `README.md` are in
@@ -404,6 +414,6 @@ F-Droid 2.0.1 on an API 34 emulator (its certificate re-checked against F-Droid'
 `43238d51…c9ccab`) added the repository by URL and fingerprint, installed 157.0-2 (installed
 APK sha256 `c4eb178b…022522`, certificate the release key) and, with the archive switched on,
 listed the Beta 5 and Beta 4 versions under *Redoubt (archive)*. The URLs were path-style
-(`http://10.0.0.135:9000/redoubt-fdroid/repo`): a virtual-hosted name needs a DNS entry for the
+(`http://<owner-host>:9000/redoubt-fdroid/repo`): a virtual-hosted name needs a DNS entry for the
 bucket host, and this host has no resolver for one without root. Hetzner's TLS and its
-virtual-hosted name are therefore unproven until the owner's first `deploy` and `verify`.
+virtual-hosted name were proven by the owner's first `deploy` and `verify` on 2026-10-14.

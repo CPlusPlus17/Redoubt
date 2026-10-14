@@ -1,7 +1,7 @@
 # Android CI virtual machine
 
 Owner: **LW-M6-09**. Runtime scripts are in [scripts/ci-vm](../../scripts/ci-vm/).
-Run host commands as `mgysin`, the owner of the user systemd service. Commands
+Run host commands as the owner's account, the user that owns the user systemd service. Commands
 below assume a Bash terminal in the repository root unless stated otherwise.
 
 ## Current state and limits
@@ -311,8 +311,8 @@ privileges, the live firewall, IPv6, absence of host shares, rootless Podman, th
 expected image and compiler/Java/HTTPS controls. Its network denial checks require
 a host test listener on TCP 8765, first proven reachable on the host. The flag
 `--host-canary-confirmed` records that positive control; do not pass it when the
-listener is absent. The current probe targets `10.0.0.135` and guest gateway
-`10.77.0.1`, so review the host address when rebuilding elsewhere. Run the guest
+listener is absent. The current probe targets box A's LAN address (`<box-A-LAN>`) and guest
+gateway `10.77.0.1`, so review the host address when rebuilding elsewhere. Run the guest
 probe through the host orchestrator, which starts and verifies that temporary
 listener, runs the guest checks and removes the listener afterwards:
 
@@ -347,9 +347,9 @@ No full build or release publication is implied by this preflight-only dispatch.
 
 > **Gate mode (owner decision 2026-10-04): `GATE_MODE=actual`.** Box B starts the build VM when *current* free memory minus a 2 GiB margin covers the VM (26112 MiB), not after reserving the other workloads' possible growth (that rule, `GATE_MODE=reserve`, held builds back for hours). If memory runs short during a build, the kernel kills the Redoubt VM first (OOMScoreAdjust=700, `Restart=no`); llama-server and the other project's runners keep priority, and the build is retried. Override in `~/.config/redoubt-boxb.env` on box B.
 
-Owner decision, 2026-10-04: the heavy Android jobs move to box B, host `llm`
+Owner decision, 2026-10-04: the heavy Android jobs move to box B
 (Fedora 44, 24 threads, 62 GiB RAM, 1.8 TB free disk). Box B also runs the
-owner's llama-server (`llama-qwen38.service`, RTX 5090) and three ephemeral-VM
+owner's local LLM server (llama-server, on the GPU) and three ephemeral-VM
 GitHub runners of another project (`gh-runner-slot@{1,2,3}.service` in
 `machine-ghci.slice`, plus two hasteheart slot accounts `fivur-ci-2/3` under
 `ci-capacity`). Redoubt yields to all of them and never touches their units,
@@ -444,7 +444,7 @@ bash scripts/ci-vm-boxb/deploy-boxb.sh verify     # verify-host.py on box B with
 bash scripts/ci-vm-boxb/install-poller.sh --enable  # enable redoubt-boxb-ondemand.timer on box A
 ```
 
-Administration uses the owner's key `~/.ssh/id_boxb` (`user@10.0.0.154`). Set
+Administration uses the owner's box B SSH key (`~/.ssh/<box-B-key>`, `<user>@<box-B>`). Set
 `BOXB_LOG=FILE` to append every remote command to an evidence log. `deploy-boxb.sh
 host` copies `scripts/ci-vm` and `scripts/ci-vm-boxb` to box B's
 `~/.local/src/redoubt-ci` and runs
@@ -465,8 +465,7 @@ Box B paths: VM state `~/.local/share/redoubt-ci-vm/` (with `vm.conf`), host
 control `~/.local/state/redoubt-ci-vm-control/`, launcher `~/.local/lib/redoubt-ci-vm/`,
 `~/.local/lib/redoubt-boxb/boxb-ctl.sh`, units `~/.config/systemd/user/redoubt-ci-vm.service`
 and `redoubt-ci-vm.service.d/10-boxb.conf`. Guest SSH is box B's `127.0.0.1:2222`.
-The guest's private-network rejection covers box B's LAN (10.0.0.0/24) and libvirt
-bridges (192.168.122.0/24, 192.168.150.0/24).
+The guest's private-network rejection covers box B's LAN and its libvirt bridges.
 
 ### Daily operation
 
@@ -476,11 +475,11 @@ systemctl --user list-timers redoubt-boxb-ondemand.timer
 journalctl --user -u redoubt-boxb-ondemand -n 40 --no-pager
 REDOUBT_DRY_RUN=1 ~/.local/lib/redoubt-boxb-ondemand/redoubt-boxb-ondemand.sh
 # box B (owner key)
-ssh -i ~/.ssh/id_boxb -o IdentitiesOnly=yes user@10.0.0.154 \
+ssh -i ~/.ssh/<box-B-key> -o IdentitiesOnly=yes <user>@<box-B> \
   '.local/lib/redoubt-boxb/boxb-ctl.sh gate; journalctl -t redoubt-boxb-ctl -n 20 --no-pager'
-ssh -i ~/.ssh/id_boxb -o IdentitiesOnly=yes user@10.0.0.154 \
+ssh -i ~/.ssh/<box-B-key> -o IdentitiesOnly=yes <user>@<box-B> \
   'systemctl --user status redoubt-ci-vm.service --no-pager'
-ssh -i ~/.ssh/id_boxb -o IdentitiesOnly=yes user@10.0.0.154 \
+ssh -i ~/.ssh/<box-B-key> -o IdentitiesOnly=yes <user>@<box-B> \
   ".local/lib/redoubt-ci-vm/ssh.sh 'free -h; df -h /home; sudo systemctl status redoubt-actions-runner.service --no-pager'"
 ```
 
@@ -512,7 +511,7 @@ and exists for that test only).
 Dry run in the guest (prints the plan, deletes nothing):
 
 ```sh
-ssh -i ~/.ssh/id_boxb -o IdentitiesOnly=yes user@10.0.0.154 \
+ssh -i ~/.ssh/<box-B-key> -o IdentitiesOnly=yes <user>@<box-B> \
   ".local/lib/redoubt-ci-vm/ssh.sh 'cd ~runner/actions-runner/_work/Redoubt/Redoubt && \
    sudo -u runner python3 scripts/ci-vm-boxb/prune-tree-cache.py \
    --root /home/runner/actions-runner/redoubt-ci --current \$(cat version.android)-\$(cat release.android) --dry-run'"

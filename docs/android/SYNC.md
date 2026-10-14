@@ -5,7 +5,7 @@ and a Mozilla account. It is **off by default on both sides**, so you opt in on 
 device.
 
 **Status:** tested end to end by the maintainer on 2026-10-04, with a Redoubt
-157.0-1 beta and LibreWolf desktop.
+157.0-1 beta and LibreWolf desktop. Not re-tested on 158 yet (as of 2026-10-14).
 
 ## Set it up
 

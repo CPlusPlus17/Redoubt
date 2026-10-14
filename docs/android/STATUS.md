@@ -1,3 +1,9 @@
+> **Historical (2026-09-08, Firefox ESR 153 beta).** This page records the first beta and is
+> not maintained. Current state: the [repository README](../../README.md), the
+> [release notes](https://github.com/CPlusPlus17/Redoubt/releases) and the
+> [docs index](README.md). The beta prereleases it links to were later deleted from
+> GitHub Releases; their tags remain.
+
 # Android beta status — 2026-09-08
 
 The first Android beta is **published as a public GitHub prerelease**:

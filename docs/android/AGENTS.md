@@ -336,13 +336,15 @@ is applied before any target list — but a checker that only compares positions
 
 ## The settings submodule
 
-`settings/` is a git submodule pointing at `codeberg.org/librewolf/settings`. Tasks
+`settings/` is a git submodule pointing at
+[`github.com/CPlusPlus17/Redoubt-settings`](https://github.com/CPlusPlus17/Redoubt-settings)
+(branch `redoubt`), Redoubt's fork of LibreWolf's settings repository. Tasks
 marked `submodule: settings` need **two** PRs: one in that repo, and a submodule
 bump here. Do not commit a detached submodule pointer.
 
 ## Evidence outside the repo evaporates
 
-Everything a task leaves in `/home/mgysin/lw-*` — build trees, APKs, objdirs, pcaps,
+Everything a task leaves in `~/lw-*` — build trees, APKs, objdirs, pcaps,
 pref dumps — is gone. Verified 2026-08-25: `lw-batch-combined`, `lw-m2-04`,
 `lw-m2-01b`, `lw-m3-09` and the whole Android SDK no longer exist. Only the podman
 image and this repo survived.

@@ -1,3 +1,8 @@
+> **Historical (2026-08-20).** Written for the ESR 153 port, before the first release.
+> Numbers, blockers and paths here are stale. Current state: the
+> [repository README](../../README.md) and the [docs index](README.md); the working
+> rules are in [`AGENTS.md`](AGENTS.md).
+
 # Handover
 
 Written 2026-08-20 for whoever picks this up next, human or agent.
