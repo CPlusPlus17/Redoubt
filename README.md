@@ -92,9 +92,11 @@ That "where" is [`docs/android/PARITY.md`](docs/android/PARITY.md). In short:
 
 - **No content-process sandbox.** Firefox's Gecko content sandbox does not exist
   on Android (upstream never finished the port). Per-site process isolation and
-  RLBox recover part of it. Android's isolated content processes are **not** used:
-  in Firefox 157 an isolated content process cannot decode H.264 or AAC, so most
-  web video would not play (upstream bug 1810736).
+  RLBox recover part of it. On **Android 12 and newer**, web pages run in Android's
+  isolated processes (since 158.0-2); H.264, HEVC and AAC are decoded in a separate,
+  non-isolated decoder process, which is the remaining attack surface
+  ([`docs/android/ISOLATION-MEDIA.md`](docs/android/ISOLATION-MEDIA.md)). On
+  **Android 8–11** isolated processes are not used.
 - **Not everything is proven on a live page.** HTTPS-only, certificate revocation,
   the TLS floor and fingerprinting coherence are configured but marked *Partial*
   in `PARITY.md` until measured on a device. The DNS-over-HTTPS setting in the
