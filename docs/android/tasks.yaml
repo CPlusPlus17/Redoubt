@@ -6058,3 +6058,50 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: Ships ON for Android 12+ in 158.0-2 (owner decision 2026-10-11). Android 8-11 stay unisolated until the API 30 flake is understood; of API 31-33 only the API 31 emulator was measured, no real device. RDD and Utility run with the app uid and parse H.264/HEVC/AAC there (ISOLATION-MEDIA.md section 7); a codec exploit in RDD reaches the profile. Device-specific MediaCodec behaviour reaches Redoubt before Fenix (upstream bug 1981478 is not default anywhere). Native-HLS-only pages stop playing. VP9/AV1 decode in software in content (battery). The drain backport is upstream code on 158, not upstream's 158 (gated, Android 12+ only).
+
+  - id: LW-M7-38
+    title: Remove "Report broken site"; its report went nowhere
+    milestone: M7
+    depends_on: [LW-M4-01, LW-M7-50]   # LW-M4-01 no-glean (why the report is discarded); LW-M7-50 is main's last task
+    owns:
+      - patches/android/no-webcompat-reporter.patch
+    shared_edit:
+      - assets/patches/android.txt
+      - docs/android/PATCH-SCOPE.md
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
+    reads:
+      - docs/android/evidence/lw-m7-51/
+      - patches/android/no-glean.patch
+      - settings/distribution/policies.json
+    what: |
+      First written on the 2026-09-24 branch claude/librewolf-gaps-ublock-setup-k0ri3t
+      (5497ba60, 153 ESR); ported to Firefox 158 under LW-M7-51.
+      OWNER DECISION 2026-10-14, verbatim: "go" -- review the branch and port what is
+      still worth having onto current main, cleanly, under the owner identity; then
+      the branch can be deleted.
+      LibreWolf's DisableFeedbackCommands policy removes the product feedback
+      commands. Fenix 158's "Report broken site" (More submenu) opens the
+      WebCompatReporter form, whose Send submits Gecko's broken-site-report Glean
+      ping, which Redoubt cannot upload (no-glean.patch), so a report is silently
+      discarded while the UI says it was sent; with Settings.isTelemetryEnabled
+      false the entry instead opens webcompat.com/issues/new?url=<page address>.
+      no-webcompat-reporter.patch removes the entry from MoreSettingsSubmenu (the
+      menu every user sees) and from BrowserMenuBuilder's default configuration
+      (the customizable menu, off by default). Reporter code, navigation targets
+      and WebCompatFeature's site interventions are unchanged.
+    acceptance:
+      - "no menu reachable in a release build shows Report broken site: the More submenu of the main menu on a web page, with the toolbar at the top and at the bottom"
+      - "BrowserMenuBuilderTest: no default layout contains ReportBrokenSite; MoreSettingsSubmenuTest: the entry does not render even with isWebCompatEnabled = true"
+      - "webcompat@mozilla.org interventions stay installed (WebCompatFeature unchanged)"
+      - "the patch applies at fuzz 0 in list order on the 158.0 tarball, compiles under -Werror, and the two test classes pass"
+    verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check-scope"
+    effort_h: "1-2"
+    skills: [kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: A user who relied on the entry to reach webcompat.com now has to go there by hand. Instrumented UI tests (ThreeDotMenuMainRobot, MainMenuTest) still expect the entry; they are not part of the unit gate.
+
