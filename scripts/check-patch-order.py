@@ -110,6 +110,17 @@ KNOWN_TARGETS = ("desktop", "android")
 # now empty — keep it that way unless someone adds a new out-of-list call site.
 OUT_OF_LIST_TAIL = ()
 
+# LW-M7-50: opt-in Android overlays (scripts/librewolf-patches.py --overlays).
+# Each reads assets/patches/overlay-<name>.txt and is applied after common.txt +
+# android.txt, in this order, only when a build names it. They are modelled as
+# one extra sequence, OVERLAY_SEQUENCE: common + android + every overlay. A pair
+# of one list patch and one overlay patch is ordered by construction (the overlay
+# always comes after the whole list and is written against the patched tree), so
+# it is classified automatically; pairs of two overlay patches, and declared
+# CONSTRAINTS rows that name an overlay patch, are checked like any other.
+KNOWN_OVERLAYS = ("dev-app",)   # isolation-media moved into android.txt (158.0-2)
+OVERLAY_SEQUENCE = "android+overlays"
+
 
 # --------------------------------------------------------------------------
 # The declared constraints.
@@ -144,6 +155,15 @@ OUT_OF_LIST_TAIL = ()
 _M157_ANDROID = 'measured on firefox-157.0, per shared file, list order vs B-before-A vs A-after-B'
 
 CONSTRAINTS = (
+    # LW-M7-50: isolation-media-process.patch rewrites the two literals (and sits
+    # under the comment block) that isolated-process.patch writes; it cannot apply
+    # first. Both are in android.txt since 158.0-2 (was an overlay).
+    ('patches/android/isolated-process.patch',
+     'patches/android/isolation-media-process.patch',
+     'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt',
+     "LW-M7-50: isolation-media-process.patch's only hunk has isolated-process.patch's "
+     "comment block as context and replaces its .isolatedProcessEnabled(false)/"
+     ".appZygoteProcessEnabled(false) lines; against the pristine file it rejects."),
     ('patches/android/extension-update-controls.patch', 'patches/android/session-cleanup.patch', ('mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js', 'mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json'), 'Task37 test-support context requires Task35 first. Both complete shared paths replay to exact final hashes; inverse order rejects both hunks. See LW-M7-37 ordering-receipt.json.'),
     ('patches/android/extension-update-controls.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt', 'mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt', 'mobile/android/fenix/app/src/main/res/xml/preferences.xml', 'mobile/android/geckoview/api.txt', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs'), 'Semantic dependency: Task36 calls Task35 savePrefFileAsync. All five shared paths are textually order-free in measured swaps; preserve prerequisite-first integration. See LW-M7-36 ordering-review.json.'),
     ('patches/android/extension-permission-durability.patch', 'patches/android/extension-update-controls.patch', ('mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs', 'toolkit/components/extensions/test/xpcshell/xpcshell.toml'), 'Full shared-path replay requires predecessor first:31 test registration or20 account teardown is candidate context. See LW-M7-35 ordering-receipt.json.'),
@@ -410,6 +430,12 @@ _DOH_MULLVAD_ORDER_FREE = (
 )
 
 REVIEWED_ORDER_FREE = (
+    ('patches/android/about-config.patch', 'patches/android/isolation-media-process.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 e0bb4847...c839 (about-config edits .aboutConfigEnabled, the process patch the import line, a new function before createRuntimeSettings and the isolation literals).'),
+    ('patches/android/no-crashreporter.patch', 'patches/android/isolation-media-process.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 e0bb4847...c839 (disjoint regions).'),
+    ('patches/android/extension-update-controls.patch', 'patches/android/isolation-media-prefs.patch', ('modules/libpref/Preferences.cpp',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 aef1f2a5...afe6d (the prefs patch adds a function before GetInstanceForService() and a call after the MOZ_DEFAULT_PREFS parse; disjoint from extension-update-controls).'),
+    ('patches/webgl-permission-common.patch', 'patches/android/isolation-media-codecs-in-content.patch', ('modules/libpref/init/StaticPrefList.yaml',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 91b48814...9a26 (the codecs patch adds two media.redoubt* prefs in the media.rdd-* block, far from the webgl block).'),
+    ('patches/android/webgl-prompt-default.patch', 'patches/android/isolation-media-codecs-in-content.patch', ('modules/libpref/init/StaticPrefList.yaml',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 91b48814...9a26 (disjoint regions).'),
+    ('patches/android/canvas-webgl-permissions.patch', 'patches/android/isolation-media-codecs-in-content.patch', ('modules/libpref/init/StaticPrefList.yaml',), 'LW-M7-50 (158.0-2, measured 2026-10-11 on the GPG-verified firefox-158.0 RC build2 tarball, sha256 fc77f780...a2bb, with docs/android/evidence/lw-m7-50/release-158.0-2/gates/measure.py): the hunks for the shared file of every common.txt + android.txt entry replayed in list order and with the later patch moved directly before the earlier one; both apply every hunk and give the same final sha256 91b48814...9a26 (disjoint regions).'),
     ('patches/android/no-glean.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml',), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
     ('patches/android/update-check.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt', 'mobile/android/fenix/app/src/main/res/xml/preferences.xml'), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
     ('patches/android/ubo-readiness.patch', 'patches/android/global-privacy-controls.patch', ('mobile/android/geckoview/api.txt', 'mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs'), 'All pair-shared paths yield identical final hashes with Task36 swapped immediately before this predecessor and remaining dependencies retained. Full-postpone attempts for graphics/Sync fail before Task36 and are not used as pair verdicts. See LW-M7-36 ordering-review.json.'),
@@ -1070,10 +1096,15 @@ def apply_sequences(lists):
     so nothing can be ordered across desktop.txt and android.txt - which is
     why this returns one sequence per target rather than one flat list.
     """
-    return {
+    seqs = {
         target: lists["common"] + lists[target] + list(OUT_OF_LIST_TAIL)
         for target in KNOWN_TARGETS
     }
+    overlay_entries = [e for o in KNOWN_OVERLAYS for e in lists.get("overlay-" + o, [])]
+    if overlay_entries:
+        seqs[OVERLAY_SEQUENCE] = (lists["common"] + lists["android"]
+                                  + list(OUT_OF_LIST_TAIL) + overlay_entries)
+    return seqs
 
 
 # --------------------------------------------------------------------------
@@ -1109,6 +1140,11 @@ def check(verbose=False):
     warnings = []
 
     lists = {name: read_patch_list(name) for name in ("common",) + KNOWN_TARGETS}
+    for o in KNOWN_OVERLAYS:
+        if (PATCH_LIST_DIR / "overlay-{}.txt".format(o)).is_file():
+            lists["overlay-" + o] = read_patch_list("overlay-" + o)
+    overlay_patches = {e for name, entries in lists.items()
+                       if name.startswith("overlay-") for e in entries}
 
     # Preconditions. A patch named by a list but absent from disk is a build
     # failure later on and makes everything below meaningless.
@@ -1179,7 +1215,7 @@ def check(verbose=False):
                         "may have moved with the hunks - re-derive it, do not "
                         "just delete the row.".format(first, then, f, entry))
 
-        co_applied = [t for t in KNOWN_TARGETS
+        co_applied = [t for t in sequences
                       if first in position[t] and then in position[t]]
         if not co_applied:
             warnings.append(
@@ -1223,8 +1259,13 @@ def check(verbose=False):
             entry["files"] |= shared
             entry["targets"].append(target)
 
+    overlay_after_list = set()
     for key, info in sorted(found.items(), key=lambda kv: (kv[1]["a"], kv[1]["b"])):
         a, b, files = info["a"], info["b"], tuple(sorted(info["files"]))
+        if key not in declared and ((a in overlay_patches) != (b in overlay_patches)):
+            # One list patch, one overlay patch: ordered by construction.
+            overlay_after_list.add(key)
+            continue
         if key in declared:
             first, then, shared_file, _ = declared[key]
             declared_files = ((shared_file,) if isinstance(shared_file, str)
@@ -1281,7 +1322,7 @@ def check(verbose=False):
             continue
         if not all(p in seen_in or p in OUT_OF_LIST_TAIL for p in (a, b)):
             continue                                # one of them was disabled
-        co_applied = any(a in position[t] and b in position[t] for t in KNOWN_TARGETS)
+        co_applied = any(a in position[t] and b in position[t] for t in sequences)
         if co_applied:
             errors.append(
                 "stale REVIEWED_ORDER_FREE row: {} and {} are both enabled and "
@@ -1298,6 +1339,7 @@ def check(verbose=False):
         for key, info in sorted(found.items(),
                                 key=lambda kv: (kv[1]["a"], kv[1]["b"])):
             kind = ("constraint" if key in declared
+                    else "overlay-after-list" if key in overlay_after_list
                     else "order-free" if key in reviewed else "UNCLASSIFIED")
             print("#   [{}] {} + {}".format(kind, info["a"], info["b"]))
             for f in sorted(info["files"]):
@@ -1307,8 +1349,9 @@ def check(verbose=False):
     stats = {
         "constraints": len(CONSTRAINTS),
         "enforced": enforced,
-        "targets": len(KNOWN_TARGETS),
+        "targets": len(sequences),
         "pairs": len(found),
+        "overlay_pairs": len(overlay_after_list),
     }
     return errors, warnings, stats
 
@@ -1348,6 +1391,9 @@ def main(argv):
           "target sequence(s); {} shared-file pair(s) derived and classified."
           .format(stats["enforced"], stats["constraints"], stats["targets"],
                   stats["pairs"]))
+    if stats.get("overlay_pairs"):
+        print("  ({} of those pair a list patch with an overlay patch, which the "
+              "overlay sequence orders by construction)".format(stats["overlay_pairs"]))
     return 0
 
 

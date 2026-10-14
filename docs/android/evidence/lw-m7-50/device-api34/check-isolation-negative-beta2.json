@@ -1,0 +1,305 @@
+{
+ "checks": [
+  {
+   "check": "isolation-prefs",
+   "ok": false,
+   "detail": "media prefs not as the overlay locks them: [{'name': 'media.android-media-codec.enabled', 'value': True, 'locked': False}, {'name': 'media.android-media-codec.preferred', 'value': True, 'locked': False}, {'name': 'media.ffmpeg.encoder.enabled', 'value': False, 'locked': False}, {'name': 'media.ffvpx-hw.enabled', 'value': False, 'locked': False}, {'name': 'media.rdd-ffvpx.enabled', 'value': False, 'locked': False}, {'name': 'media.rdd-opus.enabled', 'value': False, 'locked': False}, {'name': 'media.rdd-process.enabled', 'value': False, 'locked': False}, {'name': 'media.rdd-vorbis.enabled', 'value': False, 'locked': False}, {'name': 'media.rdd-vpx.enabled', 'value': False, 'locked': False}, {'name': 'media.rdd-wav.enabled', 'value': False, 'locked': False}, {'name': 'media.use-remote-encoder.video.platform', 'value': False, 'locked': False}]",
+   "evidence": {
+    "prefs": [
+     {
+      "name": "media.android-media-codec.enabled",
+      "value": true,
+      "locked": false
+     },
+     {
+      "name": "media.android-media-codec.preferred",
+      "value": true,
+      "locked": false
+     },
+     {
+      "name": "media.ffmpeg.encoder.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.ffvpx-hw.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-ffvpx.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-opus.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-process.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-vorbis.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-vpx.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.rdd-wav.enabled",
+      "value": false,
+      "locked": false
+     },
+     {
+      "name": "media.use-remote-encoder.video.platform",
+      "value": false,
+      "locked": false
+     }
+    ]
+   }
+  },
+  {
+   "check": "isolation-decoder-h264-aac",
+   "ok": false,
+   "detail": "want video in RDD and audio in Utility, got other-remote/other-remote; probe {\"url\": \"/fixture-h264.mp4\", \"ok\": true, \"events\": [], \"canPlayType\": \"probably\", \"play\": \"resolved\", \"currentTime\": 0.321342, \"decoded\": 9, \"mediaError\": null, \"info\": {\"audio\": \"android decoder (remote)\", \"video\": \"android decoder (remote)\", \"hw\": true}}",
+   "evidence": {
+    "probe": {
+     "url": "/fixture-h264.mp4",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.321342,
+     "decoded": 9,
+     "mediaError": null,
+     "info": {
+      "audio": "android decoder (remote)",
+      "video": "android decoder (remote)",
+      "hw": true
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-decoder-vp8-opus",
+   "ok": false,
+   "detail": "want video in content and audio in content, got other-remote/Utility; probe {\"url\": \"/fixture.webm\", \"ok\": true, \"events\": [], \"canPlayType\": \"probably\", \"play\": \"resolved\", \"currentTime\": 0.415302, \"decoded\": 12, \"mediaError\": null, \"info\": {\"audio\": \"ffvpx audio decoder (Utility Generic remote)\", \"video\": \"android decoder (remote)\", \"hw\": true}}",
+   "evidence": {
+    "probe": {
+     "url": "/fixture.webm",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.415302,
+     "decoded": 12,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder (Utility Generic remote)",
+      "video": "android decoder (remote)",
+      "hw": true
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-decoder-vp9-opus",
+   "ok": false,
+   "detail": "want video in content and audio in content, got other-remote/Utility; probe {\"url\": \"/fixture-vp9.webm\", \"ok\": true, \"events\": [], \"canPlayType\": \"probably\", \"play\": \"resolved\", \"currentTime\": 0.401582, \"decoded\": 12, \"mediaError\": null, \"info\": {\"audio\": \"ffvpx audio decoder (Utility Generic remote)\", \"video\": \"android decoder (remote)\", \"hw\": true}}",
+   "evidence": {
+    "probe": {
+     "url": "/fixture-vp9.webm",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.401582,
+     "decoded": 12,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder (Utility Generic remote)",
+      "video": "android decoder (remote)",
+      "hw": true
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-decoder-av1-opus",
+   "ok": false,
+   "detail": "want video in content and audio in content, got content/Utility; probe {\"url\": \"/fixture-av1.webm\", \"ok\": true, \"events\": [], \"canPlayType\": \"probably\", \"play\": \"resolved\", \"currentTime\": 0.441433, \"decoded\": 13, \"mediaError\": null, \"info\": {\"audio\": \"ffvpx audio decoder (Utility Generic remote)\", \"video\": \"ffvpx video decoder\", \"hw\": false}}",
+   "evidence": {
+    "probe": {
+     "url": "/fixture-av1.webm",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.441433,
+     "decoded": 13,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder (Utility Generic remote)",
+      "video": "ffvpx video decoder",
+      "hw": false
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-codec-caps",
+   "ok": true,
+   "detail": "canPlayType(avc1)='probably', MediaSource.isTypeSupported(avc1+mp4a)=True; native HLS canPlayType='maybe' (fails closed under isolation, by design)",
+   "evidence": {
+    "canPlayType": "probably",
+    "isTypeSupported": true,
+    "hls": "maybe"
+   }
+  },
+  {
+   "check": "isolation-processes",
+   "ok": false,
+   "detail": "content process(es) not in isolated_app: [{'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768', 'user': 'u0_a194', 'pid': '15806', 'ppid': '359', 'name': 'org.redoubtbrowser:tab_disable_art_image_9'}, {'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768', 'user': 'u0_a194', 'pid': '15936', 'ppid': '359', 'name': 'org.redoubtbrowser:tab_disable_art_image_10'}, {'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768', 'user': 'u0_a194', 'pid': '15993', 'ppid': '359', 'name': 'org.redoubtbrowser:tab_disable_art_image_27'}]; content process(es) with a non-isolated uid: [{'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768', 'user': 'u0_a194', 'pid': '15806', 'ppid': '359', 'name': 'org.redoubtbrowser:tab_disable_art_image_9'}, {'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768', 'user': 'u0_a194', 'pid': '15936', 'ppid': '359', 'name': 'org.redoubtbrowser:tab_disable_art_image_10'}, {'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768', 'user': 'u0_a194', 'pid': '15993', 'ppid': '359', 'name': 'org.redoubtbrowser:tab_disable_art_image_27'}]; no org.redoubtbrowser_zygote process (API 34); no :rdd process: H.264 cannot have been decoded there",
+   "evidence": {
+    "ps": [
+     {
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768",
+      "user": "u0_a194",
+      "pid": "15717",
+      "ppid": "359",
+      "name": "org.redoubtbrowser"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768",
+      "user": "u0_a194",
+      "pid": "15806",
+      "ppid": "359",
+      "name": "org.redoubtbrowser:tab_disable_art_image_9"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768",
+      "user": "u0_a194",
+      "pid": "15835",
+      "ppid": "359",
+      "name": "org.redoubtbrowser:gpu_disable_art_image_"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768",
+      "user": "u0_a194",
+      "pid": "15936",
+      "ppid": "359",
+      "name": "org.redoubtbrowser:tab_disable_art_image_10"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768",
+      "user": "u0_a194",
+      "pid": "15993",
+      "ppid": "359",
+      "name": "org.redoubtbrowser:tab_disable_art_image_27"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768",
+      "user": "u0_a194",
+      "pid": "16115",
+      "ppid": "359",
+      "name": "org.redoubtbrowser:utility_disable_art_image_"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768",
+      "user": "u0_a194",
+      "pid": "16116",
+      "ppid": "359",
+      "name": "org.redoubtbrowser:media"
+     }
+    ],
+    "sdk": 34
+   }
+  },
+  {
+   "check": "isolation-codec-processes",
+   "ok": false,
+   "detail": "no H.264 MediaCodec allocation in :rdd (allocations: [{'pid': '16116', 'codec': 'c2.goldfish.vp8.decoder', 'process': 'org.redoubtbrowser:media', 'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768'}, {'pid': '16116', 'codec': 'c2.android.aac.decoder', 'process': 'org.redoubtbrowser:media', 'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768'}, {'pid': '16116', 'codec': 'c2.goldfish.h264.decoder', 'process': 'org.redoubtbrowser:media', 'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768'}, {'pid': '16116', 'codec': 'c2.android.aac.decoder', 'process': 'org.redoubtbrowser:media', 'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768'}, {'pid': '16116', 'codec': 'c2.goldfish.h264.decoder', 'process': 'org.redoubtbrowser:media', 'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768'}, {'pid': '16116', 'codec': 'c2.goldfish.vp8.decoder', 'process': 'org.redoubtbrowser:media', 'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768'}, {'pid': '16116', 'codec': 'c2.goldfish.vp9.decoder', 'process': 'org.redoubtbrowser:media', 'label': 'u:r:untrusted_app:s0:c194,c256,c512,c768'}])",
+   "evidence": {
+    "allocations": [
+     {
+      "pid": "16116",
+      "codec": "c2.goldfish.vp8.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768"
+     },
+     {
+      "pid": "16116",
+      "codec": "c2.android.aac.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768"
+     },
+     {
+      "pid": "16116",
+      "codec": "c2.goldfish.h264.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768"
+     },
+     {
+      "pid": "16116",
+      "codec": "c2.android.aac.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768"
+     },
+     {
+      "pid": "16116",
+      "codec": "c2.goldfish.h264.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768"
+     },
+     {
+      "pid": "16116",
+      "codec": "c2.goldfish.vp8.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768"
+     },
+     {
+      "pid": "16116",
+      "codec": "c2.goldfish.vp9.decoder",
+      "process": "org.redoubtbrowser:media",
+      "label": "u:r:untrusted_app:s0:c194,c256,c512,c768"
+     }
+    ]
+   }
+  },
+  {
+   "check": "isolation-denials",
+   "ok": true,
+   "detail": "0 isolated_app denial(s), all in the measured platform baseline (none); none involves media or app_data_file",
+   "evidence": {
+    "isolated_app_denials": [],
+    "all_denials": 21
+   }
+  },
+  {
+   "check": "isolation-profile-dir",
+   "ok": true,
+   "detail": "drwx------ 9 u0_a194 u0_a194 u:object_r:app_data_file:s0:c194,c256,c512,c768  4096 2026-10-11 00:43 /data/data/org.redoubtbrowser (mode 0700, owner u0_a194, app_data_file; an isolated_app uid is neither the owner nor allowed by policy)",
+   "evidence": {
+    "ls": "drwx------ 9 u0_a194 u0_a194 u:object_r:app_data_file:s0:c194,c256,c512,c768  4096 2026-10-11 00:43 /data/data/org.redoubtbrowser",
+    "owner": "u0_a194"
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/iso-proto/smokework",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/beta-158.0-1-b2/apk/fenix-x86_64-158.0-1-beta2-throwaway.apk",
+  "sha256": "295022296a3586e13efca91b09bd887fa36f90f96ac7ac9d5ee5501c883f344a",
+  "size": 136638795,
+  "harness_sha256": "0e3164d830ea3e9838c57d7383d7f04dfa0fd1183cbc91c01e3a7373527ec03e"
+ },
+ "status": "completed",
+ "error": null
+}

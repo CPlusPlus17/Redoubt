@@ -1,0 +1,465 @@
+# Redoubt isolation-media-drain-backport.patch  (Android, android.txt, 158.0-2)
+# Owner: LW-M7-50. BACKPORT of upstream bug 1987001, made conditional on the
+# Redoubt isolation gate.
+#
+#   Bug 1987001 - Improve draining in FFmpegVideoDecoder and FFmpegAudioDecoder
+#   on Android. r=media-playback-reviewers,azebrowski
+#   Author: Andrew Osmond <aosmond@mozilla.com>, 2026-10-05
+#   mozilla-firefox commit 5cf346157068a285144cfb2f0409e81a2796ac59 (Firefox 159)
+#   Differential Revision: https://phabricator.services.mozilla.com/D329595
+#   Upstream patch sha256 (github.com/.../commit/<sha>.patch, fetched 2026-10-10):
+#   8d7cc715260958f792d83a2aa26b3bfb01aa20fef0d4ee19d86683d7f8faa2ec
+#
+# Why: with isolated content (Android 12+), H.264/AAC decode through ffvpx's NDK MediaCodec
+# wrapper. In 158 that wrapper completes a drain while MediaCodec still holds
+# frames (an output format change before the first frame, or no free output
+# buffer until the compositor releases one), so the last frames of a stream are
+# lost and a SHORT clip may show no frame at all (upstream commit message).
+# Upstream's own isolated-process configuration (bug 1988531) runs with this fix
+# in 159; a 158 dot release with isolation on must carry it too.
+#
+# GATED (owner decision 2026-10-11, "158.0-2, Android 12+ only": Android 8-11
+# must behave as 158.0-1). Upstream's change is not limited to MediaCodec: on
+# every Android build it also changes SOFTWARE ffvpx decoding (the video
+# decoder's AVERROR_EOF-on-send mapping, which 158 has inverted: NOT_AVAILABLE
+# without MediaCodec becomes END_OF_STREAM; the audio decoder's repeated empty
+# drain packet; flush/shutdown rejecting a pending drain promise). So every
+# changed path is conditional on FFmpegDataDecoder::mDrainFixEnabled, read once
+# per decoder from StaticPrefs::media_redoubt_isolation_media_enabled(), the
+# locked gate pref the other isolation patches read (defined in
+# isolation-media-codecs-in-content.patch, set by isolation-media-prefs.patch;
+# true exactly when content runs isolated, i.e. Android 12+).
+#
+# Gate FALSE (Android 8-11), path by path, the branch 158.0 takes:
+#   FFmpegDataDecoder::ProcessDrain    no CancelDrainTimer() (and no timer is
+#                                      ever armed: MaybeDeferDrain() is only
+#                                      called on gated paths)
+#   FFmpegDataDecoder::ProcessFlush/   no RejectIfExists(), no timer cancel;
+#     ProcessShutdown                  the rest is 158.0's body
+#   FFmpegAudioDecoder::Init (hw)      mIsMediaCodec stays false
+#   FFmpegAudioDecoder::ProcessFlush   = FFmpegDataDecoder::ProcessFlush() (the
+#                                      override only forwards)
+#   FFmpegAudioDecoder send packet     every packet is sent, the empty drain
+#                                      packet each time, same switch as 158.0;
+#                                      mHasSentDrainPacket never set
+#   FFmpegAudioDecoder EAGAIN          no drain deferral
+#   FFmpegVideoDecoder send EOF        158.0's mapping, verbatim
+#   FFmpegVideoDecoder receive EAGAIN  return NS_OK at once
+#   FFmpegVideoDecoder::ResumeDrain    158.0's body, verbatim (now an override
+#                                      of the new virtual; only callers are
+#                                      158.0's QueueResumeDrain and the gated
+#                                      drain timer)
+#   FFmpegVideoDecoder::MaybeQueueDrain 158.0's condition, verbatim
+# Gate TRUE (Android 12+): upstream's code, unchanged in effect.
+#
+# Upstream files touched (all six of the upstream commit)
+# -------------------------------------------------------
+#   dom/media/platforms/ffmpeg/FFmpegAudioDecoder.cpp, .h
+#   dom/media/platforms/ffmpeg/FFmpegDataDecoder.cpp, .h
+#   dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp, .h
+#
+# How the backport differs from upstream: (1) the gate above; (2) upstream adds
+# `mHasSentDrainPacket = false;` to an FFmpegAudioDecoder::ProcessFlush()
+# override that 158.0 does not have (upstream added it in between, for
+# mInputTimes, which 158 also lacks), so the backport adds that override with
+# only the drain reset, declared in the .h; it calls
+# FFmpegDataDecoder::ProcessFlush() exactly as upstream's does. Inside the
+# gate-true branches the code is upstream's, line for line.
+#
+# Drop this patch at the Firefox 159 rebase (the fix is upstream there), and
+# with it the gate: 159 software ffvpx then behaves as upstream.
+#
+--- a/dom/media/platforms/ffmpeg/FFmpegAudioDecoder.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegAudioDecoder.cpp
+@@ -132,6 +132,8 @@
+     AVCodec* codec = FindHardwareAVCodec(mLib, mCodecID, AV_HWDEVICE_TYPE_NONE);
+     if (codec) {
+       rv = InitDecoder(codec, &options);
++      // Redoubt: only read on the gated drain path below.
++      mIsMediaCodec = mDrainFixEnabled && NS_SUCCEEDED(rv);
+     }
+   }
+ 
+@@ -261,6 +263,20 @@
+   return audio;
+ }
+ 
++#if defined(MOZ_WIDGET_ANDROID) && defined(USING_MOZFFVPX)
++// Redoubt backport note (LW-M7-50): upstream adds these lines to an existing
++// FFmpegAudioDecoder::ProcessFlush() that Firefox 158 does not have yet, so the
++// override is added here with only the drain reset.
++RefPtr<MediaDataDecoder::FlushPromise>
++FFmpegAudioDecoder<LIBAV_VER>::ProcessFlush() {
++  MOZ_ASSERT(mTaskQueue->IsOnCurrentThread());
++  if (mDrainFixEnabled) {
++    mHasSentDrainPacket = false;
++  }
++  return FFmpegDataDecoder::ProcessFlush();
++}
++#endif
++
+ using ChannelLayout = AudioConfig::ChannelLayout;
+ 
+ MediaResult FFmpegAudioDecoder<LIBAV_VER>::PostProcessOutput(
+@@ -373,24 +389,38 @@
+   // This is used to ensure that pts and duration are correctly set on the
+   // resulting audio buffers.
+   int32_t submitted = 0;
+-  int ret = mLib->avcodec_send_packet(mCodecContext, aPacket);
+-  switch (ret) {
+-    case AVRESULT_OK:
+-      submitted++;
+-      break;
+-    case AVERROR(EAGAIN):
+-      FFMPEG_LOG("  av_codec_send_packet: EAGAIN.");
+-      MOZ_ASSERT(false, "EAGAIN");
+-      break;
+-    case AVERROR_EOF:
+-      FFMPEG_LOG("  End of stream.");
+-      return MediaResult(NS_ERROR_DOM_MEDIA_END_OF_STREAM,
+-                         RESULT_DETAIL("End of stream"));
+-    default:
+-      NS_WARNING("FFmpeg audio decoder error (avcodec_send_packet).");
+-      return MediaResult(NS_ERROR_DOM_MEDIA_DECODE_ERR,
+-                         RESULT_DETAIL("FFmpeg audio error"));
++  int ret = 0;
++#  if defined(MOZ_WIDGET_ANDROID) && defined(USING_MOZFFVPX)
++  // ProcessDrain submits an empty packet to flush the decoder.
++  const bool draining = aPacket->size == 0;
++  // Redoubt: gate false sends every packet, the empty drain packet included,
++  // as 158.0 does (a repeated one returns AVERROR_EOF -> END_OF_STREAM).
++  if (!mDrainFixEnabled || !draining || !mHasSentDrainPacket) {
++#  endif
++    ret = mLib->avcodec_send_packet(mCodecContext, aPacket);
++    switch (ret) {
++      case AVRESULT_OK:
++        submitted++;
++        break;
++      case AVERROR(EAGAIN):
++        FFMPEG_LOG("  av_codec_send_packet: EAGAIN.");
++        MOZ_ASSERT(false, "EAGAIN");
++        break;
++      case AVERROR_EOF:
++        FFMPEG_LOG("  End of stream.");
++        return MediaResult(NS_ERROR_DOM_MEDIA_END_OF_STREAM,
++                           RESULT_DETAIL("End of stream"));
++      default:
++        NS_WARNING("FFmpeg audio decoder error (avcodec_send_packet).");
++        return MediaResult(NS_ERROR_DOM_MEDIA_DECODE_ERR,
++                           RESULT_DETAIL("FFmpeg audio error"));
++    }
++#  if defined(MOZ_WIDGET_ANDROID) && defined(USING_MOZFFVPX)
++    if (mDrainFixEnabled) {
++      mHasSentDrainPacket = draining && ret == AVRESULT_OK;
++    }
+   }
++#  endif
+ 
+   MediaResult rv;
+ 
+@@ -415,6 +445,19 @@
+         }
+         FFMPEG_LOG("  EAGAIN (packets submitted: {}).", submitted);
+         rv = NS_OK;
++#  if defined(MOZ_WIDGET_ANDROID) && defined(USING_MOZFFVPX)
++        // Any call that consumed a MediaCodec event rather than a buffer, such
++        // as the output format change reported before the first frame, returns
++        // EAGAIN even though frames are still held. Wait until the drain times
++        // out or we reach EOS.
++        if (mDrainFixEnabled && draining && mIsMediaCodec &&
++            !mLib->moz_avcodec_mediacodec_is_eos(mCodecContext) &&
++            MaybeDeferDrain(aResults)) {
++          FFMPEG_LOG("  MediaCodec still holding frames, polling for them");
++          return MediaResult(NS_ERROR_NOT_AVAILABLE,
++                             RESULT_DETAIL("Drain deferred"));
++        }
++#  endif
+         break;
+       }
+       case AVERROR_EOF: {
+--- a/dom/media/platforms/ffmpeg/FFmpegAudioDecoder.h
++++ b/dom/media/platforms/ffmpeg/FFmpegAudioDecoder.h
+@@ -41,6 +41,9 @@
+   nsCString GetCodecName() const override;
+ 
+  private:
++#if defined(MOZ_WIDGET_ANDROID) && defined(USING_MOZFFVPX)
++  RefPtr<FlushPromise> ProcessFlush() override;
++#endif
+   MediaResult DoDecode(MediaRawData* aSample, uint8_t* aData, int aSize,
+                        bool* aGotFrame, DecodedData& aResults) override;
+   MediaResult DecodeUsingFFmpeg(AVPacket* aPacket, bool& aDecoded,
+@@ -52,6 +55,10 @@
+   const AudioInfo mAudioInfo;
+   // True if the audio will be downmixed and rendered in mono.
+   bool mDefaultPlaybackDeviceMono = false;
++#if defined(MOZ_WIDGET_ANDROID) && defined(USING_MOZFFVPX)
++  bool mIsMediaCodec = false;
++  bool mHasSentDrainPacket = false;
++#endif
+ };
+ 
+ }  // namespace mozilla
+--- a/dom/media/platforms/ffmpeg/FFmpegDataDecoder.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegDataDecoder.cpp
+@@ -28,6 +28,11 @@
+ 
+ StaticMutex FFmpegDataDecoder<LIBAV_VER>::sMutex;
+ 
++#ifdef MOZ_WIDGET_ANDROID
++static constexpr uint32_t kDrainIntervalMs = 20;
++static constexpr uint32_t kMaxDrainAttempts = 25;
++#endif
++
+ FFmpegDataDecoder<LIBAV_VER>::FFmpegDataDecoder(const FFmpegLibWrapper* aLib,
+                                                 AVCodecID aCodecID,
+                                                 PRemoteCDMActor* aCDM)
+@@ -397,18 +402,100 @@
+         }
+         break;
+       }
++#ifdef MOZ_WIDGET_ANDROID
++      if (mDrainFixEnabled) {
++        CancelDrainTimer();
++      }
++#endif
+       mDrainPromise.Reject(r, __func__);
+       return p;
+     }
+   } while (gotFrame);
++#ifdef MOZ_WIDGET_ANDROID
++  if (mDrainFixEnabled) {
++    CancelDrainTimer();
++  }
++#endif
+   mDrainPromise.Resolve(std::move(results), __func__);
+   return p;
+ }
+ 
++#ifdef MOZ_WIDGET_ANDROID
++bool FFmpegDataDecoder<LIBAV_VER>::MaybeDeferDrain(
++    const DecodedData& aResults) {
++  MOZ_ASSERT(mTaskQueue->IsOnCurrentThread());
++
++  if (!aResults.IsEmpty() || mDrainTimedOut) {
++    return false;
++  }
++
++  if (!mDrainTimer) {
++    nsresult rv = NS_NewTimerWithCallback(
++        getter_AddRefs(mDrainTimer),
++        [self = RefPtr{this}](nsITimer*) { self->OnDrainTimer(); },
++        kDrainIntervalMs, nsITimer::TYPE_ONE_SHOT,
++        "FFmpegDataDecoder::OnDrainTimer"_ns, mTaskQueue);
++    if (NS_FAILED(rv)) {
++      mDrainTimer = nullptr;
++      return false;
++    }
++    FFMPEG_LOGV("Polling drain in {} ms, attempt {} of {}", kDrainIntervalMs,
++                mDrainAttempts + 1, kMaxDrainAttempts);
++  }
++  return true;
++}
++
++void FFmpegDataDecoder<LIBAV_VER>::ResumeDrain() {
++  MOZ_ASSERT(mTaskQueue->IsOnCurrentThread());
++
++  if (mDrainPromise.IsEmpty()) {
++    FFMPEG_LOGV("Resume drain but promise already fulfilled");
++    return;
++  }
++
++  FFMPEG_LOGV("Resume drain");
++  ProcessDrain();
++}
++
++void FFmpegDataDecoder<LIBAV_VER>::OnDrainTimer() {
++  MOZ_ASSERT(mTaskQueue->IsOnCurrentThread());
++
++  mDrainTimer = nullptr;
++  if (++mDrainAttempts >= kMaxDrainAttempts) {
++    FFMPEG_LOG("Drain expired after {} attempts, completing with what we have",
++               mDrainAttempts);
++    mDrainTimedOut = true;
++  }
++
++  ResumeDrain();
++}
++
++void FFmpegDataDecoder<LIBAV_VER>::CancelDrainTimer() {
++  MOZ_ASSERT(mTaskQueue->IsOnCurrentThread());
++
++  mDrainAttempts = 0;
++  mDrainTimedOut = false;
++
++  if (mDrainTimer) {
++    mDrainTimer->Cancel();
++    mDrainTimer = nullptr;
++  }
++}
++#endif
++
+ RefPtr<MediaDataDecoder::FlushPromise>
+ FFmpegDataDecoder<LIBAV_VER>::ProcessFlush() {
+   AUTO_PROFILER_LABEL("FFmpegDataDecoder::ProcessFlush", MEDIA_PLAYBACK);
+   MOZ_ASSERT(mTaskQueue->IsOnCurrentThread());
++#ifdef MOZ_WIDGET_ANDROID
++  // Gate false: 158.0 does neither (a pending drain promise stays pending).
++  if (mDrainFixEnabled) {
++    mDrainPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED, __func__);
++    CancelDrainTimer();
++  }
++#else
++  mDrainPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED, __func__);
++#endif
+   if (mCodecContext) {
+     FFMPEG_LOG("FFmpegDataDecoder: flushing buffers");
+     ReleaseFrame();
+@@ -425,6 +512,15 @@
+ void FFmpegDataDecoder<LIBAV_VER>::ProcessShutdown() {
+   AUTO_PROFILER_LABEL("FFmpegDataDecoder::ProcessShutdown", MEDIA_PLAYBACK);
+   MOZ_ASSERT(mTaskQueue->IsOnCurrentThread());
++#ifdef MOZ_WIDGET_ANDROID
++  // Gate false: 158.0 does neither (a pending drain promise stays pending).
++  if (mDrainFixEnabled) {
++    mDrainPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED, __func__);
++    CancelDrainTimer();
++  }
++#else
++  mDrainPromise.RejectIfExists(NS_ERROR_DOM_MEDIA_CANCELED, __func__);
++#endif
+   StaticMutexAutoLock mon(sMutex);
+ 
+   if (mCodecContext) {
+--- a/dom/media/platforms/ffmpeg/FFmpegDataDecoder.h
++++ b/dom/media/platforms/ffmpeg/FFmpegDataDecoder.h
+@@ -8,6 +8,10 @@
+ #include "FFmpegLibWrapper.h"
+ #include "PlatformDecoderModule.h"
+ #include "mozilla/StaticMutex.h"
++#ifdef MOZ_WIDGET_ANDROID
++#  include "mozilla/StaticPrefs_media.h"
++#  include "nsITimer.h"
++#endif
+ 
+ // This must be the last header included
+ #include "FFmpegLibs.h"
+@@ -98,7 +102,33 @@
+   RefPtr<DecodePromise> ProcessDrain();
+   MozPromiseHolder<DecodePromise> mDrainPromise;
+ 
++#ifdef MOZ_WIDGET_ANDROID
++  // Redoubt (LW-M7-50, 158.0-2): the bug 1987001 backport is active only while
++  // the isolation gate is true (Android 12+, locked from GeckoView's process
++  // model, isolation-media-prefs.patch). Read once per decoder, so a decoder
++  // never changes branch during its life. False (Android 8-11): every changed
++  // path takes the branch Firefox 158.0 (Redoubt 158.0-1) takes.
++  const bool mDrainFixEnabled =
++      StaticPrefs::media_redoubt_isolation_media_enabled();
++
++  // MediaCodec may be slow to produce frames, if there is resource pressure on
++  // the output buffers. We arm a timer up to a fixed number of attempts until
++  // we either produce new frames, resetting the attempt counter, or we get the
++  // end of stream indicator, ending the drain immediately.
++  bool MaybeDeferDrain(const DecodedData& aResults);
++  virtual void ResumeDrain();
++#endif
++
+  private:
++#ifdef MOZ_WIDGET_ANDROID
++  void OnDrainTimer();
++  void CancelDrainTimer();
++
++  nsCOMPtr<nsITimer> mDrainTimer;
++  uint32_t mDrainAttempts = 0;
++  bool mDrainTimedOut = false;
++#endif
++
+   RefPtr<DecodePromise> ProcessDecode(MediaRawData* aSample);
+   virtual MediaResult DoDecode(MediaRawData* aSample, uint8_t* aData, int aSize,
+                                bool* aGotFrame,
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.cpp
+@@ -1684,8 +1684,17 @@
+       FFMPEG_LOG("avcodec_send_packet error: {} (code={})", errStr, res);
+       nsresult rv;
+       if (res == int(AVERROR_EOF)) {
+-        rv = MaybeQueueDrain(aResults) ? NS_ERROR_DOM_MEDIA_END_OF_STREAM
+-                                       : NS_ERROR_NOT_AVAILABLE;
++#  ifdef MOZ_WIDGET_ANDROID
++        if (!mDrainFixEnabled) {
++          // Redoubt: gate false keeps 158.0's (inverted) mapping.
++          rv = MaybeQueueDrain(aResults) ? NS_ERROR_DOM_MEDIA_END_OF_STREAM
++                                         : NS_ERROR_NOT_AVAILABLE;
++        } else
++#  endif
++        {
++          rv = MaybeQueueDrain(aResults) ? NS_ERROR_NOT_AVAILABLE
++                                         : NS_ERROR_DOM_MEDIA_END_OF_STREAM;
++        }
+       } else {
+         rv = NS_ERROR_DOM_MEDIA_DECODE_ERR;
+       }
+@@ -1734,6 +1743,15 @@
+       return NS_ERROR_DOM_MEDIA_END_OF_STREAM;
+     }
+     if (res == AVERROR(EAGAIN)) {
++#  ifdef MOZ_WIDGET_ANDROID
++      // MediaCodec produces no frame while it has no free output buffer. When
++      // draining, giving up here loses the frames it is still holding.
++      // Redoubt: gate false returns NS_OK at once, as 158.0 does.
++      if (mDrainFixEnabled && !aData && MaybeQueueDrain(aResults)) {
++        FFMPEG_LOG("  Output buffer shortage while draining.");
++        return NS_ERROR_NOT_AVAILABLE;
++      }
++#  endif
+       return NS_OK;
+     }
+     if (res < 0) {
+@@ -1919,7 +1937,13 @@
+ #ifdef MOZ_WIDGET_ANDROID
+ void FFmpegVideoDecoder<LIBAV_VER>::ResumeDrain() {
+   MOZ_ASSERT(mTaskQueue->IsOnCurrentThread());
++  if (mDrainFixEnabled) {
++    mShouldResumeDrain = true;
++    FFmpegDataDecoder::ResumeDrain();
++    return;
++  }
+ 
++  // Redoubt: gate false, 158.0's body unchanged.
+   if (mDrainPromise.IsEmpty()) {
+     FFMPEG_LOGV("Resume drain but promise already fulfilled");
+     return;
+@@ -1945,8 +1969,19 @@
+ bool FFmpegVideoDecoder<LIBAV_VER>::MaybeQueueDrain(
+     const MediaDataDecoder::DecodedData& aData) {
+ #if defined(MOZ_WIDGET_ANDROID) && defined(USING_MOZFFVPX)
+-  if (aData.IsEmpty() && mMediaCodecDeviceContext &&
+-      !mLib->moz_avcodec_mediacodec_is_eos(mCodecContext)) {
++  // MediaCodec may still hold frames even if we hold none, such as when it
++  // reports an output format change before the first frame, or when it is
++  // waiting for frames held by the compositor.
++  if (mDrainFixEnabled) {
++    if (mMediaCodecDeviceContext &&
++        !mLib->moz_avcodec_mediacodec_is_eos(mCodecContext) &&
++        MaybeDeferDrain(aData)) {
++      FFMPEG_LOGV("Schedule drain");
++      return true;
++    }
++  } else if (aData.IsEmpty() && mMediaCodecDeviceContext &&
++             !mLib->moz_avcodec_mediacodec_is_eos(mCodecContext)) {
++    // Redoubt: gate false, 158.0's condition unchanged.
+     FFMPEG_LOGV("Schedule drain");
+     return true;
+   }
+--- a/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.h
++++ b/dom/media/platforms/ffmpeg/FFmpegVideoDecoder.h
+@@ -405,7 +405,7 @@
+   bool MaybeQueueDrain(const MediaDataDecoder::DecodedData& aData);
+ #ifdef MOZ_WIDGET_ANDROID
+   void QueueResumeDrain();
+-  void ResumeDrain();
++  void ResumeDrain() override;
+ 
+   Atomic<bool> mShouldResumeDrain{false};
+ #endif

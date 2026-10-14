@@ -54,6 +54,31 @@ parser.add_option('-t', '--targets', dest='targets', default='desktop',
                        "(default: desktop). assets/patches/common.txt is always "
                        "applied, then one list per target.".format(
                            ", ".join(sorted(KNOWN_TARGETS))))
+# Build-time overlays (LW-M7-50). An overlay is an opt-in patch list applied
+# AFTER every target list, plus an optional pref fragment appended after the
+# target's .cfg composition. Nothing is applied unless an overlay is named, so a
+# build without --overlays runs exactly the code path it ran before this option
+# existed and produces the same tree, byte for byte. Overlays are Android-only:
+#
+#   (isolation-media, the LW-M7-50 prototype, is no longer an overlay: since
+#    158.0-2 its patches are in assets/patches/android.txt behind a runtime gate,
+#    Android 12+ only; owner decision 2026-10-11 "158.0-2, Android 12+ only")
+#   dev-app          applicationId org.redoubtbrowser.dev, label "Redoubt Dev",
+#                    for side-by-side phone testing; never signed with the
+#                    release key (owner decision 2026-10-10 "Yes, separate dev app")
+#
+# Each overlay NAME reads assets/patches/overlay-NAME.txt (same syntax as the
+# target lists) and, if present, appends assets/patches/overlay-NAME.cfg to
+# lw/librewolf.cfg. Overlays apply in KNOWN_OVERLAYS order, whatever order the
+# option names them in.
+KNOWN_OVERLAYS = ("dev-app",)
+# Written at the root of an overlay tree (never otherwise); read by
+# scripts/android-apk.sh and .github/workflows/android-release.yaml.
+OVERLAY_MARKER = "redoubt-overlays.txt"
+parser.add_option('--overlays', dest='overlays', default='',
+                  help="comma separated Android build overlays, from {} "
+                       "(default: none). See docs/android/ISOLATION-MEDIA.md."
+                       .format(", ".join(KNOWN_OVERLAYS)))
 options, args = parser.parse_args()
 
 
@@ -110,6 +135,22 @@ def selected_targets():
     # KNOWN_TARGETS order, deduplicated.
     return [t for t in KNOWN_TARGETS if t in targets]
 
+def selected_overlays(targets):
+    overlays = [o.strip() for o in options.overlays.split(",") if o.strip()]
+    unknown = [o for o in overlays if o not in KNOWN_OVERLAYS]
+    if unknown:
+        print("fatal error: unknown overlay(s) {} in --overlays={}".format(
+            ", ".join("'{}'".format(o) for o in unknown), options.overlays))
+        print("  known overlays: {}".format(", ".join(KNOWN_OVERLAYS)))
+        sys.stdout.flush()
+        script_exit(1)
+    if overlays and targets != ["android"]:
+        print("fatal error: --overlays={} needs --targets=android alone (got {})".format(
+            options.overlays, ",".join(targets)))
+        sys.stdout.flush()
+        script_exit(1)
+    return [o for o in KNOWN_OVERLAYS if o in overlays]
+
 def read_patch_list(name):
     path = PATCH_LIST_DIR / "{}.txt".format(name)
     entries = []
@@ -125,8 +166,8 @@ def read_patch_list(name):
         script_exit(1)
     return entries
 
-def patches_to_apply(targets):
-    lists = ["common"] + targets
+def patches_to_apply(targets, overlays=()):
+    lists = ["common"] + targets + ["overlay-" + o for o in overlays]
     patches = []
     for name in lists:
         entries = read_patch_list(name)
@@ -641,7 +682,18 @@ def librewolf_patches():
     # few tree mutations below are not patches and cannot live in a list, and
     # they have to be gated on the same selection the lists are.
     targets = selected_targets()
-    patches = patches_to_apply(targets)
+    overlays = selected_overlays(targets)
+    patches = patches_to_apply(targets, overlays)
+    # An overlay's pref fragment, resolved now so a missing file fails before
+    # the tree is touched. Optional: an overlay without a .cfg adds no prefs.
+    overlay_cfgs = []
+    for o in overlays:
+        cfg = PATCH_LIST_DIR / "overlay-{}.cfg".format(o)
+        if cfg.is_file():
+            overlay_cfgs.append(cfg)
+    if overlays:
+        print("# overlays: {}".format(", ".join(overlays)))
+        sys.stdout.flush()
 
     enter_srcdir()
 
@@ -781,11 +833,25 @@ def librewolf_patches():
     # (they are separate tarballs, each built for a single target).
     if "android" in targets and "desktop" not in targets:
         exec('cat ../../settings/common.cfg ../../settings/android.cfg > librewolf.cfg')
+        # LW-M7-50: an overlay's pref fragment goes LAST, so its lockPref calls
+        # run after (and win over) both settings fragments. Absolute paths:
+        # PATCH_LIST_DIR is resolved from this script, not from the cwd.
+        for cfg in overlay_cfgs:
+            exec("cat '{}' >> librewolf.cfg".format(cfg))
     else:
         exec('cp -v ../../settings/librewolf.cfg .')
     exec('cp -v ../../settings/distribution/policies.json .')
     exec('cp -v ../../settings/defaults/pref/local-settings.js .')
     leave_srcdir();
+    # LW-M7-50 review: an overlay tree says so at its root, one overlay per
+    # line, so scripts/android-apk.sh and the release workflow can refuse it
+    # without parsing patches. Written only when an overlay is named: a tree
+    # without overlays gets no such file and stays byte-identical.
+    if overlays and not options.no_execute:
+        with open(OVERLAY_MARKER, "w") as f:
+            f.write("".join(o + "\n" for o in overlays))
+        print("# wrote {} ({})".format(OVERLAY_MARKER, ", ".join(overlays)))
+        sys.stdout.flush()
 
 
 

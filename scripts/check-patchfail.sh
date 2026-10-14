@@ -71,6 +71,12 @@
 #
 
 KNOWN_TARGETS="desktop android"
+# LW-M7-50: opt-in Android overlays (scripts/librewolf-patches.py --overlays).
+# --overlays=NAME[,NAME] walks assets/patches/overlay-NAME.txt after the target
+# lists, in this order, exactly as the patcher applies them. Without the option
+# nothing changes.
+KNOWN_OVERLAYS="dev-app"   # isolation-media moved into android.txt (158.0-2)
+overlays=""
 
 targets="desktop"
 use_desktop_tarball=0
@@ -101,6 +107,9 @@ while [ "$argc" -gt 0 ]; do
         --use-desktop-tarball)
             use_desktop_tarball=1
             ;;
+        --overlays=*)
+            overlays=${arg#--overlays=}
+            ;;
         -h|--help)
             echo "usage: $0 [--targets=<list>] [--use-desktop-tarball] [patch options...]"
             echo ""
@@ -109,6 +118,9 @@ while [ "$argc" -gt 0 ]; do
             echo "                         is always walked first."
             echo "  --use-desktop-tarball  check the android list against the desktop"
             echo "                         tarball when the ESR one is not downloaded."
+            echo "  --overlays=<list>      also walk assets/patches/overlay-<name>.txt"
+            echo "                         after the target lists, from: $KNOWN_OVERLAYS"
+            echo "                         (needs --targets=android)."
             echo ""
             echo "Unrecognised options are forwarded to patch, e.g. --fuzz=0."
             exit 0
@@ -245,6 +257,31 @@ for t in $selected; do
     patch_list="$patch_list
 $(read_patch_list "$t")"
 done
+selected_overlays=
+if [ -n "$overlays" ]; then
+    if [ "$has_android" -ne 1 ] || [ "$has_desktop" -eq 1 ]; then
+        echo "error: --overlays=$overlays needs --targets=android alone" >&2
+        exit 2
+    fi
+    for o in $(echo "$overlays" | tr ',' ' '); do
+        known=0
+        for k in $KNOWN_OVERLAYS; do [ "$o" = "$k" ] && known=1; done
+        if [ "$known" -eq 0 ]; then
+            echo "error: unknown overlay '$o' in --overlays=$overlays (known: $KNOWN_OVERLAYS)" >&2
+            exit 2
+        fi
+    done
+    for k in $KNOWN_OVERLAYS; do
+        for o in $(echo "$overlays" | tr ',' ' '); do
+            if [ "$o" = "$k" ]; then
+                selected_overlays="$selected_overlays $k"
+                patch_list="$patch_list
+$(read_patch_list "overlay-$k")"
+                break
+            fi
+        done
+    done
+fi
 patch_count=$(echo "$patch_list" | grep -c .)
 if [ "$patch_count" -eq 0 ]; then
     echo "error: no patches selected by --targets=$targets."
@@ -256,6 +293,7 @@ fi
 # this script reads, so there is no longer a second copy that can drift.
 
 echo "Targets: $(echo $selected | tr ' ' ',') (assets/patches/common.txt first)"
+[ -z "$selected_overlays" ] || echo "Overlays: $(echo $selected_overlays | tr ' ' ',') (after the target lists)"
 echo "Firefox: $firefox"
 if [ -n "$tarball_warning" ]; then
     echo ""

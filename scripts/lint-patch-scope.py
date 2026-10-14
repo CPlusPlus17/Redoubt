@@ -241,6 +241,13 @@ LIST_RULES: dict[str, tuple[RuleSet, ...]] = {
     "android": (DESKTOP_ONLY,),
 }
 
+# LW-M7-50: opt-in Android overlays (scripts/librewolf-patches.py --overlays)
+# are applied only on top of an android build, so they get the android rules.
+# They are optional lists: a checkout without one is not an error.
+OVERLAY_LISTS: dict[str, tuple[RuleSet, ...]] = {
+    "overlay-dev-app": (DESKTOP_ONLY,),
+}
+
 
 # --------------------------------------------------------------------------
 # Parsing
@@ -394,7 +401,11 @@ def lint(
     violations: list[Violation] = []
     header_violations: list[HeaderViolation] = []
     checked = 0
-    for list_name, rulesets in LIST_RULES.items():
+    lists = dict(LIST_RULES)
+    for name, rulesets in OVERLAY_LISTS.items():
+        if (root / "assets" / "patches" / f"{name}.txt").is_file():
+            lists[name] = rulesets
+    for list_name, rulesets in lists.items():
         list_file = root / "assets" / "patches" / f"{list_name}.txt"
         if not list_file.is_file():
             raise ParseError(f"missing patch list: {list_file}")

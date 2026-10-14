@@ -1,0 +1,179 @@
+# Redoubt isolation-media-prefs.patch  (Android, android.txt, 158.0-2)
+# Owner: LW-M7-50; docs/android/ISOLATION-MEDIA.md section 2a
+#
+# Owner decision 2026-10-11, verbatim: "158.0-2, Android 12+ only".
+#
+# Upstream files touched
+# ----------------------
+#   mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoRuntime.java
+#   mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
+#   modules/libpref/Preferences.cpp
+#
+# The media configuration follows the process model, by construction:
+#
+# 1. GeckoProcessManager.isContentIsolated() is true when the content process
+#    type the allocator picks (GeckoProcessType.determineContentProcessType(),
+#    the very function that chooses between tab / isolatedTab / zygoteTab) is
+#    not plain CONTENT.
+# 2. GeckoRuntime.init(), right after it configured the process manager from
+#    GeckoRuntimeSettings (isolatedProcessEnabled / appZygoteProcessEnabled,
+#    set by Fenix's GeckoProvider from the SDK level, isolation-media-process.patch),
+#    adds media.redoubt-isolation-media.enabled = pm.isContentIsolated() to the
+#    initial prefs. It does so after the debug config was merged, so a debug
+#    config (debuggable apps, or am set-debug-app) cannot override it. The map
+#    travels to Gecko as MOZ_DEFAULT_PREFS, the default branch, parsed in
+#    Preferences::GetInstanceForService() before the profile's prefs.js and
+#    before autoconfig (docs/android/AGENTS.md, landmine L2, stages 2-4).
+# 3. Preferences::GetInstanceForService(), in the parent only, immediately after
+#    that parse: locks the gate pref at the value GeckoView gave, and only when
+#    it is true sets upstream's eleven isolated-process media prefs on the
+#    default branch and locks them. Locks win over prefs.js, librewolf.cfg,
+#    about:config and GeckoView:SetDefaultPrefs (AGENTS.md L2); child processes
+#    receive values and locks from the parent.
+#
+# So on Android 12+ the eleven are exactly what overlay-isolation-media.cfg
+# locked in the prototype (docs/android/expected-prefs-isolation-media.txt),
+# and on Android 8-11 not one media pref is touched: each keeps its 158.0-1
+# value, unlocked (docs/android/expected-prefs-no-isolation.txt). No pref file
+# carries them any more; librewolf.cfg (settings/common.cfg + android.cfg) sets
+# none of the twelve names, so nothing fights the gate.
+#
+# The eleven, name for name and value for value from bug 1988531 part 1,
+# mozilla-firefox e0286afb5f6836d607a3f218a527db69979c0bbd (2026-10-06, Firefox
+# 159), taskcluster/test_configs/variants.yml, variant geckoview-isolated-process.
+# All are `mirror: always` static prefs in 158.0
+# (modules/libpref/init/StaticPrefList.yaml) and nothing under mobile/android
+# writes them at runtime.
+#
+# Re-verify at every rebase: GeckoRuntime.init() still configures the process
+# manager before building GeckoThread.InitInfo; determineContentProcessType()
+# is still the allocator's only choice of content type; MOZ_DEFAULT_PREFS is
+# still parsed in GetInstanceForService(); variants.yml still lists the eleven.
+#
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoRuntime.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoRuntime.java
+@@ -37,6 +37,7 @@
+ import java.io.FileNotFoundException;
+ import java.lang.annotation.Retention;
+ import java.lang.annotation.RetentionPolicy;
++import java.util.HashMap;
+ import java.util.List;
+ import java.util.Map;
+ import org.mozilla.gecko.Clipboard;
+@@ -537,6 +538,24 @@
+     pm.setIsolatedProcessEnabled(settings.getIsolatedProcessEnabled());
+     pm.setAppZygoteEnabled(settings.getAppZygoteProcessEnabled());
+ 
++    // Redoubt (LW-M7-50, 158.0-2): the media configuration follows the process
++    // model. media.redoubt-isolation-media.enabled is true exactly when content
++    // runs isolated, read from the process manager that was just configured, so
++    // the two cannot disagree. It is added AFTER the debug config was merged, so
++    // a debug config cannot set it either. It travels in MOZ_DEFAULT_PREFS (the
++    // default branch, before the profile and autoconfig), and
++    // Preferences::GetInstanceForService() locks it and, when it is true, sets
++    // and locks upstream's eleven isolated-process media prefs
++    // (isolation-media-prefs.patch). Gecko's codec allowlist reads the same pref
++    // (isolation-media-codecs-in-content.patch). When it is false nothing else
++    // changes: the media prefs keep their 158.0-1 values.
++    final Map<String, Object> redoubtPrefs = new HashMap<>();
++    if (prefs != null) {
++      redoubtPrefs.putAll(prefs);
++    }
++    redoubtPrefs.put("media.redoubt-isolation-media.enabled", pm.isContentIsolated());
++    prefs = redoubtPrefs;
++
+     final int[] fds = startCrashHelper();
+ 
+     final GeckoThread.InitInfo info =
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
+@@ -797,6 +797,17 @@
+     return mAppZygote;
+   }
+ 
++  /**
++   * Redoubt (LW-M7-50): true if web content runs in an isolated process, i.e. the content
++   * process type the allocator picks ({@link GeckoProcessType#determineContentProcessType()},
++   * which also applies the SDK 29 floor of the app zygote) is not plain CONTENT. GeckoRuntime
++   * derives the Gecko pref media.redoubt-isolation-media.enabled from this, so the media
++   * configuration cannot disagree with the process model.
++   */
++  public boolean isContentIsolated() {
++    return GeckoProcessType.determineContentProcessType() != GeckoProcessType.CONTENT;
++  }
++
+   public void crashChild(@NonNull final Selector selector) {
+     XPCOMEventTarget.launcherThread()
+         .execute(
+--- a/modules/libpref/Preferences.cpp
++++ b/modules/libpref/Preferences.cpp
+@@ -4569,6 +4569,57 @@
+ 
+ #endif  // MOZ_WIDGET_ANDROID
+ 
++#ifdef MOZ_WIDGET_ANDROID
++// Redoubt (LW-M7-50, 158.0-2): isolated content and its media configuration
++// are one decision. GeckoRuntime (Java) puts
++// media.redoubt-isolation-media.enabled into MOZ_DEFAULT_PREFS, true exactly
++// when web content runs in an isolated process (owner decision 2026-10-11:
++// "158.0-2, Android 12+ only"; the SDK test is in Fenix's GeckoProvider). Here,
++// in the parent, right after that channel is parsed and before the profile,
++// autoconfig or any media code reads a pref:
++//  - the gate pref is locked to the value GeckoView gave, so neither
++//    about:config, prefs.js, librewolf.cfg nor a later SetDefaultPrefs can
++//    switch the codec allowlist without the process model;
++//  - only when it is true, upstream's eleven isolated-process media prefs
++//    (bug 1988531 part 1, mozilla-firefox e0286afb5f68, variants.yml
++//    geckoview-isolated-process) are set on the default branch and locked.
++// When it is false (Android 8-11) nothing else is touched: every media pref
++// keeps the value it has in 158.0-1. Child processes receive the values and
++// the locks from the parent.
++static void RedoubtApplyIsolationMediaPrefs() {
++  static const char kGate[] = "media.redoubt-isolation-media.enabled";
++  static const struct {
++    const char* mName;
++    bool mValue;
++  } kIsolatedMediaPrefs[] = {
++      {"media.android-media-codec.enabled", false},
++      {"media.android-media-codec.preferred", false},
++      {"media.ffmpeg.encoder.enabled", true},
++      {"media.ffvpx-hw.enabled", true},
++      {"media.rdd-ffvpx.enabled", true},
++      {"media.rdd-opus.enabled", true},
++      {"media.rdd-process.enabled", true},
++      {"media.rdd-vorbis.enabled", true},
++      {"media.rdd-vpx.enabled", true},
++      {"media.rdd-wav.enabled", true},
++      {"media.use-remote-encoder.video.platform", true},
++  };
++  bool isolated = false;
++  if (NS_FAILED(
++          Preferences::GetBool(kGate, &isolated, PrefValueKind::Default))) {
++    isolated = false;
++  }
++  if (isolated) {
++    for (const auto& p : kIsolatedMediaPrefs) {
++      Preferences::SetBool(p.mName, p.mValue, PrefValueKind::Default);
++      Preferences::Lock(p.mName);
++    }
++  }
++  Preferences::SetBool(kGate, isolated, PrefValueKind::Default);
++  Preferences::Lock(kGate);
++}
++#endif  // MOZ_WIDGET_ANDROID
++
+ /* static */
+ already_AddRefed<Preferences> Preferences::GetInstanceForService() {
+   if (sPreferences) {
+@@ -4645,6 +4696,11 @@
+   if (defaultPrefs) {
+     parsePrefData(nsCString(defaultPrefs), PrefValueKind::Default);
+   }
++#ifdef MOZ_WIDGET_ANDROID
++  if (XRE_IsParentProcess()) {
++    RedoubtApplyIsolationMediaPrefs();
++  }
++#endif
+ 
+   // Preferences::GetInstanceForService() can be called from GetService(), and
+   // RegisterStrongMemoryReporter calls GetService(nsIMemoryReporter).  To

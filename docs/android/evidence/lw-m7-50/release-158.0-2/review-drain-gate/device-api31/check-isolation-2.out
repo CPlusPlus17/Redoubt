@@ -1,0 +1,23 @@
+[smoke] apk=/home/mgysin/redoubt-artifacts/iso-158-2/apk/redoubt-158.0-2r2-x86_64-throwaway.apk
+[smoke] package=org.redoubtbrowser
+[smoke] using device emulator-5574
+[smoke] installing redoubt-158.0-2r2-x86_64-throwaway.apk (137 MB)
+[smoke] display kept awake for this run (mWakefulness=Awake)
+[smoke] origin: http://10.0.2.2:39823/ and https://10.0.2.2:47801/
+[smoke] org.redoubtbrowser is not debuggable; opened GeckoView's debug config via Settings.Global.DEBUG_APP (am set-debug-app)
+[smoke] under test: Redoubt 158.0-2 buildID=20261011180000
+[smoke] isolation-mode         PASS  API 31: isolation expected ON (gate: SDK >= 31); media.redoubt-isolation-media.enabled=true, locked
+[smoke] isolation-prefs        PASS  the 11 isolated-process media prefs of bug 1988531 are set and locked
+[smoke] isolation-decoder-h264-aac PASS  played (9 frames); video decoder 'ffvpx video decoder (RDD remote)' -> RDD, audio decoder 'ffvpx audio decoder (Utility Generic remote)' -> Utility, as required
+[smoke] isolation-decoder-vp8-opus PASS  played (13 frames); video decoder 'ffvpx video decoder' -> content, audio decoder 'ffvpx audio decoder' -> content, as required
+[smoke] isolation-decoder-vp9-opus PASS  played (14 frames); video decoder 'ffvpx video decoder' -> content, audio decoder 'ffvpx audio decoder' -> content, as required
+[smoke] isolation-decoder-av1-opus PASS  played (14 frames); video decoder 'ffvpx video decoder' -> content, audio decoder 'ffvpx audio decoder' -> content, as required
+[smoke] isolation-codec-caps   PASS  canPlayType(avc1)='probably', MediaSource.isTypeSupported(avc1+mp4a)=True; native HLS canPlayType='' ("" means native HLS is off, as designed under isolation)
+[smoke] isolation-processes    PASS  3 content process(es), all u:r:isolated_app with isolated uids (u0_i0, u0_i1, u0_i2), forked by the app zygote; :rdd runs as u:r:untrusted_app:s0:c145,c256,c512,c768 u0_a145 (NOT isolated: it can read the profile, by design)
+[smoke] isolation-codec-processes PASS  4 MediaCodec allocation(s): c2.android.aac.decoder in utility_disable_art_image_, c2.goldfish.h264.decoder in rdd_disable_art_image_; none in an isolated process
+[smoke] isolation-denials      PASS  14 isolated_app denial(s), all in the measured platform baseline (/proc/filesystems, incremental_prop, sysfs product_name, sysfs product_sku); none involves media or app_data_file
+[smoke] isolation-profile-dir  PASS  drwx------ 9 u0_a145 u0_a145 u:object_r:app_data_file:s0:c145,c256,c512,c768  4096 2026-10-11 16:51 /data/data/org.redoubtbrowser (mode 0700, owner u0_a145, app_data_file; an isolated_app uid is neither the owner nor allowed by policy)
+[smoke] isolation-remote-refusal PASS  with media.redoubt-test.skip-content-codec-filter on, content asked RDD/Utility for VP9+Opus: :rdd refused video/vp9 (pid 7190), :utility refused audio/opus (pid 7415); the clip played anyway, video 'ffvpx video decoder' and audio 'ffvpx audio decoder' in the isolated content process; no refusal on the honest path before
+[smoke] ------------------------------------------------------------
+[smoke] 12 check(s) run, 0 failed. Detail: /home/mgysin/redoubt-artifacts/iso-158-2/emu/results2/device-api31/check-isolation-2.json
+rc=0

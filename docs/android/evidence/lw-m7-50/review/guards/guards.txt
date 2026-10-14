@@ -1,0 +1,25 @@
+# Makefile OVERLAYS origin (version.android 158.0 / release.android 1), 2026-10-11T09:55:23Z
+$ make -pn android-dir TARGETS=android | grep (targets_stamp|patcher_cmd|patch_lists)
+targets_stamp := librewolf-targets-158.0-1-android
+patcher_cmd := python3 scripts/librewolf-patches.py 158.0 1 --targets=android
+patch_lists := assets/patches/common.txt assets/patches/android.txt
+$ make -pn android-dir TARGETS=android OVERLAYS=isolation-media,dev-app
+targets_stamp := librewolf-targets-158.0-1-android-overlays-isolation-media-dev-app
+patcher_cmd := python3 scripts/librewolf-patches.py 158.0 1 --targets=android --overlays=isolation-media,dev-app
+$ OVERLAYS=isolation-media make -n android-dir TARGETS=android
+Makefile:168: *** OVERLAYS='isolation-media' comes from the environment; overlays are taken only from the make command line (make android-dir TARGETS=android OVERLAYS=...), unset it.  Stop.
+exit=2
+$ OVERLAYS=dev-app make -e -n android-dir TARGETS=android
+Makefile:168: *** OVERLAYS='dev-app' comes from the environment; overlays are taken only from the make command line (make android-dir TARGETS=android OVERLAYS=...), unset it.  Stop.
+exit=2
+$ OVERLAYS= make -pn android-dir TARGETS=android  (empty env value: dropped)
+patcher_cmd := python3 scripts/librewolf-patches.py 158.0 1 --targets=android
+
+# scripts/android-apk.sh on the switch-ON tree (marker: isolation-media dev-app )
+$ android-apk.sh --variant=release -n   (no --allow-overlays)
+[android-apk.sh] fatal: this tree carries build overlays [isolation-media dev-app  isolation-media(cfg) dev-app(build.gradle)]: a release build of it needs --allow-overlays (docs/android/ISOLATION-MEDIA.md section 1); release CI never passes it
+exit=1
+$ android-apk.sh --variant=release --allow-overlays -n
+[android-apk.sh] build overlays in this tree: isolation-media dev-app  isolation-media(cfg) dev-app(build.gradle)
+[android-apk.sh] dev-app overlay present: applicationId org.redoubtbrowser.dev, update check compiled out
+exit=0

@@ -21,15 +21,19 @@ What recovers **most, not all**, of it:
 - **Per-site process isolation** — `fission.webContentIsolationStrategy` locked
   to `ISOLATE_HIGH_VALUE` (LW-M5-01). Stock Fenix ships `0` (ISOLATE_NOTHING);
   this is a genuine win over the browser we build from.
-- **Process separation** — **not shipped.** `isolatedProcess` plus the app zygote
-  (LW-M5-02) gave the content process a distinct uid in 157.0-2, but an isolated
-  content process cannot decode H.264 or AAC in Firefox 157 (upstream bug 1810736),
-  so most web video failed. Both are pinned off from the fix for that defect
-  (LW-M7-43, `evidence/video-playback/`); content runs under the app's uid, as in
-  stock Fenix.
-  Restoring it without breaking video is studied in
-  [`ISOLATION-MEDIA-STUDY.md`](ISOLATION-MEDIA-STUDY.md) (LW-M7-48): upstream's
-  NDK-in-RDD decoder route, prefs only, planned for Firefox 159 at the earliest.
+- **Process separation** — **Partial, from 158.0-2: Android 12+ isolated,
+  Android 8-11 not.** `isolatedProcess` plus the app zygote (LW-M5-02) gave the
+  content process a distinct uid in 157.0-2, but an isolated content process
+  cannot decode H.264 or AAC (upstream bug 1810736), so most web video failed and
+  157.0-3 pinned both off (LW-M7-43). 158.0-2 turns them back on for Android 12+
+  (API 31+) only, with H.264/HEVC/AAC decoded by the NDK MediaCodec in the RDD and
+  Utility processes and software codecs kept in the isolated process (LW-M7-50,
+  owner decision 2026-10-11 "158.0-2, Android 12+ only";
+  `docs/android/ISOLATION-MEDIA.md`). On Android 8-11 content still runs under
+  the app's uid, as in stock Fenix, until a flake seen with upstream's media prefs
+  on the API 30 emulator is understood.
+  The feasibility study behind it is
+  [`ISOLATION-MEDIA-STUDY.md`](ISOLATION-MEDIA-STUDY.md) (LW-M7-48).
 - **JS/WASM sandboxing** — 52 RLBox modules are built (measured in `libxul.so`).
 
 The two **irreducible** gaps, stated plainly, are the **Gecko content-process
@@ -48,6 +52,7 @@ assertion.
 |---|---|---|---|---|
 | 1 | Gecko content-process sandbox (`MOZ_SANDBOX`) | ON | **Absent** | Not compiled; `toolkit.mozbuild:37` skips `security/sandbox`; `security.sandbox.*` inert. Upstream port unfinished (bugs 1660102, 2040639). Mitigated by rows 2–4. Measured by: build config + upstream bugs. [ROADMAP, SANDBOX-SPIKE] |
 | 2 | Per-site process isolation (Fission) | `ISOLATE_HIGH_VALUE` | **Equivalent (stronger than stock)** | Locked to `ISOLATE_HIGH_VALUE` (LW-M5-01); stock Fenix ships `0`. Measured by: running-build pref read. [no-nimbus.patch, LW-M5-01] |
+| 2a | Content process isolation (separate uid, `isolated_app`) | n/a on desktop (the Gecko sandbox, row 1, is the desktop mechanism) | **Partial: Android 12+ isolated; Android 8-11 not** | From 158.0-2 (LW-M7-50, owner decision 2026-10-11 "158.0-2, Android 12+ only"): `GeckoProvider` turns `isolatedProcess` + app zygote on for SDK >= 31; web content runs as `u:r:isolated_app` with an isolated uid and cannot open the profile. H.264/HEVC/AAC are parsed in `:rdd`/`:utility` (app uid), every other codec only in the isolated process. Android 8-11: content under the app uid as in 158.0-1 and stock Fenix. Measured by: `android-smoke.sh --check-isolation` on API 34 and API 31 (ON) and API 30 (OFF), and `ps -A -o LABEL` on a Pixel 10 Pro (Android 17), of the prototype dev APK (`2fa22e51`), not of a 158.0-2 build; the 158.0-2 dev APK has not been measured on the phone yet. [ISOLATION-MEDIA, evidence/lw-m7-50/release-158.0-2] |
 | 3 | JS/WASM sandboxing (RLBox) | ON | **Equivalent** | 52 RLBox modules present. Measured by: binary scan of `libxul.so`. [SANDBOX-SPIKE] |
 | 4 | Compiler memory hardening (CFI, PHC, rosegment, …) | ON | **Equivalent (some stronger)** | All desktop flags present + PHC + rosegment; Android STL hardening (libc++ EXTENSIVE) is stronger than desktop `_GLIBCXX_ASSERTIONS`. Residual: 32-bit ARM lacks `-fstack-clash-protection`. Measured by: binary scan of `libxul.so`. [hardening-flags.md] |
 | 5 | HTTPS-only mode | ON | **Partial** (emulator-measured 2026-10-09/10 on 157.0-3; phone check pending) | On by default through Fenix's own setting (`privacy-defaults.patch`; `dom.security.https_only_mode=true`, not locked, so the user can turn it off in Settings). **Measured on 157.0-3** (API 34 emulator, local servers): a top-level `http://` load shows the HTTPS-only interstitial and loads only after "Continue to HTTP site"; an `http://` URL to a host that speaks TLS is upgraded silently and ends as a secure context; the exception is per origin (another port still gets the interstitial) and stored as `https-only-load-insecure` with `expireType=1` (session). Device-pending: public sites, and whether the exception really ends with the session. Kept at Partial until the phone check passes (owner decision 2026-10-10: the emulator result does not raise a row on its own). Measured by: `android-smoke.sh --check-https-only` (rows `https-only-interstitial`, `https-only-upgrade`, `https-only-exception-scope`). [evidence/lw-m7-49, DEVICE-CHECKS §1] |
@@ -81,7 +86,7 @@ finished it, and the cost of finishing it is 4–8 engineering-weeks to a first
 build and 6–12 engineering-months to ship-safe, with permanent maintenance
 (SANDBOX-SPIKE §7). The recorded recommendation is **not to pursue `MOZ_SANDBOX`**:
 the marginal gain over `isolated_app` + RLBox is kernel-attack-surface only (and
-`isolated_app` itself is off until upstream decodes H.264 in it, LW-M7-43), and
+`isolated_app` itself is on only for Android 12+ since 158.0-2, LW-M7-50), and
 it is undercut by the no-telemetry SIGSYS risk on a vendor-kernel fleet
 (SANDBOX-SPIKE §8).
 

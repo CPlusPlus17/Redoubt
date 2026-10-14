@@ -472,6 +472,7 @@ task is genuinely done.
 | `--check-strings` | LW-M4-12 | implemented | two halves: the resource table (`aapt2` over the APK's `resources.arsc`, every locale) and a running-app traversal of the deep-linked settings screens (`--strings-locale`, `--strings-depth`, `--strings-max-taps`); a brand word in any string value that is not on the enumerated exception list fails it |
 | `--check-update-privacy` | LW-M6-06 | implemented | OFF window: launch, idle, open Settings — no event to an update host, and a dead capture (zero events) fails rather than passes. If the "Check for updates" row exists it must read OFF; the harness flips it, relaunches, and requires the update host to be contacted and nothing else new. A build without a row (compiled out, as a store build should be) passes the OFF half only |
 | `--check-launcher-start` | LW-M3-07 | implemented | launcher (not URL) cold starts on a fresh profile and a restart; fails on the uBO setup-failure dialog, a logged failure, or a missing readiness line. Beta 2 and the first 153.4 candidate: **FAIL** (dialog 30 s into the restart) |
+| `--check-isolation` | LW-M7-50 | implemented | since 158.0-2 the expectation follows the device's SDK level, like the build's runtime gate (`docs/android/ISOLATION-MEDIA.md`). API 31+: isolated content from the app zygote, the 11 locked media prefs, where each codec decodes, MediaCodec allocations by process, `isolated_app` denials against the LW-M7-48 baseline, the profile directory, and RDD/Utility refusing VP9/Opus when content asks. API < 31: isolation OFF and media exactly as 158.0-1. A build without the gate (158.0-1 and older) **FAILS** row `isolation-mode`. See below |
 | `--check-delete-on-quit` | LW-M7-45 | implemented | needs `adb root`; recents swipe then launcher cold start, setting on (selected data deleted before restore, by the start-up guard or by a completed `onTaskRemoved`) and off (tabs restored). LW-M7-45 build: **PASS**; Beta 5: **FAIL** (2 tabs restored) |
 | `--check-tls-floor` | LW-M7-49 | implemented | four host servers, each pinned to exactly one of TLS 1.0/1.1/1.2/1.3 (a child process with its own OpenSSL config, self-handshake-tested first); 1.0 and 1.1 must be refused with an NSS TLS error and no server handshake, 1.2 and 1.3 must load on both a chrome channel and a top-level navigation. See below |
 | `--check-revocation` | LW-M7-49 | implemented | leaves under the harness CA with OCSP AIA to a harness responder: with LibreWolf's posture (OCSP off, CRLite enforce) good/revoked/unreachable-responder leaves load and **no** OCSP request arrives; a stapled "revoked" response is refused with `SEC_ERROR_REVOKED_CERTIFICATE`. Must-staple and CRLite filter state are recorded, not graded |
@@ -528,6 +529,53 @@ Negative controls (tainted runs, exit 1 by design):
 `LW_SMOKE_EXTRA_PREFS='{"security.tls.version.min": 1, "security.tls.version.enable-deprecated": true}'`,
 `'{"security.OCSP.enabled": 1}'` and `'{"privacy.resistFingerprinting": false}'`.
 Results: `docs/android/evidence/lw-m7-49/`.
+
+### `--check-isolation` (LW-M7-50)
+
+For Redoubt 158.0-2 and later, where isolation is a runtime decision: ON on
+Android 12+ (API 31+), OFF below (owner decision 2026-10-11, "158.0-2, Android
+12+ only"). The check reads `ro.build.version.sdk` and grades against the same
+rule. It runs on the live app with a video playing, and reads every property from
+the device rather than from the build.
+
+Both levels:
+
+| row | passes when |
+|---|---|
+| `isolation-mode` | `media.redoubt-isolation-media.enabled` is **locked** and equals `SDK >= 31`: the build's gate agrees with the SDK rule. A build without the gate fails here |
+
+**API 31+ (isolation ON):**
+
+| row | passes when |
+|---|---|
+| `isolation-prefs` | the eleven media prefs of `docs/android/expected-prefs-isolation-media.txt` have their values **and are locked** |
+| `isolation-decoder-h264-aac` | a 64x64 H.264+AAC MP4 plays; `mozRequestDebugInfo()` names `… (RDD remote)` for video and `… (Utility Generic remote)` for audio |
+| `isolation-decoder-vp8-opus`, `-vp9-opus`, `-av1-opus` | each plays and both decoder names carry no `remote`: decoded inside the isolated content process (the owner's "Keep software codecs in the page process"). Two new embedded fixtures, VP9 and AV1, 1 s each, ffmpeg recipe and sha256 next to them |
+| `isolation-codec-caps` | `canPlayType(avc1)` is `probably` and `MediaSource.isTypeSupported(avc1+mp4a)` is true; native HLS `canPlayType` is reported (`""` by design) |
+| `isolation-processes` | every content process (`:tab`, `:isolatedTab`, `:zygoteTab`) is `u:r:isolated_app` with an isolated uid, forked by `<pkg>_zygote` on API 29+; an `:rdd` process exists (its label is reported: it runs with the app uid, by design) |
+| `isolation-codec-processes` | every `CCodec allocate(...)` line in logcat comes from a process that is not `isolated_app`, and at least one H.264 codec was allocated by `:rdd` |
+| `isolation-denials` | every `avc: denied` with `scontext=u:r:isolated_app` is one of the four baseline kinds LW-M7-48 measured with and without the media prefs (sysfs `product_name`/`product_sku`, `/proc/filesystems`, `incremental_prop`), and none involves `app_data_file` |
+| `isolation-profile-dir` | `/data/data/<pkg>` is `drwx------`, owned by the app uid, labelled `app_data_file` |
+| `isolation-remote-refusal` | no refusal line was logged before; then, with the test-hook pref `media.redoubt-test.skip-content-codec-filter` on (content asks RDD/Utility for VP9+Opus, as a compromised content process could), `:rdd` logs `Redoubt isolation-media: RDD process refused a decoder for 'video/vp9'`, `:utility` logs the same for `audio/opus`, and the VP9+Opus clip still plays with both decoders in content. The pref is cleared afterwards, also on failure |
+
+**API < 31 (isolation OFF, media as 158.0-1):**
+
+| row | passes when |
+|---|---|
+| `isolation-prefs` | the eleven have the 158.0-1 values of `docs/android/expected-prefs-no-isolation.txt` and are **not** locked |
+| `isolation-decoder-h264-aac` | plays with `android decoder (remote)` (Java MediaCodec) for video and audio, nothing in RDD |
+| `isolation-decoder-vp8-opus`, `-vp9-opus`, `-av1-opus` | each plays, nothing in RDD, Opus in `Utility Generic remote` (the allowlist would keep it in content) |
+| `isolation-codec-caps` | `canPlayType(avc1)` `probably`, MSE avc1+mp4a true, native HLS `canPlayType` not `""` (kept) |
+| `isolation-processes` | content runs as `untrusted_app` with the app uid, no `<pkg>_zygote`, no `:rdd` |
+| `isolation-codec-processes` | no MediaCodec allocation in `:rdd` or an isolated process; H.264 allocated in `:media` |
+| `isolation-denials` | no `isolated_app` denial at all |
+| `isolation-profile-dir` | `/data/data/<pkg>` is `drwx------`, `app_data_file` |
+| `isolation-allowlist-inactive` | with the test-hook pref on, VP9+Opus plays with Opus in Utility and no refusal is logged |
+
+The package comes from the APK, so it works for `org.redoubtbrowser.dev` and
+`org.redoubtbrowser` alike. Unit tests with a fake device and page are in
+`scripts/tests/test-android-smoke.py` (`IsolationCheckTests`), including one per
+failure mode. Measured runs: `docs/android/evidence/lw-m7-50/`.
 
 ### `--check-search` deserves a note
 

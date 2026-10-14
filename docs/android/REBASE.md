@@ -855,6 +855,44 @@ generated header" beats "the patch sets it". With the bridge present, a
 `true` header is not enough on its own — the runtime proof is the WebGL
 prompt flow in `scripts/android-graphics-smoke.py` and BETA.md's WebGL step.
 
+
+### 6f. The isolation-media gate (LW-M7-50, from 158.0-2)
+
+From 158.0-2, `media.redoubt-isolation-media.enabled` (locked) decides the media
+configuration of isolated content, and is computed from GeckoView's process
+model (`docs/android/ISOLATION-MEDIA.md` sections 0 and 5). Static checks
+cannot see it go wrong; check by hand, against the new tree:
+
+1. **`GeckoRuntime.init()` ordering.** `init()` configures the
+   `GeckoProcessManager` singleton from its settings and only then calls
+   `GeckoThread.init()`, which refuses a second start. The gate pref is taken
+   from the FIRST `init()` only. A later default runtime
+   (`GeckoRuntime.getDefault()`, whose default `GeckoRuntimeSettings` leave
+   isolation off) or a second `GeckoRuntime.create()` would switch new content
+   processes back to plain `:tab` while the gate, the eleven media prefs and the
+   codec allowlist stay true. Fenix 158 never does this (`GeckoProvider` creates
+   the one runtime; `Core.kt` passes it to `GeckoEngine` and
+   `GeckoViewFetchClient`, whose `getDefault()` default arguments therefore are
+   never evaluated). Confirm it still holds:
+
+   ```sh
+   grep -rn 'GeckoRuntime.getDefault\|GeckoRuntime.create(' \
+       mobile/android/fenix/app/src/main \
+       mobile/android/android-components/components/*/*/src/main
+   # expected: one create() in fenix GeckoProvider.kt; getDefault() only as the
+   # default argument of GeckoEngine / GeckoViewFetchClient, both of which
+   # Core.kt calls with runtime = the GeckoProvider runtime
+   ```
+
+   Also confirm `init()` still sets the process manager before it builds
+   `GeckoThread.InitInfo` (the patch reads the manager there).
+2. **The drain backport** (`isolation-media-drain-backport.patch`, upstream bug
+   1987001) is in Firefox 159: drop the patch, and with it its gate. From then
+   on software ffvpx behaves as upstream on Android 8-11 too, which is a
+   behaviour change for that range to note in the release notes.
+3. Everything else in `ISOLATION-MEDIA.md` section 5 (the eleven prefs in
+   `variants.yml`, the `Supports()` / `CreateDecoder()` hooks).
+
 ---
 
 ## 7. Run the gates

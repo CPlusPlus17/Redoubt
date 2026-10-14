@@ -1,0 +1,37 @@
+[smoke] apk=/home/mgysin/redoubt-artifacts/iso-proto/apk/redoubt-dev-iso-x86_64.apk
+[smoke] package=org.redoubtbrowser.dev
+[smoke] booting emulator lw-smoke (android-30/default, x86_64, swangle), capture -> /home/mgysin/redoubt-artifacts/iso-proto/smokework30/capture.pcap
+[smoke] emulator booted as emulator-5584
+[smoke] installing redoubt-dev-iso-x86_64.apk (136 MB)
+[smoke] display kept awake for this run (mWakefulness=Awake)
+[smoke] origin: http://10.0.2.2:51251/ and https://10.0.2.2:38949/
+[smoke] org.redoubtbrowser.dev is not debuggable; opened GeckoView's debug config via Settings.Global.DEBUG_APP (am set-debug-app)
+[smoke] under test: Redoubt Dev 158.0-1 buildID=20261010220000
+[smoke] https-only-interstitial PASS  HTTP must reach the HTTPS-only interstitial before the user grants an exception
+[smoke] page-load-http         PASS  http://10.0.2.2:51251/?https-only-6382ff8fdec84602 ready=complete secure=False marker='lw-smoke-page-ok', origin logged 4 request(s)
+[smoke] page-load-https        PASS  https://10.0.2.2:38949/ ready=complete secure=True marker='lw-smoke-page-ok', origin logged 7 request(s)
+[smoke] running full graphics consent, rendering and lifetime acceptance
+[smoke] webgl                  FAIL  Command '['/home/mgysin/redoubt-artifacts/android-sdk/platform-tools/adb', '-s', 'emulator-5584', 'shell', 'input swipe 891 147 891 147 750']' timed out after 30 seconds
+[smoke] org.redoubtbrowser.dev is not debuggable; opened GeckoView's debug config via Settings.Global.DEBUG_APP (am set-debug-app)
+[smoke] video                  PASS  decoded 15 frames, currentTime=0.500 readyState=4 64x64, origin served the file 1 time(s)
+[smoke] video-h264             PASS  decoded 13 frames, currentTime=0.441 readyState=4 64x64, origin served the file 1 time(s)
+[smoke] video-mse              PASS  isTypeSupported(video/mp4; codecs="avc1.42E01E,mp4a.40.2")=true, appended 11963 bytes, decoded 12 frames, currentTime=0.403 readyState=4 64x64
+[smoke] getusermedia           PASS  prompt(s) raised ['com.android.permissioncontroller:id/permission_deny_button'], harness tapped deny 2 time(s), getUserMedia rejected with NotAllowedError in 4650ms
+[smoke] emulator left running as emulator-5584 (capture: /home/mgysin/redoubt-artifacts/iso-proto/smokework30/capture.pcap)
+Traceback (most recent call last):
+  File "/home/mgysin/redoubt-artifacts/iso-proto/smokework30/harness/driver.py", line 5296, in <module>
+    sys.exit(main(sys.argv[1:]))
+             ~~~~^^^^^^^^^^^^^^
+  File "/home/mgysin/redoubt-artifacts/iso-proto/smokework30/harness/driver.py", line 5211, in main
+    check_extension(m, res, base64.b64encode(
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+        open(build_probe_xpi(os.path.join(work, "harness", "probe.xpi")), "rb").read()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ).decode(), https_url, forcefail=ff)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mgysin/redoubt-artifacts/iso-proto/smokework30/harness/driver.py", line 2285, in check_extension
+    m.cmd("WebDriver:Navigate", {"url": https_url + "?ext"})
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mgysin/redoubt-artifacts/iso-proto/smokework30/harness/driver.py", line 98, in cmd
+    raise MarionetteError(name, msg[2])
+MarionetteError: WebDriver:Navigate -> timeout: Navigation timed out after 120000 ms

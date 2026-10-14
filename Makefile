@@ -147,15 +147,42 @@ endif
 # NOTE: this rename means the first `make dir` after this change re-extracts
 # once on every existing builder, because no stamp under the new name exists
 # yet. That is a one-time cost, not a recurring one.
-targets_stamp := librewolf-targets-$(version)-$(release)-$(subst $(comma),-,$(TARGETS))
+#
+# OVERLAYS (LW-M7-50) names opt-in Android build overlays, e.g.
+#   make android-dir TARGETS=android OVERLAYS=dev-app
+# (isolation-media was an overlay in the prototype; since 158.0-2 it is in
+# assets/patches/android.txt behind a runtime gate, Android 12+ only.)
+# (scripts/librewolf-patches.py --overlays, docs/android/ISOLATION-MEDIA.md).
+# Empty by default, and every use below expands to exactly the string it had
+# before OVERLAYS existed when it is empty: same stamp name, same patch lists,
+# same patcher command, so a build that does not name an overlay is unchanged.
+# A non-empty value is part of the stamp name, so switching overlays re-extracts.
+#
+# Only the make COMMAND LINE sets OVERLAYS (review of LW-M7-50): a value from
+# the environment (`export OVERLAYS=...`, a CI runner's env, `make -e`) must
+# never turn an overlay on silently. A non-empty environment value is a hard
+# error; an empty one is dropped. Anything else that is not the command line
+# is reset to empty, so the expansions below see either the command-line value
+# or nothing. The release workflow and scripts/android-apk.sh refuse an overlay
+# tree on their own as well (docs/android/ISOLATION-MEDIA.md section 1).
+ifneq ($(filter environment%,$(origin OVERLAYS)),)
+ifneq ($(strip $(OVERLAYS)),)
+$(error OVERLAYS='$(OVERLAYS)' comes from the environment; overlays are taken only from the make command line (make android-dir TARGETS=android OVERLAYS=...), unset it)
+endif
+endif
+ifneq ($(origin OVERLAYS),command line)
+override OVERLAYS :=
+endif
+overlay_list := $(subst $(comma), ,$(OVERLAYS))
+targets_stamp := librewolf-targets-$(version)-$(release)-$(subst $(comma),-,$(TARGETS))$(if $(strip $(OVERLAYS)),-overlays-$(subst $(comma),-,$(OVERLAYS)))
 
 # The patch lists the patcher actually reads. Only the ones in effect: editing
 # android.txt must not re-extract a desktop tree. assets/patches.txt is a
 # generated shim (see assets/patches/common.txt) that nothing in this recipe
 # reads any more, so it is deliberately not a prerequisite.
-patch_lists := assets/patches/common.txt $(foreach t,$(target_list),assets/patches/$(t).txt)
+patch_lists := assets/patches/common.txt $(foreach t,$(target_list),assets/patches/$(t).txt)$(foreach o,$(overlay_list), assets/patches/overlay-$(o).txt $(wildcard assets/patches/overlay-$(o).cfg))
 
-patcher_cmd := python3 scripts/librewolf-patches.py $(version) $(release) --targets=$(TARGETS)
+patcher_cmd := python3 scripts/librewolf-patches.py $(version) $(release) --targets=$(TARGETS)$(if $(strip $(OVERLAYS)), --overlays=$(OVERLAYS))
 
 FF_BASE_URL ?= https://archive.mozilla.org/pub/firefox/releases
 FF_CHANNEL ?= releases

@@ -1,0 +1,79 @@
+# Redoubt dev-app.patch  (Android, OVERLAY dev-app)
+# Owner: LW-M7-50
+#
+# Applied ONLY by `scripts/librewolf-patches.py --overlays=dev-app` (Makefile:
+# OVERLAYS=dev-app), from assets/patches/overlay-dev-app.txt. A normal build
+# never applies it; the release app stays org.redoubtbrowser, "Redoubt".
+#
+# Owner decision 2026-10-10, verbatim: "Yes, separate dev app" -- a build with
+# applicationId org.redoubtbrowser.dev and the name "Redoubt Dev", installable
+# next to the release app, signed with a throwaway/dev key and never with the
+# release key. (Plan: "Prototype now, ship ON in a 158 dot release if it tests
+# clean"; trade-off: "Keep software codecs in the page process".)
+#
+# Upstream files touched (all already Redoubt-branded by branding.patch or
+# untouched by it)
+# -------------------------------------------------------------------------
+#   mobile/android/fenix/app/build.gradle
+#       release build type: applicationIdSuffix ".dev" (org.redoubtbrowser.dev)
+#       and deep-link scheme "redoubt-dev", so a redoubt:// link never opens a
+#       chooser between the two apps. Every ${applicationId} placeholder
+#       (providers, permissions) follows the suffix, the same mechanism that lets
+#       the .debug build type sit next to the release app.
+#   mobile/android/fenix/app/src/release/res/values/static_strings.xml
+#       app_name "Redoubt Dev" (lw-brand would otherwise rewrite "Firefox" to
+#       "Redoubt").
+#   mobile/android/fenix/app/src/release/res/values/colors.xml
+#       amber adaptive-icon background (#B45309): the cheap launcher badge.
+#
+# What the dev app does NOT have, by construction
+# ------------------------------------------------
+#   * No update check. scripts/android-apk.sh refuses --update-check and
+#     LW_UPDATE_CHECK_PUBKEY when the tree carries this overlay, so the row and
+#     the code path are compiled out (DISTRIBUTION.md). It must never offer a
+#     release APK as an "update": that would be a different applicationId.
+#   * No release signature. scripts/android-sign-dev.sh signs it with the dev key
+#     under ~/redoubt-artifacts/keep/dev-keys/ and refuses a keystore whose
+#     certificate is the release certificate (SIGNING.md).
+#   * Its own profile, its own data directory: nothing is shared with
+#     org.redoubtbrowser (different uid).
+#
+# versionCode: deterministic-version-code.patch is unchanged. The dev app has
+# its own applicationId, so its versionCodes never compete with the release
+# app's on a device or in a store.
+#
+--- a/mobile/android/fenix/app/build.gradle
++++ b/mobile/android/fenix/app/build.gradle
+@@ -139,8 +139,11 @@
+             ])
+         }
+         release releaseTemplate >> {
++            // Redoubt dev-app overlay (LW-M7-50): a separate app, installable next to
++            // org.redoubtbrowser, for testing opt-in builds on a phone. Never release-signed.
++            applicationIdSuffix ".dev"
+             buildConfigField "boolean", "USE_RELEASE_VERSIONING", "true"
+-            def deepLinkSchemeValue = "redoubt"
++            def deepLinkSchemeValue = "redoubt-dev"
+             buildConfigField "String", "DEEP_LINK_SCHEME", "\"$deepLinkSchemeValue\""
+             manifestPlaceholders.putAll([
+                     "deepLinkScheme": deepLinkSchemeValue,
+--- a/mobile/android/fenix/app/src/release/res/values/colors.xml
++++ b/mobile/android/fenix/app/src/release/res/values/colors.xml
+@@ -3,5 +3,7 @@
+    - License, v. 2.0. If a copy of the MPL was not distributed with this
+    - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+ <resources>
+-    <color name="ic_launcher_background">@color/photonInk80</color>
++    <!-- Redoubt dev-app overlay (LW-M7-50): amber launcher background, so the dev
++         app cannot be mistaken for the release app on the home screen. -->
++    <color name="ic_launcher_background">#B45309</color>
+ </resources>
+--- a/mobile/android/fenix/app/src/release/res/values/static_strings.xml
++++ b/mobile/android/fenix/app/src/release/res/values/static_strings.xml
+@@ -4,5 +4,5 @@
+    - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+ <resources>
+     <!-- Name of the application -->
+-    <string name="app_name" translatable="false">Firefox</string>
++    <string name="app_name" translatable="false">Redoubt Dev</string>
+ </resources>

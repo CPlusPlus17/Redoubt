@@ -1,0 +1,185 @@
+{
+ "checks": [
+  {
+   "check": "https-only-interstitial",
+   "ok": true,
+   "detail": "HTTP must reach the HTTPS-only interstitial before the user grants an exception",
+   "evidence": {
+    "prefs": {
+     "enabled": true,
+     "locked": false
+    },
+    "page": {
+     "url": "https://10.0.2.2:51251/?https-only-6382ff8fdec84602",
+     "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+site+not+available&button=Try+Again&description=Most+likely%2C+the+website+simply+does+not+support+HTTPS.%3Cbr%3E%3Cbr%3EHowever%2C+it%E2%80%99s+also+possible+that+an+attacker+is+involved.+If+you+continue+to+the+website%2C+you+should+not+enter+any+sensitive+info.+If+you+continue%2C+HTTPS-Only+mode+will+be+turned+off+temporarily+for+the+site.&image=mozac_error_lock.svg&errorCode=&isPrivate=false&showContinueHttp=true&continueHttpButton=Continue+to+HTTP+Site&backFromHttpButton=Go+Back+%28Recommended%29",
+     "title": "Secure site not available",
+     "ready": "interactive",
+     "marker": null,
+     "continueVisible": true,
+     "canAddException": true
+    },
+    "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms"
+   }
+  },
+  {
+   "check": "page-load-http",
+   "ok": true,
+   "detail": "http://10.0.2.2:51251/?https-only-6382ff8fdec84602 ready=complete secure=False marker='lw-smoke-page-ok', origin logged 4 request(s)",
+   "evidence": {
+    "page": {
+     "url": "http://10.0.2.2:51251/?https-only-6382ff8fdec84602",
+     "proto": "http:",
+     "secure": false,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 4
+   }
+  },
+  {
+   "check": "page-load-https",
+   "ok": true,
+   "detail": "https://10.0.2.2:38949/ ready=complete secure=True marker='lw-smoke-page-ok', origin logged 7 request(s)",
+   "evidence": {
+    "page": {
+     "url": "https://10.0.2.2:38949/",
+     "proto": "https:",
+     "secure": true,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 7
+   }
+  },
+  {
+   "check": "webgl",
+   "ok": false,
+   "detail": "Command '['/home/mgysin/redoubt-artifacts/android-sdk/platform-tools/adb', '-s', 'emulator-5584', 'shell', 'input swipe 891 147 891 147 750']' timed out after 30 seconds",
+   "evidence": {
+    "report": "/home/mgysin/redoubt-artifacts/iso-proto/smokework30/graphics-acceptance/6b7fecb44a699809/graphics-results.json",
+    "report_sha256": "13779fbb3bb1bf2960fd76da65cf6380e130114fb4c28d3bf30e61d2d4a94309",
+    "runner_exit": 1,
+    "graphics_status": "FAIL",
+    "acceptanceComplete": false,
+    "apk_sha256": "1f0793c2d05697d8b00ac975283dd9a0132cb97d4d0bbef2a64de1d8ad4398a3"
+   }
+  },
+  {
+   "check": "video",
+   "ok": true,
+   "detail": "decoded 15 frames, currentTime=0.500 readyState=4 64x64, origin served the file 1 time(s)",
+   "evidence": {
+    "video": {
+     "events": [],
+     "ok": true,
+     "element": "v",
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.50012,
+     "readyState": 4,
+     "videoWidth": 64,
+     "videoHeight": 64,
+     "paused": false,
+     "decoded": 15,
+     "dropped": 0,
+     "mediaError": null,
+     "autoplay_prefs": {
+      "default": 5,
+      "policy": 0
+     }
+    },
+    "origin_requests": 1
+   }
+  },
+  {
+   "check": "video-h264",
+   "ok": true,
+   "detail": "decoded 13 frames, currentTime=0.441 readyState=4 64x64, origin served the file 1 time(s)",
+   "evidence": {
+    "video": {
+     "events": [],
+     "ok": true,
+     "element": "v264",
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.441447,
+     "readyState": 4,
+     "videoWidth": 64,
+     "videoHeight": 64,
+     "paused": false,
+     "decoded": 13,
+     "dropped": 0,
+     "mediaError": null,
+     "autoplay_prefs": {
+      "default": 5,
+      "policy": 0
+     }
+    },
+    "origin_requests": 1
+   }
+  },
+  {
+   "check": "video-mse",
+   "ok": true,
+   "detail": "isTypeSupported(video/mp4; codecs=\"avc1.42E01E,mp4a.40.2\")=true, appended 11963 bytes, decoded 12 frames, currentTime=0.403 readyState=4 64x64",
+   "evidence": {
+    "mse": {
+     "ok": true,
+     "type": "video/mp4; codecs=\"avc1.42E01E,mp4a.40.2\"",
+     "events": [],
+     "isTypeSupported": true,
+     "addSourceBuffer": "ok",
+     "bytes": 11963,
+     "buffered": [
+      0,
+      2.021333
+     ],
+     "play": "resolved",
+     "currentTime": 0.403159,
+     "readyState": 4,
+     "videoWidth": 64,
+     "videoHeight": 64,
+     "decoded": 12,
+     "mediaError": null
+    },
+    "origin_requests": 1
+   }
+  },
+  {
+   "check": "getusermedia",
+   "ok": true,
+   "detail": "prompt(s) raised ['com.android.permissioncontroller:id/permission_deny_button'], harness tapped deny 2 time(s), getUserMedia rejected with NotAllowedError in 4650ms",
+   "evidence": {
+    "gum": {
+     "t0": 1791674337786,
+     "hasMediaDevices": true,
+     "hasRTCPeerConnection": true,
+     "state": "rejected",
+     "error": "NotAllowedError",
+     "message": "The request is not allowed by the user agent or the platform in the current context.",
+     "ms": 4650
+    },
+    "prompt_seen": true,
+    "taps": 2,
+    "dialogs": [
+     "com.android.permissioncontroller:id/permission_deny_button"
+    ],
+    "alive": true,
+    "crashed": false
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/iso-proto/smokework30",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/iso-proto/apk/redoubt-dev-iso-x86_64.apk",
+  "sha256": "1f0793c2d05697d8b00ac975283dd9a0132cb97d4d0bbef2a64de1d8ad4398a3",
+  "size": 136323204,
+  "harness_sha256": "bd90b0c8e577e80e6f35432f13c7a66503b98823cec12ceffdb3a2b314974d20"
+ },
+ "status": "interrupted",
+ "error": "WebDriver:Navigate -> timeout: Navigation timed out after 120000 ms"
+}
