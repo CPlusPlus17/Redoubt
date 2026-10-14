@@ -18,11 +18,10 @@ privacy configuration.
 
 ## Status
 
-**Stable.** The current release is **Redoubt 157.0.1-1**, a security update on
-Firefox 157.0.1 (MFSA 2026-104), published as the [latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest).
-It is based on Firefox 157 (Firefox's regular release track), needs Android 8.0 or
-later, and installs over earlier 157 releases as an update (testers on the 158.0-1
-betas stay on the betas until 158.0-1 ships). It has an opt-in in-app
+**Stable.** The current release is **Redoubt 158.0-1**, published as the
+[latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest).
+It is based on Firefox 158.0 (Firefox's regular release track), needs Android 8.0 or
+later, and installs over earlier releases and the 158.0-1 betas as an update. It has an opt-in in-app
 update check (Settings → Check for updates), off by default.
 
 Redoubt is not on F-Droid, Accrescent or any app store yet. Turn on the update
