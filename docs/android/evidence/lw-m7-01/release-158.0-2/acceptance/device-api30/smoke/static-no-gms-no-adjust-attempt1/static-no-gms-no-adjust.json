@@ -1,0 +1,106 @@
+{
+ "checks": [
+  {
+   "check": "check-no-gms",
+   "ok": true,
+   "detail": "no com.google.android.gms strings in any classes*.dex, no GMS class references and no gms entries in the apk",
+   "evidence": {
+    "exempted": {},
+    "unexpected_strings": [],
+    "gms_type_descriptors": [],
+    "apk_entries": [],
+    "androidx_activity_version": "1.13.0",
+    "version_floor": "1.10.0",
+    "version_condition_ok": true,
+    "declaring_class_present": false,
+    "declaring_class_gms_methods": [],
+    "hits": {}
+   }
+  },
+  {
+   "check": "check-no-adjust",
+   "ok": true,
+   "detail": "no Adjust or INSTALL_REFERRER strings in any classes*.dex",
+   "evidence": {
+    "hits": {}
+   }
+  },
+  {
+   "check": "https-only-interstitial",
+   "ok": true,
+   "detail": "HTTP must reach the HTTPS-only interstitial before the user grants an exception",
+   "evidence": {
+    "prefs": {
+     "enabled": true,
+     "locked": false
+    },
+    "page": {
+     "url": "https://10.0.2.2:58417/?https-only-ca2bad1bc75401f8",
+     "uri": "resource://android/assets/low_and_medium_risk_error_pages.html?&title=Secure+site+not+available&button=Try+Again&description=Most+likely%2C+the+website+simply+does+not+support+HTTPS.%3Cbr%3E%3Cbr%3EHowever%2C+it%E2%80%99s+also+possible+that+an+attacker+is+involved.+If+you+continue+to+the+website%2C+you+should+not+enter+any+sensitive+info.+If+you+continue%2C+HTTPS-Only+mode+will+be+turned+off+temporarily+for+the+site.&image=mozac_error_lock.svg&errorCode=&isPrivate=false&showContinueHttp=true&continueHttpButton=Continue+to+HTTP+Site&backFromHttpButton=Go+Back+%28Recommended%29",
+     "title": "Secure site not available",
+     "ready": "interactive",
+     "marker": null,
+     "continueVisible": true,
+     "canAddException": true
+    },
+    "navigation_error": "WebDriver:Navigate -> timeout: Navigation timed out after 20000 ms"
+   }
+  },
+  {
+   "check": "page-load-http",
+   "ok": true,
+   "detail": "http://10.0.2.2:58417/?https-only-ca2bad1bc75401f8 ready=complete secure=False marker='lw-smoke-page-ok', origin logged 4 request(s)",
+   "evidence": {
+    "page": {
+     "url": "http://10.0.2.2:58417/?https-only-ca2bad1bc75401f8",
+     "proto": "http:",
+     "secure": false,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 4
+   }
+  },
+  {
+   "check": "page-load-https",
+   "ok": true,
+   "detail": "https://10.0.2.2:47859/ ready=complete secure=True marker='lw-smoke-page-ok', origin logged 7 request(s)",
+   "evidence": {
+    "page": {
+     "url": "https://10.0.2.2:47859/",
+     "proto": "https:",
+     "secure": true,
+     "ready": "complete",
+     "marker": "lw-smoke-page-ok",
+     "title": "LibreWolf Android smoke"
+    },
+    "origin_requests": 7
+   }
+  },
+  {
+   "check": "webgl",
+   "ok": false,
+   "detail": "Harness cleanup failed after checks",
+   "evidence": {
+    "report": "/home/mgysin/redoubt-artifacts/release-158.0-2/work30/graphics-acceptance/5e360294a5481db7/graphics-results.json",
+    "report_sha256": "659f09ac588d97002e55984f4c70799d117fa3329fe82299d3343445f772142c",
+    "runner_exit": 1,
+    "graphics_status": "FAIL",
+    "acceptanceComplete": false,
+    "apk_sha256": "0080b12ffdef57cff087aee2b5a492f4678cf6aafb53459ae6ca3c5e925cb3b9"
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/release-158.0-2/work30",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/release-158.0-2/apk/fenix-x86_64-158.0-2-throwaway.apk",
+  "sha256": "0080b12ffdef57cff087aee2b5a492f4678cf6aafb53459ae6ca3c5e925cb3b9",
+  "size": 136638795,
+  "harness_sha256": "2212781c508b56d4bb6065253e185a90099755b791775bd037389e91549e0d2d"
+ },
+ "status": "interrupted",
+ "error": "initial browser document did not finish loading before about:config: {'url': 'http://127.0.0.1:58417/empty', 'uri': 'resource://android/assets/low_and_medium_risk_error_pages.html?&title=Unable+to+connect&button=Try+Again&description=%3Cul+role%3D%22presentation%22%3E+%3Cli%3EThe+site+could+be+temporarily+unavailable+or+too+busy.+Try+again+in+a+few+moments.%3C%2Fli%3E+%3Cli%3EIf+you+are+unable+to+load+any+pages%2C+check+your+device%E2%80%99s+data+or+Wi-Fi+connection.%3C%2Fli%3E+%3C%2Ful%3E&image=mozac_error_confused.svg&errorCode=&isPrivate=false&showContinueHttp=false&continueHttpButton=Continue+to+HTTP+Site&backFromHttpButton=Go+Back+%28Recommended%29', 'ready': 'interactive'}"
+}
