@@ -18,7 +18,7 @@ privacy configuration.
 
 ## Status
 
-**Stable.** The current release is **Redoubt 158.0-1**, published as the
+**Stable.** The current release is **Redoubt 158.0-2**, which turns content-process isolation back on for Android 12 and newer, published as the
 [latest release](https://github.com/CPlusPlus17/Redoubt/releases/latest).
 It is based on Firefox 158.0 (Firefox's regular release track), needs Android 8.0 or
 later, and installs over earlier releases and the 158.0-1 betas as an update. It has an opt-in in-app
