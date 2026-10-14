@@ -85,8 +85,16 @@ on:
       - synchronize
 
 jobs:
+  # A pull request from a fork never runs on the self-hosted runner. Its code
+  # (workflow file included) would execute on box B's VM, which keeps the
+  # caches the release builds reuse (CI-VM.md), so one approved fork run could
+  # plant code in a build that is later signed. Fork pull requests get the
+  # cheap checks on a disposable GitHub-hosted runner instead (pr-checks-fork
+  # below); the patch-application test runs on the self-hosted runner for
+  # pushes, dispatches and pull requests from branches of this repository.
   test-android:
     # Box B since 2026-10-04, when box A's runner (librewolf-android) was retired.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [self-hosted, redoubt-boxb]
     steps:
       - name: Checkout Repository
@@ -180,6 +188,28 @@ jobs:
           # `make dir`, and nowhere earlier.
           LW_TREE=librewolf-$(cat version.android)-$(cat release.android) \
             python3 docs/android/board.py --check-policies
+
+  # The checks a fork pull request gets, on a GitHub-hosted runner (see the
+  # note above test-android). All three are standard-library Python and need
+  # no Firefox tree. The patch-application test runs once the change is on a
+  # branch of this repository (push) or by workflow_dispatch after review.
+  pr-checks-fork:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Check the Android board
+        run: python3 docs/android/board.py --check
+
+      - name: Lint patch scope
+        run: python3 scripts/lint-patch-scope.py
+
+      - name: Check patch order
+        run: python3 scripts/check-patch-order.py
 
   # ---------------------------------------------------------------------------
   # LW-M2-08: the real build, with the runner-side caches described at the top.
