@@ -245,6 +245,14 @@ jobs:
           python3 scripts/lint-patch-scope.py
           python3 scripts/check-patch-order.py
 
+      - name: Drop superseded tree caches (keep current + previous version)
+        run: |
+          set -eu
+          # ~40 GB per version; the 120 GB gate below counts them
+          # (docs/android/CI-VM.md, "Build tree caches").
+          python3 scripts/ci-vm-boxb/prune-tree-cache.py --root "$LW_CI_ROOT" \
+            --current "$(cat version.android)-$(cat release.android)"
+
       - name: Preflight — engine, image, disk, cache root
         run: |
           set -eu

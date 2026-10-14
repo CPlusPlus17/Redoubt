@@ -484,6 +484,40 @@ ssh -i ~/.ssh/id_boxb -o IdentitiesOnly=yes user@10.0.0.154 \
   ".local/lib/redoubt-ci-vm/ssh.sh 'free -h; df -h /home; sudo systemctl status redoubt-actions-runner.service --no-pager'"
 ```
 
+### Build tree caches (automatic cleanup)
+
+`android-test.yaml`'s build-android keeps one patched Gecko tree per Android
+version in the guest, `/home/runner/actions-runner/redoubt-ci/tree-<version>-<release>`
+(`$LW_CI_ROOT`), about 40 GB each with its objdirs. Nothing removed old ones, so
+each Firefox release cost another 40 GB of the guest's `/home` until
+`android-release.yaml`'s preflight (150 GB free) refused to start: on 2026-10-13
+the first 158.0-1 dispatch failed at 148 GB, and `tree-157.0-1` and `tree-157.0-2`
+were deleted by hand.
+
+Since 158.0-2 both workflows run
+[prune-tree-cache.py](../../scripts/ci-vm-boxb/prune-tree-cache.py) as the step
+before their disk gate (release: before the 150 GB preflight, which runs in every
+mode; build-android: before its 120 GB preflight). It keeps the two newest
+versions among the existing trees and the current `version.android-release.android`
+(so before 158.0-2's tree exists it keeps `tree-158.0-1` and drops the 157 trees),
+sorts versions numerically (157.0-3 < 157.0.1-1 < 158.0-1), and logs every
+removal with its size in the job log. It deletes only plain directories named
+`tree-<digits[.digits...]>-<digits>` directly inside
+`/home/runner/actions-runner/redoubt-ci`; it refuses any other root (exit 2),
+leaves symlinks, files and other names alone, and never touches `tarballs/`,
+`out/` or `gradle-home/`. Tests: `python3 scripts/tests/test-boxb-prune-tree-cache.py`
+(hermetic; `LW_PRUNE_ALLOWED_ROOT` points the root check at a temporary directory
+and exists for that test only).
+
+Dry run in the guest (prints the plan, deletes nothing):
+
+```sh
+ssh -i ~/.ssh/id_boxb -o IdentitiesOnly=yes user@10.0.0.154 \
+  ".local/lib/redoubt-ci-vm/ssh.sh 'cd ~runner/actions-runner/_work/Redoubt/Redoubt && \
+   sudo -u runner python3 scripts/ci-vm-boxb/prune-tree-cache.py \
+   --root /home/runner/actions-runner/redoubt-ci --current \$(cat version.android)-\$(cat release.android) --dry-run'"
+```
+
 ### Box B troubleshooting
 
 **Poller logs "box B not reachable or boxb-ctl failed" every minute, with

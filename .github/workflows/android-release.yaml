@@ -119,6 +119,19 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Drop superseded tree caches (keep current + previous version)
+        env:
+          # android-test.yaml build-android's LW_CI_ROOT: each Android version
+          # leaves a ~40 GB tree-<version>-<release> there, and the 150 GB gate
+          # below counts them. The script deletes only plain tree-* children of
+          # /home/runner/actions-runner/redoubt-ci and logs each one
+          # (docs/android/CI-VM.md, "Build tree caches").
+          LW_CI_ROOT: ${{ github.workspace }}/../../../redoubt-ci
+        run: |
+          set -eu
+          python3 scripts/ci-vm-boxb/prune-tree-cache.py --root "$LW_CI_ROOT" \
+            --current "$(cat version.android)-$(cat release.android)"
+
       - name: Preflight — the runner must be able to do this at all
         run: |
           set -eu
