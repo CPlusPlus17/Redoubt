@@ -15,8 +15,8 @@ is specifically Redoubt's.
 
 ## Reporting a vulnerability
 
-**The tracker for this project is GitHub, not Codeberg. No path below requires
-a Codeberg account.**
+**The tracker for this project is GitHub.** A private report needs no account
+at all: email works.
 
 - **A bug in Gecko, or in Fenix (the Android app layer), inherited from upstream**
   — use Mozilla's process, as the source tree's `SECURITY.md` directs:
@@ -24,13 +24,14 @@ a Codeberg account.**
   pages. This is the same path any downstream of Firefox uses, and it is not
   this project's to gate.
 - **A bug in Redoubt specifically** — in the port, the patch set as applied here,
-  the packaging, the signing, or the distribution channel — open it on GitHub:
-  <https://github.com/CPlusPlus17/Redoubt/issues>, or use GitHub's private
-  vulnerability reporting for this repository so the report is not public before
-  a fix ships. Either needs only a GitHub account; neither needs Codeberg.
-- **If you do not have any account and need to report privately**, say so in the
-  report and the maintainer will give an out-of-band channel rather than ask you
-  to create one first.
+  the packaging, the signing, or the distribution channel — report it privately,
+  so it is not public before a fix ships:
+  - by email to **security@redoubtbrowser.org** (no account needed), or
+  - through GitHub's private vulnerability reporting for this repository:
+    <https://github.com/CPlusPlus17/Redoubt/security/advisories/new>.
+
+  Non-security bugs go to the public tracker:
+  <https://github.com/CPlusPlus17/Redoubt/issues>.
 
 Please include: the affected Redoubt version and the Firefox version underneath it,
 the device and Android version, where the APK came from (which channel, which
@@ -59,44 +60,21 @@ So the response is about containment, not silent rotation:
 4. **Record the incident** (key fingerprint, affected builds, channel, date) in a
    dated note so the next incident can be diffed against it.
 
-**Google Play holds a copy (decided 2026-10-05, LW-M6-12).** Once the key is uploaded
-to Play App Signing (`docs/android/PLAY.md`), there are two places it can leak from:
-the owner's machine and Google. The threat model changes as follows, and it is written
-before the upload, not after:
-
-- **Who can sign a valid update:** the owner, and Google. A Google-signed APK is
-  accepted as an update by **every** install, whatever channel it came from. Google
-  is trusted not to misuse the copy. Nothing on the device enforces that.
-- **New paths to a malicious signed update:** a compromise of Google's signing
-  infrastructure, a legal order addressed to Google, and a takeover of the owner's
-  Play Console account. A takeover only uploads a bundle for Google to sign; it does
-  not reveal the key. Play's review is between that upload and users, but it is not a
-  security boundary.
-- **What a Play-side incident looks like and what to do.** An unexpected release on
-  the Play Console, an unexpected upload-key reset, or a Play-served APK whose payload
-  does not match the CI bundle: treat each as **channel compromise** (§2). Halt the
-  Play rollout, report it to Google, and announce it. Publish the hashes of the
-  last good build. If the key itself may have leaked from Google, it is a
-  **signature compromise** (this section) with no in-place fix, the same as a leak
-  from the owner.
-- **Containment the project keeps:** the upload key is separate and resettable, the
-  app signing key never signs an upload (`sign-aab.sh` refuses it), the Play Console
-  account uses 2-step verification, and Google-generated key upgrades (including the
-  Android 17 hybrid upgrade) are declined so that one key stays the only key.
+**Google never gets this key (decided 2026-10-14).** Redoubt is not on Google
+Play. The 2026-10-05 plan to upload the release key to Play App Signing was
+reversed before anything was uploaded (`SIGNING.md`, "Google Play"). If Redoubt is
+ever published on Play, it uses a separate, Play-only key, so nothing that happens
+on Google's side can produce an update that GitHub or F-Droid installs accept.
 
 ### 2. Distribution-channel compromise
 
 A malicious or tampered APK served under the project's name — on the F-Droid
-repository, the direct-download host, or a mirror — is a supply-chain event even
-if the signing key itself is intact. The channel is currently an open
-placeholder (`redoubtbrowser.org`), so the controls are stated generically and the
-concrete host is filled in when it is decided:
+repository, the GitHub release, or a mirror — is a supply-chain event even if the
+signing key itself is intact. The channels today: the APKs on GitHub Releases
+(since 2026-10-05), the Redoubt F-Droid repository in a Hetzner Object Storage
+bucket (since 2026-10-14), and the signed update document on `redoubtbrowser.org`
+(GitHub Pages). Redoubt is not on Google Play or Accrescent.
 
-- **Google Play.** The Play build is the same source and the same build as the
-  release's APKs, without the update check (`docs/android/PLAY.md` §3). After each
-  rollout, download Play's signed universal APK from Play Console and verify its
-  fingerprint (PLAY.md §5 step 4). A Play-served APK that does not verify, or whose
-  version does not match the GitHub release, is a channel incident.
 - **F-Droid repository integrity first.** A F-Droid repository is signed and the
   client verifies it; a compromised *build* is caught by the repository signature
   if the signing key is safe. If the channel is compromised but the key is safe,
@@ -158,9 +136,11 @@ publishes the release source tarball carrying the fix:
 - **Android-only with no source tarball:** the fix is taken from Mozilla's
   release branch and the outcome is published.
 
-The 72-hour figure is a target to be met, not a guarantee, and it is the
-maintainer's to ratify. It is ours alone: Mozilla's part is now the day the
-fix ships, not a separate ESR lag.
+The 72-hour figure is a target, not a guarantee, and the maintainer has not
+ratified it yet, so the public pages give the record instead of a number. It is
+ours alone: Mozilla's part is now the day the fix ships, not a separate ESR lag.
+The record so far: Firefox 158.0 (2026-10-13) reached Redoubt as 158.0-1 the next
+day; Firefox 157.0.1 (2026-10-06) reached Redoubt as 157.0.1-1 on 2026-10-10.
 
 ## The watch obligation
 
@@ -178,9 +158,8 @@ its own), with its impact and CVEs, label `security` and the owner assigned
 and mentioned. The owner is reminded every 24 h until the issue closes
 (`docs/android/RELEASE-WATCH.md`). Matching the version is automatic.
 Reading the advisory is not:
-every MFSA titled "Firefox for Android" is still read by the triage owner in
-`docs/android/TRIAGE.md` (a placeholder until one is named; this page names
-the *role*, not a person). The current coverage record, with the nine
+every MFSA titled "Firefox for Android" is still read by the triage owner named
+in `docs/android/TRIAGE.md`. The current coverage record, with the nine
 Android CVEs the ESR tree lacked and how the move to 157 closed them, is
 `docs/android/PARITY.md` §7.
 
@@ -191,11 +170,11 @@ published signed APK on the channel → public note (advisory, affected versions
 the workaround if any, and the sha256 of the fixed build). A reporter is credited
 only if they ask for it.
 
-## Status
+## Status (2026-10-14)
 
-Not all of this is operational yet, and it is not pretending to be. The
-distribution channel is `redoubtbrowser.org` (open placeholder — see
-`docs/android/DISTRIBUTION.md`), the signing key is generated in LW-M6-01, and
-the 72-hour target is the maintainer's to ratify. What this page fixes now is the
-*shape* of the process and the two failure modes that are specific to Android,
-so that when an incident actually happens the steps are already written down.
+The channels are live: GitHub Releases since 157.0-2 (2026-10-05), the in-app update
+check since 157.0-2 (opt-in), the Redoubt F-Droid repository since 2026-10-14. The
+release key was generated on 2026-08-23 (LW-M6-01); where it lives, and the planned
+move to a YubiKey, are in `SIGNING.md` and `YUBIKEY.md`. Private reports reach the
+maintainer through GitHub's private vulnerability reporting or
+security@redoubtbrowser.org. The 72-hour target above is not yet ratified.

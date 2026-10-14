@@ -1,17 +1,39 @@
 #!/bin/sh
-# Run on the offline key machine. The bundle includes the public signing
-# document and verifier. Never add the release key or passphrase to the bundle
-# transferred from or returned to the build host.
+# Run by the key holder, on the machine that holds the release key (see
+# docs/android/SIGNING.md for where that is today). The bundle includes the
+# public signing document and verifier. Never add the release key or passphrase
+# to the bundle transferred from or returned to the build host.
+#
+# Two ways to reach the key:
+#   sign.sh [/path/to/redoubt-release.p12]   a PKCS12 keystore file (prompts for
+#                                            its passphrase once per APK)
+#   REDOUBT_SIGN_PKCS11_CFG=<cfg> REDOUBT_SIGN_KEY_ALIAS=<alias> sign.sh
+#                                            a hardware token (YubiKey PIV) through
+#                                            Java's SunPKCS11 provider; prompts for
+#                                            the PIN once per APK, and the token may
+#                                            ask for a touch per signature
+#                                            (docs/android/YUBIKEY.md)
 set -eu
 
 die() { printf 'sign: %s\n' "$*" >&2; exit 2; }
 [ "$#" -le 1 ] || die "usage: $0 [/path/to/redoubt-release.p12]"
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-case "${1:-}" in
-    '') KS="$HERE/redoubt-release.p12" ;;
-    /*) KS="$1" ;;
-    *) KS="$(pwd)/$1" ;;
-esac
+P11_CFG=${REDOUBT_SIGN_PKCS11_CFG:-}
+P11_ALIAS=${REDOUBT_SIGN_KEY_ALIAS:-}
+if [ -n "$P11_CFG" ]; then
+    [ "$#" -eq 0 ] || die "REDOUBT_SIGN_PKCS11_CFG is set: sign with the token, without a keystore argument"
+    [ -n "$P11_ALIAS" ] || die "REDOUBT_SIGN_KEY_ALIAS is required with REDOUBT_SIGN_PKCS11_CFG (list it with keytool, docs/android/YUBIKEY.md)"
+    case "$P11_CFG" in /*) ;; *) P11_CFG="$(pwd)/$P11_CFG" ;; esac
+    [ -f "$P11_CFG" ] || die "PKCS#11 config not found: $P11_CFG"
+    KS=NONE
+else
+    [ -z "$P11_ALIAS" ] || die "REDOUBT_SIGN_KEY_ALIAS is set without REDOUBT_SIGN_PKCS11_CFG"
+    case "${1:-}" in
+        '') KS="$HERE/redoubt-release.p12" ;;
+        /*) KS="$1" ;;
+        *) KS="$(pwd)/$1" ;;
+    esac
+fi
 cd "$HERE"
 SIGNER="$HERE/apksigner.jar"
 VERIFY="$HERE/android-verify-signature.sh"
@@ -22,8 +44,20 @@ command -v bash >/dev/null || die "bash is required by the signature verifier"
 [ -f "$SIGNER" ] || die "apksigner.jar is not next to this script"
 [ -x "$VERIFY" ] || die "android-verify-signature.sh is not next to this script or is not executable"
 [ -f "$HERE/SIGNING.md" ] || die "the bundle's public SIGNING.md is missing"
-[ -f "$KS" ] || die "keystore not found: $KS (pass its path as the first argument)"
+[ -n "$P11_CFG" ] || [ -f "$KS" ] || die "keystore not found: $KS (pass its path as the first argument)"
 export APKSIGNER="$SIGNER"
+
+# Key-source arguments for apksigner: a PKCS12 file, or the token's PKCS#11
+# keystore ("NONE" is apksigner's name for a keystore without a file).
+sign_one() {
+    if [ -n "$P11_CFG" ]; then
+        java -jar "$SIGNER" sign --ks NONE --ks-type PKCS11 \
+            --provider-class sun.security.pkcs11.SunPKCS11 --provider-arg "$P11_CFG" \
+            --ks-key-alias "$P11_ALIAS" "$@"
+    else
+        java -jar "$SIGNER" sign --ks "$KS" --ks-type PKCS12 "$@"
+    fi
+}
 
 checksums() {
     if command -v sha256sum >/dev/null 2>&1; then
@@ -72,7 +106,7 @@ echo "== 2/3 signing and verifying (v1 off, v2 and v3 on, published key)"
 for abi in $ABIS; do
     a="fenix-$abi-release-unsigned.apk"
     out="fenix-$abi-release.apk"
-    java -jar "$SIGNER" sign --ks "$KS" --ks-type PKCS12 \
+    sign_one \
         --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true \
         --v4-signing-enabled false --out "$WORK/$out" "$a"
     "$VERIFY" --signing-doc "$HERE/SIGNING.md" "$WORK/$out"
@@ -95,6 +129,6 @@ cat <<'MSG'
 
 Verified all four APKs: published fingerprint, v2 and v3, no v1.
 Copy fenix-*-release.apk and SHA256SUMS.signed to ~/redoubt-signed/ on the
-build host for intake verification. Confirm the release keystore has been
-moved off that host; signature verification alone cannot establish custody.
+build host for intake verification. Signature verification alone cannot
+establish custody: SIGNING.md records where the key lives.
 MSG

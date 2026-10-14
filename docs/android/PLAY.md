@@ -1,5 +1,14 @@
 # Google Play — Redoubt (Android)
 
+> **Reversed 2026-10-14 — do not follow this runbook.** The maintainer decided
+> that the release key is never uploaded to Google: Redoubt is not on Google Play,
+> no Play developer account was created, and no PEPK export was made. If Redoubt
+> is ever published on Play, it uses a separate, Play-only key, so Play installs and
+> GitHub/F-Droid installs are different apps to Android and cannot update each
+> other. That needs a new runbook; sections 4-5 below (which upload THIS key) must
+> not be run. The rest of the page is kept as the record of the 2026-10-05 decision.
+> See `SIGNING.md`, "Google Play".
+
 Owner: **LW-M6-12** (`tasks.yaml`). Status 2026-10-05: **prepared, not live.** No Play
 developer account exists yet, nothing has been uploaded, and the public site and README
 do not mention Play. The edit that adds Play to them is held back until the listing is

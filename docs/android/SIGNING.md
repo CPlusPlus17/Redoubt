@@ -3,6 +3,25 @@
 Owner: LW-M6-01. Read `IDENTITY.md` first — the applicationId and the signing
 key are the two halves of Redoubt's Android identity, and both are one-way.
 
+## Current custody (2026-10-14)
+
+This is the short version; the sections below are the dated record.
+
+- **One holder**, the maintainer. There is no second key holder.
+- **Not offline.** The APK release key and the update-signing key are
+  passphrase-encrypted files on the maintainer's Fedora workstation (box A),
+  with offline backups (owner-reported). The passphrases are typed, never
+  stored. CI builds on a separate machine (box B) and never has a key.
+- **Agents run on the same workstation, under the same user.** That the agents
+  do not read the keys is a rule, not an operating-system boundary.
+- **Planned: a YubiKey.** Both keys move into the YubiKey's PIV application, with
+  a touch required for every signature, and the key files leave the workstation
+  ([`YUBIKEY.md`](YUBIKEY.md)). Until the maintainer records that here, it has not
+  happened.
+- **Not on Google Play, and Google never gets this key.** The 2026-10-05 decision
+  to upload it to Play App Signing was reversed on 2026-10-14, before any upload
+  ("Google Play", below).
+
 ## The key
 
     applicationId          org.redoubtbrowser
@@ -44,7 +63,8 @@ acceptance criteria demand at least two holders rather than a single backup.
 
 ## Custody
 
-State as of 2026-08-23, reported by the owner.
+State as of 2026-08-23, reported by the owner. **Historical:** the current state is
+"Current custody" at the top of this file.
 
     copies                 2 — the build machine and the owner's Mac
     holders (people)       1 — see "The single-holder gap" below
@@ -321,7 +341,26 @@ Android supports key rotation through APK Signature Scheme v3
 
 Do not treat rotation as a reason to hold the key less carefully.
 
-## Google holds a copy of the app signing key (Google Play, LW-M6-12)
+## Google Play (LW-M6-12): decided 2026-10-05, reversed 2026-10-14
+
+    DECIDED       2026-10-14
+    DECIDED BY    Manuel Gysin (owner)
+    CHOICE        do NOT upload this release key to Google Play App Signing.
+                  Redoubt is not on Google Play. If it is published there later,
+                  it uses a separate, Play-only key: Play installs and
+                  GitHub/F-Droid installs are then different apps to Android and
+                  cannot update each other.
+    REVERSES      the 2026-10-05 decision below, before anything was uploaded
+                  (no Play developer account was created, no PEPK export made)
+
+Why: the 2026-10-05 choice would have let Google sign an update that every
+install accepts, including installs from GitHub Releases and the Redoubt F-Droid
+repository, which people choose precisely to avoid that. Keeping one key holder is
+worth more than seamless moves between Play and the other channels.
+
+The text below is the record of the reversed decision and is no longer the plan.
+
+### The reversed decision (2026-10-05)
 
     DECIDED       2026-10-05
     DECIDED BY    Manuel Gysin (owner)

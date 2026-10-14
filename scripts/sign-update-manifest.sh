@@ -7,6 +7,13 @@
 # why the two are different keys and how this one is held.
 #
 #   ./sign-update-manifest.sh /path/to/redoubt-update-signing.pem latest.json
+#   ./sign-update-manifest.sh pkcs11:id=06 latest.json
+#
+# The second form signs with the key on a hardware token (YubiKey PIV) through
+# OpenSC's pkcs11-tool: the hex object id of the key (listed with
+# `pkcs11-tool --module <module> --list-objects`), the module from
+# $REDOUBT_PKCS11_MODULE (default /usr/lib64/libykcs11.so.2). pkcs11-tool asks
+# for the PIN; the token may ask for a touch (docs/android/YUBIKEY.md).
 #
 # Writes latest.json.sig next to latest.json: base64 of the DER ECDSA
 # signature over the exact bytes of latest.json, which is what
@@ -24,8 +31,18 @@
 set -eu
 
 die() { printf 'sign-update-manifest: %s\n' "$*" >&2; exit 2; }
-[ "$#" -eq 2 ] || [ "$#" -eq 3 ] || die "usage: $0 <update-signing-key.pem> <latest.json> [<pinned pubkey file>]"
+[ "$#" -eq 2 ] || [ "$#" -eq 3 ] || die "usage: $0 <update-signing-key.pem | pkcs11:id=<hex>> <latest.json> [<pinned pubkey file>]"
 KEY=$1
+P11_ID=
+case "$KEY" in
+    pkcs11:id=*)
+        P11_ID=${KEY#pkcs11:id=}
+        case "$P11_ID" in ''|*[!0-9A-Fa-f]*) die "pkcs11:id= needs a hex object id, got '$P11_ID'" ;; esac
+        P11_MODULE=${REDOUBT_PKCS11_MODULE:-/usr/lib64/libykcs11.so.2}
+        command -v pkcs11-tool >/dev/null 2>&1 || die "pkcs11-tool (OpenSC) is required for pkcs11:id="
+        [ -f "$P11_MODULE" ] || die "PKCS#11 module not found: $P11_MODULE (set REDOUBT_PKCS11_MODULE)"
+        ;;
+esac
 DOC=$2
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ "$#" -eq 3 ]; then
@@ -38,7 +55,7 @@ fi
 SIG="$DOC.sig"
 
 command -v openssl >/dev/null 2>&1 || die "openssl is required"
-[ -f "$KEY" ] || die "key not found: $KEY"
+[ -n "$P11_ID" ] || [ -f "$KEY" ] || die "key not found: $KEY"
 [ -f "$DOC" ] || die "document not found: $DOC"
 [ -f "$PIN" ] || die "pinned public key not found: $PIN (the base64 SubjectPublicKeyInfo the app embeds)"
 [ ! -e "$SIG" ] || die "$SIG already exists; move it aside first"
@@ -75,8 +92,15 @@ echo "   sha256   $digest"
 echo "   compare this digest with the one printed on the build host before going on."
 sed 's/^/   | /' "$DOC"
 
-echo "== signing (openssl will ask for the update-signing key's passphrase)"
-openssl dgst -sha256 -sign "$KEY" -out "$WORK/sig.der" "$DOC" || die "openssl could not sign"
+if [ -n "$P11_ID" ]; then
+    echo "== signing on the token (pkcs11-tool will ask for the PIN; touch the key if it blinks)"
+    pkcs11-tool --module "$P11_MODULE" --login --sign --mechanism ECDSA-SHA256 \
+        --id "$P11_ID" --signature-format openssl \
+        --input-file "$DOC" --output-file "$WORK/sig.der" || die "pkcs11-tool could not sign"
+else
+    echo "== signing (openssl will ask for the update-signing key's passphrase)"
+    openssl dgst -sha256 -sign "$KEY" -out "$WORK/sig.der" "$DOC" || die "openssl could not sign"
+fi
 
 echo "== verifying against the pinned public key"
 if ! openssl dgst -sha256 -verify "$WORK/pin.pem" -signature "$WORK/sig.der" "$DOC" >/dev/null 2>&1; then
