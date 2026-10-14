@@ -24,9 +24,14 @@ It is based on Firefox 158.0 (Firefox's regular release track), needs Android 8.
 later, and installs over earlier releases and the 158.0-1 betas as an update. It has an opt-in in-app
 update check (Settings → Check for updates), off by default.
 
-Redoubt is not on F-Droid, Accrescent or any app store yet. Turn on the update
-check, use Obtainium (below), or watch the Releases page, and install new APKs
-over the old one.
+Redoubt has its own **F-Droid repository** (not f-droid.org's main repository):
+add `https://redoubtbrowser.hel1.your-objectstorage.com/repo` in F-Droid and check that it shows the repository fingerprint
+`B0A8CDBB61AA4FC3CA1FED71F4CAECEB7B00E39D4E6E0583A637070862AC5567` (SHA-256 of the key that signs the index; the APKs inside are
+the release APKs with the signing fingerprint below; the repository is hosted in
+a Hetzner Object Storage bucket, which is why its address is not redoubtbrowser.org).
+How-to and QR code:
+https://redoubtbrowser.org/fdroid.html. Otherwise turn on the update check, use
+Obtainium (below), or watch the Releases page, and install new APKs over the old one.
 
 ## Install and verify
 

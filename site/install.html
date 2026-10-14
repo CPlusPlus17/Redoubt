@@ -68,7 +68,11 @@ apksigner verify --print-certs fenix-&lt;abi&gt;-release.apk | grep -i SHA-256</
 <p>From Redoubt 157.0-2 the app has an <strong>opt-in</strong> update check, off by default (Settings &rarr; <em>Check for updates</em>). When you turn it on it runs only while the app is in the foreground, at most once a day, fetches a small signed file from <code>redoubtbrowser.org/update/</code>, and tells you a new version exists with a link to download it. This site is hosted on GitHub Pages, so GitHub sees your IP address and the time of that request. It does not download or install anything, and it sends nothing that identifies you beyond the request itself. (157.0-2 also sent your browser&rsquo;s language preference, the standard <code>Accept-Language</code> header; 157.0-3 no longer does.) The full contract is in <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/DISTRIBUTION.md">DISTRIBUTION.md</a>. Earlier betas do not have it: install 157.0-2 once, then turn it on, or use Obtainium.</p>
 
 <h2 id="stores">F-Droid and Accrescent</h2>
-<p>Redoubt is not in any store yet. When it is, it will be Redoubt&rsquo;s own F-Droid repository (not f-droid.org&rsquo;s main repository, which would re-sign the app with a different key) and Accrescent, both signed with the same key and showing the same digest as above.</p>
+<p>Redoubt has its own F-Droid repository: <a href="fdroid.html">how to add it, with a QR code</a>. It is not f-droid.org&rsquo;s main repository, which would re-sign the app with a different key; the APKs in Redoubt&rsquo;s repository are the release APKs above, with the same digest.</p>
+<p>Repository address <code>https://redoubtbrowser.hel1.your-objectstorage.com/repo</code>, repository fingerprint (the key that signs the index, not the app):</p>
+<pre class="fingerprint"><code>B0A8CDBB61AA4FC3CA1FED71F4CAECEB7B00E39D4E6E0583A637070862AC5567</code></pre>
+<p>The repository is hosted in a Hetzner Object Storage bucket, so its address is Hetzner&rsquo;s and Hetzner sees the IP address and time of each download; the fingerprint, not the address, proves it is Redoubt&rsquo;s. It keeps every release: the newest few in the repository, older ones in its archive section.</p>
+<p>F-Droid tells you about updates, so the in-app check above is not needed; from 157.0-3 on, Redoubt hides it when F-Droid installed the app. Redoubt is not on Accrescent yet.</p>
     </div>
   </main>
   <footer class="site">
