@@ -465,6 +465,13 @@ cmd_update() {
     # versions it built itself, so a binary-only repository does not write any;
     # an earlier draft did, and the client never showed it (FDROID.md).
     rm -rf "$WORK/metadata/$PACKAGE"
+    # Store-listing images (icon, phone screenshots) in fdroidserver's localized
+    # layout, metadata/<package>/<locale>/: fdroidserver copies them into
+    # repo/<package>/<locale>/ and lists them in index-v2, and deploy step 2/3
+    # uploads them with the icons. Images only; no text, no changelogs (above).
+    if [ -d "$REPO_ROOT/assets/fdroid/metadata/$PACKAGE" ]; then
+        cp -r "$REPO_ROOT/assets/fdroid/metadata/$PACKAGE" "$WORK/metadata/$PACKAGE"
+    fi
 
     say "retention: the newest $KEEP_VERSIONS release(s) in repo/, every older one in archive/ (archive_older: $((KEEP_VERSIONS * ${#ABIS[@]})) APKs); nothing is deleted"
 
