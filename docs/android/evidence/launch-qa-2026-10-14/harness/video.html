@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>QA video</title></head>
+<body style="font:16px sans-serif">
+<h1 id="h">QA video: running</h1>
+<pre id="log"></pre>
+<script>
+const dev = new URLSearchParams(location.search).get("dev") || "unknown";
+const clips = [
+  ["h264-1080p", "h264-1080p.mp4"],
+  ["vp9-720p", "vp9-720p.webm"],
+  ["vp9-1080p", "vp9-1080p.webm"],
+  ["av1-1080p", "av1-1080p.webm"],
+];
+function report(o) {
+  o.dev = dev;
+  document.getElementById("log").textContent += JSON.stringify(o) + "\n";
+  return fetch("/report", {method: "POST", body: JSON.stringify(o)}).catch(() => {});
+}
+function run(label, src) {
+  return new Promise(resolve => {
+    const r = {clip: label, events: []};
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.preload = "auto"; v.width = 320;
+    ["error", "stalled", "abort", "waiting", "ended"].forEach(n =>
+      v.addEventListener(n, () => r.events.push(n + (v.error ? ":" + v.error.code : ""))));
+    document.body.appendChild(v);
+    v.src = src;
+    const t0 = performance.now();
+    v.play().then(() => { r.play = "resolved"; }, e => { r.play = "rejected: " + e; });
+    const finish = () => {
+      clearInterval(iv);
+      const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : {};
+      r.totalFrames = q.totalVideoFrames; r.droppedFrames = q.droppedVideoFrames;
+      r.currentTime = Math.round(v.currentTime * 100) / 100; r.ended = v.ended;
+      r.wallSeconds = Math.round((performance.now() - t0) / 100) / 10;
+      r.mediaError = v.error ? v.error.code + ":" + v.error.message : null;
+      const done = info => { r.info = info; try { v.pause(); v.remove(); } catch (e) {} report(r).then(resolve); };
+      try {
+        v.mozRequestDebugInfo().then(d => {
+          const rd = (d && d.decoder && d.decoder.reader) || {};
+          done({video: rd.videoDecoderName || null, audio: rd.audioDecoderName || null,
+                hw: !!rd.videoHardwareAccelerated});
+        }, e => done({error: String(e)}));
+      } catch (e) { done({error: "mozRequestDebugInfo: " + e}); }
+    };
+    // Sample the decoder while playing (before the element is torn down), then stop at the end.
+    const iv = setInterval(() => {
+      if (v.ended || v.error || performance.now() - t0 > 25000) finish();
+    }, 250);
+  });
+}
+(async () => {
+  await report({start: true, ua: navigator.userAgent, cores: navigator.hardwareConcurrency});
+  for (const [label, src] of clips) await run(label, src);
+  await report({done: true});
+  document.getElementById("h").textContent = "QA video: DONE";
+  document.title = "QA video DONE";
+})();
+</script>
+</body></html>
