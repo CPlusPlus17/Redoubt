@@ -6,8 +6,22 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
   <title>F-Droid repository &middot; Redoubt</title>
-  <meta name="description" content="Add Redoubt's own F-Droid repository: URL, fingerprint and QR code.">
-  <link rel="icon" href="icon.webp" type="image/webp">
+  <meta name="description" content="Add Redoubt's own F-Droid repository: address, fingerprint and QR code. Same signed APKs as the GitHub release; F-Droid tells you about updates.">
+  <meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#15171a" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Redoubt">
+  <meta property="og:title" content="Redoubt's F-Droid repository">
+  <meta property="og:description" content="Add Redoubt's own F-Droid repository: address, fingerprint and QR code. Same signed APKs as the GitHub release; F-Droid tells you about updates.">
+  <meta property="og:url" content="https://redoubtbrowser.org/fdroid.html">
+  <meta property="og:image" content="https://redoubtbrowser.org/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The Redoubt fort logo and the words: Redoubt, a privacy-hardened browser for Android; Firefox source, LibreWolf's privacy settings; redoubtbrowser.org">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="favicon.png" type="image/png" sizes="64x64">
+  <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,11 +33,13 @@
       <nav aria-label="Site">
         <ul>
         <li><a href="index.html">Home</a></li>
-        <li><a href="install.html">Install &amp; updates</a></li>
+        <li><a href="install.html">Install</a></li>
+        <li><a href="fdroid.html" aria-current="page">F-Droid</a></li>
         <li><a href="privacy.html">Privacy &amp; limits</a></li>
         <li><a href="sync.html">Sync</a></li>
-        <li><a href="passkeys.html">Passwords &amp; passkeys</a></li>
+        <li><a href="passkeys.html">Passwords</a></li>
         <li><a href="security.html">Security</a></li>
+        <li><a href="faq.html">FAQ</a></li>
         </ul>
       </nav>
     </div>
@@ -42,7 +58,8 @@
 <p><img src="fdroid-qr.svg" alt="QR code that adds Redoubt's F-Droid repository with its fingerprint" width="260" height="260"></p>
 
 <h3 id="address">Repository address</h3>
-<pre><code>https://redoubtbrowser.hel1.your-objectstorage.com/repo</code></pre>
+<pre class="breakable"><code>https://redoubtbrowser.hel1.your-objectstorage.com/repo</code></pre>
+<p>This address is for the F-Droid app. Opened in a web browser, it only shows an error.</p>
 <h3 id="fingerprint">Repository fingerprint</h3>
 <pre class="fingerprint"><code>B0A8CDBB 61AA4FC3 CA1FED71 F4CAECEB 7B00E39D 4E6E0583 A6370708 62AC5567</code></pre>
 <p>This is the fingerprint of the key that signs the repository&rsquo;s index, not of the app. F-Droid refuses an index signed by any other key once you have added the repository with it.</p>
@@ -51,20 +68,25 @@
 <p>The repository does not rebuild or re-sign Redoubt. Each APK in it is byte for byte the file on the <a href="https://github.com/CPlusPlus17/Redoubt/releases/latest">GitHub release</a>, and its signing certificate has the same SHA-256 as every other Redoubt APK; see <a href="install.html#verify">Verify the download</a>. An APK installed from GitHub and one installed from this repository update each other in place.</p>
 <p>F-Droid offers the APK for your phone&rsquo;s processor (64-bit ARM, 32-bit ARM or x86_64). The universal APK is only on the GitHub release.</p>
 
+<h2 id="tracking">Why F-Droid shows &ldquo;Tracking&rdquo;</h2>
+<p>F-Droid lists Redoubt with the anti-feature <em>Tracking</em>. That is deliberate: it is the same label f-droid.org gives Fennec F-Droid and Mull for contacting Mozilla services by default. Redoubt, too, contacts Mozilla&rsquo;s Remote Settings (blocklists and certificate revocation data) and addons.mozilla.org (add-on updates, including uBlock Origin) by default. Telemetry, experiments, crash-report upload and Google Play services are removed. What those requests contain is listed in the <a href="privacy-policy.html#automatic">privacy policy</a>; the limits are on <a href="privacy.html">Privacy &amp; limits</a>.</p>
+
 <h2 id="archive">Older releases</h2>
 <p>The repository shows the newest 5 releases. Every older release stays available in its archive section, <code>https://redoubtbrowser.hel1.your-objectstorage.com/archive</code>, signed with the same key. To see it in F-Droid, open <em>Repositories</em>, select Redoubt&rsquo;s repository, open <em>Settings</em> and turn on <em>Show archived apps and outdated versions of apps</em>; on Redoubt&rsquo;s app page, pick <em>Redoubt (archive)</em> in the repository list to see the older versions. Installing an older version over a newer one is a downgrade, which Android allows only after uninstalling the app, and that removes its data.</p>
 
 <h2 id="updates">Updates</h2>
-<p>F-Droid notifies you of new versions. Redoubt&rsquo;s own opt-in <em>Check for updates</em> switch is not needed: from the release after 157.0-2, Redoubt hides it when F-Droid installed or last updated the app. On 157.0-2, leave it off.</p>
+<p>F-Droid notifies you of new versions. Redoubt&rsquo;s own opt-in <em>Check for updates</em> switch is not needed: Redoubt hides it when F-Droid installed or last updated the app.</p>
+
 <h2 id="hosting">Where the repository is hosted</h2>
 <p>F-Droid downloads the index and the APKs from <code>redoubtbrowser.hel1.your-objectstorage.com</code>, a Hetzner Object Storage bucket in Helsinki, Finland that this project rents from Hetzner Online GmbH. Hetzner sees your IP address and the time of each request. The address is Hetzner&rsquo;s, not <code>redoubtbrowser.org</code>, because Hetzner&rsquo;s object storage cannot serve a bucket under its own domain; the fingerprint above, not the address, is what proves the repository is Redoubt&rsquo;s. This page itself is hosted on GitHub Pages.</p>
-<p>This repository is not f-droid.org&rsquo;s main repository. Redoubt is not there: f-droid.org would build and sign the app with its own key, which would give it a different fingerprint from every other Redoubt APK.</p>
+<p>This repository is not f-droid.org&rsquo;s main repository, and Redoubt is not there. f-droid.org can publish developer-signed APKs only if it reproduces the build bit for bit; Redoubt&rsquo;s build is not reproduced across machines yet, so f-droid.org would sign it with F-Droid&rsquo;s own key, which makes it a different app to Android, with a different fingerprint from every other Redoubt APK.</p>
     </div>
   </main>
   <footer class="site">
     <div class="wrap">
-      <p>Redoubt is an independent fork, not affiliated with or endorsed by the <a href="https://librewolf.net">LibreWolf project</a> or by <a href="https://www.mozilla.org/">Mozilla</a>. Its privacy configuration and patch set are LibreWolf&rsquo;s work, used under MPL-2.0. Firefox is a trademark of the Mozilla Foundation (<a href="https://www.mozilla.org/foundation/trademarks/policy/">trademark policy</a>); Redoubt does not use Mozilla&rsquo;s trademarks in its branding.</p>
+      <p>Redoubt is an independent fork, not affiliated with or endorsed by the <a href="https://librewolf.net">LibreWolf project</a> or by <a href="https://www.mozilla.org/">Mozilla</a>. Its privacy configuration and patch set are LibreWolf&rsquo;s work, used under MPL-2.0. Firefox is a trademark of the Mozilla Foundation (<a href="https://www.mozilla.org/foundation/trademarks/policy/">trademark policy</a>); Redoubt&rsquo;s name and logo are its own (one Firefox illustration still left in the app is to be replaced).</p>
       <p>Source, issues and releases: <a href="https://github.com/CPlusPlus17/Redoubt">github.com/CPlusPlus17/Redoubt</a>. This site loads nothing from any other server and uses no cookies, scripts or analytics.</p>
+      <p><a href="privacy-policy.html">Privacy policy</a> &middot; <a href="faq.html">FAQ</a> &middot; <a href="security.html">Report a security issue</a></p>
     </div>
   </footer>
 </body>

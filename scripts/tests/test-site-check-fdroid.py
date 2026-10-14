@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Hermetic tests for the F-Droid rules of scripts/site-check.py (LW-M6-03).
+"""Hermetic tests for the F-Droid rules of scripts/site-check.py (LW-M6-03), and
+for its security-contact rules (mailto: links, .well-known/security.txt).
 
 The F-Droid repository is hosted in the owner's Hetzner Object Storage bucket
 (docs/android/FDROID.md); only its human page, site/fdroid.html, is on the site.
@@ -47,10 +48,12 @@ class SiteCheckFdroid(unittest.TestCase):
         shutil.copytree(ROOT / "site", self.tmp / "site")
         for leftover in ("fdroid.html", "fdroid-qr.svg"):
             (self.tmp / "site" / leftover).unlink(missing_ok=True)
-        # The live site links to fdroid.html (repository published 2026-10-14). These
-        # cases model a site without the page, so point those links elsewhere.
+        # The live site links to fdroid.html (repository published 2026-10-14), also to
+        # its anchors and, from 404.html, by absolute path. These cases model a site
+        # without the page, so point those links elsewhere.
         for page in (self.tmp / "site").glob("*.html"):
-            page.write_text(page.read_text().replace('href="fdroid.html"', 'href="install.html"'))
+            page.write_text(re.sub(r'href="(/?)fdroid\.html(#[^"]*)?"', r'href="\1install.html"',
+                                   page.read_text()))
         (self.tmp / "assets/fdroid").mkdir(parents=True)
         self.conf()
 
@@ -147,6 +150,41 @@ class SiteCheckFdroid(unittest.TestCase):
         (self.tmp / "site/fdroid/repo").mkdir(parents=True)
         (self.tmp / "site/fdroid/repo/entry.json").write_text("{}")
         self.assertFail("site/fdroid/ exists")
+
+    # The security contact: one e-mail address, and a security.txt that names it.
+
+    def add_link(self, href):
+        p = self.tmp / "site/index.html"
+        p.write_text(p.read_text().replace("</main>", f'<p><a href="{href}">x</a></p></main>'))
+
+    def security_txt(self, text):
+        d = self.tmp / "site/.well-known"
+        d.mkdir(exist_ok=True)
+        (d / "security.txt").write_text(text)
+
+    def test_security_mailto_allowed(self):
+        self.add_link("mailto:security@redoubtbrowser.org")
+        self.assertPass()
+
+    def test_other_mailto_refused(self):
+        self.add_link("mailto:someone@example.org")
+        self.assertFail("the only address the site links to is security@redoubtbrowser.org")
+
+    def test_security_txt_valid(self):
+        self.security_txt("Contact: mailto:security@redoubtbrowser.org\nExpires: 2999-01-01T00:00:00Z\n")
+        self.assertPass()
+
+    def test_security_txt_expired(self):
+        self.security_txt("Contact: mailto:security@redoubtbrowser.org\nExpires: 2020-01-01T00:00:00Z\n")
+        self.assertFail("expired on 2020-01-01T00:00:00Z")
+
+    def test_security_txt_without_contact(self):
+        self.security_txt("Contact: https://example.org/report\nExpires: 2999-01-01T00:00:00Z\n")
+        self.assertFail("no 'Contact: mailto:security@redoubtbrowser.org' line")
+
+    def test_security_txt_without_expires(self):
+        self.security_txt("Contact: mailto:security@redoubtbrowser.org\n")
+        self.assertFail("needs exactly one Expires: line")
 
 
 if __name__ == "__main__":

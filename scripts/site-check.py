@@ -11,7 +11,10 @@ Fails (exit 1) on any of:
   * an external link outside the allowlist (the project's GitHub repository,
     librewolf.net for attribution, mozilla.org for the trademark notice);
   * a signing-certificate fingerprint that differs from the one in README.md;
-  * a CNAME that is not exactly redoubtbrowser.org.
+  * a CNAME that is not exactly redoubtbrowser.org;
+  * a mailto: link to any address but the security contact (security@redoubtbrowser.org);
+  * a site/.well-known/security.txt (RFC 9116) without that contact or with an
+    Expires: date in the past -- renew it before it lapses.
 
 site/update/** belongs to the update endpoint (docs/android/DISTRIBUTION.md) and
 is published verbatim; this checker only checks that links into it resolve.
@@ -34,6 +37,7 @@ Deliberate rules for it (2026-10-05, revised the same day for the bucket):
 
 Usage: scripts/site-check.py [SITE_DIR]   (default: site/ next to scripts/)
 """
+import datetime
 import html.parser
 import pathlib
 import re
@@ -57,6 +61,38 @@ BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$")
 FDROID_LINK_RE = re.compile(r"fdroidrepos://[^\s\"'?]+\?fingerprint=([0-9A-Fa-f]{64})")
 FPR_RE = re.compile(r"\b(?:[0-9A-F]{2}:){31}[0-9A-F]{2}\b")
 DOMAIN = "redoubtbrowser.org"
+# The one e-mail address the site may link to: the private security contact,
+# for reporters without a GitHub account (docs/android/SECURITY.md).
+SECURITY_MAILTO = "mailto:security@redoubtbrowser.org"
+SECURITY_TXT = pathlib.Path(".well-known") / "security.txt"
+
+
+def check_security_txt(site, errors):
+    """site/.well-known/security.txt, if present: names the security contact and
+    has not expired (RFC 9116 makes Expires mandatory)."""
+    path = site / SECURITY_TXT
+    if not path.is_file():
+        return
+    fields = {}
+    for line in path.read_text().splitlines():
+        m = re.match(r"^([A-Za-z-]+):\s*(.+?)\s*$", line)
+        if m and not line.startswith("#"):
+            fields.setdefault(m.group(1).lower(), []).append(m.group(2))
+    if SECURITY_MAILTO not in fields.get("contact", []):
+        errors.append(f"{SECURITY_TXT}: no 'Contact: {SECURITY_MAILTO}' line")
+    expires = fields.get("expires", [])
+    if len(expires) != 1:
+        errors.append(f"{SECURITY_TXT}: needs exactly one Expires: line, found {len(expires)}")
+        return
+    try:
+        when = datetime.datetime.fromisoformat(expires[0].replace("Z", "+00:00"))
+    except ValueError:
+        errors.append(f"{SECURITY_TXT}: Expires {expires[0]!r} is not an ISO 8601 date-time")
+        return
+    if when.tzinfo is None:
+        errors.append(f"{SECURITY_TXT}: Expires {expires[0]!r} has no time zone")
+    elif when <= datetime.datetime.now(datetime.timezone.utc):
+        errors.append(f"{SECURITY_TXT}: expired on {expires[0]}; set a new Expires: date")
 
 
 def deploy_conf(errors):
@@ -162,6 +198,7 @@ def main():
         errors.append(f"APKs committed under site/ {apks}: the F-Droid repository lives in the bucket, never in git")
     if (site / "fdroid").exists():
         errors.append("site/fdroid/ exists: the F-Droid repository lives in the Hetzner bucket, not on this site (FDROID.md)")
+    check_security_txt(site, errors)
     bucket_host = deploy_conf(errors)
     fdroid_allowed = []
     if bucket_host:
@@ -219,7 +256,9 @@ def main():
             continue
         for ln, href in parsed[p].links:
             if href.startswith("mailto:"):
-                errors.append(f"{rel}:{ln}: mailto link {href!r}; use the GitHub reporting link")
+                if href != SECURITY_MAILTO:
+                    errors.append(f"{rel}:{ln}: mailto link {href!r}; the only address the site "
+                                  f"links to is {SECURITY_MAILTO[len('mailto:'):]}")
                 continue
             if is_external(href):
                 allowed = ALLOWED_EXTERNAL + (fdroid_allowed if rel == pathlib.Path(FDROID_PAGE) else [])

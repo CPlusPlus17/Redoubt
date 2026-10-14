@@ -5,9 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
-  <title>Security & bug reports &middot; Redoubt</title>
-  <meta name="description" content="How to report a Redoubt security vulnerability, a signature mismatch or a bug.">
-  <link rel="icon" href="icon.webp" type="image/webp">
+  <title>Security &amp; bug reports &middot; Redoubt</title>
+  <meta name="description" content="How to report a Redoubt security vulnerability, a signature mismatch or a bug, how fast security fixes have shipped, and who holds the signing key.">
+  <meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#15171a" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Redoubt">
+  <meta property="og:title" content="Redoubt: security &amp; bug reports">
+  <meta property="og:description" content="How to report a Redoubt security vulnerability, a signature mismatch or a bug, how fast security fixes have shipped, and who holds the signing key.">
+  <meta property="og:url" content="https://redoubtbrowser.org/security.html">
+  <meta property="og:image" content="https://redoubtbrowser.org/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The Redoubt fort logo and the words: Redoubt, a privacy-hardened browser for Android; Firefox source, LibreWolf's privacy settings; redoubtbrowser.org">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="favicon.png" type="image/png" sizes="64x64">
+  <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -17,11 +31,13 @@
       <nav aria-label="Site">
         <ul>
         <li><a href="index.html">Home</a></li>
-        <li><a href="install.html">Install &amp; updates</a></li>
+        <li><a href="install.html">Install</a></li>
+        <li><a href="fdroid.html">F-Droid</a></li>
         <li><a href="privacy.html">Privacy &amp; limits</a></li>
         <li><a href="sync.html">Sync</a></li>
-        <li><a href="passkeys.html">Passwords &amp; passkeys</a></li>
+        <li><a href="passkeys.html">Passwords</a></li>
         <li><a href="security.html" aria-current="page">Security</a></li>
+        <li><a href="faq.html">FAQ</a></li>
         </ul>
       </nav>
     </div>
@@ -31,9 +47,25 @@
 <h1>Security &amp; bug reports</h1>
 
 <h2 id="private">Report privately</h2>
-<p><strong>Security vulnerabilities, signature mismatches or a suspicious download</strong>: report privately through <a href="https://github.com/CPlusPlus17/Redoubt/security/advisories/new">GitHub private vulnerability reporting</a>. Please do not open a public issue for these. The process, and the turnaround for urgent Gecko security releases, are in <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/SECURITY.md">SECURITY.md</a>.</p>
-<p>If an APK&rsquo;s signing certificate does not show the SHA-256 digest below, do not install it, and include the sha256 of the file you have in the report.</p>
+<p><strong>Security vulnerabilities, signature mismatches, a compromised download channel or a suspicious download</strong>: report them privately, in either of two ways. Please do not open a public issue for these.</p>
+<ul>
+  <li>By e-mail to <a href="mailto:security@redoubtbrowser.org">security@redoubtbrowser.org</a>. No GitHub account needed.</li>
+  <li>Through <a href="https://github.com/CPlusPlus17/Redoubt/security/advisories/new">GitHub private vulnerability reporting</a>.</li>
+</ul>
+<p>The same contacts are in <a href=".well-known/security.txt">/.well-known/security.txt</a>. The process is in <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/SECURITY.md">SECURITY.md</a>.</p>
+<p>If an APK&rsquo;s signing certificate does not show the SHA-256 digest below, or the F-Droid repository shows a different fingerprint from the one on the <a href="fdroid.html#fingerprint">F-Droid page</a>, do not install it, and include the sha256 of the file you have and where you got it in the report.</p>
 <pre class="fingerprint"><code>64:14:EB:33:46:81:CF:6E:92:90:34:B5:6A:06:2D:2B:8D:A0:90:82:21:72:F7:A3:95:2C:85:FD:D1:28:3B:D0</code></pre>
+
+<h2 id="fix-speed">How fast security fixes ship</h2>
+<p>Redoubt follows Firefox&rsquo;s regular release track. A release watch notifies the maintainer of every Firefox release and Mozilla security advisory. There is no guaranteed turnaround; the record so far:</p>
+<ul>
+  <li>Firefox 158.0 (2026-10-13) &rarr; Redoubt 158.0-1 the next day.</li>
+  <li>Firefox 157.0.1 (2026-10-06) &rarr; Redoubt 157.0.1-1 on 2026-10-10.</li>
+</ul>
+<p>Only the latest release receives fixes. Keep Redoubt up to date with F-Droid, Obtainium or the in-app update check: <a href="install.html">Install &amp; updates</a>.</p>
+
+<h2 id="key">Who holds the signing key</h2>
+<p>One person, the maintainer, with no second key holder yet. Today the release key and the update-signing key are passphrase-encrypted files on the maintainer&rsquo;s workstation, not on an offline machine; offline backups exist. Moving the keys to a hardware key (a YubiKey, with a touch for every signature) is planned. CI builds the APKs on another machine and never has a key. The release key is never uploaded to Google. Details: <a href="https://github.com/CPlusPlus17/Redoubt/blob/main/docs/android/SIGNING.md">SIGNING.md</a>.</p>
 
 <h2 id="bugs">Other bugs</h2>
 <ul>
@@ -45,8 +77,9 @@
   </main>
   <footer class="site">
     <div class="wrap">
-      <p>Redoubt is an independent fork, not affiliated with or endorsed by the <a href="https://librewolf.net">LibreWolf project</a> or by <a href="https://www.mozilla.org/">Mozilla</a>. Its privacy configuration and patch set are LibreWolf&rsquo;s work, used under MPL-2.0. Firefox is a trademark of the Mozilla Foundation (<a href="https://www.mozilla.org/foundation/trademarks/policy/">trademark policy</a>); Redoubt does not use Mozilla&rsquo;s trademarks in its branding.</p>
+      <p>Redoubt is an independent fork, not affiliated with or endorsed by the <a href="https://librewolf.net">LibreWolf project</a> or by <a href="https://www.mozilla.org/">Mozilla</a>. Its privacy configuration and patch set are LibreWolf&rsquo;s work, used under MPL-2.0. Firefox is a trademark of the Mozilla Foundation (<a href="https://www.mozilla.org/foundation/trademarks/policy/">trademark policy</a>); Redoubt&rsquo;s name and logo are its own (one Firefox illustration still left in the app is to be replaced).</p>
       <p>Source, issues and releases: <a href="https://github.com/CPlusPlus17/Redoubt">github.com/CPlusPlus17/Redoubt</a>. This site loads nothing from any other server and uses no cookies, scripts or analytics.</p>
+      <p><a href="privacy-policy.html">Privacy policy</a> &middot; <a href="faq.html">FAQ</a> &middot; <a href="security.html">Report a security issue</a></p>
     </div>
   </footer>
 </body>

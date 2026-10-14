@@ -47,8 +47,8 @@ header.site .wrap {
   font-weight: 700; font-size: 1.15rem; color: var(--fg); text-decoration: none;
 }
 .brand img { width: 32px; height: 32px; }
-nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
-nav a { color: var(--muted); text-decoration: none; }
+nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0 1rem; }
+nav a { display: inline-block; padding: .35rem 0; color: var(--muted); text-decoration: none; }
 nav a:hover, nav a[aria-current="page"] { color: var(--fg); text-decoration: underline; }
 
 main { padding: 1.5rem 0 3rem; }
@@ -93,6 +93,35 @@ blockquote.statement {
   font-weight: 600;
 }
 .button:hover { filter: brightness(1.08); }
+.button.secondary {
+  background: transparent;
+  color: var(--link);
+  border: 2px solid var(--accent);
+  padding: calc(.6rem - 2px) calc(1.1rem - 2px);
+}
+
+/* Home page: the one-line notice, the install buttons, the release line. */
+.short-notice {
+  margin: 1rem 0 .75rem;
+  padding: .5rem .75rem;
+  background: var(--note-bg);
+  border-left: 4px solid var(--note-rule);
+  border-radius: 0 4px 4px 0;
+  font-size: .95rem;
+}
+.cta { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0 .5rem; }
+.cta .button { flex: 1 1 auto; text-align: center; }
+.meta { color: var(--muted); font-size: .95rem; }
+
+/* App screenshots: a strip that scrolls sideways inside itself on a phone. */
+.shots {
+  display: flex; gap: .75rem;
+  overflow-x: auto; scroll-snap-type: x proximity;
+  padding: .25rem 0 .75rem; margin: 0 0 1rem;
+}
+.shots figure { margin: 0; flex: 0 0 auto; width: 200px; scroll-snap-align: start; }
+.shots img { display: block; width: 200px; height: auto; border: 1px solid var(--rule); border-radius: 10px; }
+.shots figcaption { font-size: .85rem; color: var(--muted); text-align: center; margin-top: .25rem; }
 
 code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: .9em; }
 code { background: var(--code-bg); padding: .05em .3em; border-radius: 3px; overflow-wrap: anywhere; }
@@ -104,7 +133,7 @@ pre {
   line-height: 1.45;
 }
 pre code { background: none; padding: 0; }
-.fingerprint { overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-all; }
+.fingerprint, pre.breakable { overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-all; }
 
 table { border-collapse: collapse; width: 100%; margin: 0 0 1rem; font-size: .95rem; }
 th, td { text-align: left; vertical-align: top; padding: .4rem .5rem; border-bottom: 1px solid var(--rule); }
