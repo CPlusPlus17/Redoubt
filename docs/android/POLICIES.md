@@ -352,6 +352,16 @@ Android would need a `feature/sitepermissions`-style Kotlin interceptor or a
 
 ### 12. `EncryptedMediaExtensions` — `{"Enabled": false}` → **pref, added to `android.cfg`**
 
+**2026-10-14 (LW-M7-39, held back).** Measured on 158.0-2: the pref keeps DRM off,
+but it also keeps Settings > Site settings > DRM-controlled content from ever
+turning it on (Gecko checks `media.eme.enabled` before it asks the app; "Allowed"
+still rejects with "EME has been preffed off"), where desktop's off is a checkbox.
+`patches/android/drm-permission-default.patch` would move the switch to that app
+permission (default Blocked) and drop the pref, but on Firefox 158 a page's EME
+probe then crash-loops the isolated content process on Android 12+ (MediaDrm is
+queried in content before the app is asked). The patch is on disk and in no list
+until the 159 rebase or an owner decision; the pref below stays.
+
 Desktop: `Policies.sys.mjs:1463-1473` — `PoliciesUtils.setDefaultPref("media.eme.enabled", false, param.Locked)`.
 Our JSON has no `Locked` key, so this is an **unlocked default**.
 

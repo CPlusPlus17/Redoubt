@@ -174,6 +174,8 @@ Owner decision 2026-10-14, verbatim: "go" -- review the unmerged branch
 `claude/librewolf-gaps-ublock-setup-k0ri3t` (153 ESR era) and port what is still
 worth having onto main. Verdicts per commit: `docs/android/evidence/lw-m7-51/`.
 Rewritten against Firefox 158.0, not cherry-picked; the last `android.txt` entry.
+The branch's other patch, `drm-permission-default` (LW-M7-39), was rewritten too but is
+**held back** in "Pending" below: on 158 it crash-loops tabs on Android 12+.
 
 - **`no-webcompat-reporter`** (LW-M7-38). LibreWolf's `DisableFeedbackCommands`
   policy removes "Report broken site" on desktop. In Redoubt the entry's report is
@@ -334,7 +336,19 @@ every-write-owns-its-snapshot `PWRunnable` already covers it and replaces it).
 
 ## Pending — on disk, deliberately in no list
 
-No pending patches. On 2026-09-08 LW-M3-07 replaced the parked catalogue stub
+- patches/android/drm-permission-default.patch (LW-M7-39). DRM off by default through
+  Fenix's "DRM-controlled content" permission (default Blocked) instead of
+  `android.cfg`'s `media.eme.enabled=false`, so that Settings can turn DRM on. Ported
+  from the 2026-09-24 branch and rewritten for 158.0 (LW-M7-51), then **held back**:
+  with `media.eme.enabled` true, a page's `requestMediaKeySystemAccess()` makes the
+  content process query MediaDrm before the app is asked, and on Android 12+, where
+  158.0-2 isolates content, that query throws in the `isolated_app` process and
+  crash-loops the tab (836 crashes in about 7 minutes on the API 34 emulator; API 30
+  works as designed). Applies to 158.0 at fuzz 0 after every listed patch and compiles
+  under -Werror; do not list it before the 159 rebase re-tests it or the owner picks an
+  SDK-gated variant. Evidence: `docs/android/evidence/lw-m7-51/`.
+
+Earlier: no pending patches. On 2026-09-08 LW-M3-07 replaced the parked catalogue stub
 with a genuine signed-XPI installer and a separate filtering-readiness bridge.
 Both are registered in `android.txt`; source, packaging and lifecycle evidence is
 under `docs/android/evidence/lw-m3-07/completion-20260908/`. Registration records

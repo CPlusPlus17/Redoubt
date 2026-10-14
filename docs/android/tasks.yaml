@@ -6105,3 +6105,68 @@ tasks:
     isolation: worktree
     risk: A user who relied on the entry to reach webcompat.com now has to go there by hand. Instrumented UI tests (ThreeDotMenuMainRobot, MainMenuTest) still expect the entry; they are not part of the unit gate.
 
+
+  - id: LW-M7-39
+    title: DRM off by default through a Settings switch that can turn it on
+    milestone: M7
+    depends_on: [LW-M3-06, LW-M7-41, LW-M7-50]   # LW-M3-06 put media.eme.enabled=false in android.cfg; LW-M7-41 owns android.cfg; LW-M7-50 isolates content on Android 12+
+    submodule: settings
+    owns:
+      - patches/android/drm-permission-default.patch   # on disk, PENDING (PATCH-SCOPE.md), in no list
+    shared_edit:
+      - docs/android/PATCH-SCOPE.md
+      - docs/android/POLICIES.md        # row 12 note
+      # when it lands: assets/patches/android.txt, scripts/check-patch-order.py (seven measured
+      # order-free pairs), settings/android.cfg (drop media.eme.enabled=false; local settings
+      # branch android-drm-permission bddc198f), docs/android/expected-prefs.txt (media.eme.enabled true)
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SitePermissionsManagePhoneFeatureFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+    reads:
+      - docs/android/evidence/lw-m7-51/
+      - docs/android/ISOLATION-MEDIA-STUDY.md
+      - dom/media/eme/MediaKeySystemAccessManager.cpp
+      - mobile/android/app/geckoview-prefs.js
+      - patches/eme-permission-common.patch
+    what: |
+      First written on the 2026-09-24 branch claude/librewolf-gaps-ublock-setup-k0ri3t
+      (a11a2306, 153 ESR); rewritten for Firefox 158 under LW-M7-51.
+      OWNER DECISION 2026-10-14, verbatim: "go" -- review the branch and port what is
+      still worth having onto current main, cleanly, under the owner identity; then
+      the branch can be deleted.
+      LibreWolf desktop ships DRM off but unlocked (EncryptedMediaExtensions policy,
+      default-branch media.eme.enabled=false; the "Play DRM-controlled content"
+      checkbox turns it on). android.cfg sets the same pref (LW-M3-06), but Gecko
+      checks it before asking the app (MediaKeySystemAccessManager.cpp, "EME has
+      been preffed off"), so Fenix's Settings > Site settings > DRM-controlled
+      content can never turn DRM on; only about:config can (measured on 158.0-2:
+      Allowed still rejects). Fenix 158 already has the switch: GeckoView sets
+      media.eme.require-app-approval, so Gecko asks the app after the key system is
+      found supported. Least invasive design: drm-permission-default.patch makes
+      that permission default to Blocked (and marks Blocked as Recommended on its
+      screen), and the settings submodule drops android.cfg's media.eme.enabled line.
+      STATUS 2026-10-14: HELD BACK, patch on disk in no list. Measured with both
+      halves on the API 34 emulator (158.0-2 isolates content on Android 12+): every
+      requestMediaKeySystemAccess() for Widevine crashes the isolated content process
+      (MediaDrm.isCryptoSchemeSupported throws after SELinux denies the DRM HAL to
+      isolated_app) and the tab crash-loops, whatever the setting says. On API 30 (no
+      isolation) the design works: default rejects, Allowed resolves Widevine, Ask
+      shows the DRM prompt, Blocked rejects again. Next step is an owner decision:
+      wait for the 159 rebase (upstream EME work on the isolated path, bugs 2067689
+      and 2075686, to be re-measured) or an SDK-gated variant (EME stays off where
+      content is isolated).
+    acceptance:
+      - "fresh install: requestMediaKeySystemAccess('com.widevine.alpha') rejects with NotSupportedError, with no prompt and no content-process crash, on Android 12+ (isolated) and below; Settings > Site settings > DRM-controlled content reads Blocked, marked Recommended"
+      - "after choosing Allowed there, the same call resolves; after Ask to allow, the page shows the DRM permission prompt (API 30 emulator: PASS 2026-10-14; API 34: FAIL, content crash loop)"
+      - "media.eme.enabled runs true (expected-prefs.txt) and no Redoubt pref file sets it on Android; desktop.cfg still sets it false"
+      - "first-run network capture shows no host 158.0-2 does not contact"
+      - "PhoneFeatureTest and SettingsTest pass and fail with the production hunks reverted (2026-10-14: 0 and 14 failures); the patch applies at fuzz 0 after every listed patch on the target tarball and compiles under -Werror"
+    verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 docs/android/board.py --check-cfg-split && python3 docs/android/board.py --check-scope"
+    effort_h: "2-4"
+    skills: [kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: With media.eme.enabled true on Firefox 158, any web page that probes EME (video sites do) crash-loops its tab on Android 12+. Do not land before that is re-measured clean. Once landed, a profile that stored "Allowed" or "Ask to allow" for DRM-controlled content earlier (no effect until then) gets DRM on after the update.
