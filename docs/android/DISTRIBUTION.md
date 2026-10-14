@@ -271,6 +271,13 @@ Paths are examples; `<tag>` is e.g. `android-157.0-1-beta.6`.
 
        ./scripts/update-manifest.py fetch --expect-tag <tag>
 
+9. **F-Droid repository** (stable releases only, owner on box A; `FDROID.md`, "Per release"):
+
+       ./scripts/fdroid-repo.sh add <tag>
+       ./scripts/fdroid-repo.sh update        # repository key passphrase
+       ./scripts/fdroid-repo.sh deploy
+       ./scripts/fdroid-repo.sh verify
+
 To withdraw an announcement, delete the two files (a 404 is "no update"). A
 document can never be rolled back to an older release: the client only offers a
 higher versionCode, so a document naming an older build is simply ignored.
@@ -545,7 +552,7 @@ time:
 | channel | artifact | update check | who updates it | state |
 |---|---|---|---|---|
 | direct APK (GitHub Releases, Obtainium) | `fenix-<abi>-release.apk` | compiled in with `--update-check`, opt-in, off by default | the user, prompted by the check or Obtainium | live |
-| own F-Droid repository (LW-M6-03) | `fenix-<abi>-release.apk` from the GitHub release, unchanged (universal excluded) | compiled in, hidden at runtime when the installer of record is a store client (see LW-M6-03) | the F-Droid client | in preparation |
+| own F-Droid repository (LW-M6-03) | `fenix-<abi>-release.apk` from the GitHub release, unchanged (universal excluded) | compiled in, hidden at runtime when the installer of record is a store client (see LW-M6-03) | the F-Droid client | live since 2026-10-14 (158.0-2) |
 | Google Play (LW-M6-12) | `fenix-release.aab`, signed by the owner's upload key; Google signs the APKs with the release key | **compiled out**, always | Google Play | **pending**: no account yet |
 
 - `scripts/android-apk.sh --bundle` builds the AAB in a separate Gradle pass with
