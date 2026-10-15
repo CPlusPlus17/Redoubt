@@ -122,8 +122,8 @@ That "where" is [`docs/android/PARITY.md`](docs/android/PARITY.md). In short:
   *Partial* in `PARITY.md` until measured on a phone. DNS over HTTPS is off by
   default, as in LibreWolf, and since Beta 2 the app's DoH setting starts from
   LibreWolf's values (Quad9 preselected, LibreWolf's provider list). The app
-  rewrites the `network.trr.*` prefs on every start, so turn DoH on in
-  Settings > DNS over HTTPS, not in `about:config`. Which resolver is used once it
+  rewrites `network.trr.mode` and `network.trr.uri` on every start, so turn DoH
+  on in Settings > DNS over HTTPS, not in `about:config`. Which resolver is used once it
   is on has not been measured yet.
 - **Testing is mostly on emulators.** Every release passes automated acceptance on
   Android 11, 12 and 14 emulators. On 2026-10-14 the signed 158.0-2 release also
