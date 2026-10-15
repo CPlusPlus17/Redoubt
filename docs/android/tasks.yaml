@@ -6064,3 +6064,158 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: Ships ON for Android 12+ in 158.0-2 (owner decision 2026-10-11). Android 8-11 stay unisolated until the API 30 flake is understood; of API 31-33 only the API 31 emulator was measured, no real device. RDD and Utility run with the app uid and parse H.264/HEVC/AAC there (ISOLATION-MEDIA.md section 7); a codec exploit in RDD reaches the profile. Device-specific MediaCodec behaviour reaches Redoubt before Fenix (upstream bug 1981478 is not default anywhere). Native-HLS-only pages stop playing. VP9/AV1 decode in software in content (battery). The drain backport is upstream code on 158, not upstream's 158 (gated, Android 12+ only).
+
+  - id: LW-M7-38
+    title: Remove "Report broken site"; its report went nowhere
+    milestone: M7
+    depends_on: [LW-M4-01, LW-M7-50]   # LW-M4-01 no-glean (why the report is discarded); LW-M7-50 is main's last task
+    owns:
+      - patches/android/no-webcompat-reporter.patch
+    shared_edit:
+      - assets/patches/android.txt
+      - docs/android/PATCH-SCOPE.md
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
+    reads:
+      - docs/android/evidence/lw-m7-51/
+      - patches/android/no-glean.patch
+      - settings/distribution/policies.json
+    what: |
+      First written on the 2026-09-24 branch claude/librewolf-gaps-ublock-setup-k0ri3t
+      (5497ba60, 153 ESR); ported to Firefox 158 under LW-M7-51.
+      OWNER DECISION 2026-10-14, verbatim: "go" -- review the branch and port what is
+      still worth having onto current main, cleanly, under the owner identity; then
+      the branch can be deleted.
+      LibreWolf's DisableFeedbackCommands policy removes the product feedback
+      commands. Fenix 158's "Report broken site" (More submenu) opens the
+      WebCompatReporter form, whose Send submits Gecko's broken-site-report Glean
+      ping, which Redoubt cannot upload (no-glean.patch), so a report is silently
+      discarded while the UI says it was sent; with Settings.isTelemetryEnabled
+      false the entry instead opens webcompat.com/issues/new?url=<page address>.
+      no-webcompat-reporter.patch removes the entry from MoreSettingsSubmenu (the
+      menu every user sees) and from BrowserMenuBuilder's default configuration
+      (the customizable menu, off by default). Reporter code, navigation targets
+      and WebCompatFeature's site interventions are unchanged.
+    acceptance:
+      - "no menu reachable in a release build shows Report broken site: the More submenu of the main menu on a web page, with the toolbar at the top and at the bottom"
+      - "BrowserMenuBuilderTest: no default layout contains ReportBrokenSite; MoreSettingsSubmenuTest: the entry does not render even with isWebCompatEnabled = true"
+      - "webcompat@mozilla.org interventions stay installed (WebCompatFeature unchanged)"
+      - "the patch applies at fuzz 0 in list order on the 158.0 tarball, compiles under -Werror, and the two test classes pass"
+    verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/lint-patch-scope.py && python3 docs/android/board.py --check-scope"
+    effort_h: "1-2"
+    skills: [kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: A user who relied on the entry to reach webcompat.com now has to go there by hand. Instrumented UI tests (ThreeDotMenuMainRobot, MainMenuTest) still expect the entry; they are not part of the unit gate.
+
+
+  - id: LW-M7-39
+    title: DRM off by default through a Settings switch that can turn it on
+    milestone: M7
+    depends_on: [LW-M3-06, LW-M7-41, LW-M7-50]   # LW-M3-06 put media.eme.enabled=false in android.cfg; LW-M7-41 owns android.cfg; LW-M7-50 isolates content on Android 12+
+    submodule: settings
+    owns:
+      - patches/android/drm-permission-default.patch   # on disk, PENDING (PATCH-SCOPE.md), in no list
+    shared_edit:
+      - docs/android/PATCH-SCOPE.md
+      - docs/android/POLICIES.md        # row 12 note
+      # when it lands: assets/patches/android.txt, scripts/check-patch-order.py (seven measured
+      # order-free pairs), settings/android.cfg (drop media.eme.enabled=false; local settings
+      # branch android-drm-permission bddc198f), docs/android/expected-prefs.txt (media.eme.enabled true)
+    tree_paths:
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SitePermissionsManagePhoneFeatureFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
+      - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+    reads:
+      - docs/android/evidence/lw-m7-51/
+      - docs/android/ISOLATION-MEDIA-STUDY.md
+      - dom/media/eme/MediaKeySystemAccessManager.cpp
+      - mobile/android/app/geckoview-prefs.js
+      - patches/eme-permission-common.patch
+    what: |
+      First written on the 2026-09-24 branch claude/librewolf-gaps-ublock-setup-k0ri3t
+      (a11a2306, 153 ESR); rewritten for Firefox 158 under LW-M7-51.
+      OWNER DECISION 2026-10-14, verbatim: "go" -- review the branch and port what is
+      still worth having onto current main, cleanly, under the owner identity; then
+      the branch can be deleted.
+      LibreWolf desktop ships DRM off but unlocked (EncryptedMediaExtensions policy,
+      default-branch media.eme.enabled=false; the "Play DRM-controlled content"
+      checkbox turns it on). android.cfg sets the same pref (LW-M3-06), but Gecko
+      checks it before asking the app (MediaKeySystemAccessManager.cpp, "EME has
+      been preffed off"), so Fenix's Settings > Site settings > DRM-controlled
+      content can never turn DRM on; only about:config can (measured on 158.0-2:
+      Allowed still rejects). Fenix 158 already has the switch: GeckoView sets
+      media.eme.require-app-approval, so Gecko asks the app after the key system is
+      found supported. Least invasive design: drm-permission-default.patch makes
+      that permission default to Blocked (and marks Blocked as Recommended on its
+      screen), and the settings submodule drops android.cfg's media.eme.enabled line.
+      STATUS 2026-10-14: HELD BACK, patch on disk in no list. Measured with both
+      halves on the API 34 emulator (158.0-2 isolates content on Android 12+): every
+      requestMediaKeySystemAccess() for Widevine crashes the isolated content process
+      (MediaDrm.isCryptoSchemeSupported throws after SELinux denies the DRM HAL to
+      isolated_app) and the tab crash-loops, whatever the setting says. On API 30 (no
+      isolation) the design works: default rejects, Allowed resolves Widevine, Ask
+      shows the DRM prompt, Blocked rejects again. Next step is an owner decision:
+      wait for the 159 rebase (upstream EME work on the isolated path, bugs 2067689
+      and 2075686, to be re-measured) or an SDK-gated variant (EME stays off where
+      content is isolated).
+    acceptance:
+      - "fresh install: requestMediaKeySystemAccess('com.widevine.alpha') rejects with NotSupportedError, with no prompt and no content-process crash, on Android 12+ (isolated) and below; Settings > Site settings > DRM-controlled content reads Blocked, marked Recommended"
+      - "after choosing Allowed there, the same call resolves; after Ask to allow, the page shows the DRM permission prompt (API 30 emulator: PASS 2026-10-14; API 34: FAIL, content crash loop)"
+      - "media.eme.enabled runs true (expected-prefs.txt) and no Redoubt pref file sets it on Android; desktop.cfg still sets it false"
+      - "first-run network capture shows no host 158.0-2 does not contact"
+      - "PhoneFeatureTest and SettingsTest pass and fail with the production hunks reverted (2026-10-14: 0 and 14 failures); the patch applies at fuzz 0 after every listed patch on the target tarball and compiles under -Werror"
+    verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 docs/android/board.py --check-cfg-split && python3 docs/android/board.py --check-scope"
+    effort_h: "2-4"
+    skills: [kotlin, android]
+    agent_safe: yes
+    isolation: worktree
+    risk: With media.eme.enabled true on Firefox 158, any web page that probes EME (video sites do) crash-loops its tab on Android 12+. Do not land before that is re-measured clean. Once landed, a profile that stored "Allowed" or "Ask to allow" for DRM-controlled content earlier (no effect until then) gets DRM on after the update.
+
+  - id: LW-M7-51
+    title: Port the 2026-09-24 gaps branch onto Firefox 158 main
+    milestone: M7
+    depends_on: [LW-M7-38, LW-M7-39]
+    owns:
+      - docs/android/evidence/lw-m7-51/
+    shared_edit:
+      - docs/android/tasks.yaml
+      - docs/android/PARITY.md           # row 6, DoH
+      - docs/android/FEATURE-PARITY.md   # F17 (LW-M7-38), F20 (LW-M7-39)
+    reads:
+      - docs/android/evidence/lw-m7-45/
+      - docs/android/evidence/lw-m7-41/
+      - docs/android/evidence/lw-m7-49/
+      - docs/android/evidence/lw-m7-01/release-158.0-2/
+    what: |
+      OWNER DECISION 2026-10-14, verbatim: "go" -- review the branch and port what is
+      still worth having onto current main, cleanly, under the owner identity; then
+      the branch can be deleted.
+      The branch claude/librewolf-gaps-ublock-setup-k0ri3t (tip a11a2306, 11 commits
+      of 2026-09-24, 153 ESR era, author noreply@anthropic.com) was never merged.
+      Each commit gets a verdict (already on main, obsolete, superseded, ported or
+      held back) in docs/android/evidence/lw-m7-51/README.md. Rewritten for 158
+      rather than cherry-picked: LW-M7-38 (no Report broken site, listed) and LW-M7-39
+      (DRM switch, held back on disk: on 158 it crash-loops isolated tabs on Android
+      12+), and PARITY row 6 (DoH), whose text still described Beta 1. Not ported:
+      the uBO fixes (main fixed the same defects differently: LW-M3-07 388df549,
+      LW-M7-41, LW-M7-44), the interrupted-session cleanup (main's LW-M7-45 covers
+      it), the 153.3 ESR rebase and the Beta 3 notes (obsolete). The branch's
+      LW-M7-37 id is main's different LW-M7-37; its LW-M7-38/39 ids were free on main
+      and keep their meaning.
+    acceptance:
+      - "a verdict per branch commit, with the main commit or document that supersedes it"
+      - "ported work is rewritten against 158.0, registered (android.txt, PATCH-SCOPE, tasks.yaml) and signed under the owner identity; nothing is pushed and the old branch is not deleted by this task"
+      - "gates on the 158.0 tarball pass: check-patchfail android + desktop, check-patch-order, lint-patch-scope, board --check/--check-scope/--check-cfg-split/--diff-mozconfig --strict, site-check, scripts/tests"
+      - "an x86_64 build of the final branch state compiles (C/C++ -Werror, Rust lints capped) and on the API 34 emulator: no Report broken site in the menu, no new first-run hosts against 158.0-2, the default smoke suite (webgl excepted, API 34 harness limit), --check-isolation and --check-video pass"
+    verify: "python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope && python3 scripts/check-patch-order.py"
+    effort_h: "4-8"
+    skills: [kotlin, android, review]
+    agent_safe: yes
+    isolation: worktree
+    risk: LW-M7-39 stays open; DRM remains impossible to enable from Settings until it lands.

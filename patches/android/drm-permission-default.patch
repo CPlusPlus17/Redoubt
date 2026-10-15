@@ -1,0 +1,221 @@
+# Redoubt drm-permission-default.patch (Android, LW-M7-39): DRM off by default,
+# with Fenix's own Settings entry as the switch that turns it on.
+#
+# STATUS 2026-10-14: PENDING -- on disk, in NO patch list (PATCH-SCOPE.md,
+# "Pending"). Do not list it on Firefox 158. It needs the settings half
+# (android.cfg without media.eme.enabled=false), and with media.eme.enabled
+# true, any page that calls navigator.requestMediaKeySystemAccess() for
+# Widevine crashes the content process on Android 12+, where 158.0-2 isolates
+# it. Gecko checks key-system support (MediaDrmProxy.isSchemeSupported ->
+# MediaDrm.isCryptoSchemeSupported) in the content process BEFORE the app is
+# asked. In an isolated_app process SELinux denies the DRM HAL lookup, the call
+# throws IllegalArgumentException("Failed to query crypto scheme support") on
+# the Gecko thread, the tab crashes, Fenix reloads it, and it crashes again (a
+# crash loop, whatever the DRM setting says). Measured on the API 34 emulator
+# with this patch and that cfg change: 836 such content crashes in about 7
+# minutes of EME probes (docs/android/evidence/lw-m7-51/). The isolation study
+# (docs/android/ISOLATION-MEDIA-STUDY.md) lists upstream bugs 2067689 and
+# 2075686, FIXED in Firefox 159, as the EME work on this path; whether they
+# cover this crash is to be measured on 159. Below Android 12 (no isolation,
+# API 30 emulator) the design works as intended: default Blocked rejects,
+# Allowed resolves Widevine, Ask to allow shows the DRM prompt, no crash.
+# Re-test on the 159 rebase, or choose an SDK-gated variant (owner decision).
+#
+# Upstream files touched
+# -----------------------
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SitePermissionsManagePhoneFeatureFragment.kt
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+#
+# Line numbers are from the Firefox 158.0 tree AFTER the patches listed before
+# this one in assets/patches/android.txt.
+#
+# Why
+# ---
+# LibreWolf desktop ships DRM off but unlocked (policies.json
+# EncryptedMediaExtensions {"Enabled": false} -> default-branch
+# media.eme.enabled=false; the "Play DRM-controlled content" checkbox in
+# Settings turns it on). Until this patch, Redoubt's android.cfg set the same
+# defaultPref (LW-M3-06). On Android that pref has no UI: Gecko rejects every
+# key system on it (dom/media/eme/MediaKeySystemAccessManager.cpp
+# RequestMediaKeySystemAccess, "EME has been preffed off"; with LibreWolf's
+# eme-permission-common.patch this includes Clear Key) BEFORE the app is asked,
+# so Fenix's Settings > Site settings > DRM-controlled content could never
+# turn DRM on. The only way was about:config.
+#
+# What it does
+# ------------
+# GeckoView already sets media.eme.require-app-approval
+# (mobile/android/app/geckoview-prefs.js), so after Gecko has checked that the
+# key system and configuration are supported it asks the app
+# (CheckDoesAppAllowProtectedMedia -> GeckoViewPermission ->
+# PERMISSION_MEDIA_KEY_SYSTEM_ACCESS -> SitePermissionsFeature). This patch
+# makes that permission's default Blocked instead of Ask to allow:
+#   * PhoneFeature.getDefault(): MEDIA_KEY_SYSTEM_ACCESS -> BLOCKED. Every
+#     reader of the setting (the Site settings screen, its summary,
+#     PhoneFeature.getStatus) goes through getAction(), which passes this
+#     default.
+#   * Settings.getSitePermissionsCustomSettingsRules(): mediaKeySystemAccess is
+#     read through PhoneFeature.getAction() instead of the hard-coded
+#     ASK_TO_ALLOW default, so the rules SitePermissionsFeature applies and
+#     the screen agree.
+#   * SitePermissionsManagePhoneFeatureFragment: on the DRM-controlled content
+#     screen, the "Recommended" tag moves from "Ask to allow" to "Blocked", so
+#     the screen does not recommend something other than the default.
+# With BLOCKED, SitePermissionsFeature.handleRuledFlow rejects the request
+# without a prompt and shows the blocked-permission indicator; the page's
+# requestMediaKeySystemAccess() rejects with NotSupportedError. Choosing "Ask
+# to allow" or "Allowed" in Settings > Site settings > DRM-controlled
+# content (Fenix's three-way choice) turns DRM on, globally or per site
+# through the existing exceptions screen. A stored choice is kept: only the
+# default for a profile that never chose changes.
+#
+# The settings-submodule half (LW-M7-39; written on the local Redoubt-settings
+# branch android-drm-permission, bddc198f, not pushed, not in main's gitlink)
+# drops android.cfg's defaultPref("media.eme.enabled", false), so Gecko's
+# Android default (true, StaticPrefList.yaml) applies and the app permission
+# is the only switch. Desktop is unchanged: its media.eme.enabled=false is in
+# desktop.cfg.
+#
+# Tests: PhoneFeatureTest (default Blocked, stored choice kept);
+# SettingsTest's default-rules fixture now has mediaKeySystemAccess = BLOCKED,
+# and a new case checks the default and that "Ask to allow" is honoured.
+#
+# Ordering, for when it is listed: last in android.txt, on top of the seven
+# patches that edit Settings.kt and the three that edit SettingsTest.kt; every
+# pair measured order-free on 158.0 by swapping
+# (docs/android/evidence/lw-m7-51/ordering-swap.py). Listing it needs those
+# pairs in scripts/check-patch-order.py (the measured rows are in the
+# evidence README) and a re-measure on the new tree.
+#
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
+index 1954186..cf69468 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
+@@ -167,6 +167,11 @@ enum class PhoneFeature(val androidPermissionsList: Array<String>) : Parcelable
+         return when (this) {
+             AUTOPLAY_AUDIBLE -> SitePermissionsRules.Action.BLOCKED
+             AUTOPLAY_INAUDIBLE -> SitePermissionsRules.Action.ALLOWED
++            // Redoubt (LW-M7-39): DRM is off by default, as in LibreWolf (EncryptedMediaExtensions
++            // policy). GeckoView asks the app before any key system is used
++            // (media.eme.require-app-approval), so Blocked denies every site without a prompt,
++            // and Settings > Site settings > DRM-controlled content turns it on.
++            MEDIA_KEY_SYSTEM_ACCESS -> SitePermissionsRules.Action.BLOCKED
+             else -> SitePermissionsRules.Action.ASK_TO_ALLOW
+         }
+     }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SitePermissionsManagePhoneFeatureFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SitePermissionsManagePhoneFeatureFragment.kt
+index f30e52a..c01daa6 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SitePermissionsManagePhoneFeatureFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SitePermissionsManagePhoneFeatureFragment.kt
+@@ -102,10 +102,15 @@ class SitePermissionsManagePhoneFeatureFragment : Fragment(), SystemInsetsPadded
+                 visibility = View.VISIBLE
+             } else {
+                 text =
+-                    getCombinedLabel(
+-                        getString(R.string.preference_option_phone_feature_ask_to_allow),
+-                        getString(R.string.phone_feature_recommended),
+-                    )
++                    if (args.phoneFeature == PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS) {
++                        // Redoubt (LW-M7-39): DRM is off by default, so "Recommended" goes with Blocked.
++                        getString(R.string.preference_option_phone_feature_ask_to_allow)
++                    } else {
++                        getCombinedLabel(
++                            getString(R.string.preference_option_phone_feature_ask_to_allow),
++                            getString(R.string.phone_feature_recommended),
++                        )
++                    }
+                 setOnClickListener {
+                     saveActionInSettings(SitePermissionsRules.Action.ASK_TO_ALLOW)
+                 }
+@@ -128,7 +133,15 @@ class SitePermissionsManagePhoneFeatureFragment : Fragment(), SystemInsetsPadded
+                 }
+                 restoreState(AUTOPLAY_ALLOW_ON_WIFI)
+             } else {
+-                text = getString(R.string.preference_option_phone_feature_blocked)
++                text =
++                    if (args.phoneFeature == PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS) {
++                        getCombinedLabel(
++                            getString(R.string.preference_option_phone_feature_blocked),
++                            getString(R.string.phone_feature_recommended),
++                        )
++                    } else {
++                        getString(R.string.preference_option_phone_feature_blocked)
++                    }
+                 setOnClickListener {
+                     saveActionInSettings(BLOCKED)
+                 }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+index 981028b..258a283 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+@@ -1936,7 +1936,7 @@ class Settings(
+                 ),
+             persistentStorage = getSitePermissionsPhoneFeatureAction(PhoneFeature.PERSISTENT_STORAGE),
+             crossOriginStorageAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.CROSS_ORIGIN_STORAGE_ACCESS),
+-            mediaKeySystemAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS),
++            mediaKeySystemAccess = PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS.getAction(this),
+             localDeviceAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.LOCAL_DEVICE_ACCESS),
+             localNetworkAccess = getSitePermissionsPhoneFeatureAction(PhoneFeature.LOCAL_NETWORK_ACCESS),
+         )
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
+index adbc6bf..2d99136 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
+@@ -104,6 +104,22 @@ class PhoneFeatureTest {
+         assertEquals(Action.ASK_TO_ALLOW, PhoneFeature.AUTOPLAY_AUDIBLE.getAction(settings))
+     }
+ 
++    @Test
++    fun `DRM-controlled content defaults to blocked`() {
++        every {
++            settings.getSitePermissionsPhoneFeatureAction(PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS, Action.BLOCKED)
++        } returns Action.BLOCKED
++        assertEquals(Action.BLOCKED, PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS.getAction(settings))
++    }
++
++    @Test
++    fun `DRM-controlled content keeps a stored choice`() {
++        every {
++            settings.getSitePermissionsPhoneFeatureAction(PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS, Action.BLOCKED)
++        } returns Action.ALLOWED
++        assertEquals(Action.ALLOWED, PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS.getAction(settings))
++    }
++
+     @Test
+     fun findFeatureBy() {
+         assertEquals(PhoneFeature.CAMERA, PhoneFeature.findFeatureBy(arrayOf(Manifest.permission.CAMERA)))
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+index 1003088..0f786cb 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+@@ -61,7 +61,7 @@ class SettingsTest {
+             autoplayAudible = AutoplayAction.BLOCKED,
+             autoplayInaudible = AutoplayAction.ALLOWED,
+             persistentStorage = ASK_TO_ALLOW,
+-            mediaKeySystemAccess = ASK_TO_ALLOW,
++            mediaKeySystemAccess = BLOCKED,
+             crossOriginStorageAccess = ASK_TO_ALLOW,
+             localDeviceAccess = ASK_TO_ALLOW,
+             localNetworkAccess = ASK_TO_ALLOW,
+@@ -832,6 +832,18 @@ class SettingsTest {
+         )
+     }
+ 
++    @Test
++    fun getSitePermissionsCustomSettingsRules_mediaKeySystemAccessDefaultsToBlocked() {
++        // Redoubt (LW-M7-39): DRM is off until the user turns it on.
++        assertEquals(BLOCKED, settings.getSitePermissionsCustomSettingsRules().mediaKeySystemAccess)
++        assertEquals(BLOCKED, PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS.getAction(settings))
++
++        settings.setSitePermissionsPhoneFeatureAction(PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS, ASK_TO_ALLOW)
++
++        assertEquals(ASK_TO_ALLOW, settings.getSitePermissionsCustomSettingsRules().mediaKeySystemAccess)
++        assertEquals(ASK_TO_ALLOW, PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS.getAction(settings))
++    }
++
+     @Test
+     fun getSitePermissionsCustomSettingsRules_mediaKeySystemAccess() {
+         settings.setSitePermissionsPhoneFeatureAction(PhoneFeature.MEDIA_KEY_SYSTEM_ACCESS, ALLOWED)

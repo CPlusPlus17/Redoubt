@@ -210,6 +210,13 @@ site" entries, and the `webcompat-reporter` install call.
 reporter), which covers the extension half; P1 additionally covers the menu
 commands. Owner: M4.
 
+**2026-10-14 (LW-M7-38):** `patches/android/no-webcompat-reporter.patch` removes
+Fenix 158's "Report broken site" menu entry (its report was a Glean ping with no
+upload path; with telemetry off it opened webcompat.com with the page address).
+`WebCompatFeature`'s `webcompat@mozilla.org` is kept on purpose: it carries
+upstream's site interventions and reports nothing. The support-menu URL half of
+P1 is still open.
+
 ### 6. `DisableFirefoxStudies` — `true` → gap **P2**
 
 Desktop: `Policies.sys.mjs:1080-1094` — `disallowFeature("Shield")` plus locks on
@@ -344,6 +351,16 @@ Android would need a `feature/sitepermissions`-style Kotlin interceptor or a
 `nsIContentPolicy`, and there is no pref for it.
 
 ### 12. `EncryptedMediaExtensions` — `{"Enabled": false}` → **pref, added to `android.cfg`**
+
+**2026-10-14 (LW-M7-39, held back).** Measured on 158.0-2: the pref keeps DRM off,
+but it also keeps Settings > Site settings > DRM-controlled content from ever
+turning it on (Gecko checks `media.eme.enabled` before it asks the app; "Allowed"
+still rejects with "EME has been preffed off"), where desktop's off is a checkbox.
+`patches/android/drm-permission-default.patch` would move the switch to that app
+permission (default Blocked) and drop the pref, but on Firefox 158 a page's EME
+probe then crash-loops the isolated content process on Android 12+ (MediaDrm is
+queried in content before the app is asked). The patch is on disk and in no list
+until the 159 rebase or an owner decision; the pref below stays.
 
 Desktop: `Policies.sys.mjs:1463-1473` — `PoliciesUtils.setDefaultPref("media.eme.enabled", false, param.Locked)`.
 Our JSON has no `Locked` key, so this is an **unlocked default**.
@@ -670,7 +687,7 @@ there is nothing to port even in principle. Owner: M4.
 
 | id | what is missing on Android | mechanism required | related `android.cfg` gap | owner |
 |---|---|---|---|---|
-| **P1** | feedback/report-broken-site commands and the support-menu URL | Kotlin | G5 (extension half only) | M4 |
+| **P1** | feedback/report-broken-site commands and the support-menu URL | Kotlin ("Report broken site" menu entry removed by `no-webcompat-reporter.patch`, LW-M7-38, 2026-10-14; support-menu URL open) | G5 (extension half only) | M4 |
 | **P2** | Fenix's Kotlin Nimbus SDK enrols in experiments and rollouts by default; the Gecko-side prefs do not reach it | Kotlin (`pref_key_experimentation_v2`, `pref_key_rollouts` defaults) | — | M4 |
 | **P3** | Glean telemetry is on by default and is not governed by the four `datareporting`/`toolkit.telemetry` prefs | Kotlin (`pref_key_telemetry`, `pref_key_marketing_telemetry`, `pref_key_daily_usage_ping`) | — | M4 |
 | **P4** | Fenix default-browser prompt and ToU prompt | Kotlin | G3 | M4 |

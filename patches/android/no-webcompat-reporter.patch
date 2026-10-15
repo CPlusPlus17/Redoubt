@@ -1,0 +1,169 @@
+# Redoubt no-webcompat-reporter.patch (Android, LW-M7-38): no "Report broken
+# site" menu entry.
+#
+# Upstream files touched
+# -----------------------
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
+#
+# Line numbers are from the Firefox 158.0 tree; no other listed patch edits
+# these files.
+#
+# Why
+# ---
+# LibreWolf's policies.json sets DisableFeedbackCommands, which removes the
+# product feedback commands, "Report broken site" among them. Fenix 158 has the
+# entry in the main menu's "More" submenu. What it does in Redoubt:
+#   * with Settings.isTelemetryEnabled true (Fenix's default; Redoubt does not
+#     change it), it opens the WebCompatReporter form, whose Send submits
+#     Gecko's broken-site-report Glean ping. Redoubt has no Glean upload path
+#     (no-glean.patch, disable-data-reporting-common.patch), so the report is
+#     silently discarded while the UI says it was sent;
+#   * with it false, MenuNavigationMiddleware skips the form and opens
+#     https://webcompat.com/issues/new?url=<page address> in a new tab,
+#     handing the page address and the page's web-compat details to a third
+#     party.
+#
+# What it does
+# ------------
+# Removes the entry from both menus that offer it:
+#   * MoreSettingsSubmenu (the menu every user sees,
+#     MenuDialogFragment): the WebCompatReporterMenuItem call and the private
+#     composable. The isWebCompatEnabled / onWebCompatReporterClick parameters
+#     stay, so MenuDialogFragment.kt (also edited by delete-on-quit-swipe.patch)
+#     is not touched; they are now unused.
+#   * BrowserMenuBuilder's default configuration (the customizable menu
+#     behind Settings.isMenuCustomizationEnabled, off by default): the
+#     ReportBrokenSite item of "More".
+# Unchanged: the reporter code, its navigation targets (unreachable without
+# the entry), and android-components' WebCompatFeature, which installs the
+# webcompat@mozilla.org site interventions that keep broken sites working and
+# reports nothing.
+#
+# Tests: BrowserMenuBuilderTest asserts no default layout (toolbar top/bottom,
+# expanded or not) contains ReportBrokenSite; MoreSettingsSubmenuTest asserts
+# the entry does not render even with isWebCompatEnabled = true. The
+# instrumented ThreeDotMenuMainRobot / MainMenuTest still look for the entry;
+# they are not part of the unit gate.
+#
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt
+index 38153c1..b914c23 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt
+@@ -26,7 +26,6 @@ import org.mozilla.fenix.components.menu.FenixMenuItem.MoveToNormalTabs
+ import org.mozilla.fenix.components.menu.FenixMenuItem.OpenInApp
+ import org.mozilla.fenix.components.menu.FenixMenuItem.Print
+ import org.mozilla.fenix.components.menu.FenixMenuItem.Refresh
+-import org.mozilla.fenix.components.menu.FenixMenuItem.ReportBrokenSite
+ import org.mozilla.fenix.components.menu.FenixMenuItem.SaveAsPdf
+ import org.mozilla.fenix.components.menu.FenixMenuItem.SaveToCollection
+ import org.mozilla.fenix.components.menu.FenixMenuItem.Share
+@@ -154,7 +153,7 @@ class BrowserMenuBuilder(
+                                         Translate,
+                                         SummarizePage,
+                                         MoveToNormalTabs,
+-                                        ReportBrokenSite,
++                                        // Redoubt (LW-M7-38): no "Report broken site".
+                                         Shortcut,
+                                         AddToHomeScreen,
+                                         SaveToCollection,
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
+index 235e476..1d60066 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
+@@ -70,10 +70,8 @@ internal fun MoreSettingsSubmenu(
+             isPrivate = isPrivate,
+             onMoveToNonPrivateTabMenuClick = onMoveToNonPrivateTabMenuClick,
+         )
+-        WebCompatReporterMenuItem(
+-            isWebCompatEnabled = isWebCompatEnabled,
+-            onWebCompatReporterClick = onWebCompatReporterClick,
+-        )
++        // Redoubt (LW-M7-38): no "Report broken site". Its report is a Glean ping with no upload
++        // path here (no-glean.patch); its other routes hand the page address to webcompat.com.
+         ShortcutsSection(
+             showShortcuts = showShortcuts,
+             isPinned = isPinned,
+@@ -105,19 +103,6 @@ internal fun MoreSettingsSubmenu(
+     }
+ }
+ 
+-@Composable
+-private fun WebCompatReporterMenuItem(
+-    isWebCompatEnabled: Boolean,
+-    onWebCompatReporterClick: () -> Unit,
+-) {
+-    MenuItem(
+-        label = stringResource(id = R.string.browser_menu_webcompat_reporter_2),
+-        beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_lightbulb_24),
+-        state = if (isWebCompatEnabled) MenuItemState.ENABLED else MenuItemState.DISABLED,
+-        onClick = onWebCompatReporterClick,
+-    )
+-}
+-
+ @Composable
+ private fun AddToTabGroupMenuItem(onAddToTabGroupClick: () -> Unit) {
+     MenuItem(
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt
+index 6b9ba02..69fd340 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt
+@@ -78,6 +78,21 @@ class BrowserMenuBuilderTest {
+         assertEquals(listOf(readerViewItem), builder.menuStructure.first().single().items)
+     }
+ 
++    @Test
++    fun `WHEN building any default menu THEN it has no report broken site item`() {
++        // Redoubt (LW-M7-38): "Report broken site" is not offered in any layout.
++        for (bottom in listOf(false, true)) {
++            for (expanded in listOf(false, true)) {
++                val items =
++                    BrowserMenuBuilder.buildDefaultConfiguration(bottom, expanded).flatMap { it.items }.flatMap { item ->
++                        listOf(item) + ((item as? FenixExpandableMenuItem)?.subMenuItems ?: emptyList())
++                    }
++                assertTrue(items.isNotEmpty())
++                assertTrue(FenixMenuItem.ReportBrokenSite !in items, "bottom=$bottom expanded=$expanded")
++            }
++        }
++    }
++
+     @Test
+     fun `WHEN building the default menu THEN keep the sections in the configured order`() = runTest {
+         val builder = BrowserMenuBuilder(providerResolver = { FakeMenuItemProvider(MutableStateFlow(readerViewItem)) })
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
+index 8e5e342..9812561 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
+@@ -53,7 +53,20 @@ class MoreSettingsSubmenuTest {
+         assertTrue(menuItemPressed, "Menu item was pressed.")
+     }
+ 
+-    private fun renderContentUnderTest(showGroupsInMenu: Boolean = false, onAddToGroupCLick: () -> Unit = {}) {
++    @Test
++    fun `GIVEN the page could be reported, THEN no report broken site option renders`() {
++        // Redoubt (LW-M7-38): the entry is gone even where upstream would enable it.
++        renderContentUnderTest(isWebCompatEnabled = true)
++        composeTestRule
++            .onNodeWithText(testContext.getString(R.string.browser_menu_webcompat_reporter_2), useUnmergedTree = true)
++            .assertDoesNotExist()
++    }
++
++    private fun renderContentUnderTest(
++        showGroupsInMenu: Boolean = false,
++        isWebCompatEnabled: Boolean = false,
++        onAddToGroupCLick: () -> Unit = {},
++    ) {
+         composeTestRule.setContent {
+             FirefoxTheme(theme = Theme.Light) {
+                 MoreSettingsSubmenu(
+@@ -63,7 +76,7 @@ class MoreSettingsSubmenuTest {
+                     hasExternalApp = false,
+                     externalAppName = "FirefoxTest",
+                     isReaderViewActive = false,
+-                    isWebCompatEnabled = false,
++                    isWebCompatEnabled = isWebCompatEnabled,
+                     isOpenInAppMenuHighlighted = false,
+                     translationInfo =
+                         TranslationInfo(

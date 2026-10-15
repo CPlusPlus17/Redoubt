@@ -15,7 +15,7 @@ read in full, every file it touches was traced to the `moz.build` / `jar.mn` /
 preprocessor guard that decides whether that file is built on Android, and the
 decision below follows from that guard rather than from the path.
 
-Current classification: **22 common / 48 android / 44 desktop-only / 0 straddlers = 114
+Current classification: **22 common / 49 android / 44 desktop-only / 0 straddlers = 115
 patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
@@ -168,6 +168,24 @@ So: desktop-only 46 − 2 = 44; total 110 − 2 = 108.
 
 So: android 42 + 1 = 43; total 108 + 1 = 109.
 
+## Android patches ported from the 2026-09-24 gaps branch (2026-10-14)
+
+Owner decision 2026-10-14, verbatim: "go" -- review the unmerged branch
+`claude/librewolf-gaps-ublock-setup-k0ri3t` (153 ESR era) and port what is still
+worth having onto main. Verdicts per commit: `docs/android/evidence/lw-m7-51/`.
+Rewritten against Firefox 158.0, not cherry-picked; the last `android.txt` entry.
+The branch's other patch, `drm-permission-default` (LW-M7-39), was rewritten too but is
+**held back** in "Pending" below: on 158 it crash-loops tabs on Android 12+.
+
+- **`no-webcompat-reporter`** (LW-M7-38). LibreWolf's `DisableFeedbackCommands`
+  policy removes "Report broken site" on desktop. In Redoubt the entry's report is
+  a Glean ping with no upload path, and with Fenix's telemetry preference off it
+  opens webcompat.com with the page address instead. Removes the entry from
+  `MoreSettingsSubmenu.kt` (the menu everyone sees) and from `BrowserMenuBuilder`'s
+  default configuration (the customizable menu, off by default), with unit tests.
+  Fenix-only; no other listed patch touches these four files.
+So: android 48 + 1 = 49; total 114 + 1 = 115.
+
 ## Android patch added for delete-on-quit after swipe-away (2026-10-06)
 
 - **`delete-on-quit-swipe`** (LW-M7-45). Owner report: "Delete browsing data
@@ -318,7 +336,19 @@ every-write-owns-its-snapshot `PWRunnable` already covers it and replaces it).
 
 ## Pending — on disk, deliberately in no list
 
-No pending patches. On 2026-09-08 LW-M3-07 replaced the parked catalogue stub
+- patches/android/drm-permission-default.patch (LW-M7-39). DRM off by default through
+  Fenix's "DRM-controlled content" permission (default Blocked) instead of
+  `android.cfg`'s `media.eme.enabled=false`, so that Settings can turn DRM on. Ported
+  from the 2026-09-24 branch and rewritten for 158.0 (LW-M7-51), then **held back**:
+  with `media.eme.enabled` true, a page's `requestMediaKeySystemAccess()` makes the
+  content process query MediaDrm before the app is asked, and on Android 12+, where
+  158.0-2 isolates content, that query throws in the `isolated_app` process and
+  crash-loops the tab (836 crashes in about 7 minutes on the API 34 emulator; API 30
+  works as designed). Applies to 158.0 at fuzz 0 after every listed patch and compiles
+  under -Werror; do not list it before the 159 rebase re-tests it or the owner picks an
+  SDK-gated variant. Evidence: `docs/android/evidence/lw-m7-51/`.
+
+Earlier: no pending patches. On 2026-09-08 LW-M3-07 replaced the parked catalogue stub
 with a genuine signed-XPI installer and a separate filtering-readiness bridge.
 Both are registered in `android.txt`; source, packaging and lifecycle evidence is
 under `docs/android/evidence/lw-m3-07/completion-20260908/`. Registration records
@@ -458,6 +488,7 @@ own line in this table.
 | `patches/android/isolation-media-prefs.patch` | LW-M7-50 (158.0-2) | **The media prefs follow the process model.** `GeckoProcessManager.isContentIsolated()` (the allocator's own `determineContentProcessType()`), passed by `GeckoRuntime.init()` as `media.redoubt-isolation-media.enabled` in `MOZ_DEFAULT_PREFS` after the debug-config merge; `Preferences::GetInstanceForService()` (parent, `MOZ_WIDGET_ANDROID` only) locks it and, only when true, sets and locks upstream's eleven isolated-process media prefs (bug 1988531 part 1). False: no media pref is touched. GeckoView Java and an `#ifdef MOZ_WIDGET_ANDROID` block in libpref: nothing reaches desktop. Measured order-free with extension-update-controls (Preferences.cpp). |
 | `patches/android/isolation-media-codecs-in-content.patch` | LW-M7-50 | Owner decision 2026-10-10 "Keep software codecs in the page process". While `media.redoubt-isolation-media.enabled` is true: `RemoteDecoderModule::Supports()` keeps all but H.264/HEVC/AAC in the isolated content process, `PDMFactory::CreateDecoder()` in RDD/Utility/GPU refuses all but H.264/HEVC/AAC, `AllDecodersAreRemote()` is false; false: upstream behaviour. Defines the gate pref and the test hook `media.redoubt-test.skip-content-codec-filter` in `StaticPrefList.yaml`. All code under `MOZ_WIDGET_ANDROID`/`ANDROID`; the two pref definitions are unguarded YAML but the patch is in android.txt only, so desktop never gets them. Measured order-free with the three webgl patches (StaticPrefList.yaml). |
 | `patches/android/isolation-media-drain-backport.patch` | LW-M7-50 | Backport of upstream bug 1987001 (Firefox 159, `5cf346157068`): NDK MediaCodec drain in ffvpx's video/audio decoders. Every changed path is conditional on `media.redoubt-isolation-media.enabled` (read once per decoder); false (Android 8-11) runs 158.0's code, software ffvpx included. Android-only list. Drop at the 159 rebase, with its gate. |
+| `patches/android/no-webcompat-reporter.patch` | LW-M7-38 | LibreWolf's `DisableFeedbackCommands`. Removes "Report broken site" from `MoreSettingsSubmenu` (the `WebCompatReporterMenuItem` call and composable; its parameters stay so `MenuDialogFragment.kt` is untouched) and from `BrowserMenuBuilder`'s default "More" list. Its report was a Glean ping with no upload path (no-glean), and with `isTelemetryEnabled` false it opened `webcompat.com/issues/new?url=<page>`. Reporter code, navigation targets and `WebCompatFeature` interventions unchanged. `BrowserMenuBuilderTest`, `MoreSettingsSubmenuTest`. Fenix-only, `mobile/android/fenix/app/src/{main,test}`, built only on Android. |
 | `patches/android/no-default-shortcuts.patch` | LW-M7-30 | Empty bundled default shortcut seed matches the desktop default.sites input while preserving stored and manually added user data. JSON/hash/replay checks pass; packaged resource and fresh/upgrade/manual-add behavior remain pending. Separate bookmark seeding is still unverified. |
 | `patches/android/autoconfig-resource-fallback.patch` | LW-M3-08, landed by LW-M3-02 | **The autoconfig/`lockPref` channel — landmine L2's mitigation.** Three hunks, one mechanism: `nsReadConfig::openAndEvaluateJSFile` takes the `resource:` branch on Android (`#if defined(MOZ_WIDGET_ANDROID)`, *not* keyed off a failed `NS_GRE_DIR` lookup — that lookup succeeds and answers the APK's `lib/<abi>` dir, so the obvious patch is dead code and was measured to be); `lw/moz.build` also installs the `.cfg` as `defaults/autoconfig/librewolf.cfg`, the only shape `OmniJarSubFormatter.is_resource` lets into `omni.ja`; and `mobile/android/installer/package-manifest.in` names that file and `defaults/pref/local-settings.js` by hand, because it is an explicit list with no root wildcard. Ordering: **after `xmas-common`**, declared in `scripts/check-patch-order.py`. |
 | `patches/android/build-fixes.patch` | LW-M2-02 | The Android build fixes that belong to no single LibreWolf patch — currently one hunk, `computeVersionCode()`'s `Integer.parseInt()` against the `153.0esr-1`-shaped `MOZ_APP_VERSION` the patcher writes. **Kept last in the list on purpose:** it is the collection point for build breakage, and nothing else in any list touches `build.gradle`. Nothing was dropped from `common.txt` to make the build green. |

@@ -1,0 +1,381 @@
+{
+ "checks": [
+  {
+   "check": "isolation-mode",
+   "ok": true,
+   "detail": "API 34: isolation expected ON (gate: SDK >= 31); media.redoubt-isolation-media.enabled=true, locked",
+   "evidence": {
+    "sdk": 34,
+    "expect_isolation": true,
+    "gate": {
+     "name": "media.redoubt-isolation-media.enabled",
+     "value": true,
+     "locked": true
+    }
+   }
+  },
+  {
+   "check": "isolation-prefs",
+   "ok": true,
+   "detail": "the 11 isolated-process media prefs of bug 1988531 are set and locked",
+   "evidence": {
+    "prefs": [
+     {
+      "name": "media.android-media-codec.enabled",
+      "value": false,
+      "locked": true
+     },
+     {
+      "name": "media.android-media-codec.preferred",
+      "value": false,
+      "locked": true
+     },
+     {
+      "name": "media.ffmpeg.encoder.enabled",
+      "value": true,
+      "locked": true
+     },
+     {
+      "name": "media.ffvpx-hw.enabled",
+      "value": true,
+      "locked": true
+     },
+     {
+      "name": "media.rdd-ffvpx.enabled",
+      "value": true,
+      "locked": true
+     },
+     {
+      "name": "media.rdd-opus.enabled",
+      "value": true,
+      "locked": true
+     },
+     {
+      "name": "media.rdd-process.enabled",
+      "value": true,
+      "locked": true
+     },
+     {
+      "name": "media.rdd-vorbis.enabled",
+      "value": true,
+      "locked": true
+     },
+     {
+      "name": "media.rdd-vpx.enabled",
+      "value": true,
+      "locked": true
+     },
+     {
+      "name": "media.rdd-wav.enabled",
+      "value": true,
+      "locked": true
+     },
+     {
+      "name": "media.use-remote-encoder.video.platform",
+      "value": true,
+      "locked": true
+     },
+     {
+      "name": "media.redoubt-isolation-media.enabled",
+      "value": true,
+      "locked": true
+     }
+    ]
+   }
+  },
+  {
+   "check": "isolation-decoder-h264-aac",
+   "ok": true,
+   "detail": "played (8 frames); video decoder 'ffvpx video decoder (RDD remote)' -> RDD, audio decoder 'ffvpx audio decoder (Utility Generic remote)' -> Utility, as required",
+   "evidence": {
+    "probe": {
+     "url": "/fixture-h264.mp4",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.281017,
+     "decoded": 8,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder (Utility Generic remote)",
+      "video": "ffvpx video decoder (RDD remote)",
+      "hw": true
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-decoder-vp8-opus",
+   "ok": true,
+   "detail": "played (13 frames); video decoder 'ffvpx video decoder' -> content, audio decoder 'ffvpx audio decoder' -> content, as required",
+   "evidence": {
+    "probe": {
+     "url": "/fixture.webm",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.455447,
+     "decoded": 13,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder",
+      "video": "ffvpx video decoder",
+      "hw": false
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-decoder-vp9-opus",
+   "ok": true,
+   "detail": "played (13 frames); video decoder 'ffvpx video decoder' -> content, audio decoder 'ffvpx audio decoder' -> content, as required",
+   "evidence": {
+    "probe": {
+     "url": "/fixture-vp9.webm",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.441866,
+     "decoded": 13,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder",
+      "video": "ffvpx video decoder",
+      "hw": false
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-decoder-av1-opus",
+   "ok": true,
+   "detail": "played (13 frames); video decoder 'ffvpx video decoder' -> content, audio decoder 'ffvpx audio decoder' -> content, as required",
+   "evidence": {
+    "probe": {
+     "url": "/fixture-av1.webm",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.441958,
+     "decoded": 13,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder",
+      "video": "ffvpx video decoder",
+      "hw": false
+     }
+    }
+   }
+  },
+  {
+   "check": "isolation-codec-caps",
+   "ok": true,
+   "detail": "canPlayType(avc1)='probably', MediaSource.isTypeSupported(avc1+mp4a)=True; native HLS canPlayType='' (\"\" means native HLS is off, as designed under isolation)",
+   "evidence": {
+    "canPlayType": "probably",
+    "isTypeSupported": true,
+    "hls": ""
+   }
+  },
+  {
+   "check": "isolation-processes",
+   "ok": true,
+   "detail": "3 content process(es), all u:r:isolated_app with isolated uids (u0_i0, u0_i1, u0_i2), forked by the app zygote; :rdd runs as u:r:untrusted_app:s0:c192,c256,c512,c768 u0_a192 (NOT isolated: it can read the profile, by design)",
+   "evidence": {
+    "ps": [
+     {
+      "label": "u:r:untrusted_app:s0:c192,c256,c512,c768",
+      "user": "u0_a192",
+      "pid": "15269",
+      "ppid": "375",
+      "name": "org.redoubtbrowser"
+     },
+     {
+      "label": "u:r:app_zygote:s0:c512,c768",
+      "user": "u0_a192",
+      "pid": "15370",
+      "ppid": "375",
+      "name": "org.redoubtbrowser_zygote"
+     },
+     {
+      "label": "u:r:isolated_app:s0:c512,c768",
+      "user": "u0_i0",
+      "pid": "15402",
+      "ppid": "15370",
+      "name": "org.redoubtbrowser:zygoteTab_disable_art_image_:org.mozilla.gecko.process.GeckoChildProcessService"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c192,c256,c512,c768",
+      "user": "u0_a192",
+      "pid": "15409",
+      "ppid": "375",
+      "name": "org.redoubtbrowser:gpu_disable_art_image_"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c192,c256,c512,c768",
+      "user": "u0_a192",
+      "pid": "15479",
+      "ppid": "375",
+      "name": "org.redoubtbrowser:rdd_disable_art_image_"
+     },
+     {
+      "label": "u:r:isolated_app:s0:c512,c768",
+      "user": "u0_i1",
+      "pid": "15541",
+      "ppid": "15370",
+      "name": "org.redoubtbrowser:zygoteTab_disable_art_image_:org.mozilla.gecko.process.GeckoChildProcessService"
+     },
+     {
+      "label": "u:r:isolated_app:s0:c512,c768",
+      "user": "u0_i2",
+      "pid": "15588",
+      "ppid": "15370",
+      "name": "org.redoubtbrowser:zygoteTab_disable_art_image_:org.mozilla.gecko.process.GeckoChildProcessService"
+     },
+     {
+      "label": "u:r:untrusted_app:s0:c192,c256,c512,c768",
+      "user": "u0_a192",
+      "pid": "15695",
+      "ppid": "375",
+      "name": "org.redoubtbrowser:utility_disable_art_image_"
+     }
+    ],
+    "sdk": 34
+   }
+  },
+  {
+   "check": "isolation-codec-processes",
+   "ok": true,
+   "detail": "4 MediaCodec allocation(s): c2.android.aac.decoder in utility_disable_art_image_, c2.goldfish.h264.decoder in rdd_disable_art_image_; none in an isolated process",
+   "evidence": {
+    "allocations": [
+     {
+      "pid": "15479",
+      "codec": "c2.goldfish.h264.decoder",
+      "process": "org.redoubtbrowser:rdd_disable_art_image_",
+      "label": "u:r:untrusted_app:s0:c192,c256,c512,c768"
+     },
+     {
+      "pid": "15695",
+      "codec": "c2.android.aac.decoder",
+      "process": "org.redoubtbrowser:utility_disable_art_image_",
+      "label": "u:r:untrusted_app:s0:c192,c256,c512,c768"
+     },
+     {
+      "pid": "15695",
+      "codec": "c2.android.aac.decoder",
+      "process": "org.redoubtbrowser:utility_disable_art_image_",
+      "label": "u:r:untrusted_app:s0:c192,c256,c512,c768"
+     },
+     {
+      "pid": "15479",
+      "codec": "c2.goldfish.h264.decoder",
+      "process": "org.redoubtbrowser:rdd_disable_art_image_",
+      "label": "u:r:untrusted_app:s0:c192,c256,c512,c768"
+     }
+    ]
+   }
+  },
+  {
+   "check": "isolation-denials",
+   "ok": true,
+   "detail": "18 isolated_app denial(s), all in the measured platform baseline (/proc/filesystems, incremental_prop, sysfs product_name, sysfs product_sku); none involves media or app_data_file",
+   "evidence": {
+    "isolated_app_denials": [
+     "10-14 23:29:02.174 15402 15402 I auditd  : type=1400 audit(0.0:713): avc:  denied  { read } for  comm=\"848b88951275a1d\" name=\"u:object_r:incremental_prop:s0\" dev=\"tmpfs\" ino=204 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:incremental_prop:s0 tclass=file permissive=0",
+     "10-14 23:29:02.174 15402 15402 W 848b88951275a1d: type=1400 audit(0.0:713): avc:  denied  { read } for  name=\"u:object_r:incremental_prop:s0\" dev=\"tmpfs\" ino=204 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:incremental_prop:s0 tclass=file permissive=0",
+     "10-14 23:29:02.178 15402 15402 I auditd  : type=1400 audit(0.0:714): avc:  denied  { read } for  comm=\"848b88951275a1d\" name=\"filesystems\" dev=\"proc\" ino=4026532076 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:proc_filesystems:s0 tclass=file permissive=0",
+     "10-14 23:29:02.178 15402 15402 W 848b88951275a1d: type=1400 audit(0.0:714): avc:  denied  { read } for  name=\"filesystems\" dev=\"proc\" ino=4026532076 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:proc_filesystems:s0 tclass=file permissive=0",
+     "10-14 23:29:02.854 15541 15541 I auditd  : type=1400 audit(0.0:717): avc:  denied  { read } for  comm=\"WebExtensions\" name=\"product_name\" dev=\"sysfs\" ino=845 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0",
+     "10-14 23:29:02.854 15541 15541 W WebExtensions: type=1400 audit(0.0:717): avc:  denied  { read } for  name=\"product_name\" dev=\"sysfs\" ino=845 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0",
+     "10-14 23:29:02.854 15541 15541 I auditd  : type=1400 audit(0.0:718): avc:  denied  { read } for  comm=\"WebExtensions\" name=\"product_sku\" dev=\"sysfs\" ino=849 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0",
+     "10-14 23:29:02.854 15541 15541 W WebExtensions: type=1400 audit(0.0:718): avc:  denied  { read } for  name=\"product_sku\" dev=\"sysfs\" ino=849 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0",
+     "10-14 23:29:03.194 15588 15588 I auditd  : type=1400 audit(0.0:719): avc:  denied  { read } for  comm=\"32eb08e3e3c4e84\" name=\"u:object_r:incremental_prop:s0\" dev=\"tmpfs\" ino=204 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:incremental_prop:s0 tclass=file permissive=0",
+     "10-14 23:29:03.194 15588 15588 W 32eb08e3e3c4e84: type=1400 audit(0.0:719): avc:  denied  { read } for  name=\"u:object_r:incremental_prop:s0\" dev=\"tmpfs\" ino=204 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:incremental_prop:s0 tclass=file permissive=0",
+     "10-14 23:29:03.194 15588 15588 I auditd  : type=1400 audit(0.0:720): avc:  denied  { read } for  comm=\"32eb08e3e3c4e84\" name=\"filesystems\" dev=\"proc\" ino=4026532076 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:proc_filesystems:s0 tclass=file permissive=0",
+     "10-14 23:29:03.194 15588 15588 W 32eb08e3e3c4e84: type=1400 audit(0.0:720): avc:  denied  { read } for  name=\"filesystems\" dev=\"proc\" ino=4026532076 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:proc_filesystems:s0 tclass=file permissive=0",
+     "10-14 23:29:03.258 15588 15588 I auditd  : type=1400 audit(0.0:721): avc:  denied  { read } for  comm=57656220436F6E74656E74 name=\"product_name\" dev=\"sysfs\" ino=845 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0",
+     "10-14 23:29:03.258 15588 15588 W org.redoubtbrowser_zygote: type=1400 audit(0.0:721): avc:  denied  { read } for  comm=57656220436F6E74656E74 name=\"product_name\" dev=\"sysfs\" ino=845 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0",
+     "10-14 23:29:06.874 15402 15402 I auditd  : type=1400 audit(0.0:725): avc:  denied  { read } for  comm=57656220436F6E74656E74 name=\"product_name\" dev=\"sysfs\" ino=845 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0",
+     "10-14 23:29:06.874 15402 15402 W org.redoubtbrowser_zygote: type=1400 audit(0.0:725): avc:  denied  { read } for  comm=57656220436F6E74656E74 name=\"product_name\" dev=\"sysfs\" ino=845 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0",
+     "10-14 23:29:06.874 15402 15402 I auditd  : type=1400 audit(0.0:726): avc:  denied  { read } for  comm=57656220436F6E74656E74 name=\"product_sku\" dev=\"sysfs\" ino=849 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0",
+     "10-14 23:29:06.874 15402 15402 W org.redoubtbrowser_zygote: type=1400 audit(0.0:726): avc:  denied  { read } for  comm=57656220436F6E74656E74 name=\"product_sku\" dev=\"sysfs\" ino=849 scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0"
+    ],
+    "all_denials": 28
+   }
+  },
+  {
+   "check": "isolation-profile-dir",
+   "ok": true,
+   "detail": "drwx------ 9 u0_a192 u0_a192 u:object_r:app_data_file:s0:c192,c256,c512,c768  4096 2026-10-14 23:29 /data/data/org.redoubtbrowser (mode 0700, owner u0_a192, app_data_file; an isolated_app uid is neither the owner nor allowed by policy)",
+   "evidence": {
+    "ls": "drwx------ 9 u0_a192 u0_a192 u:object_r:app_data_file:s0:c192,c256,c512,c768  4096 2026-10-14 23:29 /data/data/org.redoubtbrowser",
+    "owner": "u0_a192"
+   }
+  },
+  {
+   "check": "isolation-remote-refusal",
+   "ok": true,
+   "detail": "with media.redoubt-test.skip-content-codec-filter on, content asked RDD/Utility for VP9+Opus: :rdd refused video/vp9 (pid 15479), :utility refused audio/opus (pid 15695); the clip played anyway, video 'ffvpx video decoder' and audio 'ffvpx audio decoder' in the isolated content process; no refusal on the honest path before",
+   "evidence": {
+    "refusals_before": [],
+    "refusals_new": [
+     {
+      "pid": "15695",
+      "process": "org.redoubtbrowser:utility_disable_art_image_",
+      "site": "Utility",
+      "mime": "audio/opus"
+     },
+     {
+      "pid": "15479",
+      "process": "org.redoubtbrowser:rdd_disable_art_image_",
+      "site": "RDD",
+      "mime": "video/vp8"
+     },
+     {
+      "pid": "15695",
+      "process": "org.redoubtbrowser:utility_disable_art_image_",
+      "site": "Utility",
+      "mime": "audio/opus"
+     },
+     {
+      "pid": "15479",
+      "process": "org.redoubtbrowser:rdd_disable_art_image_",
+      "site": "RDD",
+      "mime": "video/vp9"
+     }
+    ],
+    "probe": {
+     "url": "/fixture-vp9.webm",
+     "ok": true,
+     "events": [],
+     "canPlayType": "probably",
+     "play": "resolved",
+     "currentTime": 0.447948,
+     "decoded": 13,
+     "mediaError": null,
+     "info": {
+      "audio": "ffvpx audio decoder",
+      "video": "ffvpx video decoder",
+      "hw": false
+     }
+    }
+   }
+  }
+ ],
+ "work": "~/redoubt-artifacts/port-sept24/work-emu",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "~/redoubt-artifacts/port-sept24/builds/build-apk/redoubt-158.0-2-port-x86_64-throwaway.apk",
+  "sha256": "aad1a62c43679ee15b75ce17c7ee2146fcd9cbf009de70c1098a7b1bb384fc7e",
+  "size": 136577355,
+  "harness_sha256": "2212781c508b56d4bb6065253e185a90099755b791775bd037389e91549e0d2d"
+ },
+ "status": "completed",
+ "error": null
+}

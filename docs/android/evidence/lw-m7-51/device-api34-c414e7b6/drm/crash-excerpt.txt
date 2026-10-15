@@ -1,0 +1,39 @@
+# excerpt of the API 34 logcat after drm-flow.py on the c414e7b6 build (LW-M7-39 listed + android.cfg without media.eme.enabled)
+# counts over the whole capture (--------- beginnin .. 10-14 23:38:14.422):
+#   'AndroidRuntime: java.lang.IllegalArgumentException: Failed to query crypto scheme support': 836
+#   'zygoteTab ... has died': 833
+#   SELinux 'denied { find } ... IDrmFactory/widevine scontext=u:r:isolated_app': 836
+# first crash:
+10-14 23:31:04.328 18132 18171 E HidlServiceManagement: getService: defaultServiceManager() is null
+10-14 23:31:04.329 18132 18171 E HidlServiceManagement: getService: defaultServiceManager() is null
+10-14 23:31:04.329 18132 18171 E HidlServiceManagement: getService: defaultServiceManager() is null
+10-14 23:31:04.329 18132 18171 E HidlServiceManagement: getService: defaultServiceManager() is null
+10-14 23:31:04.329 18132 18171 E HidlServiceManagement: getService: defaultServiceManager() is null
+10-14 23:31:04.329 18132 18171 E HidlServiceManagement: getService: defaultServiceManager() is null
+10-14 23:31:04.336 18132 18171 W mediametrics::Item: selfrecord: failed to record: {mediadrm.errored, (01-01 01:00:00.000), (, -1, -1), (api=initCheck, cdm_err=0, error_code=0, error_context=0, frontend=1, object_nonce=, oem_err=0, scheme=, uuid_lsb=0, uuid_msb=0, version=)}
+10-14 23:31:04.337 18132 18171 E GeckoCrashHandler: >>> REPORTING UNCAUGHT EXCEPTION FROM THREAD 174 ("Gecko")
+10-14 23:31:04.337 18132 18171 E GeckoCrashHandler: java.lang.IllegalArgumentException: Failed to query crypto scheme support
+10-14 23:31:04.337 18132 18171 E GeckoCrashHandler: 	at android.media.MediaDrm.isCryptoSchemeSupportedNative(Native Method)
+10-14 23:31:04.337 18132 18171 E GeckoCrashHandler: 	at android.media.MediaDrm.isCryptoSchemeSupported(MediaDrm.java:184)
+10-14 23:31:04.337 18132 18171 E GeckoCrashHandler: 	at org.mozilla.gecko.media.MediaDrmProxy.isSchemeSupported(r8-map-id-43d7aac33c764bf89cbe9a4b6f3dab4d76f6c9c9ed01ceb91dd5004678be5253:12)
+10-14 23:31:04.337 18132 18171 E GeckoCrashHandler: 	at org.mozilla.gecko.mozglue.GeckoLoader.nativeRun(Native Method)
+10-14 23:31:04.337 18132 18171 E GeckoCrashHandler: 	at org.mozilla.gecko.GeckoThread.run(r8-map-id-43d7aac33c764bf89cbe9a4b6f3dab4d76f6c9c9ed01ceb91dd5004678be5253:924)
+10-14 23:31:04.337 18132 18171 E GeckoCrashHandler: Main thread (2) stack:
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     android.os.MessageQueue.nativePollOnce(Native Method)
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     android.os.MessageQueue.next(MessageQueue.java:335)
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     android.os.Looper.loopOnce(Looper.java:162)
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     android.os.Looper.loop(Looper.java:294)
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     android.app.ActivityThread.main(ActivityThread.java:8177)
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     java.lang.reflect.Method.invoke(Native Method)
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:552)
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     com.android.internal.os.ChildZygoteInit.runZygoteServer(ChildZygoteInit.java:136)
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     com.android.internal.os.AppZygoteInit.main(AppZygoteInit.java:119)
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     java.lang.reflect.Method.invoke(Native Method)
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:552)
+10-14 23:31:04.338 18132 18171 E GeckoCrashHandler:     com.android.internal.os.ZygoteInit.main(ZygoteInit.java:971)
+10-14 23:31:04.338 18132 18171 E AndroidRuntime: FATAL EXCEPTION: Gecko
+10-14 23:31:04.338 18132 18171 E AndroidRuntime: Process: org.redoubtbrowser:zygoteTab_disable_art_image_:org.mozilla.gecko.process.GeckoChildProcessServices$zygoteTab:55b42757498940458862987be4e5683d, PID: 18132
+10-14 23:31:04.338 18132 18171 E AndroidRuntime: java.lang.IllegalArgumentException: Failed to query crypto scheme support
+10-14 23:31:04.417     0     0 E SELinux : avc:  denied  { find } for pid=18132 uid=90000 name=android.hardware.drm.IDrmFactory/clearkey scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:hal_drm_service:s0 tclass=service_manager permissive=0
+10-14 23:31:04.419     0     0 E SELinux : avc:  denied  { find } for pid=18132 uid=90000 name=android.hardware.drm.IDrmFactory/widevine scontext=u:r:isolated_app:s0:c512,c768 tcontext=u:object_r:hal_drm_service:s0 tclass=service_manager permissive=0
+10-14 23:31:04.358   562  1078 I ActivityManager: Process org.redoubtbrowser:zygoteTab_disable_art_image_:org.mozilla.gecko.process.GeckoChildProcessServices$zygoteTab:55b42757498940458862987be4e5683d (pid 18132) has died: fg  BTOP
