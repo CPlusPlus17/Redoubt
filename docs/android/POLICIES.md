@@ -350,17 +350,28 @@ gap. If LibreWolf ever gives this policy real content, this row becomes a gap �
 Android would need a `feature/sitepermissions`-style Kotlin interceptor or a
 `nsIContentPolicy`, and there is no pref for it.
 
-### 12. `EncryptedMediaExtensions` — `{"Enabled": false}` → **pref, added to `android.cfg`**
+### 12. `EncryptedMediaExtensions` — `{"Enabled": false}` → **app permission, default Blocked** (since LW-M7-39, 2026-10-15; was a pref in `android.cfg`)
 
-**2026-10-14 (LW-M7-39, held back).** Measured on 158.0-2: the pref keeps DRM off,
-but it also keeps Settings > Site settings > DRM-controlled content from ever
-turning it on (Gecko checks `media.eme.enabled` before it asks the app; "Allowed"
-still rejects with "EME has been preffed off"), where desktop's off is a checkbox.
-`patches/android/drm-permission-default.patch` would move the switch to that app
-permission (default Blocked) and drop the pref, but on Firefox 158 a page's EME
-probe then crash-loops the isolated content process on Android 12+ (MediaDrm is
-queried in content before the app is asked). The patch is on disk and in no list
-until the 159 rebase or an owner decision; the pref below stays.
+**2026-10-15 (LW-M7-39, listed).** Same default as desktop (off) and, unlike
+before, the same reversibility: Settings > Site settings > DRM-controlled content
+is the switch. `patches/android/drm-permission-default.patch` makes that app
+permission default to Blocked (marked Recommended), and `android.cfg` no longer
+sets `media.eme.enabled` (Redoubt-settings `android-drm-permission`, bddc198f), so
+Gecko asks the app (`media.eme.require-app-approval`) for every request and
+Blocked rejects it without a prompt. `patches/android/isolation-eme.patch` makes
+that safe on Android 12+: before it, Gecko queried MediaDrm in the isolated
+content process before asking the app, and the tab crash-looped (also with only
+`media.eme.enabled` set true in about:config on 158.0-2, measured 2026-10-15,
+`evidence/lw-m7-39/`). Measured: fresh profile rejects Widevine on API 34 and API
+30; Allowed plays a Widevine stream on both; Ask to allow prompts; Blocked rejects
+again (`docs/android/ISOLATION-MEDIA.md` section 9).
+
+**2026-10-14 (LW-M7-39, held back; history).** Measured on 158.0-2: the pref kept
+DRM off, but it also kept Settings > Site settings > DRM-controlled content from
+ever turning it on (Gecko checks `media.eme.enabled` before it asks the app;
+"Allowed" still rejected with "EME has been preffed off"), where desktop's off is
+a checkbox. The text below is the original LW-M3-06 analysis of the pref
+mechanism, kept because it explains why Android needs an explicit off at all.
 
 Desktop: `Policies.sys.mjs:1463-1473` — `PoliciesUtils.setDefaultPref("media.eme.enabled", false, param.Locked)`.
 Our JSON has no `Locked` key, so this is an **unlocked default**.
@@ -393,7 +404,9 @@ request through an embedder permission prompt
 `SitePermissions.kt:94`) — but that is a per-site prompt, not the blanket
 disable the policy expresses.
 
-**Mechanism: `defaultPref("media.eme.enabled", false);` in `android.cfg`.**
+**Mechanism (LW-M3-06 until 2026-10-15): `defaultPref("media.eme.enabled", false);` in `android.cfg`.**
+Since LW-M7-39 the mechanism is the app permission above; the per-site prompt
+named in the previous paragraph, defaulted to Blocked, is the blanket disable.
 
 Branch and lock: **default branch, unlocked** — matching desktop exactly.
 `media.eme.enabled` appears in neither `GeckoRuntimeSettings.java` nor

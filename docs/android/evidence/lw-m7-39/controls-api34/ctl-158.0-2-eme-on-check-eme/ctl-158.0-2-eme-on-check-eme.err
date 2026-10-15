@@ -1,0 +1,24 @@
+[smoke] !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[smoke] DIAGNOSTIC RUN: injecting prefs into the app at startup: {"media.eme.enabled": true}
+[smoke] This run cannot report success. It is not a gate.
+[smoke] !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[smoke] apk=~/redoubt-artifacts/release-158.0-2/apk/fenix-x86_64-158.0-2-throwaway.apk
+[smoke] package=org.redoubtbrowser
+[smoke] using device emulator-5584
+[smoke] installing fenix-x86_64-158.0-2-throwaway.apk (137 MB)
+[smoke] display kept awake for this run (mWakefulness=Awake)
+[smoke] origin: http://10.0.2.2:56649/ and https://10.0.2.2:54949/
+[smoke] org.redoubtbrowser is not debuggable; opened GeckoView's debug config via Settings.Global.DEBUG_APP (am set-debug-app)
+[smoke] under test: Redoubt 158.0-2 buildID=20261014100000
+[smoke] DIAGNOSTIC RUN: also set as user prefs in the running app: media.eme.enabled
+[smoke] could not clear media.eme.require-app-approval: WebDriver:ExecuteScript -> no such window: Browsing context has been discarded
+[smoke] eme-prefs              FAIL  media.redoubt-eme.widevine-support=None locked=False: the parent did not publish its Widevine answer
+[smoke] eme-default            FAIL  fresh profile must reject Widevine with NotSupportedError, got {}
+[smoke] eme-gecko-path         FAIL  media.redoubt-eme.widevine-support=None: no parent answer, so the isolated path cannot be graded; probe {"ks": "com.widevine.alpha", "result": "error", "error": "MarionetteError: WebDriver:Navigate -> no such window: Browsing context has been discarded"}
+[smoke] eme-no-crash           FAIL  3 x 'Failed to query crypto scheme support' in logcat; 1 content process death(s): [{'process': 'zygoteTab_disable_art_image_:org.mozilla.gecko.process.GeckoChildProcessServices', 'pid': '12307'}]; no 'Redoubt isolation-eme: parent found Widevine' line from the parent
+[smoke] ------------------------------------------------------------
+[smoke] 4 check(s) run, 4 failed. Detail: ~/redoubt-artifacts/drm-iso/runs34/ctl-158.0-2-eme-on-check-eme/ctl-158.0-2-eme-on-check-eme.json
+[smoke]   FAILED eme-prefs            media.redoubt-eme.widevine-support=None locked=False: the parent did not publish its Widevine answer
+[smoke]   FAILED eme-default          fresh profile must reject Widevine with NotSupportedError, got {}
+[smoke]   FAILED eme-gecko-path       media.redoubt-eme.widevine-support=None: no parent answer, so the isolated path cannot be graded; probe {"ks": "com.widevine.alpha", "result": "error", "error": "MarionetteError: WebDriver:Navigate -> no such window: Browsing context has been discarded"}
+[smoke]   FAILED eme-no-crash         3 x 'Failed to query crypto scheme support' in logcat; 1 content process death(s): [{'process': 'zygoteTab_disable_art_image_:org.mozilla.gecko.process.GeckoChildProcessServices', 'pid': '12307'}]; no 'Redoubt isolation-eme: parent found Widevine' line from the parent

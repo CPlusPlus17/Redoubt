@@ -473,6 +473,7 @@ task is genuinely done.
 | `--check-update-privacy` | LW-M6-06 | implemented | OFF window: launch, idle, open Settings — no event to an update host, and a dead capture (zero events) fails rather than passes. If the "Check for updates" row exists it must read OFF; the harness flips it, relaunches, and requires the update host to be contacted and nothing else new. A build without a row (compiled out, as a store build should be) passes the OFF half only |
 | `--check-launcher-start` | LW-M3-07 | implemented | launcher (not URL) cold starts on a fresh profile and a restart; fails on the uBO setup-failure dialog, a logged failure, or a missing readiness line. Beta 2 and the first 153.4 candidate: **FAIL** (dialog 30 s into the restart) |
 | `--check-isolation` | LW-M7-50 | implemented | since 158.0-2 the expectation follows the device's SDK level, like the build's runtime gate (`docs/android/ISOLATION-MEDIA.md`). API 31+: isolated content from the app zygote, the 11 locked media prefs, where each codec decodes, MediaCodec allocations by process, `isolated_app` denials against the LW-M7-48 baseline, the profile directory, and RDD/Utility refusing VP9/Opus when content asks. API < 31: isolation OFF and media exactly as 158.0-1. A build without the gate (158.0-1 and older) **FAILS** row `isolation-mode`. See below |
+| `--check-eme` | LW-M7-39 | implemented | EME on both sides of the isolation gate: `media.eme.enabled` true, on API 31+ the parent's locked Widevine answer (`media.redoubt-eme.widevine-support`); a fresh profile rejects Widevine (DRM-controlled content defaults to Blocked); with the app approval switched off for the test, isolated content resolves Widevine with H.264+AAC, refuses VP9/WebM and creates MediaKeys (CDM in RDD), API < 31 takes the Java path; no `Failed to query crypto scheme support`, no content process death. A 158.0-2 build **FAILS** `eme-prefs`. See below |
 | `--check-delete-on-quit` | LW-M7-45 | implemented | needs `adb root`; recents swipe then launcher cold start, setting on (selected data deleted before restore, by the start-up guard or by a completed `onTaskRemoved`) and off (tabs restored). LW-M7-45 build: **PASS**; Beta 5: **FAIL** (2 tabs restored) |
 | `--check-tls-floor` | LW-M7-49 | implemented | four host servers, each pinned to exactly one of TLS 1.0/1.1/1.2/1.3 (a child process with its own OpenSSL config, self-handshake-tested first); 1.0 and 1.1 must be refused with an NSS TLS error and no server handshake, 1.2 and 1.3 must load on both a chrome channel and a top-level navigation. See below |
 | `--check-revocation` | LW-M7-49 | implemented | leaves under the harness CA with OCSP AIA to a harness responder: with LibreWolf's posture (OCSP off, CRLite enforce) good/revoked/unreachable-responder leaves load and **no** OCSP request arrives; a stapled "revoked" response is refused with `SEC_ERROR_REVOKED_CERTIFICATE`. Must-staple and CRLite filter state are recorded, not graded |
@@ -576,6 +577,32 @@ The package comes from the APK, so it works for `org.redoubtbrowser.dev` and
 `org.redoubtbrowser` alike. Unit tests with a fake device and page are in
 `scripts/tests/test-android-smoke.py` (`IsolationCheckTests`), including one per
 failure mode. Measured runs: `docs/android/evidence/lw-m7-50/`.
+
+### `--check-eme` (LW-M7-39)
+
+EME (DRM) after `isolation-eme.patch` and `drm-permission-default.patch`. On
+158.0-2 any Widevine `requestMediaKeySystemAccess()` with `media.eme.enabled`
+true crashed the isolated tab in a loop (`docs/android/ISOLATION-MEDIA.md`
+section 9). The log window opens before the app starts (`logcat -c`), so the
+parent's answer and any crash are in it. Run it alone (like `--check-isolation`,
+it ends the run).
+
+| row | passes when |
+|---|---|
+| `eme-prefs` | `media.eme.enabled` is true (no Redoubt pref file sets it); the isolation gate pref is locked and equals `SDK >= 31`; API 31+: `media.redoubt-eme.widevine-support` is 1 or 2 and **locked** (the parent queried the NDK and published it; waits up to 30 s); below API 31 it is 0 (the parent does not query) |
+| `eme-default` | on the harness's https origin, `requestMediaKeySystemAccess("com.widevine.alpha", H.264+AAC)` rejects with `NotSupportedError` and no prompt: the app permission defaults to Blocked (LibreWolf's `eme-permission-common.patch` words the app's denial "EME has been preffed off", so the message alone does not tell pref from permission; `eme-prefs` does) |
+| `eme-gecko-path` | with `media.eme.require-app-approval` false for the test (cleared afterwards, also on failure), so that Gecko alone answers: API 31+ with Widevine: resolves, the configuration names exactly the requested H.264 and AAC, `createMediaKeys()` succeeds (the CDM is created in RDD), and VP9 in WebM is rejected (RDD would refuse to decode it); API 31+ without Widevine: `NotSupportedError`; API < 31: resolves with MediaKeys or `NotSupportedError` (Java path) |
+| `eme-no-crash` | across the whole check no `Failed to query crypto scheme support` in logcat, no `<pkg>:…tab…` process died, the app is alive; API 31+: the parent logged `Redoubt isolation-eme: parent found Widevine …`; below API 31 it did not |
+
+No license server is involved. On API 31+ `createMediaKeys()` resolves only once
+the RDD CDM has its MediaCrypto, which on a fresh profile needs Widevine
+provisioning for the origin (Google's provisioning server, through the content
+process): the emulator needs network for `eme-gecko-path` (offline it is expected
+to fail with the provisioning error or the probe's 20 s timeout; not measured). Real playback of a
+Widevine stream (license, decryption, decoding) is measured by hand with
+`docs/android/evidence/lw-m7-39/scripts/play.html`. Grading is the pure function
+`grade_eme`; unit tests `EmeGateTests` in `scripts/tests/test-android-smoke.py`,
+one per failure mode, including the LW-M7-51 crash-loop log lines.
 
 ### `--check-search` deserves a note
 

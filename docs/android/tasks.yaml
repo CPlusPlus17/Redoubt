@@ -6118,23 +6118,39 @@ tasks:
     depends_on: [LW-M3-06, LW-M7-41, LW-M7-50]   # LW-M3-06 put media.eme.enabled=false in android.cfg; LW-M7-41 owns android.cfg; LW-M7-50 isolates content on Android 12+
     submodule: settings
     owns:
-      - patches/android/drm-permission-default.patch   # on disk, PENDING (PATCH-SCOPE.md), in no list
+      - patches/android/drm-permission-default.patch
+      - patches/android/isolation-eme.patch
+      - docs/android/evidence/lw-m7-39/
     shared_edit:
+      - assets/patches/android.txt
+      - scripts/check-patch-order.py    # one CONSTRAINT (isolation-eme after the codecs patch), ten order-free pairs
+      # also edited, owned by tasks of the same wave: scripts/android-smoke.sh (--check-eme),
+      # scripts/tests/test-android-smoke.py (EmeGateTests), docs/android/FEATURE-PARITY.md (F20)
+      - docs/android/SMOKE.md
       - docs/android/PATCH-SCOPE.md
-      - docs/android/POLICIES.md        # row 12 note
-      # when it lands: assets/patches/android.txt, scripts/check-patch-order.py (seven measured
-      # order-free pairs), settings/android.cfg (drop media.eme.enabled=false; local settings
-      # branch android-drm-permission bddc198f), docs/android/expected-prefs.txt (media.eme.enabled true)
+      - docs/android/POLICIES.md        # row 12
+      - docs/android/ISOLATION-MEDIA.md # section 9
+      - docs/android/expected-prefs.txt # media.eme.enabled true
+      - settings/android.cfg            # no media.eme.enabled line (Redoubt-settings branch android-drm-permission, bddc198f)
     tree_paths:
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SitePermissionsManagePhoneFeatureFragment.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
       - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
       - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+      - dom/media/eme/KeySystemConfig.cpp
+      - dom/media/eme/MediaKeySystemAccess.cpp
+      - dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp
+      - dom/media/gmp/GMPServiceParent.cpp
+      - dom/media/ipc/RemoteCDMChild.cpp
+      - dom/media/ipc/RemoteCDMProxy.cpp
+      - mobile/android/geckoview/src/main/java/org/mozilla/gecko/media/MediaDrmProxy.java
+      - modules/libpref/init/StaticPrefList.yaml
     reads:
       - docs/android/evidence/lw-m7-51/
       - docs/android/ISOLATION-MEDIA-STUDY.md
       - dom/media/eme/MediaKeySystemAccessManager.cpp
+      - dom/media/eme/MediaKeys.cpp
       - mobile/android/app/geckoview-prefs.js
       - patches/eme-permission-common.patch
     what: |
@@ -6143,39 +6159,52 @@ tasks:
       OWNER DECISION 2026-10-14, verbatim: "go" -- review the branch and port what is
       still worth having onto current main, cleanly, under the owner identity; then
       the branch can be deleted.
+      OWNER DECISION 2026-10-15, verbatim: "lets analyse this in more detail and try to fix"
+      (the crash that held the port back on 2026-10-14).
       LibreWolf desktop ships DRM off but unlocked (EncryptedMediaExtensions policy,
       default-branch media.eme.enabled=false; the "Play DRM-controlled content"
-      checkbox turns it on). android.cfg sets the same pref (LW-M3-06), but Gecko
+      checkbox turns it on). android.cfg set the same pref (LW-M3-06), but Gecko
       checks it before asking the app (MediaKeySystemAccessManager.cpp, "EME has
       been preffed off"), so Fenix's Settings > Site settings > DRM-controlled
-      content can never turn DRM on; only about:config can (measured on 158.0-2:
-      Allowed still rejects). Fenix 158 already has the switch: GeckoView sets
-      media.eme.require-app-approval, so Gecko asks the app after the key system is
-      found supported. Least invasive design: drm-permission-default.patch makes
-      that permission default to Blocked (and marks Blocked as Recommended on its
-      screen), and the settings submodule drops android.cfg's media.eme.enabled line.
-      STATUS 2026-10-14: HELD BACK, patch on disk in no list. Measured with both
-      halves on the API 34 emulator (158.0-2 isolates content on Android 12+): every
-      requestMediaKeySystemAccess() for Widevine crashes the isolated content process
-      (MediaDrm.isCryptoSchemeSupported throws after SELinux denies the DRM HAL to
-      isolated_app) and the tab crash-loops, whatever the setting says. On API 30 (no
-      isolation) the design works: default rejects, Allowed resolves Widevine, Ask
-      shows the DRM prompt, Blocked rejects again. Next step is an owner decision:
-      wait for the 159 rebase (upstream EME work on the isolated path, bugs 2067689
-      and 2075686, to be re-measured) or an SDK-gated variant (EME stays off where
-      content is isolated).
+      content could never turn DRM on (158.0-2: Allowed still rejects). Fenix 158
+      already has the switch: GeckoView sets media.eme.require-app-approval, so Gecko
+      asks the app after the key system is found supported. drm-permission-default.patch
+      makes that permission default to Blocked (Blocked marked Recommended), and the
+      settings submodule drops android.cfg's media.eme.enabled line.
+      2026-10-14: held back. On Android 12+ (158.0-2 isolates content) every
+      requestMediaKeySystemAccess() for Widevine crashed the isolated content process
+      in a loop, whatever the setting said: Gecko asks android.media.MediaDrm from
+      content (MediaKeySystemAccess::GetKeySystemStatus, KeySystemConfig::Supports,
+      CreateWivineL3KeySystemConfigs) BEFORE the app, SELinux denies isolated_app the
+      DRM HAL, MediaDrm throws, and a Java exception through @WrapForJNI is fatal.
+      2026-10-15 analysis and fix (docs/android/ISOLATION-MEDIA.md section 9): the CDM
+      and encrypted decoding already run in RDD for isolated content in 158.0
+      (RemoteCDMProxy -> MediaDrmRemoteCDMParent, NDK); only the support query was left
+      in content. Upstream moves it to the parent in Firefox 159 (bug 2067689).
+      isolation-eme.patch does the same for 158: the parent asks the NDK once and
+      publishes the locked pref media.redoubt-eme.widevine-support, isolated content
+      reads it and offers H.264/AAC decrypt-and-decode (what RDD plays), the Java
+      queries answer "unsupported" instead of throwing, upstream bug 2075686
+      (RemoteCDMProxy session close) is backported, and MediaDrm's expiration 0
+      ("never") reaches the page as NaN instead of 1970 (Shaka closed the session at
+      once and playback stalled), and the RDD CDM's Init waits for its MediaCrypto
+      (first plays on a fresh profile failed 2 of 9 while provisioning was pending).
+      Gate false (Android 8-11): 158.0's path. Both patches
+      are listed. Drop isolation-eme.patch at the 159 rebase after re-measuring with
+      --check-eme and play.html.
     acceptance:
       - "fresh install: requestMediaKeySystemAccess('com.widevine.alpha') rejects with NotSupportedError, with no prompt and no content-process crash, on Android 12+ (isolated) and below; Settings > Site settings > DRM-controlled content reads Blocked, marked Recommended"
-      - "after choosing Allowed there, the same call resolves; after Ask to allow, the page shows the DRM permission prompt (API 30 emulator: PASS 2026-10-14; API 34: FAIL, content crash loop)"
+      - "after choosing Allowed there, the same call resolves and a Widevine stream (docs/android/evidence/lw-m7-39/scripts/play.html) plays on the API 34 (isolated) and API 30 emulators; after Ask to allow, the page shows the DRM permission prompt; Blocked rejects again"
+      - "scripts/android-smoke.sh --check-eme passes on API 34 and API 30 and fails on 158.0-2 (eme-prefs), and with media.eme.enabled set true on 158.0-2 it fails eme-no-crash (the crash loop)"
+      - "--check-isolation and --check-video pass on API 34 and API 30; the default smoke suite passes as on 158.0-2 (webgl excepted on API 34, harness limit)"
       - "media.eme.enabled runs true (expected-prefs.txt) and no Redoubt pref file sets it on Android; desktop.cfg still sets it false"
-      - "first-run network capture shows no host 158.0-2 does not contact"
-      - "PhoneFeatureTest and SettingsTest pass and fail with the production hunks reverted (2026-10-14: 0 and 14 failures); the patch applies at fuzz 0 after every listed patch on the target tarball and compiles under -Werror"
+      - "PhoneFeatureTest and SettingsTest pass and fail with the production hunks reverted (2026-10-14: 0 and 14 failures); both patches apply at fuzz 0 after every listed patch on the target tarball and compile under -Werror"
     verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 docs/android/board.py --check-cfg-split && python3 docs/android/board.py --check-scope"
     effort_h: "2-4"
-    skills: [kotlin, android]
+    skills: [kotlin, android, c++]
     agent_safe: yes
     isolation: worktree
-    risk: With media.eme.enabled true on Firefox 158, any web page that probes EME (video sites do) crash-loops its tab on Android 12+. Do not land before that is re-measured clean. Once landed, a profile that stored "Allowed" or "Ask to allow" for DRM-controlled content earlier (no effect until then) gets DRM on after the update.
+    risk: isolation-eme.patch is a Redoubt change to Gecko's EME path for Firefox 158 only; carrying it into 159 on top of upstream's bug 2067689 would query Widevine twice and fight upstream's gfxVar. Drop it at the rebase and re-measure. A profile that stored "Allowed" or "Ask to allow" for DRM-controlled content earlier (no effect until now) gets DRM on after the update.
 
   - id: LW-M7-51
     title: Port the 2026-09-24 gaps branch onto Firefox 158 main

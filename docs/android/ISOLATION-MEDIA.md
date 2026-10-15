@@ -487,8 +487,8 @@ Isolated content still talks to RDD and Utility over `PRemoteMediaManager` and
 the decoder actors (sample buffers in shared memory, flush/drain, readback),
 can ask RDD for a platform video **encoder** (the locked
 `media.use-remote-encoder.video.platform`; its input is raw frames, not a
-compressed bitstream), and can construct the MediaDrm CDM actor even though EME
-is off by pref. And, as in every Gecko build, it still talks to the parent
+compressed bitstream), and can construct the MediaDrm CDM actor (with DRM allowed for a site, since
+LW-M7-39, it is in use: section 9d). And, as in every Gecko build, it still talks to the parent
 process and the GPU process. None of that is new with isolation; under
 isolation it is the set of doors out of the isolated process.
 
@@ -510,3 +510,174 @@ the parent or GPU process.
 | VP8, VP9, AV1 parsed by | content or `:media` (app uid) | isolated content only (RDD/Utility refuse them) |
 | Opus, Vorbis, FLAC, MP3, WAV parsed by | `:utility` (app uid) | isolated content only (Utility refuses them) |
 | bugs needed from a web page to the profile | one, in any content parser | two: one in content, one in a door out of it |
+
+## 9. EME (DRM) under isolation (LW-M7-39, 2026-10-15)
+
+Owner decision 2026-10-15, verbatim: "lets analyse this in more detail and try to
+fix". The defect was found on 2026-10-14 (LW-M7-51,
+`evidence/lw-m7-51/device-api34-c414e7b6/drm/crash-excerpt.txt`): with
+`media.eme.enabled` true, every `requestMediaKeySystemAccess()` for Widevine
+crashed the isolated tab in a loop on Android 12+. 158.0-2 is not affected only
+because `android.cfg` keeps `media.eme.enabled=false`; that is also why its
+Settings > Site settings > DRM-controlled content "Allowed" has no effect.
+
+### 9a. Root cause (Firefox 158.0 source)
+
+Which process asks, and when:
+
+```
+page: navigator.requestMediaKeySystemAccess("com.widevine.alpha", cfg)     CONTENT
+  MediaKeySystemAccessManager::Request()
+    media.eme.enabled false?  -> reject "EME has been preffed off"   (158.0-2 stops here)
+    MediaKeySystemAccess::GetKeySystemStatus()
+      media.mediadrm-widevinecdm.visible (geckoview-prefs.js: true)
+        -> java::MediaDrmProxy::IsSchemeSupported()      <- JNI, Gecko thread
+             MediaDrm.isCryptoSchemeSupported(WIDEVINE)  <- the crash
+    MediaKeySystemAccess::GetSupportedConfig()
+      KeySystemConfig::CreateKeySystemConfigs()
+        Supports()                      -> MediaDrmProxy.isSchemeSupported again
+        CreateWivineL3KeySystemConfigs() -> MediaDrmProxy.IsCryptoSchemeSupported x11
+    CheckDoesAppAllowProtectedMedia()   <- only now is the app (Fenix permission) asked
+  MediaKeySystemAccess::CreateMediaKeys() -> MediaKeys::CreateCDMProxy()
+    AndroidDecoderModule::IsJavaDecoderModuleAllowed()?   (false in an isolated process)
+      yes: MediaDrmCDMProxy (Java MediaDrm via the :media RemoteManager)   Android 8-11
+      no:  RemoteMediaManagerChild::CreateCDM(RDD) -> RemoteCDMProxy       Android 12+
+             -> RDD: MediaDrmRemoteCDMParent (NDK AMediaDrm/AMediaCrypto)
+  encrypted samples -> RDD: ffvpx + MediaCodec NDK decrypt-and-decode
+             (FFmpegDataDecoder::MaybeAttachCDM / MaybeAttachCryptoInfo)
+```
+
+- **The process is the content process**, on its Gecko main thread. All three Java
+  calls are static helpers that call `android.media.MediaDrm` in whatever process
+  runs them; nothing routes them elsewhere. In an isolated content process
+  (`isolated_app`, 158.0-2 on Android 12+) SELinux denies the
+  `IDrmFactory/widevine` and `IDrmFactory/clearkey` service lookups
+  (`avc: denied { find } ... scontext=u:r:isolated_app`), and `MediaDrm` throws
+  `IllegalArgumentException: Failed to query crypto scheme support`.
+- **Why a Java exception kills the tab.** The calls are `@WrapForJNI` methods with
+  the default exception mode: an exception pending after the call is treated as
+  fatal (`GeckoCrashHandler: REPORTING UNCAUGHT EXCEPTION FROM THREAD ... ("Gecko")`,
+  then `FATAL EXCEPTION: Gecko`). There is no `nsresult` path back to the
+  promise, so the content process dies instead of rejecting. Fenix reloads the
+  tab, the page probes again, and it loops (836 times in 7 minutes).
+- **The rest was already isolation-safe in 158.0.** Upstream's isolated-process
+  work (bug 1988531 and its dependencies) moved the CDM and encrypted decoding
+  into RDD (`MediaDrmRemoteCDMParent`, `RemoteCDMProxy`, `PRemoteCDM`), gated on
+  the same `IsJavaDecoderModuleAllowed()` that is false in isolated content, and
+  RDD runs as `untrusted_app` with HAL access. Only the support query stayed in
+  content. Stock Firefox for Android (no isolation) never hits this: its content
+  is `untrusted_app` and may query MediaDrm. Mozilla's own isolated-process test
+  configuration (`variants.yml` `geckoview-isolated-process`, the eleven prefs of
+  section 2a) runs the EME WPTs, which is where bugs 2067689 and 2075686 came from.
+- **Firefox 159 fixes it upstream** (both FIXED, target 159, in 159 beta):
+  bug 2067689 ("Teach MCSInfo about decrypt/decrypt+decode support on Android",
+  five parts, e.g. part 3 `1f0f1a842b9b`, part 5 `4bd4a6112307`) queries
+  Widevine in the parent (`GeckoMediaPluginServiceParent::LoadFromEnvironment`,
+  NDK) and the platform codecs at gfx init, publishes both as gfxVars, and removes
+  the Java queries from `MediaDrmProxy.java` (part 5: "This allows EME to work with
+  isolated processes"); bug 2075686 fixes session close in `RemoteCDMProxy`; bug
+  2075696 adds Opus/FLAC/Vorbis decryption through the NDK. The series is about
+  1000 lines and rewrites `AndroidDecoderModule` (part 4), which
+  `isolation-media-codecs-in-content.patch` also changes; it is not a clean
+  backport onto 158.
+
+### 9b. Options considered
+
+| option | what | effort / risk | security | verdict |
+|---|---|---|---|---|
+| (A) query outside content | parent asks the NDK once, isolated content reads the answer; CDM stays in RDD as upstream 158 already does | small (one patch, ~180 lines incl. comments, no new IPC); follows upstream 159's design, dropped at the rebase | no new process or protocol; isolated content still cannot reach the HAL; RDD gets the PRemoteCDM door it already had (section 7) | **chosen** |
+| (B) catch and reject | the Java query returns "unsupported" on any `RuntimeException` | trivial | none | **also done**, as a backstop on every Android version |
+| (C) SDK gate | `media.eme.enabled` forced false and locked on Android 12+ | trivial | none | not needed once (A) works; would leave Android 12+ without DRM, unlike stock Firefox |
+| full backport of 2067689 | five parts + 2075696 | large, conflicts with the codecs patch | same as (A) | no: 159 brings it in weeks |
+
+### 9c. What `isolation-eme.patch` does
+
+1. **Parent**, only while `media.redoubt-isolation-media.enabled` is true:
+   `GeckoMediaPluginServiceParent::LoadFromEnvironment()` (GMP thread, at the
+   first content-process launch, where upstream 159 does the same) calls
+   `AMediaDrm_isCryptoSchemeSupported` + `AMediaCrypto_isCryptoSchemeSupported`
+   for Widevine and sets + locks the default-branch pref
+   `media.redoubt-eme.widevine-support` (0 not known yet, 1 no, 2 yes). Logcat,
+   tag Gecko: `Redoubt isolation-eme: parent found Widevine supported; ...`.
+2. **Isolated content**: `KeySystemConfig::Supports()` and
+   `MediaKeySystemAccess::GetKeySystemStatus()` read that pref and call no Java;
+   `CreateWivineL3KeySystemConfigs()` offers H.264 and AAC in MP4,
+   decrypt-and-decode, which is exactly what RDD can play while content is isolated
+   (section 2b's allowlist refuses every other decoder there, CDM or not). A site
+   asking for VP9 or Opus gets NotSupportedError for that configuration and, like
+   any EME client, falls back to the H.264/AAC one if it has it. Before the
+   parent's answer arrives (pref 0) Widevine reads as unsupported and the request
+   rejects at once.
+3. **Java backstop**: `MediaDrmProxy.isSchemeSupported()` and
+   `IsCryptoSchemeSupported()` catch `RuntimeException` and answer "unsupported".
+4. **Backport of bug 2075686** (`RemoteCDMProxy`, used only for isolated content):
+   `MediaKeySession.close()` now fires `keystatuseschange` and resolves `closed`,
+   and an RDD crash closes the sessions instead of hitting
+   `MOZ_ASSERT_UNREACHABLE`.
+
+5. **Expiration** (`MediaDrmRemoteCDMParent::HandleExpirationUpdate`, RDD): MediaDrm
+   reports 0 for keys that never expire, and 158.0 passed that on as 0 ms, so
+   `MediaKeySession.expiration` read 1 January 1970. Shaka then closed the
+   session right after the license; with item 4 the keys went with it and
+   playback stopped when the buffer ran out (first measurement: the Widevine
+   stream stopped at 7.9 s with `waitingforkey`, all keys "usable" until the
+   close). 0 now becomes NaN ("no expiration"), as the spec and the Java path
+   (which never reports one) have it.
+6. **Init waits for the crypto** (`MediaDrmRemoteCDMParent::RecvInit`, RDD): Init,
+   and with it `createMediaKeys()`, resolved before the `AMediaCrypto` existed.
+   On the first use of an origin the crypto session waits for provisioning (a
+   round trip to Google's provisioning server through the content process), and a
+   decoder created in that window could not attach the CDM, fell back to a
+   software decoder ffvpx does not have, and the page got a fatal media error
+   ("unable to find codec"): 2 of 9 first plays on a fresh profile. Init now
+   resolves once the crypto exists (or rejects with its error), and a failed
+   provisioning, which is sticky, no longer makes `EnsureHasAMediaCrypto()` retry
+   in an endless loop.
+
+Items 5 and 6 are defects in upstream's own isolated EME path (upstream `main`
+has the same code); they were found here because the playback test is real.
+Not reported upstream (owner rule).
+
+Gate false (Android 8-11): every changed C++ line takes 158.0's path; only the Java
+backstop is active (items 4-6 are in RDD code that only isolated content uses).
+
+Whether DRM is on is decided by the app permission: `drm-permission-default.patch`
+makes Settings > Site settings > DRM-controlled content default to Blocked and
+the settings commit removes `android.cfg`'s `media.eme.enabled=false` (LW-M7-39,
+section 9e).
+
+### 9d. Attack surface
+
+Unchanged in kind against section 7. Isolated content gains read access to one
+locked integer. With DRM allowed for a site, that site's license messages and
+encrypted H.264/AAC samples go from isolated content to `:rdd` over the
+`PRemoteCDM` and decoder protocols that 158.0 already ships and that section 7
+already lists as doors out of the isolated process ("can construct the MediaDrm CDM
+actor"). Widevine itself runs in the platform's DRM HAL process, never in a
+Redoubt process. The parent's NDK query has no input from web content. With the
+default (Blocked) no CDM is created: the request is rejected before
+`createMediaKeys()`.
+
+### 9e. Results
+
+Built from the `fix/drm-isolation` state (both patches listed, settings
+`bddc198f`) against the GPG-verified 158.0 tarball, x86_64 release variant, C/C++
+`-Werror`, Rust lints capped as before, throwaway signature: APK sha256
+`f82b4f92…e7ec` (build v3; v1 and v2 were the intermediate builds that found items
+5 and 6). Evidence: `evidence/lw-m7-39/`.
+
+| where | result |
+|---|---|
+| API 34 (isolation ON) | `--check-eme` 2/2; DRM screen reads Blocked (Recommended); fresh profile rejects Widevine, no prompt; Allowed resolves; Widevine stream (Shaka "Angel One", H.264+AAC chosen, VP9 offers rejected) plays 60 s pinned low, 40 s with ABR, and 48 s after a forced switch to 576p; Ask to allow shows the DRM prompt; Blocked rejects again; five more "first play on a fresh profile" flows all play 40 s; 0 `Failed to query crypto scheme support`, 0 tab deaths in every flow; the parent logs its Widevine answer; `--check-isolation` 2/2, `--check-video` 2/2; default suite all rows but `webgl` (API 34 harness limit, as for 158.0-2) |
+| API 30 (isolation OFF) | `--check-eme` 2/2 (Java path, pref 0, no parent query); same UI flow passes; the stream plays (VP9+AAC: the Java path offers VP9) pinned low, with ABR and after a switch; two more first plays pass; `--check-isolation` and `--check-video` pass |
+| controls on API 34 | 158.0-2: `--check-eme` FAILS `eme-prefs` and `eme-no-crash` (no parent answer); 158.0-2 with `media.eme.enabled` set true as a user pref (what about:config does): the first probe crash-loops the isolated tab (`Failed to query crypto scheme support`, a `zygoteTab` death), `--check-eme` fails all four rows |
+| before items 5 and 6 | build v1: every Widevine play stopped at 7.9 s (`waitingforkey`) after Shaka closed the session it had just licensed (`SetExpiry(0)`, then `Close()`); build v2 (item 5): plays ran to the end, but 2 of 9 first plays on a fresh profile failed ("unable to find codec") while provisioning was pending; build v3 (item 6): 8 of 8 plays on API 34, six of them the first play on a fresh profile |
+| gates | `check-patchfail` android + desktop, `check-patch-order` (one new CONSTRAINT, ten order-free pairs), `lint-patch-scope`, `board.py --check/--check-scope/--check-cfg-split/--diff-mozconfig --strict`, `site-check`, scripts/tests (163 harness unit tests): pass |
+| unit tests | `PhoneFeatureTest` 9/9, `SettingsTest` 129/129 on build v3 |
+
+Not measured: a real device (the owner's phone was not reachable on 2026-10-15),
+the API 31 emulator, and the first-run network capture (on 2026-10-15 the
+emulator capture showed no app traffic for 158.0-2 either, so it proves nothing;
+the patches add no start-up network code: the parent's query is a local NDK call,
+and Widevine provisioning, which contacts Google, happens only when a site that the
+user allowed creates a CDM, as on any Android browser).
