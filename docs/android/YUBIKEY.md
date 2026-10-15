@@ -16,11 +16,19 @@ run on that workstation under the same user. "The agent does not read the keys"
 is a rule, not a barrier. On a YubiKey:
 
 - **the private keys cannot be copied off the device**, by anyone, including the
-  maintainer;
-- **every signature needs a physical touch** (touch policy `always`), so no
-  process on the workstation, agent or malware, can sign quietly while the
-  YubiKey is plugged in;
-- the PIN is asked once per signing session.
+  maintainer. A stolen file and passphrase sign forever; a YubiKey key signs only
+  where the YubiKey is plugged in;
+- **signing needs the PIN**, asked once per signing session.
+
+**No touch requirement (decided 2026-10-15).** The keys are imported with touch
+policy `never`, so signing does not need someone at the machine. The cost: while
+the YubiKey is plugged into the workstation, anything running there that also has
+the PIN can sign, and the PIN is typed on that workstation. The PIN is the barrier
+against a compromised workstation signing; a touch would add physical presence.
+To add it later, re-import the key with `--touch-policy=always` (or `cached`, one
+touch valid for 15 seconds), from the offline backup, because the policy is fixed
+at import. Signing on a machine you sit at, with the YubiKey plugged in there,
+makes a touch practical and takes the key off the agent workstation.
 
 It does not undo the weeks the keys spent as files on a networked machine. Those
 files were passphrase-encrypted, and the passphrases were typed, never stored.
@@ -29,8 +37,8 @@ files were passphrase-encrypted, and the passphrases were typed, never stored.
 
 | key | algorithm | today | YubiKey PIV slot |
 |---|---|---|---|
-| APK release key | RSA 4096 | `~/redoubt-release.p12` | `82` (Retired Key 1), PIN once, touch always |
-| update-signing key | EC P-256 | `~/redoubt-update-key/redoubt-update-signing.pem` | `83` (Retired Key 2), PIN once, touch always |
+| APK release key | RSA 4096 | `~/redoubt-release.p12` | `82` (Retired Key 1), PIN once, no touch |
+| update-signing key | EC P-256 | `~/redoubt-update-key/redoubt-update-signing.pem` | `83` (Retired Key 2), PIN once, no touch |
 | F-Droid index key | RSA 4096 | `~/redoubt-fdroid/keystore.p12` | phase 2, see below (`84`) |
 
 **Import, don't generate.** Android accepts an update only when it is signed by
@@ -72,7 +80,7 @@ workstation.
 ## 2. Import the APK release key (slot 82)
 
     yubico-piv-tool -k -a import-key -s 82 -K PKCS12 -i ~/redoubt-release.p12 \
-        --pin-policy=once --touch-policy=always
+        --pin-policy=once --touch-policy=never
     yubico-piv-tool -k -a import-certificate -s 82 -K PKCS12 -i ~/redoubt-release.p12
 
 Each asks for the management key and the keystore passphrase. Check the
@@ -117,14 +125,13 @@ from the repository root:
         cmp fenix-$abi-release.apk "$B"/fenix-$abi-release.apk && echo "$abi: identical"
     done
 
-`sign.sh` asks for the PIN once per APK, and the YubiKey blinks for a touch for
-each signature (two per APK: v2 and v3). All four lines must say `identical`.
+`sign.sh` asks for the PIN once per APK. All four lines must say `identical`.
 
 ## 5. Import the update-signing key (slot 83)
 
     yubico-piv-tool -k -a import-key -s 83 -K PEM \
         -i ~/redoubt-update-key/redoubt-update-signing.pem \
-        --pin-policy=once --touch-policy=always
+        --pin-policy=once --touch-policy=never
     yubico-piv-tool -a read-public-key -s 83 -o /tmp/redoubt-update-pub.pem
     yubico-piv-tool -a verify-pin -a selfsign-certificate -s 83 \
         -S '/CN=Redoubt update signing/' -i /tmp/redoubt-update-pub.pem -o /tmp/redoubt-update-cert.pem

@@ -14,8 +14,9 @@ This is the short version; the sections below are the dated record.
   stored. CI builds on a separate machine (box B) and never has a key.
 - **Agents run on the same workstation, under the same user.** That the agents
   do not read the keys is a rule, not an operating-system boundary.
-- **Planned: a YubiKey.** Both keys move into the YubiKey's PIV application, with
-  a touch required for every signature, and the key files leave the workstation
+- **Planned: a YubiKey.** Both keys move into the YubiKey's PIV application, where
+  they cannot be copied; signing needs the PIN (no touch requirement, decided
+  2026-10-15), and the key files leave the workstation
   ([`YUBIKEY.md`](YUBIKEY.md)). Until the maintainer records that here, it has not
   happened.
 - **Not on Google Play, and Google never gets this key.** The 2026-10-05 decision
