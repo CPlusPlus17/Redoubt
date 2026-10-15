@@ -1692,5 +1692,123 @@ class IsolationCheckTests(unittest.TestCase):
         self.assertIsNone(harness._decoder_site('unavailable'))
 
 
+class EmeGateTests(unittest.TestCase):
+    """LW-M7-39: --check-eme grading (isolation-eme.patch + drm-permission-default.patch)."""
+    PKG = 'org.redoubtbrowser'
+    H264 = ['video/mp4; codecs="avc1.42E01E"']
+    AAC = ['audio/mp4; codecs="mp4a.40.2"']
+    PARENT = ('10-15 08:00:01.000  100  120 I Gecko   : Redoubt isolation-eme: parent found '
+              'Widevine supported; isolated content reads media.redoubt-eme.widevine-support=2')
+    CRASH = ('10-14 23:31:04.337 18132 18171 E GeckoCrashHandler: '
+             'java.lang.IllegalArgumentException: Failed to query crypto scheme support')
+    DIED = ('10-14 23:31:04.358   562  1078 I ActivityManager: Process org.redoubtbrowser:zygoteTab_'
+            'disable_art_image_:org.mozilla.gecko.process.GeckoChildProcessServices$zygoteTab:55b4 '
+            '(pid 18132) has died: fg  BTOP')
+
+    def prefs(self, gate, wv, wv_locked=True, eme=True):
+        return {'media.eme.enabled': {'value': eme, 'locked': False},
+                harness.ISOLATION_GATE_PREF: {'value': gate, 'locked': True},
+                harness.EME_WIDEVINE_PREF: {'value': wv, 'locked': wv_locked}}
+
+    DEFAULT = {'result': 'rejected', 'name': 'NotSupportedError', 'message': 'blocked'}
+
+    def good34(self):
+        return dict(sdk=34, prefs=self.prefs(True, 2), default_probe=self.DEFAULT,
+                    gecko_probe={'result': 'resolved', 'video': self.H264, 'audio': self.AAC,
+                                 'mediaKeys': 'created'},
+                    vp9_probe={'result': 'rejected', 'name': 'NotSupportedError'},
+                    log_text=self.PARENT, deaths=[], alive=True)
+
+    def grade(self, **kw):
+        return {name: (ok, detail) for name, ok, detail in harness.grade_eme(**kw)}
+
+    def test_isolated_widevine_passes_every_row(self):
+        rows = self.grade(**self.good34())
+        self.assertEqual(set(rows), {'eme-prefs', 'eme-default', 'eme-gecko-path', 'eme-no-crash'})
+        self.assertTrue(all(ok for ok, _ in rows.values()), rows)
+
+    def test_the_lw_m7_51_crash_loop_fails_no_crash(self):
+        kw = self.good34()
+        kw['log_text'] = self.PARENT + '\n' + self.CRASH + '\n' + self.DIED
+        kw['deaths'] = harness.eme_content_deaths(kw['log_text'], self.PKG)
+        self.assertEqual(len(kw['deaths']), 1)
+        ok, detail = self.grade(**kw)['eme-no-crash']
+        self.assertFalse(ok)
+        self.assertIn('Failed to query', detail)
+
+    def test_death_parser_ignores_other_packages_and_the_parent(self):
+        text = (self.DIED.replace('org.redoubtbrowser:', 'org.other:') + '\n'
+                + '10-15 I ActivityManager: Process org.redoubtbrowser (pid 1) has died: fg')
+        self.assertEqual(harness.eme_content_deaths(text, self.PKG), [])
+
+    def test_missing_parent_answer_fails_prefs_and_no_crash(self):
+        kw = self.good34()
+        kw['prefs'] = self.prefs(True, 0, wv_locked=False)
+        kw['log_text'] = ''
+        rows = self.grade(**kw)
+        self.assertFalse(rows['eme-prefs'][0])
+        self.assertFalse(rows['eme-no-crash'][0])
+
+    def test_build_without_the_parent_answer_cannot_pass_the_gecko_path(self):
+        kw = self.good34()
+        kw['prefs'] = self.prefs(True, None, wv_locked=False)
+        kw['gecko_probe'] = {'result': 'rejected', 'name': 'NotSupportedError'}
+        self.assertFalse(self.grade(**kw)['eme-gecko-path'][0])
+
+    def test_unlocked_parent_answer_fails(self):
+        kw = self.good34()
+        kw['prefs'] = self.prefs(True, 2, wv_locked=False)
+        self.assertFalse(self.grade(**kw)['eme-prefs'][0])
+
+    def test_eme_preffed_off_fails_prefs(self):
+        kw = self.good34()
+        kw['prefs'] = self.prefs(True, 2, eme=False)
+        self.assertFalse(self.grade(**kw)['eme-prefs'][0])
+
+    def test_default_must_reject_without_permission(self):
+        kw = self.good34()
+        kw['default_probe'] = {'result': 'resolved', 'keySystem': 'com.widevine.alpha'}
+        self.assertFalse(self.grade(**kw)['eme-default'][0])
+        kw['default_probe'] = {'result': 'pending-20s'}
+        self.assertFalse(self.grade(**kw)['eme-default'][0])
+
+    def test_isolated_must_offer_only_what_rdd_plays(self):
+        kw = self.good34()
+        kw['vp9_probe'] = {'result': 'resolved', 'video': ['video/webm; codecs="vp9"']}
+        self.assertFalse(self.grade(**kw)['eme-gecko-path'][0])
+        kw = self.good34()
+        kw['gecko_probe'] = dict(kw['gecko_probe'], mediaKeys='rejected: NotSupportedError: x')
+        self.assertFalse(self.grade(**kw)['eme-gecko-path'][0])
+
+    def test_isolated_without_widevine_must_reject_cleanly(self):
+        kw = self.good34()
+        kw['prefs'] = self.prefs(True, 1)
+        kw['gecko_probe'] = {'result': 'rejected', 'name': 'NotSupportedError'}
+        self.assertTrue(self.grade(**kw)['eme-gecko-path'][0])
+        kw['gecko_probe'] = {'result': 'resolved', 'mediaKeys': 'created'}
+        self.assertFalse(self.grade(**kw)['eme-gecko-path'][0])
+
+    def test_api30_java_path(self):
+        kw = dict(sdk=30, prefs=self.prefs(False, 0, wv_locked=False), default_probe=self.DEFAULT,
+                  gecko_probe={'result': 'resolved', 'mediaKeys': 'created'}, vp9_probe={},
+                  log_text='', deaths=[], alive=True)
+        rows = self.grade(**kw)
+        self.assertTrue(all(ok for ok, _ in rows.values()), rows)
+        kw['log_text'] = self.PARENT
+        self.assertFalse(self.grade(**kw)['eme-no-crash'][0])
+        kw['log_text'] = ''
+        kw['prefs'] = self.prefs(True, 0, wv_locked=False)
+        self.assertFalse(self.grade(**kw)['eme-prefs'][0])
+
+    def test_dead_app_fails(self):
+        kw = self.good34()
+        kw['alive'] = False
+        self.assertFalse(self.grade(**kw)['eme-no-crash'][0])
+
+    def test_flag_is_registered(self):
+        self.assertIn('def check_eme(', source)
+        self.assertIn('"isolation", "eme"):', source)
+
+
 if __name__ == '__main__':
     unittest.main()

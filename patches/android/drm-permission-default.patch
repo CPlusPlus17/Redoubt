@@ -1,25 +1,20 @@
 # Redoubt drm-permission-default.patch (Android, LW-M7-39): DRM off by default,
 # with Fenix's own Settings entry as the switch that turns it on.
 #
-# STATUS 2026-10-14: PENDING -- on disk, in NO patch list (PATCH-SCOPE.md,
-# "Pending"). Do not list it on Firefox 158. It needs the settings half
-# (android.cfg without media.eme.enabled=false), and with media.eme.enabled
-# true, any page that calls navigator.requestMediaKeySystemAccess() for
-# Widevine crashes the content process on Android 12+, where 158.0-2 isolates
-# it. Gecko checks key-system support (MediaDrmProxy.isSchemeSupported ->
-# MediaDrm.isCryptoSchemeSupported) in the content process BEFORE the app is
-# asked. In an isolated_app process SELinux denies the DRM HAL lookup, the call
-# throws IllegalArgumentException("Failed to query crypto scheme support") on
-# the Gecko thread, the tab crashes, Fenix reloads it, and it crashes again (a
-# crash loop, whatever the DRM setting says). Measured on the API 34 emulator
-# with this patch and that cfg change: 836 such content crashes in about 7
-# minutes of EME probes (docs/android/evidence/lw-m7-51/). The isolation study
-# (docs/android/ISOLATION-MEDIA-STUDY.md) lists upstream bugs 2067689 and
-# 2075686, FIXED in Firefox 159, as the EME work on this path; whether they
-# cover this crash is to be measured on 159. Below Android 12 (no isolation,
-# API 30 emulator) the design works as intended: default Blocked rejects,
-# Allowed resolves Widevine, Ask to allow shows the DRM prompt, no crash.
-# Re-test on the 159 rebase, or choose an SDK-gated variant (owner decision).
+# STATUS: listed in android.txt since 2026-10-15 (LW-M7-39), right after
+# no-webcompat-reporter. From 2026-10-14 to 2026-10-15 it was held back on disk:
+# with media.eme.enabled true, any page calling
+# navigator.requestMediaKeySystemAccess() for Widevine crashed the content
+# process on Android 12+, where 158.0-2 isolates it, in a loop, whatever the DRM
+# setting said (836 crashes in about 7 minutes on the API 34 emulator,
+# docs/android/evidence/lw-m7-51/). Gecko asked MediaDrm from the isolated
+# content process before the app was asked, SELinux denied the DRM HAL there,
+# and the Java exception was fatal. Owner decision 2026-10-15, verbatim: "lets
+# analyse this in more detail and try to fix". patches/android/isolation-eme.patch
+# (listed before this one) moves that query to the parent and fixes the rest of
+# the isolated EME path; with both, the design below works on Android 12+ as it
+# did on Android 8-11 (evidence docs/android/evidence/lw-m7-39/,
+# docs/android/ISOLATION-MEDIA.md section 9).
 #
 # Upstream files touched
 # -----------------------
@@ -83,12 +78,11 @@
 # SettingsTest's default-rules fixture now has mediaKeySystemAccess = BLOCKED,
 # and a new case checks the default and that "Ask to allow" is honoured.
 #
-# Ordering, for when it is listed: last in android.txt, on top of the seven
-# patches that edit Settings.kt and the three that edit SettingsTest.kt; every
-# pair measured order-free on 158.0 by swapping
-# (docs/android/evidence/lw-m7-51/ordering-swap.py). Listing it needs those
-# pairs in scripts/check-patch-order.py (the measured rows are in the
-# evidence README) and a re-measure on the new tree.
+# Ordering: last in android.txt, on top of the seven patches that edit
+# Settings.kt and the three that edit SettingsTest.kt; every pair measured
+# order-free on 158.0 by swapping (LW-M7-51, re-measured 2026-10-15 with the
+# same hashes: docs/android/evidence/lw-m7-39/gates/ordering-swap.txt) and
+# recorded in scripts/check-patch-order.py.
 #
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
 index 1954186..cf69468 100644
