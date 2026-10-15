@@ -169,7 +169,8 @@ LW-M7-02 may now put this text on the download page **verbatim**, not paraphrase
 and not summarised. The sentence promises "we publish exactly where", and the
 thing it promises to publish is the table in section 1 of this file — including
 row 1's absent content-process sandbox and row 6's DoH, which Fenix overwrites on
-every cold start. Publishing the sentence without a reachable link to that table
+every cold start (since Beta 2 with LibreWolf's values; the resolver a DoH-on
+profile uses is not measured). Publishing the sentence without a reachable link to that table
 would make it false.
 
 ## 6. Sources
@@ -307,7 +308,8 @@ list it.
   rebase Android` issue for such a release, noting whether a source tarball
   exists. The MFSA index stays the check for what the release fixes.
 - **Not covered by this section:** the platform gaps of §1 to §3 (no content
-  sandbox, DoH overridden) are unchanged. This section is about Mozilla
+  sandbox; DoH rewritten by Fenix on every cold start, with LibreWolf's
+  defaults since Beta 2, row 6) are unchanged. This section is about Mozilla
   advisories only.
 
 ## 8. Known limitations: passwords and passkeys (2026-10-05, updated 2026-10-14)

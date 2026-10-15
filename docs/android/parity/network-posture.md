@@ -34,7 +34,7 @@ and accepts the real cfg, so the gate is capable of failing.
 
 | Behaviour | Mechanism | Honoured on Android? |
 |---|---|---|
-| **DoH** | cfg (common.cfg:259-260), then **overwritten at every cold start** by `Core.kt:190-191` → `GeckoEngine.kt:2032-2033` with Fenix's defaults (mode 0, empty URI) | **No — Fenix's DoH settings screen owns `network.trr.mode` / `network.trr.uri`**; our provider never reaches Gecko, and locking would leave that screen interactive while discarding every choice (`must-not-lock.txt`, commit 7c92b22). Corrected 2026-09-05; this row previously said "code-locked" |
+| **DoH** | cfg (common.cfg:259-260), then **overwritten at every cold start** by `Core.kt:190-191` → `GeckoEngine.kt:2032-2033` with Fenix's defaults (mode 0, empty URI) | **No — Fenix's DoH settings screen owns `network.trr.mode` / `network.trr.uri`**; our provider never reaches Gecko, and locking would leave that screen interactive while discarding every choice (`must-not-lock.txt`, commit 7c92b22). Corrected 2026-09-05; this row previously said "code-locked". **Update 2026-10-15:** since Beta 2 `privacy-defaults.patch` makes Fenix's defaults LibreWolf's (mode 5, Quad9 URI), so the rewrite now writes LibreWolf's values; the resolver a DoH-on profile uses is not measured (`PARITY.md` row 6) |
 | **HTTPS-only** | cfg-only (no `[ANDROID: LOCK]`) | **At risk** — depends on the cfg being applied |
 | **CRLite/OCSP** | cfg-only (no `[ANDROID: LOCK]`) | **At risk** — depends on the cfg being applied |
 | **TLS floor** | cfg-only (no `[ANDROID: LOCK]`) | **At risk** — depends on the cfg being applied |
@@ -61,7 +61,7 @@ interstitial, silent upgrade and per-origin exception; TLS 1.0/1.1 refused and
 1.2/1.3 connecting; no OCSP request ever sent, a stapled "revoked" response
 refused, and CRLite refusing `revoked.badssl.com` once filters synced. Each
 check has a negative control that fails. DoH is unchanged (Fenix overrides it,
-§2). Results and caveats: `PARITY.md` rows 5, 7, 8 and
+§2; since Beta 2 with LibreWolf's defaults, `PARITY.md` row 6). Results and caveats: `PARITY.md` rows 5, 7, 8 and
 `evidence/lw-m7-49/README.md`; phone steps: `DEVICE-CHECKS.md`.
 
 The text below is the original 2026-08 record.
