@@ -1,0 +1,31 @@
+AOSP frameworks/av media/ndk/NdkMediaDrm.cpp, DrmListener::sendEvent (fetched from android.googlesource.com, refs/heads/<branch>):
+
+== android12-release
+182:    int32_t dataSize = data.size();
+183-    const uint8_t *dataPtr = data.data();
+184:    if (dataSize > 0) {
+185:        (*mEventListener)(mObj, &asid, ndkEventType, 0, dataPtr, dataSize);
+186-    } else {
+187:        ALOGE("invalid event data size=%d", dataSize);
+188-    }
+189-}
+
+== android13-release
+184:    int32_t dataSize = data.size();
+185-    const uint8_t *dataPtr = data.data();
+186:    if (dataSize > 0) {
+187:        (*mEventListener)(mObj, &asid, ndkEventType, 0, dataPtr, dataSize);
+188-    } else {
+189:        ALOGE("invalid event data size=%d", dataSize);
+190-    }
+191-}
+
+== android14-release
+184:    int32_t dataSize = data.size();
+185-    const uint8_t *dataPtr = data.data();
+186:    if (dataSize >= 0) {
+187:        (*mEventListener)(mObj, &asid, ndkEventType, 0, dataPtr, dataSize);
+188-    } else {
+189:        ALOGE("invalid event data size=%d", dataSize);
+190-    }
+191-}
