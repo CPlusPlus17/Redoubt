@@ -1,0 +1,470 @@
+# Redoubt isolation-eme.patch  (Android, android.txt)
+# Owner: LW-M7-39. Redoubt Gecko/GeckoView change for Firefox 158; drop at the
+# 159 rebase (upstream bugs 2067689 and 2075686 do the same there, see below).
+#
+# Owner decision 2026-10-15, verbatim: "lets analyse this in more detail and
+# try to fix" (the DRM crash under isolation found in LW-M7-51).
+#
+# The defect (Firefox 158 + 158.0-2's isolated content, Android 12+)
+# -----------------------------------------------------------------
+# With media.eme.enabled true, a page calling
+# navigator.requestMediaKeySystemAccess("com.widevine.alpha", ...) makes the
+# CONTENT process ask Java whether Widevine exists before the app is asked:
+#   MediaKeySystemAccessManager -> MediaKeySystemAccess::GetKeySystemStatus()
+#     -> java::MediaDrmProxy::IsSchemeSupported()      (geckoview-prefs.js sets
+#        media.mediadrm-widevinecdm.visible=true)
+#   MediaKeySystemAccess::GetSupportedConfig() -> KeySystemConfig::Supports()
+#     and CreateWivineL3KeySystemConfigs() -> MediaDrmProxy.isSchemeSupported /
+#     IsCryptoSchemeSupported -> android.media.MediaDrm.isCryptoSchemeSupported
+# In an isolated content process (isolated_app) SELinux denies the
+# IDrmFactory/widevine (and clearkey) service lookup, MediaDrm throws
+# IllegalArgumentException("Failed to query crypto scheme support"), and
+# because @WrapForJNI calls treat a Java exception as fatal, the Gecko thread
+# dies: the tab crashes, Fenix reloads it, it crashes again (836 crashes in 7
+# minutes on the API 34 emulator, docs/android/evidence/lw-m7-51/). Below
+# Android 12 content is not isolated and the query works.
+#
+# The rest of the EME path was already process-safe in 158.0: when the Java
+# decoder module is not allowed (isolated content), MediaKeys::CreateCDMProxy()
+# creates the CDM in RDD (RemoteMediaManagerChild::CreateCDM ->
+# RemoteCDMProxy -> MediaDrmRemoteCDMParent, NDK AMediaDrm/AMediaCrypto), and
+# encrypted H.264/AAC are decrypted and decoded together there by the MediaCodec
+# NDK through ffvpx (FFmpegDataDecoder::MaybeAttachCDM). RDD runs as
+# untrusted_app and may use the DRM HAL. Only the support QUERY was left in
+# content. Upstream moves it to the parent in Firefox 159 (bug 2067689, five
+# parts, ~1000 lines, gfxVars + an AndroidDecoderModule rewrite that conflicts
+# with isolation-media-codecs-in-content.patch); this patch does the same with
+# the smallest change that fits 158.0-2's isolation gate.
+#
+# What it does
+# ------------
+# 1. Parent, only while media.redoubt-isolation-media.enabled is true (the
+#    locked gate pref, true exactly when content runs isolated: Android 12+,
+#    isolation-media-prefs.patch): GeckoMediaPluginServiceParent::
+#    LoadFromEnvironment(), on the GMP thread at the first content-process
+#    launch, asks the NDK AMediaDrm_isCryptoSchemeSupported +
+#    AMediaCrypto_isCryptoSchemeSupported for Widevine (as upstream's part 3
+#    does in the same function) and publishes the answer as the locked
+#    default-branch pref media.redoubt-eme.widevine-support (0 not known yet,
+#    1 no, 2 yes). Prefs reach every process, isolated content included, and a
+#    lock beats about:config/prefs.js. Logcat (tag Gecko):
+#      Redoubt isolation-eme: parent found Widevine supported; ...
+# 2. Content, gate true: KeySystemConfig::Supports() and
+#    MediaKeySystemAccess::GetKeySystemStatus() read that pref instead of
+#    calling MediaDrm; CreateWivineL3KeySystemConfigs() offers H.264 and AAC in
+#    MP4, decrypt-and-decode (what RDD actually plays while content is
+#    isolated: isolation-media-codecs-in-content.patch makes RDD refuse every
+#    other decoder, CDM or not) and calls no Java. Before the parent's answer
+#    arrives (0), Widevine is "not installed" and the request rejects
+#    (NotSupportedError), as upstream's "Unknown" does.
+#    Gate false (Android 8-11): every changed line takes 158.0's path.
+# 3. MediaDrmProxy.isSchemeSupported/IsCryptoSchemeSupported (GeckoView Java):
+#    a RuntimeException from MediaDrm/MediaCrypto is caught and reported as
+#    "not supported" instead of killing the calling Gecko thread. Backstop on
+#    every Android version; with 1+2 no isolated process calls it any more.
+# 4. Backport of upstream bug 2075686 (RemoteCDMProxy, the RDD CDM proxy used
+#    only for isolated content): closing a session notifies MediaKeySession
+#    (keystatuseschange + "closed"), and an RDD crash closes the sessions with
+#    an error instead of hitting MOZ_ASSERT_UNREACHABLE.
+#      Bug 2075686 - Ensure RemoteCDMProxy closes sessions appropriately.
+#      r=media-playback-reviewers,alwu; Author: Andrew Osmond
+#      <aosmond@mozilla.com>, 2026-09-29; mozilla-firefox commit
+#      476a668978c266e21a1302839b155cc2ebe32460 (Firefox 159). Upstream patch
+#      sha256 (github.com/.../commit/<sha>.patch, fetched 2026-10-15):
+#      cef6703c2adfe89bd67076d0cb3d2557ffdc3223df49efa9ecefb79cfffc84d8
+#    Applied verbatim (both hunks, fuzz 0 on 158.0).
+# 5. MediaDrmRemoteCDMParent::HandleExpirationUpdate (RDD, isolated content
+#    only): MediaDrm reports an expiration of 0 for keys that never expire; it
+#    was passed on as 0 ms, so MediaKeySession.expiration read 1 January 1970
+#    and a player that honours it (Shaka) closed the session right after the
+#    license: with item 4 the keys go with it and playback stalls when the
+#    buffer runs out (measured on the API 34 emulator: Widevine stream stopped
+#    at 7.9 s, "waitingforkey"). 0 now becomes NaN, EME's "no expiration", as
+#    the Java path (which never reports one) and the spec have it. Upstream
+#    main has the same code (not reported upstream; owner rule).
+# 6. MediaDrmRemoteCDMParent::RecvInit (RDD, isolated content only): Init, and
+#    with it createMediaKeys(), resolved before the AMediaCrypto existed. On the
+#    first use of an origin the crypto session waits for provisioning, and a
+#    decoder created in that window could not attach the CDM, fell back to a
+#    software decoder ffvpx does not have and failed ("unable to find codec";
+#    measured: 2 of 9 first plays on a fresh profile). Init now resolves once
+#    the crypto exists, or rejects with its error. And a failed provisioning,
+#    which is sticky, no longer makes EnsureHasAMediaCrypto() retry forever.
+#    Upstream main has the same code.
+#
+# Whether DRM is ON is not decided here: media.eme.enabled and the app's
+# DRM-controlled content permission decide (drm-permission-default.patch,
+# settings/android.cfg). This patch only makes the query safe and correct in
+# isolated content, so that the switch can work on Android 12+ too.
+#
+# Security: no new process and no new IPC protocol. The Widevine query runs in
+# the parent (untrusted_app, already the HAL's client for everything else);
+# license messages and encrypted samples go content -> RDD over the PRemoteCDM
+# protocol upstream 158.0 already ships, to the RDD process that already
+# decodes H.264/AAC for isolated content. The DRM HAL and Widevine run in their
+# own system processes, never in a Redoubt process. Isolated content still
+# cannot reach the HAL; it only reads a locked integer.
+#
+# Upstream files touched
+# ----------------------
+#   dom/media/eme/KeySystemConfig.cpp         Supports(), CreateWivineL3KeySystemConfigs()
+#   dom/media/eme/MediaKeySystemAccess.cpp    GetKeySystemStatus()
+#   dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp  RecvInit(), EnsureHasAMediaCrypto(),
+#                                                       HandleExpirationUpdate()
+#   dom/media/gmp/GMPServiceParent.cpp        LoadFromEnvironment()
+#   dom/media/ipc/RemoteCDMChild.cpp          (bug 2075686)
+#   dom/media/ipc/RemoteCDMProxy.cpp          (bug 2075686)
+#   mobile/android/geckoview/src/main/java/org/mozilla/gecko/media/MediaDrmProxy.java
+#   modules/libpref/init/StaticPrefList.yaml  media.redoubt-eme.widevine-support
+#
+# Ordering: after isolation-media-codecs-in-content.patch (the new pref is
+# added after that patch's media.redoubt-test.skip-content-codec-filter, and
+# the gate pref read here is defined there).
+#
+# Line numbers are from the Firefox 158.0 tree AFTER the patches listed before
+# this one in assets/patches/android.txt.
+#
+--- a/dom/media/eme/KeySystemConfig.cpp
++++ b/dom/media/eme/KeySystemConfig.cpp
+@@ -31,9 +31,19 @@
+ /* static */
+ bool KeySystemConfig::Supports(const nsAString& aKeySystem) {
+ #ifdef MOZ_WIDGET_ANDROID
+-  // Check if we can use MediaDrm for this keysystem.
+-  if (mozilla::java::MediaDrmProxy::IsSchemeSupported(
+-          NS_ConvertUTF16toUTF8(aKeySystem))) {
++  if (StaticPrefs::media_redoubt_isolation_media_enabled()) {
++    // Redoubt (LW-M7-39): content is isolated (Android 12+). android.media.
++    // MediaDrm is out of reach here (SELinux denies isolated_app the DRM HAL;
++    // the Java call throws and used to take the tab down), so use the answer
++    // the parent found (GeckoMediaPluginServiceParent::LoadFromEnvironment).
++    // The CDM itself runs in RDD (MediaKeys::CreateCDMProxy).
++    if (IsWidevineKeySystem(aKeySystem) &&
++        StaticPrefs::media_redoubt_eme_widevine_support() == 2) {
++      return true;
++    }
++  } else if (mozilla::java::MediaDrmProxy::IsSchemeSupported(
++                 NS_ConvertUTF16toUTF8(aKeySystem))) {
++    // Check if we can use MediaDrm for this keysystem.
+     return true;
+   }
+   // Check if we can use our bundled Clearkey plugin.
+@@ -138,6 +148,18 @@
+   config->mVideoRobustness.AppendElement(u"SW_SECURE_DECODE"_ns);
+ 
+ #if defined(MOZ_WIDGET_ANDROID)
++  if (StaticPrefs::media_redoubt_isolation_media_enabled()) {
++    // Redoubt (LW-M7-39): isolated content. Decryption and decoding happen
++    // together in RDD (MediaDrmRemoteCDMParent + the MediaCodec NDK through
++    // ffvpx), and RDD decodes only H.264, HEVC and AAC while content is
++    // isolated (isolation-media-codecs-in-content.patch refuses every other
++    // decoder there, CDM or not). So offer exactly what can play: H.264 and
++    // AAC in MP4, decrypt-and-decode, as upstream does from Firefox 159 (bug
++    // 2067689 part 5) for codecs the MediaCodec NDK supplies. No Java call.
++    config->mMP4.SetCanDecryptAndDecode(EME_CODEC_H264);
++    config->mMP4.SetCanDecryptAndDecode(EME_CODEC_AAC);
++    return;
++  }
+   // MediaDrm.isCryptoSchemeSupported only allows passing
+   // "video/mp4" or "video/webm" for mimetype string.
+   // See
+--- a/dom/media/eme/MediaKeySystemAccess.cpp
++++ b/dom/media/eme/MediaKeySystemAccess.cpp
+@@ -161,8 +161,13 @@
+ #ifdef MOZ_WIDGET_ANDROID
+     } else if (Preferences::GetBool("media.mediadrm-widevinecdm.visible",
+                                     false)) {
++      // Redoubt (LW-M7-39): in an isolated content process (Android 12+)
++      // MediaDrm cannot be called; KeySystemConfig::Supports() then reads the
++      // parent's answer (media.redoubt-eme.widevine-support) instead.
+       bool supported =
+-          mozilla::java::MediaDrmProxy::IsSchemeSupported(keySystem);
++          StaticPrefs::media_redoubt_isolation_media_enabled()
++              ? KeySystemConfig::Supports(keySystem)
++              : mozilla::java::MediaDrmProxy::IsSchemeSupported(keySystem);
+       if (!supported) {
+         aOutMessage = nsLiteralCString(
+             "KeySystem or Minimum API level not met for Widevine EME");
+--- a/dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp
++++ b/dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp
+@@ -298,9 +298,25 @@
+           fmt::ptr(mDrm));
+   InitializeStatics();
+   sCbMap->insert(std::pair{mDrm, this});
+-  aResolver(MediaResult(NS_OK));
+ 
+-  EnsureHasAMediaCrypto();
++  // Redoubt (LW-M7-39): resolve Init (and with it the page's createMediaKeys())
++  // only once the AMediaCrypto exists. It needs an open MediaDrm session, and on
++  // the first use of an origin that waits for provisioning (a network round trip
++  // through the content process). Resolved earlier, a page could create its
++  // decoders in that window: FFmpegDataDecoder::MaybeAttachCDM() then finds no
++  // crypto, the MediaCodec decoder fails, ffvpx falls back to a software decoder
++  // it does not have for H.264/AAC ("unable to find codec") and playback fails
++  // (measured on the API 34 emulator: 2 of 9 first plays after a fresh profile).
++  // A crypto failure now rejects createMediaKeys() instead of playback.
++  EnsureHasAMediaCrypto()->Then(
++      GetCurrentSerialEventTarget(), __func__,
++      [self = RefPtr{this}, resolver = std::move(aResolver)](
++          const InternalPromise::ResolveOrRejectValue& aValue) {
++        EME_LOG("[{}] MediaDrmRemoteCDMParent::RecvInit -- crypto {}",
++                fmt::ptr(self.get()), aValue.IsResolve() ? "ready" : "failed");
++        resolver(aValue.IsResolve() ? MediaResult(NS_OK)
++                                    : aValue.RejectValue());
++      });
+   return IPC_OK();
+ }
+ 
+@@ -327,7 +343,16 @@
+   if (status == AMEDIA_DRM_NOT_PROVISIONED) {
+     return EnsureProvisioned()->Then(
+         GetCurrentSerialEventTarget(), __func__,
+-        [self = RefPtr{this}](const InternalPromise::ResolveOrRejectValue&) {
++        [self = RefPtr{this}](const InternalPromise::ResolveOrRejectValue&
++                                  aValue) -> RefPtr<InternalPromise> {
++          // Redoubt (LW-M7-39): a failed provisioning is sticky
++          // (mProvisionError), so retrying here would open a session, find it
++          // still unprovisioned and come back at once, forever. Pass the
++          // failure on instead (RecvInit now waits for this promise).
++          if (aValue.IsReject()) {
++            return InternalPromise::CreateAndReject(aValue.RejectValue(),
++                                                    __func__);
++          }
+           return self->EnsureHasAMediaCrypto();
+         });
+   }
+@@ -759,8 +784,16 @@
+ 
+   EME_LOG("[{}] MediaDrmRemoteCDMParent::HandleExpirationUpdate",
+           fmt::ptr(this));
+-  (void)SendOnSessionKeyExpiration(RemoteCDMKeyExpirationIPDL(
+-      std::move(aSessionId), static_cast<double>(aExpiryTimeInMS)));
++  // Redoubt (LW-M7-39): MediaDrm reports 0 when the keys never expire
++  // (MediaDrm.OnExpirationUpdateListener); EME's MediaKeySession.expiration
++  // is NaN in that case. Passed on as 0 (1 January 1970), the session reads
++  // as long expired and players such as Shaka close it, which removes its keys
++  // and stalls playback once the buffered media is used up.
++  const double expiration =
++      aExpiryTimeInMS > 0 ? static_cast<double>(aExpiryTimeInMS)
++                          : std::numeric_limits<double>::quiet_NaN();
++  (void)SendOnSessionKeyExpiration(
++      RemoteCDMKeyExpirationIPDL(std::move(aSessionId), expiration));
+ }
+ 
+ void MediaDrmRemoteCDMParent::HandleKeysChange(
+--- a/dom/media/gmp/GMPServiceParent.cpp
++++ b/dom/media/gmp/GMPServiceParent.cpp
+@@ -52,6 +52,13 @@
+ #  include "mozilla/MFCDMParent.h"
+ #endif
+ 
++#ifdef MOZ_WIDGET_ANDROID
++// Redoubt (LW-M7-39): Widevine support for isolated content, queried here.
++#  include "media/NdkMediaCrypto.h"
++#  include "media/NdkMediaDrm.h"
++#  include "mozilla/glue/Debug.h"  // printf_stderr
++#endif
++
+ namespace mozilla::gmp {
+ 
+ #ifdef __CLASS__
+@@ -553,6 +560,41 @@
+ 
+     UpdateContentProcessGMPCapabilities();
+   }
++
++  // Redoubt (LW-M7-39). An isolated content process (Android 12+,
++  // media.redoubt-isolation-media.enabled) may not reach the DRM HAL: SELinux
++  // denies isolated_app the IDrmFactory lookup and
++  // MediaDrm.isCryptoSchemeSupported() throws there. So, while content is
++  // isolated, the parent answers "is Widevine supported?" once, here on the
++  // GMP thread (starting the DRM HAL can be slow), and hands the answer to
++  // every process as the locked default-branch pref
++  // media.redoubt-eme.widevine-support (1 no, 2 yes; 0 = not known yet).
++  // Content reads that pref instead of calling MediaDrm (KeySystemConfig.cpp,
++  // MediaKeySystemAccess.cpp); the CDM itself already runs in RDD
++  // (MediaKeys::CreateCDMProxy -> RemoteCDMProxy -> MediaDrmRemoteCDMParent).
++  // Same design as upstream bug 2067689 part 3 (Firefox 159), which uses a
++  // gfxVar for the value. When content is not isolated nothing is queried here.
++  if (StaticPrefs::media_redoubt_isolation_media_enabled()) {
++    static constexpr uint8_t kRedoubtWidevineUuid[] = {
++        0xed, 0xef, 0x8b, 0xa9, 0x79, 0xd6, 0x4a, 0xce,
++        0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21, 0xed};
++    const bool widevineSupported =
++        AMediaDrm_isCryptoSchemeSupported(kRedoubtWidevineUuid, nullptr) &&
++        AMediaCrypto_isCryptoSchemeSupported(kRedoubtWidevineUuid);
++    mMainThread->Dispatch(NS_NewRunnableFunction(
++        "RedoubtIsolatedWidevineSupport", [widevineSupported] {
++          static const char kPref[] = "media.redoubt-eme.widevine-support";
++          Preferences::Unlock(kPref);
++          Preferences::SetInt(kPref, widevineSupported ? 2 : 1,
++                              PrefValueKind::Default);
++          Preferences::Lock(kPref);
++          printf_stderr(
++              "Redoubt isolation-eme: parent found Widevine %s; isolated "
++              "content reads media.redoubt-eme.widevine-support=%d\n",
++              widevineSupported ? "supported" : "unsupported",
++              widevineSupported ? 2 : 1);
++        }));
++  }
+ #endif
+ 
+   const char* env = PR_GetEnv("MOZ_GMP_PATH");
+--- a/modules/libpref/init/StaticPrefList.yaml
++++ b/modules/libpref/init/StaticPrefList.yaml
+@@ -12869,6 +12869,17 @@
+   value: false
+   mirror: always
+ 
++# Redoubt (LW-M7-39). Whether the platform supports Widevine, as the PARENT
++# process found it: 0 not known yet, 1 unsupported, 2 supported. Set (default
++# branch) and locked by GeckoMediaPluginServiceParent::LoadFromEnvironment()
++# only while media.redoubt-isolation-media.enabled is true; isolated content
++# reads it instead of calling android.media.MediaDrm, which SELinux denies it.
++# Unused while content is not isolated.
++- name: media.redoubt-eme.widevine-support
++  type: RelaxedAtomicInt32
++  value: 0
++  mirror: always
++
+ - name: media.rdd-wav.enabled
+   type: RelaxedAtomicBool
+ #if defined(XP_WIN)
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/media/MediaDrmProxy.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/media/MediaDrmProxy.java
+@@ -35,11 +35,25 @@
+   private GeckoMediaDrm mImpl;
+   private String mDrmStubId;
+ 
++  // Redoubt (LW-M7-39): both queries below are called from Gecko through JNI,
++  // where an uncaught Java exception is fatal for the calling process. If the
++  // DRM HAL cannot be reached (an isolated content process: SELinux denies
++  // isolated_app the IDrmFactory lookup and MediaDrm throws
++  // IllegalArgumentException "Failed to query crypto scheme support"), answer
++  // "not supported" instead of crashing; the page's
++  // requestMediaKeySystemAccess() then rejects with NotSupportedError. Gecko
++  // does not call these from an isolated process (KeySystemConfig.cpp reads the
++  // parent's answer there); this is the backstop.
+   @WrapForJNI
+   public static boolean isSchemeSupported(final String keySystem) {
+     if (keySystem.equals(WIDEVINE_KEY_SYSTEM)) {
+-      return MediaDrm.isCryptoSchemeSupported(WIDEVINE_SCHEME_UUID)
+-          && MediaCrypto.isCryptoSchemeSupported(WIDEVINE_SCHEME_UUID);
++      try {
++        return MediaDrm.isCryptoSchemeSupported(WIDEVINE_SCHEME_UUID)
++            && MediaCrypto.isCryptoSchemeSupported(WIDEVINE_SCHEME_UUID);
++      } catch (final RuntimeException e) {
++        Log.w(LOGTAG, "Redoubt: Widevine query failed, reporting unsupported", e);
++        return false;
++      }
+     }
+     if (DEBUG) Log.d(LOGTAG, "isSchemeSupported key sytem = " + keySystem);
+     return false;
+@@ -48,7 +62,12 @@
+   @WrapForJNI
+   public static boolean IsCryptoSchemeSupported(final String keySystem, final String container) {
+     if (keySystem.equals(WIDEVINE_KEY_SYSTEM)) {
+-      return MediaDrm.isCryptoSchemeSupported(WIDEVINE_SCHEME_UUID, container);
++      try {
++        return MediaDrm.isCryptoSchemeSupported(WIDEVINE_SCHEME_UUID, container);
++      } catch (final RuntimeException e) {
++        Log.w(LOGTAG, "Redoubt: Widevine query failed for " + container, e);
++        return false;
++      }
+     }
+     if (DEBUG)
+       Log.d(LOGTAG, "cannot decrypt key sytem = " + keySystem + ", container = " + container);
+--- a/dom/media/ipc/RemoteCDMProxy.cpp
++++ b/dom/media/ipc/RemoteCDMProxy.cpp
+@@ -359,27 +359,40 @@
+                  aPromiseId]() mutable {
+         LOGD("[{}] RemoteCDMProxy::CloseSession -- promise {}",
+              fmt::ptr(self.get()), aPromiseId);
+-        self->mChild->SendCloseSession(std::move(sessionId))
+-            ->Then(
+-                GetMainThreadSerialEventTarget(), __func__,
+-                [self, aPromiseId](const PRemoteCDMChild::CloseSessionPromise::
+-                                       ResolveOrRejectValue& aValue) {
+-                  if (self->mKeys.IsNull()) {
+-                    return;
+-                  }
++        self->mChild->SendCloseSession(sessionId)->Then(
++            GetMainThreadSerialEventTarget(), __func__,
++            [self, aPromiseId,
++             sessionId](const PRemoteCDMChild::CloseSessionPromise::
++                            ResolveOrRejectValue& aValue) {
++              if (self->mKeys.IsNull()) {
++                return;
++              }
++
++              bool keyStatusesChange = false;
++              {
++                auto caps = self->mCapabilites.Lock();
++                keyStatusesChange = caps->RemoveKeysForSession(sessionId);
++              }
++              if (RefPtr<dom::MediaKeySession> session =
++                      self->mKeys->GetSession(sessionId)) {
++                if (keyStatusesChange) {
++                  session->DispatchKeyStatusesChange();
++                }
++                session->OnClosed(
++                    dom::MediaKeySessionClosedReason::Closed_by_application);
++              }
++
++              if (aValue.IsReject()) {
++                self->RejectPromise(
++                    aPromiseId,
++                    MediaResult(
++                        NS_ERROR_DOM_INVALID_STATE_ERR,
++                        "PRemoteCDMProxy::SendCloseSession IPC fail"_ns));
++                return;
++              }
+ 
+-                  if (aValue.IsReject()) {
+-                    self->RejectPromise(
+-                        aPromiseId,
+-                        MediaResult(
+-                            NS_ERROR_DOM_INVALID_STATE_ERR,
+-                            "PRemoteCDMProxy::SendCloseSession IPC fail"_ns));
+-                    return;
+-                  }
+-
+-                  self->ResolveOrRejectPromise(aPromiseId,
+-                                               aValue.ResolveValue());
+-                });
++              self->ResolveOrRejectPromise(aPromiseId, aValue.ResolveValue());
++            });
+       })));
+ }
+ 
+@@ -427,7 +440,13 @@
+ }
+ 
+ void RemoteCDMProxy::Terminated() {
+-  MOZ_ASSERT_UNREACHABLE("Unexpected to be called!");
++  LOGD("[{}] RemoteCDMProxy::Terminated", fmt::ptr(this));
++  NS_DispatchToMainThread(
++      NS_NewRunnableFunction(__func__, [self = RefPtr{this}]() {
++        if (!self->mKeys.IsNull()) {
++          self->mKeys->Terminated();
++        }
++      }));
+ }
+ 
+ void RemoteCDMProxy::OnSetSessionId(uint32_t aCreateSessionToken,
+--- a/dom/media/ipc/RemoteCDMChild.cpp
++++ b/dom/media/ipc/RemoteCDMChild.cpp
+@@ -21,7 +21,12 @@
+   mProxy = nullptr;
+ }
+ 
+-void RemoteCDMChild::ActorDestroy(ActorDestroyReason aWhy) { mProxy = nullptr; }
++void RemoteCDMChild::ActorDestroy(ActorDestroyReason aWhy) {
++  if (aWhy == AbnormalShutdown && mProxy) {
++    mProxy->Terminated();
++  }
++  mProxy = nullptr;
++}
+ 
+ mozilla::ipc::IPCResult RemoteCDMChild::RecvProvision(
+     const RemoteCDMProvisionRequestIPDL& aRequest,

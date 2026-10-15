@@ -3181,6 +3181,205 @@ def check_no_isolation(m, res, app, adb, origin, https_url, sdk, forcefail=False
             {"refusals_before": before, "refusals_after": after, "probe": probe})
     return all(r["ok"] for r in res.rows if r["check"].startswith("isolation-"))
 
+# --------------------------------------------------------------------------
+# --check-eme (LW-M7-39). Encrypted Media Extensions on both sides of the
+# isolation gate (owner decision 2026-10-15: "lets analyse this in more detail
+# and try to fix"). In Firefox 158 + isolated content (Android 12+) any
+# requestMediaKeySystemAccess() for Widevine made the isolated content process
+# call android.media.MediaDrm, which SELinux denies it; the Java exception
+# killed the tab in a loop (evidence/lw-m7-51/). patches/android/isolation-eme.patch
+# moves that query to the parent (locked pref media.redoubt-eme.widevine-support)
+# and the app permission (drm-permission-default.patch) is the DRM switch.
+# Rows:
+#   eme-prefs       media.eme.enabled true (no Redoubt pref file sets it); on
+#                   API >= 31 the parent's Widevine answer is published, locked;
+#                   below, the pref is unused (0)
+#   eme-default     fresh profile, Widevine: rejects NotSupportedError, no prompt
+#                   (DRM-controlled content defaults to Blocked)
+#   eme-gecko-path  with the app approval switched off for the test
+#                   (media.eme.require-app-approval, cleared afterwards), Gecko
+#                   alone answers: on API >= 31 Widevine resolves when the parent
+#                   found it, offers H.264+AAC, refuses VP9 in WebM, and
+#                   createMediaKeys() succeeds (CDM in RDD); below API 31 the
+#                   158.0 Java path answers
+#   eme-no-crash    across the whole check: no "Failed to query crypto scheme
+#                   support", no content process died, the app is alive; on
+#                   API >= 31 the parent logged its Widevine answer
+# --------------------------------------------------------------------------
+EME_WIDEVINE_PREF = "media.redoubt-eme.widevine-support"
+EME_APPROVAL_PREF = "media.eme.require-app-approval"
+EME_CRASH_RE = re.compile(r"Failed to query crypto scheme support")
+EME_PARENT_RE = re.compile(r"Redoubt isolation-eme: parent found Widevine (supported|unsupported)")
+EME_H264_AAC = [{"initDataTypes": ["cenc"],
+                 "videoCapabilities": [{"contentType": 'video/mp4; codecs="avc1.42E01E"'}],
+                 "audioCapabilities": [{"contentType": 'audio/mp4; codecs="mp4a.40.2"'}]}]
+EME_VP9_WEBM = [{"initDataTypes": ["webm"],
+                 "videoCapabilities": [{"contentType": 'video/webm; codecs="vp9"'}]}]
+
+JS_EME_PROBE = r"""
+var done = arguments[arguments.length-1];
+var ks = arguments[0], cfg = arguments[1], deep = arguments[2];
+var out = {ks: ks, t0: Date.now(), secure: window.isSecureContext,
+           hasApi: typeof navigator.requestMediaKeySystemAccess === "function"};
+var timer = setTimeout(function(){ out.result = out.result || "pending-20s"; fin(); }, 20000);
+var finished = false;
+function fin() {
+  if (finished) return; finished = true; clearTimeout(timer);
+  out.ms = Date.now() - out.t0; delete out.t0; done(out);
+}
+if (!out.hasApi) { out.result = "no-api"; fin(); } else
+navigator.requestMediaKeySystemAccess(ks, cfg).then(function(a) {
+  out.result = "resolved"; out.keySystem = a.keySystem;
+  var c = a.getConfiguration();
+  out.video = (c.videoCapabilities || []).map(function(x){ return x.contentType; });
+  out.audio = (c.audioCapabilities || []).map(function(x){ return x.contentType; });
+  if (!deep) { fin(); return; }
+  a.createMediaKeys().then(function(mk) { out.mediaKeys = "created"; fin(); },
+                           function(e) { out.mediaKeys = "rejected: " + e.name + ": " + e.message; fin(); });
+}, function(e) { out.result = "rejected"; out.name = e.name; out.message = String(e.message); fin(); });
+"""
+
+def _eme_probe(m, https_url, ks, cfg, deep):
+    """One probe. A content crash (the LW-M7-51 defect) surfaces as a Marionette
+    error ("Browsing context has been discarded"); it is recorded as the probe's
+    result so that the rows still get graded, never raised."""
+    try:
+        m.cmd("WebDriver:Navigate", {"url": https_url})
+        r = m.cmd("WebDriver:ExecuteAsyncScript", {"script": JS_EME_PROBE, "args": [ks, cfg, deep]})
+        return r.get("value", r) if isinstance(r, dict) else r
+    except Exception as e:  # noqa: BLE001 -- graded below
+        time.sleep(2)
+        return {"ks": ks, "result": "error", "error": "%s: %s" % (type(e).__name__, str(e)[:200])}
+
+def _eme_prefs(m):
+    got = m.script(
+        'return arguments[0].map(function(n){ var t = Services.prefs.getPrefType(n);'
+        ' return {name: n, value: t === Services.prefs.PREF_BOOL ? Services.prefs.getBoolPref(n) :'
+        ' t === Services.prefs.PREF_INT ? Services.prefs.getIntPref(n) : null,'
+        ' locked: Services.prefs.prefIsLocked(n)}; });',
+        [["media.eme.enabled", ISOLATION_GATE_PREF, EME_WIDEVINE_PREF, EME_APPROVAL_PREF]],
+        chrome=True) or []
+    m.cmd("Marionette:SetContext", {"value": "content"})
+    return {g["name"]: g for g in got}
+
+def eme_content_deaths(log_text, pkg):
+    pat = re.compile(r"Process %s:(\S*?(?:tab|Tab)\S*) \(pid (\d+)\) has died" % re.escape(pkg))
+    return [{"process": mm.group(1)[:80], "pid": mm.group(2)} for mm in pat.finditer(log_text or "")]
+
+def grade_eme(sdk, prefs, default_probe, gecko_probe, vp9_probe, log_text, deaths, alive):
+    """Pure grading for --check-eme; returns [(row, ok, detail)]. See the block comment."""
+    isolated = isolation_expected(sdk)
+    rows = []
+    eme = prefs.get("media.eme.enabled") or {}
+    gate = prefs.get(ISOLATION_GATE_PREF) or {}
+    wv = prefs.get(EME_WIDEVINE_PREF) or {}
+    problems = []
+    if eme.get("value") is not True:
+        problems.append("media.eme.enabled is %r, want true (the app permission is the DRM switch)"
+                        % eme.get("value"))
+    if gate.get("value") is not isolated or not gate.get("locked"):
+        problems.append("%s=%r locked=%r, want %s locked for API %d"
+                        % (ISOLATION_GATE_PREF, gate.get("value"), gate.get("locked"),
+                           str(isolated).lower(), sdk))
+    if isolated and (wv.get("value") not in (1, 2) or not wv.get("locked")):
+        problems.append("%s=%r locked=%r: the parent did not publish its Widevine answer"
+                        % (EME_WIDEVINE_PREF, wv.get("value"), wv.get("locked")))
+    if not isolated and wv.get("value") not in (0, None):
+        problems.append("%s=%r below API %d, where the parent must not query"
+                        % (EME_WIDEVINE_PREF, wv.get("value"), ISOLATION_MIN_SDK))
+    rows.append(("eme-prefs", not problems,
+                 "; ".join(problems) or "media.eme.enabled=true; isolation %s; %s=%r%s"
+                 % ("ON" if isolated else "OFF", EME_WIDEVINE_PREF, wv.get("value"),
+                    " (locked)" if wv.get("locked") else "")))
+
+    d = default_probe or {}
+    ok = d.get("result") == "rejected" and d.get("name") == "NotSupportedError"
+    rows.append(("eme-default", ok,
+                 "fresh profile: Widevine rejected (%s: %s), no prompt" % (d.get("name"), d.get("message"))
+                 if ok else "fresh profile must reject Widevine with NotSupportedError, got %s"
+                 % json.dumps(d)[:300]))
+
+    g, v9 = gecko_probe or {}, vp9_probe or {}
+    if isolated:
+        if wv.get("value") == 2:
+            want_v = ['video/mp4; codecs="avc1.42E01E"']
+            want_a = ['audio/mp4; codecs="mp4a.40.2"']
+            ok = (g.get("result") == "resolved" and g.get("video") == want_v and g.get("audio") == want_a
+                  and g.get("mediaKeys") == "created" and v9.get("result") == "rejected"
+                  and v9.get("name") == "NotSupportedError")
+            detail = ("Gecko alone (app approval off for the test): Widevine resolved in isolated content, "
+                      "H.264+AAC offered, MediaKeys created (CDM in RDD), VP9/WebM refused") if ok else (
+                "want Widevine resolved with H.264+AAC and MediaKeys created, VP9/WebM rejected; got %s / %s"
+                % (json.dumps(g)[:300], json.dumps(v9)[:200]))
+        elif wv.get("value") == 1:
+            ok = g.get("result") == "rejected" and g.get("name") == "NotSupportedError"
+            detail = ("the parent found no Widevine; isolated content rejects it cleanly (%s)" % g.get("message")
+                      if ok else "no Widevine on this device: want NotSupportedError, got %s" % json.dumps(g)[:300])
+        else:
+            ok = False
+            detail = ("%s=%r: no parent answer, so the isolated path cannot be graded; probe %s"
+                      % (EME_WIDEVINE_PREF, wv.get("value"), json.dumps(g)[:200]))
+    else:
+        resolved = g.get("result") == "resolved" and g.get("mediaKeys") == "created"
+        rejected = g.get("result") == "rejected" and g.get("name") == "NotSupportedError"
+        ok = resolved or rejected
+        detail = ("158.0 Java path below API %d: Widevine %s" % (ISOLATION_MIN_SDK,
+                  "resolved, MediaKeys created" if resolved else "not on this device (NotSupportedError)")
+                  if ok else "Java path below API %d: got %s" % (ISOLATION_MIN_SDK, json.dumps(g)[:300]))
+    rows.append(("eme-gecko-path", ok, detail))
+
+    crashes = EME_CRASH_RE.findall(log_text or "")
+    parent = EME_PARENT_RE.findall(log_text or "")
+    problems = []
+    if crashes:
+        problems.append("%d x 'Failed to query crypto scheme support' in logcat" % len(crashes))
+    if deaths:
+        problems.append("%d content process death(s): %s" % (len(deaths), deaths[:3]))
+    if not alive:
+        problems.append("the app is not running")
+    if isolated and not parent:
+        problems.append("no 'Redoubt isolation-eme: parent found Widevine' line from the parent")
+    if not isolated and parent:
+        problems.append("the parent queried Widevine below API %d" % ISOLATION_MIN_SDK)
+    rows.append(("eme-no-crash", not problems,
+                 "; ".join(problems) or "no MediaDrm exception, no content process died, app alive%s"
+                 % ("; parent: Widevine %s" % parent[-1] if parent else "")))
+    return rows
+
+def check_eme(m, res, app, adb, https_url, forcefail=False):
+    """--check-eme. The log window was opened (logcat -c) before the app started."""
+    sdk = int((adb.shell("getprop ro.build.version.sdk", timeout=30) or "0").strip() or 0)
+    prefs = _eme_prefs(m)
+    deadline = time.time() + 30
+    while (isolation_expected(sdk) and (prefs.get(EME_WIDEVINE_PREF) or {}).get("value") in (0, None)
+           and time.time() < deadline):
+        time.sleep(1)
+        prefs = _eme_prefs(m)
+    default_probe = _eme_probe(m, https_url, "com.widevine.alpha", EME_H264_AAC, False)
+    gecko_probe = vp9_probe = None
+    try:
+        m.script("Services.prefs.setBoolPref(arguments[0], false);", [EME_APPROVAL_PREF], chrome=True)
+        m.cmd("Marionette:SetContext", {"value": "content"})
+        gecko_probe = _eme_probe(m, https_url, "com.widevine.alpha", EME_H264_AAC, True)
+        vp9_probe = _eme_probe(m, https_url, "com.widevine.alpha", EME_VP9_WEBM, False)
+    finally:
+        try:
+            m.script("Services.prefs.clearUserPref(arguments[0]);", [EME_APPROVAL_PREF], chrome=True)
+        except Exception as e:  # noqa: BLE001 -- the chrome context outlives a content crash
+            log("could not clear %s: %s" % (EME_APPROVAL_PREF, e))
+        try:
+            m.cmd("Marionette:SetContext", {"value": "content"})
+        except Exception:  # noqa: BLE001
+            pass
+    time.sleep(3)   # a crash of the probe's process is reported asynchronously
+    log_text = adb.out("logcat", "-d", "-b", "all", "-v", "threadtime", timeout=120)
+    rows = grade_eme(sdk, prefs, default_probe, gecko_probe, vp9_probe, log_text,
+                     eme_content_deaths(log_text, app.pkg), app.alive())
+    ev = {"sdk": sdk, "prefs": prefs, "default": default_probe, "gecko": gecko_probe, "vp9": vp9_probe}
+    for name, ok, detail in rows:
+        res.add(name, ok and not forcefail, detail if not forcefail else "forced failure: " + detail, ev)
+    return all(ok for _n, ok, _d in rows) and not forcefail
+
 JS_GUM = r"""
 var done = arguments[arguments.length-1];
 var out = {t0: Date.now()};
@@ -6910,7 +7109,7 @@ def main(argv):
     for f in ("ubo", "ubo-preinstall", "ubo-lifecycle", "ubo-user-disable", "search", "no-gms", "no-adjust",
               "aboutconfig", "no-suggest", "strings", "update-privacy",
               "no-remote-settings", "https-only", "launcher-start", "video",
-              "delete-on-quit", "tls-floor", "revocation", "rfp-coherence", "isolation"):
+              "delete-on-quit", "tls-floor", "revocation", "rfp-coherence", "isolation", "eme"):
         ap.add_argument("--check-" + f, action="store_true")
     ap.add_argument("--no-suggest-negative-control", action="store_true",
                     help="with --check-no-suggest: turn 'Show search suggestions' ON before "
@@ -6970,7 +7169,7 @@ def main(argv):
         or args.check_ubo_preinstall or args.check_ubo_lifecycle or args.check_https_only
         or args.check_launcher_start or args.check_video or args.self_test
         or args.check_ubo_user_disable or args.check_tls_floor or args.check_revocation
-        or args.check_rfp_coherence or args.check_isolation)
+        or args.check_rfp_coherence or args.check_isolation or args.check_eme)
     if args.check_no_gms:
         check_no_gms(apk, res)
     if args.check_no_adjust:
@@ -7143,9 +7342,10 @@ def main(argv):
             device_tz = set_device_timezone(adb, RFP_DEVICE_TZ)
             log("device time zone %s -> %s for the RFP probe" % device_tz)
         cap_off = pcap_size(pcap) if pcap else 0
-        if args.check_isolation:
+        if args.check_isolation or args.check_eme:
             # LW-M7-50: the SELinux and MediaCodec evidence must cover the
             # content processes' start-up, so the log window opens before launch.
+            # LW-M7-39: so must the parent's Widevine answer and any EME crash.
             adb.run("logcat", "-b", "all", "-c", timeout=60)
         m = open_session(app, bootstrap_url)
         wait_for_initial_document(m, bootstrap_url)
@@ -7248,6 +7448,10 @@ def main(argv):
             # LW-M7-50: isolated content + where each codec runs (isolation-media
             # overlay). Fails on a build without the overlay: content is not isolated.
             check_isolation(m, res, app, adb, origin, https_url)
+            return finish(res, args, work)
+        if args.check_eme:
+            # LW-M7-39: EME on both sides of the isolation gate, no crash.
+            check_eme(m, res, app, adb, https_url)
             return finish(res, args, work)
 
         # ---- the default suite --------------------------------------------
