@@ -169,6 +169,10 @@ regression; they are recorded so the branch can be deleted without losing them.
   overridden by the app"; `site/privacy.html`; PARITY section 5 and 7.4): still true as
   written (Fenix rewrites the two prefs on every start), but since Beta 2 it rewrites them
   with LibreWolf's values. Left for the owner: this task changes only PARITY row 6.
+  **Done 2026-10-15** on the owner's decision of that day ("yes or?", i.e. yes, update
+  the public text): README, `site/privacy.html`, PARITY sections 5 and 7.4 and
+  `parity/network-posture.md` now say the defaults match and the resolver is not
+  measured.
 
 ## 5. Gates (Firefox 158.0 tarball)
 
