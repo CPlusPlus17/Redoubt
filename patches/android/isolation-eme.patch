@@ -91,6 +91,26 @@
 #    the crypto exists, or rejects with its error. And a failed provisioning,
 #    which is sticky, no longer makes EnsureHasAMediaCrypto() retry forever.
 #    Upstream main has the same code.
+# 7. MediaDrmRemoteCDMParent::RecvUpdateSession (RDD, Android 12 and 13
+#    only, runtime check): Widevine in privacy mode first asks the page for
+#    its service certificate (message 0804). After the page's response
+#    (SignedMessage type 5) the CDM signals EVENT_KEY_REQUIRED with EMPTY
+#    data, and HandleEvent() makes the real license request. The Android 12
+#    and 13 NDK drops events with empty data (AOSP frameworks/av
+#    media/ndk/NdkMediaDrm.cpp DrmListener::sendEvent "if (dataSize > 0)",
+#    logcat "E NdkMediaDrm: invalid event data size=0"; Android 14 has
+#    ">= 0"), so no license was requested and every Widevine play stopped at
+#    ~8 s ("waitingforkey"; 158.0-3 acceptance, API 31). There the CDM now
+#    calls HandleEvent(EVENT_KEY_REQUIRED, empty data) itself right after a
+#    service certificate response, which is what the event does on Android
+#    14. If the event arrives anyway, HandleEventCb() skips it once, so a
+#    session still makes exactly one license request. Android 14+ and the
+#    Java path (Android 8-11, not isolated) are unchanged. Not covered: a
+#    license RENEWAL is also signalled by an empty KEY_REQUIRED and is still
+#    lost on Android 12 and 13 (keys expire instead of renewing); the other
+#    empty events (provision required, key expired, vendor defined, session
+#    reclaimed) are ignored by HandleEvent() on every version anyway.
+#    Upstream main has the same code (not reported upstream; owner rule).
 #
 # Whether DRM is ON is not decided here: media.eme.enabled and the app's
 # DRM-controlled content permission decide (drm-permission-default.patch,
@@ -110,7 +130,9 @@
 #   dom/media/eme/KeySystemConfig.cpp         Supports(), CreateWivineL3KeySystemConfigs()
 #   dom/media/eme/MediaKeySystemAccess.cpp    GetKeySystemStatus()
 #   dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp  RecvInit(), EnsureHasAMediaCrypto(),
-#                                                       HandleExpirationUpdate()
+#                                                       HandleExpirationUpdate(), HandleEventCb(),
+#                                                       RecvUpdateSession()
+#   dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.h    SessionEntry flag, helper
 #   dom/media/gmp/GMPServiceParent.cpp        LoadFromEnvironment()
 #   dom/media/ipc/RemoteCDMChild.cpp          (bug 2075686)
 #   dom/media/ipc/RemoteCDMProxy.cpp          (bug 2075686)
@@ -187,7 +209,56 @@
              "KeySystem or Minimum API level not met for Widevine EME");
 --- a/dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp
 +++ b/dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp
-@@ -298,9 +298,25 @@
+@@ -9,12 +9,36 @@
+ #include "mozilla/CheckedInt.h"
+ #include "mozilla/EMEUtils.h"
+ #include "mozilla/RemoteMediaManagerParent.h"
++#include "mozilla/glue/Debug.h"  // printf_stderr (Redoubt, LW-M7-39)
+ 
+ namespace mozilla {
+ 
+ StaticAutoPtr<MediaDrmRemoteCDMParent::DrmCallbackMap>
+     MediaDrmRemoteCDMParent::sCbMap;
+ 
++// Redoubt (LW-M7-39): on Android 12 and 13 the NDK drops every MediaDrm event
++// whose data is empty (frameworks/av media/ndk/NdkMediaDrm.cpp,
++// DrmListener::sendEvent: "if (dataSize > 0)", logcat "E NdkMediaDrm: invalid
++// event data size=0"; Android 14 changed it to ">= 0"). Java's MediaDrm
++// listener, which the non-isolated path uses, has no such check.
++static bool RedoubtNdkDropsEmptyDrmEvents() {
++  if (__builtin_available(android 34, *)) {
++    return false;
++  }
++  if (__builtin_available(android 31, *)) {
++    return true;
++  }
++  return false;
++}
++
++// Redoubt (LW-M7-39): a Widevine service certificate response is a
++// SignedMessage whose first field (1, varint) is type SERVICE_CERTIFICATE (5).
++static bool RedoubtIsWidevineServiceCertificate(
++    const nsTArray<uint8_t>& aResponse) {
++  return aResponse.Length() > 2 && aResponse[0] == 0x08 &&
++         aResponse[1] == 0x05;
++}
++
+ /* static */
+ void MediaDrmRemoteCDMParent::InitializeStatics() {
+   if (sCbMap) {
+@@ -52,6 +76,11 @@
+           return;
+         }
+ 
++        if (aEventType == AMediaDrmEventType::EVENT_KEY_REQUIRED &&
++            i->second->RedoubtSkipDuplicateKeyRequired(sessionIdStr)) {
++          return;
++        }
++
+         i->second->HandleEvent(std::move(sessionIdStr), aEventType, aExtra,
+                                std::move(data));
+       }));
+@@ -298,9 +327,25 @@
            fmt::ptr(mDrm));
    InitializeStatics();
    sCbMap->insert(std::pair{mDrm, this});
@@ -215,7 +286,7 @@
    return IPC_OK();
  }
  
-@@ -327,7 +343,16 @@
+@@ -327,7 +372,16 @@
    if (status == AMEDIA_DRM_NOT_PROVISIONED) {
      return EnsureProvisioned()->Then(
          GetCurrentSerialEventTarget(), __func__,
@@ -233,7 +304,60 @@
            return self->EnsureHasAMediaCrypto();
          });
    }
-@@ -759,8 +784,16 @@
+@@ -565,6 +619,9 @@
+   MOZ_ASSERT(mDrm);
+   MOZ_ASSERT(HasCrypto());
+ 
++  // Redoubt (LW-M7-39): a new response; a KEY_REQUIRED event after it is new.
++  i->second.redoubtKeyRequestIssued = false;
++
+   AMediaDrmKeySetId keySetId{};
+   media_status_t status = AMediaDrm_provideKeyResponse(
+       mDrm, &i->second.id, aRequest.response().Elements(),
+@@ -577,9 +634,42 @@
+   }
+ 
+   aResolver(MediaResult(NS_OK));
++
++  // Redoubt (LW-M7-39): in privacy mode Widevine first asks the page for its
++  // service certificate (message 0x08 0x04). Once the response is provided,
++  // the CDM signals EVENT_KEY_REQUIRED with empty data and HandleEvent() makes
++  // the real license request. Android 12 and 13 drop that event (see
++  // RedoubtNdkDropsEmptyDrmEvents()), so no license was ever requested and
++  // playback stopped after the first seconds (~8 s). There, do here what the
++  // event would have done, with the same empty data. If the event does arrive
++  // after all, HandleEventCb() skips it once (RedoubtSkipDuplicateKeyRequired),
++  // so there is still exactly one license request. Android 14 and later, and
++  // the Java path below Android 12, are unchanged.
++  if (mUuid == WIDEVINE_UUID && RedoubtNdkDropsEmptyDrmEvents() &&
++      RedoubtIsWidevineServiceCertificate(aRequest.response())) {
++    printf_stderr(
++        "Redoubt isolation-eme: service certificate provided; requesting the "
++        "license (Android 12-13 drop the empty KEY_REQUIRED event)\n");
++    i->second.redoubtKeyRequestIssued = true;
++    HandleEvent(nsString(aRequest.sessionId()),
++                AMediaDrmEventType::EVENT_KEY_REQUIRED, 0, nsTArray<uint8_t>());
++  }
+   return IPC_OK();
+ }
+ 
++bool MediaDrmRemoteCDMParent::RedoubtSkipDuplicateKeyRequired(
++    const nsString& aSessionId) {
++  const auto i = mSessions.find(aSessionId);
++  if (i == mSessions.end() || !i->second.redoubtKeyRequestIssued) {
++    return false;
++  }
++  i->second.redoubtKeyRequestIssued = false;
++  printf_stderr(
++      "Redoubt isolation-eme: KEY_REQUIRED after the service certificate "
++      "arrived after all; the license was already requested, skipped\n");
++  return true;
++}
++
+ mozilla::ipc::IPCResult MediaDrmRemoteCDMParent::RecvRemoveSession(
+     const nsString& aSessionId, RemoveSessionResolver&& aResolver) {
+   EME_LOG("[{}] MediaDrmRemoteCDMParent::RecvRemoveSession", fmt::ptr(this));
+@@ -759,8 +849,16 @@
  
    EME_LOG("[{}] MediaDrmRemoteCDMParent::HandleExpirationUpdate",
            fmt::ptr(this));
@@ -252,6 +376,22 @@
  }
  
  void MediaDrmRemoteCDMParent::HandleKeysChange(
+--- a/dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.h
++++ b/dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.h
+@@ -151,8 +151,13 @@
+   struct SessionEntry {
+     AMediaDrmSessionId id;
+     nsAutoCString mimeType;
++    // Redoubt (LW-M7-39): RecvUpdateSession made the key request that the
++    // dropped EVENT_KEY_REQUIRED would have made (Android 12 and 13).
++    bool redoubtKeyRequestIssued = false;
+   };
+ 
++  bool RedoubtSkipDuplicateKeyRequired(const nsString& aSessionId);
++
+   std::map<nsString, SessionEntry> mSessions;
+   MozPromiseHolder<InternalPromise> mProvisionPromise;
+ 
 --- a/dom/media/gmp/GMPServiceParent.cpp
 +++ b/dom/media/gmp/GMPServiceParent.cpp
 @@ -52,6 +52,13 @@

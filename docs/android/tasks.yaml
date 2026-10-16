@@ -6141,6 +6141,7 @@ tasks:
       - dom/media/eme/KeySystemConfig.cpp
       - dom/media/eme/MediaKeySystemAccess.cpp
       - dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp
+      - dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.h
       - dom/media/gmp/GMPServiceParent.cpp
       - dom/media/ipc/RemoteCDMChild.cpp
       - dom/media/ipc/RemoteCDMProxy.cpp
@@ -6192,6 +6193,14 @@ tasks:
       Gate false (Android 8-11): 158.0's path. Both patches
       are listed. Drop isolation-eme.patch at the 159 rebase after re-measuring with
       --check-eme and play.html.
+      2026-10-16 (owner decision "go": fix first, rebuild, re-accept, then sign 158.0-3):
+      the 158.0-3 acceptance found every Widevine play stopping at ~8 s on API 31. The
+      Android 12 and first Android 13 NDK drops MediaDrm events with empty data
+      (NdkMediaDrm.cpp "if (dataSize > 0)", ">= 0" from Android 13 QPR1 and 14), so the
+      KEY_REQUIRED that follows the service certificate never reached the RDD CDM and
+      no license was requested. isolation-eme.patch item 7: on SDK 31-33 the RDD CDM
+      makes that key request itself after a service certificate response, and skips
+      the event once if it arrives anyway (ISOLATION-MEDIA.md section 9c item 7, 9f).
     acceptance:
       - "fresh install: requestMediaKeySystemAccess('com.widevine.alpha') rejects with NotSupportedError, with no prompt and no content-process crash, on Android 12+ (isolated) and below; Settings > Site settings > DRM-controlled content reads Blocked, marked Recommended"
       - "after choosing Allowed there, the same call resolves and a Widevine stream (docs/android/evidence/lw-m7-39/scripts/play.html) plays on the API 34 (isolated) and API 30 emulators; after Ask to allow, the page shows the DRM permission prompt; Blocked rejects again"
@@ -6199,6 +6208,7 @@ tasks:
       - "--check-isolation and --check-video pass on API 34 and API 30; the default smoke suite passes as on 158.0-2 (webgl excepted on API 34, harness limit)"
       - "media.eme.enabled runs true (expected-prefs.txt) and no Redoubt pref file sets it on Android; desktop.cfg still sets it false"
       - "PhoneFeatureTest and SettingsTest pass and fail with the production hunks reverted (2026-10-14: 0 and 14 failures); both patches apply at fuzz 0 after every listed patch on the target tarball and compile under -Werror"
+      - "Android 12-13 (2026-10-16, docs/android/evidence/lw-m7-39/api31-33-fix/): on the API 31, 32 and 33 emulators the same flow passes and five first plays on fresh profiles reach the end of the ~60 s stream; every EME session makes exactly one license request after the service certificate (counted in MOZ_LOG EME and at the page); no tab or RDD deaths; API 34 and API 30 unchanged; the unfixed 158.0-3 stops at ~8 s with no license request on API 31 and 32"
     verify: "./scripts/check-patchfail.sh --targets=android && python3 scripts/check-patch-order.py && python3 docs/android/board.py --check-cfg-split && python3 docs/android/board.py --check-scope"
     effort_h: "2-4"
     skills: [kotlin, android, c++]
