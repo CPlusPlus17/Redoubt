@@ -1,0 +1,267 @@
+{
+ "checks": [
+  {
+   "check": "eme-prefs",
+   "ok": true,
+   "detail": "media.eme.enabled=true; isolation ON; media.redoubt-eme.widevine-support=2 (locked)",
+   "evidence": {
+    "sdk": 33,
+    "prefs": {
+     "media.eme.enabled": {
+      "name": "media.eme.enabled",
+      "value": true,
+      "locked": false
+     },
+     "media.redoubt-isolation-media.enabled": {
+      "name": "media.redoubt-isolation-media.enabled",
+      "value": true,
+      "locked": true
+     },
+     "media.redoubt-eme.widevine-support": {
+      "name": "media.redoubt-eme.widevine-support",
+      "value": 2,
+      "locked": true
+     },
+     "media.eme.require-app-approval": {
+      "name": "media.eme.require-app-approval",
+      "value": true,
+      "locked": false
+     }
+    },
+    "default": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "rejected",
+     "name": "NotSupportedError",
+     "message": "EME has been preffed off",
+     "ms": 16
+    },
+    "gecko": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "resolved",
+     "keySystem": "com.widevine.alpha",
+     "video": [
+      "video/mp4; codecs=\"avc1.42E01E\""
+     ],
+     "audio": [
+      "audio/mp4; codecs=\"mp4a.40.2\""
+     ],
+     "mediaKeys": "created",
+     "ms": 250
+    },
+    "vp9": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "rejected",
+     "name": "NotSupportedError",
+     "message": "Key system configuration is not supported",
+     "ms": 0
+    }
+   }
+  },
+  {
+   "check": "eme-default",
+   "ok": true,
+   "detail": "fresh profile: Widevine rejected (NotSupportedError: EME has been preffed off), no prompt",
+   "evidence": {
+    "sdk": 33,
+    "prefs": {
+     "media.eme.enabled": {
+      "name": "media.eme.enabled",
+      "value": true,
+      "locked": false
+     },
+     "media.redoubt-isolation-media.enabled": {
+      "name": "media.redoubt-isolation-media.enabled",
+      "value": true,
+      "locked": true
+     },
+     "media.redoubt-eme.widevine-support": {
+      "name": "media.redoubt-eme.widevine-support",
+      "value": 2,
+      "locked": true
+     },
+     "media.eme.require-app-approval": {
+      "name": "media.eme.require-app-approval",
+      "value": true,
+      "locked": false
+     }
+    },
+    "default": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "rejected",
+     "name": "NotSupportedError",
+     "message": "EME has been preffed off",
+     "ms": 16
+    },
+    "gecko": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "resolved",
+     "keySystem": "com.widevine.alpha",
+     "video": [
+      "video/mp4; codecs=\"avc1.42E01E\""
+     ],
+     "audio": [
+      "audio/mp4; codecs=\"mp4a.40.2\""
+     ],
+     "mediaKeys": "created",
+     "ms": 250
+    },
+    "vp9": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "rejected",
+     "name": "NotSupportedError",
+     "message": "Key system configuration is not supported",
+     "ms": 0
+    }
+   }
+  },
+  {
+   "check": "eme-gecko-path",
+   "ok": true,
+   "detail": "Gecko alone (app approval off for the test): Widevine resolved in isolated content, H.264+AAC offered, MediaKeys created (CDM in RDD), VP9/WebM refused",
+   "evidence": {
+    "sdk": 33,
+    "prefs": {
+     "media.eme.enabled": {
+      "name": "media.eme.enabled",
+      "value": true,
+      "locked": false
+     },
+     "media.redoubt-isolation-media.enabled": {
+      "name": "media.redoubt-isolation-media.enabled",
+      "value": true,
+      "locked": true
+     },
+     "media.redoubt-eme.widevine-support": {
+      "name": "media.redoubt-eme.widevine-support",
+      "value": 2,
+      "locked": true
+     },
+     "media.eme.require-app-approval": {
+      "name": "media.eme.require-app-approval",
+      "value": true,
+      "locked": false
+     }
+    },
+    "default": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "rejected",
+     "name": "NotSupportedError",
+     "message": "EME has been preffed off",
+     "ms": 16
+    },
+    "gecko": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "resolved",
+     "keySystem": "com.widevine.alpha",
+     "video": [
+      "video/mp4; codecs=\"avc1.42E01E\""
+     ],
+     "audio": [
+      "audio/mp4; codecs=\"mp4a.40.2\""
+     ],
+     "mediaKeys": "created",
+     "ms": 250
+    },
+    "vp9": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "rejected",
+     "name": "NotSupportedError",
+     "message": "Key system configuration is not supported",
+     "ms": 0
+    }
+   }
+  },
+  {
+   "check": "eme-no-crash",
+   "ok": true,
+   "detail": "no MediaDrm exception, no content process died, app alive; parent: Widevine supported",
+   "evidence": {
+    "sdk": 33,
+    "prefs": {
+     "media.eme.enabled": {
+      "name": "media.eme.enabled",
+      "value": true,
+      "locked": false
+     },
+     "media.redoubt-isolation-media.enabled": {
+      "name": "media.redoubt-isolation-media.enabled",
+      "value": true,
+      "locked": true
+     },
+     "media.redoubt-eme.widevine-support": {
+      "name": "media.redoubt-eme.widevine-support",
+      "value": 2,
+      "locked": true
+     },
+     "media.eme.require-app-approval": {
+      "name": "media.eme.require-app-approval",
+      "value": true,
+      "locked": false
+     }
+    },
+    "default": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "rejected",
+     "name": "NotSupportedError",
+     "message": "EME has been preffed off",
+     "ms": 16
+    },
+    "gecko": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "resolved",
+     "keySystem": "com.widevine.alpha",
+     "video": [
+      "video/mp4; codecs=\"avc1.42E01E\""
+     ],
+     "audio": [
+      "audio/mp4; codecs=\"mp4a.40.2\""
+     ],
+     "mediaKeys": "created",
+     "ms": 250
+    },
+    "vp9": {
+     "ks": "com.widevine.alpha",
+     "secure": true,
+     "hasApi": true,
+     "result": "rejected",
+     "name": "NotSupportedError",
+     "message": "Key system configuration is not supported",
+     "ms": 0
+    }
+   }
+  }
+ ],
+ "work": "/home/mgysin/redoubt-artifacts/release-158.0-3/accept2/work33",
+ "injected_prefs": {},
+ "tainted": false,
+ "artifact": {
+  "path": "/home/mgysin/redoubt-artifacts/release-158.0-3/accept2/apk/fenix-x86_64-158.0-3-throwaway.apk",
+  "sha256": "f0eccaaf20488e70c4bb63a107468aec3b2423f9df8824b4038b4cad2b6a1ed8",
+  "size": 136638795,
+  "harness_sha256": "018182a1931dab1d8b22eee27bae027647e088275d8e3cc671fcbe899f74b868"
+ },
+ "status": "completed",
+ "error": null
+}

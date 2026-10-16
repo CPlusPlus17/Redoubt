@@ -1,0 +1,72 @@
+Document: signing-bundle/update/latest.json (sha256 885fe5cb23874d8193a584d3df058101bad491e8f2c92302ded8230e05b7bf18), signed here with a THROWAWAY P-256 key (the 157.0-2 acceptance's test key, public key MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEN8sJVdsLyXeHMYNtd/czzEAJ6f4eNlt5idLq8JQbfz84b/UX6FYZevyyqnRQK5udZ8t3x7706TYzNRLoKeyuSA==). Not the owner's key.
+
+$ update-manifest.py verify latest.json --metadata <CI output-metadata.json>   (committed key = what the app embeds)
+REJECTED: signature did not verify (the app would show nothing)
+exit 1
+
+$ ... --pubkey <throwaway> --metadata <CI output-metadata.json>   (positive control)
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: up to date
+matches <R>/ci/redoubt-android-unsigned/output-metadata.json: version_code is the lowest of [2016190672, 2016190674, 2016190678, 2016190679]
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016190288 --current-version 158.0-2-default (158.0-2 armeabi-v7a, the lowest 158.0-2 code)
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: update offered
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016190290 --current-version 158.0-2-default (158.0-2 arm64-v8a)
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: update offered
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016190294 --current-version 158.0-2-default (158.0-2 x86_64)
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: update offered
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016190295 --current-version 158.0-2-default (158.0-2 universal, the highest 158.0-2 code)
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: update offered
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016190146 --current-version 158.0-1-default (158.0-1 arm64-v8a)
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: update offered
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016188822 --current-version 157.0.1-1-default (157.0.1-1 x86_64)
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: update offered
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016190543 --current-version 158.0-3-default (first 158.0-3 build, universal (never published))
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: update offered
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016190672 --current-version 158.0-3-default (158.0-3 armeabi-v7a, this build)
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: up to date
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016190674 --current-version 158.0-3-default (158.0-3 arm64-v8a, this build)
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: up to date
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016190678 --current-version 158.0-3-default (158.0-3 x86_64, this build)
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: up to date
+exit 0
+
+$ ... --pubkey <throwaway> --current-code 2016190679 --current-version 158.0-3-default (158.0-3 universal, this build)
+signature OK; latest_version=158.0-3 version_code=2016190672 download_url=https://github.com/CPlusPlus17/Redoubt/releases/tag/android-158.0-3
+verdict for the given install: up to date
+exit 0
+
+$ sign-update-manifest.sh <throwaway key> latest.json   (must refuse: not the pinned key)
+== verifying against the pinned public key
+sign-update-manifest: the signature does NOT verify against <R>/repo/scripts/../assets/update-check.android.pubkey -- wrong key? Nothing was written.
+exit 2
+no .sig written

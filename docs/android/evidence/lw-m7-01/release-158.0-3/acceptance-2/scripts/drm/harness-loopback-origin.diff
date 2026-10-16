@@ -1,0 +1,37 @@
+diff --git a/scripts/android-smoke.sh b/scripts/android-smoke.sh
+index a790a648..a9ca8a4b 100755
+--- a/scripts/android-smoke.sh
++++ b/scripts/android-smoke.sh
+@@ -7213,6 +7213,7 @@ def main(argv):
+     origin = None
+     m = None
+     bootstrap_reverse = None
++    loopback_reverse = None
+     device_tz = None
+     try:
+         app.install(apk, preserve_state=args.keep_state)
+@@ -7321,6 +7322,15 @@ def main(argv):
+                         load_fixtures())
+         http_url = "http://10.0.2.2:%d/" % http_port
+         https_url = "https://10.0.2.2:%d/" % https_port
++        if os.environ.get("LW_SMOKE_LOOPBACK_ORIGIN"):
++            # Physical device (LW-M7-39 phone runs): 10.0.2.2 is the emulator's
++            # host alias only. Reach the same origin through adb reverse on the
++            # device's loopback; the harness leaf already carries IP:127.0.0.1,
++            # so the https page still validates against the throwaway CA.
++            http_url = "http://127.0.0.1:%d/" % http_port
++            https_url = "https://127.0.0.1:%d/" % https_port
++            loopback_reverse = "tcp:%d" % https_port
++            adb.run("reverse", loopback_reverse, loopback_reverse, check=True)
+         log("origin: %s and %s" % (http_url, https_url))
+ 
+         if args.check_ubo_preinstall or args.check_ubo_lifecycle:
+@@ -7515,6 +7525,8 @@ def main(argv):
+             origin.stop()
+         if bootstrap_reverse:
+             adb.run("reverse", "--remove", bootstrap_reverse)
++        if loopback_reverse:
++            adb.run("reverse", "--remove", loopback_reverse)
+         if emu and not args.keep_emulator:
+             emu.stop()
+         elif emu:
