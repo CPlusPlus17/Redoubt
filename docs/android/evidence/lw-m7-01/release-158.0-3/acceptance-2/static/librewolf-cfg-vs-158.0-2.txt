@@ -1,0 +1,58 @@
+158.0-3 packaged librewolf.cfg sha256 374b65780ceee00622755652fbdc84bca7a4b3903cd88b071326037d6cce9ca7
+158.0-2 packaged librewolf.cfg sha256 73dc32beb523be4f184164e5819abbc54c00ad3905e14ca6bc79510a5b29f53c
+byte-equal: NO
+--- <R>/x/b5omni/defaults/autoconfig/librewolf.cfg	2010-01-01 00:00:00.000000000 +0100
++++ <R>/x/omnix/defaults/autoconfig/librewolf.cfg	2010-01-01 00:00:00.000000000 +0100
+@@ -916,7 +916,9 @@
+  * All 22 policy keys are mapped in docs/android/POLICIES.md. Only TWO of them
+  * reduce to a pref that is (a) absent from common.cfg and desktop.cfg, (b) read
+  * by code that ships on Android, and (c) not already at the policy's value by
+- * default. Those two are below.
++ * default. Both are below; since LW-M7-39 EncryptedMediaExtensions is carried
++ * by the app's DRM permission instead of a pref, so only LocalNetworkAccess
++ * still sets one.
+  *
+  * The other 20 are deliberately NOT here. Twelve need Kotlin-layer work and are
+  * registered as gaps P1..P7 in POLICIES.md; the remaining eight are moot on
+@@ -946,21 +948,28 @@
+  * values via setGeckoPrefsState(). It is registered as P8 in POLICIES.md.
+  */
+ 
+-/** EncryptedMediaExtensions: {"Enabled": false}
++/** EncryptedMediaExtensions: {"Enabled": false} -- NOT a pref on Android (LW-M7-39)
+  *
+- * The only policy row where Android's own default actively disagrees with
+- * LibreWolf. firefox-157.0's StaticPrefList.yaml:12408-12421 guards the value with
+- * `#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)` -- Android takes the
+- * #else and gets TRUE. Desktop LibreWolf ships EME off via this policy alone;
+- * media.eme.enabled is in neither common.cfg nor desktop.cfg. Without the line
+- * below, LibreWolf for Android would ship DRM enabled while the desktop build
+- * ships it disabled.
+- *
+- * Android's media.eme.require-app-approval (geckoview-prefs.js:287, honoured at
+- * MediaKeySystemAccessManager.cpp:259) adds a per-site embedder prompt on top,
+- * but a prompt is not the blanket disable the policy expresses.
++ * Desktop LibreWolf ships DRM off but unlocked: the policy sets the
++ * default-branch media.eme.enabled=false and Settings' "Play DRM-controlled
++ * content" checkbox turns it on. Android's StaticPrefList default is TRUE
++ * (firefox-158.0 StaticPrefList.yaml: only non-Android Linux takes false).
++ *
++ * Until LW-M7-39 this file set defaultPref("media.eme.enabled", false). On
++ * Android that pref has no UI, and Gecko rejects every key system on it
++ * (MediaKeySystemAccessManager.cpp RequestMediaKeySystemAccess, "EME has been
++ * preffed off") before the app is asked, so Fenix's Settings > Site
++ * settings > DRM-controlled content could never turn DRM on.
++ *
++ * Now the app permission is the switch. geckoview-prefs.js sets
++ * media.eme.require-app-approval, so Gecko asks Fenix before any key system is
++ * used, and patches/android/drm-permission-default.patch makes that
++ * permission default to Blocked: every site is denied without a prompt until
++ * the user picks "Ask to allow" or "Allowed" there. Same default (off) and the
++ * same reversibility as desktop. Clear Key stays off on both targets through
++ * librewolf.eme.gmp-clearkey.enabled=false (common.cfg) and
++ * eme-permission-common.patch.
+  */
+-defaultPref("media.eme.enabled", false);
+ 
+ /** LocalNetworkAccess: {"Enabled": true, "BlockTrackers": true, "EnablePrompting": true}
+  *

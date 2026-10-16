@@ -1,0 +1,76 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Widevine playback</title><video id="v" muted playsinline width="320" controls></video><pre id="out">loading</pre>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/5.2.12/shaka-player.compiled.js"></script>
+<script>
+// LW-M7-39 (api31-33-fix copy: also counts license server requests): real Widevine playback. Shaka's public demo stream "Angel One" (avc1+aac AND vp9+opus,
+// Widevine, license proxy without auth). Reports after ?secs= (default 40 s) or on error; ?abr=0 pins the lowest H.264 variant; ?switch=N selects the highest H.264 variant after N s by POST /seen/<tag>.
+const qs = new URLSearchParams(location.search);
+const tag = qs.get("tag") || "untagged";
+const ABR = qs.get("abr") !== "0";            // ?abr=0: stay on the lowest variant (no quality switch)
+const WAIT = Number(qs.get("secs") || 40) * 1000;
+const SWITCH = Number(qs.get("switch") || 0) * 1000;   // ?switch=N: after N s select the highest H.264 variant
+const MPD = "https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine/dash.mpd";
+const LICENSE = "https://cwip-shaka-proxy.appspot.com/no_auth";
+const res = {tag, href: location.href, isSecureContext, events: [], errors: []};
+let sent = false;
+async function report(why) {
+  if (sent) return; sent = true;
+  const v = document.getElementById("v");
+  res.why = why; res.currentTime = v.currentTime; res.readyState = v.readyState; res.duration = v.duration; res.ended = v.ended;
+  res.videoWidth = v.videoWidth; res.videoHeight = v.videoHeight;
+  try { const q = v.getVideoPlaybackQuality(); res.decodedFrames = q.totalVideoFrames; res.droppedFrames = q.droppedVideoFrames; } catch (e) {}
+  res.mediaError = v.error ? v.error.code + ":" + v.error.message : null;
+  try {
+    const t = window.player && window.player.getVariantTracks().find(x => x.active);
+    if (t) res.activeVariant = {videoCodec: t.videoCodec, audioCodec: t.audioCodec, width: t.width, height: t.height};
+    const ks = window.player && window.player.keySystem(); res.keySystem = ks;
+    res.drmInfo = window.player && window.player.drmInfo() ? {keySystem: window.player.drmInfo().keySystem} : null;
+    res.keyStatuses = window.player ? window.player.getKeyStatuses() : null;
+    res.abr = ABR;
+  } catch (e) { res.errors.push("report: " + e); }
+  res.ok = res.currentTime > 5 && (res.decodedFrames || 0) > 30 && !res.mediaError;
+  res.licenseRequestCount = (res.licenseServerRequests || []).filter(x => x.kind === "license").length;
+  document.getElementById("out").textContent = JSON.stringify(res, null, 1);
+  document.title = "PLAY " + (res.ok ? "OK" : "FAIL");
+  await fetch("/seen/" + encodeURIComponent(tag), {method: "POST", body: JSON.stringify(res)});
+}
+(async () => {
+  try {
+    shaka.polyfill.installAll();
+    if (!shaka.Player.isBrowserSupported()) { res.errors.push("shaka: browser not supported"); return report("unsupported"); }
+    const v = document.getElementById("v");
+    ["encrypted", "waitingforkey", "playing", "error"].forEach(n => v.addEventListener(n, () => res.events.push(n + "@" + v.currentTime.toFixed(2))));
+    const player = new shaka.Player(); window.player = player; await player.attach(v);
+    player.configure({drm: {servers: {"com.widevine.alpha": LICENSE}}, abr: {enabled: ABR}});
+    // api31-33-fix: every request Shaka sends to the license server, by body: "0804" is Widevine's
+    // service certificate request, anything else a license (or renewal) request.
+    res.licenseServerRequests = [];
+    player.getNetworkingEngine().registerRequestFilter((type, req) => {
+      if (type !== shaka.net.NetworkingEngine.RequestType.LICENSE) return;
+      const b = new Uint8Array(req.body || new ArrayBuffer(0));
+      const head = Array.from(b.slice(0, 2)).map(x => x.toString(16).padStart(2, "0")).join("");
+      res.licenseServerRequests.push({at: Number(v.currentTime.toFixed(2)), bytes: b.length,
+        kind: (b.length === 2 && head === "0804") ? "service-certificate" : "license"});
+    });
+    ["variantchanged", "adaptation", "keystatuschanged", "buffering", "drmsessionupdate"].forEach(n =>
+      player.addEventListener(n, e => res.events.push(n + "@" + v.currentTime.toFixed(2) +
+        (n === "keystatuschanged" ? " " + JSON.stringify(player.getKeyStatuses()) : "") +
+        (n === "buffering" ? " " + e.buffering : "") +
+        (n === "variantchanged" || n === "adaptation" ? " " + ((player.getVariantTracks().find(x => x.active) || {}).height) : ""))));
+    player.addEventListener("error", e => { res.errors.push("shaka " + e.detail.code + " " + JSON.stringify(e.detail.data).slice(0, 300)); report("shaka-error"); });
+    await player.load(MPD);
+    if (!ABR) {
+      const low = player.getVariantTracks().filter(t => /avc1/.test(t.videoCodec || "")).sort((a, b) => a.height - b.height)[0];
+      if (low) player.selectVariantTrack(low, true);
+    }
+    res.events.push("loaded");
+    await v.play().catch(e => res.errors.push("play(): " + e));
+    if (SWITCH) setTimeout(() => {
+      player.configure({abr: {enabled: false}});
+      const hi = player.getVariantTracks().filter(t => /avc1/.test(t.videoCodec || "")).sort((a, b) => b.height - a.height)[0];
+      if (hi) { player.selectVariantTrack(hi, true); res.events.push("switch-to@" + v.currentTime.toFixed(2) + " " + hi.height + " " + hi.videoCodec); }
+    }, SWITCH);
+    setTimeout(() => report(WAIT / 1000 + "s"), WAIT);
+  } catch (e) { res.errors.push("load: " + (e.code || "") + " " + (e.message || JSON.stringify(e.data || e).slice(0, 300))); report("exception"); }
+})();
+</script>
