@@ -52,7 +52,7 @@ C/C++ `-Werror` (Rust lints capped), build date `20261016100000`. `build/chain.s
 | APK | sha256 |
 |---|---|
 | x86_64 release, unsigned | `a7153b506ad051eda36cbd762bec7b271c43cd9cbce8cdc3301b42f280d3d5e5` |
-| x86_64 release, throwaway key (`31e9a40f…b760`), versionCode 2016190679 | `48aa7e6b521bd5b227a3d9280443ec939d9c2ba2afbea80b26c3f5e04a95adee` |
+| x86_64 release, throwaway key (`31e9a40f…b760`), versionCode 2016190678 | `48aa7e6b521bd5b227a3d9280443ec939d9c2ba2afbea80b26c3f5e04a95adee` |
 | arm64-v8a Redoubt Dev (`OVERLAYS=dev-app`), unsigned | `ff5e15351738b748a02dec631f4b928a7d95937e681f787330c2d70f57d580ab` |
 | arm64-v8a Redoubt Dev, dev key (`1dfc331a…55a5`), versionCode 2016190674 | `e119d774277e9683f06f64a45f95f634272f188361bebe324036ea11feb16792` |
 
@@ -117,6 +117,22 @@ but was not connected), so it was not used.
 - If the dropped event ever arrived after the license response (not seen; it comes within
   milliseconds of `provideKeyResponse`), it would make a second license request, as Android 14
   would.
+
+## Review notes (2026-10-16)
+
+- After the build, only the wording of the item 7 header in `isolation-eme.patch` changed
+  ("same stall" instead of "same code"); the code is the code that was built and tested.
+- `play.html` sets `ok` once `currentTime > 5`, so a stall at 8 s still gives `ok=true` and
+  `drm-flow.py` exit 0 (the unfixed API 32 controls show this). All verdicts here use the
+  measured `currentTime` and the license request count, not `ok`.
+- The x86_64 unsigned hash cannot be recomputed: that build tree was deleted. The arm64 unsigned
+  hash matches its APK.
+- `gates/scripts-tests.txt` records test-android-signing as `OK` on the rerun against this
+  build; the 29/29 count is from the console, not recorded here.
+- On the phones `isolated=0` in `drm-batch.log` comes from a `ps` check after the flow ended;
+  `--check-eme` reports isolation ON. API 35 and 37 do not run the new code.
+- If a page sends a service certificate when no key request is pending, the skip flag stays set
+  until the next `update()` and would skip one real `KEY_REQUIRED` in that session. Not seen.
 
 ## Files
 
