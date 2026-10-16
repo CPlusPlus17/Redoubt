@@ -1,0 +1,26 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>EME probe</title><pre id="out">running</pre>
+<script>
+// LW-M7-39 EME probe: what does navigator.requestMediaKeySystemAccess() do for Widevine and Clear Key?
+// Served from http://127.0.0.1 (adb reverse) so the page is a secure context; results go back by POST.
+const tag = new URLSearchParams(location.search).get("tag") || "untagged";
+const cfg = [{initDataTypes: ["cenc"], videoCapabilities: [{contentType: 'video/mp4; codecs="avc1.42E01E"'}],
+              audioCapabilities: [{contentType: 'audio/mp4; codecs="mp4a.40.2"'}]}];
+function probe(ks) {
+  const t0 = performance.now();
+  return Promise.race([
+    navigator.requestMediaKeySystemAccess(ks, cfg).then(
+      a => ({ks, result: "resolved", keySystem: a.keySystem}),
+      e => ({ks, result: "rejected", name: e.name, message: e.message})),
+    new Promise(r => setTimeout(() => r({ks, result: "pending-15s"}), 15000)),
+  ]).then(r => Object.assign(r, {ms: Math.round(performance.now() - t0)}));
+}
+(async () => {
+  const res = {tag, href: location.href, isSecureContext, hasApi: typeof navigator.requestMediaKeySystemAccess === "function",
+               ua: navigator.userAgent, results: []};
+  if (res.hasApi) for (const ks of ["com.widevine.alpha", "org.w3.clearkey"]) res.results.push(await probe(ks));
+  document.getElementById("out").textContent = JSON.stringify(res, null, 1);
+  document.title = "EME " + res.results.map(r => r.ks.split(".").pop() + "=" + r.result).join(" ");
+  await fetch("/seen/" + encodeURIComponent(tag), {method: "POST", body: JSON.stringify(res)});
+})();
+</script>

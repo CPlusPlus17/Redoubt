@@ -634,12 +634,25 @@ page: navigator.requestMediaKeySystemAccess("com.widevine.alpha", cfg)     CONTE
    provisioning, which is sticky, no longer makes `EnsureHasAMediaCrypto()` retry
    in an endless loop.
 
-Items 5 and 6 are defects in upstream's own isolated EME path (upstream `main`
+7. **Android 12 and 13: the license request after the service certificate**
+   (`MediaDrmRemoteCDMParent::RecvUpdateSession`, RDD; added 2026-10-16, see 9f).
+   In privacy mode Widevine first asks the page for its service certificate
+   (message `0804`). Once the response is provided, the CDM signals
+   `EVENT_KEY_REQUIRED` with empty data, and `HandleEvent()` makes the real license
+   request. The NDK of Android 12 and of the first Android 13 release drops every
+   event with empty data, so no license was ever requested and every Widevine play
+   stopped at about 8 s. On Android 12 and 13 (runtime check, SDK 31-33) the CDM now
+   does what the event would have done right after a service certificate response.
+   If the event arrives anyway (Android 13 builds that have the AOSP fix),
+   `HandleEventCb()` skips it once, so each session still makes exactly one license
+   request. Android 14+ and the Java path (Android 8-11) are unchanged.
+
+Items 5, 6 and 7 are defects in upstream's own isolated EME path (upstream `main`
 has the same code); they were found here because the playback test is real.
 Not reported upstream (owner rule).
 
 Gate false (Android 8-11): every changed C++ line takes 158.0's path; only the Java
-backstop is active (items 4-6 are in RDD code that only isolated content uses).
+backstop is active (items 4-7 are in RDD code that only isolated content uses).
 
 Whether DRM is on is decided by the app permission: `drm-permission-default.patch`
 makes Settings > Site settings > DRM-controlled content default to Blocked and
@@ -681,3 +694,36 @@ emulator capture showed no app traffic for 158.0-2 either, so it proves nothing;
 the patches add no start-up network code: the parent's query is a local NDK call,
 and Widevine provisioning, which contacts Google, happens only when a site that the
 user allowed creates a CDM, as on any Android browser).
+
+### 9f. Android 12 and 13 (2026-10-16)
+
+The 158.0-3 acceptance found every Widevine play on API 31 stopping at about 8 s
+(`waitingforkey`), with no license request and no crash. Cause, in AOSP
+`frameworks/av` `media/ndk/NdkMediaDrm.cpp`, `DrmListener::sendEvent`: the NDK
+passes an event to the listener only `if (dataSize > 0)` on Android 12, 12L and the
+first Android 13 release; `>= 0` from Android 13 QPR1 and in 14. The
+`EVENT_KEY_REQUIRED` that Widevine sends after the service certificate has empty
+data, so on those versions the RDD CDM never heard of it and never asked for the
+license (`E NdkMediaDrm: invalid event data size=0`). The Java listener used below
+Android 12 has no such check. Item 7 of 9c is the fix: on SDK 31-33 the CDM makes
+the key request itself right after a service certificate response, and skips the
+event once if it arrives anyway. The other empty events are ignored by
+`HandleEvent()` on every version, or handled through `openSession`'s status
+(provisioning).
+
+Results (`evidence/lw-m7-39/api31-33-fix/`, x86_64 throwaway `48aa7e6b…adee`, arm64
+Redoubt Dev `e119d774…6792`):
+
+| where | result |
+|---|---|
+| API 31, API 32 (event dropped) | `--check-eme`, `--check-isolation`, `--check-video` pass; DRM flow passes (pinned low 60 s, ABR 40 s, switch to 576p, Ask prompt, Blocked); 5 of 5 first plays on fresh profiles play the whole 60 s stream; 8 of 8 sessions per level make exactly one license request; the fix's line in every session |
+| API 33 (image `TE1A.240213.009` has the AOSP fix) | same results; the event arrives and is skipped once in all 8 sessions, so still one license request each |
+| API 34, API 30 | unchanged: same results, no fix line; API 30 on the Java path (VP9) |
+| Pixel 9a (Android 17), Mi 8 (Android 15), arm64 dev APK | `--check-eme` 4/4; 3 of 3 plays to 60 s, one license request each |
+| unfixed 158.0-3 | API 32: every play stops at 8.2 s, 0 license requests; API 33 image: plays (has the AOSP fix) |
+| deaths | 0 tab deaths, 0 RDD deaths, 0 fatal errors in all 36 flows with the fix (and in the 4 control flows) |
+
+Not fixed: license renewals on Android 12 and 13. Widevine asks for a renewal with
+an empty `KEY_REQUIRED` too, the NDK still drops it there, and nothing else tells
+the CDM when to renew. A license with a renewal policy would expire instead of
+renewing on those versions. The test stream has no renewals.

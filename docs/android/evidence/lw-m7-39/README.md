@@ -8,6 +8,10 @@ commit `bddc198f` (branch `android-drm-permission`, local, NOT pushed).
 
 Every hash below is from `sha256sum` or `git rev-parse`.
 
+2026-10-16: the Android 12-13 stall found in the 158.0-3 acceptance (no license request after the
+service certificate, playback stops at ~8 s) is fixed by `isolation-eme.patch` item 7; cause,
+builds and measurements in `api31-33-fix/`.
+
 ## Inputs
 
 - Tarball `firefox-158.0.source.tar.xz`, sha256 `fc77f780…a2bb` (GPG-verified earlier, LW-M7-50).

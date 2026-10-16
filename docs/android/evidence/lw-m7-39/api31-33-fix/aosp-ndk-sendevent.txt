@@ -1,0 +1,85 @@
+AOSP platform/frameworks/av media/ndk/NdkMediaDrm.cpp, DrmListener::sendEvent, fetched 2026-10-16 from
+https://android.googlesource.com/platform/frameworks/av/+/refs/heads/<branch>/media/ndk/NdkMediaDrm.cpp?format=TEXT
+(file history needs a login there, so the branch snapshots are the evidence; sha256 of each decoded file).
+
+== android12-release  sha256 70a3db7fbe66de40f73283b84b408f9366799ed4ae5eaed7ad7e275ad923f541
+   182	    int32_t dataSize = data.size();
+   183	    const uint8_t *dataPtr = data.data();
+   184	    if (dataSize > 0) {
+   185	        (*mEventListener)(mObj, &asid, ndkEventType, 0, dataPtr, dataSize);
+   186	    } else {
+   187	        ALOGE("invalid event data size=%d", dataSize);
+   188	    }
+   189	}
+
+== android12L-release  sha256 70a3db7fbe66de40f73283b84b408f9366799ed4ae5eaed7ad7e275ad923f541
+   182	    int32_t dataSize = data.size();
+   183	    const uint8_t *dataPtr = data.data();
+   184	    if (dataSize > 0) {
+   185	        (*mEventListener)(mObj, &asid, ndkEventType, 0, dataPtr, dataSize);
+   186	    } else {
+   187	        ALOGE("invalid event data size=%d", dataSize);
+   188	    }
+   189	}
+
+== android13-release  sha256 98e8ed4322732fde39e4eaf393407629ce2490aa85a535aad8dd98ea85d985a5
+   184	    int32_t dataSize = data.size();
+   185	    const uint8_t *dataPtr = data.data();
+   186	    if (dataSize > 0) {
+   187	        (*mEventListener)(mObj, &asid, ndkEventType, 0, dataPtr, dataSize);
+   188	    } else {
+   189	        ALOGE("invalid event data size=%d", dataSize);
+   190	    }
+   191	}
+
+== android13-s1-release  sha256 98e8ed4322732fde39e4eaf393407629ce2490aa85a535aad8dd98ea85d985a5
+   184	    int32_t dataSize = data.size();
+   185	    const uint8_t *dataPtr = data.data();
+   186	    if (dataSize > 0) {
+   187	        (*mEventListener)(mObj, &asid, ndkEventType, 0, dataPtr, dataSize);
+   188	    } else {
+   189	        ALOGE("invalid event data size=%d", dataSize);
+   190	    }
+   191	}
+
+== android13-qpr1-release  sha256 d11d808b3f737c437430936bad226bac067a6dd1f1b2bfa1d87c761c2eaee765
+   184	    int32_t dataSize = data.size();
+   185	    const uint8_t *dataPtr = data.data();
+   186	    if (dataSize >= 0) {
+   187	        (*mEventListener)(mObj, &asid, ndkEventType, 0, dataPtr, dataSize);
+   188	    } else {
+   189	        ALOGE("invalid event data size=%d", dataSize);
+   190	    }
+   191	}
+
+== android13-qpr2-release  sha256 d11d808b3f737c437430936bad226bac067a6dd1f1b2bfa1d87c761c2eaee765
+   184	    int32_t dataSize = data.size();
+   185	    const uint8_t *dataPtr = data.data();
+   186	    if (dataSize >= 0) {
+   187	        (*mEventListener)(mObj, &asid, ndkEventType, 0, dataPtr, dataSize);
+   188	    } else {
+   189	        ALOGE("invalid event data size=%d", dataSize);
+   190	    }
+   191	}
+
+== android13-qpr3-release  sha256 d11d808b3f737c437430936bad226bac067a6dd1f1b2bfa1d87c761c2eaee765
+   184	    int32_t dataSize = data.size();
+   185	    const uint8_t *dataPtr = data.data();
+   186	    if (dataSize >= 0) {
+   187	        (*mEventListener)(mObj, &asid, ndkEventType, 0, dataPtr, dataSize);
+   188	    } else {
+   189	        ALOGE("invalid event data size=%d", dataSize);
+   190	    }
+   191	}
+
+== android14-release  sha256 e4d6bc10bdb4779fc7d540869d7357ebcc156e446f101edc15f7c858b7f4f9a4
+   184	    int32_t dataSize = data.size();
+   185	    const uint8_t *dataPtr = data.data();
+   186	    if (dataSize >= 0) {
+   187	        (*mEventListener)(mObj, &asid, ndkEventType, 0, dataPtr, dataSize);
+   188	    } else {
+   189	        ALOGE("invalid event data size=%d", dataSize);
+   190	    }
+   191	}
+
+Emulator images used: API 31 SE1A.220826.008 and API 32 (12L) SE1B.240122.005 drop the event ("invalid event data size=0"); API 33 TE1A.240213.009 (security patch 2024-03-01) has the >= 0 fix, so the event arrives and the fix skips it once.
