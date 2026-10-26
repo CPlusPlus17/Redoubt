@@ -49,3 +49,22 @@ Redoubt.
 - Builder preflight: run 40329983075, green.
 - Not done on this VM: compile (the CI build is the compile gate) and device
   acceptance (no SDK/emulator).
+
+## Device check after publishing (2026-10-26, Pixel 9a, Android 17, USB)
+
+Owner: "go" (device test of the published build). Phone reached through the
+adb server on lugh. Files: `device/`.
+
+- **Fresh install** of the published arm64 APK (sha256 `c9b51a8c…e227`, the same
+  file F-Droid serves), with the 2026-10-14 harness (`launch-qa-2026-10-14/harness/drive.sh`):
+  versionName `158.0.1-1-default`, versionCode 2016192618. Content runs as
+  `isolated_app` (5 processes). Reddit, YouTube, Wikipedia, GitHub, BBC, Google,
+  DuckDuckGo and the Guardian load. On YouTube the video plays (a mid-film frame of
+  Big Buck Bunny, media session active). Crash buffer empty; 0 FATAL/ANR lines.
+- **Not run:** the local codec page (H.264/VP9/AV1 frame counts). `adb reverse`
+  points at lugh's loopback, not this VM's, and the phone cannot reach the VM over
+  Wi-Fi, so the page got "connection was reset".
+- **Upgrade:** published 158.0-2 (arm64, checked against its SHA256SUMS.signed),
+  two tabs opened, then 158.0.1-1 installed over it with `install -r`:
+  firstInstallTime kept, both tabs restored, no crash.
+- Uninstalled afterwards; the phone has no Redoubt installed, as before.
