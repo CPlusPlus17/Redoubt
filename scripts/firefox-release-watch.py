@@ -425,11 +425,13 @@ class GitHub:
             page += 1
 
     def issues(self, label):
-        """Every issue with `label`, open and closed, as dicts with 'title',
-        'number', 'state', 'created_at', 'labels' (names), 'assignees'
-        (logins) and 'node_id'."""
-        items = self._pages('/issues', {'labels': label, 'state': 'all'},
-                            f'listing issues labelled {label}')
+        """Every issue with `label` (None: every issue), open and closed, as
+        dicts with 'title', 'number', 'state', 'created_at', 'labels' (names),
+        'assignees' (logins) and 'node_id'."""
+        params = {'state': 'all'} if label is None else {'labels': label, 'state': 'all'}
+        items = self._pages('/issues', params,
+                            'listing issues' if label is None
+                            else f'listing issues labelled {label}')
         return [{'title': i.get('title', ''), 'number': i.get('number'),
                  'state': i.get('state', ''), 'created_at': i.get('created_at', ''),
                  'labels': [l.get('name', '') if isinstance(l, dict) else str(l)
@@ -672,6 +674,20 @@ def run(root, versions, exists, github, repo, dry_run=False, log=print, ref='mai
                  f'Mozilla released Firefox {latest}')
 
 
+def matching_issues(github, title, log=print):
+    """Issues whose title is `title` (or `title` behind a "[security: ...]"
+    prefix), open or closed. The labelled listing first; when it has none,
+    every issue, unfiltered, before anything is opened: on 2026-10-22 the
+    labelled listing once came back without #8, and #9 duplicated it."""
+    same = [i for i in github.issues(LABEL) if title_matches(i['title'], title)]
+    if not same:
+        same = [i for i in github.issues(None) if title_matches(i['title'], title)]
+        if same:
+            log(f'warning: the labelled listing missed {title!r} '
+                f'(#{same[0]["number"]}); the unfiltered listing has it')
+    return same
+
+
 def _flag(title, body, github, dry_run, log, found, notify=None, what='new Firefox release'):
     """Open the issue `title` unless one exists, open or closed. `body` is
     called only when the issue is about to be opened (or printed). With
@@ -682,7 +698,7 @@ def _flag(title, body, github, dry_run, log, found, notify=None, what='new Firef
             raise WatchError('no GitHub access and not a dry run')
         log('dry run without GitHub access: duplicate check skipped')
     else:
-        same = [i for i in github.issues(LABEL) if title_matches(i['title'], title)]
+        same = matching_issues(github, title, log)
         if same:
             # Prefer an open one, should a human have duplicated it by hand.
             same.sort(key=lambda i: i['state'] != 'open')
@@ -1614,7 +1630,8 @@ def run_advisories(root, advisories, github, repo, shipped_tag, dry_run=False, l
             continue
 
         title = advisory_issue_title(adv, version)
-        if any(title_matches(i['title'], title) for i in issues):
+        if (any(title_matches(i['title'], title) for i in issues)
+                or (github is not None and matching_issues(github, title, log))):
             results.append((adv['id'], 'known'))
             continue
         open_numbers = [i['number'] for i in issues if i['state'] == 'open'
