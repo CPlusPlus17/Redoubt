@@ -81,8 +81,11 @@ class FakeGitHub:
         self.now = '2026-10-09T12:00:00Z'
 
     def issues(self, label):
-        assert label == watch.LABEL
-        return [dict(i) for i in self.items]
+        # label None is the unfiltered listing; `self.flaky` numbers are the
+        # issues a labelled listing leaves out (seen once, 2026-10-22).
+        assert label in (watch.LABEL, None)
+        return [dict(i) for i in self.items
+                if label is None or i['number'] not in getattr(self, 'flaky', ())]
 
     def ensure_label(self, label, *a):
         self.labels.append(label)
@@ -251,6 +254,13 @@ class Run(unittest.TestCase):
         gh = FakeGitHub()
         self.assertEqual(self.go('158.0', gh), 'opened')
         self.assertEqual(self.go('158.0', gh), 'duplicate')
+        self.assertEqual(self.go('158.0', gh), 'duplicate')
+        self.assertEqual(len(gh.created), 1)
+
+    def test_dedup_survives_a_listing_that_misses_the_issue(self):
+        gh = FakeGitHub()
+        self.assertEqual(self.go('158.0', gh), 'opened')
+        gh.flaky = {1}
         self.assertEqual(self.go('158.0', gh), 'duplicate')
         self.assertEqual(len(gh.created), 1)
 
@@ -590,7 +600,8 @@ class FakeServer(http.server.BaseHTTPRequestHandler):
         if self.headers.get('Authorization') != 'Bearer test-token':
             return self.reply(401, {'message': 'Bad credentials'})
         if url.path == '/repos/o/r/issues':
-            assert q['state'] == ['all'] and q['labels'] == ['firefox-release'], q
+            # no labels parameter: the unfiltered recheck (matching_issues)
+            assert q['state'] == ['all'] and q.get('labels', ['firefox-release']) == ['firefox-release'], q
             page = int(q['page'][0])
             meta = self.state.setdefault('meta', {})
             items = [{'title': t, 'number': n, 'state': 'open',
