@@ -212,8 +212,12 @@ store) counts as "not a store", so the switch stays offered, off by default.
 ### Tooling
 
 **fdroidserver: F-Droid's own container image, pinned by digest.** It is
-`registry.gitlab.com/fdroid/docker-executable-fdroidserver@sha256:75f6b88e…`, the `master` tag
-of 2026-10-04, fdroidserver commit `c21c177ff6d8`. A pinned pip version in a venv was the
+`registry.gitlab.com/fdroid/docker-executable-fdroidserver@sha256:3dbc5a72…`, the `master` tag
+of 2026-10-26 (built 2026-10-25), fdroidserver commit `2d1e622`. The first pin (2026-10-04,
+`75f6b88e…`, commit `c21c177ff6d8`) stopped pulling with "manifest unknown": F-Droid rebuilds
+`master` weekly and the registry drops old digests. A machine that already has the image in
+podman's storage keeps working; a fresh one needs a re-pin to the current `master` digest
+(`podman pull …:master`, then `podman image inspect --format '{{.Digest}}'`). A pinned pip version in a venv was the
 alternative. The image also brings the exact `apksigner`, `keytool` and `python3-qrcode`
 versions fdroidserver is tested with, and a digest pins all of them at once. The `latest` tag is
 a 2024 build. The container that sees the repository key runs with `--network=none`.

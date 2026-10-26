@@ -72,9 +72,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # F-Droid's official image, registry.gitlab.com/fdroid/docker-executable-fdroidserver,
-# tag `master` as of 2026-10-04 (fdroidserver commit c21c177ff6d8, 2026-10-01,
-# Debian 13). The `latest` tag is a 2024 build; do not use it.
-FDROID_IMAGE="registry.gitlab.com/fdroid/docker-executable-fdroidserver@sha256:75f6b88ef13a63fc5c49aa4c4dde35607c4a364d22cf57d534aa75c54effa56d"
+# tag `master` as of 2026-10-26 (built 2026-10-25, fdroidserver commit 2d1e622,
+# 2026-10-22, Debian 13). The `latest` tag is a 2024 build; do not use it.
+# F-Droid rebuilds `master` weekly and the registry drops old digests, so a pin
+# only pulls while it is the current build; keep the pulled image in podman's
+# storage, and re-pin when a fresh machine gets "manifest unknown" (FDROID.md).
+FDROID_IMAGE="registry.gitlab.com/fdroid/docker-executable-fdroidserver@sha256:3dbc5a72cae3597d712b9bb02e44acf36ed88cd6cad76ee2f0853b1d4136fa1a"
 PODMAN="${PODMAN:-podman}"
 
 # rclone, pinned by version and by the sha256 of the release zip. The sums are
