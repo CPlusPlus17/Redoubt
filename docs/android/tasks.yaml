@@ -6258,3 +6258,36 @@ tasks:
     agent_safe: yes
     isolation: worktree
     risk: LW-M7-39 stays open; DRM remains impossible to enable from Settings until it lands.
+  - id: LW-M7-52
+    title: "Release 158.0.1-1: Firefox 158.0.1 + the Android 158.0.2 OneCRL fix"
+    milestone: M7
+    depends_on: [LW-M7-01]
+    owns:
+      - patches/android/onecrl-bundle-backport.patch
+      - docs/android/evidence/lw-m7-52/
+    shared_edit:
+      - docs/android/tasks.yaml
+      - docs/android/PATCH-SCOPE.md
+      - assets/patches/android.txt
+    reads:
+      - docs/android/SECURITY.md
+      - docs/android/REBASE.md
+    what: |
+      OWNER DECISION 2026-10-26: "Release 158.0.2 (OneCRL backport) can go now".
+      Firefox 158.0.1 (MFSA 2026-111, issues #6/#7) and Firefox for Android 158.0.2
+      (MFSA 2026-116, CVE-2026-113470, issues #8/#9). archive.mozilla.org has no
+      158.0.2 source tarball; FIREFOX-ANDROID_158_0_2_RELEASE is 158.0.1 plus upstream
+      bug 2084311 (08d230419556) and the version bump. So version.android 158.0.1,
+      release.android 1, and the bug 2084311 code hunk as onecrl-bundle-backport.patch
+      (SECURITY.md, "Android-only with no source tarball"). 158.0-3 was never published;
+      this release carries its DRM work.
+    acceptance:
+      - "the 158.0.1 tarball verifies against Mozilla's release key; the backport is byte-identical to upstream's code hunk"
+      - "gates on the 158.0.1 tarball pass: check-patchfail android, check-patch-order, lint-patch-scope, board --check/--check-scope"
+      - "a full android-release.yaml build on the runner is green with a build_date later than 158.0-3's (20261016100000)"
+    verify: "python3 docs/android/board.py --check && python3 docs/android/board.py --check-scope && python3 scripts/check-patch-order.py"
+    effort_h: "2-4"
+    skills: [release, security]
+    agent_safe: yes
+    isolation: worktree
+    risk: Device acceptance needs the emulator and phones, which the release VM does not have.

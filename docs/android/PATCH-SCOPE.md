@@ -15,7 +15,7 @@ read in full, every file it touches was traced to the `moz.build` / `jar.mn` /
 preprocessor guard that decides whether that file is built on Android, and the
 decision below follows from that guard rather than from the path.
 
-Current classification: **22 common / 51 android / 44 desktop-only / 0 straddlers = 117
+Current classification: **22 common / 52 android / 44 desktop-only / 0 straddlers = 118
 patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
@@ -213,6 +213,22 @@ measurements: `docs/android/ISOLATION-MEDIA.md` section 7 and
   `media.eme.enabled` line (Redoubt-settings `android-drm-permission`, bddc198f).
 
 So: android 49 + 2 = 51; total 115 + 2 = 117.
+
+## Android patch added for 158.0.1-1 (2026-10-26)
+
+Firefox for Android 158.0.2 (MFSA 2026-116, CVE-2026-113470, high) shipped without
+a source tarball. Upstream's FIREFOX-ANDROID_158_0_2_RELEASE tag is 158.0.1 plus one
+Gecko commit and the version bump, so 158.0.1-1 builds the 158.0.1 tarball and
+carries that commit (`SECURITY.md`, "Android-only with no source tarball").
+
+- **`onecrl-bundle-backport`** (LW-M7-52). Upstream bug 2084311
+  (`08d230419556`): `RemoteSecuritySettings.init()` loads the bundled OneCRL
+  records into cert_storage instead of waiting for the first remote sync. Code hunk
+  only, unchanged; upstream's xpcshell test is not carried. Android list only; no
+  other listed patch touches the file. Drop at the first rebase whose tarball
+  already has it.
+
+So: android 51 + 1 = 52; total 117 + 1 = 118.
 
 ## Android patch added for delete-on-quit after swipe-away (2026-10-06)
 
@@ -512,6 +528,7 @@ own line in this table.
 | `patches/android/isolation-eme.patch` | LW-M7-39 | Owner decision 2026-10-15 "lets analyse this in more detail and try to fix". Parent (`GeckoMediaPluginServiceParent::LoadFromEnvironment`, GMP thread, only while `media.redoubt-isolation-media.enabled` is true) asks NDK `AMediaDrm`/`AMediaCrypto_isCryptoSchemeSupported` for Widevine and sets + locks the default-branch pref `media.redoubt-eme.widevine-support` (defined here in `StaticPrefList.yaml`, 0/1/2). Isolated content: `KeySystemConfig::Supports()`, `MediaKeySystemAccess::GetKeySystemStatus()` read it instead of calling Java `MediaDrm` (SELinux-denied there, the exception crashed the tab); `CreateWivineL3KeySystemConfigs()` offers H.264 + AAC in MP4, decrypt-and-decode. `MediaDrmProxy.java`: Java query exceptions become "unsupported". Backport of upstream bug 2075686 (`RemoteCDMProxy.cpp`, `RemoteCDMChild.cpp`). Gate false: 158.0's path. All C++ under `MOZ_WIDGET_ANDROID` or Android-only files; the pref definition is unguarded YAML but the patch is in android.txt only. After `isolation-media-codecs-in-content` (CONSTRAINT); measured order-free with the three webgl patches. Drop at the 159 rebase (upstream bug 2067689). |
 | `patches/android/no-webcompat-reporter.patch` | LW-M7-38 | LibreWolf's `DisableFeedbackCommands`. Removes "Report broken site" from `MoreSettingsSubmenu` (the `WebCompatReporterMenuItem` call and composable; its parameters stay so `MenuDialogFragment.kt` is untouched) and from `BrowserMenuBuilder`'s default "More" list. Its report was a Glean ping with no upload path (no-glean), and with `isTelemetryEnabled` false it opened `webcompat.com/issues/new?url=<page>`. Reporter code, navigation targets and `WebCompatFeature` interventions unchanged. `BrowserMenuBuilderTest`, `MoreSettingsSubmenuTest`. Fenix-only, `mobile/android/fenix/app/src/{main,test}`, built only on Android. |
 | `patches/android/drm-permission-default.patch` | LW-M7-39 | LibreWolf's `EncryptedMediaExtensions` (DRM off, user can turn it on). `PhoneFeature.getDefault()`: `MEDIA_KEY_SYSTEM_ACCESS` -> `BLOCKED`; `Settings.getSitePermissionsCustomSettingsRules()` reads `mediaKeySystemAccess` through `PhoneFeature.getAction()`; `SitePermissionsManagePhoneFeatureFragment` marks Blocked as Recommended on that screen. `PhoneFeatureTest`, `SettingsTest`. With `settings/android.cfg` no longer setting `media.eme.enabled=false`, Gecko asks the app (`media.eme.require-app-approval`) and the permission is the switch. Fenix-only, `mobile/android/fenix/app/src/{main,test}`. Measured order-free with seven Settings.kt/SettingsTest.kt patches. |
+| `patches/android/onecrl-bundle-backport.patch` | LW-M7-52 | Backport of upstream bug 2084311 (Firefox for Android 158.0.2, `08d230419556`; MFSA 2026-116, CVE-2026-113470): `RemoteSecuritySettings.init()` reads the OneCRL collection once and passes its records to `updateCertBlocklist`, so the bundled revocations reach cert_storage at startup, not only after a remote sync. Code hunk only, unchanged from upstream; the xpcshell test is not carried. Toolkit JavaScript, Android list only; no other listed patch touches the file. Drop at the first rebase whose tarball has it. |
 | `patches/android/no-default-shortcuts.patch` | LW-M7-30 | Empty bundled default shortcut seed matches the desktop default.sites input while preserving stored and manually added user data. JSON/hash/replay checks pass; packaged resource and fresh/upgrade/manual-add behavior remain pending. Separate bookmark seeding is still unverified. |
 | `patches/android/autoconfig-resource-fallback.patch` | LW-M3-08, landed by LW-M3-02 | **The autoconfig/`lockPref` channel — landmine L2's mitigation.** Three hunks, one mechanism: `nsReadConfig::openAndEvaluateJSFile` takes the `resource:` branch on Android (`#if defined(MOZ_WIDGET_ANDROID)`, *not* keyed off a failed `NS_GRE_DIR` lookup — that lookup succeeds and answers the APK's `lib/<abi>` dir, so the obvious patch is dead code and was measured to be); `lw/moz.build` also installs the `.cfg` as `defaults/autoconfig/librewolf.cfg`, the only shape `OmniJarSubFormatter.is_resource` lets into `omni.ja`; and `mobile/android/installer/package-manifest.in` names that file and `defaults/pref/local-settings.js` by hand, because it is an explicit list with no root wildcard. Ordering: **after `xmas-common`**, declared in `scripts/check-patch-order.py`. |
 | `patches/android/build-fixes.patch` | LW-M2-02 | The Android build fixes that belong to no single LibreWolf patch — currently one hunk, `computeVersionCode()`'s `Integer.parseInt()` against the `153.0esr-1`-shaped `MOZ_APP_VERSION` the patcher writes. **Kept last in the list on purpose:** it is the collection point for build breakage, and nothing else in any list touches `build.gradle`. Nothing was dropped from `common.txt` to make the build green. |
