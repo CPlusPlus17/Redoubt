@@ -1,0 +1,16 @@
+$ python3 docs/android/board.py --check
+ok: 138 tasks, 32 waves, 0 warning(s)
+$ python3 docs/android/board.py --check-scope
+ok: 115 listed patch files — 22 common, 43 desktop, 50 android, 0 straddlers parked; 1 overlay patch files (overlay-dev-app); PATCH-SCOPE.md agrees
+$ python3 docs/android/board.py --check-cfg-split
+ok: 182 common / 199 desktop / 14 android calls; librewolf.cfg regenerates exactly
+$ python3 docs/android/board.py --diff-mozconfig --strict
+ok: hardening parity holds (0 documented difference(s))
+$ python3 scripts/lint-patch-scope.py
+lint-patch-scope: OK - 116 patch file(s), no scope violations, no hunk header without line numbers
+$ python3 scripts/check-patch-order.py
+patch order ok: 39/39 declared constraint(s) enforced across 3 target sequence(s); 179 shared-file pair(s) derived and classified.
+  (8 of those pair a list patch with an overlay patch, which the overlay sequence orders by construction)
+$ LW_TREE=<pristine firefox-159.0.1> python3 docs/android/board.py --check-policies
+# reading pref declarations from firefox-159.0.1
+ok: 132 prefs declared by GeckoView; 23 of them shipped by us, every unlocked one classified in must-not-lock.txt

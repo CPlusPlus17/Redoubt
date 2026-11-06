@@ -171,10 +171,10 @@ index dc24f54..11bf851 100644
      fun `reacts to install permission request`() {
          val store = BrowserStore(middleware = listOf(captureMiddleware))
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index efe5c56..e6066a1 100644
+index 1efac36..d5b3929 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -815,10 +815,12 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -879,10 +879,12 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
                      subscribeForNewAddonsIfNeeded(components.supportedAddonsChecker, extensions)
                  },
                  onUpdatePermissionRequest = components.addonUpdater::onUpdatePermissionRequest,
@@ -188,7 +188,7 @@ index efe5c56..e6066a1 100644
  
      @VisibleForTesting
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-index 270b5fc..e8a04fe 100644
+index cd4b8ca..922e481 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 @@ -31,6 +31,7 @@ import androidx.annotation.CallSuper
@@ -207,15 +207,15 @@ index 270b5fc..e8a04fe 100644
  import androidx.navigation.NavController
  import androidx.navigation.NavDirections
  import androidx.navigation.fragment.NavHostFragment
-@@ -51,6 +53,7 @@ import kotlinx.coroutines.Dispatchers.IO
+@@ -50,6 +52,7 @@ import kotlinx.coroutines.Dispatchers.IO
  import kotlinx.coroutines.Dispatchers.Main
  import kotlinx.coroutines.Job
  import kotlinx.coroutines.delay
 +import kotlinx.coroutines.flow.collect
  import kotlinx.coroutines.flow.distinctUntilChanged
  import kotlinx.coroutines.launch
- import kotlinx.coroutines.withContext
-@@ -116,6 +119,7 @@ import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
+ import kotlinx.parcelize.Parcelize
+@@ -114,6 +117,7 @@ import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
  import org.mozilla.fenix.browser.browsingmode.DefaultBrowsingModeManager
  import org.mozilla.fenix.components.DefaultHomepageAsANewTabPreferenceRepository
  import org.mozilla.fenix.components.DefaultShortcutManagerCompatWrapper
@@ -223,7 +223,7 @@ index 270b5fc..e8a04fe 100644
  import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
  import org.mozilla.fenix.components.appstate.AppAction
  import org.mozilla.fenix.components.appstate.AppAction.ShareAction
-@@ -483,6 +487,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -482,6 +486,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          // the `setContent` starts attaching fragments.
          EdgeToEdgeFragmentLifecycleCallbacks.register(supportFragmentManager, window)
  
@@ -232,7 +232,7 @@ index 270b5fc..e8a04fe 100644
          // Checks if Activity is currently in PiP mode if launched from external intents, then exits it
          checkAndExitPiP()
  
-@@ -1307,6 +1313,35 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1306,6 +1312,35 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          return false
      }
  
@@ -269,7 +269,7 @@ index 270b5fc..e8a04fe 100644
          supportFragmentManager.primaryNavigationFragment?.childFragmentManager?.fragments?.forEach {
              if (it is OnLongPressedListener && it.onForwardLongPressed()) {
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-index 5e909ee..09e2271 100644
+index c66cc72..05d5d80 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 @@ -233,6 +233,8 @@ class Components(
@@ -282,7 +282,7 @@ index 5e909ee..09e2271 100644
          AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
      }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
-index 5495e5b..fee8b50 100644
+index b356623..a03a3e4 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
 @@ -344,6 +344,7 @@ class Core(
@@ -378,7 +378,7 @@ index 0000000..a2e3477
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
 new file mode 100644
-index 0000000000..bed2144b8d
+index 0000000..bed2144
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
 @@ -0,0 +1,469 @@
@@ -852,13 +852,13 @@ index 0000000000..bed2144b8d
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/android/fenix/app/src/main/res/values/strings.xml
-index 97ffa11..bd45316 100644
+index 478e6e4..fc35e3e 100644
 --- a/mobile/android/fenix/app/src/main/res/values/strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
-@@ -4216,4 +4216,9 @@
-     <string name="reader_mode_panel_content_description">Reader Mode Options</string>
-     <!-- Content description for the button in reader mode panel that turns on the read aloud feature (playback of content begins when button is pressed) -->
+@@ -4250,4 +4250,9 @@
      <string name="reader_mode_panel_listen_content_description">Read Aloud</string>
+     <!-- Content description for media player displayed in Reader Mode when the Listen to Page (Read Aloud) feature is selected -->
+     <string name="reader_mode_panel_media_player_content_description">Media Player</string>
 +    <!-- First-run signed uBlock Origin provisioning. Browsing stays paused on failure. -->
 +    <string name="librewolf_ubo_setup_failed_title">uBlock Origin setup failed</string>
 +    <string name="librewolf_ubo_setup_failed_message">Browsing is paused because uBlock Origin could not be prepared. Retry setup or close Redoubt.</string>
@@ -1011,7 +1011,7 @@ index 0000000..10bbe23
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
 new file mode 100644
-index 0000000000..a3bf5f9d98
+index 0000000..a3bf5f9
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
 @@ -0,0 +1,876 @@

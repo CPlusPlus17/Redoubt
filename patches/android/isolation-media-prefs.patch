@@ -50,18 +50,38 @@
 # is still the allocator's only choice of content type; MOZ_DEFAULT_PREFS is
 # still parsed in GetInstanceForService(); variants.yml still lists the eleven.
 #
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
+@@ -797,6 +797,17 @@ public final class GeckoProcessManager {
+     return mAppZygote;
+   }
+ 
++  /**
++   * Redoubt (LW-M7-50): true if web content runs in an isolated process, i.e. the content
++   * process type the allocator picks ({@link GeckoProcessType#determineContentProcessType()},
++   * which also applies the SDK 29 floor of the app zygote) is not plain CONTENT. GeckoRuntime
++   * derives the Gecko pref media.redoubt-isolation-media.enabled from this, so the media
++   * configuration cannot disagree with the process model.
++   */
++  public boolean isContentIsolated() {
++    return GeckoProcessType.determineContentProcessType() != GeckoProcessType.CONTENT;
++  }
++
+   public void crashChild(@NonNull final Selector selector) {
+     XPCOMEventTarget.launcherThread()
+         .execute(
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoRuntime.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoRuntime.java
-@@ -37,6 +37,7 @@
- import java.io.FileNotFoundException;
+@@ -38,6 +38,7 @@ import java.io.FileNotFoundException;
  import java.lang.annotation.Retention;
  import java.lang.annotation.RetentionPolicy;
+ import java.util.ArrayList;
 +import java.util.HashMap;
  import java.util.List;
  import java.util.Map;
  import org.mozilla.gecko.Clipboard;
-@@ -537,6 +538,24 @@
-     pm.setIsolatedProcessEnabled(settings.getIsolatedProcessEnabled());
+@@ -547,6 +548,24 @@ public final class GeckoRuntime implements Parcelable {
+     // TODO(m_kato): We have to check environment variables for Zygote process support.
      pm.setAppZygoteEnabled(settings.getAppZygoteProcessEnabled());
  
 +    // Redoubt (LW-M7-50, 158.0-2): the media configuration follows the process
@@ -85,29 +105,9 @@
      final int[] fds = startCrashHelper();
  
      final GeckoThread.InitInfo info =
---- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
-+++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
-@@ -797,6 +797,17 @@
-     return mAppZygote;
-   }
- 
-+  /**
-+   * Redoubt (LW-M7-50): true if web content runs in an isolated process, i.e. the content
-+   * process type the allocator picks ({@link GeckoProcessType#determineContentProcessType()},
-+   * which also applies the SDK 29 floor of the app zygote) is not plain CONTENT. GeckoRuntime
-+   * derives the Gecko pref media.redoubt-isolation-media.enabled from this, so the media
-+   * configuration cannot disagree with the process model.
-+   */
-+  public boolean isContentIsolated() {
-+    return GeckoProcessType.determineContentProcessType() != GeckoProcessType.CONTENT;
-+  }
-+
-   public void crashChild(@NonNull final Selector selector) {
-     XPCOMEventTarget.launcherThread()
-         .execute(
 --- a/modules/libpref/Preferences.cpp
 +++ b/modules/libpref/Preferences.cpp
-@@ -4569,6 +4569,57 @@
+@@ -4569,6 +4569,57 @@ void PreferencesImpl::SetupTelemetryPref() {
  
  #endif  // MOZ_WIDGET_ANDROID
  
@@ -165,7 +165,7 @@
  /* static */
  already_AddRefed<Preferences> Preferences::GetInstanceForService() {
    if (sPreferences) {
-@@ -4645,6 +4696,11 @@
+@@ -4645,6 +4696,11 @@ already_AddRefed<Preferences> Preferences::GetInstanceForService() {
    if (defaultPrefs) {
      parsePrefData(nsCString(defaultPrefs), PrefValueKind::Default);
    }

@@ -77,7 +77,6 @@ patches/lw-permissions.patch
 patches/moz-official-desktop.patch                      # LW-M1-04 desktop half: the three browser/base files (browser-init.js, browser-main.js, jar.mn) that keep the upstream DevelopmentHelpers quick-restart behind librewolf.devHelpers. Common half (the two GMP host-verification hunks) is in common.txt. NO Android counterpart is needed - mobile/android has no equivalent of the browser-init hunk; the evidence is in this patch's header and in android.txt. Position unchanged from the pre-split moz-official.patch entry. Since the Firefox 157 merge (upstream dropped hide-passwordmgr.patch, which used to be the other browser-init.js editor) no other listed patch touches browser-init.js; it shares browser/base/content/browser-main.js and browser/base/jar.mn with mullvad-dns-migration.patch (below), and that pair was measured order-free on firefox-157.0 (both orders byte-identical; scripts/check-patch-order.py REVIEWED_ORDER_FREE)
 patches/msix.patch                                      # LW-M1-05: NOT a straddler after all - NO common half, no split, no patches/android/ counterpart. It edits python/mozbuild/{mach_commands.py,repackaging/msix.py}, which an Android tree has on disk, but repackaging/msix.py's only non-test importer is two FUNCTION-LOCAL imports in mach_commands.py:3336,3458 (inside the repackage msix / sign-msix command bodies), and stripping every function body leaves msix.py's import-time AST IDENTICAL and mach_commands.py's differing by exactly one constant - the --vendor default on @SubCommand("repackage","msix"), which only `vendor = vendor or second` in msix.py ever reads. mach loads command modules per-command (mach_initialize.py:483-495); `mach build` maps to build_commands.py and never loads mach_commands.py at all, and no LibreWolf target runs `mach repackage`. Full evidence in the header of patches/msix.patch
 patches/mullvad-dns-migration.patch
-patches/newtab-fix.patch
 patches/pip-hide-ui.patch
 patches/remote-debugging-package-name.patch
 patches/remove-language-packs.patch
@@ -110,7 +109,7 @@ patches/xmas-desktop.patch                              # LW-M1-09 desktop half 
 # target - so an Android build got five browser/ files it cannot compile, unseen
 # by lint-patch-scope.py and check-patchfail.sh because both read these lists
 # (landmine L4). Keeping it last preserves the desktop apply sequence exactly.
-# It must NOT be sorted into its alphabetical slot after newtab-fix: it shares
+# It must NOT be sorted into its alphabetical slot after mullvad-dns-migration: it shares
 # browser/components/preferences/{main.js,preferences.js,preferences.xhtml} and
 # browser/themes/shared/jar.inc.mn with settings-redesign, privacy-preferences,
 # remove-cfrprefs, remove-organization-policy-banner,

@@ -756,11 +756,18 @@
 # com.google.firebase / com.google.android.play reference in mobile/android
 # sources outside LibreWolf comments, and nothing names lib-integrity-googleplay
 # or lib-push-firebase.
+# 159 REBASE (2026-11-06, Firefox 159.0.1)
+# -----------------------------------------
+# No change of intent. PlayStoreReviewPromptController no longer moves the Play
+# request to Dispatchers.IO in 159, so those imports are not removed here any
+# more. Upstream's new "falls back to the web listing" test is kept, without the
+# ReviewManager argument.
+#
 diff --git a/.prettierignore b/.prettierignore
-index fee0448..560290d 100644
+index 3cbfaf1..1033894 100644
 --- a/.prettierignore
 +++ b/.prettierignore
-@@ -1723,12 +1723,10 @@ mobile/android/android-components/components/lib/crash/lint-baseline.xml
+@@ -1722,12 +1722,10 @@ mobile/android/android-components/components/lib/crash/lint-baseline.xml
  mobile/android/android-components/components/lib/dataprotect/lint-baseline.xml
  mobile/android/android-components/components/lib/fetch-httpurlconnection/lint-baseline.xml
  mobile/android/android-components/components/lib/fetch-okhttp/lint-baseline.xml
@@ -774,10 +781,10 @@ index fee0448..560290d 100644
  mobile/android/android-components/components/lib/state/lint-baseline.xml
  mobile/android/android-components/components/service/digitalassetlinks/lint-baseline.xml
 diff --git a/build.gradle b/build.gradle
-index f993dc4..d11c39f 100644
+index ec53559..c9d27a5 100644
 --- a/build.gradle
 +++ b/build.gradle
-@@ -22,7 +22,6 @@ buildscript {
+@@ -19,7 +19,6 @@ buildscript {
          // Used in mobile/android/fenix/app/build.gradle
          classpath libs.androidx.benchmark.gradle
          classpath libs.androidx.navigation.safeargs
@@ -785,7 +792,7 @@ index f993dc4..d11c39f 100644
          classpath libs.mozilla.glean.gradle.plugin
      }
  }
-@@ -48,6 +47,62 @@ idea {
+@@ -45,6 +44,62 @@ idea {
      }
  }
  
@@ -849,10 +856,10 @@ index f993dc4..d11c39f 100644
      if (string == null) {
          return string
 diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
-index a924189..203a408 100644
+index d216953..dac43fc 100644
 --- a/gradle/libs.versions.toml
 +++ b/gradle/libs.versions.toml
-@@ -55,16 +55,9 @@ work = "2.11.2"
+@@ -55,16 +55,9 @@ work = "2.12.0"
  
  # Google other
  accompanist = "0.37.3"
@@ -869,7 +876,7 @@ index a924189..203a408 100644
  protobuf = "4.36.1"
  
  # Gradle plugins
-@@ -128,7 +121,6 @@ kotlin-serialization = { module = "org.jetbrains.kotlin.plugin.serialization:org
+@@ -130,7 +123,6 @@ kotlin-serialization = { module = "org.jetbrains.kotlin.plugin.serialization:org
  kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
  kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
  kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -877,7 +884,7 @@ index a924189..203a408 100644
  kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
  kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
  
-@@ -228,20 +220,12 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
+@@ -230,20 +222,12 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
  
  # Google other
  accompanist-drawablepainter = { module = "com.google.accompanist:accompanist-drawablepainter", version.ref = "accompanist" }
@@ -2577,10 +2584,10 @@ index fd7e930..825a381 100644
      - components:lib-state
      - components:service-digitalassetlinks
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
-index 35fdfdb..5f4bff7 100644
+index 382ef5d..0eb5ac9 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -19,11 +19,11 @@ plugins {
+@@ -21,11 +21,11 @@ plugins {
      alias(libs.plugins.protobuf.plugin)
  }
  
@@ -2597,7 +2604,7 @@ index 35fdfdb..5f4bff7 100644
  
  apply from: 'benchmark.gradle'
  
-@@ -350,13 +350,6 @@ android.defaultConfig.with {
+@@ -375,13 +375,6 @@ android.defaultConfig.with {
          buildConfigField 'String', 'MLS_TOKEN', '""'
      }
  
@@ -2611,7 +2618,7 @@ index 35fdfdb..5f4bff7 100644
      if (gradle.hasProperty("localProperties.glean.custom.server.url")) {
          def url = gradle.getProperty("localProperties.glean.custom.server.url")
          buildConfigField 'String', 'GLEAN_CUSTOM_URL', url
-@@ -535,10 +528,8 @@ dependencies {
+@@ -560,10 +553,8 @@ dependencies {
      implementation project(':components:lib-crash')
      implementation project(':components:lib-crash-sentry')
      implementation project(':components:lib-dataprotect')
@@ -2622,7 +2629,7 @@ index 35fdfdb..5f4bff7 100644
      implementation project(':components:lib-llm-mlpa')
      implementation project(':components:lib-shake')
      implementation project(':components:lib-ai-controls')
-@@ -595,9 +586,6 @@ dependencies {
+@@ -620,9 +611,6 @@ dependencies {
      implementation libs.kotlinx.coroutines
      implementation libs.kotlinx.serialization.json
      implementation libs.mozilla.glean
@@ -2676,10 +2683,10 @@ index f373af5..76eada0 100644
             - SDK's own AndroidManifest.xml, which the manifest merger would otherwise fold into
             - ours. It turns an "am start" intent carrying the string extras sendPing and
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index 192dd00..efe5c56 100644
+index bd38724..1efac36 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -53,7 +53,6 @@ import mozilla.components.concept.ai.controls.isEnabled
+@@ -55,7 +55,6 @@ import mozilla.components.concept.ai.controls.isEnabled
  import mozilla.components.concept.base.crash.Breadcrumb
  import mozilla.components.concept.engine.webextension.WebExtension
  import mozilla.components.concept.engine.webextension.isUnsupported
@@ -2687,7 +2694,7 @@ index 192dd00..efe5c56 100644
  import mozilla.components.concept.storage.FrecencyThresholdOption
  import mozilla.components.feature.addons.migration.DefaultSupportedAddonsChecker
  import mozilla.components.feature.addons.update.GlobalAddonDependencyProvider
-@@ -131,8 +130,6 @@ import org.mozilla.fenix.perf.StartupTimeline
+@@ -140,8 +139,6 @@ import org.mozilla.fenix.perf.StartupTimeline
  import org.mozilla.fenix.perf.StorageStatsMetrics
  import org.mozilla.fenix.perf.runBlockingIncrement
  import org.mozilla.fenix.privacyreport.PrivacyReportWorkerFactory
@@ -2696,7 +2703,7 @@ index 192dd00..efe5c56 100644
  import org.mozilla.fenix.session.VisibilityLifecycleCallback
  import org.mozilla.fenix.settings.doh.DefaultDohSettingsProvider
  import org.mozilla.fenix.settings.doh.DohSettingsProvider
-@@ -401,8 +398,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -412,8 +409,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              )
          }
  
@@ -2705,15 +2712,15 @@ index 192dd00..efe5c56 100644
          maybeSetupIPProtection()
  
          GlobalFxSuggestDependencyProvider.initialize(components.fxSuggest.storage)
-@@ -466,7 +461,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -482,7 +477,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          queueIncrementNumberOfAppLaunches(queue)
          queueRestoreLocale(queue)
          queueStorageMaintenance(queue)
 -        queueIntegrityClientWarmUp(queue)
          queueNimbusFetchInForeground(queue)
          queueDownloadWallpapers(queue)
- 
-@@ -600,19 +594,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+         queueUpdateAutofillServiceState(queue)
+@@ -624,19 +618,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              components.core.autofillStorage.registerStorageMaintenanceWorker()
          }
  
@@ -2733,7 +2740,7 @@ index 192dd00..efe5c56 100644
      @OptIn(ExperimentalAndroidComponentsApi::class)
      private fun queueNimbusFetchInForeground(queue: RunWhenReadyQueue) =
          runOnVisualCompleteness(queue) {
-@@ -664,26 +645,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -688,26 +669,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          (LeakCanarySetup as LeakCanarySetupInterface).updateState(isEnabled = isEnabled, components = components)
      }
  
@@ -2825,7 +2832,7 @@ index 4cd0508..6f38035 100644
                  SendTabFeature(accountManager) { device, tabs ->
                      notificationManager.showReceivedTabs(context, device, tabs)
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-index ff14fb5..b8c0928 100644
+index 8574781..602a258 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 @@ -10,12 +10,11 @@ import androidx.compose.runtime.Composable
@@ -2883,7 +2890,7 @@ index ff14fb5..b8c0928 100644
              numberOfAppLaunches = { settings.numberOfAppLaunches },
          )
      }
-@@ -425,12 +418,25 @@ class Components(
+@@ -426,12 +419,25 @@ class Components(
          )
      }
  
@@ -2915,7 +2922,7 @@ index ff14fb5..b8c0928 100644
      }
  
      val termsOfUsePromptRepository by lazyMonitored {
-@@ -522,7 +528,7 @@ class Components(
+@@ -535,7 +541,7 @@ class Components(
              client = core.client,
              storage = MlpaTokenStorage.sharedPrefs(context),
              fxaTokenProvider = backgroundServices.accountManager.accessTokenProvider,
@@ -2924,7 +2931,7 @@ index ff14fb5..b8c0928 100644
              userIdProvider = clientUUID,
          )
      }
-@@ -537,7 +543,6 @@ class Components(
+@@ -550,7 +556,6 @@ class Components(
              authSources =
                  IPProtectionAuthSources(
                      fxaAccountManager = lazy { backgroundServices.accountManager },
@@ -2933,10 +2940,10 @@ index ff14fb5..b8c0928 100644
              lazyAppStore = lazy { appStore },
              settings = settings,
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/PlayStoreReviewPromptController.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/PlayStoreReviewPromptController.kt
-index 73a80dd..3787fc4 100644
+index 7ec39a4..3787fc4 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/PlayStoreReviewPromptController.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/PlayStoreReviewPromptController.kt
-@@ -9,16 +9,9 @@ import android.content.ActivityNotFoundException
+@@ -9,14 +9,9 @@ import android.content.ActivityNotFoundException
  import android.content.Intent
  import androidx.annotation.VisibleForTesting
  import androidx.core.net.toUri
@@ -2947,13 +2954,11 @@ index 73a80dd..3787fc4 100644
  import java.util.Date
  import java.util.Locale
 -import kotlinx.coroutines.CancellationException
--import kotlinx.coroutines.Dispatchers
 -import kotlinx.coroutines.tasks.await
--import kotlinx.coroutines.withContext
  import mozilla.components.support.base.log.logger.Logger
  import org.mozilla.fenix.GleanMetrics.ReviewPrompt
  import org.mozilla.fenix.components.ReviewPromptAttemptResult.Displayed
-@@ -29,46 +22,27 @@ import org.mozilla.fenix.settings.SupportUtils
+@@ -27,46 +22,27 @@ import org.mozilla.fenix.settings.SupportUtils
  
  val logger = Logger("PlayStoreReviewPromptController")
  
@@ -2980,7 +2985,7 @@ index 73a80dd..3787fc4 100644
 +    /** Report that no in-app review prompt can be shown. */
      suspend fun tryPromptReview(activity: Activity): ReviewPromptAttemptResult {
 -        logger.info("tryPromptReview in progress...")
--        val reviewInfoTask = withContext(Dispatchers.IO) { manager.requestReviewFlow() }
+-        val reviewInfoTask = manager.requestReviewFlow()
 -
 -        val result =
 -            try {
@@ -3016,7 +3021,7 @@ index 73a80dd..3787fc4 100644
  
          recordReviewPromptEvent(
              promptAttemptResult = result,
-@@ -76,8 +50,6 @@ class PlayStoreReviewPromptController(
+@@ -74,8 +50,6 @@ class PlayStoreReviewPromptController(
              now = Date(),
          )
  
@@ -3025,7 +3030,7 @@ index 73a80dd..3787fc4 100644
          return result
      }
  
-@@ -101,11 +73,6 @@ class PlayStoreReviewPromptController(
+@@ -99,11 +73,6 @@ class PlayStoreReviewPromptController(
  
          logger.info("tryLaunchPlayStoreReview completed.")
      }
@@ -3037,7 +3042,7 @@ index 73a80dd..3787fc4 100644
  }
  
  /** Result of an attempt to show a Play Store In-App Review Prompt. */
-@@ -121,28 +88,6 @@ sealed interface ReviewPromptAttemptResult {
+@@ -119,28 +88,6 @@ sealed interface ReviewPromptAttemptResult {
  
      /** Attempt completed without error, but we weren't able to determine if prompt has been shown or not. */
      data object Unknown : ReviewPromptAttemptResult
@@ -3141,7 +3146,7 @@ index 640d6d3..0000000
 -    private val pushService by lazyMonitored { FirebasePushService() }
 -}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
-index a2f3b58..99825f8 100644
+index 27af024..65e5bca 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
 @@ -10,11 +10,9 @@ import mozilla.components.browser.state.store.BrowserStore
@@ -3172,7 +3177,7 @@ index a2f3b58..99825f8 100644
  )
  
  /** Provides access to IP Protection related components. */
-@@ -74,15 +76,15 @@ class IPProtection(
+@@ -73,15 +75,15 @@ class IPProtection(
      }
  
      val feature by lazy {
@@ -3713,10 +3718,10 @@ index 25990df..0000000
 -        appServerKey = null,
 -    )
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index 3129559..3a9698b 100644
+index 9fd1e62..839b69f 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-@@ -378,7 +378,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+@@ -368,7 +368,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
          }
  
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_ip_protection_use_gpi).apply {
@@ -3772,10 +3777,10 @@ index f8580d7..5589a3b 100644
      )
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index f7f89fc..c2f96d4 100644
+index 2add4db..b297af9 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2092,12 +2092,6 @@ class Settings(
+@@ -2125,12 +2125,6 @@ class Settings(
              default = "",
          )
  
@@ -3789,7 +3794,7 @@ index f7f89fc..c2f96d4 100644
          stringPreference(
              appContext.getPreferenceKey(R.string.pref_key_override_amo_user),
 diff --git a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
-index da972b5..052dcfe 100644
+index 0d3c944..285840a 100644
 --- a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
 @@ -63,7 +63,6 @@
@@ -3800,7 +3805,7 @@ index da972b5..052dcfe 100644
      <string name="pref_key_sync_debug_quit" translatable="false">pref_key_sync_debug_quit</string>
      <string name="pref_key_sync_debug_network_error" translatable="false">pref_key_sync_debug_network_error</string>
      <string name="pref_key_sync_debug_temporary_auth_error" translatable="false">pref_key_sync_debug_temporary_auth_error</string>
-@@ -155,7 +154,6 @@
+@@ -156,7 +155,6 @@
      <string name="pref_key_sync_tabs" translatable="false">pref_key_sync_tabs</string>
      <string name="pref_key_sign_out" translatable="false">pref_key_sign_out</string>
      <string name="pref_key_sync_sign_in" translatable="false">pref_key_sync_sign_in</string>
@@ -3809,7 +3814,7 @@ index da972b5..052dcfe 100644
      <!-- Key for credit cards sync preference in the account settings fragment -->
      <string name="pref_key_sync_credit_cards" translatable="false">pref_key_sync_credit_cards</string>
 diff --git a/mobile/android/fenix/app/src/main/res/values/static_strings.xml b/mobile/android/fenix/app/src/main/res/values/static_strings.xml
-index 9ad3181..5107927 100644
+index 8764602..1307344 100644
 --- a/mobile/android/fenix/app/src/main/res/values/static_strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/static_strings.xml
 @@ -75,7 +75,6 @@
@@ -3865,14 +3870,13 @@ index fe4a0d1..b18b434 100644
          )
  }
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt
-index 7b440fb..9b195f1 100644
+index 7b047db..37cfcd1 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt
-@@ -4,32 +4,17 @@
+@@ -6,27 +6,16 @@ package org.mozilla.fenix.components
  
- package org.mozilla.fenix.components
- 
--import android.app.Activity
+ import android.app.Activity
+ import android.content.ActivityNotFoundException
 -import android.content.Context
  import androidx.activity.ComponentActivity
 -import androidx.lifecycle.Lifecycle
@@ -3884,6 +3888,8 @@ index 7b440fb..9b195f1 100644
 -import com.google.android.gms.tasks.Task
 -import com.google.android.play.core.review.ReviewInfo
 -import com.google.android.play.core.review.ReviewManager
+ import io.mockk.every
+ import io.mockk.mockk
  import java.text.SimpleDateFormat
  import java.util.Date
  import java.util.Locale
@@ -3892,16 +3898,10 @@ index 7b440fb..9b195f1 100644
  import kotlinx.coroutines.launch
  import kotlinx.coroutines.test.runTest
 -import mozilla.components.support.test.assertUnused
--import mozilla.components.support.test.ext.joinBlocking
  import mozilla.components.support.test.robolectric.testContext
  import org.junit.Assert.assertEquals
--import org.junit.Assert.assertFalse
  import org.junit.Assert.assertNull
--import org.junit.Assert.assertTrue
- import org.junit.Rule
- import org.junit.Test
- import org.junit.runner.RunWith
-@@ -41,96 +26,27 @@ import org.mozilla.fenix.components.ReviewPromptAttemptResult.Unknown
+@@ -42,27 +31,24 @@ import org.mozilla.fenix.components.ReviewPromptAttemptResult.Unknown
  import org.mozilla.fenix.helpers.FenixGleanTestRule
  import org.robolectric.RobolectricTestRunner
  
@@ -3909,7 +3909,8 @@ index 7b440fb..9b195f1 100644
 + * LibreWolf (LW-M4-05): the tests that drove a fake com.google.android.play.core.review.ReviewManager through
 + * com.google.android.gms.tasks.Task are gone with the Play In-App Review dependency, and so is
 + * ReviewPromptAttemptResult.from(), which parsed a ReviewInfo's toString(). What is left is the behaviour that
-+ * survives: the controller reports NotDisplayed, and recordReviewPromptEvent still records what it is given.
++ * survives: the controller reports NotDisplayed, the store listing still falls back to the web, and
++ * recordReviewPromptEvent still records what it is given.
 + */
  @RunWith(RobolectricTestRunner::class)
  class PlayStoreReviewPromptControllerTest {
@@ -3924,40 +3925,37 @@ index 7b440fb..9b195f1 100644
 -                manager = reviewManager,
 -                numberOfAppLaunches = { 5 },
 -            )
--        launchActivity<ComponentActivity>().use { scenario ->
++    fun `WHEN tryPromptReview is called THEN there is no in-app review prompt to show`() = runTest {
++        val controller = PlayStoreReviewPromptController(numberOfAppLaunches = { 5 })
+         launchActivity<ComponentActivity>().use { scenario ->
 -            scenario.moveToState(Lifecycle.State.RESUMED)
--            scenario.onActivity { activity ->
+             scenario.onActivity { activity ->
 -                activity.lifecycleScope.launch {
 -                    controller.tryPromptReview(activity)
 -
 -                    assertTrue(reviewManager.promptHasBeenRequested)
 -                }
--            }
--        }
--    }
--
--    @Test
--    fun `GIVEN activity is destroyed WHEN tryPromptReview is called THEN doesn't launch review flow`() = runTest {
--        val reviewManager = SuccessfulReviewManager(testContext)
++                activity.lifecycleScope.launch { assertEquals(NotDisplayed, controller.tryPromptReview(activity)) }
+             }
+         }
+     }
+@@ -72,11 +58,7 @@ class PlayStoreReviewPromptControllerTest {
+         val activity = mockk<Activity>(relaxed = true)
+         var openedInNewTab = false
+         val openInNewTab = { _: String -> openedInNewTab = true }
 -        val controller =
 -            PlayStoreReviewPromptController(
--                manager = reviewManager,
+-                manager = mockk(relaxed = true),
 -                numberOfAppLaunches = { 5 },
 -            )
--        launchActivity<ComponentActivity>().use { scenario ->
--            scenario.moveToState(Lifecycle.State.RESUMED)
--            scenario.onActivity { activity ->
--                activity.lifecycleScope
--                    .launch {
--                        scenario.moveToState(Lifecycle.State.DESTROYED)
--                        controller.tryPromptReview(activity)
--                    }
--                    .joinBlocking()
--            }
--        }
--        assertFalse(reviewManager.promptHasBeenRequested)
--    }
--
++        val controller = PlayStoreReviewPromptController(numberOfAppLaunches = { 5 })
+         every { activity.startActivity(any()) } throws ActivityNotFoundException()
+ 
+         controller.tryLaunchPlayStoreReview(activity, openInNewTab)
+@@ -84,49 +66,6 @@ class PlayStoreReviewPromptControllerTest {
+         assertTrue(openedInNewTab)
+     }
+ 
 -    @Test
 -    fun `WHEN the reviews API fails THEN returns Error result`() = runTest {
 -        val controller =
@@ -3965,20 +3963,17 @@ index 7b440fb..9b195f1 100644
 -                manager = FailingReviewManager(),
 -                numberOfAppLaunches = { 5 },
 -            )
-+    fun `WHEN tryPromptReview is called THEN there is no in-app review prompt to show`() = runTest {
-+        val controller = PlayStoreReviewPromptController(numberOfAppLaunches = { 5 })
-         launchActivity<ComponentActivity>().use { scenario ->
-             scenario.onActivity { activity ->
+-        launchActivity<ComponentActivity>().use { scenario ->
+-            scenario.onActivity { activity ->
 -                activity.lifecycleScope.launch {
 -                    val result = controller.tryPromptReview(activity)
 -
 -                    assertIs<Error>(result)
 -                }
-+                activity.lifecycleScope.launch { assertEquals(NotDisplayed, controller.tryPromptReview(activity)) }
-             }
-         }
-     }
- 
+-            }
+-        }
+-    }
+-
 -    @Test
 -    fun `WHEN review info contains 'isNoOp=false' THEN prompt was displayed`() {
 -        val displayState = ReviewPromptAttemptResult.from(createReviewInfoString("isNoOp=false"))
@@ -4007,7 +4002,7 @@ index 7b440fb..9b195f1 100644
      @Test
      fun reviewPromptWasDisplayed() {
          testRecordReviewPromptEventRecordsTheExpectedData(Displayed, "true")
-@@ -178,83 +94,3 @@ class PlayStoreReviewPromptControllerTest {
+@@ -174,83 +113,3 @@ class PlayStoreReviewPromptControllerTest {
          }
      }
  }
@@ -4532,10 +4527,10 @@ index bdae217..0cb22a3 100644
          // NOTE: Do not place your application dependencies here; they belong
          // in the individual module build.gradle files
 diff --git a/mobile/android/fenix/config/detekt-baseline.xml b/mobile/android/fenix/config/detekt-baseline.xml
-index 7f98aaf..187ecb0 100644
+index b0fdda4..855e5a9 100644
 --- a/mobile/android/fenix/config/detekt-baseline.xml
 +++ b/mobile/android/fenix/config/detekt-baseline.xml
-@@ -424,7 +424,6 @@
+@@ -423,7 +423,6 @@
      <ID>UndocumentedPublicClass:AccountSettingsInteractor.kt$AccountSettingsInteractor : AccountSettingsUserActions</ID>
      <ID>UndocumentedPublicClass:AccountSettingsInteractor.kt$AccountSettingsUserActions</ID>
      <ID>UndocumentedPublicClass:AccountUiView.kt$AccountUiView</ID>
@@ -4543,7 +4538,7 @@ index 7f98aaf..187ecb0 100644
      <ID>UndocumentedPublicClass:AddonDetailsBindingDelegate.kt$AddonDetailsInteractor</ID>
      <ID>UndocumentedPublicClass:AppAction.kt$AppAction$AddNonFatalCrash : AppAction</ID>
      <ID>UndocumentedPublicClass:AppAction.kt$AppAction$Change : AppAction</ID>
-@@ -841,8 +840,6 @@
+@@ -840,8 +839,6 @@
      <ID>UndocumentedPublicFunction:Utils.kt$fun rootTitles(context: Context, withMobileRoot: Boolean): Map&lt;String, String&gt;</ID>
      <ID>UndocumentedPublicFunction:View.kt$fun View.increaseTapArea(@Dimension(unit = DP) extraDps: Int)</ID>
      <ID>UndocumentedPublicFunction:View.kt$fun View.removeTouchDelegate()</ID>
@@ -4624,7 +4619,7 @@ index ac74aeb..4d9b91b 100644
  Home <Home.md>
  Implementing Telemetry <Implementing-Telemetry.md>
 diff --git a/mobile/android/focus-android/app/build.gradle b/mobile/android/focus-android/app/build.gradle
-index 4f03ad7..fb5fb3c 100644
+index 902c60c..28d75ac 100644
 --- a/mobile/android/focus-android/app/build.gradle
 +++ b/mobile/android/focus-android/app/build.gradle
 @@ -8,10 +8,6 @@ plugins {
@@ -4717,10 +4712,10 @@ index ae0ea90..11ccac3 100644
          // NOTE: Do not place your application dependencies here; they belong
          // in the individual module build.gradle files
 diff --git a/mobile/android/geckoview/build.gradle b/mobile/android/geckoview/build.gradle
-index 149f21a..ce107a9 100644
+index 281de78..6082e9f 100644
 --- a/mobile/android/geckoview/build.gradle
 +++ b/mobile/android/geckoview/build.gradle
-@@ -195,7 +195,6 @@ dependencies {
+@@ -193,7 +193,6 @@ dependencies {
      implementation libs.androidx.core
      implementation libs.androidx.lifecycle.common
      implementation libs.androidx.lifecycle.process
@@ -5515,10 +5510,10 @@ index 85a42de..e44f424 100644
          new String[] {"usb", "nfc", "ble", "internal", "hybrid"};
      final JSONArray array = WebAuthnUtils.getJSONTransportsForByte(transports);
 diff --git a/tools/rewriting/Generated.txt b/tools/rewriting/Generated.txt
-index 6701c05..a44edbf 100644
+index 87d0ca7..8c61219 100644
 --- a/tools/rewriting/Generated.txt
 +++ b/tools/rewriting/Generated.txt
-@@ -159,12 +159,10 @@ mobile/android/android-components/components/lib/crash/lint-baseline.xml
+@@ -158,12 +158,10 @@ mobile/android/android-components/components/lib/crash/lint-baseline.xml
  mobile/android/android-components/components/lib/dataprotect/lint-baseline.xml
  mobile/android/android-components/components/lib/fetch-httpurlconnection/lint-baseline.xml
  mobile/android/android-components/components/lib/fetch-okhttp/lint-baseline.xml
