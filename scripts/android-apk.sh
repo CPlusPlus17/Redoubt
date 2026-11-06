@@ -1177,6 +1177,10 @@ rc=$?
 t1=$(date +%s)
 if [ "$rc" != "0" ]; then
     record apk $((t1 - t0)) "FAILED rc=$rc"
+    # The log stays on the runner; print what failed so a CI run shows it.
+    { grep -E '^e: |What went wrong|FAILED' "$OUTDIR/logs/apk.log" | head -40
+      echo "--- last 60 lines of $OUTDIR/logs/apk.log ---"
+      tail -n 60 "$OUTDIR/logs/apk.log"; } >&2
     die "apk: mach gradle fenix:assemble$VARIANT_CAP failed (exit $rc) after $((t1 - t0))s.
        Log: $OUTDIR/logs/apk.log"
 fi
