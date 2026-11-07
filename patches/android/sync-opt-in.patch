@@ -208,7 +208,7 @@ index 0000000..7a23c53
 +    }
 +}
 diff --git a/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/manager/FxaAccountManager.kt b/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/manager/FxaAccountManager.kt
-index 09ce155..a7278ff 100644
+index 92f4668..8b81bcd 100644
 --- a/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/manager/FxaAccountManager.kt
 +++ b/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/manager/FxaAccountManager.kt
 @@ -40,6 +40,7 @@ import mozilla.components.concept.sync.Profile
@@ -265,8 +265,8 @@ index 09ce155..a7278ff 100644
 +                        }
                      }
  
-                     // refresh profile on explicit "sync now" action
-@@ -255,6 +263,7 @@ open class FxaAccountManager(
+                     // Only an explicit full "sync now"; feature syncs (e.g. tabs) run on every tab change.
+@@ -257,6 +265,7 @@ open class FxaAccountManager(
       */
      suspend fun setEngineEnabled(engine: SyncEngine, enabled: Boolean) =
          withContext(coroutineContext) {
@@ -274,7 +274,7 @@ index 09ce155..a7278ff 100644
              syncManager?.setEngineEnabled(engine, enabled)
          }
  
-@@ -267,15 +276,18 @@ open class FxaAccountManager(
+@@ -269,15 +278,18 @@ open class FxaAccountManager(
       */
      fun containsScope(scope: String): Boolean {
          val account = authenticatedAccount() ?: return false
@@ -294,7 +294,7 @@ index 09ce155..a7278ff 100644
  
              if (!isAccountManagerReady) {
                  notifyObservers { onReady(authenticatedAccount()) }
-@@ -288,6 +300,7 @@ open class FxaAccountManager(
+@@ -290,6 +302,7 @@ open class FxaAccountManager(
       * re-authenticated; consumers are expected to check [accountNeedsReauth].
       */
      fun authenticatedAccount(): OAuthAccount? = state.let {
@@ -302,7 +302,7 @@ index 09ce155..a7278ff 100644
          when (it) {
              FxaState.Connected,
              FxaState.AuthIssues -> account
-@@ -299,6 +312,7 @@ open class FxaAccountManager(
+@@ -301,6 +314,7 @@ open class FxaAccountManager(
  
      /** Get the [OAuthAccount] instance if it's connected. */
      fun connectedAccount(): OAuthAccount? = state.let {
@@ -310,7 +310,7 @@ index 09ce155..a7278ff 100644
          when (it) {
              FxaState.Connected -> account
              // While authenticating from a connected state we should return the account.
-@@ -316,7 +330,7 @@ open class FxaAccountManager(
+@@ -318,7 +332,7 @@ open class FxaAccountManager(
       *
       * @return A boolean flag indicating if account needs to be re-authenticated.
       */
@@ -319,7 +319,7 @@ index 09ce155..a7278ff 100644
  
      /**
       * Returns a [Profile] for an account, attempting to fetch it if necessary.
-@@ -324,7 +338,9 @@ open class FxaAccountManager(
+@@ -326,7 +340,9 @@ open class FxaAccountManager(
       * @return [Profile] if one is available and account is an authenticated state.
       */
      fun accountProfile(): Profile? =
@@ -330,7 +330,7 @@ index 09ce155..a7278ff 100644
              is FxaState.Connected,
              is FxaState.Authenticating,
              is FxaState.AuthIssues -> profile
-@@ -334,6 +350,7 @@ open class FxaAccountManager(
+@@ -336,6 +352,7 @@ open class FxaAccountManager(
      @VisibleForTesting
      internal suspend fun refreshProfile(ignoreCache: Boolean): Profile? {
          return authenticatedAccount()?.getProfile(ignoreCache = ignoreCache)?.let { newProfile ->
@@ -338,7 +338,7 @@ index 09ce155..a7278ff 100644
              profile = newProfile
              notifyObservers {
                  onProfileUpdated(newProfile)
-@@ -361,6 +378,7 @@ open class FxaAccountManager(
+@@ -363,6 +380,7 @@ open class FxaAccountManager(
          service: String = "",
      ): String? =
          withContext(coroutineContext) {
@@ -346,7 +346,7 @@ index 09ce155..a7278ff 100644
              val event =
                  if (pairingUrl != null) {
                      Event.Account.BeginPairingFlow(pairingUrl, service, entrypoint, authScopes)
-@@ -370,6 +388,7 @@ open class FxaAccountManager(
+@@ -372,6 +390,7 @@ open class FxaAccountManager(
  
              // Process the event, then use the new state to check the result of the operation
              processQueue(event)
@@ -354,7 +354,7 @@ index 09ce155..a7278ff 100644
              when (val s = state) {
                  is FxaState.Authenticating -> s.oauthUrl
                  else -> null
-@@ -383,6 +402,7 @@ open class FxaAccountManager(
+@@ -385,6 +404,7 @@ open class FxaAccountManager(
      /** Stores the session token from a WebChannel login JSON payload without exposing it to the browser layer. */
      suspend fun handleWebChannelLogin(jsonPayload: String) =
          withContext(coroutineContext) {
@@ -362,7 +362,7 @@ index 09ce155..a7278ff 100644
              account.handleWebChannelLogin(jsonPayload)
          }
  
-@@ -392,10 +412,13 @@ open class FxaAccountManager(
+@@ -394,10 +414,13 @@ open class FxaAccountManager(
       */
      suspend fun handleWebChannelPasswordChange(jsonPayload: String) =
          withContext(coroutineContext) {
@@ -376,7 +376,7 @@ index 09ce155..a7278ff 100644
                  if (wasInAuthIssues) {
                      notifyObservers { onAuthenticated(account, AuthType.Recovered) }
                  }
-@@ -415,9 +438,10 @@ open class FxaAccountManager(
+@@ -417,9 +440,10 @@ open class FxaAccountManager(
       */
      suspend fun finishAuthentication(authData: FxaAuthData) =
          withContext(coroutineContext) {
@@ -388,7 +388,7 @@ index 09ce155..a7278ff 100644
          }
  
      /** Logout of the account, if currently logged-in. */
-@@ -444,7 +468,7 @@ open class FxaAccountManager(
+@@ -446,7 +470,7 @@ open class FxaAccountManager(
      override fun close() {
          GlobalAccountManager.close()
          coroutineContext.cancel()
@@ -397,7 +397,7 @@ index 09ce155..a7278ff 100644
      }
  
      internal suspend fun encounteredAuthError(
-@@ -452,12 +476,14 @@ open class FxaAccountManager(
+@@ -454,12 +478,14 @@ open class FxaAccountManager(
          errorCountWithinTheTimeWindow: Int = 1,
      ) {
          return withContext(coroutineContext) {
@@ -412,7 +412,7 @@ index 09ce155..a7278ff 100644
          logger.debug("processQueue: event: '$event'")
          var fxaEvent = calcFxaEvent(event)
          if (fxaEvent == null) {
-@@ -472,18 +498,22 @@ open class FxaAccountManager(
+@@ -474,18 +500,22 @@ open class FxaAccountManager(
                  logger.warn("processQueue: Error in processEvent: $e")
                  return
              }
@@ -435,7 +435,7 @@ index 09ce155..a7278ff 100644
          CoroutineScope(coroutineContext).launch {
              processQueue(event)
          }
-@@ -542,6 +572,7 @@ open class FxaAccountManager(
+@@ -544,6 +574,7 @@ open class FxaAccountManager(
          forState: FxaState,
          via: Event,
      ) {
@@ -443,7 +443,7 @@ index 09ce155..a7278ff 100644
          when (forState) {
              FxaState.Disconnected ->
                  when (via) {
-@@ -563,7 +594,10 @@ open class FxaAccountManager(
+@@ -565,7 +596,10 @@ open class FxaAccountManager(
              FxaState.Connected ->
                  when (via) {
                      is Event.Account.Start -> {
@@ -455,7 +455,7 @@ index 09ce155..a7278ff 100644
                              notifyObservers { onAuthenticated(account, AuthType.Existing) }
                              refreshProfile(ignoreCache = false)
                          } else {
-@@ -571,7 +605,10 @@ open class FxaAccountManager(
+@@ -573,7 +607,10 @@ open class FxaAccountManager(
                          }
                      }
                      is Event.Progress.AuthData -> {
@@ -467,7 +467,7 @@ index 09ce155..a7278ff 100644
                              notifyObservers { onAuthenticated(account, via.authData.authType) }
                              refreshProfile(ignoreCache = false)
                          } else {
-@@ -642,11 +679,14 @@ open class FxaAccountManager(
+@@ -644,11 +681,14 @@ open class FxaAccountManager(
       * @return 'true' on success, 'false' on failure, indicating that sync won't work.
       */
      private suspend fun authenticationSideEffects(): Boolean {
@@ -483,7 +483,7 @@ index 09ce155..a7278ff 100644
                      name = deviceConfig.name,
                      kind = deviceConfig.type.into(),
                  )
-@@ -657,6 +697,7 @@ open class FxaAccountManager(
+@@ -659,6 +699,7 @@ open class FxaAccountManager(
      /** Exists strictly for testing purposes, allowing tests to specify their own implementation of [OAuthAccount]. */
      @VisibleForTesting
      open fun getStorageWrapper(): StorageWrapper {
@@ -491,7 +491,7 @@ index 09ce155..a7278ff 100644
          return StorageWrapper(this, accountEventObserverRegistry, serverConfig, crashReporter)
      }
  
-@@ -738,6 +779,7 @@ open class FxaAccountManager(
+@@ -740,6 +781,7 @@ open class FxaAccountManager(
       * - Check the UI, it should be in an authenticated state.
       */
      public fun simulateNetworkError() {
@@ -499,7 +499,7 @@ index 09ce155..a7278ff 100644
          account.simulateNetworkError()
          CoroutineScope(coroutineContext).launch {
              refreshProfile(true)
-@@ -754,6 +796,7 @@ open class FxaAccountManager(
+@@ -756,6 +798,7 @@ open class FxaAccountManager(
       * - Check the UI, it should be in an authenticated state.
       */
      public fun simulateTemporaryAuthTokenIssue() {
@@ -507,7 +507,7 @@ index 09ce155..a7278ff 100644
          account.simulateTemporaryAuthTokenIssue()
          CoroutineScope(coroutineContext).launch {
              refreshProfile(true)
-@@ -772,6 +815,7 @@ open class FxaAccountManager(
+@@ -774,6 +817,7 @@ open class FxaAccountManager(
       * - Check the UI, it should be in an authentication problems state.
       */
      public fun simulatePermanentAuthTokenIssue() {
@@ -516,7 +516,7 @@ index 09ce155..a7278ff 100644
          CoroutineScope(coroutineContext).launch {
              refreshProfile(true)
 diff --git a/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/sync/WorkManagerSyncManager.kt b/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/sync/WorkManagerSyncManager.kt
-index 8d95048..de26044 100644
+index 2c55881..2a6f0b4 100644
 --- a/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/sync/WorkManagerSyncManager.kt
 +++ b/mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/sync/WorkManagerSyncManager.kt
 @@ -53,6 +53,7 @@ import mozilla.components.concept.sync.AuthType
@@ -538,7 +538,7 @@ index 8d95048..de26044 100644
  private const val KEY_DATA_STORES = "stores"
  private const val KEY_REASON = "reason"
  
-@@ -317,6 +322,7 @@ internal class WorkManagerSyncDispatcher(
+@@ -319,6 +324,7 @@ internal class WorkManagerSyncDispatcher(
          debounce: Boolean,
          customEngineSubset: List<SyncEngine>,
      ) {
@@ -546,7 +546,7 @@ index 8d95048..de26044 100644
          val engines = customEngineSubset.joinToString { it.nativeName }
          logger.debug("Immediate sync requested, reason = $reason, debounce = $debounce, custom engines = $engines")
          val delayMs =
-@@ -354,6 +360,7 @@ internal class WorkManagerSyncDispatcher(
+@@ -356,6 +362,7 @@ internal class WorkManagerSyncDispatcher(
      }
  
      override fun setEngineEnabled(engine: SyncEngine, enabled: Boolean) {
@@ -554,7 +554,7 @@ index 8d95048..de26044 100644
          SyncEnginesStorage(context).setStatus(engine, enabled)
          syncNow(SyncReason.EngineChange, debounce = false)
      }
-@@ -367,6 +374,7 @@ internal class WorkManagerSyncDispatcher(
+@@ -369,6 +376,7 @@ internal class WorkManagerSyncDispatcher(
  
      /** Periodic background syncing is mainly intended to reduce workload when we sync during application startup. */
      override fun startPeriodicSync(unit: TimeUnit, period: Long, initialDelay: Long) {
@@ -562,7 +562,7 @@ index 8d95048..de26044 100644
          logger.debug("Starting periodic syncing, period = $period, time unit = $unit")
          // Use the 'update' policy as a simple way to upgrade periodic worker configurations across
          // application versions. We do this instead of versioning workers.
-@@ -486,6 +494,8 @@ internal class WorkManagerSyncWorker(
+@@ -511,6 +519,8 @@ internal class WorkManagerSyncWorker(
  
      override suspend fun doWork(): Result =
          withContext(GlobalAccountManager.syncIoDispatcher) {
@@ -571,7 +571,7 @@ index 8d95048..de26044 100644
              logger.debug("Starting sync... Tagged as: ${params.tags}")
  
              // We will need a list of SyncableStores.
-@@ -636,8 +646,10 @@ internal class WorkManagerSyncWorker(
+@@ -662,8 +672,10 @@ internal class WorkManagerSyncWorker(
                  localEncryptionKeys = localEncryptionKeys,
              )
  
@@ -1022,10 +1022,10 @@ index 0000000..6605058
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index e6066a1..db8bad4 100644
+index d5b3929..7e38c62 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -62,10 +62,13 @@ import mozilla.components.feature.search.ext.buildSearchUrl
+@@ -65,10 +65,13 @@ import mozilla.components.feature.search.ext.buildSearchUrl
  import mozilla.components.feature.search.ext.waitForSelectedOrDefaultSearchEngine
  import mozilla.components.feature.summarize.settings.SummarizationSettings
  import mozilla.components.feature.syncedtabs.commands.GlobalSyncedTabsCommandsProvider
@@ -1039,7 +1039,7 @@ index e6066a1..db8bad4 100644
  import mozilla.components.service.sync.autofill.GlobalAutofillDependencyProvider
  import mozilla.components.service.sync.logins.GlobalLoginsDependencyProvider
  import mozilla.components.service.sync.logins.LoginsApiException
-@@ -191,18 +194,33 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -200,18 +203,33 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
      override fun onCreate() {
          super.onCreate()
          initializeFenixProcess()
@@ -1074,7 +1074,7 @@ index e6066a1..db8bad4 100644
      /**
       * Process-level initialization for Fenix and its services. Sets up required native subsystems such as Nimbus, Glean
       * and Gecko. Note that Robolectric tests override this with an empty implementation that skips this initialization.
-@@ -541,6 +559,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -558,6 +576,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              }
              // Account manager initialization needs to happen on the main thread.
              applicationScope.launch {
@@ -1083,10 +1083,10 @@ index e6066a1..db8bad4 100644
                      components.backgroundServices.accountManager
                  }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-index e8a04fe..7b7accc 100644
+index 922e481..c9dce71 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -79,6 +79,7 @@ import mozilla.components.feature.media.ext.findActiveMediaTab
+@@ -77,6 +77,7 @@ import mozilla.components.feature.media.ext.findActiveMediaTab
  import mozilla.components.feature.privatemode.notification.PrivateNotificationFeature
  import mozilla.components.feature.search.BrowserStoreSearchAdapter
  import mozilla.components.lib.crash.store.CrashAction
@@ -1094,7 +1094,7 @@ index e8a04fe..7b7accc 100644
  import mozilla.components.service.fxa.sync.SyncReason
  import mozilla.components.support.base.feature.ActivityResultHandler
  import mozilla.components.support.base.feature.UserInteractionHandler
-@@ -190,7 +191,9 @@ import org.mozilla.fenix.perf.StartupTimeline
+@@ -189,7 +190,9 @@ import org.mozilla.fenix.perf.StartupTimeline
  import org.mozilla.fenix.perf.StartupTypeTelemetry
  import org.mozilla.fenix.privacyreport.PrivacyReportNotificationScheduler
  import org.mozilla.fenix.session.PrivateNotificationService
@@ -1104,7 +1104,7 @@ index e8a04fe..7b7accc 100644
  import org.mozilla.fenix.shortcut.NewTabShortcutIntentProcessor.Companion.ACTION_OPEN_PRIVATE_TAB
  import org.mozilla.fenix.splashscreen.ApplyExperimentsOperation
  import org.mozilla.fenix.splashscreen.DefaultExperimentsOperationStorage
-@@ -469,6 +472,12 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -468,6 +471,12 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
      final override fun onCreate(savedInstanceState: Bundle?) {
          // DO NOT MOVE ANYTHING ABOVE THIS getProfilerTime CALL.
          val startTimeProfiler = components.core.engine.profiler?.getProfilerTime()
@@ -1117,7 +1117,7 @@ index e8a04fe..7b7accc 100644
  
          components.strictMode.attachListenerToDisablePenaltyDeath(supportFragmentManager)
          MarkersFragmentLifecycleCallbacks.register(supportFragmentManager, components.core.engine)
-@@ -479,7 +488,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -478,7 +487,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              browsingModeManager = createBrowsingModeManager(intent)
              setupTheme()
  
@@ -1126,7 +1126,7 @@ index e8a04fe..7b7accc 100644
          }
  
          // Must run after the edge-to-edge capable theme is applied by
-@@ -498,7 +507,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -497,7 +506,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              message = "onCreate()",
              data =
                  mapOf(
@@ -1135,7 +1135,7 @@ index e8a04fe..7b7accc 100644
                      "intent" to (intent?.action ?: "null"),
                  ),
          )
-@@ -537,7 +546,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -536,7 +545,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
                          )
                      }
  
@@ -1144,7 +1144,7 @@ index e8a04fe..7b7accc 100644
                          navHost.navController.navigate(NavGraphDirections.actionGlobalOnboarding())
                      }
                  },
-@@ -594,11 +603,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -593,11 +602,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
  
              // Unless the activity is recreated, navigate to home first (without rendering it)
              // to add it to the back stack.
@@ -1158,7 +1158,7 @@ index e8a04fe..7b7accc 100644
                  if (shouldStartOnHome() && components.settings.enableHomepageAsNewTab) {
                      components.useCases.fenixBrowserUseCases.addNewHomepageTab()
                  } else if (!shouldStartOnHome()) {
-@@ -704,15 +713,22 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -703,15 +712,22 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              components.useCases.searchUseCases.restoreHiddenSearchEngines.invoke()
          }
  
@@ -1186,7 +1186,7 @@ index e8a04fe..7b7accc 100644
          components.core.engine.profiler?.addMarker(
              MarkersActivityLifecycleCallbacks.MARKER_NAME,
              startTimeProfiler,
-@@ -740,7 +756,12 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -739,7 +755,12 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              uninstallSurveyManager.showUninstallSurvey(intent, navHost.navController)
          }
  
@@ -1200,7 +1200,7 @@ index e8a04fe..7b7accc 100644
  
          StartupTimeline.onActivityCreateEndHome(this) // DO NOT MOVE ANYTHING BELOW HERE.
      }
-@@ -1056,6 +1077,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1055,6 +1076,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          if (this is ExternalAppBrowserActivity) {
              return
          }
@@ -1212,7 +1212,7 @@ index e8a04fe..7b7accc 100644
  
          if (intent.action == SEND_TO_DEVICES_ACTION) {
              handleSendToDevicesActionIntent(intent)
-@@ -1103,6 +1129,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1102,6 +1128,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              intent.getStringExtra(SendToDevicesDialogFragment.EXTRA_PRIVACY) ==
                  SendToDevicesDialogFragment.PRIVACY_PRIVATE
  
@@ -1225,10 +1225,10 @@ index e8a04fe..7b7accc 100644
              // Send to Device needs an account, so sign in first and resume once authenticated.
              pendingSendToDevicesTab = PendingSendToDevicesTab(urls, titles, isPrivate)
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
-index 1da4461..9860e22 100644
+index 6a529e5..b68394f 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
-@@ -137,6 +137,7 @@ import mozilla.components.lib.state.ext.consumeFrom
+@@ -136,6 +136,7 @@ import mozilla.components.lib.state.ext.consumeFrom
  import mozilla.components.lib.state.ext.flowScoped
  import mozilla.components.lib.state.ext.observeAsComposableState
  import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
@@ -1236,7 +1236,7 @@ index 1da4461..9860e22 100644
  import mozilla.components.service.sync.autofill.DefaultCreditCardValidationDelegate
  import mozilla.components.service.sync.logins.DefaultLoginValidationDelegate
  import mozilla.components.service.sync.logins.LoginsApiException
-@@ -1117,7 +1118,9 @@ abstract class BaseBrowserFragment :
+@@ -1120,7 +1121,9 @@ abstract class BaseBrowserFragment :
                                  get() = emailMaskBar
  
                              override fun shouldShowEmailMaskCfr() =
@@ -1247,17 +1247,17 @@ index 1da4461..9860e22 100644
                                      context.components.settings.cfrPopupsEnabled
  
                              override fun onEmailMaskCfrDismissed() {
-@@ -1126,6 +1129,9 @@ abstract class BaseBrowserFragment :
+@@ -1128,6 +1131,9 @@ abstract class BaseBrowserFragment :
+                             }
  
-                             override suspend fun onEmailMaskClick(generatedFor: String) =
-                                 withContext(Dispatchers.IO) {
-+                                    if (!AccountServices.isEnabled || getCurrentTab()?.content?.private != false) {
-+                                        return@withContext null
-+                                    }
-                                     EmailMask.promptClicked.record()
+                             override suspend fun onEmailMaskClick(generatedFor: String): String? {
++                                if (!AccountServices.isEnabled || getCurrentTab()?.content?.private != false) {
++                                    return null
++                                }
  
-                                     val relay = requireComponents.relayFeatureIntegration
-@@ -1490,19 +1496,21 @@ abstract class BaseBrowserFragment :
+                                 EmailMask.promptClicked.record()
+ 
+@@ -1498,19 +1504,21 @@ abstract class BaseBrowserFragment :
              )
          }
  
@@ -1341,7 +1341,7 @@ index 6f38035..ae49a6c 100644
                  accountManager.register(telemetryAccountObserver)
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/accounts/FxaWebChannelIntegration.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/accounts/FxaWebChannelIntegration.kt
-index 5328555..880972c 100644
+index bf95f0b..4519f77 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/accounts/FxaWebChannelIntegration.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/accounts/FxaWebChannelIntegration.kt
 @@ -12,6 +12,7 @@ import mozilla.components.concept.engine.webextension.WebExtensionRuntime
@@ -1530,10 +1530,10 @@ index 0000000..a61ec0d
 +    return true
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
-index 1e797e3..0b84df5 100644
+index 676f34b..6898236 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
-@@ -47,6 +47,7 @@ import mozilla.components.concept.sync.Profile
+@@ -48,6 +48,7 @@ import mozilla.components.concept.sync.Profile
  import mozilla.components.feature.addons.ui.AddonFilePicker
  import mozilla.components.feature.ipprotection.store.IPProtectionStore
  import mozilla.components.feature.ipprotection.store.state.isEligible
@@ -1541,7 +1541,7 @@ index 1e797e3..0b84df5 100644
  import mozilla.components.service.fxrelay.eligibility.Eligible
  import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
  import mozilla.components.support.ktx.android.view.showKeyboard
-@@ -119,7 +120,9 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -120,7 +121,9 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
          object : AccountObserver {
              private fun updateAccountUi(profile: Profile? = null) {
                  val context = context ?: return
@@ -1551,7 +1551,7 @@ index 1e797e3..0b84df5 100644
                      accountUiView.updateAccountUIState(
                          context = context,
                          profile = profile ?: context.components.backgroundServices.accountManager.accountProfile(),
-@@ -146,13 +149,16 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -147,13 +150,16 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
  
          components = requireContext().components
  
@@ -1575,7 +1575,7 @@ index 1e797e3..0b84df5 100644
  
          addonFilePicker = AddonFilePicker(requireContext(), requireComponents.addonManager)
          addonFilePicker.registerForResults(this)
-@@ -163,10 +169,12 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -164,10 +170,12 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
          // For example, if user is signed-in, and we don't perform this call in onCreate, we'll briefly
          // display a "Sign In" preference, which will then get replaced by the correct account information
          // once this call is ran in onResume shortly after.
@@ -1592,7 +1592,7 @@ index 1e797e3..0b84df5 100644
  
          val booleanPreferenceTelemetryAllowList =
              with(requireContext()) {
-@@ -292,6 +300,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -298,6 +306,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
  
      override fun onStart() {
          super.onStart()
@@ -1600,7 +1600,7 @@ index 1e797e3..0b84df5 100644
          // Observe account changes to keep the UI up-to-date.
          requireComponents.backgroundServices.accountManager.register(
              accountObserver,
-@@ -302,6 +311,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -308,6 +317,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
  
      override fun onStop() {
          super.onStop()
@@ -1608,7 +1608,7 @@ index 1e797e3..0b84df5 100644
          // If the screen isn't visible we don't need to show updates.
          // Also prevent the observer registered to the FXA singleton causing memory leaks.
          requireComponents.backgroundServices.accountManager.unregister(accountObserver)
-@@ -309,7 +319,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -315,7 +325,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
  
      override fun onDestroyView() {
          super.onDestroyView()
@@ -1617,7 +1617,7 @@ index 1e797e3..0b84df5 100644
      }
  
      private fun update(
-@@ -345,7 +355,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -351,7 +361,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
  
          setupPreferences(settings)
  
@@ -1626,7 +1626,7 @@ index 1e797e3..0b84df5 100644
              accountUiView.updateAccountUIState(
                  requireContext(),
                  requireComponents.backgroundServices.accountManager.accountProfile(),
-@@ -355,6 +365,15 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -361,6 +371,15 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
  
      @Suppress("LongMethod", "CyclomaticComplexMethod")
      override fun onPreferenceTreeClick(preference: Preference): Boolean {

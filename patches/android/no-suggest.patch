@@ -150,7 +150,7 @@
 # their 158 offsets.
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -634,12 +634,9 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -633,12 +633,9 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              serviceWorkerSupport,
              crashReporterBinding,
              defaultPinnedSitesBinding,
@@ -166,7 +166,7 @@
              downloadSnackbar,
              privateBrowsingLockFeature,
              externalAppLinkStatusBinding,
-@@ -693,9 +690,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -692,9 +689,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              true,
          )
  
@@ -178,7 +178,7 @@
  
          if (!components.settings.hiddenEnginesRestored) {
              components.settings.hiddenEnginesRestored = true
-@@ -995,7 +991,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -994,7 +990,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              data = mapOf("finishing" to isFinishing.toString()),
          )
  
@@ -203,7 +203,7 @@
              if (fenixSettings.longfoxEnabled) title = resources.getString(R.string.help_catch_trackers)
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -1759,10 +1759,16 @@ class Settings(
+@@ -1785,10 +1785,16 @@ class Settings(
  
      fun incrementShowLoginsSecureWarningSyncCount() = loginsSecureWarningSyncCount.increment()
  
@@ -221,7 +221,7 @@
          )
  
      val shouldAutocompleteInAwesomebar by
-@@ -1784,10 +1790,14 @@ class Settings(
+@@ -1810,10 +1816,14 @@ class Settings(
          )
  
      /** Indicates if the user have enabled trending search in search suggestions. */
@@ -237,8 +237,8 @@
          )
  
      /** Indicates if the user have enabled recent search in the search suggestions setting preference. */
-@@ -2331,12 +2341,20 @@ class Settings(
-             default = true,
+@@ -2364,12 +2374,20 @@ class Settings(
+             default = { isAutofillSupported },
          )
  
 -    /** Indicates if the Contile functionality should be visible. */
@@ -282,7 +282,7 @@
        android:key="@string/pref_key_show_homepage_weather_widget"
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
-@@ -455,7 +455,8 @@ class SettingsTest {
+@@ -469,7 +469,8 @@ class SettingsTest {
      fun showSearchSuggestions() {
          // When just created
          // Then

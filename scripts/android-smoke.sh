@@ -3187,29 +3187,29 @@ def check_no_isolation(m, res, app, adb, origin, https_url, sdk, forcefail=False
 # and try to fix"). In Firefox 158 + isolated content (Android 12+) any
 # requestMediaKeySystemAccess() for Widevine made the isolated content process
 # call android.media.MediaDrm, which SELinux denies it; the Java exception
-# killed the tab in a loop (evidence/lw-m7-51/). patches/android/isolation-eme.patch
-# moves that query to the parent (locked pref media.redoubt-eme.widevine-support)
-# and the app permission (drm-permission-default.patch) is the DRM switch.
+# killed the tab in a loop (evidence/lw-m7-51/). Since Firefox 159 the parent
+# asks the NDK and content reads gfxVars::WidevineSupport() (bug 2067689);
+# patches/android/isolation-eme.patch keeps isolated content to H.264+AAC, and
+# the app permission (drm-permission-default.patch) is the DRM switch. Whether
+# the device has Widevine at all is read from its DRM HAL (service list /
+# lshal), so a rejection can be told apart from a broken query.
 # Rows:
-#   eme-prefs       media.eme.enabled true (no Redoubt pref file sets it); on
-#                   API >= 31 the parent's Widevine answer is published, locked;
-#                   below, the pref is unused (0)
+#   eme-prefs       media.eme.enabled true (no Redoubt pref file sets it); the
+#                   isolation gate pref locked at the value for this API level
 #   eme-default     fresh profile, Widevine: rejects NotSupportedError, no prompt
 #                   (DRM-controlled content defaults to Blocked)
 #   eme-gecko-path  with the app approval switched off for the test
 #                   (media.eme.require-app-approval, cleared afterwards), Gecko
-#                   alone answers: on API >= 31 Widevine resolves when the parent
-#                   found it, offers H.264+AAC, refuses VP9 in WebM, and
-#                   createMediaKeys() succeeds (CDM in RDD); below API 31 the
-#                   158.0 Java path answers
+#                   alone answers: on API >= 31 with a Widevine HAL, Widevine
+#                   resolves, offers H.264+AAC, refuses VP9 in WebM, and
+#                   createMediaKeys() succeeds (CDM in RDD); without one it
+#                   rejects NotSupportedError; below API 31 either is accepted
 #   eme-no-crash    across the whole check: no "Failed to query crypto scheme
-#                   support", no content process died, the app is alive; on
-#                   API >= 31 the parent logged its Widevine answer
+#                   support", no content process died, the app is alive
 # --------------------------------------------------------------------------
-EME_WIDEVINE_PREF = "media.redoubt-eme.widevine-support"
 EME_APPROVAL_PREF = "media.eme.require-app-approval"
 EME_CRASH_RE = re.compile(r"Failed to query crypto scheme support")
-EME_PARENT_RE = re.compile(r"Redoubt isolation-eme: parent found Widevine (supported|unsupported)")
+EME_HAL_RE = re.compile(r"widevine", re.I)
 EME_H264_AAC = [{"initDataTypes": ["cenc"],
                  "videoCapabilities": [{"contentType": 'video/mp4; codecs="avc1.42E01E"'}],
                  "audioCapabilities": [{"contentType": 'audio/mp4; codecs="mp4a.40.2"'}]}]
@@ -3257,7 +3257,7 @@ def _eme_prefs(m):
         ' return {name: n, value: t === Services.prefs.PREF_BOOL ? Services.prefs.getBoolPref(n) :'
         ' t === Services.prefs.PREF_INT ? Services.prefs.getIntPref(n) : null,'
         ' locked: Services.prefs.prefIsLocked(n)}; });',
-        [["media.eme.enabled", ISOLATION_GATE_PREF, EME_WIDEVINE_PREF, EME_APPROVAL_PREF]],
+        [["media.eme.enabled", ISOLATION_GATE_PREF, EME_APPROVAL_PREF]],
         chrome=True) or []
     m.cmd("Marionette:SetContext", {"value": "content"})
     return {g["name"]: g for g in got}
@@ -3266,13 +3266,20 @@ def eme_content_deaths(log_text, pkg):
     pat = re.compile(r"Process %s:(\S*?(?:tab|Tab)\S*) \(pid (\d+)\) has died" % re.escape(pkg))
     return [{"process": mm.group(1)[:80], "pid": mm.group(2)} for mm in pat.finditer(log_text or "")]
 
-def grade_eme(sdk, prefs, default_probe, gecko_probe, vp9_probe, log_text, deaths, alive):
+def device_has_widevine(hal_listing):
+    """True/False from `service list` + `lshal` output; None when both were empty."""
+    text = (hal_listing or "").strip()
+    if not text:
+        return None
+    return bool(EME_HAL_RE.search(text))
+
+def grade_eme(sdk, prefs, default_probe, gecko_probe, vp9_probe, log_text, deaths, alive,
+              device_widevine):
     """Pure grading for --check-eme; returns [(row, ok, detail)]. See the block comment."""
     isolated = isolation_expected(sdk)
     rows = []
     eme = prefs.get("media.eme.enabled") or {}
     gate = prefs.get(ISOLATION_GATE_PREF) or {}
-    wv = prefs.get(EME_WIDEVINE_PREF) or {}
     problems = []
     if eme.get("value") is not True:
         problems.append("media.eme.enabled is %r, want true (the app permission is the DRM switch)"
@@ -3281,16 +3288,9 @@ def grade_eme(sdk, prefs, default_probe, gecko_probe, vp9_probe, log_text, death
         problems.append("%s=%r locked=%r, want %s locked for API %d"
                         % (ISOLATION_GATE_PREF, gate.get("value"), gate.get("locked"),
                            str(isolated).lower(), sdk))
-    if isolated and (wv.get("value") not in (1, 2) or not wv.get("locked")):
-        problems.append("%s=%r locked=%r: the parent did not publish its Widevine answer"
-                        % (EME_WIDEVINE_PREF, wv.get("value"), wv.get("locked")))
-    if not isolated and wv.get("value") not in (0, None):
-        problems.append("%s=%r below API %d, where the parent must not query"
-                        % (EME_WIDEVINE_PREF, wv.get("value"), ISOLATION_MIN_SDK))
     rows.append(("eme-prefs", not problems,
-                 "; ".join(problems) or "media.eme.enabled=true; isolation %s; %s=%r%s"
-                 % ("ON" if isolated else "OFF", EME_WIDEVINE_PREF, wv.get("value"),
-                    " (locked)" if wv.get("locked") else "")))
+                 "; ".join(problems) or "media.eme.enabled=true; isolation %s"
+                 % ("ON" if isolated else "OFF")))
 
     d = default_probe or {}
     ok = d.get("result") == "rejected" and d.get("name") == "NotSupportedError"
@@ -3301,7 +3301,7 @@ def grade_eme(sdk, prefs, default_probe, gecko_probe, vp9_probe, log_text, death
 
     g, v9 = gecko_probe or {}, vp9_probe or {}
     if isolated:
-        if wv.get("value") == 2:
+        if device_widevine is True:
             want_v = ['video/mp4; codecs="avc1.42E01E"']
             want_a = ['audio/mp4; codecs="mp4a.40.2"']
             ok = (g.get("result") == "resolved" and g.get("video") == want_v and g.get("audio") == want_a
@@ -3309,27 +3309,26 @@ def grade_eme(sdk, prefs, default_probe, gecko_probe, vp9_probe, log_text, death
                   and v9.get("name") == "NotSupportedError")
             detail = ("Gecko alone (app approval off for the test): Widevine resolved in isolated content, "
                       "H.264+AAC offered, MediaKeys created (CDM in RDD), VP9/WebM refused") if ok else (
-                "want Widevine resolved with H.264+AAC and MediaKeys created, VP9/WebM rejected; got %s / %s"
-                % (json.dumps(g)[:300], json.dumps(v9)[:200]))
-        elif wv.get("value") == 1:
+                "device has a Widevine HAL: want Widevine resolved with H.264+AAC and MediaKeys created, "
+                "VP9/WebM rejected; got %s / %s" % (json.dumps(g)[:300], json.dumps(v9)[:200]))
+        elif device_widevine is False:
             ok = g.get("result") == "rejected" and g.get("name") == "NotSupportedError"
-            detail = ("the parent found no Widevine; isolated content rejects it cleanly (%s)" % g.get("message")
+            detail = ("no Widevine HAL on this device; isolated content rejects it cleanly (%s)" % g.get("message")
                       if ok else "no Widevine on this device: want NotSupportedError, got %s" % json.dumps(g)[:300])
         else:
             ok = False
-            detail = ("%s=%r: no parent answer, so the isolated path cannot be graded; probe %s"
-                      % (EME_WIDEVINE_PREF, wv.get("value"), json.dumps(g)[:200]))
+            detail = ("could not list the device's DRM HALs, so the isolated path cannot be graded; probe %s"
+                      % json.dumps(g)[:200])
     else:
         resolved = g.get("result") == "resolved" and g.get("mediaKeys") == "created"
         rejected = g.get("result") == "rejected" and g.get("name") == "NotSupportedError"
         ok = resolved or rejected
-        detail = ("158.0 Java path below API %d: Widevine %s" % (ISOLATION_MIN_SDK,
+        detail = ("Java path below API %d: Widevine %s" % (ISOLATION_MIN_SDK,
                   "resolved, MediaKeys created" if resolved else "not on this device (NotSupportedError)")
                   if ok else "Java path below API %d: got %s" % (ISOLATION_MIN_SDK, json.dumps(g)[:300]))
     rows.append(("eme-gecko-path", ok, detail))
 
     crashes = EME_CRASH_RE.findall(log_text or "")
-    parent = EME_PARENT_RE.findall(log_text or "")
     problems = []
     if crashes:
         problems.append("%d x 'Failed to query crypto scheme support' in logcat" % len(crashes))
@@ -3337,24 +3336,16 @@ def grade_eme(sdk, prefs, default_probe, gecko_probe, vp9_probe, log_text, death
         problems.append("%d content process death(s): %s" % (len(deaths), deaths[:3]))
     if not alive:
         problems.append("the app is not running")
-    if isolated and not parent:
-        problems.append("no 'Redoubt isolation-eme: parent found Widevine' line from the parent")
-    if not isolated and parent:
-        problems.append("the parent queried Widevine below API %d" % ISOLATION_MIN_SDK)
     rows.append(("eme-no-crash", not problems,
-                 "; ".join(problems) or "no MediaDrm exception, no content process died, app alive%s"
-                 % ("; parent: Widevine %s" % parent[-1] if parent else "")))
+                 "; ".join(problems) or "no MediaDrm exception, no content process died, app alive"))
     return rows
 
 def check_eme(m, res, app, adb, https_url, forcefail=False):
     """--check-eme. The log window was opened (logcat -c) before the app started."""
     sdk = int((adb.shell("getprop ro.build.version.sdk", timeout=30) or "0").strip() or 0)
     prefs = _eme_prefs(m)
-    deadline = time.time() + 30
-    while (isolation_expected(sdk) and (prefs.get(EME_WIDEVINE_PREF) or {}).get("value") in (0, None)
-           and time.time() < deadline):
-        time.sleep(1)
-        prefs = _eme_prefs(m)
+    hal_listing = adb.shell("service list 2>/dev/null; lshal --neat 2>/dev/null", timeout=60)
+    device_widevine = device_has_widevine(hal_listing)
     default_probe = _eme_probe(m, https_url, "com.widevine.alpha", EME_H264_AAC, False)
     gecko_probe = vp9_probe = None
     try:
@@ -3374,8 +3365,9 @@ def check_eme(m, res, app, adb, https_url, forcefail=False):
     time.sleep(3)   # a crash of the probe's process is reported asynchronously
     log_text = adb.out("logcat", "-d", "-b", "all", "-v", "threadtime", timeout=120)
     rows = grade_eme(sdk, prefs, default_probe, gecko_probe, vp9_probe, log_text,
-                     eme_content_deaths(log_text, app.pkg), app.alive())
-    ev = {"sdk": sdk, "prefs": prefs, "default": default_probe, "gecko": gecko_probe, "vp9": vp9_probe}
+                     eme_content_deaths(log_text, app.pkg), app.alive(), device_widevine)
+    ev = {"sdk": sdk, "prefs": prefs, "default": default_probe, "gecko": gecko_probe, "vp9": vp9_probe,
+          "device_widevine": device_widevine}
     for name, ok, detail in rows:
         res.add(name, ok and not forcefail, detail if not forcefail else "forced failure: " + detail, ev)
     return all(ok for _n, ok, _d in rows) and not forcefail

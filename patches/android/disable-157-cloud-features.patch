@@ -81,11 +81,22 @@
 # isIPProtectionAvailable hunk. The first rejected on b4 and the second needed
 # fuzz 1. Both were regenerated at fuzz 0 on the in-order 158.0b4 tree; the
 # removed and added lines are unchanged. This text no longer applies to b3.
+# 159 rebase (2026-11-06, Firefox 159.0.1): 159 graduated "Add shortcut": the
+# add-shortcuts-improvement Nimbus feature, Settings.enableAddShortcutsImprovement
+# and its Secret Settings switch are gone and the tile always shows. So the
+# tile is now hidden where it is drawn (TopSites.kt and ShortcutsScreen.kt pass
+# showAddShortcut = false; the expand toggle counts hidden shortcuts only), the
+# add-tile cases of TopSitesExpandToggleTest are inverted, and the PopularSite
+# icon strip stays as the second line. maybeSetupIPProtection() moved and is
+# removed where it now is; 159's Lens switch has its own change listener and is
+# removed with it. LibreWolfCloudFeaturesTest follows 159's no-argument
+# canShowIPProtectionPrompt().
+#
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index dffc035..3fc909e 100644
+index 9ca57a5..2d6f942 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -427,8 +427,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -438,8 +438,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              )
          }
  
@@ -94,7 +105,7 @@ index dffc035..3fc909e 100644
          GlobalFxSuggestDependencyProvider.initialize { components.fxSuggest.storage }
          if (!FxSuggestAdmission.snapshot().choices.localEnabled) {
              FxSuggestIngestionScheduler(this).stopPeriodicIngestion()
-@@ -680,11 +678,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -704,11 +702,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          (LeakCanarySetup as LeakCanarySetupInterface).updateState(isEnabled = isEnabled, components = components)
      }
  
@@ -103,11 +114,11 @@ index dffc035..3fc909e 100644
 -        components.ipProtection.storageSynchronizer.initialize()
 -    }
 -
-     private fun setupCrashReporting(): CrashReporter {
-         return components.analytics.crashReporter.install(this, ::handleCaughtException)
-     }
+     /**
+      * Registers or unregisters [AutofillService] so the application is only offered as an Android autofill service on
+      * devices where autofill is supported. The component enabled state is persisted by the system across application
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
-index 99825f8..4f98e38 100644
+index 65e5bca..6f3594a 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
 @@ -5,14 +5,17 @@
@@ -129,7 +140,7 @@ index 99825f8..4f98e38 100644
  import mozilla.components.service.fxa.manager.FxaAccountManager
  import mozilla.components.service.fxa.store.SyncStore
  import mozilla.components.support.base.log.logger.Logger
-@@ -66,13 +69,15 @@ class IPProtection(
+@@ -65,13 +68,15 @@ class IPProtection(
          )
      }
  
@@ -153,7 +164,7 @@ index 99825f8..4f98e38 100644
  
      val feature by lazy {
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt
-index 1b3937e..1ddf274 100644
+index 2f5335e..d25b0f6 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt
 @@ -88,7 +88,8 @@ class HomeDeepLinkIntentProcessor(
@@ -166,6 +177,39 @@ index 1b3937e..1ddf274 100644
  
                  else -> return
              }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/TopSites.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/TopSites.kt
+index 37f487b..ec4bc64 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/TopSites.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/TopSites.kt
+@@ -178,7 +178,6 @@ fun TopSites(
+         val collapsedCount = collapsedTopSitesCount(columns)
+ 
+         val hasHiddenShortcuts = topSites.size > collapsedCount
+-        val hasHiddenAddShortcut = topSites.size >= collapsedCount
+ 
+         Column(
+             modifier = Modifier.fillMaxWidth(),
+@@ -187,7 +186,10 @@ fun TopSites(
+             Shortcuts(
+                 topSites = if (isExpanded) topSites else topSites.take(collapsedCount),
+                 topSiteColors = topSiteColors,
+-                showAddShortcut = isExpanded || topSites.size < collapsedCount,
++                // LibreWolf (disable-157-cloud-features.patch): no "Add shortcut" tile; its sheet
++                // suggests popular sites from Mozilla's Merino manifest. 159 dropped the Nimbus
++                // add-shortcuts-improvement gate that kept it hidden.
++                showAddShortcut = false,
+                 scrollable = false,
+                 menuItems = { topSite ->
+                     getMenuItems(
+@@ -206,7 +208,7 @@ fun TopSites(
+                 onAddShortcutClicked = onAddShortcutClicked,
+             )
+ 
+-            if (isExpandToggleEnabled && (hasHiddenShortcuts || hasHiddenAddShortcut)) {
++            if (isExpandToggleEnabled && hasHiddenShortcuts) {
+                 Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.static100))
+ 
+                 TopSitesExpandToggle(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt
 index 1987e81..ede1d73 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt
@@ -189,23 +233,33 @@ index 1987e81..ede1d73 100644
 -        iconUrl = icon.ifEmpty { null },
 +        iconUrl = null,
      )
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/ui/ShortcutsScreen.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/ui/ShortcutsScreen.kt
+index 0de236a..4ce4790 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/ui/ShortcutsScreen.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/ui/ShortcutsScreen.kt
+@@ -142,7 +142,8 @@ private fun ShortcutsScreenContent(
+         Shortcuts(
+             topSites = state.topSites,
+             topSiteColors = TopSiteColors.colors(),
+-            showAddShortcut = true,
++            // LibreWolf (disable-157-cloud-features.patch): no "Add shortcut" tile, as on the homepage.
++            showAddShortcut = false,
+             scrollable = true,
+             menuItems = { topSite ->
+                 getMenuItems(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index 6223661..797b91f 100644
+index 9435b9b..c44c88c 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-@@ -202,11 +202,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
-             onPreferenceChangeListener = SharedPreferenceUpdater()
-         }
+@@ -42,7 +42,6 @@ import org.mozilla.fenix.ext.showToolbarWithIconButton
+ import org.mozilla.fenix.settings.search.FirefoxSuggestPolicy
+ import org.mozilla.fenix.theme.FirefoxTheme
+ import org.mozilla.fenix.utils.SecretSettingsPrefDefaults
+-import org.mozilla.gecko.search.SearchWidgetProvider
  
--        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_add_shortcuts_improvement).apply {
--            isChecked = settings.enableAddShortcutsImprovement
--            onPreferenceChangeListener = SharedPreferenceUpdater()
--        }
--
-         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_more_shortcuts).apply {
-             isChecked = settings.showMoreShortcuts
-             onPreferenceChangeListener = SharedPreferenceUpdater()
-@@ -296,12 +291,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+ /** Settings screen allowing users to configure options not intended for general release. */
+ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment {
+@@ -292,12 +291,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
              onPreferenceChangeListener = SharedPreferenceUpdater()
          }
  
@@ -218,7 +272,7 @@ index 6223661..797b91f 100644
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_listen_to_page).apply {
              isVisible = Config.channel.isNightlyOrDebug
              isChecked = settings.listenToPageFeatureFlagEnabled
-@@ -338,12 +327,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+@@ -334,12 +327,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
              onPreferenceChangeListener = SharedPreferenceUpdater()
          }
  
@@ -231,49 +285,31 @@ index 6223661..797b91f 100644
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_ip_protection_use_gpi).apply {
              // LibreWolf (LW-M4-05): no Google Play Integrity provider exists in this build, and
              // IPProtection always selects the Mozilla-account provider, so this switch would be a lie.
-@@ -513,12 +496,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+@@ -541,19 +528,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
              onPreferenceChangeListener = SharedPreferenceUpdater()
          }
  
 -        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_google_lens_integration).apply {
 -            isVisible = Config.channel.isNightlyOrDebug || Config.channel.isBeta
 -            isChecked = settings.googleLensIntegrationEnabled
--            onPreferenceChangeListener = SharedPreferenceUpdater()
+-            onPreferenceChangeListener =
+-                object : SharedPreferenceUpdater() {
+-                    override fun onPreferenceChange(preference: Preference, newValue: Any?): Boolean {
+-                        val persisted = super.onPreferenceChange(preference, newValue)
+-                        SearchWidgetProvider.updateAllWidgets(context)
+-                        return persisted
+-                    }
+-                }
 -        }
 -
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_voice_search_in_display_toolbar).apply {
              isVisible = Config.channel.isNightlyOrDebug
              isChecked = context.components.settings.showVoiceSearchInDisplayToolbar
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index a2a8d09..981028b 100644
+index 5c3f5d0..6c9cf20 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2624,12 +2624,18 @@ class Settings(
-             default = { FxNimbus.features.adsClientForStories.value().enabled },
-         )
- 
--    /** Indicates if Add Shortcuts improvement is enabled. */
--    var enableAddShortcutsImprovement by
--        booleanPreference(
--            key = appContext.getPreferenceKey(R.string.pref_key_enable_add_shortcuts_improvement),
--            default = { FxNimbus.features.addShortcutsImprovement.value().enabled },
--        )
-+    /**
-+     * Indicates if Add Shortcuts improvement is enabled.
-+     *
-+     * LibreWolf (disable-157-cloud-features.patch): always false. Its "Add shortcut" sheet suggests popular sites
-+     * from Mozilla's bundled Merino manifest and loads their icons from prod-images.merino.prod.webservices.mozgcp.net.
-+     * The setter is a no-op, kept so that upstream callers and tests still compile.
-+     */
-+    var enableAddShortcutsImprovement: Boolean
-+        get() = false
-+
-+        @Suppress("UNUSED_PARAMETER")
-+        set(value) = Unit
- 
-     /** Indicates if more shortcuts should be shown. */
-     var showMoreShortcuts by
-@@ -2794,12 +2800,19 @@ class Settings(
+@@ -2831,12 +2831,19 @@ class Settings(
              default = { FxNimbus.features.microsurveys.value().enabled },
          )
  
@@ -299,7 +335,7 @@ index a2a8d09..981028b 100644
  
      /**
       * Secret-settings override for the tab reload cover base feature. Defaults to the Nimbus `tab-reload-cover.enabled`
-@@ -2905,10 +2918,11 @@ class Settings(
+@@ -2942,10 +2949,11 @@ class Settings(
      /**
       * Indicates if the IPProtection feature is available for the user.
       *
@@ -313,8 +349,8 @@ index a2a8d09..981028b 100644
  
      /**
       * Tracks how many times the summarize menu item has been shown. Used to control highlight/badge visibility for
-@@ -3317,11 +3331,18 @@ class Settings(
-             default = { FxNimbus.features.nativeShareSheet.value().enabled },
+@@ -3351,11 +3359,18 @@ class Settings(
+             default = true,
          )
  
 -    var googleLensIntegrationEnabled by
@@ -338,7 +374,7 @@ index a2a8d09..981028b 100644
      /**
       * User preference (local only) controlling whether the Google Lens integration is active when
 diff --git a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
-index 50bf475..056dd10 100644
+index 115ccec..398ae48 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 @@ -30,11 +30,6 @@
@@ -353,18 +389,7 @@ index 50bf475..056dd10 100644
      <SwitchPreferenceCompat
        android:defaultValue="false"
        android:key="@string/pref_key_show_voice_search_in_display_toolbar"
-@@ -93,10 +88,6 @@
-       android:key="@string/pref_key_private_mode_and_stories_entry_point"
-       android:title="@string/preferences_debug_settings_private_mode_and_stories_entry_point"
-       app:iconSpaceReserved="false" />
--    <SwitchPreferenceCompat
--      android:key="@string/pref_key_enable_add_shortcuts_improvement"
--      android:title="@string/preferences_debug_settings_add_shortcuts_improvement"
--      app:iconSpaceReserved="false" />
-     <SwitchPreferenceCompat
-       android:key="@string/pref_key_enable_homepage_weather_widget"
-       android:title="@string/preferences_debug_settings_homepage_weather_widget"
-@@ -234,11 +225,6 @@
+@@ -238,11 +233,6 @@
        android:key="@string/pref_key_native_share_sheet"
        android:title="@string/preferences_debug_settings_native_android_share_sheet"
        app:iconSpaceReserved="false" />
@@ -376,7 +401,7 @@ index 50bf475..056dd10 100644
      <SwitchPreferenceCompat
        android:defaultValue="false"
        android:key="@string/pref_key_enable_listen_to_page"
-@@ -275,10 +261,6 @@
+@@ -279,10 +269,6 @@
        android:key="@string/pref_key_enable_longfox"
        android:title="@string/preferences_debug_settings_enable_longfox"
        app:iconSpaceReserved="false" />
@@ -389,10 +414,10 @@ index 50bf475..056dd10 100644
        android:title="@string/preferences_debug_settings_ip_protection_locations"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/LibreWolfCloudFeaturesTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/LibreWolfCloudFeaturesTest.kt
 new file mode 100644
-index 0000000..972a1b3
+index 0000000..9b52a80
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/LibreWolfCloudFeaturesTest.kt
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,99 @@
 +/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -440,12 +465,10 @@ index 0000000..972a1b3
 +    fun `the cloud feature flags read false and ignore writes`() {
 +        settings.shakeToSummarizeFeatureFlagEnabled = true
 +        settings.googleLensIntegrationEnabled = true
-+        settings.enableAddShortcutsImprovement = true
 +        settings.isIPProtectionEnabled = true
 +
 +        assertFalse(settings.shakeToSummarizeFeatureFlagEnabled)
 +        assertFalse(settings.googleLensIntegrationEnabled)
-+        assertFalse(settings.enableAddShortcutsImprovement)
 +        assertFalse(settings.isIPProtectionAvailable)
 +    }
 +
@@ -473,10 +496,9 @@ index 0000000..972a1b3
 +    @Test
 +    fun `the IP Protection onboarding prompt never shows`() {
 +        settings.isIPProtectionEnabled = true
-+        settings.onboardingCompletedTimestamp = 0L
 +        val repository = DefaultIPProtectionPromptRepository(settings)
 +
-+        assertFalse(repository.canShowIPProtectionPrompt(System.currentTimeMillis()))
++        assertFalse(repository.canShowIPProtectionPrompt())
 +    }
 +
 +    @Test
@@ -496,10 +518,10 @@ index 0000000..972a1b3
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt
-index 1ff7284..5ff3419 100644
+index 489cdb0..8fff38f 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt
-@@ -424,18 +424,13 @@ class HomeDeepLinkIntentProcessorTest {
+@@ -436,18 +436,13 @@ class HomeDeepLinkIntentProcessorTest {
      }
  
      @Test
@@ -522,12 +544,90 @@ index 1ff7284..5ff3419 100644
          verify { out wasNot Called }
      }
  
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/topsites/TopSitesExpandToggleTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/topsites/TopSitesExpandToggleTest.kt
+index fa07ec4..92bfbf5 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/topsites/TopSitesExpandToggleTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/topsites/TopSitesExpandToggleTest.kt
+@@ -239,48 +239,35 @@ class TopSitesExpandToggleTest {
+         composeTestRule.onAllNodesWithTag(TopSitesTestTag.ADD_SHORTCUT_ROOT).assertCountEquals(0)
+     }
+ 
++    // LibreWolf (disable-157-cloud-features.patch, 159 rebase): upstream showed the "Add shortcut"
++    // tile in the cases below (159 dropped the add-shortcuts-improvement gate). TopSites never
++    // shows it, so they are inverted: these are the states an upstream rebase would bring it back in.
+     @Test
+-    fun `GIVEN the experiment is off and fewer shortcuts than fit THEN the add shortcut tile is shown`() {
++    fun `GIVEN the experiment is off and fewer shortcuts than fit THEN the add shortcut tile is still not shown`() {
+         setStatefulTopSitesContent(
+             count = FEWER_THAN_PHONE_FITS,
+             isExpandToggleEnabled = false,
+         )
+ 
+         composeTestRule.onAllNodesWithTag(TopSitesTestTag.TOP_SITE_ITEM_ROOT).assertCountEquals(FEWER_THAN_PHONE_FITS)
+-        composeTestRule.onAllNodesWithTag(TopSitesTestTag.ADD_SHORTCUT_ROOT).assertCountEquals(1)
+-    }
+-
+-    @Test
+-    fun `GIVEN exactly two rows of shortcuts WHEN the toggle is clicked THEN the add shortcut tile is revealed`() {
+-        setStatefulTopSitesContent(count = PHONE_COLLAPSED)
+-
+         composeTestRule.onAllNodesWithTag(TopSitesTestTag.ADD_SHORTCUT_ROOT).assertCountEquals(0)
+-
+-        composeTestRule.onNodeWithTag(TopSitesTestTag.EXPAND_TOGGLE).performClick()
+-
+-        composeTestRule.onAllNodesWithTag(TopSitesTestTag.TOP_SITE_ITEM_ROOT).assertCountEquals(PHONE_COLLAPSED)
+-        composeTestRule.onAllNodesWithTag(TopSitesTestTag.ADD_SHORTCUT_ROOT).assertCountEquals(1)
+     }
+ 
+     @Test
+-    fun `GIVEN exactly two rows and expanded WHEN the toggle is clicked THEN the tile is hidden again`() {
++    fun `GIVEN exactly two rows of shortcuts THEN there is no toggle and no add shortcut tile`() {
+         setStatefulTopSitesContent(count = PHONE_COLLAPSED)
+ 
+-        composeTestRule.onNodeWithTag(TopSitesTestTag.EXPAND_TOGGLE).performClick()
+-        composeTestRule.onNodeWithTag(TopSitesTestTag.EXPAND_TOGGLE).performClick()
+-
++        composeTestRule.onAllNodesWithTag(TopSitesTestTag.TOP_SITE_ITEM_ROOT).assertCountEquals(PHONE_COLLAPSED)
++        composeTestRule.onAllNodesWithTag(TopSitesTestTag.EXPAND_TOGGLE).assertCountEquals(0)
+         composeTestRule.onAllNodesWithTag(TopSitesTestTag.ADD_SHORTCUT_ROOT).assertCountEquals(0)
+     }
+ 
+     @Test
+-    fun `GIVEN a wide screen holding every shortcut and the add tile enabled THEN the toggle still reveals the tile`() {
++    fun `GIVEN a wide screen holding every shortcut THEN there is no toggle and no add shortcut tile`() {
+         setStatefulTopSitesContent(count = WIDE_COLLAPSED, width = WIDE_WIDTH)
+ 
++        composeTestRule.onAllNodesWithTag(TopSitesTestTag.EXPAND_TOGGLE).assertCountEquals(0)
+         composeTestRule.onAllNodesWithTag(TopSitesTestTag.ADD_SHORTCUT_ROOT).assertCountEquals(0)
+-
+-        composeTestRule.onNodeWithTag(TopSitesTestTag.EXPAND_TOGGLE).performClick()
+-
+-        composeTestRule.onAllNodesWithTag(TopSitesTestTag.ADD_SHORTCUT_ROOT).assertCountEquals(1)
+     }
+ 
+     @Test
+@@ -291,12 +278,13 @@ class TopSitesExpandToggleTest {
+     }
+ 
+     @Test
+-    fun `GIVEN more shortcuts than fit WHEN expanded THEN the add shortcut tile is shown`() {
++    fun `GIVEN more shortcuts than fit WHEN expanded THEN the add shortcut tile is still not shown`() {
+         setStatefulTopSitesContent(count = MORE_THAN_PHONE_FITS)
+ 
+         composeTestRule.onNodeWithTag(TopSitesTestTag.EXPAND_TOGGLE).performClick()
+ 
+-        composeTestRule.onAllNodesWithTag(TopSitesTestTag.ADD_SHORTCUT_ROOT).assertCountEquals(1)
++        composeTestRule.onAllNodesWithTag(TopSitesTestTag.TOP_SITE_ITEM_ROOT).assertCountEquals(MORE_THAN_PHONE_FITS)
++        composeTestRule.onAllNodesWithTag(TopSitesTestTag.ADD_SHORTCUT_ROOT).assertCountEquals(0)
+     }
+ 
+     @Test
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ipprotection/store/IPProtectionPromptRepositoryTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ipprotection/store/IPProtectionPromptRepositoryTest.kt
 deleted file mode 100644
-index 7f5b3a1..0000000
+index f565117..0000000
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ipprotection/store/IPProtectionPromptRepositoryTest.kt
 +++ /dev/null
-@@ -1,114 +0,0 @@
+@@ -1,72 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -544,14 +644,7 @@ index 7f5b3a1..0000000
 -import org.mozilla.experiments.nimbus.HardcodedNimbusFeatures
 -import org.mozilla.fenix.nimbus.FxNimbus
 -import org.mozilla.fenix.utils.Settings
--import org.mozilla.fenix.utils.Settings.Companion.ONE_WEEK_MS
 -import org.robolectric.RobolectricTestRunner
--
--private const val CURRENT_TIME_MILLIS = 1_759_926_358_000L
--
--private const val EXACTLY_ONE_WEEK_AGO = CURRENT_TIME_MILLIS - ONE_WEEK_MS
--private const val LESS_THAN_ONE_WEEK_AGO = EXACTLY_ONE_WEEK_AGO + 1
--private const val MORE_THAN_ONE_WEEK_AGO = EXACTLY_ONE_WEEK_AGO - 1
 -
 -@RunWith(RobolectricTestRunner::class)
 -class IPProtectionPromptRepositoryTest {
@@ -562,7 +655,6 @@ index 7f5b3a1..0000000
 -    @Before
 -    fun setup() {
 -        settings = Settings(testContext)
--        settings.onboardingCompletedTimestamp = MORE_THAN_ONE_WEEK_AGO
 -        repository = DefaultIPProtectionPromptRepository(settings)
 -    }
 -
@@ -572,7 +664,7 @@ index 7f5b3a1..0000000
 -        repository.isShowingPrompt = false
 -
 -        assertTrue(settings.isIPProtectionAvailable)
--        assertTrue(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
+-        assertTrue(repository.canShowIPProtectionPrompt())
 -    }
 -
 -    @Test
@@ -581,7 +673,7 @@ index 7f5b3a1..0000000
 -        repository.isShowingPrompt = true
 -
 -        assertTrue(settings.isIPProtectionAvailable)
--        assertFalse(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
+-        assertFalse(repository.canShowIPProtectionPrompt())
 -    }
 -
 -    @Test
@@ -605,41 +697,7 @@ index 7f5b3a1..0000000
 -
 -        assertFalse(settings.isIPProtectionAvailable)
 -
--        assertFalse(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
--    }
--
--    @Test
--    fun `WHEN onboarding was completed less than a week ago THEN do not show the prompt`() {
--        settings.onboardingCompletedTimestamp = LESS_THAN_ONE_WEEK_AGO
--
--        repository = DefaultIPProtectionPromptRepository(settings)
--        settings.isIPProtectionEnabled = true
--        repository.isShowingPrompt = false
--
--        assertTrue(settings.isIPProtectionAvailable)
--        assertFalse(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
--    }
--
--    @Test
--    fun `WHEN onboarding was completed exactly a week ago THEN do not show the prompt`() {
--        settings.onboardingCompletedTimestamp = EXACTLY_ONE_WEEK_AGO
--        repository = DefaultIPProtectionPromptRepository(settings)
--        settings.isIPProtectionEnabled = true
--        repository.isShowingPrompt = false
--
--        assertTrue(settings.isIPProtectionAvailable)
--        assertFalse(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
--    }
--
--    @Test
--    fun `WHEN onboarding was completed over a week ago THEN show the prompt`() {
--        settings.onboardingCompletedTimestamp = MORE_THAN_ONE_WEEK_AGO
--        repository = DefaultIPProtectionPromptRepository(settings)
--        settings.isIPProtectionEnabled = true
--        repository.isShowingPrompt = false
--
--        assertTrue(settings.isIPProtectionAvailable)
--        assertTrue(repository.canShowIPProtectionPrompt(CURRENT_TIME_MILLIS))
+-        assertFalse(repository.canShowIPProtectionPrompt())
 -    }
 -}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/summarization/onboarding/FenixSummarizationFeatureConfigurationTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/summarization/onboarding/FenixSummarizationFeatureConfigurationTest.kt

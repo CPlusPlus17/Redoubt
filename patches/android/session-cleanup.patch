@@ -32,6 +32,11 @@
 #     release day, with extension-update-controls, global-privacy-controls
 #     and translation-assets.
 #
+# 159 rebase (2026-11-06, Firefox 159.0.1): 159 replaced
+# CookieStorage::GetCookies with GetAll(aResult, ExpiredCookies); the two
+# cleanup-scope functions and their declarations sit before GetSessionCookies
+# instead. No change of intent.
+#
 diff --git a/dom/base/nsFrameLoader.cpp b/dom/base/nsFrameLoader.cpp
 index d053fbe..b1a6919 100644
 --- a/dom/base/nsFrameLoader.cpp
@@ -710,7 +715,7 @@ index 1af7e99..950e774 100644
    nsCOMPtr<mozIStorageAsyncStatement> mStmtDelete;
    nsCOMPtr<mozIStorageAsyncStatement> mStmtUpdate;
 diff --git a/netwerk/cookie/CookieService.cpp b/netwerk/cookie/CookieService.cpp
-index 95bb428..de1915a 100644
+index bb956d3..e736d0e 100644
 --- a/netwerk/cookie/CookieService.cpp
 +++ b/netwerk/cookie/CookieService.cpp
 @@ -22,6 +22,8 @@
@@ -964,7 +969,7 @@ index 95bb428..de1915a 100644
  nsresult CookieService::Init() {
    nsresult rv;
    mTLDService = mozilla::components::EffectiveTLD::Service(&rv);
-@@ -761,6 +991,10 @@ nsresult CookieService::AddInternal(
+@@ -763,6 +993,10 @@ nsresult CookieService::AddInternal(
      OriginAttributes* aOriginAttributes, int32_t aSameSite,
      nsICookie::schemeType aSchemeMap, bool aIsPartitioned, bool aFromHttp,
      const nsID* aOperationID, nsICookieValidation** aValidation) {
@@ -976,7 +981,7 @@ index 95bb428..de1915a 100644
  
    if (NS_WARN_IF(!aOriginAttributes)) {
 diff --git a/netwerk/cookie/CookieService.h b/netwerk/cookie/CookieService.h
-index 8b5b7f2..1925f19 100644
+index 8fa23b9..ee2bb26 100644
 --- a/netwerk/cookie/CookieService.h
 +++ b/netwerk/cookie/CookieService.h
 @@ -6,6 +6,7 @@
@@ -1024,7 +1029,7 @@ index 8b5b7f2..1925f19 100644
                         const nsACString& aPath, const nsACString& aName,
                         const nsACString& aValue, bool aIsSecure,
 diff --git a/netwerk/cookie/CookieStorage.cpp b/netwerk/cookie/CookieStorage.cpp
-index 991a9a7..a3aab2d 100644
+index 50f4641..f3474ce 100644
 --- a/netwerk/cookie/CookieStorage.cpp
 +++ b/netwerk/cookie/CookieStorage.cpp
 @@ -5,6 +5,7 @@
@@ -1081,10 +1086,10 @@ index 991a9a7..a3aab2d 100644
 +  }
 +}
 +
- void CookieStorage::GetCookies(nsTArray<RefPtr<nsICookie>>& aCookies) const {
-   aCookies.SetCapacity(mCookieCount);
-   for (const auto& entry : mHostTable) {
-@@ -693,6 +736,12 @@ void CookieStorage::AddCookie(CookieParser* aCookieParser,
+ void CookieStorage::GetSessionCookies(
+     nsTArray<RefPtr<nsICookie>>& aCookies) const {
+   int64_t currentTimeInMSec = PR_Now() / PR_USEC_PER_MSEC;
+@@ -714,6 +757,12 @@ void CookieStorage::AddCookie(CookieParser* aCookieParser,
                                bool aFromHttp, bool aIsThirdParty,
                                dom::BrowsingContext* aBrowsingContext,
                                const nsID* aOperationID) {
@@ -1098,7 +1103,7 @@ index 991a9a7..a3aab2d 100644
            aCookie, aBaseDomain, aOriginAttributes)) {
      COOKIE_LOGFAILURE(SET_COOKIE, aHostURI, aCookieHeader,
 diff --git a/netwerk/cookie/CookieStorage.h b/netwerk/cookie/CookieStorage.h
-index ee8b114..fc94d36 100644
+index 85aa487..9c0a73a 100644
 --- a/netwerk/cookie/CookieStorage.h
 +++ b/netwerk/cookie/CookieStorage.h
 @@ -23,6 +23,18 @@ namespace mozilla {
@@ -1128,14 +1133,14 @@ index ee8b114..fc94d36 100644
 +  void CollectCleanupScopes(nsTArray<CookieCleanupScope>& aScopes) const;
 +  void RemoveCleanupScopesFromMemory(const nsTArray<CookieCleanupScope>& aScopes);
 +
-   void GetCookies(nsTArray<RefPtr<nsICookie>>& aCookies) const;
+   enum class ExpiredCookies { Exclude, Include };
  
    void GetSessionCookies(nsTArray<RefPtr<nsICookie>>& aCookies) const;
 diff --git a/netwerk/cookie/nsICookieManager.idl b/netwerk/cookie/nsICookieManager.idl
-index d4719d9..ea61588 100644
+index 064d86f..77c8811 100644
 --- a/netwerk/cookie/nsICookieManager.idl
 +++ b/netwerk/cookie/nsICookieManager.idl
-@@ -30,6 +30,40 @@ interface nsICookieValidation;
+@@ -33,6 +33,40 @@ interface nsICookieValidation;
  interface nsICookieManager : nsISupports
  {
  

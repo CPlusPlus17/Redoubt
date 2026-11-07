@@ -48,27 +48,32 @@
 # instrumented ThreeDotMenuMainRobot / MainMenuTest still look for the entry;
 # they are not part of the unit gate.
 #
-diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt
-index 38153c1..b914c23 100644
---- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt
-+++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt
-@@ -26,7 +26,6 @@ import org.mozilla.fenix.components.menu.FenixMenuItem.MoveToNormalTabs
- import org.mozilla.fenix.components.menu.FenixMenuItem.OpenInApp
+# 159 rebase (2026-11-06, Firefox 159.0.1): 159 replaced BrowserMenuBuilder's
+# default configuration with MenuConfigurations.browser(); the entry is removed
+# from its "More" list instead, and the test moved to MenuBuilderTest (every
+# toolbar position and expansion, plus the home menu).
+#
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt
+index 1eaaf5b..db3f1d2 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt
+@@ -26,7 +26,6 @@ import org.mozilla.fenix.components.menu.FenixMenuItem.Passwords
  import org.mozilla.fenix.components.menu.FenixMenuItem.Print
+ import org.mozilla.fenix.components.menu.FenixMenuItem.Quit
  import org.mozilla.fenix.components.menu.FenixMenuItem.Refresh
 -import org.mozilla.fenix.components.menu.FenixMenuItem.ReportBrokenSite
  import org.mozilla.fenix.components.menu.FenixMenuItem.SaveAsPdf
  import org.mozilla.fenix.components.menu.FenixMenuItem.SaveToCollection
- import org.mozilla.fenix.components.menu.FenixMenuItem.Share
-@@ -154,7 +153,7 @@ class BrowserMenuBuilder(
-                                         Translate,
-                                         SummarizePage,
-                                         MoveToNormalTabs,
--                                        ReportBrokenSite,
-+                                        // Redoubt (LW-M7-38): no "Report broken site".
-                                         Shortcut,
-                                         AddToHomeScreen,
-                                         SaveToCollection,
+ import org.mozilla.fenix.components.menu.FenixMenuItem.Settings
+@@ -86,7 +85,7 @@ object MenuConfigurations {
+                                     Translate,
+                                     SummarizePage,
+                                     MoveToNormalTabs,
+-                                    ReportBrokenSite,
++                                    // Redoubt (LW-M7-38): no "Report broken site".
+                                     Shortcut,
+                                     AddToHomeScreen,
+                                     SaveToCollection,
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
 index 235e476..1d60066 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
@@ -106,11 +111,11 @@ index 235e476..1d60066 100644
  @Composable
  private fun AddToTabGroupMenuItem(onAddToTabGroupClick: () -> Unit) {
      MenuItem(
-diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt
-index 6b9ba02..69fd340 100644
---- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt
-+++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt
-@@ -78,6 +78,21 @@ class BrowserMenuBuilderTest {
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/MenuBuilderTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/MenuBuilderTest.kt
+index fd8dbb9..d3bbced 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/MenuBuilderTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/MenuBuilderTest.kt
+@@ -78,6 +78,22 @@ class MenuBuilderTest {
          assertEquals(listOf(readerViewItem), builder.menuStructure.first().single().items)
      }
  
@@ -120,18 +125,19 @@ index 6b9ba02..69fd340 100644
 +        for (bottom in listOf(false, true)) {
 +            for (expanded in listOf(false, true)) {
 +                val items =
-+                    BrowserMenuBuilder.buildDefaultConfiguration(bottom, expanded).flatMap { it.items }.flatMap { item ->
++                    MenuConfigurations.browser(bottom, expanded).flatMap { it.items }.flatMap { item ->
 +                        listOf(item) + ((item as? FenixExpandableMenuItem)?.subMenuItems ?: emptyList())
 +                    }
 +                assertTrue(items.isNotEmpty())
 +                assertTrue(FenixMenuItem.ReportBrokenSite !in items, "bottom=$bottom expanded=$expanded")
 +            }
 +        }
++        assertTrue(FenixMenuItem.ReportBrokenSite !in MenuConfigurations.home().flatMap { it.items })
 +    }
 +
      @Test
      fun `WHEN building the default menu THEN keep the sections in the configured order`() = runTest {
-         val builder = BrowserMenuBuilder(providerResolver = { FakeMenuItemProvider(MutableStateFlow(readerViewItem)) })
+         val configuration = MenuConfigurations.browser(isToolbarAtBottom = false, isExpandedToolbarEnabled = false)
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
 index 8e5e342..9812561 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt

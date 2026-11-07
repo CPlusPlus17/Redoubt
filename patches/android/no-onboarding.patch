@@ -792,8 +792,19 @@
 # constant false and the now-unused imports go. The LW-M4-14 test keeps its
 # shape (no locale turns either feature on) and its literal locale list grows
 # by en-IE and pl-PL. Every other hunk is the 157 change at its 158 position.
+# 159 REBASE (2026-11-06, Firefox 159.0.1)
+# -----------------------------------------
+# No change of intent. 159 moved continuous onboarding's gate into
+# ContinuousOnboardingFeature.start() (the old shouldShowContinuousOnboarding()
+# is gone upstream), so the function is re-added as the constant-false guard
+# start() returns on first, and upstream's new "start evaluates the stage" test
+# is inverted. ReviewPromptMiddleware.handleReviewPromptCheck and
+# Settings.shouldShowSetAsDefaultPrompt are replaced whole again (159 added a
+# continuous-onboarding check to both); two more upstream SettingsTest cases
+# that expected the default-browser prompt are inverted.
+#
 diff --git a/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt b/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
-index 44b5a2f..335a1ba 100644
+index a54fca3..a76460a 100644
 --- a/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
 +++ b/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
 @@ -51,7 +51,6 @@ import mozilla.components.browser.icons.pipeline.IconResourceComparator
@@ -962,25 +973,35 @@ index 5a16d18..b444ce3 100644
 +    fun isContentRecommendationsFeatureEnabled(context: Context): Boolean = false
  }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeature.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeature.kt
-index 5b68a0b..708ce17 100644
+index 7650c27..515a4cc 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeature.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeature.kt
-@@ -146,12 +146,7 @@ class ContinuousOnboardingFeature(
+@@ -121,6 +121,8 @@ class ContinuousOnboardingFeature(
      }
  
-     @VisibleForTesting
--    internal fun shouldShowContinuousOnboarding(): Boolean {
--        val continuousOnboardingCompleted = settings.seventhDayOnboardingCompletedTimestamp != -1L
--        logger.info("continuousOnboardingCompleted: $continuousOnboardingCompleted")
--        logger.info("continuousOnboardingFeatureEnabled: ${settings.continuousOnboardingFeatureEnabled}")
--        return settings.continuousOnboardingFeatureEnabled && !continuousOnboardingCompleted
--    }
-+    internal fun shouldShowContinuousOnboarding(): Boolean = false
+     override fun start() {
++        if (!shouldShowContinuousOnboarding()) return
++
+         val enabled = settings.continuousOnboardingFeatureEnabled
+         logger.info("continuousOnboardingFeatureEnabled: $enabled")
+         if (!enabled) return
+@@ -157,6 +159,14 @@ class ContinuousOnboardingFeature(
+         }
+     }
  
-     private fun maybeRequestDefaultBrowserRole(stage: ContinuousOnboardingStage) {
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
++    /**
++     * LibreWolf (LW-M4-10): continuous onboarding never runs. Day 2 and day 3 request the
++     * default-browser role, day 5 shows a Firefox Sync sign-in card, day 7 an IP Protection
++     * promo. Upstream gates all of them on the continuousOnboarding FML feature in start().
++     */
++    @VisibleForTesting
++    internal fun shouldShowContinuousOnboarding(): Boolean = false
++
+     override fun stop() {
+         ipProtectionBinding.stop()
+     }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddleware.kt
-index ab53b87..d2f93dd 100644
+index f582710..d2f93dd 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddleware.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddleware.kt
 @@ -9,7 +9,6 @@ import kotlinx.coroutines.CancellationException
@@ -991,17 +1012,21 @@ index ab53b87..d2f93dd 100644
  import org.mozilla.experiments.nimbus.NimbusEventStore
  import org.mozilla.experiments.nimbus.NimbusMessagingHelperInterface
  import org.mozilla.fenix.GleanMetrics.CustomReviewPrompt
-@@ -85,34 +84,11 @@ class ReviewPromptMiddleware(
+@@ -85,38 +84,11 @@ class ReviewPromptMiddleware(
      }
  
      private fun handleReviewPromptCheck(store: Store<AppState, AppAction>) {
--        // We shouldn't show the review prompt if continuous onboarding is in progress.
--        if (continuousOnboardingInProgress()) {
+-        if (store.state.reviewPrompt != ReviewPromptState.Unknown) {
+-            // We only want to try to show it once to avoid unnecessary disk reads.
 -            return
 -        }
 -
--        if (store.state.reviewPrompt != ReviewPromptState.Unknown) {
--            // We only want to try to show it once to avoid unnecessary disk reads.
+-        // We shouldn't show the review prompt if continuous onboarding is in progress. This check runs on every
+-        // HomeFragment.onStart(), and continuous onboarding can complete while its last stage is still on screen, so
+-        // set the state to not eligible instead of leaving it unknown.
+-        // The state lives as long as the app process, so the prompt is only re-evaluated on the next cold start.
+-        if (continuousOnboardingInProgress()) {
+-            store.dispatch(DoNotShowReviewPrompt)
 -            return
 -        }
 -
@@ -1062,10 +1087,10 @@ index 420b369..831813d 100644
          settings.hasAcceptedTermsOfService = true
          settings.termsOfUseAcceptedVersion = TOU_VERSION
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index aa45564..f7f89fc 100644
+index 8d94dc9..2add4db 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2360,25 +2360,12 @@ class Settings(
+@@ -2393,25 +2393,12 @@ class Settings(
       *   benchmark builds onboarding is suppressed by default so generators don't spend emulator time dismissing it;
       *   ignored in every shipped build.
       */
@@ -1093,7 +1118,7 @@ index aa45564..f7f89fc 100644
  
      /**
       * Secret setting preference that forces the onboarding flow to be shown every time `HomeActivity` is created. When
-@@ -2394,7 +2381,7 @@ class Settings(
+@@ -2427,7 +2414,7 @@ class Settings(
          )
  
      /** Indicates if the onboarding feature is enabled. */
@@ -1102,8 +1127,8 @@ index aa45564..f7f89fc 100644
  
      /** The current onboarding page index. */
      var onboardingCurrentPageIndex by
-@@ -2985,31 +2972,17 @@ class Settings(
-             default = false,
+@@ -3008,33 +2995,17 @@ class Settings(
+             default = { FxNimbus.features.waybackMachine.value().enabled },
          )
  
 -    /** Indicates if the Set as default Browser prompt should be displayed to the user. */
@@ -1119,6 +1144,8 @@ index aa45564..f7f89fc 100644
          nimbusFeature: DefaultBrowserPrompt = FxNimbus.features.defaultBrowserPrompt.value()
 -    ): Boolean {
 -        if (!nimbusFeature.enabled) return false
+-
+-        if (continuousOnboardingFeatureEnabled && !continuousOnboardingCompleted) return false
 -
 -        val now = currentTimeMillis()
 -
@@ -1378,53 +1405,33 @@ index 874d89f..f0f8539 100644
      }
  }
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
-index ccfb0b5..cb3a5db 100644
+index 324a8bc..55c2651 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
-@@ -111,28 +111,35 @@ class ContinuousOnboardingFeatureTest {
-         assertFalse(feature.shouldShowContinuousOnboarding())
+@@ -116,14 +116,20 @@ class ContinuousOnboardingFeatureTest {
+         assertEquals(0, stageProvider.callCount)
      }
  
--    @Test
--    fun `WHEN feature enabled and seventh day not completed THEN shouldShowContinuousOnboarding returns true`() {
-+    // LibreWolf (LW-M4-10, tests by LW-M4-14): the three cases below returned true
-+    // upstream -- day 2 and day 3 request the default-browser role, day 5 shows a
-+    // Firefox Sync sign-in card and (since 157) day 7 an IP Protection promo.
-+    // shouldShowContinuousOnboarding is now constant false,
-+    // so the assertions are inverted and the setup is kept: each test still enables the
-+    // continuousOnboarding feature that governed them, which is what makes the
-+    // assertion non-vacuous.
-+    @Test
-+    fun `WHEN feature enabled and seventh day not completed THEN shouldShowContinuousOnboarding returns false`() {
++    // LibreWolf (LW-M4-10, tests by LW-M4-14; 159 rebase): upstream evaluated the stage here
++    // -- day 2 and day 3 request the default-browser role, day 5 shows a Firefox Sync sign-in
++    // card and day 7 an IP Protection promo. shouldShowContinuousOnboarding is constant false,
++    // so start() returns first. The setup is kept: it enables the continuousOnboarding feature
++    // that governed this, which is what makes the assertion non-vacuous.
+     @Test
+-    fun `WHEN feature enabled and seventh day not completed THEN start evaluates the stage`() {
++    fun `WHEN feature enabled and seventh day not completed THEN start still does not evaluate the stage`() {
          settings.continuousOnboardingFeatureEnabled = true
          settings.seventhDayOnboardingCompletedTimestamp = -1
  
--        assertTrue(feature.shouldShowContinuousOnboarding())
+         feature.start()
+ 
+-        assertEquals(1, stageProvider.callCount)
 +        assertFalse(feature.shouldShowContinuousOnboarding())
-     }
- 
-     @Test
--    fun `WHEN feature enabled and only second day completed THEN shouldShowContinuousOnboarding returns true`() {
-+    fun `WHEN feature enabled and only second day completed THEN shouldShowContinuousOnboarding returns false`() {
-         settings.continuousOnboardingFeatureEnabled = true
-         settings.secondDayOnboardingCompletedTimestamp = dateTimeProvider.currentTimeMillis()
- 
--        assertTrue(feature.shouldShowContinuousOnboarding())
-+        assertFalse(feature.shouldShowContinuousOnboarding())
-     }
- 
-     @Test
--    fun `WHEN feature enabled and only third day completed THEN shouldShowContinuousOnboarding returns true`() {
-+    fun `WHEN feature enabled and only third day completed THEN shouldShowContinuousOnboarding returns false`() {
-         settings.continuousOnboardingFeatureEnabled = true
-         settings.thirdDayOnboardingCompletedTimestamp = dateTimeProvider.currentTimeMillis()
- 
--        assertTrue(feature.shouldShowContinuousOnboarding())
-+        assertFalse(feature.shouldShowContinuousOnboarding())
++        assertEquals(0, stageProvider.callCount)
      }
  
      // syncOnboardingPageState
-@@ -380,8 +387,12 @@ class ContinuousOnboardingFeatureTest {
+@@ -371,8 +377,12 @@ class ContinuousOnboardingFeatureTest {
  
      // IP Protection integration
  
@@ -1438,7 +1445,7 @@ index ccfb0b5..cb3a5db 100644
          runTest(testDispatcher) {
              settings.continuousOnboardingFeatureEnabled = true
              var navigateToIpProtectionInvoked = false
-@@ -408,8 +419,8 @@ class ContinuousOnboardingFeatureTest {
+@@ -399,8 +409,8 @@ class ContinuousOnboardingFeatureTest {
              ipProtectionStore.dispatch(IPProtectionAction.AccountStateChanged(AccountStatus.NoAccount))
              testDispatcher.scheduler.advanceUntilIdle()
  
@@ -1449,7 +1456,7 @@ index ccfb0b5..cb3a5db 100644
          }
  
      @Test
-@@ -476,8 +487,9 @@ class ContinuousOnboardingFeatureTest {
+@@ -543,8 +553,9 @@ class ContinuousOnboardingFeatureTest {
              assertFalse(navigateToIpProtectionInvoked)
          }
  
@@ -1460,7 +1467,7 @@ index ccfb0b5..cb3a5db 100644
          runTest(testDispatcher) {
              settings.continuousOnboardingFeatureEnabled = true
              var navigateToIpProtectionInvoked = false
-@@ -508,8 +520,8 @@ class ContinuousOnboardingFeatureTest {
+@@ -575,8 +586,8 @@ class ContinuousOnboardingFeatureTest {
              ipProtectionStore.dispatch(IPProtectionAction.AccountStateChanged(AccountStatus.NoAccount))
              testDispatcher.scheduler.advanceUntilIdle()
  
@@ -1472,7 +1479,7 @@ index ccfb0b5..cb3a5db 100644
  
      @Test
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddlewareTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddlewareTest.kt
-index 975dbec..510001d 100644
+index e9ba5b2..d843487 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddlewareTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddlewareTest.kt
 @@ -4,11 +4,9 @@
@@ -1495,12 +1502,10 @@ index 975dbec..510001d 100644
  
  class ReviewPromptMiddlewareTest {
  
-@@ -52,8 +49,24 @@ class ReviewPromptMiddlewareTest {
+@@ -54,8 +51,24 @@ class ReviewPromptMiddlewareTest {
                  )
          )
  
--    @Test
--    fun `WHEN check requested THEN main and sub-criteria are checked`() {
 +    // LibreWolf (LW-M4-10, tests by LW-M4-14): handleReviewPromptCheck no longer
 +    // evaluates a trigger at all -- it dispatches DoNotShowReviewPrompt and returns, so
 +    // neither ShowPlayStorePrompt nor ShowCustomReviewPrompt can reach
@@ -1517,12 +1522,13 @@ index 975dbec..510001d 100644
 +    // The JEXL half is pinned by construction rather than by an assertion: the
 +    // createJexlHelper fake above answers assertUnused() to every method, so an
 +    // evaluated expression fails the test wherever it happens.
-+    @Test
+     @Test
+-    fun `WHEN check requested THEN main and sub-criteria are checked`() {
 +    fun `WHEN check requested THEN no criteria are evaluated`() {
          var mainCriteriaChecked = false
          var subCriteriaChecked = false
          mainCriteria = sequence {
-@@ -67,43 +80,21 @@ class ReviewPromptMiddlewareTest {
+@@ -69,43 +82,21 @@ class ReviewPromptMiddlewareTest {
  
          store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
  
@@ -1574,7 +1580,7 @@ index 975dbec..510001d 100644
      }
  
      @Test
-@@ -220,7 +211,7 @@ class ReviewPromptMiddlewareTest {
+@@ -260,7 +251,7 @@ class ReviewPromptMiddlewareTest {
      }
  
      @Test
@@ -1583,7 +1589,7 @@ index 975dbec..510001d 100644
          shouldShowCustomPrompt = true
          mainCriteria = sequenceOf(true)
          subCriteria = sequenceOf(true)
-@@ -228,13 +219,13 @@ class ReviewPromptMiddlewareTest {
+@@ -268,13 +259,13 @@ class ReviewPromptMiddlewareTest {
          store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
  
          assertEquals(
@@ -1599,7 +1605,7 @@ index 975dbec..510001d 100644
          shouldShowCustomPrompt = false
          mainCriteria = sequenceOf(true)
          subCriteria = sequenceOf(true)
-@@ -242,7 +233,7 @@ class ReviewPromptMiddlewareTest {
+@@ -282,7 +273,7 @@ class ReviewPromptMiddlewareTest {
          store.dispatch(ReviewPromptAction.CheckIfEligibleForReviewPrompt)
  
          assertEquals(
@@ -1638,10 +1644,10 @@ index 373735a..d57cd69 100644
  
      @Test
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
-index ecb9dc8..99cd6cd 100644
+index a9cb61b..d1ce8a6 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
-@@ -841,8 +841,14 @@ class SettingsTest {
+@@ -855,8 +855,14 @@ class SettingsTest {
          assertFalse(actual)
      }
  
@@ -1658,15 +1664,16 @@ index ecb9dc8..99cd6cd 100644
          val settings = spyk(settings)
  
          val actual =
-@@ -851,11 +857,24 @@ class SettingsTest {
+@@ -865,11 +871,24 @@ class SettingsTest {
                  hasUserBeenOnboarded = false,
              )
  
 -        assertTrue(actual)
 +        assertFalse(actual)
-+    }
-+
-+    @Test
+     }
+ 
+     @Test
+-    fun `GIVEN should not show by default WHEN enablePersistentOnboarding is true THEN shouldShowOnboarding returns true`() {
 +    fun `GIVEN the feature flag default WHEN the user has not been onboarded THEN shouldShowOnboarding is false`() {
 +        val settings = spyk(settings)
 +
@@ -1677,15 +1684,14 @@ index ecb9dc8..99cd6cd 100644
 +        val actual = settings.shouldShowOnboarding(hasUserBeenOnboarded = false)
 +
 +        assertFalse(actual)
-     }
- 
-     @Test
--    fun `GIVEN should not show by default WHEN enablePersistentOnboarding is true THEN shouldShowOnboarding returns true`() {
++    }
++
++    @Test
 +    fun `GIVEN enablePersistentOnboarding is true THEN shouldShowOnboarding still returns false`() {
          val settings = spyk(settings)
          every { settings.enablePersistentOnboarding } returns true
  
-@@ -865,7 +884,7 @@ class SettingsTest {
+@@ -879,7 +898,7 @@ class SettingsTest {
                  hasUserBeenOnboarded = true,
              )
  
@@ -1694,7 +1700,7 @@ index ecb9dc8..99cd6cd 100644
      }
  
      @Test
-@@ -881,11 +900,14 @@ class SettingsTest {
+@@ -895,11 +914,14 @@ class SettingsTest {
          )
      }
  
@@ -1711,11 +1717,11 @@ index ecb9dc8..99cd6cd 100644
              settings.shouldShowOnboarding(
                  featureEnabled = true,
                  hasUserBeenOnboarded = false,
-@@ -1215,13 +1237,18 @@ class SettingsTest {
+@@ -1233,14 +1255,19 @@ class SettingsTest {
          assertFalse(settings.shouldShowSetAsDefaultPrompt())
      }
  
-+    // LibreWolf (LW-M4-10): upstream returned true for the four cases below, each a state in which
++    // LibreWolf (LW-M4-10): upstream returned true for the five cases below, each a state in which
 +    // HomeActivity raised the system default-browser prompt on a cold start. shouldShowSetAsDefaultPrompt
 +    // is now constant false, so they are inverted rather than deleted: these are exactly the states an
 +    // upstream rebase would silently bring the prompt back in.
@@ -1725,6 +1731,7 @@ index ecb9dc8..99cd6cd 100644
          settings.numberOfSetAsDefaultPromptShownTimes = 1
          settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
          settings.coldStartsBetweenSetAsDefaultPrompts = 5 // More than required cold starts
+         settings.seventhDayOnboardingCompletedTimestamp = 1L
  
 -        assertTrue(settings.shouldShowSetAsDefaultPrompt())
 +        assertFalse(settings.shouldShowSetAsDefaultPrompt())
@@ -1732,7 +1739,7 @@ index ecb9dc8..99cd6cd 100644
      }
  
      @Test
-@@ -1234,30 +1261,30 @@ class SettingsTest {
+@@ -1254,33 +1281,33 @@ class SettingsTest {
      }
  
      @Test
@@ -1741,6 +1748,7 @@ index ecb9dc8..99cd6cd 100644
          settings.numberOfSetAsDefaultPromptShownTimes = 1
          settings.lastSetAsDefaultPromptShownTimeInMillis = System.currentTimeMillis()
          settings.coldStartsBetweenSetAsDefaultPrompts = 5
+         settings.seventhDayOnboardingCompletedTimestamp = 1L
  
 -        assertTrue(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(daysBetweenPrompts = null)))
 +        assertFalse(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(daysBetweenPrompts = null)))
@@ -1752,6 +1760,7 @@ index ecb9dc8..99cd6cd 100644
          settings.numberOfSetAsDefaultPromptShownTimes = 10
          settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
          settings.coldStartsBetweenSetAsDefaultPrompts = 5
+         settings.seventhDayOnboardingCompletedTimestamp = 1L
  
 -        assertTrue(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(maxPromptsShown = null)))
 +        assertFalse(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(maxPromptsShown = null)))
@@ -1763,9 +1772,27 @@ index ecb9dc8..99cd6cd 100644
          settings.numberOfSetAsDefaultPromptShownTimes = 1
          settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
          settings.coldStartsBetweenSetAsDefaultPrompts = 0
+         settings.seventhDayOnboardingCompletedTimestamp = 1L
  
 -        assertTrue(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(coldStartsBetweenPrompts = null)))
 +        assertFalse(settings.shouldShowSetAsDefaultPrompt(DefaultBrowserPrompt(coldStartsBetweenPrompts = null)))
+     }
+ 
+     @Test
+@@ -1295,14 +1322,14 @@ class SettingsTest {
+     }
+ 
+     @Test
+-    fun `GIVEN other conditions are valid WHEN continuous onboarding is disabled THEN shouldShowSetAsDefaultPrompt is true`() {
++    fun `GIVEN other conditions are valid WHEN continuous onboarding is disabled THEN shouldShowSetAsDefaultPrompt is still false`() {
+         settings.numberOfSetAsDefaultPromptShownTimes = 1
+         settings.lastSetAsDefaultPromptShownTimeInMillis = 0L
+         settings.coldStartsBetweenSetAsDefaultPrompts = 5
+         settings.continuousOnboardingFeatureEnabled = false
+         settings.seventhDayOnboardingCompletedTimestamp = -1L
+ 
+-        assertTrue(settings.shouldShowSetAsDefaultPrompt())
++        assertFalse(settings.shouldShowSetAsDefaultPrompt())
      }
  
      @Test
