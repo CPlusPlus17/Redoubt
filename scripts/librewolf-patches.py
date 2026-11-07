@@ -560,7 +560,10 @@ def android_suggest_data():
 
 
 def patch(patchfile):
-    cmd = "{} -p1 -i {}".format(PATCH_BIN, patchfile)
+    # --no-backup-if-mismatch: a hunk that lands at an offset otherwise leaves
+    # <file>.orig behind, and a strings.xml.orig in a res/values directory fails
+    # Fenix's mergeReleaseResources ("The file name must end with .xml").
+    cmd = "{} -p1 --no-backup-if-mismatch -i {}".format(PATCH_BIN, patchfile)
     print("\n*** -> {}".format(cmd))
     sys.stdout.flush()
     if not options.no_execute:
