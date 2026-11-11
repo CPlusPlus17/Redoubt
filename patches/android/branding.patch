@@ -42,10 +42,19 @@
 #     in 153.0esr and 157.0.
 # Order-freedom vs no-adjust/no-glean/no-gms/no-crashreporter was not
 # re-measured here: those four were still being rebased when this was cut.
+#
+# 160 REBASE (2026-11-11, Firefox 160.0)
+# --------------------------------------
+# Same change. The beta and release AndroidManifest.xml now declare
+# xmlns:tools and tools:ignore="Deprecated" next to android:sharedUserId (the
+# lint suppression exists only for sharedUserId); all three go, leaving the
+# same bare <manifest> as before. The fenix/app/src/**/*launcher* file set is
+# identical in 159.0.1 and 160.0 (104 files).
+
 
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -44,7 +44,7 @@ android {
+@@ -47,7 +47,7 @@ android {
              arg("room.schemaLocation", "$projectDir/schemas".toString())
          }
  
@@ -54,7 +63,7 @@
          minSdk config.minSdkVersion
          targetSdk config.targetSdkVersion
          versionCode 1
-@@ -64,7 +64,7 @@ android {
+@@ -67,7 +67,7 @@ android {
          // This should be the base URL used to call the AMO API.
          buildConfigField "String", "AMO_SERVER_URL", "\"https://services.addons.mozilla.org\""
  
@@ -63,7 +72,7 @@
          buildConfigField "String", "DEEP_LINK_SCHEME", "\"$deepLinkSchemeValue\""
  
          manifestPlaceholders = [
-@@ -105,14 +105,14 @@ android {
+@@ -109,14 +109,14 @@ android {
          debug {
              shrinkResources = false
              minifyEnabled = false
@@ -81,7 +90,7 @@
              buildConfigField "String", "DEEP_LINK_SCHEME", "\"$deepLinkSchemeValue\""
              manifestPlaceholders.putAll([
                      "deepLinkScheme": deepLinkSchemeValue
-@@ -120,35 +120,18 @@ android {
+@@ -124,35 +124,18 @@ android {
          }
          beta releaseTemplate >> {
              buildConfigField "boolean", "USE_RELEASE_VERSIONING", "true"
@@ -120,7 +129,7 @@
                      "deepLinkScheme": deepLinkSchemeValue,
              ])
          }
-@@ -156,7 +139,7 @@ android {
+@@ -160,7 +143,7 @@ android {
              initWith buildTypes.nightly
              shrinkResources = false
              minifyEnabled = false
@@ -131,12 +140,14 @@
              buildConfigField "boolean", "IS_BENCHMARK_BUILD", "true"
 --- a/mobile/android/fenix/app/src/beta/AndroidManifest.xml
 +++ b/mobile/android/fenix/app/src/beta/AndroidManifest.xml
-@@ -10,6 +10,5 @@
+@@ -10,8 +10,5 @@
                  - https://issuetracker.google.com/issues/36924841
                  - https://issuetracker.google.com/issues/36905922
  -->
 -<manifest xmlns:android="http://schemas.android.com/apk/res/android"
--    android:sharedUserId="${sharedUserId}">
+-    xmlns:tools="http://schemas.android.com/tools"
+-    android:sharedUserId="${sharedUserId}"
+-    tools:ignore="Deprecated">
 +<manifest xmlns:android="http://schemas.android.com/apk/res/android">
  </manifest>
 --- a/mobile/android/fenix/app/src/beta/res/drawable/ic_launcher_foreground.xml
@@ -561,7 +572,7 @@
  </vector>
 --- a/mobile/android/fenix/app/src/main/res/values/colors.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/colors.xml
-@@ -279,7 +279,7 @@
+@@ -260,7 +260,7 @@
      <color name="device_foreground">@color/photonInk80</color>
  
      <!-- Launcher Icon colors -->
@@ -784,12 +795,14 @@
  </vector>
 --- a/mobile/android/fenix/app/src/release/AndroidManifest.xml
 +++ b/mobile/android/fenix/app/src/release/AndroidManifest.xml
-@@ -10,6 +10,5 @@
+@@ -10,8 +10,5 @@
                  - https://issuetracker.google.com/issues/36924841
                  - https://issuetracker.google.com/issues/36905922
  -->
 -<manifest xmlns:android="http://schemas.android.com/apk/res/android"
--    android:sharedUserId="${sharedUserId}">
+-    xmlns:tools="http://schemas.android.com/tools"
+-    android:sharedUserId="${sharedUserId}"
+-    tools:ignore="Deprecated">
 +<manifest xmlns:android="http://schemas.android.com/apk/res/android">
  </manifest>
 --- a/mobile/android/fenix/app/src/release/res/drawable/ic_launcher_foreground.xml

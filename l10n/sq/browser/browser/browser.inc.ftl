@@ -5,3 +5,6 @@ urlbar-webgl-blocked =
     .tooltiptext = Keni bllokuar krijim konteksti WebGL për këtë sajt.
 urlbar-eme-blocked =
     .tooltiptext = Keni bllokuar luajtjen e lënde nën DRM për këtë sajt.
+mullvad-doh-notification-body = Mullvad Secure DNS po <strong>nxirret nga përdorimi</strong>. Ju lutemi, shqyrtoni rregullimet tuaja për DNS tani.
+mullvad-doh-notification-settings-button =
+    .label = Shqyrtoni rregullimet

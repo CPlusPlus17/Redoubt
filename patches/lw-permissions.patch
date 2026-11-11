@@ -1,16 +1,40 @@
+diff --git a/browser/base/content/navigator-toolbox.inc.xhtml b/browser/base/content/navigator-toolbox.inc.xhtml
+index 61a4c06..cdce248 100644
+--- a/browser/base/content/navigator-toolbox.inc.xhtml
++++ b/browser/base/content/navigator-toolbox.inc.xhtml
+@@ -267,6 +267,10 @@
+                       data-l10n-id="urlbar-autoplay-media-blocked"/>
+                 <image data-permission-id="canvas" class="blocked-permission-icon canvas-icon" role="button"
+                       data-l10n-id="urlbar-canvas-blocked"/>
++                <image data-permission-id="media-key-system-access" class="blocked-permission-icon drm-icon" role="button"
++                      data-l10n-id="urlbar-eme-blocked"/>
++                <image data-permission-id="webgl" class="blocked-permission-icon webgl-icon" role="button"
++                      data-l10n-id="urlbar-webgl-blocked"/>
+                 <image data-permission-id="midi" class="blocked-permission-icon midi-icon" role="button"
+                       data-l10n-id="urlbar-midi-blocked"/>
+                 <image data-permission-id="serial" class="blocked-permission-icon serial-icon" role="button"
+@@ -298,6 +302,8 @@
+                       data-l10n-id="urlbar-addons-notification-anchor"/>
+               <image id="canvas-notification-icon" class="notification-anchor-icon" role="button"
+                       data-l10n-id="urlbar-canvas-notification-anchor"/>
++              <image id="webgl-notification-icon" class="notification-anchor-icon" role="button"
++                      data-l10n-id="urlbar-webgl-notification-anchor"/>
+               <image id="indexedDB-notification-icon" class="notification-anchor-icon indexedDB-icon" role="button"
+                       data-l10n-id="urlbar-indexed-db-notification-anchor"/>
+               <image id="password-notification-icon" class="notification-anchor-icon" role="button"
 diff --git a/browser/components/preferences/config/permissions-data.mjs b/browser/components/preferences/config/permissions-data.mjs
-index e25447b..432f6f3 100644
+index 375f4f0..187e5b5 100644
 --- a/browser/components/preferences/config/permissions-data.mjs
 +++ b/browser/components/preferences/config/permissions-data.mjs
-@@ -11,6 +11,7 @@ const XPCOMUtils = ChromeUtils.importESModule(
- 
- const lazy = XPCOMUtils.declareLazy({
+@@ -19,6 +19,7 @@ const lazy = XPCOMUtils.declareLazy({
+     default: false,
+   },
    AppConstants: "resource://gre/modules/AppConstants.sys.mjs",
 +  SitePermissions: "resource:///modules/SitePermissions.sys.mjs",
    SelectableProfileService:
      "resource:///modules/profiles/SelectableProfileService.sys.mjs",
-   AlertsServiceDND: () => {
-@@ -63,6 +64,11 @@ Preferences.addAll([
+   SitePermissions: "resource:///modules/SitePermissions.sys.mjs",
+@@ -74,6 +75,11 @@ Preferences.addAll([
    { id: PREF_ADDON_RECOMMENDATIONS_ENABLED, type: "bool" },
    { id: PREF_UPLOAD_ENABLED, type: "bool" },
    { id: "datareporting.usage.uploadEnabled", type: "bool" },
@@ -22,8 +46,8 @@ index e25447b..432f6f3 100644
  ]);
  
  /**
-@@ -498,6 +504,67 @@ Preferences.addSetting(
-   })
+@@ -576,6 +582,67 @@ Preferences.addSetting(
+   }
  );
  
 +Preferences.addSetting({
@@ -88,9 +112,9 @@ index e25447b..432f6f3 100644
 +});
 +
  SettingGroupManager.registerGroups({
-   permissions: {
-     id: "permissions",
-@@ -607,6 +674,36 @@ SettingGroupManager.registerGroups({
+   notificationsEntry: {
+     l10nId: "notifications-entry-card-header",
+@@ -699,6 +766,36 @@ SettingGroupManager.registerGroups({
                  "permissions-remove.label,permissions-remove-all.label,permissions-site-xr-window2.title,permissions-site-xr-desc,permissions-site-xr-disable-label,permissions-site-xr-disable-desc,",
              },
            },
@@ -127,35 +151,47 @@ index e25447b..432f6f3 100644
          ],
        },
        {
-diff --git a/browser/base/content/navigator-toolbox.inc.xhtml b/browser/base/content/navigator-toolbox.inc.xhtml
-index b23fc2bc15eb..b601c78e213c 100644
---- a/browser/base/content/navigator-toolbox.inc.xhtml
-+++ b/browser/base/content/navigator-toolbox.inc.xhtml
-@@ -266,6 +266,10 @@
-                       data-l10n-id="urlbar-autoplay-media-blocked"/>
-                 <image data-permission-id="canvas" class="blocked-permission-icon canvas-icon" role="button"
-                       data-l10n-id="urlbar-canvas-blocked"/>
-+                <image data-permission-id="media-key-system-access" class="blocked-permission-icon drm-icon" role="button"
-+                      data-l10n-id="urlbar-eme-blocked"/>
-+                <image data-permission-id="webgl" class="blocked-permission-icon webgl-icon" role="button"
-+                      data-l10n-id="urlbar-webgl-blocked"/>
-                 <image data-permission-id="midi" class="blocked-permission-icon midi-icon" role="button"
-                       data-l10n-id="urlbar-midi-blocked"/>
-                 <image data-permission-id="serial" class="blocked-permission-icon serial-icon" role="button"
-@@ -297,6 +301,8 @@
-                       data-l10n-id="urlbar-addons-notification-anchor"/>
-               <image id="canvas-notification-icon" class="notification-anchor-icon" role="button"
-                       data-l10n-id="urlbar-canvas-notification-anchor"/>
-+              <image id="webgl-notification-icon" class="notification-anchor-icon" role="button"
-+                      data-l10n-id="urlbar-webgl-notification-anchor"/>
-               <image id="indexedDB-notification-icon" class="notification-anchor-icon indexedDB-icon" role="button"
-                       data-l10n-id="urlbar-indexed-db-notification-anchor"/>
-               <image id="password-notification-icon" class="notification-anchor-icon" role="button"
+diff --git a/browser/components/preferences/config/privacy.mjs b/browser/components/preferences/config/privacy.mjs
+index 0b486f5..f8dbb72 100644
+--- a/browser/components/preferences/config/privacy.mjs
++++ b/browser/components/preferences/config/privacy.mjs
+@@ -344,6 +344,9 @@ Preferences.addAll([
+   // Fingerprinting Protection
+   { id: "privacy.fingerprintingProtection", type: "bool" },
+   { id: "privacy.fingerprintingProtection.pbmode", type: "bool" },
++  { id: "privacy.fingerprintingProtection.overrides", type: "string" },
++  { id: "privacy.baselineFingerprintingProtection", type: "bool" },
++  { id: "privacy.baselineFingerprintingProtection.overrides", type: "string" },
+ 
+   // Resist Fingerprinting
+   { id: "privacy.resistFingerprinting", type: "bool" },
+@@ -4289,6 +4292,21 @@ Preferences.addSetting({
+   pref: "privacy.fingerprintingProtection.pbmode",
+ });
+ 
++Preferences.addSetting({
++  id: "fingerprintingProtectionOverrides",
++  pref: "privacy.fingerprintingProtection.overrides",
++});
++
++Preferences.addSetting({
++  id: "baselineFingerprintingProtectionEnabled",
++  pref: "privacy.baselineFingerprintingProtection",
++});
++
++Preferences.addSetting({
++  id: "baselineFingerprintingProtectionOverrides",
++  pref: "privacy.baselineFingerprintingProtection.overrides",
++});
++
+ Preferences.addSetting({
+   id: "etpCustomSuspectFingerprintingProtectionEnabled",
+   deps: [
 diff --git a/browser/components/preferences/dialogs/sitePermissions.js b/browser/components/preferences/dialogs/sitePermissions.js
-index 013c0df..f3e74f3 100644
+index c19c600..d69a623 100644
 --- a/browser/components/preferences/dialogs/sitePermissions.js
 +++ b/browser/components/preferences/dialogs/sitePermissions.js
-@@ -40,6 +40,20 @@ const sitePermissionsL10n = {
+@@ -47,6 +47,20 @@ const sitePermissionsL10n = {
      disableLabel: "permissions-site-xr-disable-label",
      disableDescription: "permissions-site-xr-disable-desc",
    },
@@ -173,31 +209,14 @@ index 013c0df..f3e74f3 100644
 +    window: "permissions-site-canvas-window2",
 +    description: "permissions-site-canvas-desc",
 +  },
-   camera: {
-     window: "permissions-site-camera-window2",
-     description: "permissions-site-camera-desc",
-diff --git a/browser/modules/moz.build b/browser/modules/moz.build
-index cd7ae3c..30a1d0a 100644
---- a/browser/modules/moz.build
-+++ b/browser/modules/moz.build
-@@ -157,10 +157,12 @@ EXTRA_JS_MODULES += [
- MOZ_SRC_FILES += [
-     "CanvasPermissionPromptHelper.sys.mjs",
-     "ContextId.sys.mjs",
-+    "EMEPermissionPrompt.sys.mjs",
-     "ObserverForwarder.sys.mjs",
-     "PrivateBrowsingUI.sys.mjs",
-     "SerialDeviceSharingHelper.sys.mjs",
-     "UIDensityTelemetry.sys.mjs",
-+    "WebGLPermissionPromptHelper.sys.mjs",
- ]
- 
- if CONFIG["MOZ_WIDGET_TOOLKIT"] == "windows":
+   "register-protocol-handler": {
+     window: "permissions-site-app-links-window",
+     description: "permissions-site-app-links-desc",
 diff --git a/browser/modules/SitePermissions.sys.mjs b/browser/modules/SitePermissions.sys.mjs
-index 91b2aa7deeff..114fd428a9f6 100644
+index 10a3472..0a7d465 100644
 --- a/browser/modules/SitePermissions.sys.mjs
 +++ b/browser/modules/SitePermissions.sys.mjs
-@@ -1043,6 +1043,21 @@ let gPermissions = {
+@@ -1153,6 +1153,21 @@ let gPermissions = {
        },
      },
  
@@ -219,7 +238,7 @@ index 91b2aa7deeff..114fd428a9f6 100644
      midi: {
        exactHostMatch: true,
        get disabled() {
-@@ -1076,6 +1091,42 @@ let gPermissions = {
+@@ -1186,6 +1201,42 @@ let gPermissions = {
    },
  };
  
@@ -262,6 +281,23 @@ index 91b2aa7deeff..114fd428a9f6 100644
  SitePermissions.midiPermissionEnabled = Services.prefs.getBoolPref(
    "dom.webmidi.enabled"
  );
+diff --git a/browser/modules/moz.build b/browser/modules/moz.build
+index 66306f2..90555f1 100644
+--- a/browser/modules/moz.build
++++ b/browser/modules/moz.build
+@@ -153,10 +153,12 @@ EXTRA_JS_MODULES += [
+ MOZ_SRC_FILES += [
+     "CanvasPermissionPromptHelper.sys.mjs",
+     "ContextId.sys.mjs",
++    "EMEPermissionPrompt.sys.mjs",
+     "ObserverForwarder.sys.mjs",
+     "PrivateBrowsingUI.sys.mjs",
+     "SerialDeviceSharingHelper.sys.mjs",
+     "UIDensityTelemetry.sys.mjs",
++    "WebGLPermissionPromptHelper.sys.mjs",
+ ]
+ 
+ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "windows":
 diff --git a/browser/themes/shared/preferences/privacy.css b/browser/themes/shared/preferences/privacy.css
 index 896619b..8792ec1 100644
 --- a/browser/themes/shared/preferences/privacy.css
@@ -281,39 +317,3 @@ index 896619b..8792ec1 100644
  .camera-icon {
    list-style-image: url(chrome://browser/skin/notification-icons/camera.svg);
  }
-diff --git a/browser/components/preferences/config/privacy.mjs b/browser/components/preferences/config/privacy.mjs
-index 03e7f5e..2b0a787 100644
---- a/browser/components/preferences/config/privacy.mjs
-+++ b/browser/components/preferences/config/privacy.mjs
-@@ -333,6 +333,9 @@ Preferences.addAll([
-   // Fingerprinting Protection
-   { id: "privacy.fingerprintingProtection", type: "bool" },
-   { id: "privacy.fingerprintingProtection.pbmode", type: "bool" },
-+  { id: "privacy.fingerprintingProtection.overrides", type: "string" },
-+  { id: "privacy.baselineFingerprintingProtection", type: "bool" },
-+  { id: "privacy.baselineFingerprintingProtection.overrides", type: "string" },
- 
-   // Resist Fingerprinting
-   { id: "privacy.resistFingerprinting", type: "bool" },
-@@ -4059,6 +4062,21 @@ Preferences.addSetting({
-   pref: "privacy.fingerprintingProtection.pbmode",
- });
- 
-+Preferences.addSetting({
-+  id: "fingerprintingProtectionOverrides",
-+  pref: "privacy.fingerprintingProtection.overrides",
-+});
-+
-+Preferences.addSetting({
-+  id: "baselineFingerprintingProtectionEnabled",
-+  pref: "privacy.baselineFingerprintingProtection",
-+});
-+
-+Preferences.addSetting({
-+  id: "baselineFingerprintingProtectionOverrides",
-+  pref: "privacy.baselineFingerprintingProtection.overrides",
-+});
-+
- Preferences.addSetting({
-   id: "etpCustomSuspectFingerprintingProtectionEnabled",
-   deps: [

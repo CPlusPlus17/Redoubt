@@ -719,7 +719,7 @@ sed -E 's,([^:])//.*,\1,' settings/common.cfg settings/android.cfg | tr '\n' ' '
   | grep -oE '(defaultPref|lockPref|clearPref|pref)[[:space:]]*\([[:space:]]*"[^"]+"' \
   | sed -E 's/.*"([^"]+)"/\1/' | sort -u > /tmp/ours.txt
 
-awk '/^- name:/{n=$3} /mirror: once/{print n}' \
+awk '/^-[[:space:]]+name:/{n=$3} /mirror: once/{print n}' \
     librewolf-153.1esr-1/modules/libpref/init/StaticPrefList.yaml | sort -u > /tmp/mirror-once.txt
 comm -12 /tmp/ours.txt /tmp/mirror-once.txt
 ```
@@ -727,6 +727,14 @@ comm -12 /tmp/ours.txt /tmp/mirror-once.txt
 **Expected output: empty.** On 153.0.4 there are 198 `mirror: once` entries (185
 distinct names) and **none** of them is a pref we set (re-measured 2026-08-17).
 Any line here is a real finding and needs a per-pref decision, not a bulk answer.
+
+The name pattern must allow more than one space after the dash: entries inside
+`#ifdef` blocks are written `-   name:`. Before the 160 rebase this block used
+`/^- name:/`, which skipped those entries and credited their `mirror: once` to
+the previous plain entry's name. On 160.0 that version printed 196 names for the
+209 entries, 18 of the real names missing; the pattern above prints all 209
+(measured 2026-11-11, still none of them a pref we set). Counts quoted from
+earlier rebases were taken with the old pattern.
 
 ### 6d. Prefs Fenix overwrites at runtime — landmine L2
 
@@ -1119,7 +1127,7 @@ comm -3 /tmp/defaults-old.tsv /tmp/defaults-new.tsv | sed -E 's/^\t//' | cut -f1
 comm -12 /tmp/drifted.txt /tmp/ours.txt          # read every line
 
 #    6c — prefs that became `mirror: once`. Expected output: empty.
-awk '/^- name:/{n=$3} /mirror: once/{print n}' \
+awk '/^-[[:space:]]+name:/{n=$3} /mirror: once/{print n}' \
     librewolf-153.1esr-1/modules/libpref/init/StaticPrefList.yaml | sort -u > /tmp/mirror-once.txt
 comm -12 /tmp/ours.txt /tmp/mirror-once.txt
 

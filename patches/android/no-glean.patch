@@ -427,11 +427,20 @@
 # ClientUuid. The same imports are removed (each checked unused afterwards).
 # No new Glean.initialize() caller, ping uploader or debug activity appears in
 # 158's fenix/app/src/main (grep).
+#
+# 160 REBASE (2026-11-11, Firefox 160.0)
+# --------------------------------------
+# Same barriers, same files. OnboardingFragment.kt's import block lost
+# NotificationManagerCompat and BuildManufacturerChecker upstream; the same four
+# imports are removed (lifecycleScope, launch, Pings, initializeGlean: each
+# checked unused afterwards). No new Glean.initialize() caller in
+# fenix/app/src/main (grep).
+
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
-index 2f357c3..382ef5d 100644
+index cce1f17..fe15b1a 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -532,7 +532,6 @@ dependencies {
+@@ -535,7 +535,6 @@ dependencies {
      implementation project(':components:service-digitalassetlinks')
      implementation project(':components:service-firefox-accounts')
      implementation project(":components:service-firefox-relay")
@@ -440,7 +449,7 @@ index 2f357c3..382ef5d 100644
      implementation project(':components:service-mars')
      implementation project(':components:service-merino-manifest')
 diff --git a/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt b/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt
-index f9b7e24..aaee314 100644
+index 3ae5982..70e1595 100644
 --- a/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt
 +++ b/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt
 @@ -7,20 +7,14 @@
@@ -464,7 +473,7 @@ index f9b7e24..aaee314 100644
  import org.mozilla.fenix.helpers.Constants.TAG
  import org.mozilla.fenix.helpers.FeatureSettingsHelper.Companion.settings
  import org.mozilla.fenix.helpers.TestHelper.appContext
-@@ -397,17 +391,5 @@ private fun skipOnboardingBeforeLaunch() {
+@@ -412,17 +406,5 @@ private fun skipOnboardingBeforeLaunch() {
      // this API so it can be fragile.
      Log.i(TAG, "skipOnboardingBeforeLaunch: Trying to skip the onboarding before launching the app")
      FenixOnboarding(appContext).finish()
@@ -483,10 +492,10 @@ index f9b7e24..aaee314 100644
      Log.i(TAG, "skipOnboardingBeforeLaunch: Successfully skipped the onboarding before launching the app")
  }
 diff --git a/mobile/android/fenix/app/src/main/AndroidManifest.xml b/mobile/android/fenix/app/src/main/AndroidManifest.xml
-index 22e3e7c..f373af5 100644
+index a22e7bf..319d36f 100644
 --- a/mobile/android/fenix/app/src/main/AndroidManifest.xml
 +++ b/mobile/android/fenix/app/src/main/AndroidManifest.xml
-@@ -840,6 +840,15 @@
+@@ -873,6 +873,15 @@
          <meta-data
              android:name="firebase_analytics_collection_deactivated"
              android:value="true" />
@@ -513,7 +522,7 @@ index 47dd12e..1a0eef3 100644
 -    FromGleanDebugToolsFragment(R.id.gleanDebugToolsFragment),
  }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index 0b819f8..bd38724 100644
+index 804b35f..67e30ca 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 @@ -116,7 +116,6 @@ import org.mozilla.fenix.autofill.AutofillService
@@ -524,7 +533,7 @@ index 0b819f8..bd38724 100644
  import org.mozilla.fenix.components.metrics.MozillaProductDetector
  import org.mozilla.fenix.components.startMetricsIfEnabled
  import org.mozilla.fenix.experiments.maybeFetchExperiments
-@@ -308,17 +307,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -310,17 +309,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          }
      }
  
@@ -542,7 +551,7 @@ index 0b819f8..bd38724 100644
      /**
       * This phase of main-process initialization runs before application-services is fully setup so care must be taken.
       * This phases begins loading the Nimbus, Glean, Gecko libraries.
-@@ -362,11 +350,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -364,11 +352,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          // construct the instance.
          components.core.engine
  
@@ -555,10 +564,10 @@ index 0b819f8..bd38724 100644
          // Note: This is a historical artifact and should be revisited.
          val store = components.core.store
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-index 311e5ad..066222c 100644
+index a3b34ef..c6ca4ba 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -134,7 +134,6 @@ import org.mozilla.fenix.crashes.UnsubmittedCrashDialog
+@@ -132,7 +132,6 @@ import org.mozilla.fenix.crashes.UnsubmittedCrashDialog
  import org.mozilla.fenix.customtabs.ExternalAppBrowserActivity
  import org.mozilla.fenix.databinding.ActivityHomeBinding
  import org.mozilla.fenix.debugsettings.data.DefaultDebugSettingsRepository
@@ -576,7 +585,7 @@ index 311e5ad..066222c 100644
          components.settings.seedOnboardingCompletedTimestampForDebugIfNeeded()
  
          val shouldShowOnboarding =
-@@ -1053,9 +1049,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1055,9 +1051,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              return
          }
  
@@ -2115,11 +2124,11 @@ index ec539a5..0000000
 -    return this
 -}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
-index bd0dd66..fd09225 100644
+index 1c74d46..1ffcba5 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
-@@ -21,9 +21,7 @@ import androidx.compose.runtime.toMutableStateList
- import androidx.core.app.NotificationManagerCompat
+@@ -17,9 +17,7 @@ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.toMutableStateList
  import androidx.fragment.app.Fragment
  import androidx.fragment.compose.content
 -import androidx.lifecycle.lifecycleScope
@@ -2128,10 +2137,10 @@ index bd0dd66..fd09225 100644
  import mozilla.components.browser.state.action.WebExtensionAction
  import mozilla.components.browser.state.state.extension.WebExtensionPromptRequest
  import mozilla.components.concept.engine.webextension.InstallationMethod
-@@ -35,12 +33,10 @@ import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
+@@ -28,12 +26,10 @@ import mozilla.components.service.nimbus.messaging.use
+ import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
  import mozilla.components.support.base.log.logger.Logger
  import mozilla.components.support.utils.Browsers
- import mozilla.components.support.utils.BuildManufacturerChecker
 -import org.mozilla.fenix.GleanMetrics.Pings
  import org.mozilla.fenix.R
  import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
@@ -2141,7 +2150,7 @@ index bd0dd66..fd09225 100644
  import org.mozilla.fenix.components.metrics.installSourcePackage
  import org.mozilla.fenix.components.startMetricsIfEnabled
  import org.mozilla.fenix.ext.application
-@@ -346,19 +342,6 @@ class OnboardingFragment : Fragment() {
+@@ -300,19 +296,6 @@ class OnboardingFragment : Fragment() {
  
      private fun startGlean() {
          val settings = requireComponents.settings
@@ -2162,10 +2171,10 @@ index bd0dd66..fd09225 100644
          // The marketing telemetry may be enabled after finishing onboarding.
          startMetricsIfEnabled(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt
-index 1a19f03..74af3e6 100644
+index 0766a1a..fa5dc10 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt
-@@ -234,10 +234,6 @@ class BrowserToolbarSearchMiddleware(
+@@ -232,10 +232,6 @@ class BrowserToolbarSearchMiddleware(
                  browserStore.dispatch(EngagementFinished(abandoned = false))
              }
  
@@ -2177,7 +2186,7 @@ index 1a19f03..74af3e6 100644
                  openSearchOrUrl(
                      SupportUtils.getMozillaPageUrl(SupportUtils.MozillaPage.MANIFESTO),
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index 7965fa9..9fd1e62 100644
+index 9d489d7..21d1589 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 @@ -23,7 +23,6 @@ import androidx.navigation.NavDirections
@@ -2229,7 +2238,7 @@ index 38ec545..11e6c82 100644
          // Reset experiment identifiers on both opt-in and opt-out; it's likely
          // that in future we will need to pass in the new telemetry client_id
 diff --git a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
-index fdfce3d..2cb0e02 100644
+index ae5e7d1..e24c06f 100644
 --- a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
 +++ b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
 @@ -119,9 +119,6 @@
@@ -2242,7 +2251,7 @@ index fdfce3d..2cb0e02 100644
  
      <action
          android:id="@+id/action_global_downloadsFragment"
-@@ -1339,10 +1336,6 @@
+@@ -1357,10 +1354,6 @@
              app:argType="mozilla.components.feature.addons.Addon" />
      </fragment>
  
@@ -2254,10 +2263,10 @@ index fdfce3d..2cb0e02 100644
          android:id="@+id/unlockPrivateTabsFragment"
          android:name="org.mozilla.fenix.pbmlock.UnlockPrivateTabsFragment">
 diff --git a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
-index 8ff9d38..c86e7b7 100644
+index 15a4d0c..198fab8 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
-@@ -347,12 +347,6 @@
+@@ -362,12 +362,6 @@
        android:key="@string/pref_key_crash_pull_never_show_again"
        android:title="@string/preferences_crash_pull_never_show_again"
        app:iconSpaceReserved="false" />
@@ -3158,10 +3167,10 @@ index 22b545f..0000000
 -    }
 -}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddlewareTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddlewareTest.kt
-index 6450114..26ab53e 100644
+index 6dc3bca..3ffb867 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddlewareTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddlewareTest.kt
-@@ -932,18 +932,6 @@ class BrowserToolbarSearchMiddlewareTest {
+@@ -933,18 +933,6 @@ class BrowserToolbarSearchMiddlewareTest {
          captorMiddleware.assertLastAction(SearchEnded::class) {}
      }
  

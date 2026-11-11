@@ -1,0 +1,54 @@
+$ python3 docs/android/board.py --check
+ok: 138 tasks, 32 waves, 0 warning(s)
+(exit 0)
+$ python3 docs/android/board.py --check-scope
+ok: 115 listed patch files — 22 common, 43 desktop, 50 android, 0 straddlers parked; 1 overlay patch files (overlay-dev-app); PATCH-SCOPE.md agrees
+(exit 0)
+$ python3 docs/android/board.py --check-cfg-split
+error: B: defaultPref(app.support.baseURL) changed: 1 before, 0 after
+error: B: defaultPref(app.support.baseURL) changed: 0 before, 1 after
+error: B: defaultPref(browser.fireButton.enabled) changed: 0 before, 1 after
+error: B: defaultPref(browser.newtabpage.activity-stream.widgets.solitaire.enabled) changed: 0 before, 1 after
+error: B: defaultPref(browser.newtabpage.activity-stream.widgets.system.solitaire.enabled) changed: 0 before, 1 after
+error: B: defaultPref(browser.newtabpage.activity-stream.widgets.system.travel.enabled) changed: 0 before, 1 after
+error: B: defaultPref(browser.newtabpage.activity-stream.widgets.travel.enabled) changed: 0 before, 1 after
+error: B: defaultPref(browser.smartwindow.aitab.enabled) changed: 0 before, 1 after
+error: B: defaultPref(browser.tabs.firefox-view.importHistory.dismissed) changed: 0 before, 1 after
+error: B: defaultPref(browser.urlbar.suggest.temporal) changed: 0 before, 1 after
+error: B: defaultPref(browser.urlbar.suggest.temporal.seasonal) changed: 0 before, 1 after
+error: B: defaultPref(browser.urlbar.temporal.featureGate) changed: 0 before, 1 after
+error: B: defaultPref(media.webspeech.recognition.enable) changed: 0 before, 1 after
+error: B: lockPref(browser.engagement.search_counts.pbm) changed: 0 before, 1 after
+error: B: lockPref(browser.fireButton.enrollmentSlug) changed: 0 before, 1 after
+error: B: lockPref(browser.newtabpage.activity-stream.telemetry.privatePing.dwellTime.enabled) changed: 0 before, 1 after
+error: B: lockPref(browser.search.configV3.featureGate) changed: 0 before, 1 after
+error: B: lockPref(extensions.webcompat-reporter.enabled) changed: 1 before, 0 after
+error: B: lockPref(extensions.webcompat-reporter.newIssueEndpoint) changed: 1 before, 0 after
+error: B: lockPref(network.http.akamai_waf_telemetry.enabled) changed: 0 before, 1 after
+
+20 error(s)
+(exit 1)
+$ python3 docs/android/board.py --diff-mozconfig --strict
+ok: hardening parity holds (0 documented difference(s))
+(exit 0)
+$ python3 scripts/lint-patch-scope.py
+lint-patch-scope: OK - 116 patch file(s), no scope violations, no hunk header without line numbers
+(exit 0)
+$ python3 scripts/check-patch-order.py
+patch order ok: 39/39 declared constraint(s) enforced across 3 target sequence(s); 179 shared-file pair(s) derived and classified.
+  (8 of those pair a list patch with an overlay patch, which the overlay sequence orders by construction)
+(exit 0)
+$ LW_TREE=<pristine firefox-160.0> python3 docs/android/board.py --check-policies
+# reading pref declarations from firefox-160.0
+ok: 132 prefs declared by GeckoView; 25 of them shipped by us, every unlocked one classified in must-not-lock.txt
+(exit 0)
+$ python3 scripts/gen-ubo-assets-android.py --check
+ok: uBOAssets.android.json enables fanboy-cookiemonster, ublock-cookies-easylist by default
+(exit 0)
+$ python3 scripts/android-brand-check.py <copy of the replayed android tree with android_brand_images() applied>
+# 86 brand image(s) in the tree, 92 replacement(s) checked in
+ok: 86 brand image(s) replaced, and Gecko's branding names no Mozilla mark
+(exit 0)
+
+## board.py --check-cfg-split, after the settings commit 248c576 (2026-11-11)
+ok: 185 common / 210 desktop / 17 android calls; librewolf.cfg regenerates exactly

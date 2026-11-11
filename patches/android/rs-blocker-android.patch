@@ -27,10 +27,12 @@
 #
 # The server stays Prod, so is_prod_server() remains true and the packaged
 # data path (get_records Case 1, get_attachment step 2, reset_storage re-seed)
-# keeps working. The seven packaged collections (regions, search-config-v2,
-# search-config-icons, search-telemetry-v2, summarizer-models-config,
-# translations-models, translations-wasm) and their attachments are served
-# from the binary. search-config-overrides-v2 is NOT packaged, but Fenix
+# keeps working. The eight packaged collections (regions, search-config-v2,
+# search-config-v3 (new in Firefox 160, client.rs:99), search-config-icons,
+# search-telemetry-v2, summarizer-models-config, translations-models,
+# translations-wasm) and their attachments are served from the binary.
+# search-config-v3 is Mozilla's unmodified dump; nothing on 160 reads it, and
+# search-config.patch pins Settings.useSearchConfigV3 to false. search-config-overrides-v2 is NOT packaged, but Fenix
 # passes applyEngineOverrides=false (SearchEngineSelectorRepository.kt:60-62),
 # so no client is ever created for it and nothing reads it.
 #

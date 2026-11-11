@@ -1,8 +1,33 @@
+diff --git a/browser/components/backup/BackupService.sys.mjs b/browser/components/backup/BackupService.sys.mjs
+index 1a2a670..ef88239 100644
+--- a/browser/components/backup/BackupService.sys.mjs
++++ b/browser/components/backup/BackupService.sys.mjs
+@@ -658,7 +658,7 @@ export class BackupService extends EventTarget {
+    *
+    * @see BACKUP_DIR_NAME
+    */
+-  static #backupFolderName = "Restore Firefox";
++  static #backupFolderName = "Restore LibreWolf";
+ 
+   /**
+    * The name of the backup archive file. Should be localized.
+diff --git a/browser/components/controlcenter/content/trustPanel.inc.xhtml b/browser/components/controlcenter/content/trustPanel.inc.xhtml
+index 5179415..ccdd518 100644
+--- a/browser/components/controlcenter/content/trustPanel.inc.xhtml
++++ b/browser/components/controlcenter/content/trustPanel.inc.xhtml
+@@ -35,7 +35,6 @@
+         </html:breach-alert-panel>
+         <vbox id="trustpanel-graphic-section">
+           <hbox class="trustpanel-card-main">
+-            <image id="trustpanel-graphic-image-legacy"></image>
+             <vbox id="trustpanel-graphic-section-text" class="trustpanel-card-content">
+               <label when-connection="secure secure-ev secure-etsi secure-cert-user-overridden chrome file extension net-error-page https-only-error-page"
+                      id="trustpanel-header"
 diff --git a/browser/components/preferences/config/about-firefox.mjs b/browser/components/preferences/config/about-firefox.mjs
-index e90e8ec..fbab201 100644
+index c28905c..307eb95 100644
 --- a/browser/components/preferences/config/about-firefox.mjs
 +++ b/browser/components/preferences/config/about-firefox.mjs
-@@ -574,14 +488,6 @@ SettingGroupManager.registerGroups({
+@@ -576,14 +576,6 @@ SettingGroupManager.registerGroups({
              control: "moz-box-link",
              supportPage: "preferences",
            },
@@ -18,12 +43,12 @@ index e90e8ec..fbab201 100644
        },
      ],
 diff --git a/browser/components/preferences/config/account-sync.mjs b/browser/components/preferences/config/account-sync.mjs
-index ad333a5..76ba937 100644
+index 664a7dc..eed8ef7 100644
 --- a/browser/components/preferences/config/account-sync.mjs
 +++ b/browser/components/preferences/config/account-sync.mjs
-@@ -831,12 +831,27 @@ Preferences.addSetting({
- 
- let accountsEnabled = Services.prefs.getBoolPref("identity.fxaccounts.enabled");
+@@ -839,12 +839,27 @@ let perDeviceSyncEnabled = Services.prefs.getBoolPref(
+   false
+ );
  
 +Preferences.addSetting({
 +  id: "librewolfSync",
@@ -54,9 +79,9 @@ index ad333a5..76ba937 100644
    accountDisabled: {
      inProgress: true,
      hidden: accountsEnabled,
-@@ -851,6 +866,10 @@ SettingGroupManager.registerGroups({
-           headinglevel: 2,
-         },
+@@ -857,6 +872,10 @@ SettingGroupManager.registerGroups({
+         supportPage: "managed-browser-firefox",
+         headingLevel: 2,
        },
 +      {
 +        id: "librewolfSync",
@@ -65,7 +90,7 @@ index ad333a5..76ba937 100644
      ],
    },
    account: {
-@@ -949,6 +968,10 @@ SettingGroupManager.registerGroups({
+@@ -955,6 +974,10 @@ SettingGroupManager.registerGroups({
            },
          ],
        },
@@ -120,10 +145,10 @@ index 7675fab..5cd14dd 100644
    },
    browserIconEntry: {
 diff --git a/browser/components/preferences/config/languages.mjs b/browser/components/preferences/config/languages.mjs
-index 7123cb0f46..47367e1642 100644
+index 119a2f0..47cf4aa 100644
 --- a/browser/components/preferences/config/languages.mjs
 +++ b/browser/components/preferences/config/languages.mjs
-@@ -813,12 +813,21 @@ Preferences.addSetting(
+@@ -831,12 +831,21 @@ Preferences.addSetting(
  
  Preferences.addSetting({
    id: "offerTranslations",
@@ -146,7 +171,7 @@ index 7123cb0f46..47367e1642 100644
  Preferences.addSetting({
    id: "checkSpelling",
    pref: "layout.spellcheckDefault",
-@@ -944,6 +953,10 @@ SettingGroupManager.registerGroups({
+@@ -962,6 +971,10 @@ SettingGroupManager.registerGroups({
          id: "offerTranslations",
          l10nId: "settings-translations-offer-to-translate-label",
        },
@@ -158,10 +183,10 @@ index 7123cb0f46..47367e1642 100644
          id: "translationsManageButton",
          loadPane: "translations",
 diff --git a/browser/components/preferences/config/privacy.mjs b/browser/components/preferences/config/privacy.mjs
-index f32ccc4..0feeeb3 100644
+index 75abcd9..d122885 100644
 --- a/browser/components/preferences/config/privacy.mjs
 +++ b/browser/components/preferences/config/privacy.mjs
-@@ -533,6 +533,82 @@ if (SECURITY_PRIVACY_STATUS_CARD_ENABLED) {
+@@ -544,6 +544,82 @@ if (SECURITY_PRIVACY_STATUS_CARD_ENABLED) {
    ]);
  }
  
@@ -244,7 +269,7 @@ index f32ccc4..0feeeb3 100644
  SettingGroupManager.registerGroups({
    httpsOnly: {
      l10nId: "httpsonly-group",
-@@ -609,38 +685,6 @@ SettingGroupManager.registerGroups({
+@@ -620,38 +696,6 @@ SettingGroupManager.registerGroups({
        },
      ],
    },
@@ -283,7 +308,7 @@ index f32ccc4..0feeeb3 100644
    nonTechnicalPrivacy: {
      l10nId: "non-technical-privacy-group",
      headingLevel: 2,
-@@ -690,39 +734,39 @@ SettingGroupManager.registerGroups({
+@@ -701,39 +745,39 @@ SettingGroupManager.registerGroups({
            role: "status",
          },
        },
@@ -350,7 +375,7 @@ index f32ccc4..0feeeb3 100644
        },
      ],
    },
-@@ -866,10 +910,6 @@ SettingGroupManager.registerGroups({
+@@ -877,10 +921,6 @@ SettingGroupManager.registerGroups({
            },
          ],
        },
@@ -361,7 +386,7 @@ index f32ccc4..0feeeb3 100644
      ],
    },
    networkProxy: {
-@@ -1034,13 +1074,10 @@ SettingGroupManager.registerGroups({
+@@ -1017,13 +1057,10 @@ SettingGroupManager.registerGroups({
      ],
    },
    historyAdvanced: {
@@ -377,7 +402,7 @@ index f32ccc4..0feeeb3 100644
        {
          id: "rememberHistory",
          l10nId: "history-remember-browser-option",
-@@ -1240,19 +1277,15 @@ SettingGroupManager.registerGroups({
+@@ -1223,19 +1260,15 @@ SettingGroupManager.registerGroups({
    etpAdvanced: {
      inProgress: true,
      headingLevel: 2,
@@ -399,7 +424,7 @@ index f32ccc4..0feeeb3 100644
            {
              id: "etpLevelStrict",
              subcategory: "etp-strict-control",
-@@ -1274,20 +1307,6 @@ SettingGroupManager.registerGroups({
+@@ -1257,20 +1290,6 @@ SettingGroupManager.registerGroups({
                },
              ],
            },
@@ -420,7 +445,7 @@ index f32ccc4..0feeeb3 100644
          ],
        },
        {
-@@ -1303,12 +1322,6 @@ SettingGroupManager.registerGroups({
+@@ -1286,12 +1305,6 @@ SettingGroupManager.registerGroups({
            },
          ],
        },
@@ -434,10 +459,10 @@ index f32ccc4..0feeeb3 100644
          id: "etpLevelWarning",
          control: "moz-promo",
 diff --git a/browser/components/preferences/config/tabs-browsing.mjs b/browser/components/preferences/config/tabs-browsing.mjs
-index 50ba8c2da3..06a5c0073a 100644
+index 1a0e28e..44bc84b 100644
 --- a/browser/components/preferences/config/tabs-browsing.mjs
 +++ b/browser/components/preferences/config/tabs-browsing.mjs
-@@ -124,7 +124,52 @@ if (srdEnabled) {
+@@ -131,7 +131,52 @@ if (srdEnabled) {
         document; when set to false, no search action happens */
      { id: "accessibility.browsewithcaret", type: "bool" },
      { id: "accessibility.typeaheadfind", type: "bool" },
@@ -490,7 +515,7 @@ index 50ba8c2da3..06a5c0073a 100644
  }
  
  // Tabs settings
-@@ -492,6 +537,7 @@ Preferences.addSetting({
+@@ -577,6 +622,7 @@ Preferences.addSetting({
  Preferences.addSetting({
    id: "playDRMContent",
    pref: "media.eme.enabled",
@@ -498,7 +523,7 @@ index 50ba8c2da3..06a5c0073a 100644
    visible: () => {
      if (!Services.prefs.getBoolPref("browser.eme.ui.enabled", false)) {
        return false;
-@@ -505,6 +551,26 @@ Preferences.addSetting({
+@@ -590,6 +636,26 @@ Preferences.addSetting({
      }
      return true;
    },
@@ -525,7 +550,7 @@ index 50ba8c2da3..06a5c0073a 100644
  });
  
  // Performance settings
-@@ -728,6 +794,16 @@ SettingGroupManager.registerGroups({
+@@ -814,6 +880,16 @@ SettingGroupManager.registerGroups({
        },
      ],
    },
@@ -542,7 +567,7 @@ index 50ba8c2da3..06a5c0073a 100644
    media: {
      l10nId: "settings-media-group",
      headingLevel: 2,
-@@ -750,6 +826,15 @@ SettingGroupManager.registerGroups({
+@@ -836,6 +912,15 @@ SettingGroupManager.registerGroups({
          l10nId: "play-drm-content",
          supportPage: "drm-content",
        },
@@ -559,10 +584,10 @@ index 50ba8c2da3..06a5c0073a 100644
    },
    performance: {
 diff --git a/browser/components/preferences/main.js b/browser/components/preferences/main.js
-index 5a56d34..bc180bb 100644
+index 2ccf72a..3a759b3 100644
 --- a/browser/components/preferences/main.js
 +++ b/browser/components/preferences/main.js
-@@ -470,17 +470,13 @@ function createDefaultBrowserConfig({
+@@ -428,17 +428,13 @@ function createDefaultBrowserConfig({
  } = {}) {
    const isDefaultPane = {
      id: "isDefaultPane",
@@ -582,7 +607,7 @@ index 5a56d34..bc180bb 100644
      control: "moz-promo",
      options: [
        {
-@@ -494,10 +490,6 @@ function createDefaultBrowserConfig({
+@@ -452,10 +448,6 @@ function createDefaultBrowserConfig({
          },
        },
      ],
@@ -594,10 +619,10 @@ index 5a56d34..bc180bb 100644
  
    const items = includeIsDefaultPane
 diff --git a/browser/components/preferences/preferences.js b/browser/components/preferences/preferences.js
-index 94612d8..4c82403 100644
+index d2f798b..4818aab 100644
 --- a/browser/components/preferences/preferences.js
 +++ b/browser/components/preferences/preferences.js
-@@ -297,7 +297,6 @@ const CONFIG_PANES = Object.freeze({
+@@ -310,7 +310,6 @@ const CONFIG_PANES = Object.freeze({
        "httpsOnly",
        "networkProxy",
        "privacyPanel",
@@ -605,7 +630,7 @@ index 94612d8..4c82403 100644
        "certificates",
      ],
      replaces: "privacy",
-@@ -419,13 +418,12 @@ const CONFIG_PANES = Object.freeze({
+@@ -445,13 +444,12 @@ const CONFIG_PANES = Object.freeze({
      l10nId: "pane-privacy-section",
      iconSrc: "chrome://browser/skin/preferences/category-privacy-security.svg",
      groupIds: [
@@ -622,7 +647,7 @@ index 94612d8..4c82403 100644
        "dnsOverHttps",
        "connectionLink",
      ],
-@@ -448,7 +446,6 @@ const CONFIG_PANES = Object.freeze({
+@@ -475,7 +473,6 @@ const CONFIG_PANES = Object.freeze({
      l10nId: "account-sync-section",
      iconSrc: "chrome://browser/skin/fxa/avatar-empty.svg",
      groupIds: [
@@ -630,7 +655,7 @@ index 94612d8..4c82403 100644
        "accountDisabled",
        "account",
        "sync",
-@@ -474,6 +471,7 @@ const CONFIG_PANES = Object.freeze({
+@@ -501,6 +498,7 @@ const CONFIG_PANES = Object.freeze({
        "browserLayout",
        "tabs",
        "pageNavigation",
@@ -638,7 +663,7 @@ index 94612d8..4c82403 100644
        "keyboardShortcuts",
        "media",
        "performance",
-@@ -558,6 +556,9 @@ function init_all() {
+@@ -590,6 +588,9 @@ function init_all() {
      register_module("paneGeneral", gMainPane);
      document.getElementById("category-general").hidden = false;
      document.getElementById("nav-separator").hidden = true;
@@ -646,9 +671,9 @@ index 94612d8..4c82403 100644
 +  } else {
 +    document.getElementById("category-librewolf").hidden = true;
    }
-   register_module("paneHome", gHomePane);
    register_module("paneSearch", gSearchPane);
-@@ -649,6 +650,12 @@ function init_all() {
+   register_module("panePrivacy", gPrivacyPane);
+@@ -678,6 +679,12 @@ function init_all() {
      gSearchResultsPane.searchInput.focus();
    });
  
@@ -662,10 +687,10 @@ index 94612d8..4c82403 100644
      document.getElementById("addonsButton").addEventListener("click", e => {
        e.preventDefault();
 diff --git a/browser/components/preferences/preferences.xhtml b/browser/components/preferences/preferences.xhtml
-index b5531acdfb..8da3b051fd 100644
+index 8e0c648..e3e1719 100644
 --- a/browser/components/preferences/preferences.xhtml
 +++ b/browser/components/preferences/preferences.xhtml
-@@ -219,6 +219,11 @@
+@@ -223,6 +223,11 @@
          iconsrc="chrome://global/skin/icons/help.svg"
          data-l10n-id="help-button-label2">
        </html:moz-page-nav-button>
@@ -678,7 +703,7 @@ index b5531acdfb..8da3b051fd 100644
  
      <keyset>
 diff --git a/browser/components/preferences/privacy.inc.xhtml b/browser/components/preferences/privacy.inc.xhtml
-index 052afa00e0..8645ebf73b 100644
+index 052afa0..8645ebf 100644
 --- a/browser/components/preferences/privacy.inc.xhtml
 +++ b/browser/components/preferences/privacy.inc.xhtml
 @@ -15,9 +15,6 @@
@@ -690,9 +715,9 @@ index 052afa00e0..8645ebf73b 100644
 -
  <!-- Enhanced Tracking Protection Status Section -->
  <html:setting-group groupid="etpStatus" id="etpStatusCard" data-category="panePrivacy" data-subcategory="etpStatus" hidden="true" data-srd-migrated=""></html:setting-group>
-
+ 
 diff --git a/browser/components/preferences/privacy.js b/browser/components/preferences/privacy.js
-index a780854..9cdd6d3 100644
+index fd4bf9c..c371d4a 100644
 --- a/browser/components/preferences/privacy.js
 +++ b/browser/components/preferences/privacy.js
 @@ -615,8 +615,6 @@ var gPrivacyPane = {
@@ -702,13 +727,13 @@ index a780854..9cdd6d3 100644
 -    initSettingGroup("securityPrivacyStatus");
 -    initSettingGroup("securityPrivacyWarnings");
      initSettingGroup("httpsOnly");
-     initSettingGroup("browsingProtection");
-     initSettingGroup("cookiesAndSiteData"); 
+     initSettingGroup("cookiesAndSiteData");
+     initSettingGroup("cookiesAndSiteData2");
 diff --git a/browser/extensions/newtab/lib/AboutPreferences.sys.mjs b/browser/extensions/newtab/lib/AboutPreferences.sys.mjs
-index 4562efc..bd99654 100644
+index 8ef7c28..268849d 100644
 --- a/browser/extensions/newtab/lib/AboutPreferences.sys.mjs
 +++ b/browser/extensions/newtab/lib/AboutPreferences.sys.mjs
-@@ -393,6 +393,7 @@ export class AboutPreferences {
+@@ -106,6 +106,7 @@ export class AboutPreferences {
          type: "bool",
          inverted: true,
        },
@@ -716,7 +741,7 @@ index 4562efc..bd99654 100644
        {
          id: "browser.newtabpage.activity-stream.system.showWeather",
          type: "bool",
-@@ -1301,6 +1302,11 @@ export class AboutPreferences {
+@@ -243,6 +244,11 @@ export class AboutPreferences {
        });
      }
  
@@ -728,7 +753,19 @@ index 4562efc..bd99654 100644
      // Search
      Preferences.addSetting({
        id: "webSearch",
-@@ -1739,39 +1745,6 @@ export class AboutPreferences {
+@@ -488,6 +494,11 @@ export class AboutPreferences {
+             type: "info",
+           },
+         },
++        {
++          id: "librewolfExternalWallpapers",
++          l10nId: "librewolf-external-wallpapers",
++          control: "moz-toggle",
++        },
+         {
+           id: "chooseWallpaper",
+           l10nId: "home-prefs-choose-wallpaper-link2",
+@@ -638,39 +649,6 @@ export class AboutPreferences {
              },
            ],
          },
@@ -765,26 +802,14 @@ index 4562efc..bd99654 100644
 -            },
 -          ],
 -        },
-         {
-           id: "recentActivity",
-           subcategory: "highlights",
-@@ -1819,6 +1792,11 @@ export class AboutPreferences {
-             },
-           ],
-         },
-+       {
-+         id: "librewolfExternalWallpapers",
-+         l10nId: "librewolf-external-wallpapers",
-+         control: "moz-toggle",
-+       },
-         {
-           id: "chooseWallpaper",
-           l10nId: "home-prefs-choose-wallpaper-link2",
+       ],
+     };
+   }
 diff --git a/browser/themes/shared/jar.inc.mn b/browser/themes/shared/jar.inc.mn
-index da21558..993966b 100644
+index ea6eaea..9c9743b 100644
 --- a/browser/themes/shared/jar.inc.mn
 +++ b/browser/themes/shared/jar.inc.mn
-@@ -287,7 +287,7 @@
+@@ -301,7 +301,7 @@
    skin/classic/browser/search-indicator-badge-add.svg          (../shared/search/search-indicator-badge-add.svg)
    skin/classic/browser/searchbar.css                           (../shared/search/searchbar.css)
  
@@ -890,28 +915,3 @@ index 0000000..7c552cc
 +       transform="matrix(0.23203125,0.40188991,-0.99392962,0.57384553,246.21921,73.888081)" />
 +  </g>
 +</svg>
-diff --git a/browser/components/backup/BackupService.sys.mjs b/browser/components/backup/BackupService.sys.mjs
-index bd2f95db2d..23ed1d8e90 100644
---- a/browser/components/backup/BackupService.sys.mjs
-+++ b/browser/components/backup/BackupService.sys.mjs
-@@ -657,7 +657,7 @@ export class BackupService extends EventTarget {
-    *
-    * @see BACKUP_DIR_NAME
-    */
--  static #backupFolderName = "Restore Firefox";
-+  static #backupFolderName = "Restore LibreWolf";
- 
-   /**
-    * The name of the backup archive file. Should be localized.
-diff --git a/browser/components/controlcenter/content/trustPanel.inc.xhtml b/browser/components/controlcenter/content/trustPanel.inc.xhtml
-index 9ba778ccac..2e3c86ba5b 100644
---- a/browser/components/controlcenter/content/trustPanel.inc.xhtml
-+++ b/browser/components/controlcenter/content/trustPanel.inc.xhtml
-@@ -35,7 +35,6 @@
-         </html:breach-alert-panel>
-         <vbox id="trustpanel-graphic-section">
-           <hbox class="trustpanel-card-main">
--            <image id="trustpanel-graphic-image-legacy"></image>
-             <vbox id="trustpanel-graphic-section-text" class="trustpanel-card-content">
-               <label when-connection="secure secure-ev secure-etsi secure-cert-user-overridden chrome file extension net-error-page https-only-error-page"
-                      id="trustpanel-header"

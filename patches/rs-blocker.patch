@@ -1,5 +1,5 @@
 diff --git a/services/settings/RemoteSettings.worker.mjs b/services/settings/RemoteSettings.worker.mjs
-index 3e4e915c13..f7840d56d5 100644
+index 3e4e915..f7840d5 100644
 --- a/services/settings/RemoteSettings.worker.mjs
 +++ b/services/settings/RemoteSettings.worker.mjs
 @@ -62,12 +62,21 @@ const Agent = {
@@ -27,7 +27,7 @@ index 3e4e915c13..f7840d56d5 100644
      if (records === null) {
        // Return -1 if file is missing.
 diff --git a/services/settings/RemoteSettingsClient.sys.mjs b/services/settings/RemoteSettingsClient.sys.mjs
-index f84cdf9796..0939438db9 100644
+index f84cdf9..0939438 100644
 --- a/services/settings/RemoteSettingsClient.sys.mjs
 +++ b/services/settings/RemoteSettingsClient.sys.mjs
 @@ -209,12 +209,27 @@ class AttachmentDownloader extends Downloader {
@@ -98,7 +98,7 @@ index f84cdf9796..0939438db9 100644
      if (result < 0) {
        lazy.console.debug(`${this.identifier} no dump available`);
 diff --git a/services/settings/RemoteSettingsWorker.sys.mjs b/services/settings/RemoteSettingsWorker.sys.mjs
-index 57bfb3f3d5..464bd6cc36 100644
+index 57bfb3f..464bd6c 100644
 --- a/services/settings/RemoteSettingsWorker.sys.mjs
 +++ b/services/settings/RemoteSettingsWorker.sys.mjs
 @@ -162,10 +162,19 @@ class Worker {
@@ -126,7 +126,7 @@ index 57bfb3f3d5..464bd6cc36 100644
  
    async checkFileHash(filepath, size, hash) {
 diff --git a/services/settings/SharedUtils.sys.mjs b/services/settings/SharedUtils.sys.mjs
-index e5b20d9b9d..d76a0302de 100644
+index e5b20d9..d76a030 100644
 --- a/services/settings/SharedUtils.sys.mjs
 +++ b/services/settings/SharedUtils.sys.mjs
 @@ -34,8 +34,25 @@ export var SharedUtils = {
@@ -235,10 +235,10 @@ index e5b20d9b9d..d76a0302de 100644
 +  },
  };
 diff --git a/services/settings/Utils.sys.mjs b/services/settings/Utils.sys.mjs
-index 70f77c9fcb..5149801e7b 100644
+index a5277e2..288d0e4 100644
 --- a/services/settings/Utils.sys.mjs
 +++ b/services/settings/Utils.sys.mjs
-@@ -99,6 +99,18 @@ XPCOMUtils.defineLazyPreferenceGetter(
+@@ -102,6 +102,18 @@ XPCOMUtils.defineLazyPreferenceGetter(
    ""
  );
  
@@ -257,7 +257,7 @@ index 70f77c9fcb..5149801e7b 100644
  function _isUndefined(value) {
    return typeof value === "undefined";
  }
-@@ -111,6 +123,14 @@ export var Utils = {
+@@ -114,6 +126,14 @@ export var Utils = {
        : AppConstants.REMOTE_SETTINGS_SERVER_URLS[0];
    },
  
@@ -272,7 +272,7 @@ index 70f77c9fcb..5149801e7b 100644
    CHANGES_PATH: "/buckets/monitor/collections/changes/changeset",
  
    /**
-@@ -450,7 +470,9 @@ export var Utils = {
+@@ -456,7 +476,9 @@ export var Utils = {
      if (lastModified === undefined) {
        const { timestamp: dumpTimestamp } = await lazy.SharedUtils.loadJSONDump(
          bucket,
@@ -283,7 +283,7 @@ index 70f77c9fcb..5149801e7b 100644
        );
        // Client recognize -1 as missing dump.
        lastModified = dumpTimestamp ?? -1;
-@@ -560,7 +582,13 @@ export var Utils = {
+@@ -566,7 +588,13 @@ export var Utils = {
      }
  
      return {
@@ -299,7 +299,7 @@ index 70f77c9fcb..5149801e7b 100644
        serverTimeMillis,
        backoffSeconds,
 diff --git a/services/settings/remote-settings.sys.mjs b/services/settings/remote-settings.sys.mjs
-index b180cfc850..79d4372716 100644
+index b180cfc..79d4372 100644
 --- a/services/settings/remote-settings.sys.mjs
 +++ b/services/settings/remote-settings.sys.mjs
 @@ -16,6 +16,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
@@ -328,10 +328,10 @@ index b180cfc850..79d4372716 100644
            // The startup bundles contain both main and preview changesets.
            // Importing both increases complexity down the line, and brings no value.
 diff --git a/toolkit/components/search/ConfigSearchEngine.sys.mjs b/toolkit/components/search/ConfigSearchEngine.sys.mjs
-index 2186215520..2f98ee4e91 100644
+index 907ff86..87abda7 100644
 --- a/toolkit/components/search/ConfigSearchEngine.sys.mjs
 +++ b/toolkit/components/search/ConfigSearchEngine.sys.mjs
-@@ -189,7 +189,7 @@ class IconHandler {
+@@ -192,7 +192,7 @@ class IconHandler {
        try {
          iconData = await this.#iconCollection.attachments.download(record);
        } catch (ex) {
@@ -340,22 +340,3 @@ index 2186215520..2f98ee4e91 100644
          continue;
        }
  
-diff --git a/toolkit/components/search/SearchEngineSelector.sys.mjs b/toolkit/components/search/SearchEngineSelector.sys.mjs
-index 3a42b383af..3befe8d899 100644
---- a/toolkit/components/search/SearchEngineSelector.sys.mjs
-+++ b/toolkit/components/search/SearchEngineSelector.sys.mjs
-@@ -409,13 +409,7 @@ export class SearchEngineSelector {
-    *   could be obtained.
-    */
-   async #getConfigurationOverrides() {
--    let result = [];
--    try {
--      result = await this.#remoteConfigOverrides.get();
--    } catch (ex) {
--      // This data is remote only, so we just return an empty array if it fails.
--    }
--    return result;
-+    return [];
-   }
- 
-   /**

@@ -76,6 +76,19 @@
 # emulator smoke) is 153-era evidence. Nothing here has been compiled on 157.
 #
 #
+# 160 REBASE (2026-11-11, Firefox 160.0)
+# --------------------------------------
+# Intent unchanged. 160 added the FxA "pairing campaign" attribution
+# (InstallReferrerWorker records PlayStoreAttribution.pairingCampaign from the
+# pairingSigninPrompt Nimbus feature; its two tests changed) -- the three file
+# deletions are regenerated. OnboardingFragment gained a pairing sign-in page
+# gated on Settings.isUserPairingCampaignAttributed via the new
+# OnboardingPageAdditionSupport (was MarketingPageAdditionSupport); its only
+# writer is the deleted InstallReferrerHandlingService, so like the marketing
+# page it stays off. libs.versions.toml context (ksp 2.3.12). No new reference
+# to a deleted name outside a KDoc comment in OnboardingPageAdditionSupport.kt.
+#
+#
 # WHAT WAS ACTUALLY IN THE APK BEFORE THIS PATCH (measured, not grepped)
 # ----------------------------------------------------------------------
 # Read out of ~/lw-m2-04/out-make/apk/fenix-x86_64-debug.apk (the LW-M2-04
@@ -468,23 +481,23 @@
 # this patch does, and the check is `find` before/after: 33 files in, 18 out.
 --- a/gradle/libs.versions.toml
 +++ b/gradle/libs.versions.toml
-@@ -56,7 +56,6 @@ work = "2.12.0"
+@@ -57,7 +57,6 @@ work = "2.12.0"
  # Google other
  accompanist = "0.37.3"
  firebase-messaging = "25.0.2"
 -installreferrer = "2.2"
- ksp = "2.3.11"
+ ksp = "2.3.12"
  material = "1.14.0"
  mlkit-prompt = "1.0.0-beta4"
-@@ -107,7 +106,6 @@ mockk = "1.14.11"
+@@ -108,7 +107,6 @@ mockk = "1.14.11"
  robolectric = "4.17"
  
  # Third party libraries
 -adjust = "5.8.0"
  androidsvg = "1.4"
  disklrucache = "2.0.2"
- jetbrains-markdown = "0.7.16"
-@@ -234,7 +232,6 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
+ jetbrains-markdown = "0.7.17"
+@@ -238,7 +236,6 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
  accompanist-drawablepainter = { module = "com.google.accompanist:accompanist-drawablepainter", version.ref = "accompanist" }
  firebase-messaging = { module = "com.google.firebase:firebase-messaging", version.ref = "firebase-messaging" }
  google-material = { module = "com.google.android.material:material", version.ref = "material" }
@@ -492,7 +505,7 @@
  ksp-symbol-processing-aa = { module = "com.google.devtools.ksp:symbol-processing-aa", version.ref = "ksp" }
  ksp-symbol-processing-aa-embeddable = { module = "com.google.devtools.ksp:symbol-processing-aa-embeddable", version.ref = "ksp" }
  ksp-symbol-processing-api = { module = "com.google.devtools.ksp:symbol-processing-api", version.ref = "ksp" }
-@@ -302,7 +299,6 @@ mockk-android = { module = "io.mockk:mockk-android", version.ref = "mockk" }
+@@ -306,7 +303,6 @@ mockk-android = { module = "io.mockk:mockk-android", version.ref = "mockk" }
  robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
  
  # Third party libraries
@@ -502,7 +515,7 @@
  jetbrains-markdown = { module = "org.jetbrains:markdown", version.ref = "jetbrains-markdown" }
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -358,13 +358,6 @@ android.defaultConfig.with {
+@@ -360,13 +360,6 @@ android.defaultConfig.with {
      def buildDate = LocalDateTime.parse(getBuildId(gradle.mozconfig.topobjdir, providers.environmentVariable("MOZ_BUILD_DATE").getOrNull()), DateTimeFormatter.ofPattern("yyyyMMddHHmmss")).toString()
      buildConfigField 'String', 'BUILD_DATE', '"' + buildDate + '"'
  
@@ -516,7 +529,7 @@
      try {
          def url = new File("${rootDir}/.nimbus").text.trim()
          buildConfigField 'String', 'NIMBUS_ENDPOINT', '"' + url + '"'
-@@ -416,7 +409,6 @@ android.buildTypes.debug.with {
+@@ -418,7 +411,6 @@ android.buildTypes.debug.with {
      buildConfigField 'boolean', 'TELEMETRY', 'false'
      buildConfigField 'String', 'BUILD_DATE', '"debug build"'
      buildConfigField 'String', 'SENTRY_TOKEN', 'null'
@@ -524,7 +537,7 @@
  
      if (gradle.hasProperty("localProperties.nimbus.remote-settings.url")) {
          def url = gradle.getProperty("localProperties.nimbus.remote-settings.url")
-@@ -580,7 +572,6 @@ dependencies {
+@@ -583,7 +575,6 @@ dependencies {
      implementation ComponentsDependencies.mozilla_appservices_syncmanager
  
      implementation libs.accompanist.drawablepainter
@@ -532,7 +545,7 @@
      implementation libs.androidx.activity
      implementation libs.androidx.annotation
      implementation libs.androidx.appcompat
-@@ -627,7 +618,6 @@ dependencies {
+@@ -632,7 +623,6 @@ dependencies {
      implementation libs.androidx.viewpager2
      implementation libs.androidx.work.runtime
      implementation libs.google.material
@@ -542,7 +555,7 @@
      implementation libs.mozilla.glean
 --- a/mobile/android/fenix/app/src/main/AndroidManifest.xml
 +++ b/mobile/android/fenix/app/src/main/AndroidManifest.xml
-@@ -51,10 +51,6 @@
+@@ -55,10 +55,6 @@
      <uses-permission android:name="android.permission.CREDENTIAL_MANAGER_SET_ORIGIN" />
      <uses-permission android:name="android.permission.CREDENTIAL_MANAGER_QUERY_CANDIDATE_CREDENTIALS" />
  
@@ -553,7 +566,7 @@
      <uses-permission android:name="${applicationId}.permission.PROFILER_INTERNAL" />
  
      <!-- Needed to prompt the user directly for app uninstallation as part of an
-@@ -877,17 +873,6 @@
+@@ -910,17 +906,6 @@
                  tools:node="remove" />
          </provider>
  
@@ -573,7 +586,7 @@
              <intent-filter>
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -427,10 +427,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -429,10 +429,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
                          components.settings.hasMadeMarketingTelemetrySelection,
                  isDailyUsagePingEnabled = components.settings.isDailyUsagePingEnabled,
              )
@@ -586,7 +599,7 @@
          setupPush()
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -124,7 +124,6 @@ import org.mozilla.fenix.components.menu.MenuAccessPoint
+@@ -122,7 +122,6 @@ import org.mozilla.fenix.components.menu.MenuAccessPoint
  import org.mozilla.fenix.components.menu.share.QRCodeDialogFragment
  import org.mozilla.fenix.components.metrics.BreadcrumbsRecorder
  import org.mozilla.fenix.components.metrics.GrowthDataWorker
@@ -603,7 +616,7 @@
                  scope = lifecycleScope,
                  splashScreenTimeout = FxNimbus.features.splashScreen.value().maximumDurationMs.toLong(),
                  storage = DefaultSplashScreenStorage(components.settings),
-@@ -1459,7 +1458,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1461,7 +1460,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          return false
      }
  
@@ -612,7 +625,7 @@
          val nimbusOperation =
              if (FxNimbus.features.splashScreen.value().offTrainOnboarding) {
                  ApplyExperimentsOperation(
-@@ -1473,10 +1472,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1475,10 +1474,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
                  )
              }
  
@@ -663,7 +676,7 @@
              isDataTelemetryEnabled = { settings.isTelemetryEnabled },
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-@@ -423,7 +423,6 @@ class Components(
+@@ -420,7 +420,6 @@ class Components(
              browserStoreProvider = DefaultDistributionBrowserStoreProvider(core.store),
              distributionProviderChecker = DefaultDistributionProviderChecker(context),
              distributionSettings = DefaultDistributionSettings(settings),
@@ -1595,7 +1608,7 @@
 -}
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallReferrerWorker.kt
 +++ /dev/null
-@@ -1,419 +0,0 @@
+@@ -1,427 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1623,6 +1636,7 @@
 -import org.mozilla.fenix.GleanMetrics.Pings
 -import org.mozilla.fenix.GleanMetrics.PlayStoreAttribution
 -import org.mozilla.fenix.ext.components
+-import org.mozilla.fenix.nimbus.FxNimbus
 -import org.mozilla.fenix.utils.Settings
 -
 -/**
@@ -1713,6 +1727,13 @@
 -                InstallReferrerHandlingService.isSkyflagAttribution(installReferrerResponse)
 -
 -            settings.isUserQuoraAttributed = InstallReferrerHandlingService.isQuoraAttribution(installReferrerResponse)
+-
+-            PlayStoreAttribution.pairingCampaign.set(
+-                InstallReferrerHandlingService.isPairingCampaignAttribution(
+-                    installReferrerResponse,
+-                    FxNimbus.features.pairingSigninPrompt.value().campaignUtmContent,
+-                )
+-            )
 -
 -            utmParams.recordInstallReferrer(settings)
 -        }
@@ -2440,7 +2461,7 @@
      private val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
-@@ -41,8 +41,6 @@ import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
+@@ -34,8 +34,6 @@ import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
  import org.mozilla.fenix.components.appstate.AppAction
  import org.mozilla.fenix.components.appstate.SupportedMenuNotifications
  import org.mozilla.fenix.components.initializeGlean
@@ -2449,9 +2470,9 @@
  import org.mozilla.fenix.components.metrics.installSourcePackage
  import org.mozilla.fenix.components.startMetricsIfEnabled
  import org.mozilla.fenix.ext.application
-@@ -74,15 +72,6 @@ class OnboardingFragment : Fragment() {
- 
-     private val addMarketingFeature = ViewBoundFeatureWrapper<MarketingPageAdditionSupport>()
+@@ -62,15 +60,6 @@ class OnboardingFragment : Fragment() {
+     private val addMarketingFeature = ViewBoundFeatureWrapper<OnboardingPageAdditionSupport>()
+     private val addPairingSyncSignInFeature = ViewBoundFeatureWrapper<OnboardingPageAdditionSupport>()
  
 -    private val rtamoAttributionHandler by lazy {
 -        RtamoAttributionHandler(
@@ -2465,7 +2486,7 @@
      private val termsOfServiceEventHandler by lazy {
          DefaultOnboardingTermsOfServiceEventHandler(
              telemetryRecorder = telemetryRecorder,
-@@ -371,8 +360,6 @@ class OnboardingFragment : Fragment() {
+@@ -325,8 +314,6 @@ class OnboardingFragment : Fragment() {
              Pings.onboardingOptOut.submit()
          }
  
@@ -2476,7 +2497,7 @@
              logger = logger,
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
-@@ -44,7 +44,6 @@ import org.mozilla.fenix.GleanMetrics.Preferences
+@@ -46,7 +46,6 @@ import org.mozilla.fenix.GleanMetrics.Preferences
  import org.mozilla.fenix.GleanMetrics.SearchDefaultEngine
  import org.mozilla.fenix.GleanMetrics.TabStrip
  import org.mozilla.fenix.GleanMetrics.TopSites
@@ -2484,7 +2505,7 @@
  import org.mozilla.fenix.components.metrics.MozillaProductDetector
  import org.mozilla.fenix.components.toolbar.ToolbarPosition
  import org.mozilla.fenix.distributions.DefaultDistributionBrowserStoreProvider
-@@ -81,8 +80,6 @@ class FenixApplicationTest {
+@@ -84,8 +83,6 @@ class FenixApplicationTest {
              override fun getDistributionId(): String = ""
  
              override fun saveDistributionId(id: String) = Unit
@@ -2493,7 +2514,7 @@
          }
  
      @Before
-@@ -102,7 +99,6 @@ class FenixApplicationTest {
+@@ -105,7 +102,6 @@ class FenixApplicationTest {
                  browserStoreProvider = DefaultDistributionBrowserStoreProvider(browserStore),
                  distributionProviderChecker = testDistributionProviderChecker,
                  distributionSettings = testDistributionSettings,
@@ -3115,7 +3136,7 @@
 -}
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallReferrerHandlingServiceTest.kt
 +++ /dev/null
-@@ -1,1106 +0,0 @@
+@@ -1,1112 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -3135,6 +3156,7 @@
 -import kotlinx.coroutines.test.runTest
 -import mozilla.components.support.test.robolectric.testContext
 -import mozilla.components.support.utils.ext.packageManagerWrapper
+-import org.junit.After
 -import org.junit.Assert.assertEquals
 -import org.junit.Assert.assertFalse
 -import org.junit.Assert.assertNull
@@ -3202,6 +3224,11 @@
 -        InstallReferrerHandlingService.response = null
 -        testContext.components.settings.shouldShowMarketingOnboarding = true
 -        FxNimbus.features.marketingOnboardingCard.withCachedValue(MarketingOnboardingCard(enabled = true))
+-    }
+-
+-    @After
+-    fun tearDown() {
+-        FxNimbus.features.pairingSigninPrompt.withCachedValue(null)
 -    }
 -
 -    @Test
@@ -4258,7 +4285,7 @@
 -}
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallReferrerWorkerTest.kt
 +++ /dev/null
-@@ -1,877 +0,0 @@
+@@ -1,936 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -4277,6 +4304,7 @@
 -import kotlinx.coroutines.yield
 -import mozilla.components.support.test.robolectric.testContext
 -import mozilla.telemetry.glean.Glean
+-import org.junit.After
 -import org.junit.Assert.assertEquals
 -import org.junit.Assert.assertFalse
 -import org.junit.Assert.assertNull
@@ -4289,6 +4317,8 @@
 -import org.mozilla.fenix.GleanMetrics.PlayStoreAttribution
 -import org.mozilla.fenix.GleanMetrics.Referrals
 -import org.mozilla.fenix.helpers.FenixGleanTestRule
+-import org.mozilla.fenix.nimbus.FxNimbus
+-import org.mozilla.fenix.nimbus.PairingSigninPrompt
 -import org.mozilla.fenix.utils.Settings
 -import org.robolectric.RobolectricTestRunner
 -
@@ -4297,6 +4327,11 @@
 -    val context: Context = ApplicationProvider.getApplicationContext()
 -
 -    @get:Rule val gleanTestRule = FenixGleanTestRule(testContext)
+-
+-    @After
+-    fun tearDown() {
+-        FxNimbus.features.pairingSigninPrompt.withCachedValue(null)
+-    }
 -
 -    @Test
 -    fun `WHEN retrieving minimum UTM params from setting THEN result should match`() {
@@ -5089,6 +5124,57 @@
 -
 -        job.join()
 -        assertEquals("", settings.referralCode)
+-    }
+-
+-    @Test
+-    fun `GIVEN a referrer with the pairing campaign WHEN handleSuccess is called THEN pairingCampaign is recorded as true`() {
+-        FxNimbus.features.pairingSigninPrompt.withCachedValue(PairingSigninPrompt(campaignUtmContent = "pairing123"))
+-
+-        val worker = TestListenableWorkerBuilder<InstallReferrerWorker>(context).build()
+-        val settings = Settings(context)
+-        val referrer = "utm_source=accounts.firefox.com&utm_medium=referral&utm_content=pairing123"
+-
+-        val job =
+-            Pings.playStoreAttribution.testBeforeNextSubmit {
+-                assertEquals(true, PlayStoreAttribution.pairingCampaign.testGetValue())
+-            }
+-
+-        worker.handleSuccess(referrer, InstallReferrerClient.InstallReferrerResponse.OK, settings)
+-
+-        job.join()
+-    }
+-
+-    @Test
+-    fun `GIVEN a referrer with a campaign which is not the pairing campaign WHEN handleSuccess is called THEN pairingCampaign is recorded as false`() {
+-        FxNimbus.features.pairingSigninPrompt.withCachedValue(PairingSigninPrompt(campaignUtmContent = "pairing123"))
+-
+-        val worker = TestListenableWorkerBuilder<InstallReferrerWorker>(context).build()
+-        val settings = Settings(context)
+-        val referrer = "utm_source=google&utm_medium=referral&utm_content=other_campaign"
+-
+-        val job =
+-            Pings.playStoreAttribution.testBeforeNextSubmit {
+-                assertEquals(false, PlayStoreAttribution.pairingCampaign.testGetValue())
+-            }
+-
+-        worker.handleSuccess(referrer, InstallReferrerClient.InstallReferrerResponse.OK, settings)
+-
+-        job.join()
+-    }
+-
+-    @Test
+-    fun `GIVEN a null referrer WHEN handleSuccess is called THEN pairingCampaign is not recorded`() {
+-        val worker = TestListenableWorkerBuilder<InstallReferrerWorker>(context).build()
+-        val settings = Settings(context)
+-
+-        val job =
+-            Pings.playStoreAttribution.testBeforeNextSubmit {
+-                assertNull(PlayStoreAttribution.pairingCampaign.testGetValue())
+-            }
+-
+-        worker.handleSuccess(null, InstallReferrerClient.InstallReferrerResponse.OK, settings)
+-
+-        job.join()
 -    }
 -
 -    private fun referralReferrer() =
@@ -5913,7 +5999,7 @@
      <ID>ClassAcronymCasing:SaveToPDFInteractor.kt$SaveToPDFInteractor</ID>
      <ID>ClassAcronymCasing:SaveToPDFMiddleware.kt$SaveToPDFMiddleware : Middleware</ID>
      <ID>ClassAcronymCasing:SnackbarState.kt$SnackbarState$URLCopiedToClipboard : SnackbarState</ID>
-@@ -427,7 +425,6 @@
+@@ -426,7 +424,6 @@
      <ID>UndocumentedPublicClass:AccountUiView.kt$AccountUiView</ID>
      <ID>UndocumentedPublicClass:ActivationPing.kt$ActivationPing</ID>
      <ID>UndocumentedPublicClass:AddonDetailsBindingDelegate.kt$AddonDetailsInteractor</ID>

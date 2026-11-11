@@ -92,11 +92,24 @@
 # removed with it. LibreWolfCloudFeaturesTest follows 159's no-argument
 # canShowIPProtectionPrompt().
 #
+# 160 rebase (2026-11-11, Firefox 160.0): no change of intent. 160 moved
+# IPProtectionEligibilityStorage and IPProtectionStorageSynchronizer to
+# feature.ipprotection.storage and FenixIPProtectionEligibilityStorage to
+# fenix.ipprotection.store (now imported explicitly, together with the store
+# middlewares). The IPProtection.kt import hunk is rewritten: the constant
+# Ineligible storage imports the interface from its new package, and the
+# FenixIPProtectionEligibilityStorage and ProcessLifecycleOwner imports go
+# (used only by the upstream storage this patch replaces). Checked: 160's new
+# readers of googleLensIntegrationEnabled (GoogleLensSettingsSearchProvider,
+# SearchWidgetIntents) read the constant; no new reader of the summarize or
+# IP Protection decisions.
+#
+
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index 9ca57a5..2d6f942 100644
+index 722e0ca..8396510 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -438,8 +438,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -440,8 +440,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              )
          }
  
@@ -105,7 +118,7 @@ index 9ca57a5..2d6f942 100644
          GlobalFxSuggestDependencyProvider.initialize { components.fxSuggest.storage }
          if (!FxSuggestAdmission.snapshot().choices.localEnabled) {
              FxSuggestIngestionScheduler(this).stopPeriodicIngestion()
-@@ -704,11 +702,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -714,11 +712,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          (LeakCanarySetup as LeakCanarySetupInterface).updateState(isEnabled = isEnabled, components = components)
      }
  
@@ -118,7 +131,7 @@ index 9ca57a5..2d6f942 100644
       * Registers or unregisters [AutofillService] so the application is only offered as an Android autofill service on
       * devices where autofill is supported. The component enabled state is persisted by the system across application
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
-index 65e5bca..6f3594a 100644
+index 905687d..5d32090 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
 @@ -5,14 +5,17 @@
@@ -130,9 +143,9 @@ index 65e5bca..6f3594a 100644
 +import kotlinx.coroutines.flow.flowOf
  import mozilla.components.browser.state.store.BrowserStore
  import mozilla.components.concept.engine.Engine
-+import mozilla.components.feature.ipprotection.IPProtectionEligibilityStorage
  import mozilla.components.feature.ipprotection.IPProtectionFeature
- import mozilla.components.feature.ipprotection.IPProtectionStorageSynchronizer
++import mozilla.components.feature.ipprotection.storage.IPProtectionEligibilityStorage
+ import mozilla.components.feature.ipprotection.storage.IPProtectionStorageSynchronizer
  import mozilla.components.feature.ipprotection.store.DefaultIPProtectionLocationRepository
  import mozilla.components.feature.ipprotection.store.IPProtectionLocationMiddleware
  import mozilla.components.feature.ipprotection.store.IPProtectionStore
@@ -140,7 +153,15 @@ index 65e5bca..6f3594a 100644
  import mozilla.components.service.fxa.manager.FxaAccountManager
  import mozilla.components.service.fxa.store.SyncStore
  import mozilla.components.support.base.log.logger.Logger
-@@ -65,13 +68,15 @@ class IPProtection(
+@@ -21,7 +24,6 @@ import org.mozilla.fenix.R
+ import org.mozilla.fenix.components.AppStore
+ import org.mozilla.fenix.components.LogMiddleware
+ import org.mozilla.fenix.ipprotection.store.DefaultIPProtectionRepository
+-import org.mozilla.fenix.ipprotection.store.FenixIPProtectionEligibilityStorage
+ import org.mozilla.fenix.ipprotection.store.IPProtectionPreferencesMiddleware
+ import org.mozilla.fenix.ipprotection.store.IPProtectionSnackbarMessages
+ import org.mozilla.fenix.ipprotection.store.IPProtectionSnackbarMiddleware
+@@ -71,13 +73,15 @@ class IPProtection(
          )
      }
  
@@ -248,7 +269,7 @@ index 0de236a..4ce4790 100644
              menuItems = { topSite ->
                  getMenuItems(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index 9435b9b..c44c88c 100644
+index 6d29598..50fc353 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 @@ -42,7 +42,6 @@ import org.mozilla.fenix.ext.showToolbarWithIconButton
@@ -285,7 +306,7 @@ index 9435b9b..c44c88c 100644
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_ip_protection_use_gpi).apply {
              // LibreWolf (LW-M4-05): no Google Play Integrity provider exists in this build, and
              // IPProtection always selects the Mozilla-account provider, so this switch would be a lie.
-@@ -541,19 +528,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+@@ -546,19 +533,6 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
              onPreferenceChangeListener = SharedPreferenceUpdater()
          }
  
@@ -306,10 +327,10 @@ index 9435b9b..c44c88c 100644
              isVisible = Config.channel.isNightlyOrDebug
              isChecked = context.components.settings.showVoiceSearchInDisplayToolbar
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index 5c3f5d0..6c9cf20 100644
+index 7c23686..e1ad588 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2831,12 +2831,19 @@ class Settings(
+@@ -2863,12 +2863,19 @@ class Settings(
              default = { FxNimbus.features.microsurveys.value().enabled },
          )
  
@@ -335,7 +356,7 @@ index 5c3f5d0..6c9cf20 100644
  
      /**
       * Secret-settings override for the tab reload cover base feature. Defaults to the Nimbus `tab-reload-cover.enabled`
-@@ -2942,10 +2949,11 @@ class Settings(
+@@ -2974,10 +2981,11 @@ class Settings(
      /**
       * Indicates if the IPProtection feature is available for the user.
       *
@@ -349,7 +370,7 @@ index 5c3f5d0..6c9cf20 100644
  
      /**
       * Tracks how many times the summarize menu item has been shown. Used to control highlight/badge visibility for
-@@ -3351,11 +3359,18 @@ class Settings(
+@@ -3376,11 +3384,18 @@ class Settings(
              default = true,
          )
  
@@ -374,7 +395,7 @@ index 5c3f5d0..6c9cf20 100644
      /**
       * User preference (local only) controlling whether the Google Lens integration is active when
 diff --git a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
-index 115ccec..398ae48 100644
+index d9fd6e0..2b7ffaf 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 @@ -30,11 +30,6 @@
@@ -389,7 +410,7 @@ index 115ccec..398ae48 100644
      <SwitchPreferenceCompat
        android:defaultValue="false"
        android:key="@string/pref_key_show_voice_search_in_display_toolbar"
-@@ -238,11 +233,6 @@
+@@ -245,11 +240,6 @@
        android:key="@string/pref_key_native_share_sheet"
        android:title="@string/preferences_debug_settings_native_android_share_sheet"
        app:iconSpaceReserved="false" />
@@ -401,7 +422,7 @@ index 115ccec..398ae48 100644
      <SwitchPreferenceCompat
        android:defaultValue="false"
        android:key="@string/pref_key_enable_listen_to_page"
-@@ -279,10 +269,6 @@
+@@ -286,10 +276,6 @@
        android:key="@string/pref_key_enable_longfox"
        android:title="@string/preferences_debug_settings_enable_longfox"
        app:iconSpaceReserved="false" />

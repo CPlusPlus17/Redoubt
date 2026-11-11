@@ -1,0 +1,665 @@
+Targets: desktop (assets/patches/common.txt first)
+Firefox: firefox-160.0.source.tar.xz
+Patches: 65
+Using scratch directory '~/redoubt-artifacts/rebase-160.0/repo/tmpdir92.2a2wDP'...
+Extracting 'firefox-160.0.source.tar.xz'...
+
+Testing patches...
+
+==> patches/always-fetch-latest-toolchain-artifact.patch:
+
+patching file python/mozbuild/mozbuild/artifact_commands.py
+Hunk #2 succeeded at 466 (offset 17 lines).
+
+==> patches/autoconfig-setEnv.patch:
+
+patching file extensions/pref/autoconfig/src/prefcalls.js
+patch unexpectedly ends in middle of line
+Hunk #1 succeeded at 205 with fuzz 1 (offset 9 lines).
+
+==> patches/custom-ubo-assets-bootstrap-location.patch:
+
+patching file toolkit/components/extensions/parent/ext-storage.js
+patch unexpectedly ends in middle of line
+Hunk #1 succeeded at 411 with fuzz 1.
+
+==> patches/devtools-bypass.patch:
+
+patching file devtools/server/actors/thread.js
+patching file devtools/server/actors/webconsole/listeners/console-api.js
+patching file devtools/shared/flags.js
+Hunk #1 succeeded at 60 (offset -7 lines).
+
+==> patches/extensions-setUninstallURL.patch:
+
+patching file toolkit/components/extensions/parent/ext-runtime.js
+Hunk #1 succeeded at 354 (offset 1 line).
+
+==> patches/firefox-in-ua.patch:
+
+patching file toolkit/moz.configure
+Hunk #1 succeeded at 26 with fuzz 2 (offset -2 lines).
+
+==> patches/fpp-canvas-fix.patch:
+
+patching file dom/canvas/CanvasRenderingContext2D.cpp
+Hunk #1 succeeded at 2317 (offset 32 lines).
+Hunk #2 succeeded at 6873 (offset 259 lines).
+Hunk #3 succeeded at 6896 (offset 259 lines).
+patching file dom/canvas/ClientWebGLContext.cpp
+Hunk #1 succeeded at 1378 (offset 16 lines).
+Hunk #2 succeeded at 3716 (offset 83 lines).
+Hunk #3 succeeded at 5486 (offset 92 lines).
+patching file toolkit/components/resistfingerprinting/nsRFPService.cpp
+Hunk #1 succeeded at 1890 (offset 85 lines).
+Hunk #2 succeeded at 1905 (offset 85 lines).
+
+==> patches/limit-access.patch:
+
+patching file caps/nsScriptSecurityManager.cpp
+Hunk #1 succeeded at 1031 (offset -8 lines).
+
+==> patches/moz-configure.patch:
+
+patching file toolkit/moz.configure
+Hunk #1 succeeded at 20 (offset -2 lines).
+Hunk #2 succeeded at 34 (offset -2 lines).
+
+==> patches/mozilla_dirs.patch:
+
+patching file toolkit/components/extensions/NativeManifests.sys.mjs
+Hunk #1 succeeded at 37 (offset -3 lines).
+patching file toolkit/xre/nsXREDirProvider.cpp
+Hunk #1 succeeded at 333 (offset 17 lines).
+Hunk #2 succeeded at 419 (offset 17 lines).
+Hunk #3 succeeded at 467 (offset 17 lines).
+Hunk #4 succeeded at 1007 (offset 28 lines).
+Hunk #5 succeeded at 1304 (offset 32 lines).
+Hunk #6 succeeded at 1314 (offset 32 lines).
+Hunk #7 succeeded at 1619 (offset 51 lines).
+Hunk #8 succeeded at 1656 with fuzz 2 (offset 51 lines).
+patching file xpcom/build/nsXULAppAPI.h
+Hunk #1 succeeded at 113 (offset -3 lines).
+
+==> patches/profile-directory.patch:
+
+patching file extensions/pref/autoconfig/src/prefcalls.js
+patch unexpectedly ends in middle of line
+Hunk #1 succeeded at 9 with fuzz 1.
+
+==> patches/remove-openai.patch:
+
+patching file toolkit/components/aboutinference/content/aboutInference.js
+patching file toolkit/components/ml/content/EngineProcess.sys.mjs
+Hunk #1 succeeded at 36 (offset 11 lines).
+patching file toolkit/components/ml/content/backends/Pipeline.mjs
+patching file toolkit/components/ml/jar.mn
+patching file toolkit/components/ml/moz.build
+Hunk #1 succeeded at 80 (offset 5 lines).
+
+==> patches/remove-pingsender-common.patch:
+
+patching file python/mozbuild/mozbuild/artifacts.py
+Hunk #1 succeeded at 741 with fuzz 1 (offset 107 lines).
+Hunk #2 succeeded at 846 (offset 115 lines).
+patching file toolkit/components/telemetry/app/TelemetrySend.sys.mjs
+Hunk #1 succeeded at 1677 (offset -15 lines).
+patching file toolkit/components/telemetry/moz.build
+Hunk #1 succeeded at 6 (offset -2 lines).
+
+==> patches/rs-blocker.patch:
+
+patching file services/settings/RemoteSettings.worker.mjs
+patching file services/settings/RemoteSettingsClient.sys.mjs
+patching file services/settings/RemoteSettingsWorker.sys.mjs
+patching file services/settings/SharedUtils.sys.mjs
+patching file services/settings/Utils.sys.mjs
+Hunk #1 succeeded at 102 (offset 3 lines).
+Hunk #2 succeeded at 126 (offset 3 lines).
+Hunk #3 succeeded at 476 (offset 6 lines).
+Hunk #4 succeeded at 588 (offset 6 lines).
+patching file services/settings/remote-settings.sys.mjs
+patching file toolkit/components/search/ConfigSearchEngine.sys.mjs
+Hunk #1 succeeded at 192 (offset 3 lines).
+patching file toolkit/components/search/SearchEngineSelector.sys.mjs
+Hunk #1 FAILED at 409.
+1 out of 1 hunk FAILED -- saving rejects to file toolkit/components/search/SearchEngineSelector.sys.mjs.rej
+---> patch exited 1
+---[snip]---------- --> toolkit/components/search/SearchEngineSelector.sys.mjs.rej:
+--- toolkit/components/search/SearchEngineSelector.sys.mjs
++++ toolkit/components/search/SearchEngineSelector.sys.mjs
+@@ -409,13 +409,7 @@ export class SearchEngineSelector {
+    *   could be obtained.
+    */
+   async #getConfigurationOverrides() {
+-    let result = [];
+-    try {
+-      result = await this.#remoteConfigOverrides.get();
+-    } catch (ex) {
+-      // This data is remote only, so we just return an empty array if it fails.
+-    }
+-    return result;
++    return [];
+   }
+ 
+   /**
+---[snip]----------
+
+==> patches/rust-gentoo-musl.patch:
+
+patching file build/moz.configure/rust.configure
+patch unexpectedly ends in middle of line
+Hunk #1 succeeded at 476 with fuzz 1 (offset 72 lines).
+
+==> patches/ui-patches/neterror-common.patch:
+
+patching file toolkit/content/errors/net-error-illustrations.mjs
+patching file toolkit/content/net-error-card.mjs
+patching file toolkit/themes/shared/aboutNetError.css
+patching file toolkit/themes/shared/illustrations/warning.svg
+
+==> patches/vendor-name.patch:
+
+patching file toolkit/components/extensions/parent/ext-runtime.js
+patching file toolkit/xre/nsAppRunner.cpp
+Hunk #1 succeeded at 2245 (offset -11 lines).
+Hunk #2 succeeded at 2258 (offset -11 lines).
+
+==> patches/disable-data-reporting-common.patch:
+
+patching file python/mach/mach/telemetry.py
+Hunk #1 succeeded at 88 (offset 6 lines).
+patching file python/sites/mach.txt
+Hunk #1 FAILED at 58.
+1 out of 1 hunk FAILED -- saving rejects to file python/sites/mach.txt.rej
+patching file third_party/rust/glean-core/src/core/mod.rs
+Hunk #1 succeeded at 880 (offset 4 lines).
+patching file third_party/rust/glean-core/src/lib.rs
+Hunk #1 succeeded at 935 (offset 2 lines).
+Hunk #2 succeeded at 971 (offset 2 lines).
+patching file toolkit/components/telemetry/core/Telemetry.cpp
+patching file toolkit/library/rust/gkrust-features.mozbuild
+---> patch exited 1
+---[snip]---------- --> python/sites/mach.txt.rej:
+--- python/sites/mach.txt
++++ python/sites/mach.txt
+@@ -58,7 +58,7 @@ pth:xpcom/geckoprocesstypes_generator
+ pth:xpcom/idl-parser
+ # glean-sdk may not be installable if a wheel isn't available
+ # and it has to be built from source.
+-pypi-optional:glean-sdk==70.2.1:telemetry will not be collected
++# pypi-optional:glean-sdk==70.2.1:telemetry will not be collected
+ pypi-optional:orjson>=3.10:json operations will be slower in various tools
+ # Mach gracefully handles the case where `psutil` is unavailable.
+ # We aren't (yet) able to pin packages in automation, so we have to
+---[snip]----------
+
+==> patches/webgl-permission-common.patch:
+
+patching file dom/canvas/ClientWebGLContext.cpp
+Hunk #1 succeeded at 24 with fuzz 2.
+Hunk #2 succeeded at 48 (offset 1 line).
+Hunk #3 succeeded at 879 with fuzz 2 (offset 12 lines).
+Hunk #4 succeeded at 1119 (offset 14 lines).
+patching file dom/ipc/BrowserParent.cpp
+Hunk #1 succeeded at 4139 (offset 24 lines).
+patching file dom/ipc/BrowserParent.h
+Hunk #1 succeeded at 751 (offset 10 lines).
+patching file dom/ipc/PBrowser.ipdl
+Hunk #1 succeeded at 629 (offset -13 lines).
+patching file modules/libpref/init/StaticPrefList.yaml
+Hunk #1 succeeded at 12341 with fuzz 1 (offset 973 lines).
+patching file modules/libpref/moz.build
+Hunk #1 succeeded at 56 (offset -3 lines).
+
+==> patches/xmas-common.patch:
+
+patching file lw/moz.build
+patching file moz.build
+Hunk #1 succeeded at 365 (offset 2 lines).
+
+==> patches/eme-permission-common.patch:
+
+patching file dom/media/eme/MediaKeySystemAccessManager.cpp
+
+==> patches/moz-official-common.patch:
+
+patching file dom/media/gmp/ChromiumCDMAdapter.cpp
+Hunk #1 succeeded at 68 (offset -1 lines).
+Hunk #2 succeeded at 84 (offset -1 lines).
+patching file media/gmp-clearkey/0.1/gmp-clearkey.cpp
+Hunk #1 succeeded at 74 (offset 1 line).
+
+==> patches/add-mojeek.patch:
+
+patching file services/settings/dumps/main/moz.build
+
+==> patches/canvas-permission.patch:
+
+patching file browser/modules/SitePermissions.sys.mjs
+Hunk #3 succeeded at 1146 (offset 11 lines).
+Hunk #4 succeeded at 1213 (offset 11 lines).
+patching file toolkit/components/resistfingerprinting/RFPHelper.sys.mjs
+
+==> patches/clear-alt-svc.patch:
+
+patching file netwerk/protocol/http/nsHttpHandler.cpp
+Hunk #2 succeeded at 2333 (offset 2 lines).
+
+==> patches/dbus_name.patch:
+
+patching file toolkit/components/remote/nsDBusRemoteClient.cpp
+patching file toolkit/components/remote/nsDBusRemoteServer.cpp
+
+==> patches/delete-cookie-permission.patch:
+
+patching file browser/components/ProfileDataUpgrader.sys.mjs
+
+==> patches/disable-data-reporting-desktop.patch:
+
+patching file browser/moz.configure
+
+==> patches/display-version.patch:
+
+patching file toolkit/components/urlformatter/URLFormatter.sys.mjs
+patching file toolkit/mozapps/update/UpdateListener.sys.mjs
+
+==> patches/eme-migrator.patch:
+
+patching file browser/components/ProfileDataUpgrader.sys.mjs
+Hunk #1 succeeded at 1097 (offset 10 lines).
+
+==> patches/eme-permission-desktop.patch:
+
+patching file browser/components/permissions/ContentPermissionPrompt.sys.mjs
+patching file browser/modules/EMEPermissionPrompt.sys.mjs
+
+==> patches/fullpage-translations-customization.patch:
+
+patching file browser/base/content/main-popupset.inc.xhtml
+Hunk #1 succeeded at 1031 with fuzz 1 (offset 249 lines).
+patching file browser/base/content/main-popupset.js
+Hunk #1 succeeded at 471 (offset 125 lines).
+patching file browser/components/preferences/main.inc.xhtml
+Hunk #1 succeeded at 103 (offset -13 lines).
+Hunk #2 succeeded at 133 (offset -13 lines).
+patching file browser/components/preferences/main.js
+Hunk #1 succeeded at 663 (offset -157 lines).
+Hunk #2 succeeded at 769 with fuzz 1 (offset -155 lines).
+patching file browser/components/translations/content/fullPageTranslationsPanel.js
+Hunk #1 succeeded at 1348 (offset 50 lines).
+patching file browser/components/preferences/config/languages.mjs
+
+==> patches/include-policy-deletion.patch:
+
+patching file config/createprecomplete.py
+
+==> patches/languages.patch:
+
+patching file browser/locales/shipped-locales
+
+==> patches/link-preview.patch:
+
+patching file browser/components/preferences/config/tabs-browsing.mjs
+Hunk #1 succeeded at 446 (offset -4 lines).
+
+==> patches/lw-permissions.patch:
+
+patching file browser/components/preferences/config/permissions-data.mjs
+Hunk #1 succeeded at 19 with fuzz 2 (offset 8 lines).
+Hunk #2 succeeded at 75 (offset 11 lines).
+Hunk #3 succeeded at 582 with fuzz 2 (offset 78 lines).
+Hunk #4 succeeded at 766 (offset 92 lines).
+patching file browser/base/content/navigator-toolbox.inc.xhtml
+Hunk #1 succeeded at 267 (offset 1 line).
+Hunk #2 succeeded at 302 (offset 1 line).
+patching file browser/components/preferences/dialogs/sitePermissions.js
+Hunk #1 succeeded at 51 with fuzz 2 (offset 11 lines).
+patching file browser/modules/moz.build
+Hunk #1 succeeded at 153 (offset -4 lines).
+patching file browser/modules/SitePermissions.sys.mjs
+Hunk #1 succeeded at 1153 (offset 110 lines).
+Hunk #2 succeeded at 1201 (offset 110 lines).
+patching file browser/themes/shared/preferences/privacy.css
+patching file browser/components/preferences/config/privacy.mjs
+Hunk #1 succeeded at 344 (offset 11 lines).
+Hunk #2 succeeded at 4292 (offset 230 lines).
+
+==> patches/moz-official-desktop.patch:
+
+patching file browser/base/content/browser-development-helpers.js
+patching file browser/base/content/browser-main.js
+patching file browser/components/BrowserComponents.manifest
+Hunk #1 succeeded at 94 (offset 8 lines).
+patching file browser/base/jar.mn
+Hunk #1 succeeded at 41 (offset -4 lines).
+
+==> patches/msix.patch:
+
+patching file browser/installer/windows/msix/AppxManifest.xml.in
+patching file python/mozbuild/mozbuild/mach_commands.py
+Hunk #1 succeeded at 3421 (offset 418 lines).
+Hunk #2 succeeded at 3579 (offset 417 lines).
+patching file python/mozbuild/mozbuild/repackaging/msix.py
+
+==> patches/mullvad-dns-migration.patch:
+
+patching file browser/base/content/browser-main.js
+Hunk #1 succeeded at 30 (offset -1 lines).
+patching file browser/base/content/mullvadDoHNotification.js
+patching file browser/base/jar.mn
+Hunk #1 succeeded at 99 (offset -2 lines).
+patching file browser/components/ProfileDataUpgrader.sys.mjs
+Hunk #1 succeeded at 1164 with fuzz 1 (offset 25 lines).
+
+==> patches/pip-hide-ui.patch:
+
+patching file toolkit/components/pictureinpicture/content/player.js
+Hunk #2 succeeded at 922 (offset -11 lines).
+patching file toolkit/components/pictureinpicture/content/player.xhtml
+patching file toolkit/themes/shared/pictureinpicture/player.css
+Hunk #1 succeeded at 230 (offset 8 lines).
+Hunk #2 succeeded at 240 (offset 8 lines).
+Hunk #3 succeeded at 317 (offset 8 lines).
+Hunk #4 succeeded at 325 (offset 8 lines).
+
+==> patches/remote-debugging-package-name.patch:
+
+patching file devtools/client/shared/remote-debugging/adb/adb-runtime.js
+
+==> patches/remove-language-packs.patch:
+
+patching file browser/components/BrowserGlue.sys.mjs
+patch unexpectedly ends in middle of line
+Hunk #1 succeeded at 403 with fuzz 1 (offset 3 lines).
+
+==> patches/remove-pingsender-desktop.patch:
+
+patching file browser/app/macbuild/Contents/MacOS-files.in
+patching file browser/installer/package-manifest.in
+patching file browser/installer/windows/nsis/shared.nsh
+
+==> patches/temp-macos-fix.patch:
+
+patching file browser/app/macbuild/Contents/Info.plist.in
+patching file browser/app/moz.build
+patching file browser/installer/package-manifest.in
+
+==> patches/ui-patches/add-translate-page-context-menu.patch:
+
+patching file browser/base/content/browser-context.inc.xhtml
+Hunk #1 succeeded at 392 with fuzz 2 (offset 26 lines).
+patching file browser/base/content/browser-context.js
+Hunk #1 succeeded at 218 with fuzz 2 (offset 13 lines).
+patching file browser/base/content/nsContextMenu.sys.mjs
+Hunk #1 succeeded at 925 (offset 52 lines).
+Hunk #2 succeeded at 2668 with fuzz 1 (offset 118 lines).
+
+==> patches/ui-patches/allow_cookies_for_site.patch:
+
+patching file browser/base/content/browser-siteIdentity.js
+Hunk #1 succeeded at 231 (offset 27 lines).
+Hunk #2 succeeded at 486 (offset 26 lines).
+Hunk #3 succeeded at 1264 (offset 17 lines).
+patching file browser/components/controlcenter/content/identityPanel.inc.xhtml
+patching file browser/base/content/browser-trustPanel.js
+Hunk #1 succeeded at 387 (offset 77 lines).
+Hunk #2 succeeded at 402 with fuzz 2 (offset 77 lines).
+Hunk #3 succeeded at 823 with fuzz 2 (offset 265 lines).
+Hunk #4 succeeded at 865 (offset 265 lines).
+patching file browser/components/controlcenter/content/trustPanel.inc.xhtml
+
+==> patches/ui-patches/eme-enable.patch:
+
+patching file browser/actors/EncryptedMediaParent.sys.mjs
+Hunk #1 succeeded at 15 (offset -12 lines).
+
+==> patches/ui-patches/home-preferences.patch:
+
+patching file browser/themes/shared/preferences/preferences.css
+Hunk #1 succeeded at 1546 with fuzz 1 (offset 23 lines).
+
+==> patches/ui-patches/lw-logo-devtools.patch:
+
+patching file devtools/client/aboutdebugging/src/actions/runtimes.js
+patching file devtools/client/jar.mn
+Hunk #1 succeeded at 388 (offset 14 lines).
+patching file devtools/client/themes/images/aboutdebugging-firefox-librewolf.svg
+patching file devtools/client/themes/images/aboutdebugging-firefox-logo.svg
+
+==> patches/ui-patches/neterror-desktop.patch:
+
+patching file toolkit/themes/shared/desktop-jar.inc.mn
+Hunk #1 succeeded at 160 with fuzz 2 (offset 19 lines).
+
+==> patches/ui-patches/newtab-wordmark-css.patch:
+
+patching file browser/extensions/newtab/content-src/components/Logo/_Logo.scss
+patching file browser/themes/shared/privatebrowsing/aboutPrivateBrowsing.css
+Hunk #1 succeeded at 70 (offset -4 lines).
+
+==> patches/ui-patches/pref-naming.patch:
+
+patching file browser/locales/en-US/browser/preferences/preferences.ftl
+Hunk #1 succeeded at 740 with fuzz 2 (offset 251 lines).
+Hunk #2 succeeded at 761 with fuzz 2 (offset 264 lines).
+
+==> patches/ui-patches/privacy-preferences.patch:
+
+patching file browser/components/preferences/privacy.inc.xhtml
+Hunk #1 succeeded at 50 (offset 1 line).
+Hunk #2 succeeded at 64 (offset 1 line).
+Hunk #3 succeeded at 229 (offset 1 line).
+Hunk #4 succeeded at 245 (offset 1 line).
+Hunk #5 succeeded at 378 (offset 1 line).
+patching file browser/locales/en-US/browser/preferences/preferences.ftl
+Hunk #1 succeeded at 1920 (offset 90 lines).
+patching file browser/themes/shared/preferences/privacy.css
+Hunk #1 succeeded at 233 (offset 12 lines).
+Hunk #2 succeeded at 269 (offset 12 lines).
+patching file browser/components/preferences/config/privacy.mjs
+Hunk #1 succeeded at 904 (offset -252 lines).
+patching file browser/components/preferences/preferences.js
+Hunk #1 FAILED at 363.
+1 out of 1 hunk FAILED -- saving rejects to file browser/components/preferences/preferences.js.rej
+patching file browser/components/preferences/privacy.js
+patching file browser/components/preferences/config/permissions-data.mjs
+Hunk #1 succeeded at 851 (offset 205 lines).
+---> patch exited 1
+---[snip]---------- --> browser/components/preferences/preferences.js.rej:
+--- browser/components/preferences/preferences.js
++++ browser/components/preferences/preferences.js
+@@ -363,7 +363,7 @@ const CONFIG_PANES = Object.freeze({
+   permissionsData: {
+     l10nId: "permissions-data-section",
+     iconSrc: "chrome://browser/skin/permissions.svg",
+-    groupIds: ["permissions", "dataCollection"],
++    groupIds: ["permissions"],
+     module: "chrome://browser/content/preferences/config/permissions-data.mjs",
+     visible: () => srdSectionEnabled("permissionsData"),
+   },
+---[snip]----------
+
+==> patches/ui-patches/remove-branding.patch:
+
+patching file browser/base/content/appmenu-viewcache.inc.xhtml
+patching file browser/components/aboutlogins/content/aboutLogins.html
+patching file browser/components/aboutlogins/content/components/login-intro.mjs
+
+==> patches/ui-patches/remove-cfrprefs.patch:
+
+patching file browser/components/preferences/config/tabs-browsing.mjs
+Hunk #1 succeeded at 627 (offset 84 lines).
+Hunk #2 succeeded at 854 (offset 79 lines).
+Hunk #3 succeeded at 885 (offset 79 lines).
+patching file browser/components/preferences/preferences.js
+Hunk #1 succeeded at 504 with fuzz 1 (offset 62 lines).
+
+==> patches/ui-patches/remove-organization-policy-banner.patch:
+
+patching file browser/components/preferences/preferences.js
+Hunk #1 succeeded at 669 (offset 23 lines).
+
+==> patches/ui-patches/settings-redesign.patch:
+
+patching file browser/components/preferences/config/about-firefox.mjs
+Hunk #1 succeeded at 576 (offset 2 lines).
+patching file browser/components/preferences/config/account-sync.mjs
+Hunk #1 succeeded at 839 with fuzz 2 (offset 8 lines).
+Hunk #2 succeeded at 872 with fuzz 2 (offset 6 lines).
+Hunk #3 succeeded at 974 (offset 6 lines).
+patching file browser/components/preferences/config/appearance.mjs
+patching file browser/components/preferences/config/languages.mjs
+Hunk #1 succeeded at 831 (offset 18 lines).
+Hunk #2 succeeded at 971 (offset 18 lines).
+patching file browser/components/preferences/config/privacy.mjs
+Hunk #1 succeeded at 544 (offset 11 lines).
+Hunk #2 succeeded at 696 (offset 11 lines).
+Hunk #3 succeeded at 745 (offset 11 lines).
+Hunk #4 succeeded at 921 (offset 11 lines).
+Hunk #5 succeeded at 1057 (offset -17 lines).
+Hunk #6 succeeded at 1260 (offset -17 lines).
+Hunk #7 succeeded at 1290 (offset -17 lines).
+Hunk #8 succeeded at 1305 (offset -17 lines).
+patching file browser/components/preferences/config/tabs-browsing.mjs
+Hunk #1 succeeded at 131 (offset 7 lines).
+Hunk #2 succeeded at 622 (offset 85 lines).
+Hunk #3 succeeded at 636 (offset 85 lines).
+Hunk #4 succeeded at 880 (offset 86 lines).
+Hunk #5 succeeded at 912 (offset 86 lines).
+patching file browser/components/preferences/main.js
+Hunk #1 succeeded at 428 (offset -42 lines).
+Hunk #2 succeeded at 448 (offset -42 lines).
+patching file browser/components/preferences/preferences.js
+Hunk #1 succeeded at 310 (offset 13 lines).
+Hunk #2 succeeded at 444 (offset 26 lines).
+Hunk #3 succeeded at 473 (offset 27 lines).
+Hunk #4 succeeded at 498 (offset 27 lines).
+Hunk #5 succeeded at 588 with fuzz 2 (offset 32 lines).
+Hunk #6 succeeded at 679 (offset 29 lines).
+patching file browser/components/preferences/preferences.xhtml
+Hunk #1 succeeded at 223 (offset 4 lines).
+patching file browser/components/preferences/privacy.inc.xhtml
+patching file browser/components/preferences/privacy.js
+Hunk #1 succeeded at 615 with fuzz 2.
+patching file browser/extensions/newtab/lib/AboutPreferences.sys.mjs
+Hunk #1 succeeded at 106 (offset -287 lines).
+Hunk #2 succeeded at 244 (offset -1058 lines).
+Hunk #3 FAILED at 1745.
+Hunk #4 succeeded at 644 with fuzz 2 (offset -1181 lines).
+1 out of 4 hunks FAILED -- saving rejects to file browser/extensions/newtab/lib/AboutPreferences.sys.mjs.rej
+patching file browser/themes/shared/jar.inc.mn
+Hunk #1 succeeded at 301 (offset 14 lines).
+patching file browser/themes/shared/sidebar/librewolf.svg
+patching file browser/components/backup/BackupService.sys.mjs
+Hunk #1 succeeded at 658 (offset 1 line).
+patching file browser/components/controlcenter/content/trustPanel.inc.xhtml
+---> patch exited 1
+---[snip]---------- --> browser/extensions/newtab/lib/AboutPreferences.sys.mjs.rej:
+--- browser/extensions/newtab/lib/AboutPreferences.sys.mjs
++++ browser/extensions/newtab/lib/AboutPreferences.sys.mjs
+@@ -1745,39 +1751,6 @@ export class AboutPreferences {
+             },
+           ],
+         },
+-        {
+-          id: "supportFirefox",
+-          subcategory: "support-firefox",
+-          l10nId: "home-prefs-support-firefox-header-srd",
+-          control: "moz-toggle",
+-          items: [
+-            {
+-              id: "sponsoredShortcuts",
+-              l10nId: "home-prefs-shortcuts-by-option-sponsored-srd",
+-            },
+-            {
+-              id: "sponsoredStories",
+-              l10nId: "home-prefs-recommended-by-option-sponsored-stories-srd",
+-            },
+-            {
+-              id: "supportFirefoxPromo",
+-              l10nId: "home-prefs-mission-message2",
+-              control: "moz-promo",
+-              options: [
+-                {
+-                  control: "a",
+-                  l10nId: "home-prefs-mission-message-learn-more-link-srd",
+-                  slot: "support-link",
+-                  controlAttrs: {
+-                    is: "moz-support-link",
+-                    "support-page": "sponsor-privacy",
+-                    "utm-content": "inproduct",
+-                  },
+-                },
+-              ],
+-            },
+-          ],
+-        },
+         {
+           id: "recentActivity",
+           subcategory: "highlights",
+---[snip]----------
+
+==> patches/ui-patches/trustpanel.patch:
+
+patching file browser/themes/shared/controlcenter/panel.css
+Hunk #1 succeeded at 828 with fuzz 2 (offset 33 lines).
+
+==> patches/ui-patches/wallpapers.patch:
+
+patching file browser/extensions/newtab/lib/Wallpapers/WallpaperFeed.sys.mjs
+Hunk #1 succeeded at 410 (offset 255 lines).
+
+==> patches/ui-patches/website-appearance-ui-rfp.patch:
+
+patching file browser/components/preferences/config/appearance.mjs
+Hunk #1 succeeded at 276 with fuzz 2 (offset 182 lines).
+Hunk #2 succeeded at 311 (offset 182 lines).
+
+==> patches/webgl-permission-desktop.patch:
+
+patching file browser/base/content/popup-notifications.inc.xhtml
+patching file browser/modules/ObserverForwarder.sys.mjs
+patching file browser/modules/WebGLPermissionPromptHelper.sys.mjs
+patching file browser/themes/shared/jar.inc.mn
+patching file browser/themes/shared/notification-icons.css
+Hunk #1 succeeded at 212 (offset 1 line).
+
+==> patches/windows-theming-bug.patch:
+
+patching file browser/app/librewolf.exe.manifest (renamed from browser/app/firefox.exe.manifest)
+
+==> patches/xdg-dir.patch:
+
+patching file toolkit/xre/nsXREDirProvider.cpp
+Hunk #1 succeeded at 1355 (offset 20 lines).
+Hunk #2 succeeded at 1364 (offset 20 lines).
+Hunk #3 succeeded at 1374 (offset 20 lines).
+Hunk #4 succeeded at 1410 (offset 20 lines).
+Hunk #5 succeeded at 1548 (offset 20 lines).
+
+==> patches/xmas-desktop.patch:
+
+patching file browser/installer/package-manifest.in
+Hunk #1 succeeded at 273 (offset 22 lines).
+
+==> patches/pref-pane/pref-pane-small.patch:
+
+patching file browser/components/preferences/jar.mn
+Hunk #1 succeeded at 11 with fuzz 1 (offset -1 lines).
+patching file browser/components/preferences/preferences.js
+Hunk #1 succeeded at 6 with fuzz 1 (offset -1 lines).
+patching file browser/components/preferences/preferences.xhtml
+Hunk #2 succeeded at 176 (offset 5 lines).
+Hunk #3 succeeded at 263 with fuzz 1 (offset 16 lines).
+patching file browser/themes/shared/jar.inc.mn
+Hunk #1 succeeded at 169 with fuzz 2 (offset 55 lines).
+Hunk #2 succeeded at 186 (offset 54 lines).
+patching file browser/components/preferences/main.js
+Hunk #1 succeeded at 520 (offset -51 lines).
+
+Removing '~/redoubt-artifacts/rebase-160.0/repo/tmpdir92.2a2wDP'...
+
+[patches/rs-blocker.patch] [patches/disable-data-reporting-common.patch] [patches/ui-patches/privacy-preferences.patch] [patches/ui-patches/settings-redesign.patch]
+
+error: Some patches failed!

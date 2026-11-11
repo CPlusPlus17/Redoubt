@@ -3660,6 +3660,9 @@ PREF_LIST = [
     # build whose packaged librewolf.cfg failed to evaluate reads "missing" here,
     # and the one pref LW-M3-04's review moved to a real lock on Android.
     "librewolf.cfg.version", "network.lna.block_trackers",
+    # the two LNA prefs the Firefox 160 rebase locked on Android for the same
+    # reason (Fenix's Nimbus defaults went false -> true; must-not-lock.txt)
+    "network.lna.enabled", "network.lna.blocking",
 ]
 
 JS_PREFDUMP = r"""
