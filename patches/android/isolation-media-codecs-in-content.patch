@@ -87,6 +87,19 @@
 # ::RecvConstruct()), and that upstream's isolated variant still sends software
 # codecs to RDD (if upstream adopts this split itself, drop this patch).
 #
+# 160 rebase (2026-11-11, Firefox 160.0): same code, two hunks moved.
+# RemoteDecoderModule.cpp now includes MediaCodecsSupport.h after AOMDecoder.h
+# (MP4Decoder.h goes between them), and the `#ifdef ANDROID` block of
+# Supports() gained an MCSInfo size / colour-depth filter after the CDM/audio
+# check. The Redoubt filter stays directly after that check, inside the ANDROID
+# block. NB: at default fuzz GNU patch put this hunk in the `#ifdef MOZ_WMF_CDM`
+# block instead (Windows only), i.e. it would have compiled and silently done
+# nothing on Android; the regenerated hunk is at fuzz 0. The MCSInfo filters
+# only remove bits, so an empty set stays empty. Re-checked: both
+# RemoteVideoDecoderParent and RemoteAudioDecoderParent still create through
+# EnsurePDMFactory().CreateDecoder(). PDMFactory.cpp: context only.
+#
+
 --- a/dom/media/ipc/RemoteDecoderModule.cpp
 +++ b/dom/media/ipc/RemoteDecoderModule.cpp
 @@ -4,6 +4,7 @@
@@ -94,10 +107,10 @@
  
  #include "AOMDecoder.h"
 +#include "MP4Decoder.h"
+ #include "MediaCodecsSupport.h"
  #include "RemoteAudioDecoder.h"
  #include "RemoteMediaDataDecoder.h"
- #include "RemoteMediaManagerChild.h"
-@@ -11,6 +12,7 @@
+@@ -12,6 +13,7 @@
  #include "VideoUtils.h"
  #include "gfxConfig.h"
  #include "mozilla/RemoteDecodeUtils.h"
@@ -105,7 +118,7 @@
  
  namespace mozilla {
  
-@@ -76,6 +78,32 @@
+@@ -77,6 +79,32 @@ media::DecodeSupportSet RemoteDecoderModule::Supports(
         mLocation != RemoteMediaIn::UtilityProcess_Generic)) {
      support = {};
    }
@@ -135,9 +148,9 @@
 +      !MP4Decoder::IsAAC(aParams.MimeType())) {
 +    support = {};
 +  }
- #endif
-   MOZ_LOG_FMT(
-       sPDMLog, LogLevel::Debug, "Sandbox {} decoder {} requested type {}",
+   if (const auto* videoInfo = aParams.mConfig.GetAsVideoInfo()) {
+     const media::MediaCodec codec =
+         media::MCSInfo::GetMediaCodecFromMimeType(aParams.MimeType());
 --- a/dom/media/platforms/PDMFactory.cpp
 +++ b/dom/media/platforms/PDMFactory.cpp
 @@ -29,6 +29,7 @@
@@ -146,9 +159,9 @@
  #include "mozilla/gfx/gfxVars.h"
 +#include "mozilla/glue/Debug.h"  // printf_stderr
  #include "mozilla/ipc/UtilityMediaServiceParent.h"
+ #include "mozilla/layers/ImageBridgeChild.h"
  #include "nsIXULRuntime.h"  // for BrowserTabsRemoteAutostart
- #include "nsPrintfCString.h"
-@@ -336,6 +337,43 @@
+@@ -337,6 +338,43 @@ void PDMFactory::EnsureInit() {
  
  RefPtr<PlatformDecoderModule::CreateDecoderPromise> PDMFactory::CreateDecoder(
      const CreateDecoderParams& aParams) {
@@ -192,7 +205,7 @@
    if (aParams.mUseNullDecoder.mUse) {
      MOZ_ASSERT(mNullPDM);
      return CreateDecoderWithPDM(mNullPDM, aParams);
-@@ -1009,6 +1047,17 @@
+@@ -1029,6 +1067,17 @@ DecodeSupportSet PDMFactory::SupportsMimeType(
  
  /* static */
  bool PDMFactory::AllDecodersAreRemote() {
@@ -212,7 +225,7 @@
           StaticPrefs::media_rdd_vorbis_enabled() &&
 --- a/modules/libpref/init/StaticPrefList.yaml
 +++ b/modules/libpref/init/StaticPrefList.yaml
-@@ -12841,6 +12841,34 @@
+@@ -13056,6 +13056,34 @@
  #endif
    mirror: always
  

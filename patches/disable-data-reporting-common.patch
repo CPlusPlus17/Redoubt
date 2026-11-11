@@ -75,11 +75,16 @@ so GLEAN_CORE_HASH_FIXUPS in scripts/librewolf-patches.py carries the 158.0b3
 pristine and patched sha256 of src/lib.rs and src/core/mod.rs. Telemetry.cpp,
 telemetry.py and gkrust-features.mozbuild are unchanged.
 
+160 rebase (2026-11-11, Firefox 160.0): mach.txt pins glean-sdk 70.3.0
+(upstream LibreWolf 5f8d741c); glean-core is 70.3.0, src/core/mod.rs changed
+upstream and its pair in GLEAN_CORE_HASH_FIXUPS moved with it, src/lib.rs is
+byte-identical to 159's. Hunks unchanged apart from position.
+
 diff --git a/python/mach/mach/telemetry.py b/python/mach/mach/telemetry.py
-index e3eb5f0..f61cf64 100644
+index a867365..e5c51d9 100644
 --- a/python/mach/mach/telemetry.py
 +++ b/python/mach/mach/telemetry.py
-@@ -82,10 +82,7 @@ def is_applicable_telemetry_environment():
+@@ -88,10 +88,7 @@ def is_applicable_telemetry_environment():
  
  
  def is_telemetry_enabled(settings):
@@ -92,23 +97,23 @@ index e3eb5f0..f61cf64 100644
  
  def arcrc_path():
 diff --git a/python/sites/mach.txt b/python/sites/mach.txt
-index d1f054b..f4129b4 100644
+index 815e1c7..24f79df 100644
 --- a/python/sites/mach.txt
 +++ b/python/sites/mach.txt
 @@ -58,7 +58,7 @@ pth:xpcom/geckoprocesstypes_generator
  pth:xpcom/idl-parser
  # glean-sdk may not be installable if a wheel isn't available
  # and it has to be built from source.
--pypi-optional:glean-sdk==70.2.1:telemetry will not be collected
-+# pypi-optional:glean-sdk==70.2.1:telemetry will not be collected
+-pypi-optional:glean-sdk==70.3.0:telemetry will not be collected
++# pypi-optional:glean-sdk==70.3.0:telemetry will not be collected
  pypi-optional:orjson>=3.10:json operations will be slower in various tools
  # Mach gracefully handles the case where `psutil` is unavailable.
  # We aren't (yet) able to pin packages in automation, so we have to
 diff --git a/third_party/rust/glean-core/src/core/mod.rs b/third_party/rust/glean-core/src/core/mod.rs
-index 53ee996..b07a23e 100644
+index 7acb55c..6a799f6 100644
 --- a/third_party/rust/glean-core/src/core/mod.rs
 +++ b/third_party/rust/glean-core/src/core/mod.rs
-@@ -876,7 +876,8 @@ impl Glean {
+@@ -880,7 +880,8 @@ impl Glean {
      ///
      /// When upload is disabled, no data will be recorded.
      pub fn is_upload_enabled(&self) -> bool {
@@ -119,10 +124,10 @@ index 53ee996..b07a23e 100644
  
      /// Check if a ping is enabled.
 diff --git a/third_party/rust/glean-core/src/lib.rs b/third_party/rust/glean-core/src/lib.rs
-index 9c2cce6..a87dcbf 100644
+index eba8010..6265bb0 100644
 --- a/third_party/rust/glean-core/src/lib.rs
 +++ b/third_party/rust/glean-core/src/lib.rs
-@@ -933,6 +933,7 @@ pub extern "C" fn glean_enable_logging() {
+@@ -935,6 +935,7 @@ pub extern "C" fn glean_enable_logging() {
  /// **DEPRECATION NOTICE**:
  /// This API is deprecated. Use `set_collection_enabled` instead.
  pub fn glean_set_upload_enabled(enabled: bool) {
@@ -130,7 +135,7 @@ index 9c2cce6..a87dcbf 100644
      if !was_initialize_called() {
          return;
      }
-@@ -968,6 +969,8 @@ pub fn glean_set_upload_enabled(enabled: bool) {
+@@ -970,6 +971,8 @@ pub fn glean_set_upload_enabled(enabled: bool) {
  ///
  /// This replaces `set_upload_enabled`.
  pub fn glean_set_collection_enabled(enabled: bool) {

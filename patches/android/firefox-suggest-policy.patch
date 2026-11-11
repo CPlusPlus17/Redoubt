@@ -9,6 +9,16 @@
 # applicationScope/ioDispatcher instead of GlobalScope; SecretSettingsFragment loses
 # its now-unused androidx.core.content.edit import. Not applied on top of
 # cookie-banner-controls (retired for 157: Firefox removed the cookie banner service).
+#
+# 160 rebase: SearchEngineFragment.onCreatePreferences() now ends with
+# scrollToRequestedPreference() (160's navArgs preferenceToScrollTo); the
+# policy wiring replaces the same SharedPreferenceUpdater lines and stays in
+# front of that call. FenixApplication's ingest gate: context only (160 added
+# queuePublishSearchBarWidgetPreviews). The set of Suggest entry points in
+# fenix/app/src/main (enableFxSuggest, components.fxSuggest, the sponsored /
+# non-sponsored settings, Merino and the online data source) is the same in
+# 159.0.1 and 160.0 (grep).
+
 
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt
 new file mode 100644
@@ -724,7 +734,7 @@ index 0000000..5bab389
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index 7e38c62..9ca57a5 100644
+index c7f3587..722e0ca 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 @@ -60,6 +60,9 @@ import mozilla.components.feature.addons.migration.DefaultSupportedAddonsChecker
@@ -745,7 +755,7 @@ index 7e38c62..9ca57a5 100644
  import org.mozilla.fenix.startupCrash.StartupCrashActivity
  import org.mozilla.fenix.theme.DefaultThemeProvider
  import org.mozilla.fenix.theme.ThemeProvider
-@@ -215,16 +219,23 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -217,16 +221,23 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          // Isolated Gecko processes cannot read app preferences. Use the existing
          // process check before account admission or locale code accesses storage.
          if (base.isMainProcess()) {
@@ -769,7 +779,7 @@ index 7e38c62..9ca57a5 100644
      /** Account-service defaults are independent of the Gecko preference store. */
      protected open fun initializeAccountServices(context: Context) {
          AccountServices.initialize(context, defaultEnabled = false)
-@@ -429,7 +440,10 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -431,7 +442,10 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
  
          maybeSetupIPProtection()
  
@@ -781,16 +791,16 @@ index 7e38c62..9ca57a5 100644
  
          visibilityLifecycleCallback = VisibilityLifecycleCallback(getSystemService())
          registerActivityLifecycleCallbacks(visibilityLifecycleCallback)
-@@ -499,7 +513,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
-         queueDownloadWallpapers(queue)
+@@ -502,7 +516,7 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          queueUpdateAutofillServiceState(queue)
+         queuePublishSearchBarWidgetPreviews(queue)
  
 -        if (components.settings.enableFxSuggest) {
 +        if (FxSuggestAdmission.snapshot().choices.localEnabled) {
              queueSuggestIngest(queue)
          }
  
-@@ -558,10 +572,10 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -561,10 +575,10 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
                      // new search suggestions. The worker requires us to have called
                      // `GlobalFxSuggestDependencyProvider.initialize`, which we did before
                      // scheduling these tasks. When disabled we stop the periodic work.
@@ -803,7 +813,7 @@ index 7e38c62..9ca57a5 100644
                      }
                  }
  
-@@ -650,7 +664,9 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -660,7 +674,9 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
      private fun queueSuggestIngest(queue: RunWhenReadyQueue) =
          runOnVisualCompleteness(queue) {
              applicationScope.launch(ioDispatcher) {
@@ -815,7 +825,7 @@ index 7e38c62..9ca57a5 100644
          }
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt
-index fdc69df..ced791a 100644
+index 32b3db4..e92e6f5 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt
 @@ -65,7 +65,12 @@ class SearchSuggestionsProvidersBuilder(
@@ -860,7 +870,7 @@ index fdc69df..ced791a 100644
                  FlightsOnlineSuggestionProvider(
                      loadUrlUseCase = loadUrlUseCase,
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index 6c138b6..9435b9b 100644
+index a4e3c7f..6d29598 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 @@ -17,7 +17,6 @@ import androidx.compose.ui.platform.ComposeView
@@ -998,10 +1008,10 @@ index 0000000..72f4662
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
-index 2f7cc0a..f272356 100644
+index 6395e76..32f38fa 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
-@@ -44,17 +44,16 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -47,17 +47,16 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
          )
  
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_show_sponsored_suggestions).apply {
@@ -1023,7 +1033,7 @@ index 2f7cc0a..f272356 100644
          }
          requirePreference<Preference>(R.string.pref_key_search_widget_installed_2).apply {
              isVisible = canShowAddSearchWidgetPrompt(AppWidgetManager.getInstance(requireContext()))
-@@ -133,14 +132,13 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -136,14 +135,13 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
                  isChecked = context.components.settings.shouldShowClipboardSuggestions
              }
  
@@ -1042,7 +1052,7 @@ index 2f7cc0a..f272356 100644
              }
  
          val showNonSponsoredSuggestionsPreference =
-@@ -154,8 +152,20 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -157,8 +155,20 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
              }
          val showSuggestionCardsPreference =
              requirePreference<CheckBoxPreference>(R.string.pref_key_search_optimization_cards).apply {
@@ -1064,7 +1074,7 @@ index 2f7cc0a..f272356 100644
  
          searchWidgetPreference.onPreferenceChangeListener =
              object : SharedPreferenceUpdater() {
-@@ -182,13 +192,23 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -185,13 +195,23 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
              true
          }
  
@@ -1091,14 +1101,14 @@ index 2f7cc0a..f272356 100644
 +        listOf(suggestMaster, showSponsoredSuggestionsPreference, showNonSponsoredSuggestionsPreference, showSuggestionCardsPreference)
 +            .forEach { it.isPersistent = false }
 +        updateSuggestControls()
-     }
  
-     /**
+         scrollToRequestedPreference()
+     }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index 499cf1e..5c3f5d0 100644
+index d5614ee..7c23686 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2266,31 +2266,31 @@ class Settings(
+@@ -2274,31 +2274,31 @@ class Settings(
      var isSearchOptimizationEnabled by
          booleanPreference(
              key = appContext.getPreferenceKey(R.string.pref_key_search_optimization_feature),
@@ -1135,7 +1145,7 @@ index 499cf1e..5c3f5d0 100644
          )
  
      var isTabStripEnabled by
-@@ -2725,7 +2725,7 @@ class Settings(
+@@ -2757,7 +2757,7 @@ class Settings(
      var enableFxSuggest by
          lazyFeatureFlagBooleanPreference(
              key = appContext.getPreferenceKey(R.string.pref_key_enable_fxsuggest),
@@ -1144,7 +1154,7 @@ index 499cf1e..5c3f5d0 100644
              featureFlag = FeatureFlags.FX_SUGGEST,
          )
  
-@@ -2741,26 +2741,26 @@ class Settings(
+@@ -2773,26 +2773,26 @@ class Settings(
          )
  
      /**
@@ -1252,10 +1262,10 @@ index 1549c8d..497fe2a 100644
              app:iconSpaceReserved="false"
              android:key="@string/pref_key_show_sponsored_suggestions"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
-index 505c2f1..d7e173f 100644
+index fe2ef4c..b1d48a9 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
-@@ -170,6 +170,8 @@ class FenixApplicationTest {
+@@ -175,6 +175,8 @@ class FenixApplicationTest {
          every { settings.getTabViewPingString() } returns "test"
          every { settings.getTabTimeoutPingString() } returns "test"
          every { settings.shouldShowSearchSuggestions } returns true

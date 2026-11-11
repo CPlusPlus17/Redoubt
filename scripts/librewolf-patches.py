@@ -650,13 +650,14 @@ def write_mozconfig(dest):
 
 GLEAN_CORE_CHECKSUMS = "third_party/rust/glean-core/.cargo-checksum.json"
 GLEAN_CORE_HASH_FIXUPS = [
-    # (file in the crate, pristine 159 sha256, sha256 after the glean-core hunks)
-    # glean-core 70.2.1 as vendored in Firefox 159.0.1 (70.2.0 on 158). Only
-    # src/lib.rs changed upstream; recomputed from the pristine tree and the
-    # replayed patch, and equal to upstream LibreWolf's pins.
+    # (file in the crate, pristine 160 sha256, sha256 after the glean-core hunks)
+    # glean-core 70.3.0 as vendored in Firefox 160.0 (70.2.1 on 159.0.1). Only
+    # src/core/mod.rs changed upstream; src/lib.rs is byte-identical to 159's.
+    # Recomputed from the pristine tree and the replayed patch, and equal to
+    # upstream LibreWolf's pins (160.0-1).
     ("src/core/mod.rs",
-     "ada8f059f0fa8a3a82315606318429d3a70200bbb2886d1a1bcaad2856a6303b",
-     "70a4a176b6494fce419e590180bc9c631945282ded0ab05bc1591bdd37b65093"),
+     "e2bc0630d2a94105a5211a3595a824f52f9031ef515080013700849887150230",
+     "633b003cb5b0157e739e9d920c7b126e544e66fe839a06f70718118818f9e5fb"),
     ("src/lib.rs",
      "8b28662ab15031496b495fa701f211aa336c119b99c25b522be6f396a1231891",
      "c07441d4938b3331ea81162efc079a489c7c75c48f63b6d6741f699ab420de73"),

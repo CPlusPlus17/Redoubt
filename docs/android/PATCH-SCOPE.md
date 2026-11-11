@@ -263,6 +263,17 @@ the common `disable-data-reporting-common` (glean-sdk 70.2.1). Notes per patch:
 
 So: android 52 − 2 = 50; desktop-only 44 − 1 = 43; total 118 − 3 = 115.
 
+## Firefox 160.0 rebase (2026-11-11)
+
+Both targets move from 159.0.1 to Firefox 160.0 (issues #14, #15: MFSA
+2026-125). No patch is retired, reduced or added, and no list entry changes, so
+the classification stays 22 / 50 / 43 = 115. Twelve android patches were
+rewritten for 160's code with the same intent, and three were refreshed for
+context only; on the common/desktop side the patches follow upstream LibreWolf
+160.0-1 (`rs-blocker` loses the SearchEngineSelector hunk, whose code 160
+removed; `disable-data-reporting-common` moves to glean-sdk 70.3.0). Notes per
+patch: `docs/android/evidence/lw-m7-01/release-160.0/`.
+
 ## Android patch added for delete-on-quit after swipe-away (2026-10-06)
 
 - **`delete-on-quit-swipe`** (LW-M7-45). Owner report: "Delete browsing data

@@ -763,8 +763,19 @@
 # more. Upstream's new "falls back to the web listing" test is kept, without the
 # ReviewManager argument.
 #
+# 160 REBASE (2026-11-11, Firefox 160.0)
+# --------------------------------------
+# No change of intent. libs.versions.toml: context only (ksp 2.3.12); the same
+# seven version keys go. IPProtection.kt: 160 moved IPProtectionStorageSynchronizer
+# to feature.ipprotection.storage, between the two imports this patch removes;
+# the same two imports go. Re-checked on the 160 tree after the patch: no
+# com.google.android.gms / com.google.firebase / com.google.android.play import
+# in mobile/android (focus-android excepted, not built), and the deleted
+# classes are named only in LibreWolf comments / KDoc.
+#
+
 diff --git a/.prettierignore b/.prettierignore
-index 3cbfaf1..1033894 100644
+index 6b32109..547f85e 100644
 --- a/.prettierignore
 +++ b/.prettierignore
 @@ -1722,12 +1722,10 @@ mobile/android/android-components/components/lib/crash/lint-baseline.xml
@@ -856,15 +867,15 @@ index ec53559..c9d27a5 100644
      if (string == null) {
          return string
 diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
-index d216953..dac43fc 100644
+index ca4619f..adad87a 100644
 --- a/gradle/libs.versions.toml
 +++ b/gradle/libs.versions.toml
-@@ -55,16 +55,9 @@ work = "2.12.0"
+@@ -56,16 +56,9 @@ work = "2.12.0"
  
  # Google other
  accompanist = "0.37.3"
 -firebase-messaging = "25.0.2"
- ksp = "2.3.11"
+ ksp = "2.3.12"
  material = "1.14.0"
  mlkit-prompt = "1.0.0-beta4"
 -osslicenses-plugin = "0.13.0"
@@ -876,7 +887,7 @@ index d216953..dac43fc 100644
  protobuf = "4.36.1"
  
  # Gradle plugins
-@@ -130,7 +123,6 @@ kotlin-serialization = { module = "org.jetbrains.kotlin.plugin.serialization:org
+@@ -131,7 +124,6 @@ kotlin-serialization = { module = "org.jetbrains.kotlin.plugin.serialization:org
  kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
  kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
  kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -884,7 +895,7 @@ index d216953..dac43fc 100644
  kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
  kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
  
-@@ -230,20 +222,12 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
+@@ -234,20 +226,12 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
  
  # Google other
  accompanist-drawablepainter = { module = "com.google.accompanist:accompanist-drawablepainter", version.ref = "accompanist" }
@@ -906,10 +917,10 @@ index d216953..dac43fc 100644
  protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
  
 diff --git a/mobile/android/android-components/.buildconfig.yml b/mobile/android/android-components/.buildconfig.yml
-index 0ba1f18..6a13091 100644
+index b0bb03f..b6dc327 100644
 --- a/mobile/android/android-components/.buildconfig.yml
 +++ b/mobile/android/android-components/.buildconfig.yml
-@@ -1166,7 +1166,6 @@ projects:
+@@ -1182,7 +1182,6 @@ projects:
      - components:feature-session
      - components:feature-tabs
      - components:lib-dataprotect
@@ -917,7 +928,7 @@ index 0ba1f18..6a13091 100644
      - components:lib-publicsuffixlist
      - components:lib-state
      - components:service-firefox-accounts
-@@ -2092,18 +2091,6 @@ projects:
+@@ -2108,18 +2107,6 @@ projects:
      - components:support-test
      - components:tooling-fetch-tests
      - components:tooling-lint
@@ -936,7 +947,7 @@ index 0ba1f18..6a13091 100644
    components:lib-jexl:
      description: 'Javascript Expression Language: Powerful context-based expression
        parser and evaluator.'
-@@ -2185,17 +2172,6 @@ projects:
+@@ -2201,17 +2188,6 @@ projects:
      - components:support-base
      - components:support-test
      - components:tooling-lint
@@ -967,7 +978,7 @@ index 8d5ddda..81ff359 100644
  * 🔵 [**State**](components/lib/state/README.md) - A library for maintaining application state.
  
 diff --git a/mobile/android/android-components/components/feature/ipprotection/build.gradle b/mobile/android/android-components/components/feature/ipprotection/build.gradle
-index a035a42..fda2384 100644
+index f2fc491..797e63f 100644
 --- a/mobile/android/android-components/components/feature/ipprotection/build.gradle
 +++ b/mobile/android/android-components/components/feature/ipprotection/build.gradle
 @@ -24,7 +24,6 @@ dependencies {
@@ -2567,10 +2578,10 @@ index 3f67ea5..0000000
 @@ -1 +0,0 @@
 -sdk=35
 diff --git a/mobile/android/fenix/.buildconfig.yml b/mobile/android/fenix/.buildconfig.yml
-index fd7e930..825a381 100644
+index 6262720..626c1fc 100644
 --- a/mobile/android/fenix/.buildconfig.yml
 +++ b/mobile/android/fenix/.buildconfig.yml
-@@ -88,12 +88,10 @@ projects:
+@@ -89,12 +89,10 @@ projects:
      - components:lib-crash
      - components:lib-crash-sentry
      - components:lib-dataprotect
@@ -2584,10 +2595,10 @@ index fd7e930..825a381 100644
      - components:lib-state
      - components:service-digitalassetlinks
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
-index 382ef5d..0eb5ac9 100644
+index fe15b1a..f139b9e 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -21,11 +21,11 @@ plugins {
+@@ -22,11 +22,11 @@ plugins {
      alias(libs.plugins.protobuf.plugin)
  }
  
@@ -2604,7 +2615,7 @@ index 382ef5d..0eb5ac9 100644
  
  apply from: 'benchmark.gradle'
  
-@@ -375,13 +375,6 @@ android.defaultConfig.with {
+@@ -377,13 +377,6 @@ android.defaultConfig.with {
          buildConfigField 'String', 'MLS_TOKEN', '""'
      }
  
@@ -2618,7 +2629,7 @@ index 382ef5d..0eb5ac9 100644
      if (gradle.hasProperty("localProperties.glean.custom.server.url")) {
          def url = gradle.getProperty("localProperties.glean.custom.server.url")
          buildConfigField 'String', 'GLEAN_CUSTOM_URL', url
-@@ -560,10 +553,8 @@ dependencies {
+@@ -563,10 +556,8 @@ dependencies {
      implementation project(':components:lib-crash')
      implementation project(':components:lib-crash-sentry')
      implementation project(':components:lib-dataprotect')
@@ -2629,7 +2640,7 @@ index 382ef5d..0eb5ac9 100644
      implementation project(':components:lib-llm-mlpa')
      implementation project(':components:lib-shake')
      implementation project(':components:lib-ai-controls')
-@@ -620,9 +611,6 @@ dependencies {
+@@ -625,9 +616,6 @@ dependencies {
      implementation libs.kotlinx.coroutines
      implementation libs.kotlinx.serialization.json
      implementation libs.mozilla.glean
@@ -2640,10 +2651,10 @@ index 382ef5d..0eb5ac9 100644
      implementation libs.sentry
      implementation libs.androidx.documentfile
 diff --git a/mobile/android/fenix/app/src/main/AndroidManifest.xml b/mobile/android/fenix/app/src/main/AndroidManifest.xml
-index f373af5..76eada0 100644
+index 319d36f..507c2d7 100644
 --- a/mobile/android/fenix/app/src/main/AndroidManifest.xml
 +++ b/mobile/android/fenix/app/src/main/AndroidManifest.xml
-@@ -797,14 +797,6 @@
+@@ -830,14 +830,6 @@
              android:name=".messaging.NotificationDismissedService"
              android:exported="false" />
  
@@ -2658,7 +2669,7 @@ index f373af5..76eada0 100644
          <service
              android:name=".perf.ProfilerService"
              android:foregroundServiceType="specialUse"
-@@ -831,15 +823,14 @@
+@@ -864,15 +856,14 @@
              android:readPermission="android.permission.DUMP"
              android:grantUriPermissions="false" />
  
@@ -2683,7 +2694,7 @@ index f373af5..76eada0 100644
             - SDK's own AndroidManifest.xml, which the manifest merger would otherwise fold into
             - ours. It turns an "am start" intent carrying the string extras sendPing and
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index bd38724..1efac36 100644
+index 67e30ca..8be68f9 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 @@ -55,7 +55,6 @@ import mozilla.components.concept.ai.controls.isEnabled
@@ -2703,7 +2714,7 @@ index bd38724..1efac36 100644
  import org.mozilla.fenix.session.VisibilityLifecycleCallback
  import org.mozilla.fenix.settings.doh.DefaultDohSettingsProvider
  import org.mozilla.fenix.settings.doh.DohSettingsProvider
-@@ -412,8 +409,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -414,8 +411,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              )
          }
  
@@ -2712,7 +2723,7 @@ index bd38724..1efac36 100644
          maybeSetupIPProtection()
  
          GlobalFxSuggestDependencyProvider.initialize(components.fxSuggest.storage)
-@@ -482,7 +477,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -484,7 +479,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          queueIncrementNumberOfAppLaunches(queue)
          queueRestoreLocale(queue)
          queueStorageMaintenance(queue)
@@ -2720,7 +2731,7 @@ index bd38724..1efac36 100644
          queueNimbusFetchInForeground(queue)
          queueDownloadWallpapers(queue)
          queueUpdateAutofillServiceState(queue)
-@@ -624,19 +618,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -634,19 +628,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              components.core.autofillStorage.registerStorageMaintenanceWorker()
          }
  
@@ -2740,7 +2751,7 @@ index bd38724..1efac36 100644
      @OptIn(ExperimentalAndroidComponentsApi::class)
      private fun queueNimbusFetchInForeground(queue: RunWhenReadyQueue) =
          runOnVisualCompleteness(queue) {
-@@ -688,26 +669,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -698,26 +679,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          (LeakCanarySetup as LeakCanarySetupInterface).updateState(isEnabled = isEnabled, components = components)
      }
  
@@ -2768,7 +2779,7 @@ index bd38724..1efac36 100644
          components.ipProtection.feature.initialize()
          components.ipProtection.storageSynchronizer.initialize()
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
-index 4cd0508..6f38035 100644
+index fffd297..4e8d13c 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
 @@ -10,7 +10,6 @@ import androidx.annotation.VisibleForTesting
@@ -2779,15 +2790,15 @@ index 4cd0508..6f38035 100644
  import kotlinx.coroutines.MainScope
  import kotlinx.coroutines.launch
  import mozilla.components.browser.storage.sync.PlacesBookmarksStorage
-@@ -28,7 +27,6 @@ import mozilla.components.concept.sync.SyncConfig
- import mozilla.components.concept.sync.SyncEngine
+@@ -29,7 +28,6 @@ import mozilla.components.concept.sync.SyncEngine
+ import mozilla.components.feature.accounts.FxaCapability
  import mozilla.components.feature.accounts.push.CloseTabsCommandReceiver
  import mozilla.components.feature.accounts.push.CloseTabsFeature
 -import mozilla.components.feature.accounts.push.FxaPushSupportFeature
  import mozilla.components.feature.accounts.push.SendTabFeature
  import mozilla.components.feature.automotive.isAndroidAutomotiveAvailable
  import mozilla.components.feature.syncedtabs.SyncedTabsAutocompleteProvider
-@@ -77,7 +75,6 @@ private val DEFAULT_SYNCED_TABS_COMMANDS_EXTRA_FLUSH_DELAY = 5.seconds
+@@ -79,7 +77,6 @@ private val DEFAULT_SYNCED_TABS_COMMANDS_EXTRA_FLUSH_DELAY = 5.seconds
  @Suppress("LongParameterList")
  class BackgroundServices(
      private val context: Context,
@@ -2795,7 +2806,7 @@ index 4cd0508..6f38035 100644
      settings: Settings,
      crashReporter: CrashReporter,
      historyStorage: Lazy<PlacesHistoryStorage>,
-@@ -86,7 +83,6 @@ class BackgroundServices(
+@@ -88,7 +85,6 @@ class BackgroundServices(
      remoteTabsStorage: Lazy<RemoteTabsStorage>,
      creditCardsStorage: Lazy<AutofillCreditCardsAddressesStorage>,
      strictMode: StrictModeManager,
@@ -2803,7 +2814,7 @@ index 4cd0508..6f38035 100644
      isAndroidAutomotiveAvailable: Boolean = context.isAndroidAutomotiveAvailable(),
  ) {
      // Allows executing tasks which depend on the account manager, but do not need to eagerly initialize it.
-@@ -235,17 +231,16 @@ class BackgroundServices(
+@@ -259,17 +255,16 @@ class BackgroundServices(
  
                  accountManager.register(AccountManagerReadyObserver(accountManagerAvailableQueue))
  
@@ -2832,7 +2843,7 @@ index 4cd0508..6f38035 100644
                  SendTabFeature(accountManager) { device, tabs ->
                      notificationManager.showReceivedTabs(context, device, tabs)
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-index 8574781..602a258 100644
+index 3512ec4..f9f5dd3 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 @@ -10,12 +10,11 @@ import androidx.compose.runtime.Composable
@@ -2890,7 +2901,7 @@ index 8574781..602a258 100644
              numberOfAppLaunches = { settings.numberOfAppLaunches },
          )
      }
-@@ -426,12 +419,25 @@ class Components(
+@@ -423,12 +416,25 @@ class Components(
          )
      }
  
@@ -2922,7 +2933,7 @@ index 8574781..602a258 100644
      }
  
      val termsOfUsePromptRepository by lazyMonitored {
-@@ -535,7 +541,7 @@ class Components(
+@@ -537,7 +543,7 @@ class Components(
              client = core.client,
              storage = MlpaTokenStorage.sharedPrefs(context),
              fxaTokenProvider = backgroundServices.accountManager.accessTokenProvider,
@@ -2931,7 +2942,7 @@ index 8574781..602a258 100644
              userIdProvider = clientUUID,
          )
      }
-@@ -550,7 +556,6 @@ class Components(
+@@ -552,7 +558,6 @@ class Components(
              authSources =
                  IPProtectionAuthSources(
                      fxaAccountManager = lazy { backgroundServices.accountManager },
@@ -3146,14 +3157,15 @@ index 640d6d3..0000000
 -    private val pushService by lazyMonitored { FirebasePushService() }
 -}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
-index 27af024..65e5bca 100644
+index d75d40a..905687d 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
-@@ -10,11 +10,9 @@ import mozilla.components.browser.state.store.BrowserStore
+@@ -9,12 +9,10 @@ import androidx.lifecycle.ProcessLifecycleOwner
+ import mozilla.components.browser.state.store.BrowserStore
  import mozilla.components.concept.engine.Engine
  import mozilla.components.feature.ipprotection.IPProtectionFeature
- import mozilla.components.feature.ipprotection.IPProtectionStorageSynchronizer
 -import mozilla.components.feature.ipprotection.auth.gpi.IPProtectionGpiProvider
+ import mozilla.components.feature.ipprotection.storage.IPProtectionStorageSynchronizer
  import mozilla.components.feature.ipprotection.store.DefaultIPProtectionLocationRepository
  import mozilla.components.feature.ipprotection.store.IPProtectionLocationMiddleware
  import mozilla.components.feature.ipprotection.store.IPProtectionStore
@@ -3161,7 +3173,7 @@ index 27af024..65e5bca 100644
  import mozilla.components.service.fxa.manager.FxaAccountManager
  import mozilla.components.service.fxa.store.SyncStore
  import mozilla.components.support.base.log.logger.Logger
-@@ -27,10 +25,14 @@ import org.mozilla.fenix.utils.Settings
+@@ -33,10 +31,14 @@ import org.mozilla.fenix.utils.Settings
  /**
   * Auth sources for IP Protection. Bundles the providers that supply credentials to the underlying
   * [IPProtectionFeature].
@@ -3177,7 +3189,7 @@ index 27af024..65e5bca 100644
  )
  
  /** Provides access to IP Protection related components. */
-@@ -73,15 +75,15 @@ class IPProtection(
+@@ -79,15 +81,15 @@ class IPProtection(
      }
  
      val feature by lazy {
@@ -3718,7 +3730,7 @@ index 25990df..0000000
 -        appServerKey = null,
 -    )
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index 9fd1e62..839b69f 100644
+index 21d1589..7e2e3d4 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 @@ -368,7 +368,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
@@ -3733,10 +3745,10 @@ index 9fd1e62..839b69f 100644
              onPreferenceChangeListener = SharedPreferenceUpdater()
          }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SyncDebugFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SyncDebugFragment.kt
-index 8c48ddf..2e4ca94 100644
+index 0f47b3a..17efc7f 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SyncDebugFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SyncDebugFragment.kt
-@@ -67,10 +67,6 @@ class SyncDebugFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -68,10 +68,6 @@ class SyncDebugFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
              pref.setOnBindEditTextListener { it.setSingleLine() }
              pref.onPreferenceChangeListener = preferenceUpdater
          }
@@ -3747,7 +3759,7 @@ index 8c48ddf..2e4ca94 100644
          requirePreference<Preference>(R.string.pref_key_sync_debug_quit).let { pref ->
              pref.onPreferenceClickListener = OnPreferenceClickListener {
                  // Copied from StudiesView. This feels like a dramatic way to
-@@ -237,9 +233,6 @@ class SyncDebugFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -240,9 +236,6 @@ class SyncDebugFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
          requirePreference<EditTextPreference>(R.string.pref_key_override_sync_tokenserver).let {
              it.summary = settings.overrideSyncTokenServer.ifEmpty { null }
          }
@@ -3777,10 +3789,10 @@ index f8580d7..5589a3b 100644
      )
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index 2add4db..b297af9 100644
+index c644a50..1d8e0aa 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2125,12 +2125,6 @@ class Settings(
+@@ -2133,12 +2133,6 @@ class Settings(
              default = "",
          )
  
@@ -3794,7 +3806,7 @@ index 2add4db..b297af9 100644
          stringPreference(
              appContext.getPreferenceKey(R.string.pref_key_override_amo_user),
 diff --git a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
-index 0d3c944..285840a 100644
+index 6f95d22..c2d4a4a 100644
 --- a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
 @@ -63,7 +63,6 @@
@@ -3805,16 +3817,16 @@ index 0d3c944..285840a 100644
      <string name="pref_key_sync_debug_quit" translatable="false">pref_key_sync_debug_quit</string>
      <string name="pref_key_sync_debug_network_error" translatable="false">pref_key_sync_debug_network_error</string>
      <string name="pref_key_sync_debug_temporary_auth_error" translatable="false">pref_key_sync_debug_temporary_auth_error</string>
-@@ -156,7 +155,6 @@
+@@ -157,7 +156,6 @@
      <string name="pref_key_sync_tabs" translatable="false">pref_key_sync_tabs</string>
      <string name="pref_key_sign_out" translatable="false">pref_key_sign_out</string>
      <string name="pref_key_sync_sign_in" translatable="false">pref_key_sync_sign_in</string>
 -    <string name="pref_key_push_project_id" translatable="false">project_id</string>
      <string name="pref_key_search_widget_installed_2" translatable="false">pref_key_search_widget_installed_2</string>
-     <!-- Key for credit cards sync preference in the account settings fragment -->
-     <string name="pref_key_sync_credit_cards" translatable="false">pref_key_sync_credit_cards</string>
+     <!-- Key for the app version code that last published the search bar widget previews -->
+     <string name="pref_key_search_bar_widget_previews_version" translatable="false">pref_key_search_bar_widget_previews_version</string>
 diff --git a/mobile/android/fenix/app/src/main/res/values/static_strings.xml b/mobile/android/fenix/app/src/main/res/values/static_strings.xml
-index 8764602..1307344 100644
+index c589c97..2e9b0e1 100644
 --- a/mobile/android/fenix/app/src/main/res/values/static_strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/static_strings.xml
 @@ -75,7 +75,6 @@
@@ -4527,10 +4539,10 @@ index bdae217..0cb22a3 100644
          // NOTE: Do not place your application dependencies here; they belong
          // in the individual module build.gradle files
 diff --git a/mobile/android/fenix/config/detekt-baseline.xml b/mobile/android/fenix/config/detekt-baseline.xml
-index b0fdda4..855e5a9 100644
+index 8f69a5c..16da9fa 100644
 --- a/mobile/android/fenix/config/detekt-baseline.xml
 +++ b/mobile/android/fenix/config/detekt-baseline.xml
-@@ -423,7 +423,6 @@
+@@ -422,7 +422,6 @@
      <ID>UndocumentedPublicClass:AccountSettingsInteractor.kt$AccountSettingsInteractor : AccountSettingsUserActions</ID>
      <ID>UndocumentedPublicClass:AccountSettingsInteractor.kt$AccountSettingsUserActions</ID>
      <ID>UndocumentedPublicClass:AccountUiView.kt$AccountUiView</ID>
@@ -4538,7 +4550,7 @@ index b0fdda4..855e5a9 100644
      <ID>UndocumentedPublicClass:AddonDetailsBindingDelegate.kt$AddonDetailsInteractor</ID>
      <ID>UndocumentedPublicClass:AppAction.kt$AppAction$AddNonFatalCrash : AppAction</ID>
      <ID>UndocumentedPublicClass:AppAction.kt$AppAction$Change : AppAction</ID>
-@@ -840,8 +839,6 @@
+@@ -839,8 +838,6 @@
      <ID>UndocumentedPublicFunction:Utils.kt$fun rootTitles(context: Context, withMobileRoot: Boolean): Map&lt;String, String&gt;</ID>
      <ID>UndocumentedPublicFunction:View.kt$fun View.increaseTapArea(@Dimension(unit = DP) extraDps: Int)</ID>
      <ID>UndocumentedPublicFunction:View.kt$fun View.removeTouchDelegate()</ID>
@@ -4712,10 +4724,10 @@ index ae0ea90..11ccac3 100644
          // NOTE: Do not place your application dependencies here; they belong
          // in the individual module build.gradle files
 diff --git a/mobile/android/geckoview/build.gradle b/mobile/android/geckoview/build.gradle
-index 281de78..6082e9f 100644
+index 9a8527e..458e42b 100644
 --- a/mobile/android/geckoview/build.gradle
 +++ b/mobile/android/geckoview/build.gradle
-@@ -193,7 +193,6 @@ dependencies {
+@@ -192,7 +192,6 @@ dependencies {
      implementation libs.androidx.core
      implementation libs.androidx.lifecycle.common
      implementation libs.androidx.lifecycle.process
@@ -5510,7 +5522,7 @@ index 85a42de..e44f424 100644
          new String[] {"usb", "nfc", "ble", "internal", "hybrid"};
      final JSONArray array = WebAuthnUtils.getJSONTransportsForByte(transports);
 diff --git a/tools/rewriting/Generated.txt b/tools/rewriting/Generated.txt
-index 87d0ca7..8c61219 100644
+index 6dbc619..2b8caed 100644
 --- a/tools/rewriting/Generated.txt
 +++ b/tools/rewriting/Generated.txt
 @@ -158,12 +158,10 @@ mobile/android/android-components/components/lib/crash/lint-baseline.xml

@@ -32,6 +32,23 @@
 # with this patch applied. The generator reproduced the other 21 checked-in
 # binding files byte for byte, and its remote_settings.kt is the pristine 158
 # file plus additions only (no line removed).
+#
+# 160 rebase: SearchEngineFragment gained a navArgs property and onResume()
+# now ends with scrollToRequestedPreference(); suggestDataPreferences is
+# declared after `args`, its onResume() call stays right after
+# updateSuggestControls(), and onStop() follows onResume() as before. The
+# generated remote_settings.kt gained a RemoteSettingsContext.distribution
+# field upstream (different lines); the pinned-data additions are unchanged.
+# Not re-generated with embedded-uniffi-bindgen here (no build env): the Rust
+# API of this patch did not change and uniffi is 0.32.2 in 159.0.1 and 160.0.
+# The hunk's own +/- lines are byte-identical to the 159.0.1 patch's (403
+# lines). This is still a hand merge, against the rule above: BEFORE RELEASE,
+# regenerate the hunk with embedded-uniffi-bindgen over the 160 megazord (as the
+# 158 note describes) and diff it against this one. A checksum mismatch is not a
+# compile error; it is a "UniFFI API checksum mismatch" crash when the megazord
+# loads. At minimum the device smoke must open the Suggest data settings and run
+# a pinned install.
+
 diff --git a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt b/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
 index 8e710f6..383aa62 100644
 --- a/mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
@@ -150,10 +167,10 @@ index 0000000..f94002c
 +    }
 +}
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
-index df830ac..6e13729 100644
+index c83d326..1230b19 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -540,6 +540,13 @@ dependencies {
+@@ -568,6 +568,13 @@ dependencies {
      implementation project(':components:lib-ai-controls')
  
      implementation ComponentsDependencies.mozilla_appservices_syncmanager
@@ -188,18 +205,18 @@ index 8c68bab..c7baedc 100644
      }
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
-index f272356..403dcdd 100644
+index 32f38fa..a962eac 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
-@@ -36,6 +36,7 @@ import org.mozilla.gecko.search.SearchWidgetProvider
- 
+@@ -39,6 +39,7 @@ import org.mozilla.gecko.search.SearchWidgetProvider
  /** Settings screen allowing users to configure the browser search functionality. */
  class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment {
+     private val args by navArgs<SearchEngineFragmentArgs>()
 +    private var suggestDataPreferences: SuggestDataPreferences? = null
  
      override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
          setPreferencesFromResource(
-@@ -59,6 +60,7 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -62,6 +63,7 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
              isVisible = canShowAddSearchWidgetPrompt(AppWidgetManager.getInstance(requireContext()))
          }
  
@@ -207,19 +224,23 @@ index f272356..403dcdd 100644
          view?.hideKeyboard()
      }
  
-@@ -209,6 +211,12 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
+@@ -212,10 +214,16 @@ class SearchEngineFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragm
          listOf(suggestMaster, showSponsoredSuggestionsPreference, showNonSponsoredSuggestionsPreference, showSuggestionCardsPreference)
              .forEach { it.isPersistent = false }
          updateSuggestControls()
 +        suggestDataPreferences?.onResume()
-+    }
-+
+ 
+         scrollToRequestedPreference()
+     }
+ 
 +    override fun onStop() {
 +        suggestDataPreferences?.onStop()
 +        super.onStop()
-     }
- 
-     /**
++    }
++
+     private fun scrollToRequestedPreference() {
+         args.preferenceToScrollTo?.let {
+             scrollToPreferenceWithHighlight(it)
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt
 new file mode 100644
 index 0000000..ded8a5e
@@ -955,7 +976,7 @@ index 0000000..178a61b
 +
 +}
 diff --git a/third_party/application-services/components/remote_settings/src/client.rs b/third_party/application-services/components/remote_settings/src/client.rs
-index 396d102..47be77d 100644
+index 8b1539a..b47c092 100644
 --- a/third_party/application-services/components/remote_settings/src/client.rs
 +++ b/third_party/application-services/components/remote_settings/src/client.rs
 @@ -13,6 +13,7 @@ use crate::{packaged_attachments, packaged_collections, RemoteSettingsServer};
@@ -994,7 +1015,7 @@ index 396d102..47be77d 100644
          ("main", "regions"),
          ("main", "search-config-icons"),
          ("main", "search-config-v2"),
-@@ -218,11 +224,13 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
+@@ -219,11 +225,13 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
          Self {
              collection_name,
              inner: Mutex::new(RemoteSettingsClientInner {
@@ -1008,7 +1029,7 @@ index 396d102..47be77d 100644
          }
      }
  
-@@ -233,18 +241,138 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
+@@ -234,18 +242,138 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
          let pending_config = self.get_pending_config();
          let mut inner = self.inner.lock();
          if let Some(config) = pending_config {
@@ -1151,7 +1172,7 @@ index 396d102..47be77d 100644
      pub fn collection_name(&self) -> &str {
          &self.collection_name
      }
-@@ -579,6 +707,7 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
+@@ -580,6 +708,7 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
      ) {
          let mut pending_config = self.pending_config.lock();
          *pending_config = Some(RemoteSettingsClientConfig {
@@ -1159,7 +1180,7 @@ index 396d102..47be77d 100644
              server_url,
              bucket_name,
              context,
-@@ -1832,3 +1961,130 @@ mod test_reset_storage {
+@@ -1901,3 +2030,130 @@ mod test_reset_storage {
          );
      }
  }
@@ -2204,10 +2225,10 @@ index 0000000..4f7aa24
 +    );
 +}
 diff --git a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt b/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
-index 71be881..83301bb 100644
+index e0406a8..5229e37 100644
 --- a/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
 +++ b/toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
-@@ -705,6 +705,10 @@ internal object IntegrityCheckingUniffiLib {
+@@ -707,6 +707,10 @@ internal object IntegrityCheckingUniffiLib {
      ): Int
      external fun uniffi_remote_settings_checksum_method_remotesettingsclient_get_records_map(
      ): Int
@@ -2218,7 +2239,7 @@ index 71be881..83301bb 100644
      external fun uniffi_remote_settings_checksum_method_remotesettingsclient_reset_storage(
      ): Int
      external fun uniffi_remote_settings_checksum_method_remotesettingsclient_shutdown(
-@@ -721,10 +725,14 @@ internal object IntegrityCheckingUniffiLib {
+@@ -723,10 +727,14 @@ internal object IntegrityCheckingUniffiLib {
      ): Int
      external fun uniffi_remote_settings_checksum_method_remotesettingsservice_update_config(
      ): Int
@@ -2233,7 +2254,7 @@ index 71be881..83301bb 100644
      external fun ffi_remote_settings_uniffi_contract_version(
      ): Int
  
-@@ -758,6 +766,10 @@ internal object UniffiLib {
+@@ -762,6 +770,10 @@ internal object UniffiLib {
      ): RustBuffer.ByValue
      external fun uniffi_remote_settings_fn_method_remotesettingsclient_get_records_map(`ptr`: Long,`syncIfEmpty`: Byte,uniffi_out_err: UniffiRustCallStatus, 
      ): RustBuffer.ByValue
@@ -2244,7 +2265,7 @@ index 71be881..83301bb 100644
      external fun uniffi_remote_settings_fn_method_remotesettingsclient_reset_storage(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
      ): Unit
      external fun uniffi_remote_settings_fn_method_remotesettingsclient_shutdown(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
-@@ -780,6 +792,14 @@ internal object UniffiLib {
+@@ -784,6 +796,14 @@ internal object UniffiLib {
      ): RustBuffer.ByValue
      external fun uniffi_remote_settings_fn_method_remotesettingsservice_update_config(`ptr`: Long,`config`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
      ): Unit
@@ -2259,7 +2280,7 @@ index 71be881..83301bb 100644
      external fun uniffi_remote_settings_fn_clone_remotesettingstelemetry(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
      ): Long
      external fun uniffi_remote_settings_fn_free_remotesettingstelemetry(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-@@ -1368,6 +1388,16 @@ public interface RemoteSettingsClientInterface {
+@@ -1372,6 +1392,16 @@ public interface RemoteSettingsClientInterface {
       */
      fun `getRecordsMap`(`syncIfEmpty`: kotlin.Boolean = false): Map<kotlin.String, RemoteSettingsRecord>?
      
@@ -2276,7 +2297,7 @@ index 71be881..83301bb 100644
      fun `resetStorage`()
      
      /**
-@@ -1597,6 +1627,42 @@ open class RemoteSettingsClient: Disposable, AutoCloseable, RemoteSettingsClient
+@@ -1601,6 +1631,42 @@ open class RemoteSettingsClient: Disposable, AutoCloseable, RemoteSettingsClient
      
  
      
@@ -2319,7 +2340,7 @@ index 71be881..83301bb 100644
      @Throws(RemoteSettingsException::class)override fun `resetStorage`()
          = 
      callWithHandle {
-@@ -2441,6 +2507,277 @@ public object FfiConverterTypeRemoteSettingsTelemetry: FfiConverter<RemoteSettin
+@@ -2445,6 +2511,277 @@ public object FfiConverterTypeRemoteSettingsTelemetry: FfiConverter<RemoteSettin
  }
  
  
@@ -2597,7 +2618,7 @@ index 71be881..83301bb 100644
  
  /**
   * Attachment metadata that can be optionally attached to a [Record]. The [location] should
-@@ -2499,6 +2836,44 @@ public object FfiConverterTypeAttachment: FfiConverterRustBuffer<Attachment> {
+@@ -2503,6 +2840,44 @@ public object FfiConverterTypeAttachment: FfiConverterRustBuffer<Attachment> {
  
  
  
@@ -2642,7 +2663,7 @@ index 71be881..83301bb 100644
  /**
   * Remote settings configuration
   */
-@@ -3382,6 +3757,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
+@@ -3391,6 +3766,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
  
  
  

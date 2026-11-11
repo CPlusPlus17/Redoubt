@@ -1,5 +1,5 @@
 diff --git a/dom/canvas/ClientWebGLContext.cpp b/dom/canvas/ClientWebGLContext.cpp
-index 5aaa427..52b587f 100644
+index ed14de7..d6e1154 100644
 --- a/dom/canvas/ClientWebGLContext.cpp
 +++ b/dom/canvas/ClientWebGLContext.cpp
 @@ -24,7 +24,9 @@
@@ -10,9 +10,9 @@ index 5aaa427..52b587f 100644
  #include "mozilla/StaticPrefs_webgl.h"
 +#include "mozilla/dom/BrowserChild.h"
  #include "mozilla/dom/BufferSourceBinding.h"
+ #include "mozilla/dom/CanvasRenderingContextHelper.h"
  #include "mozilla/dom/Document.h"
- #include "mozilla/dom/GeneratePlaceholderCanvasData.h"
-@@ -45,6 +47,8 @@
+@@ -46,6 +48,8 @@
  #include "mozilla/layers/WebRenderUserData.h"
  #include "nsContentUtils.h"
  #include "nsDisplayList.h"
@@ -21,7 +21,7 @@ index 5aaa427..52b587f 100644
  
  namespace mozilla {
  
-@@ -863,6 +867,235 @@ void ClientWebGLContext::ResetBitmap() {
+@@ -875,6 +879,235 @@ void ClientWebGLContext::ResetBitmap() {
    Run<RPROC(Resize)>(size);  // No-change resize still clears/resets everything.
  }
  
@@ -255,9 +255,9 @@ index 5aaa427..52b587f 100644
 +}
 +
  bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
-   const auto pNotLost = MakeRefPtr<webgl::NotLostData>(*this);
-   auto& notLost = *pNotLost;
-@@ -872,6 +1105,31 @@ bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
+   MOZ_ASSERT(mDeferContextCreationError.empty());
+ 
+@@ -886,6 +1119,31 @@ bool ClientWebGLContext::CreateHostContext(const uvec2& requestedSize) {
        return Err("WebGL disabled, see about:support for why");
      }
  
@@ -290,10 +290,10 @@ index 5aaa427..52b587f 100644
      if (StaticPrefs::webgl_disable_fail_if_major_performance_caveat()) {
        options.failIfMajorPerformanceCaveat = false;
 diff --git a/dom/ipc/BrowserParent.cpp b/dom/ipc/BrowserParent.cpp
-index 7d405ed7d3..95718de445 100644
+index 4538bc6..02a9943 100644
 --- a/dom/ipc/BrowserParent.cpp
 +++ b/dom/ipc/BrowserParent.cpp
-@@ -4115,6 +4115,29 @@ mozilla::ipc::IPCResult BrowserParent::RecvShowCanvasPermissionPrompt(
+@@ -4139,6 +4139,29 @@ mozilla::ipc::IPCResult BrowserParent::RecvShowCanvasPermissionPrompt(
    return IPC_OK();
  }
  
@@ -324,10 +324,10 @@ index 7d405ed7d3..95718de445 100644
      nsIURI* aURI, nsIURI* aLastVisitedURI, const uint32_t& aFlags,
      const uint64_t& aBrowserId) {
 diff --git a/dom/ipc/BrowserParent.h b/dom/ipc/BrowserParent.h
-index 94d5cb546a..c98d7a6a9c 100644
+index df63778..0c13a7e 100644
 --- a/dom/ipc/BrowserParent.h
 +++ b/dom/ipc/BrowserParent.h
-@@ -741,6 +741,8 @@ class BrowserParent final : public PBrowserParent,
+@@ -751,6 +751,8 @@ class BrowserParent final : public PBrowserParent,
    mozilla::ipc::IPCResult RecvShowCanvasPermissionPrompt(
        const nsCString& aOrigin, const bool& aHideDoorHanger);
  
@@ -337,10 +337,10 @@ index 94d5cb546a..c98d7a6a9c 100644
    mozilla::ipc::IPCResult RecvGetSystemFont(nsCString* aFontName);
  
 diff --git a/dom/ipc/PBrowser.ipdl b/dom/ipc/PBrowser.ipdl
-index 76dd02a60d..f045291425 100644
+index 80b0072..ff87518 100644
 --- a/dom/ipc/PBrowser.ipdl
 +++ b/dom/ipc/PBrowser.ipdl
-@@ -642,6 +642,14 @@ parent:
+@@ -629,6 +629,14 @@ parent:
       */
      async ShowCanvasPermissionPrompt(nsCString aOrigin,
                                       bool aHideDoorHanger);
@@ -356,11 +356,11 @@ index 76dd02a60d..f045291425 100644
      sync SetSystemFont(nsCString aFontName);
      sync GetSystemFont() returns (nsCString retval);
 diff --git a/modules/libpref/init/StaticPrefList.yaml b/modules/libpref/init/StaticPrefList.yaml
-index 262eee800b..109c04fc9d 100644
+index 17f9237..9b1b69f 100644
 --- a/modules/libpref/init/StaticPrefList.yaml
 +++ b/modules/libpref/init/StaticPrefList.yaml
-@@ -11368,6 +11368,20 @@
-   value: false
+@@ -12341,6 +12341,20 @@
+   value: true
    mirror: always
  
 +#---------------------------------------------------------------------------
@@ -381,10 +381,10 @@ index 262eee800b..109c04fc9d 100644
  # Prefs starting with "logging."
  #---------------------------------------------------------------------------
 diff --git a/modules/libpref/moz.build b/modules/libpref/moz.build
-index 46034d8d99..9807b024b8 100644
+index 208fb28..1c89495 100644
 --- a/modules/libpref/moz.build
 +++ b/modules/libpref/moz.build
-@@ -59,6 +59,7 @@ pref_groups = [
+@@ -56,6 +56,7 @@ pref_groups = [
      "javascript",
      "layers",
      "layout",

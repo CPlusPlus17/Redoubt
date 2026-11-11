@@ -148,9 +148,28 @@
 # an offset in a res/ file, and GNU patch then leaves a .orig backup there that
 # packageReleaseResources rejects; so it is regenerated at its exact in-order
 # line numbers (git diff of its own step in the in-order 158 replay).
+#
+# 160 rebase (2026-11-11, Firefox 160.0): same three edits. 160 added a second
+# debug switch, "Use search-config-v3" (pref_key_use_search_config_v3,
+# Settings.useSearchConfigV3, Nimbus search-config-v3, default false), right
+# after the row this patch removes, so the XML and Settings.kt hunks are
+# regenerated against the new neighbours. Checked: nothing in mobile/android
+# reads Settings.useSearchConfigV3 on 160 (FenixApplication still passes the
+# literal "search-config-v2" to setupRefreshingSearchEngines, and no Kotlin
+# calls useRemoteSettingsServerV3 / setSearchConfigV3), so the new
+# search-config-v3 dump that app-services packages is not consulted.
+# Because that dump is Mozilla's unmodified set (Google default) and
+# scripts/librewolf-patches.py replaces only search-config-v2.json, the 160
+# review added two more edits of the same kind as items 2 and 3:
+# Settings.useSearchConfigV3 becomes a constant `false`, and its debug row is
+# removed from secret_settings_preferences.xml (SecretSettingsFragment never
+# referenced it; nothing assigns the property, tests included). Its two string
+# resources stay, as the remote-search-configuration ones do. If a later
+# release starts reading v3, the v3 collection needs the same treatment as v2.
+
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-@@ -301,21 +301,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+@@ -297,21 +297,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
              summary = settings.getRemoteSettingsServerString()
          }
  
@@ -177,7 +196,7 @@
              isVisible = true
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2462,12 +2462,24 @@ class Settings(
+@@ -2524,22 +2524,38 @@ class Settings(
              default = { FxNimbus.features.minimalAddressbar.value().atBottomWhileEnteringText },
          )
  
@@ -206,11 +225,31 @@
 +    val useRemoteSearchConfiguration: Boolean
 +        get() = true
  
+     /**
+      * Indicates whether to read search configuration from the `search-config-v3` Remote Settings collection instead of
+      * `search-config-v2`.
+-     */
+-    var useSearchConfigV3 by
+-        booleanPreference(
+-            key = appContext.getPreferenceKey(R.string.pref_key_use_search_config_v3),
+-            default = { FxNimbus.features.searchConfigV3.value().enabled },
+-        )
++     *
++     * LibreWolf (LW-M4-06): pinned to `false`, for the same reason as
++     * [useRemoteSearchConfiguration]. scripts/librewolf-patches.py replaces only the
++     * search-config-v2 dump; the search-config-v3 dump that app-services also packages
++     * is Mozilla's unmodified set (Google default). Nothing reads this on Firefox 160,
++     * but a later Fenix that wires v3 up must not be able to reach that dump through
++     * an FML default or the hidden debug switch, which is removed as well.
++     */
++    val useSearchConfigV3: Boolean
++        get() = false
+ 
      /** Get the current mode for how https-only is enabled. */
      fun getHttpsOnlyMode(): HttpsOnlyMode {
 --- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
-@@ -61,10 +61,8 @@
+@@ -66,15 +66,10 @@
        android:key="@string/pref_key_enable_fxsuggest"
        android:title="@string/preferences_debug_settings_fxsuggest"
        app:iconSpaceReserved="false" />
@@ -218,14 +257,21 @@
 -      android:key="@string/pref_key_use_remote_search_configuration"
 -      android:title="@string/preferences_debug_settings_remote_search_configuration"
 -      app:iconSpaceReserved="false" />
+-    <SwitchPreferenceCompat
+-      android:defaultValue="false"
+-      android:key="@string/pref_key_use_search_config_v3"
+-      android:title="@string/preferences_debug_settings_search_config_v3"
+-      app:iconSpaceReserved="false" />
 +    <!-- LibreWolf (LW-M4-06): the remote-search-configuration debug switch is
-+         removed; the setting is a constant `true` in Settings.kt. -->
++         removed; the setting is a constant `true` in Settings.kt. The
++         "Use search-config-v3" switch is removed too; that setting is a
++         constant `false`. -->
      <Preference
        android:key="@string/pref_key_search_optimization"
        android:title="@string/preferences_debug_settings_search_optimization"
 --- a/third_party/application-services/components/remote_settings/src/client.rs
 +++ b/third_party/application-services/components/remote_settings/src/client.rs
-@@ -127,6 +127,18 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
+@@ -128,6 +128,18 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
              "177aba42-9bed-4078-e36b-580e8794cd7f",
              "25de0352-aabb-d31f-15f7-bf9299fb004c",
              "2bbe48f4-d3b8-c9e0-86e3-a54c37ec3335",

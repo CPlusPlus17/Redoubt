@@ -233,5 +233,29 @@ network.lna.block_trackers
 #     GeckoRuntimeSettings.java:2134, and the equality guard cannot fire because
 #     PrefWithoutDefault starts with mValue == null (RuntimeSettings.java:186-187),
 #     so even Fenix's `false` commits over our `true`. The only UI is a hidden debug
-#     switch, so nothing user-visible dies. This is the one pref of the 23 where
-#     locking was both necessary and free.
+#     switch, so nothing user-visible dies. It was the first pref where locking was
+#     both necessary and free; since the Firefox 160 rebase network.lna.enabled
+#     and network.lna.blocking (below) are locked for the same reason.
+
+network.lna.enabled
+network.lna.blocking
+#     lockPref true, settings/android.cfg. Added in the Firefox 160 rebase (read in
+#     source, not measured). Same stage-5b chain as block_trackers: Settings.kt
+#     isLnaFeatureEnabled / isLnaBlockingEnabled -> Core.kt:209-210 ->
+#     GeckoEngine.kt:2043-2044 -> GeckoRuntimeSettings.java:2117,2139, both
+#     PrefWithoutDefault (:777,:781). Fenix's Nimbus defaults were false on 159.0.1
+#     and are true on 160. The only switches are two Secret Settings rows
+#     (SecretSettingsFragment.kt:223,235, visible on nightly/debug only), which the
+#     lock makes inert.
+#     UI COUPLING (not a lock side effect, but it decides whether the lock stays
+#     manageable): Fenix shows its per-site LNA controls from its OWN
+#     Settings.isLnaFeatureEnabled, not from the Gecko pref -- SiteSettingsFragment.kt:92
+#     (hides the rows when false), SitePermissionsDetailsExceptionsFragment.kt:87-88
+#     (LOCAL_DEVICE_ACCESS / LOCAL_NETWORK_ACCESS), TrustPanelStore.kt:93. On 160
+#     its default is the Nimbus lna-blocking `enabled` value, true, so UI and lock
+#     agree. If a later Fenix flips that default to false, Gecko keeps blocking and
+#     prompting (locked) but the per-site exceptions can no longer be managed: re-read
+#     those three call sites on every rebase.
+#     UPGRADES: a 159.0.1-1 install most likely ran with LNA off (Nimbus default
+#     false); from 160 it gets LNA prompts and blocks. Say so in the 160 release
+#     notes. Verify in about:config and Settings > Site permissions on device.

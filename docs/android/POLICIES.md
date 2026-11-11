@@ -572,6 +572,17 @@ Against the Android defaults in `modules/libpref/init/StaticPrefList.yaml`:
 | `network.lna.blocking` | `true` (`EnablePrompting`) | `true` (`:15379-15382`) | already matches |
 | `network.lna.block_trackers` | `true` (`BlockTrackers`) | **`false`** (`:15386-15389`) | **needs setting** |
 
+> **Correction (Firefox 160 rebase, read in source, not measured on a device).**
+> "Already matches" compared against the StaticPrefList default only. All three
+> prefs are `PrefWithoutDefault` in `GeckoRuntimeSettings.java` (`:777-781` on
+> 160), and Fenix commits all three on every cold start from its Nimbus
+> `lna-blocking` defaults (`Settings.kt` -> `Core.kt:209-211` ->
+> `GeckoEngine.kt:2043-2045`). On 159.0.1 those defaults were `blocking: false`,
+> `enabled: false`, so a release build most likely ran with LNA off; 160 flips
+> both to true. `android.cfg` now locks `network.lna.enabled` and
+> `network.lna.blocking` true next to `block_trackers`
+> (`must-not-lock.txt`, LOCKED-CONTROL-DEAD).
+
 `common.cfg` already ships two neighbouring `network.lna.*` prefs
 (`websocket.enabled`, `local-network-to-localhost.skip-checks`) but not
 `block_trackers` — desktop gets that one from the policy only. A third,

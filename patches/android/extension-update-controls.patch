@@ -22,7 +22,7 @@
 # patch refuses an offset, so its hunk headers now carry the in-order 158 line
 # numbers.
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
-index 5e621c92fb..3e62feb785 100644
+index 5e621c9..3e62feb 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
 @@ -456,31 +456,53 @@ class GeckoEngine(
@@ -105,7 +105,7 @@ index 5e621c92fb..3e62feb785 100644
  
      /** See [Engine.registerWebExtensionDelegate]. */
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt
-index fb2bb7133a..8de4912b98 100644
+index 99540d0..79b7d3d 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt
 +++ b/mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt
 @@ -2159,6 +2159,30 @@ class GeckoEngineTest {
@@ -140,7 +140,7 @@ index fb2bb7133a..8de4912b98 100644
      fun `update web extension successfully`() {
          val runtime = mock<GeckoRuntime>()
 diff --git a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtensionRuntime.kt b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtensionRuntime.kt
-index 462be4325e..34e06a86d3 100644
+index 462be43..34e06a8 100644
 --- a/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtensionRuntime.kt
 +++ b/mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtensionRuntime.kt
 @@ -73,6 +73,20 @@ interface WebExtensionRuntime {
@@ -165,7 +165,7 @@ index 462be4325e..34e06a86d3 100644
       * Uninstalls the provided extension from this engine.
       *
 diff --git a/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/AddonManager.kt b/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/AddonManager.kt
-index c2d89b3173..4e7c7ad961 100644
+index c2d89b3..4e7c7ad 100644
 --- a/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/AddonManager.kt
 +++ b/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/AddonManager.kt
 @@ -449,6 +449,15 @@ class AddonManager(
@@ -198,10 +198,10 @@ index c2d89b3173..4e7c7ad961 100644
  
      private fun addPendingAddonAction() =
 diff --git a/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/update/AddonUpdater.kt b/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/update/AddonUpdater.kt
-index 23f10a6512..758a4e3f93 100644
+index 748936e..017acd9 100644
 --- a/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/update/AddonUpdater.kt
 +++ b/mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/update/AddonUpdater.kt
-@@ -651,7 +651,7 @@ constructor(
+@@ -647,7 +647,7 @@ constructor(
                  try {
                      val manager = GlobalAddonDependencyProvider.requireAddonManager()
  
@@ -210,7 +210,7 @@ index 23f10a6512..758a4e3f93 100644
                          val result =
                              when (status) {
                                  AddonUpdater.Status.NotInstalled -> {
-@@ -677,6 +677,13 @@ constructor(
+@@ -673,6 +673,13 @@ constructor(
                          saveUpdateAttempt(extensionId, status)
                          continuation.resume(result)
                      }
@@ -225,7 +225,7 @@ index 23f10a6512..758a4e3f93 100644
                      logger.error(
                          "Unable to update extension $extensionId - reason=${exception.message}",
 diff --git a/mobile/android/android-components/components/feature/addons/src/test/java/AddonManagerTest.kt b/mobile/android/android-components/components/feature/addons/src/test/java/AddonManagerTest.kt
-index 68c36519ae..3932cd8feb 100644
+index 68c3651..3932cd8 100644
 --- a/mobile/android/android-components/components/feature/addons/src/test/java/AddonManagerTest.kt
 +++ b/mobile/android/android-components/components/feature/addons/src/test/java/AddonManagerTest.kt
 @@ -473,6 +473,22 @@ class AddonManagerTest {
@@ -252,7 +252,7 @@ index 68c36519ae..3932cd8feb 100644
      fun `updateAddon - when a extension is updated successfully`() {
          val engine: Engine = mock()
 diff --git a/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt b/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
-index 41f73765af..6bc43a8180 100644
+index 41f7376..6bc43a8 100644
 --- a/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
 +++ b/mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
 @@ -22,6 +22,7 @@ import mozilla.components.concept.engine.webextension.WebExtensionException
@@ -362,10 +362,10 @@ index 41f73765af..6bc43a8180 100644
 +        }
  }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
-index 0b84df5003..3d572cea2e 100644
+index 6898236..e2d9195 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
-@@ -88,6 +88,7 @@ import org.mozilla.fenix.nimbus.FxNimbus
+@@ -89,6 +89,7 @@ import org.mozilla.fenix.nimbus.FxNimbus
  import org.mozilla.fenix.perf.ProfilerViewModel
  import org.mozilla.fenix.perf.ProfilerViewModelFactory
  import org.mozilla.fenix.settings.account.AccountUiView
@@ -373,7 +373,7 @@ index 0b84df5003..3d572cea2e 100644
  import org.mozilla.fenix.snackbar.FenixSnackbarDelegate
  import org.mozilla.fenix.snackbar.SnackbarBinding
  import org.mozilla.fenix.utils.Settings
-@@ -143,6 +144,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -144,6 +145,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
      // If it's set to `true`, code in `onResume` can assume that `onCreate` executed a moment prior.
      // This flag is set to `false` at the end of `onResume`.
      private var creatingFragment = true
@@ -381,7 +381,7 @@ index 0b84df5003..3d572cea2e 100644
  
      override fun onCreate(savedInstanceState: Bundle?) {
          super.onCreate(savedInstanceState)
-@@ -227,6 +229,14 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -233,6 +235,14 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
  
      override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
          super.onViewCreated(view, savedInstanceState)
@@ -396,7 +396,7 @@ index 0b84df5003..3d572cea2e 100644
  
          viewLifecycleOwner.lifecycleScope.launch {
              viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-@@ -256,6 +266,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -262,6 +272,7 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
  
      override fun onResume() {
          super.onResume()
@@ -404,7 +404,7 @@ index 0b84df5003..3d572cea2e 100644
  
          // Use nimbus to set the title, and a trivial addition
          val nimbusValidation = FxNimbus.features.nimbusValidation.value()
-@@ -318,6 +329,8 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
+@@ -324,6 +335,8 @@ class SettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFragment
      }
  
      override fun onDestroyView() {
@@ -415,7 +415,7 @@ index 0b84df5003..3d572cea2e 100644
      }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreference.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreference.kt
 new file mode 100644
-index 0000000000..329ef8b4c8
+index 0000000..329ef8b
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreference.kt
 @@ -0,0 +1,119 @@
@@ -540,7 +540,7 @@ index 0000000000..329ef8b4c8
 +}
 diff --git a/mobile/android/fenix/app/src/main/res/values/extension_update_controls.xml b/mobile/android/fenix/app/src/main/res/values/extension_update_controls.xml
 new file mode 100644
-index 0000000000..a5820a10d1
+index 0000000..a5820a1
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/main/res/values/extension_update_controls.xml
 @@ -0,0 +1,11 @@
@@ -556,7 +556,7 @@ index 0000000000..a5820a10d1
 +    <string name="extension_update_save_failed">Could not confirm this change was saved. The current setting is shown.</string>
 +</resources>
 diff --git a/mobile/android/fenix/app/src/main/res/xml/preferences.xml b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
-index 9c556bd2e4..10b64886d1 100644
+index a034328..d07a8f3 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/preferences.xml
 @@ -181,6 +181,14 @@
@@ -576,7 +576,7 @@ index 9c556bd2e4..10b64886d1 100644
              app:iconSpaceReserved="false"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreferenceTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreferenceTest.kt
 new file mode 100644
-index 0000000000..74bd020883
+index 0000000..74bd020
 --- /dev/null
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreferenceTest.kt
 @@ -0,0 +1,140 @@
@@ -721,10 +721,10 @@ index 0000000000..74bd020883
 +    }
 +}
 diff --git a/mobile/android/geckoview/api.txt b/mobile/android/geckoview/api.txt
-index c80602a0c8..c0a71a126e 100644
+index 0eef03b..859678f 100644
 --- a/mobile/android/geckoview/api.txt
 +++ b/mobile/android/geckoview/api.txt
-@@ -3222,6 +3222,7 @@ package org.mozilla.geckoview {
+@@ -3241,6 +3241,7 @@ package org.mozilla.geckoview {
      method @HandlerThread @NonNull public GeckoResult<WebExtension> enable(@NonNull WebExtension, int);
      method @AnyThread public void enableExtensionProcessSpawning();
      method @HandlerThread @NonNull public GeckoResult<WebExtension> ensureBuiltIn(@NonNull String, @Nullable String);
@@ -732,7 +732,7 @@ index c80602a0c8..c0a71a126e 100644
      method @Nullable @UiThread public WebExtensionController.PromptDelegate getPromptDelegate();
      method @HandlerThread @NonNull public GeckoResult<WebExtension> install(@NonNull String, @Nullable String);
      method @HandlerThread @NonNull public GeckoResult<WebExtension> install(@NonNull String);
-@@ -3230,12 +3231,14 @@ package org.mozilla.geckoview {
+@@ -3249,12 +3250,14 @@ package org.mozilla.geckoview {
      method @HandlerThread @NonNull public GeckoResult<WebExtension> removeOptionalPermissions(@NonNull String, @NonNull String[], @NonNull String[], @NonNull String[]);
      method @UiThread public void setAddonManagerDelegate(@Nullable WebExtensionController.AddonManagerDelegate);
      method @HandlerThread @NonNull public GeckoResult<WebExtension> setAllowedInPrivateBrowsing(@NonNull WebExtension, boolean);
@@ -747,7 +747,7 @@ index c80602a0c8..c0a71a126e 100644
      field public static final String INSTALLATION_METHOD_FROM_FILE = "install-from-file";
      field public static final String INSTALLATION_METHOD_MANAGER = "manager";
      field public static final String INSTALLATION_METHOD_ONBOARDING = "onboarding";
-@@ -3256,6 +3259,14 @@ package org.mozilla.geckoview {
+@@ -3275,6 +3278,14 @@ package org.mozilla.geckoview {
      method @UiThread default public void onUninstalling(@NonNull WebExtension);
    }
  
@@ -763,11 +763,11 @@ index c80602a0c8..c0a71a126e 100644
      method @UiThread default public void onExtensionListUpdated();
    }
 diff --git a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
-index 772c24693f..5dd83f0135 100644
+index 49d8b44..0fa1964 100644
 --- a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
 +++ b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
-@@ -13,6 +13,216 @@ const { Preferences } = ChromeUtils.importESModule(
-   "resource://gre/modules/Preferences.sys.mjs"
+@@ -16,6 +16,216 @@ const { GeckoViewPictureInPictureController } = ChromeUtils.importESModule(
+   "resource://gre/modules/GeckoViewPictureInPicture.sys.mjs"
  );
  
 +// This helper is packaged only in the privileged instrumentation extension.
@@ -983,7 +983,7 @@ index 772c24693f..5dd83f0135 100644
  this.test = class extends ExtensionAPI {
    onStartup() {
      ChromeUtils.registerWindowActor("TestSupport", {
-@@ -59,6 +269,10 @@ this.test = class extends ExtensionAPI {
+@@ -62,6 +272,10 @@ this.test = class extends ExtensionAPI {
  
      return {
        test: {
@@ -995,7 +995,7 @@ index 772c24693f..5dd83f0135 100644
          async setPrefs(oldPrefs, newPrefs) {
            // Save old prefs
 diff --git a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
-index baefed305f..519c616fb1 100644
+index 451829a..d77c964 100644
 --- a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
 +++ b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
 @@ -3,6 +3,20 @@
@@ -1021,7 +1021,7 @@ index baefed305f..519c616fb1 100644
          "type": "function",
 diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncShutdownTest.kt b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncShutdownTest.kt
 new file mode 100644
-index 0000000000..9ec142281d
+index 0000000..9ec1422
 --- /dev/null
 +++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncShutdownTest.kt
 @@ -0,0 +1,68 @@
@@ -1095,7 +1095,7 @@ index 0000000000..9ec142281d
 +}
 diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncTest.kt b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncTest.kt
 new file mode 100644
-index 0000000000..974c12b1a7
+index 0000000..974c12b
 --- /dev/null
 +++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncTest.kt
 @@ -0,0 +1,70 @@
@@ -1171,7 +1171,7 @@ index 0000000000..974c12b1a7
 +}
 diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/WebExtensionUpdateSettingsTest.kt b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/WebExtensionUpdateSettingsTest.kt
 new file mode 100644
-index 0000000000..93442893ee
+index 0000000..9344289
 --- /dev/null
 +++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/WebExtensionUpdateSettingsTest.kt
 @@ -0,0 +1,49 @@
@@ -1225,7 +1225,7 @@ index 0000000000..93442893ee
 +    }
 +}
 diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
-index a4b4dc44d3..689e112d70 100644
+index a4b4dc4..689e112 100644
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
 @@ -1074,9 +1074,28 @@ public class WebExtensionController {
@@ -1327,7 +1327,7 @@ index a4b4dc44d3..689e112d70 100644
      mListener = new WebExtension.Listener<>(runtime);
      mPendingMessages = new MultiMap<>();
 diff --git a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
-index 6295d840a8..43b0c5e41e 100644
+index c3a120e..9710099 100644
 --- a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
 +++ b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
 @@ -249,6 +249,8 @@ export class GeckoViewStartup {
@@ -1340,7 +1340,7 @@ index 6295d840a8..43b0c5e41e 100644
                "GeckoView:WebExtension:DisableProcessSpawning",
              ],
 diff --git a/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
-index 6fa0893536..0de1f6c049 100644
+index 6fa0893..0de1f6c 100644
 --- a/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
 +++ b/mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
 @@ -1233,7 +1233,65 @@ export var GeckoViewWebExtension = {
@@ -1489,7 +1489,7 @@ index 6fa0893536..0de1f6c049 100644
              aCallback.onSuccess(result);
            } else {
 diff --git a/modules/libpref/Preferences.cpp b/modules/libpref/Preferences.cpp
-index aeb7e7bc9c..c42e450189 100644
+index deb6f79..036dab5 100644
 --- a/modules/libpref/Preferences.cpp
 +++ b/modules/libpref/Preferences.cpp
 @@ -2053,11 +2053,10 @@ class PreferencesImpl {
@@ -1906,7 +1906,7 @@ index aeb7e7bc9c..c42e450189 100644
  
    // This will do a main thread write. It is safe to do it this way because
 diff --git a/modules/libpref/nsIPrefService.idl b/modules/libpref/nsIPrefService.idl
-index 0019e43b75..7ca8fdf77b 100644
+index 0019e43..7ca8fdf 100644
 --- a/modules/libpref/nsIPrefService.idl
 +++ b/modules/libpref/nsIPrefService.idl
 @@ -78,6 +78,16 @@ interface nsIPrefService : nsISupports
@@ -1928,7 +1928,7 @@ index 0019e43b75..7ca8fdf77b 100644
     * This differs from savePrefFile in that null is not accepted for the aFile
 diff --git a/modules/libpref/test/unit/test_savePrefFileAsync.js b/modules/libpref/test/unit/test_savePrefFileAsync.js
 new file mode 100644
-index 0000000000..7b980c8f0f
+index 0000000..7b980c8
 --- /dev/null
 +++ b/modules/libpref/test/unit/test_savePrefFileAsync.js
 @@ -0,0 +1,108 @@
@@ -2041,7 +2041,7 @@ index 0000000000..7b980c8f0f
 +  await rejectsWithoutCurrentProfile();
 +});
 diff --git a/modules/libpref/test/unit/xpcshell.toml b/modules/libpref/test/unit/xpcshell.toml
-index c03e7dedff..dda12148a1 100644
+index bb68bc8..98dc704 100644
 --- a/modules/libpref/test/unit/xpcshell.toml
 +++ b/modules/libpref/test/unit/xpcshell.toml
 @@ -39,6 +39,10 @@ head = ""
@@ -2057,7 +2057,7 @@ index c03e7dedff..dda12148a1 100644
    "data/testPrefSticky.js", "data/testPrefStickyUser.js",
 diff --git a/toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js b/toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js
 new file mode 100644
-index 0000000000..fb4906a3d9
+index 0000000..1f043f2
 --- /dev/null
 +++ b/toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js
 @@ -0,0 +1,135 @@
@@ -2197,7 +2197,7 @@ index 0000000000..fb4906a3d9
 +  } finally { sandbox.restore(); }
 +});
 diff --git a/toolkit/components/extensions/test/xpcshell/xpcshell.toml b/toolkit/components/extensions/test/xpcshell/xpcshell.toml
-index 6ec9c7c018..79c380536b 100644
+index bd4aaa0..cafa6ef 100644
 --- a/toolkit/components/extensions/test/xpcshell/xpcshell.toml
 +++ b/toolkit/components/extensions/test/xpcshell/xpcshell.toml
 @@ -75,6 +75,9 @@ prefs = [

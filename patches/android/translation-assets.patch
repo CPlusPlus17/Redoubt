@@ -7,12 +7,17 @@
 # "Translations:WatchPageHide" message before downloading. Parent DOMContentLoaded
 # /Load handling (removed upstream) is not reintroduced. translate() keeps 157's
 # didStartDocumentTranslation flow and didDestroy() keeps the top-level guard.
+#
+# 160 rebase: TranslationsEngineChild.decompressFromZstdBlob() lost its
+# "/* global DecompressionStream */" comment upstream (now a known global); the
+# Android branch is added before the DecompressionStream line, same code.
+
 
 diff --git a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt
-index 4d68622..9e28731 100644
+index e09cbde..f5b7e10 100644
 --- a/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt
 +++ b/mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt
-@@ -289,6 +289,33 @@ class TranslationsTest : BaseSessionTest() {
+@@ -281,6 +281,33 @@ class TranslationsTest : BaseSessionTest() {
          }
      }
  
@@ -828,7 +833,7 @@ index a16e41d..b8436a7 100644
          throw new Error("Unknown message.", name);
      }
 diff --git a/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs b/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs
-index 5467f20..3895af6 100644
+index a216d59..0e838df 100644
 --- a/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs
 +++ b/toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs
 @@ -2,6 +2,8 @@
@@ -862,10 +867,10 @@ index 5467f20..3895af6 100644
 +    return lazy.decompressAndroidTranslationAsset(blob, record);
 +  }
 +
-   /* global DecompressionStream */
    const decompressionStream = new DecompressionStream("zstd");
    const buffer = await new Response(
-@@ -213,13 +220,14 @@ export class TranslationsEngineChild extends JSProcessActorChild {
+     blob.stream().pipeThrough(decompressionStream)
+@@ -212,13 +219,14 @@ export class TranslationsEngineChild extends JSProcessActorChild {
  
      const wasmPromise = decompressFromZstdBlob(
        payload.bergamotWasmBlob,
@@ -882,7 +887,7 @@ index 5467f20..3895af6 100644
        payload.translationModelPayloads.map(async modelPayload => {
          const entries = Object.values(modelPayload.languageModelFiles);
  
-@@ -227,7 +235,8 @@ export class TranslationsEngineChild extends JSProcessActorChild {
+@@ -226,7 +234,8 @@ export class TranslationsEngineChild extends JSProcessActorChild {
            entries.map(async entry => {
              entry.buffer = await decompressFromZstdBlob(
                entry.blob,
@@ -892,7 +897,7 @@ index 5467f20..3895af6 100644
              );
              entry.blob = null;
            })
-@@ -237,7 +246,8 @@ export class TranslationsEngineChild extends JSProcessActorChild {
+@@ -236,7 +245,8 @@ export class TranslationsEngineChild extends JSProcessActorChild {
        })
      );
  

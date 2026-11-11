@@ -483,7 +483,9 @@ CFG_KINDS = ("defaultPref", "lockPref", "clearPref", "setEnv", "pref")
 # Recorded totals for the whole split. Quoted in ROADMAP.md and tasks.yaml too —
 # change all three together or --check-cfg-split will say so.
 # Firefox 157 merge (settings c0f8fe66): was 178/60/26/2/1 and 12 at the split.
-CFG_EXPECTED = {"defaultPref": 272, "lockPref": 80, "pref": 25,
+# Firefox 160 rebase: 272/80 -> 283/83 (upstream's 160 delta, plus Redoubt's
+# network.http.akamai_waf_telemetry.enabled lock and browser.smartwindow.aitab.enabled).
+CFG_EXPECTED = {"defaultPref": 283, "lockPref": 83, "pref": 25,
                 "clearPref": 2, "setEnv": 2}
 CFG_EXPECTED_LW_PREFS = 13
 
