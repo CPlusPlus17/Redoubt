@@ -31,10 +31,10 @@
 #   SDK platform-tools        latest             python/mozboot/mozboot/android-packages.txt:2
 #   SDK emulator              latest             python/mozboot/mozboot/android-packages.txt:1
 #   bundletool                1.18.3             python/mozboot/mozboot/android.py:32-33
-#   Rust                      1.94.1             taskcluster/kinds/toolchain/rust.yml:218,224
+#   Rust (161)                1.95.0             taskcluster/kinds/toolchain/rust.yml:214-236
 #                                                (linux64-rust-android, consumed by
 #                                                 taskcluster/kinds/build/android.yml:58)
-#   Rust minimum (floor)      1.90.0             python/mozboot/mozboot/util.py:16, Cargo.toml:155
+#   Rust minimum (161)        1.95.0             python/mozboot/mozboot/util.py:18, Cargo.toml:160
 #   Rust Android targets      5, see below       taskcluster/kinds/toolchain/rust.yml:227-231
 #   Node.js                   22.16.0            taskcluster/kinds/fetch/toolchains.yml:645-649
 #   Node.js minimum (floor)   12.22.12           python/mozbuild/mozbuild/nodeutil.py:15
@@ -112,7 +112,7 @@ ENV LW_ANDROID_CMDLINE_TOOLS_BUILD=16111833
 ENV LW_ANDROID_BUILD_TOOLS_VERSION=37.0.0
 ENV LW_ANDROID_PLATFORM=android-37.2
 ENV LW_BUNDLETOOL_VERSION=1.18.3
-ENV LW_RUST_VERSION=1.94.1
+ENV LW_RUST_VERSION=1.95.0
 
 # Host toolchains (LW-M0-15). See the "Host toolchains" block near the bottom
 # of this file for why each one is here and how configure finds it.
@@ -233,11 +233,13 @@ RUN wget -q -O ${ANDROID_BUNDLETOOL_PATH} \
  && test -s ${ANDROID_BUNDLETOOL_PATH}
 
 # ---------------------------------------------------------------------------
-# Rust 1.94.1 with the Android cross targets.
+# Rust 1.95.0 with the Android cross targets.
 #
-# 1.90.0 is only the floor (python/mozboot/mozboot/util.py:16, Cargo.toml:155);
+# 161 raised the floor to 1.95.0 (python/mozboot/mozboot/util.py:18,
+# Cargo.toml:160); 1.94.1, pinned since the 153 port, fails configure with
+# "Rust compiler 1.94.1 is too old" (CI run 45645657463). Even before that,
 # the version Mozilla actually ships Android builds with is the
-# linux64-rust-android toolchain, taskcluster/kinds/toolchain/rust.yml:218-236,
+# linux64-rust-android-1.95 toolchain, taskcluster/kinds/toolchain/rust.yml:214-236,
 # pulled in by taskcluster/kinds/build/android.yml:58. Pin to that, not to the
 # floor, so we are compiling with the compiler upstream tests against.
 #

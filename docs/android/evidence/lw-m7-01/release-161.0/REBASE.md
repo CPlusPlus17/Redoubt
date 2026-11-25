@@ -272,8 +272,22 @@ catalog. This rebase does not change `assets/uBOAssets*.json`, because upstream
 - Upstream replaced its patcher and CI (`scripts/patch.sh`, new docker files, a
   bundled Mozilla key) and set `--with-distribution-id='net.librewolf'` in its
   mozconfig. None of this is taken.
-- `assets/Dockerfile.android` and `assets/l10n-pin.txt` are unchanged, as on
-  160.
+- `assets/Dockerfile.android`: Rust 1.94.1 -> **1.95.0**. 161 raised the floor
+  (`python/mozboot/mozboot/util.py:18` `MINIMUM_RUST_VERSION`, `Cargo.toml:160`
+  `rust-version`) from 1.90.0 to 1.95.0. The first CI runs (45635365848,
+  45645657463) died in configure after 29 s with "Rust compiler 1.94.1 is too
+  old". Mozilla's own Android toolchain, `linux64-rust-android-1.95`
+  (`taskcluster/kinds/toolchain/rust.yml:214-236`), has been 1.95.0 since at
+  least 157, so the image was behind it before this rebase too. The target list
+  is unchanged. Every other gating row was re-read on 161.0 and is unchanged:
+  NDK r30, cmdline-tools 23.0 / 16111833, build-tools 37.0.0, android-37.2,
+  bundletool 1.18.3, Node 22.16.0 (floor 12.22.12), cbindgen 0.29.4, and the
+  wasi-clang-21 sysroot / compiler-rt (still listed in 161's `sysroot.yml` and
+  `compiler-rt.yml`). CI rebuilds the image because the file's sha256 changed.
+  `scripts/android-fat-aar.sh` now prints the failing pass's log errors and
+  tail, as `android-apk.sh` does since c1f73826; before that, the per-ABI log
+  stayed on the runner.
+- `assets/l10n-pin.txt` is unchanged, as on 160.
 
 ## Not done here
 

@@ -133,7 +133,7 @@ cmdline-tools 21.0 / build-tools 37.0.0 / platform android-37.1 /
 platform-tools / emulator (the cmdline-tools and platform pins moved for
 Firefox 157; an image built from the 153-era `assets/Dockerfile.android` fails
 configure with "Android cmdline-tools 21.0 not found", so rebuild it),
-bundletool 1.18.3, Rust 1.94.1 with the Android targets — is found by configure
+bundletool 1.18.3, Rust 1.95.0 with the Android targets — is found by configure
 with **no extra environment variables**. `MOZBUILD_STATE_PATH`,
 `ANDROID_SDK_ROOT`, `ANDROID_NDK_ROOT`, `JAVA_HOME` and
 `ANDROID_BUNDLETOOL_PATH` are already exported by the image, and
