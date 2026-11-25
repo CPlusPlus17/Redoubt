@@ -125,9 +125,18 @@ ENV LW_CBINDGEN_VERSION=0.29.4
 ENV LW_WASI_LLVM_MAJOR=21
 ENV LW_TASKCLUSTER_INDEX=https://firefox-ci-tc.services.mozilla.com/api/index/v1/task
 ENV LW_WASI_SYSROOT_INDEX=gecko.cache.level-3.toolchains.v3.sysroot-wasm32-wasi-clang-21.hash.9331ced32259b7567fe6da30d2eac6c3963ebf5d974988bf4fd125a098a8308b
-ENV LW_WASI_SYSROOT_SHA256=9848ba23b27794ba61db6a6d3500614d9146dcf5831e9edd00d413c395e9c21e
+# Re-pinned 2026-11-25: Taskcluster rebuilt both cached toolchain tasks on
+# 2026-11-23 under the SAME input-hash index (the year-old tasks expired), so
+# the bytes changed and the old sha256 failed (CI run 45646362717). New tasks
+# BXmGCuhxTHKp4gOJb_tl9Q (sysroot) and YVF-ATf1RzyxeabvrLGqGw (compiler-rt),
+# gecko-level-3, decision group bGaYt9iGR2a9HxdUhHSUHw (mozilla-esr153); the
+# sha256 below equal each task's public/chain-of-trust.json, whose .sig verifies
+# with Mozilla's docker-worker key Kz/aZIVe... (scriptworker constants.py, "Dec
+# 2023 rotation - d2g"). Expect the same again around 2027-11-23, when these
+# expire; re-pin the same way (record: evidence/lw-m7-01/release-161.0).
+ENV LW_WASI_SYSROOT_SHA256=86c876ed2564f7a6b6aa4ca31db4c5dea364b51568f696968c0a574f2358ce29
 ENV LW_WASI_COMPILER_RT_INDEX=gecko.cache.level-3.toolchains.v3.wasm32-wasi-compiler-rt-21.hash.b6dd1a2707cd37635de25d004caed7460887e2114aa2167b4b60d4a278c54e78
-ENV LW_WASI_COMPILER_RT_SHA256=b1111c2a1c83a5a15ac7404513541605386b676bdabe786a15f4a596f82933aa
+ENV LW_WASI_COMPILER_RT_SHA256=824a460053ff9d18ecb6f5c2e3171cd8b7d1f72574c57ea999969012d3fbf175
 
 # The paths below are not free choices: configure looks for the toolchains at
 # exactly these locations under the mozbuild state dir and dies otherwise.

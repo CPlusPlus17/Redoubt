@@ -287,6 +287,28 @@ catalog. This rebase does not change `assets/uBOAssets*.json`, because upstream
   `scripts/android-fat-aar.sh` now prints the failing pass's log errors and
   tail, as `android-apk.sh` does since c1f73826; before that, the per-ABI log
   stayed on the runner.
+- `assets/Dockerfile.android`: WASI sysroot and wasm32 compiler-rt sha256
+  **re-pinned**. Run 45646362717, the first image build since the pins were
+  set, stopped with `sysroot-wasm32-wasi.tar.zst: FAILED` because the bytes
+  behind the same Taskcluster index changed. Taskcluster re-ran both cached
+  toolchain tasks on 2026-11-23 under the unchanged input-hash namespaces
+  (`...sysroot-wasm32-wasi-clang-21.hash.9331ced3...`,
+  `...wasm32-wasi-compiler-rt-21.hash.b6dd1a27...`). The year-old tasks had
+  expired, so the old bytes cannot be fetched for a diff. What was checked:
+  - the new tasks `BXmGCuhxTHKp4gOJb_tl9Q` and `YVF-ATf1RzyxeabvrLGqGw` are
+    `gecko-level-3` tasks in decision group `bGaYt9iGR2a9HxdUhHSUHw`
+    (mozilla-esr153 `2cf1a2589c88`);
+  - each download's sha256 (sysroot `86c876ed...ce29`, compiler-rt
+    `824a4600...f175`) equals the one in the task's
+    `public/chain-of-trust.json`;
+  - that file's `.sig` verifies (openssl ed25519) with Mozilla's docker-worker
+    key `Kz/aZIVeR6NP8gQU1U+2CCIZqvbd+4QCP6J63lflwik=` (scriptworker
+    `constants.py` at e6c6555c, "Dec 2023 rotation - d2g");
+  - the layout is what the Dockerfile expects: `sysroot-wasm32-wasi/`
+    (`libc.a`, `libc++.a` and headers, 2175 entries) and
+    `compiler-rt-wasm32-wasi/lib/wasi/libclang_rt.builtins-wasm32.a`.
+
+  Expect the same around 2027-11-23, when these tasks expire.
 - `assets/l10n-pin.txt` is unchanged, as on 160.
 
 ## Not done here
