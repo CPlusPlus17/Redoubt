@@ -4,8 +4,9 @@
 # Upstream files touched
 # -----------------------
 #   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
-#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt
-#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/configuration/BrowserMenuConfiguration.kt
+#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/configuration/BrowserMenuConfigurationTest.kt
+#   (158-159: BrowserMenuBuilder.kt / MenuConfigurations.kt and their tests)
 #   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
 #
 # Line numbers are from the Firefox 158.0 tree; no other listed patch edits
@@ -53,27 +54,24 @@
 # from its "More" list instead, and the test moved to MenuBuilderTest (every
 # toolbar position and expansion, plus the home menu).
 #
-diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt
-index 1eaaf5b..db3f1d2 100644
---- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt
-+++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt
-@@ -26,7 +26,6 @@ import org.mozilla.fenix.components.menu.FenixMenuItem.Passwords
- import org.mozilla.fenix.components.menu.FenixMenuItem.Print
- import org.mozilla.fenix.components.menu.FenixMenuItem.Quit
- import org.mozilla.fenix.components.menu.FenixMenuItem.Refresh
--import org.mozilla.fenix.components.menu.FenixMenuItem.ReportBrokenSite
- import org.mozilla.fenix.components.menu.FenixMenuItem.SaveAsPdf
- import org.mozilla.fenix.components.menu.FenixMenuItem.SaveToCollection
- import org.mozilla.fenix.components.menu.FenixMenuItem.Settings
-@@ -86,7 +85,7 @@ object MenuConfigurations {
-                                     Translate,
-                                     SummarizePage,
-                                     MoveToNormalTabs,
--                                    ReportBrokenSite,
-+                                    // Redoubt (LW-M7-38): no "Report broken site".
-                                     Shortcut,
-                                     AddToHomeScreen,
-                                     SaveToCollection,
+# 161 rebase (2026-11-25, Firefox 161.0): MenuConfigurations.kt is gone. 161
+# split the menu into components/menu/configuration/ (BrowserMenuConfiguration,
+# HomeMenuConfiguration, CustomTabMenuConfiguration, FenixMenuItem), and made
+# the customizable menu the only one (Settings.isMenuCustomizationEnabled is a
+# constant true), so BrowserMenuConfiguration is now the menu every user sees.
+# Its "More" list in allSections() carried ReportBrokenSite; the entry and its
+# import are removed there. Because sections(), hiddenSections() and a user's
+# saved customization all resolve section ids against allSections(), that one
+# list covers default and customized menus. Home and custom-tab menus never had
+# the item (checked). The MoreSettingsSubmenu hunks are unchanged (still used
+# by MenuDialogFragment). The test moved from MenuBuilderTest to
+# BrowserMenuConfigurationTest (every toolbar position and expansion, all
+# sections, and the home menu). MenuItemProvidersFactory still maps the item
+# to ReportBrokenSiteMenuItemProvider; nothing lists the item any more.
+# Without this hunk the patch's target file is missing and the entry would be
+# back on 161. Not compiled.
+#
+
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
 index 235e476..1d60066 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
@@ -111,33 +109,27 @@ index 235e476..1d60066 100644
  @Composable
  private fun AddToTabGroupMenuItem(onAddToTabGroupClick: () -> Unit) {
      MenuItem(
-diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/MenuBuilderTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/MenuBuilderTest.kt
-index fd8dbb9..d3bbced 100644
---- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/MenuBuilderTest.kt
-+++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/MenuBuilderTest.kt
-@@ -78,6 +78,22 @@ class MenuBuilderTest {
-         assertEquals(listOf(readerViewItem), builder.menuStructure.first().single().items)
-     }
- 
-+    @Test
-+    fun `WHEN building any default menu THEN it has no report broken site item`() {
-+        // Redoubt (LW-M7-38): "Report broken site" is not offered in any layout.
-+        for (bottom in listOf(false, true)) {
-+            for (expanded in listOf(false, true)) {
-+                val items =
-+                    MenuConfigurations.browser(bottom, expanded).flatMap { it.items }.flatMap { item ->
-+                        listOf(item) + ((item as? FenixExpandableMenuItem)?.subMenuItems ?: emptyList())
-+                    }
-+                assertTrue(items.isNotEmpty())
-+                assertTrue(FenixMenuItem.ReportBrokenSite !in items, "bottom=$bottom expanded=$expanded")
-+            }
-+        }
-+        assertTrue(FenixMenuItem.ReportBrokenSite !in MenuConfigurations.home().flatMap { it.items })
-+    }
-+
-     @Test
-     fun `WHEN building the default menu THEN keep the sections in the configured order`() = runTest {
-         val configuration = MenuConfigurations.browser(isToolbarAtBottom = false, isExpandedToolbarEnabled = false)
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/configuration/BrowserMenuConfiguration.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/configuration/BrowserMenuConfiguration.kt
+index fa2f389..7a4c9b8 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/configuration/BrowserMenuConfiguration.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/configuration/BrowserMenuConfiguration.kt
+@@ -26,7 +26,6 @@ import org.mozilla.fenix.components.menu.configuration.FenixMenuItem.Passwords
+ import org.mozilla.fenix.components.menu.configuration.FenixMenuItem.Print
+ import org.mozilla.fenix.components.menu.configuration.FenixMenuItem.Quit
+ import org.mozilla.fenix.components.menu.configuration.FenixMenuItem.Refresh
+-import org.mozilla.fenix.components.menu.configuration.FenixMenuItem.ReportBrokenSite
+ import org.mozilla.fenix.components.menu.configuration.FenixMenuItem.SaveAsPdf
+ import org.mozilla.fenix.components.menu.configuration.FenixMenuItem.SaveToCollection
+ import org.mozilla.fenix.components.menu.configuration.FenixMenuItem.Settings
+@@ -140,7 +139,7 @@ object BrowserMenuConfiguration {
+                                     Translate,
+                                     SummarizePage,
+                                     MoveToNormalTabs,
+-                                    ReportBrokenSite,
++                                    // Redoubt (LW-M7-38): no "Report broken site".
+                                     Shortcut,
+                                     AddToHomeScreen,
+                                     SaveToCollection,
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
 index 8e5e342..9812561 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
@@ -173,3 +165,33 @@ index 8e5e342..9812561 100644
                      isOpenInAppMenuHighlighted = false,
                      translationInfo =
                          TranslationInfo(
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/configuration/BrowserMenuConfigurationTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/configuration/BrowserMenuConfigurationTest.kt
+index f81a8b5..2beea0e 100644
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/configuration/BrowserMenuConfigurationTest.kt
++++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/configuration/BrowserMenuConfigurationTest.kt
+@@ -19,6 +19,25 @@ import org.mozilla.fenix.components.menu.configuration.FenixMenuItem.CustomizeHo
+ import org.mozilla.fenix.components.menu.configuration.FenixMenuItem.DefaultBrowserBanner
+ 
+ class BrowserMenuConfigurationTest {
++    @Test
++    fun `WHEN building any default menu THEN it has no report broken site item`() {
++        // Redoubt (LW-M7-38): "Report broken site" is not offered in any layout, nor in the sections a user can
++        // restore when customizing the menu, nor on the home screen.
++        fun List<MenuSectionConfiguration>.allItems() =
++            flatMap { it.items }.flatMap { item ->
++                listOf(item) + ((item as? FenixExpandableMenuItem)?.subMenuItems ?: emptyList())
++            }
++        for (bottom in listOf(false, true)) {
++            for (expanded in listOf(false, true)) {
++                val items = BrowserMenuConfiguration.sections(bottom, expanded).allItems()
++                assertTrue(items.isNotEmpty())
++                assertTrue(FenixMenuItem.ReportBrokenSite !in items, "bottom=$bottom expanded=$expanded")
++            }
++        }
++        assertTrue(FenixMenuItem.ReportBrokenSite !in BrowserMenuConfiguration.allSections().allItems())
++        assertTrue(FenixMenuItem.ReportBrokenSite !in HomeMenuConfiguration.sections().allItems())
++    }
++
+     @Test
+     fun `GIVEN toolbar is at bottom WHEN building the browser menu THEN navigation block appears at the bottom`() {
+         val configuration =

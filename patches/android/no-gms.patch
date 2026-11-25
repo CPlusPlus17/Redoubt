@@ -773,6 +773,42 @@
 # in mobile/android (focus-android excepted, not built), and the deleted
 # classes are named only in LibreWolf comments / KDoc.
 #
+# 161 rebase (2026-11-25, Firefox 161.0): intent unchanged; one NEW Play
+# services dependency covered. 161 adds android-components
+# :components:lib-installation-blockstore (com.google.android.gms:
+# play-services-auth-blockstore 16.4.0 + play-services-base, via
+# kotlinx-coroutines-play-services) and, in Fenix, InstallationMetricsService +
+# InstallationWorker, registered in Analytics.kt's MetricController list. Gated
+# on the Nimbus feature `installation`, they write an install counter and a
+# last-seen date into Google Block Store (which survives uninstall/reinstall) and
+# submit a new Glean `installation` ping ("reinstall data",
+# include_client_id: true). Removed like lib-push-firebase /
+# lib-integrity-googleplay: the module directory is deleted, dropped from the
+# a-c and Fenix .buildconfig.yml and from app/build.gradle, its version key and
+# library alias go from libs.versions.toml, and Fenix's two classes, their two
+# tests and the Analytics.kt import / list entry / now-unused WorkManager import
+# go. The `installation` ping (pings.yaml) and its two metrics (metrics.yaml
+# category `installation`, sent only in that ping) are removed too, so
+# GleanMetrics.Installation / Pings.installation are not even generated (Glean
+# is never initialised anyway, no-glean). Left alone: the `installation` FML
+# feature (its only reader was the deleted service), the a-c changelog line,
+# and the 25-character task alias in taskcluster/config.yml (as for the other
+# two removed modules).
+# Other 161 changes, context or mechanical: org.mozilla.fenix.perf.lazyMonitored
+# no longer exists (every Components val is `by lazy`), so the replacement
+# integrityClient is `by lazy` too; play-services-base 18.10.1 -> 18.11.1;
+# BackgroundServices' last parameter is now areCredentialsSyncable (was
+# isAndroidAutomotiveAvailable), the same applicationScope parameter goes, and
+# BackgroundServicesTest's helper drops it; FenixApplication's import block,
+# IPProtection.kt's (ipprotection.storage / store.middleware moves) and
+# MetricsUtils.kt's (SearchAccessPoint / accessPoint) changed around the removed
+# imports; Push.kt lost lazyMonitored (deletion regenerated). Re-checked after
+# the patch: no com.google.android.gms / com.google.firebase /
+# com.google.android.play import in mobile/android (focus-android excepted, not
+# built); the remaining hits are LibreWolf comments / KDoc. The APK
+# measurements above are from 153.0.4 and were not repeated (no build env).
+#
+
 
 diff --git a/.prettierignore b/.prettierignore
 index 6b32109..547f85e 100644
@@ -792,10 +828,10 @@ index 6b32109..547f85e 100644
  mobile/android/android-components/components/lib/state/lint-baseline.xml
  mobile/android/android-components/components/service/digitalassetlinks/lint-baseline.xml
 diff --git a/build.gradle b/build.gradle
-index ec53559..c9d27a5 100644
+index 29436be..e69bd8a 100644
 --- a/build.gradle
 +++ b/build.gradle
-@@ -19,7 +19,6 @@ buildscript {
+@@ -17,7 +17,6 @@ buildscript {
          // Used in mobile/android/fenix/app/build.gradle
          classpath libs.androidx.benchmark.gradle
          classpath libs.androidx.navigation.safeargs
@@ -803,7 +839,7 @@ index ec53559..c9d27a5 100644
          classpath libs.mozilla.glean.gradle.plugin
      }
  }
-@@ -45,6 +44,62 @@ idea {
+@@ -42,6 +41,62 @@ idea {
      }
  }
  
@@ -867,27 +903,28 @@ index ec53559..c9d27a5 100644
      if (string == null) {
          return string
 diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
-index ca4619f..adad87a 100644
+index 6d9c6ff..adf4643 100644
 --- a/gradle/libs.versions.toml
 +++ b/gradle/libs.versions.toml
-@@ -56,16 +56,9 @@ work = "2.12.0"
+@@ -54,17 +54,9 @@ work = "2.12.0"
  
  # Google other
  accompanist = "0.37.3"
 -firebase-messaging = "25.0.2"
  ksp = "2.3.12"
  material = "1.14.0"
- mlkit-prompt = "1.0.0-beta4"
+ mlkit-prompt = "1.0.0-beta5"
 -osslicenses-plugin = "0.13.0"
 -play-integrity = "1.6.0"
 -play-review = "2.0.2"
 -play-services-ads-id = "18.3.0"
--play-services-base = "18.10.1"
+-play-services-auth-blockstore = "16.4.0"
+-play-services-base = "18.11.1"
 -play-services-fido = "21.3.1"
  protobuf = "4.36.1"
  
  # Gradle plugins
-@@ -131,7 +124,6 @@ kotlin-serialization = { module = "org.jetbrains.kotlin.plugin.serialization:org
+@@ -130,7 +122,6 @@ kotlin-serialization = { module = "org.jetbrains.kotlin.plugin.serialization:org
  kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
  kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
  kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -895,7 +932,7 @@ index ca4619f..adad87a 100644
  kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
  kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
  
-@@ -234,20 +226,12 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
+@@ -232,21 +223,12 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
  
  # Google other
  accompanist-drawablepainter = { module = "com.google.accompanist:accompanist-drawablepainter", version.ref = "accompanist" }
@@ -911,16 +948,17 @@ index ca4619f..adad87a 100644
 -play-review = { module = "com.google.android.play:review", version.ref = "play-review" }
 -play-review-ktx = { module = "com.google.android.play:review-ktx", version.ref = "play-review" }
 -play-services-ads-id = { module = "com.google.android.gms:play-services-ads-identifier", version.ref = "play-services-ads-id" }
+-play-services-auth-blockstore = { module = "com.google.android.gms:play-services-auth-blockstore", version.ref = "play-services-auth-blockstore" }
 -play-services-base = { module = "com.google.android.gms:play-services-base", version.ref = "play-services-base" }
 -play-services-fido = { module = "com.google.android.gms:play-services-fido", version.ref = "play-services-fido" }
  protobuf-compiler = { module = "com.google.protobuf:protoc", version.ref = "protobuf" }
  protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
  
 diff --git a/mobile/android/android-components/.buildconfig.yml b/mobile/android/android-components/.buildconfig.yml
-index b0bb03f..b6dc327 100644
+index bbc72e2..4eb64af 100644
 --- a/mobile/android/android-components/.buildconfig.yml
 +++ b/mobile/android/android-components/.buildconfig.yml
-@@ -1182,7 +1182,6 @@ projects:
+@@ -1183,7 +1183,6 @@ projects:
      - components:feature-session
      - components:feature-tabs
      - components:lib-dataprotect
@@ -928,10 +966,20 @@ index b0bb03f..b6dc327 100644
      - components:lib-publicsuffixlist
      - components:lib-state
      - components:service-firefox-accounts
-@@ -2108,18 +2107,6 @@ projects:
+@@ -2109,28 +2108,6 @@ projects:
      - components:support-test
      - components:tooling-fetch-tests
      - components:tooling-lint
+-  components:lib-installation-blockstore:
+-    description: A library for checking reinstalls
+-    path: components/lib/installation-blockstore
+-    publish: true
+-    upstream_dependencies:
+-    - components:concept-base
+-    - components:concept-fetch
+-    - components:support-base
+-    - components:support-test
+-    - components:tooling-lint
 -  components:lib-integrity-googleplay:
 -    description: A library for verifying the integrity of an installation using Google
 -      Play
@@ -947,7 +995,7 @@ index b0bb03f..b6dc327 100644
    components:lib-jexl:
      description: 'Javascript Expression Language: Powerful context-based expression
        parser and evaluator.'
-@@ -2201,17 +2188,6 @@ projects:
+@@ -2212,17 +2189,6 @@ projects:
      - components:support-base
      - components:support-test
      - components:tooling-lint
@@ -1178,6 +1226,493 @@ index 292f0e2..8680067 100644
  * **Server App** - the application server that has a web push server implementation.
  * **AutoPush** - the server bridge between app servers and their clients.
  * **Push Provider** - the platform push service that does the "last-mile" message delivered.
+diff --git a/mobile/android/android-components/components/lib/installation-blockstore/build.gradle b/mobile/android/android-components/components/lib/installation-blockstore/build.gradle
+deleted file mode 100644
+index c180843..0000000
+--- a/mobile/android/android-components/components/lib/installation-blockstore/build.gradle
++++ /dev/null
+@@ -1,30 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-plugins {
+-    id 'com.android.library'
+-    alias(libs.plugins.dependency.analysis)
+-}
+-
+-android {
+-    namespace = 'mozilla.components.lib.installation.blockstore'
+-}
+-
+-dependencies {
+-    implementation project(':components:support-base')
+-
+-    implementation libs.androidx.core
+-    implementation libs.kotlinx.coroutines.play.services
+-    implementation libs.play.services.auth.blockstore
+-    implementation libs.play.services.base
+-
+-    testImplementation project(':components:support-test')
+-    testImplementation libs.androidx.test.junit
+-    testImplementation libs.kotlinx.coroutines.test
+-    testImplementation libs.robolectric
+-}
+-
+-apply from: '../../../common-config.gradle'
+-apply from: '../../../publish.gradle'
+-ext.configurePublish(config.componentsGroupId, project.name, project.ext.description)
+diff --git a/mobile/android/android-components/components/lib/installation-blockstore/lint-baseline.xml b/mobile/android/android-components/components/lib/installation-blockstore/lint-baseline.xml
+deleted file mode 100644
+index b0027d3..0000000
+--- a/mobile/android/android-components/components/lib/installation-blockstore/lint-baseline.xml
++++ /dev/null
+@@ -1,4 +0,0 @@
+-<?xml version="1.0" encoding="UTF-8"?>
+-<issues format="6" by="lint 9.4.1" type="baseline" client="gradle" dependencies="false" name="AGP (9.4.1)" variant="all" version="9.4.1">
+-
+-</issues>
+diff --git a/mobile/android/android-components/components/lib/installation-blockstore/src/main/AndroidManifest.xml b/mobile/android/android-components/components/lib/installation-blockstore/src/main/AndroidManifest.xml
+deleted file mode 100644
+index e16cda1..0000000
+--- a/mobile/android/android-components/components/lib/installation-blockstore/src/main/AndroidManifest.xml
++++ /dev/null
+@@ -1,4 +0,0 @@
+-<!-- This Source Code Form is subject to the terms of the Mozilla Public
+-   - License, v. 2.0. If a copy of the MPL was not distributed with this
+-   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+-<manifest />
+diff --git a/mobile/android/android-components/components/lib/installation-blockstore/src/main/java/mozilla/components/lib/installation/blockstore/InstallBlockStore.kt b/mobile/android/android-components/components/lib/installation-blockstore/src/main/java/mozilla/components/lib/installation/blockstore/InstallBlockStore.kt
+deleted file mode 100644
+index da39895..0000000
+--- a/mobile/android/android-components/components/lib/installation-blockstore/src/main/java/mozilla/components/lib/installation/blockstore/InstallBlockStore.kt
++++ /dev/null
+@@ -1,185 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package mozilla.components.lib.installation.blockstore
+-
+-import android.content.Context
+-import androidx.core.content.edit
+-import com.google.android.gms.auth.blockstore.Blockstore
+-import com.google.android.gms.auth.blockstore.RetrieveBytesRequest
+-import com.google.android.gms.auth.blockstore.StoreBytesData
+-import com.google.android.gms.common.ConnectionResult
+-import com.google.android.gms.common.GoogleApiAvailability
+-import java.text.ParseException
+-import java.text.SimpleDateFormat
+-import java.util.Date
+-import java.util.Locale
+-import kotlinx.coroutines.CancellationException
+-import kotlinx.coroutines.tasks.await
+-import mozilla.components.support.base.log.logger.Logger
+-
+-/** Key-value storage backed by Block Store. */
+-internal interface BlockStore {
+-    /** Retrieves the bytes stored for [keys]. */
+-    suspend fun retrieveBytes(keys: List<String>): Map<String, ByteArray>
+-
+-    /** Stores [bytes] for [key], and returns the number of bytes stored. */
+-    suspend fun storeBytes(key: String, bytes: ByteArray): Int
+-}
+-
+-/**
+- * A [BlockStore] backed by [Blockstore.getClient].
+- *
+- * @param context The Android [Context] used to create the Block Store client.
+- */
+-internal class ClientBlockStore(context: Context) : BlockStore {
+-    private val client by lazy { Blockstore.getClient(context) }
+-
+-    override suspend fun retrieveBytes(keys: List<String>): Map<String, ByteArray> {
+-        val request = RetrieveBytesRequest.Builder().setKeys(keys).build()
+-        return client.retrieveBytes(request).await().blockstoreDataMap.mapValues { it.value.bytes }
+-    }
+-
+-    override suspend fun storeBytes(key: String, bytes: ByteArray): Int {
+-        val request = StoreBytesData.Builder().setBytes(bytes).setKey(key).setShouldBackupToCloud(false).build()
+-        return client.storeBytes(request).await()
+-    }
+-}
+-
+-/**
+- * The install state of the app on this device.
+- *
+- * @property installCount Number of times the app has been installed, including the current install.
+- * @property previousLastSeenDate Date the app was last opened before the current install, or null if there is no
+- *   previous install.
+- */
+-data class InstallState(
+-    val installCount: Int,
+-    val previousLastSeenDate: Date?,
+-)
+-
+-internal const val KEY_INSTALL_COUNT = "mozilla.components.lib.installation.blockstore.install_count"
+-internal const val KEY_LAST_SEEN_DATE = "mozilla.components.lib.installation.blockstore.last_seen_date"
+-internal const val PREFERENCES_NAME = "mozilla.components.lib.installation.blockstore"
+-internal const val PREF_LAST_SEEN_DATE = "last_seen_date"
+-
+-/** Stores the install count and the last date the app was opened. */
+-interface InstallBlockStore {
+-    /**
+-     * Records that the app was opened.
+-     *
+-     * @return A [Result] containing the [InstallState] if this call recorded a fresh install, null if the install was
+-     *   already recorded or Block Store is unavailable, or a failure if the install could not be recorded.
+-     */
+-    suspend fun recordAppOpen(): Result<InstallState?>
+-
+-    companion object {
+-
+-        /**
+-         * Creates a [InstallBlockStore].
+-         *
+-         * @param context The Android [Context] used to create the Block Store client and open the local preferences.
+-         */
+-        fun create(context: Context): InstallBlockStore =
+-            DefaultInstallBlockStore(
+-                context,
+-                ClientBlockStore(context),
+-                {
+-                    GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context) ==
+-                        ConnectionResult.SUCCESS
+-                },
+-            )
+-    }
+-}
+-
+-/**
+- * The default [InstallBlockStore].
+- *
+- * @param context The Android [Context] used to open the local preferences.
+- * @param blockStore Storage that persists across reinstalls.
+- * @param isBlockStoreAvailable Whether Block Store is available on the device.
+- * @param currentTimeMillis Injectable wall-clock source, used to compute the last seen date. Defaults to
+- *   [System.currentTimeMillis].
+- */
+-internal class DefaultInstallBlockStore(
+-    context: Context,
+-    private val blockStore: BlockStore,
+-    private val isBlockStoreAvailable: () -> Boolean,
+-    private val currentTimeMillis: () -> Long = { System.currentTimeMillis() },
+-) : InstallBlockStore {
+-    private val logger = Logger("InstallBlockStore")
+-    private val preferences by lazy { context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE) }
+-
+-    @Suppress("TooGenericExceptionCaught")
+-    override suspend fun recordAppOpen(): Result<InstallState?> {
+-        val today = currentDate()
+-        val lastSeenDate = preferences.getString(PREF_LAST_SEEN_DATE, null)
+-        val skipReason =
+-            when {
+-                lastSeenDate == today -> "App open already recorded today ($today)"
+-                !isBlockStoreAvailable() -> "Block Store is unavailable"
+-                else -> null
+-            }
+-        if (skipReason != null) {
+-            logger.debug("$skipReason, skipping")
+-            return Result.success(null)
+-        }
+-
+-        val installState =
+-            try {
+-                if (lastSeenDate == null) recordInstall() else null
+-            } catch (e: CancellationException) {
+-                throw e
+-            } catch (e: Exception) {
+-                logger.warn("Failed to record the install", e)
+-                return Result.failure(e)
+-            }
+-
+-        try {
+-            store(KEY_LAST_SEEN_DATE, today)
+-            preferences.edit { putString(PREF_LAST_SEEN_DATE, today) }
+-        } catch (e: CancellationException) {
+-            throw e
+-        } catch (e: Exception) {
+-            logger.warn("Failed to store the last seen date", e)
+-        }
+-
+-        return Result.success(installState)
+-    }
+-
+-    private suspend fun recordInstall(): InstallState {
+-        val stored =
+-            blockStore.retrieveBytes(listOf(KEY_INSTALL_COUNT, KEY_LAST_SEEN_DATE)).mapValues {
+-                it.value.decodeToString()
+-            }
+-
+-        val installState =
+-            InstallState(
+-                installCount = (stored[KEY_INSTALL_COUNT]?.toIntOrNull() ?: 0) + 1,
+-                previousLastSeenDate = stored[KEY_LAST_SEEN_DATE]?.let { parseDate(it) },
+-            )
+-
+-        store(KEY_INSTALL_COUNT, installState.installCount.toString())
+-        preferences.edit { putString(PREF_LAST_SEEN_DATE, "") }
+-
+-        return installState
+-    }
+-
+-    private suspend fun store(key: String, value: String) {
+-        val bytesStored = blockStore.storeBytes(key, value.encodeToByteArray())
+-        logger.debug("Stored $bytesStored bytes for $key with $value")
+-    }
+-
+-    private fun parseDate(date: String) =
+-        try {
+-            dateFormat().parse(date)
+-        } catch (e: ParseException) {
+-            logger.warn("Failed to parse the stored last seen date", e)
+-            null
+-        }
+-
+-    private fun currentDate() = dateFormat().format(Date(currentTimeMillis()))
+-
+-    private fun dateFormat() = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+-}
+diff --git a/mobile/android/android-components/components/lib/installation-blockstore/src/test/java/mozilla/components/lib/installation/blockstore/InstallBlockStoreTest.kt b/mobile/android/android-components/components/lib/installation-blockstore/src/test/java/mozilla/components/lib/installation/blockstore/InstallBlockStoreTest.kt
+deleted file mode 100644
+index da91fad..0000000
+--- a/mobile/android/android-components/components/lib/installation-blockstore/src/test/java/mozilla/components/lib/installation/blockstore/InstallBlockStoreTest.kt
++++ /dev/null
+@@ -1,227 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package mozilla.components.lib.installation.blockstore
+-
+-import android.content.Context
+-import android.content.SharedPreferences
+-import androidx.test.ext.junit.runners.AndroidJUnit4
+-import com.google.android.gms.common.api.ApiException
+-import com.google.android.gms.common.api.Status
+-import java.util.Calendar
+-import kotlinx.coroutines.test.runTest
+-import mozilla.components.support.test.robolectric.testContext
+-import org.junit.Assert.assertEquals
+-import org.junit.Assert.assertFalse
+-import org.junit.Assert.assertNull
+-import org.junit.Assert.assertTrue
+-import org.junit.Test
+-import org.junit.runner.RunWith
+-
+-@RunWith(AndroidJUnit4::class)
+-class InstallBlockStoreTest {
+-
+-    private val today = date(2026, Calendar.OCTOBER, 13).time
+-    private val tomorrow = date(2026, Calendar.OCTOBER, 14).time
+-    private val apiError = ApiException(Status.RESULT_INTERNAL_ERROR)
+-
+-    private val preferences: SharedPreferences
+-        get() = testContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+-
+-    private fun createStore(
+-        blockStore: BlockStore,
+-        currentTimeMillis: Long = today,
+-        isBlockStoreAvailable: () -> Boolean = { true },
+-    ) = DefaultInstallBlockStore(testContext, blockStore, isBlockStoreAvailable) { currentTimeMillis }
+-
+-    private fun date(year: Int, month: Int, day: Int) =
+-        Calendar.getInstance()
+-            .apply {
+-                clear()
+-                set(year, month, day)
+-            }
+-            .time
+-
+-    @Test
+-    fun `GIVEN no previous install WHEN recordAppOpen is called THEN the first install is recorded`() = runTest {
+-        val blockStore = FakeBlockStore()
+-
+-        val result = createStore(blockStore).recordAppOpen()
+-
+-        assertEquals(InstallState(installCount = 1, previousLastSeenDate = null), result.getOrThrow())
+-        assertEquals("1", blockStore.values[KEY_INSTALL_COUNT])
+-        assertEquals("2026-10-13", blockStore.values[KEY_LAST_SEEN_DATE])
+-        assertEquals("2026-10-13", preferences.getString(PREF_LAST_SEEN_DATE, null))
+-    }
+-
+-    @Test
+-    fun `GIVEN a previous install WHEN recordAppOpen is called after a reinstall THEN the install count is incremented and the previous date is returned`() =
+-        runTest {
+-            val blockStore =
+-                FakeBlockStore(
+-                    mutableMapOf(
+-                        KEY_INSTALL_COUNT to "2",
+-                        KEY_LAST_SEEN_DATE to "2026-09-01",
+-                    )
+-                )
+-
+-            val result = createStore(blockStore).recordAppOpen()
+-
+-            assertEquals(
+-                InstallState(installCount = 3, previousLastSeenDate = date(2026, Calendar.SEPTEMBER, 1)),
+-                result.getOrThrow(),
+-            )
+-            assertEquals("3", blockStore.values[KEY_INSTALL_COUNT])
+-            assertEquals("2026-10-13", blockStore.values[KEY_LAST_SEEN_DATE])
+-        }
+-
+-    @Test
+-    fun `GIVEN the app open was recorded today WHEN recordAppOpen is called again THEN Block Store is not accessed`() =
+-        runTest {
+-            val blockStore = FakeBlockStore()
+-            createStore(blockStore).recordAppOpen()
+-            blockStore.retrieveCalls = 0
+-            blockStore.storeCalls = 0
+-
+-            val result = createStore(blockStore).recordAppOpen()
+-
+-            assertNull(result.getOrThrow())
+-            assertEquals(0, blockStore.retrieveCalls)
+-            assertEquals(0, blockStore.storeCalls)
+-        }
+-
+-    @Test
+-    fun `GIVEN the app open was recorded today WHEN recordAppOpen is called again THEN Block Store availability is not checked`() =
+-        runTest {
+-            val blockStore = FakeBlockStore()
+-            createStore(blockStore).recordAppOpen()
+-            var availabilityChecked = false
+-
+-            val result =
+-                createStore(blockStore) {
+-                        availabilityChecked = true
+-                        true
+-                    }
+-                    .recordAppOpen()
+-
+-            assertNull(result.getOrThrow())
+-            assertFalse(availabilityChecked)
+-        }
+-
+-    @Test
+-    fun `GIVEN the install was recorded on a previous day WHEN recordAppOpen is called THEN only the last seen date is refreshed`() =
+-        runTest {
+-            val blockStore = FakeBlockStore()
+-            createStore(blockStore).recordAppOpen()
+-            blockStore.retrieveError = apiError
+-
+-            val result = createStore(blockStore, currentTimeMillis = tomorrow).recordAppOpen()
+-
+-            assertNull(result.getOrThrow())
+-            assertEquals("1", blockStore.values[KEY_INSTALL_COUNT])
+-            assertEquals("2026-10-14", blockStore.values[KEY_LAST_SEEN_DATE])
+-            assertEquals("2026-10-14", preferences.getString(PREF_LAST_SEEN_DATE, null))
+-        }
+-
+-    @Test
+-    fun `GIVEN the app was reinstalled WHEN recordAppOpen is called THEN a reinstall is recorded`() = runTest {
+-        val blockStore = FakeBlockStore()
+-        createStore(blockStore).recordAppOpen()
+-        preferences.edit().clear().commit()
+-
+-        val result = createStore(blockStore).recordAppOpen()
+-
+-        assertEquals(
+-            InstallState(installCount = 2, previousLastSeenDate = date(2026, Calendar.OCTOBER, 13)),
+-            result.getOrThrow(),
+-        )
+-    }
+-
+-    @Test
+-    fun `GIVEN retrieving fails WHEN recordAppOpen is called THEN it fails and the install is recorded on the next call`() =
+-        runTest {
+-            val blockStore = FakeBlockStore(retrieveError = apiError)
+-
+-            assertTrue(createStore(blockStore).recordAppOpen().isFailure)
+-            assertNull(blockStore.values[KEY_INSTALL_COUNT])
+-            assertNull(preferences.getString(PREF_LAST_SEEN_DATE, null))
+-
+-            blockStore.retrieveError = null
+-            val result = createStore(blockStore).recordAppOpen()
+-
+-            assertEquals(InstallState(installCount = 1, previousLastSeenDate = null), result.getOrThrow())
+-        }
+-
+-    @Test
+-    fun `GIVEN storing the install count fails WHEN recordAppOpen is called THEN it fails and the install is recorded on the next call`() =
+-        runTest {
+-            val blockStore = FakeBlockStore(storeErrors = mutableMapOf(KEY_INSTALL_COUNT to apiError))
+-
+-            assertTrue(createStore(blockStore).recordAppOpen().isFailure)
+-
+-            blockStore.storeErrors.clear()
+-            val result = createStore(blockStore).recordAppOpen()
+-
+-            assertEquals(InstallState(installCount = 1, previousLastSeenDate = null), result.getOrThrow())
+-        }
+-
+-    @Test
+-    fun `GIVEN storing the last seen date fails WHEN recordAppOpen is called THEN the install state is still returned`() =
+-        runTest {
+-            val blockStore = FakeBlockStore(storeErrors = mutableMapOf(KEY_LAST_SEEN_DATE to apiError))
+-
+-            val result = createStore(blockStore).recordAppOpen()
+-
+-            assertEquals(InstallState(installCount = 1, previousLastSeenDate = null), result.getOrThrow())
+-            assertEquals("1", blockStore.values[KEY_INSTALL_COUNT])
+-        }
+-
+-    @Test
+-    fun `GIVEN storing the last seen date failed WHEN recordAppOpen is called again the same day THEN only the last seen date is stored`() =
+-        runTest {
+-            val blockStore = FakeBlockStore(storeErrors = mutableMapOf(KEY_LAST_SEEN_DATE to apiError))
+-            createStore(blockStore).recordAppOpen()
+-            blockStore.storeErrors.clear()
+-
+-            val result = createStore(blockStore).recordAppOpen()
+-
+-            assertNull(result.getOrThrow())
+-            assertEquals("1", blockStore.values[KEY_INSTALL_COUNT])
+-            assertEquals("2026-10-13", blockStore.values[KEY_LAST_SEEN_DATE])
+-            assertEquals("2026-10-13", preferences.getString(PREF_LAST_SEEN_DATE, null))
+-        }
+-
+-    @Test
+-    fun `GIVEN Block Store is unavailable WHEN recordAppOpen is called THEN nothing is recorded`() = runTest {
+-        val blockStore = FakeBlockStore()
+-
+-        assertNull(createStore(blockStore) { false }.recordAppOpen().getOrThrow())
+-
+-        assertEquals(0, blockStore.retrieveCalls)
+-        assertEquals(0, blockStore.storeCalls)
+-        assertNull(preferences.getString(PREF_LAST_SEEN_DATE, null))
+-    }
+-
+-    private class FakeBlockStore(
+-        val values: MutableMap<String, String> = mutableMapOf(),
+-        var retrieveError: Exception? = null,
+-        val storeErrors: MutableMap<String, Exception> = mutableMapOf(),
+-    ) : BlockStore {
+-        var retrieveCalls = 0
+-        var storeCalls = 0
+-
+-        override suspend fun retrieveBytes(keys: List<String>): Map<String, ByteArray> {
+-            retrieveCalls++
+-            retrieveError?.let { throw it }
+-            return values.filterKeys { it in keys }.mapValues { it.value.encodeToByteArray() }
+-        }
+-
+-        override suspend fun storeBytes(key: String, bytes: ByteArray): Int {
+-            storeCalls++
+-            storeErrors[key]?.let { throw it }
+-            values[key] = bytes.decodeToString()
+-            return bytes.size
+-        }
+-    }
+-}
+diff --git a/mobile/android/android-components/components/lib/installation-blockstore/src/test/resources/robolectric.properties b/mobile/android/android-components/components/lib/installation-blockstore/src/test/resources/robolectric.properties
+deleted file mode 100644
+index 3f67ea5..0000000
+--- a/mobile/android/android-components/components/lib/installation-blockstore/src/test/resources/robolectric.properties
++++ /dev/null
+@@ -1 +0,0 @@
+-sdk=35
 diff --git a/mobile/android/android-components/components/lib/integrity-googleplay/README.md b/mobile/android/android-components/components/lib/integrity-googleplay/README.md
 deleted file mode 100644
 index ad57eb4..0000000
@@ -2578,13 +3113,14 @@ index 3f67ea5..0000000
 @@ -1 +0,0 @@
 -sdk=35
 diff --git a/mobile/android/fenix/.buildconfig.yml b/mobile/android/fenix/.buildconfig.yml
-index 6262720..626c1fc 100644
+index a919aca..626c1fc 100644
 --- a/mobile/android/fenix/.buildconfig.yml
 +++ b/mobile/android/fenix/.buildconfig.yml
-@@ -89,12 +89,10 @@ projects:
+@@ -89,13 +89,10 @@ projects:
      - components:lib-crash
      - components:lib-crash-sentry
      - components:lib-dataprotect
+-    - components:lib-installation-blockstore
 -    - components:lib-integrity-googleplay
      - components:lib-llm-mlpa
      - components:lib-password-parser-csv
@@ -2595,7 +3131,7 @@ index 6262720..626c1fc 100644
      - components:lib-state
      - components:service-digitalassetlinks
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
-index fe15b1a..f139b9e 100644
+index 62978c2..abcf056 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
 @@ -22,11 +22,11 @@ plugins {
@@ -2615,7 +3151,7 @@ index fe15b1a..f139b9e 100644
  
  apply from: 'benchmark.gradle'
  
-@@ -377,13 +377,6 @@ android.defaultConfig.with {
+@@ -379,13 +379,6 @@ android.defaultConfig.with {
          buildConfigField 'String', 'MLS_TOKEN', '""'
      }
  
@@ -2629,18 +3165,19 @@ index fe15b1a..f139b9e 100644
      if (gradle.hasProperty("localProperties.glean.custom.server.url")) {
          def url = gradle.getProperty("localProperties.glean.custom.server.url")
          buildConfigField 'String', 'GLEAN_CUSTOM_URL', url
-@@ -563,10 +556,8 @@ dependencies {
+@@ -565,11 +558,8 @@ dependencies {
      implementation project(':components:lib-crash')
      implementation project(':components:lib-crash-sentry')
      implementation project(':components:lib-dataprotect')
 -    implementation project(':components:lib-push-firebase')
      implementation project(':components:lib-state')
      implementation project(':components:lib-accelerometer-sensormanager')
+-    implementation project(':components:lib-installation-blockstore')
 -    implementation project(':components:lib-integrity-googleplay')
      implementation project(':components:lib-llm-mlpa')
      implementation project(':components:lib-shake')
      implementation project(':components:lib-ai-controls')
-@@ -625,9 +616,6 @@ dependencies {
+@@ -628,9 +618,6 @@ dependencies {
      implementation libs.kotlinx.coroutines
      implementation libs.kotlinx.serialization.json
      implementation libs.mozilla.glean
@@ -2650,6 +3187,75 @@ index fe15b1a..f139b9e 100644
      implementation libs.protobuf.javalite
      implementation libs.sentry
      implementation libs.androidx.documentfile
+diff --git a/mobile/android/fenix/app/metrics.yaml b/mobile/android/fenix/app/metrics.yaml
+--- a/mobile/android/fenix/app/metrics.yaml
++++ b/mobile/android/fenix/app/metrics.yaml
+@@ -11129,43 +11129,6 @@
+     metadata:
+       tags:
+         - PocketIntegration
+-installation:
+-  install_counter:
+-    type: quantity
+-    unit: integer
+-    description: |
+-      The number of times the app has been installed on this device,
+-      including the current install, across reinstalls. Recorded per install.
+-    send_in_pings:
+-      - installation
+-    bugs:
+-      - https://bugzilla.mozilla.org/show_bug.cgi?id=2084346
+-    data_reviews:
+-      - https://bugzilla.mozilla.org/show_bug.cgi?id=2084346
+-    data_sensitivity:
+-      - technical
+-    notification_emails:
+-      - android-probes@mozilla.com
+-    expires: never
+-  last_seen_date:
+-    type: datetime
+-    time_unit: day
+-    description: |
+-      The date (YYYY-MM-DD, local time) the app was last opened before the
+-      current install. The stored date is updated on the first app open of each
+-      app process. Not set on the first install. Recorded once per
+-      install.
+-    send_in_pings:
+-      - installation
+-    bugs:
+-      - https://bugzilla.mozilla.org/show_bug.cgi?id=2084346
+-    data_reviews:
+-      - https://bugzilla.mozilla.org/show_bug.cgi?id=2084346
+-    data_sensitivity:
+-      - interaction
+-    notification_emails:
+-      - android-probes@mozilla.com
+-    expires: never
+ first_session:
+   distribution_id:
+     type: string
+diff --git a/mobile/android/fenix/app/pings.yaml b/mobile/android/fenix/app/pings.yaml
+--- a/mobile/android/fenix/app/pings.yaml
++++ b/mobile/android/fenix/app/pings.yaml
+@@ -45,18 +45,6 @@
+   notification_emails:
+     - android-probes@mozilla.com
+ 
+-installation:
+-  description: |
+-    This ping captures the reinstall data.
+-  include_client_id: true
+-  send_if_empty: false
+-  bugs:
+-    - https://bugzilla.mozilla.org/show_bug.cgi?id=2084346
+-  data_reviews:
+-    - https://bugzilla.mozilla.org/show_bug.cgi?id=2084346
+-  notification_emails:
+-    - android-probes@mozilla.com
+-
+ adjust-attribution:
+   description: |
+     This ping captures the Adjust attribution data.
 diff --git a/mobile/android/fenix/app/src/main/AndroidManifest.xml b/mobile/android/fenix/app/src/main/AndroidManifest.xml
 index 319d36f..507c2d7 100644
 --- a/mobile/android/fenix/app/src/main/AndroidManifest.xml
@@ -2694,7 +3300,7 @@ index 319d36f..507c2d7 100644
             - SDK's own AndroidManifest.xml, which the manifest merger would otherwise fold into
             - ours. It turns an "am start" intent carrying the string extras sendPing and
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index 67e30ca..8be68f9 100644
+index 1635f80..a7bd3e3 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 @@ -55,7 +55,6 @@ import mozilla.components.concept.ai.controls.isEnabled
@@ -2702,10 +3308,10 @@ index 67e30ca..8be68f9 100644
  import mozilla.components.concept.engine.webextension.WebExtension
  import mozilla.components.concept.engine.webextension.isUnsupported
 -import mozilla.components.concept.push.PushProcessor
- import mozilla.components.concept.storage.FrecencyThresholdOption
  import mozilla.components.feature.addons.migration.DefaultSupportedAddonsChecker
  import mozilla.components.feature.addons.update.GlobalAddonDependencyProvider
-@@ -140,8 +139,6 @@ import org.mozilla.fenix.perf.StartupTimeline
+ import mozilla.components.feature.autofill.AutofillUseCases
+@@ -135,8 +134,6 @@ import org.mozilla.fenix.perf.StartupTimeline
  import org.mozilla.fenix.perf.StorageStatsMetrics
  import org.mozilla.fenix.perf.runBlockingIncrement
  import org.mozilla.fenix.privacyreport.PrivacyReportWorkerFactory
@@ -2714,7 +3320,7 @@ index 67e30ca..8be68f9 100644
  import org.mozilla.fenix.session.VisibilityLifecycleCallback
  import org.mozilla.fenix.settings.doh.DefaultDohSettingsProvider
  import org.mozilla.fenix.settings.doh.DohSettingsProvider
-@@ -414,8 +411,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -409,8 +406,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              )
          }
  
@@ -2723,7 +3329,7 @@ index 67e30ca..8be68f9 100644
          maybeSetupIPProtection()
  
          GlobalFxSuggestDependencyProvider.initialize(components.fxSuggest.storage)
-@@ -484,7 +479,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -480,7 +475,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          queueIncrementNumberOfAppLaunches(queue)
          queueRestoreLocale(queue)
          queueStorageMaintenance(queue)
@@ -2731,7 +3337,7 @@ index 67e30ca..8be68f9 100644
          queueNimbusFetchInForeground(queue)
          queueDownloadWallpapers(queue)
          queueUpdateAutofillServiceState(queue)
-@@ -634,19 +628,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -618,19 +612,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
              components.core.autofillStorage.registerStorageMaintenanceWorker()
          }
  
@@ -2751,7 +3357,7 @@ index 67e30ca..8be68f9 100644
      @OptIn(ExperimentalAndroidComponentsApi::class)
      private fun queueNimbusFetchInForeground(queue: RunWhenReadyQueue) =
          runOnVisualCompleteness(queue) {
-@@ -698,26 +679,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -689,26 +670,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          (LeakCanarySetup as LeakCanarySetupInterface).updateState(isEnabled = isEnabled, components = components)
      }
  
@@ -2776,10 +3382,38 @@ index 67e30ca..8be68f9 100644
 -    }
 -
      private fun maybeSetupIPProtection() {
-         components.ipProtection.feature.initialize()
-         components.ipProtection.storageSynchronizer.initialize()
+         components.ipProtection.initialize()
+     }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+index 36c847e..145f3a7 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+@@ -8,7 +8,6 @@ import android.app.PendingIntent
+ import android.content.Context
+ import android.content.Intent
+ import android.os.Build
+-import androidx.work.WorkManager
+ import mozilla.components.lib.crash.CrashReporter
+ import mozilla.components.lib.crash.runtimetagproviders.BuildRuntimeTagProvider
+ import mozilla.components.lib.crash.runtimetagproviders.EnvironmentRuntimeProvider
+@@ -32,7 +31,6 @@ import org.mozilla.fenix.R
+ import org.mozilla.fenix.ReleaseChannel
+ import org.mozilla.fenix.components.metrics.DefaultMetricsStorage
+ import org.mozilla.fenix.components.metrics.FirstSessionMetricsService
+-import org.mozilla.fenix.components.metrics.InstallationMetricsService
+ import org.mozilla.fenix.components.metrics.MetricController
+ import org.mozilla.fenix.components.metrics.MetricsStorage
+ import org.mozilla.fenix.crashes.CrashFactCollector
+@@ -175,7 +173,6 @@ class Analytics(
+         MetricController.create(
+             listOf(
+                 FirstSessionMetricsService(context),
+-                InstallationMetricsService(runWhenReadyQueue, { WorkManager.getInstance(context) }),
+             ),
+             isDataTelemetryEnabled = { settings.isTelemetryEnabled },
+             isMarketingDataTelemetryEnabled = {
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
-index fffd297..4e8d13c 100644
+index 6b97fa0..7275be2 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
 @@ -10,7 +10,6 @@ import androidx.annotation.VisibleForTesting
@@ -2796,9 +3430,9 @@ index fffd297..4e8d13c 100644
  import mozilla.components.feature.accounts.push.CloseTabsFeature
 -import mozilla.components.feature.accounts.push.FxaPushSupportFeature
  import mozilla.components.feature.accounts.push.SendTabFeature
- import mozilla.components.feature.automotive.isAndroidAutomotiveAvailable
  import mozilla.components.feature.syncedtabs.SyncedTabsAutocompleteProvider
-@@ -79,7 +77,6 @@ private val DEFAULT_SYNCED_TABS_COMMANDS_EXTRA_FLUSH_DELAY = 5.seconds
+ import mozilla.components.feature.syncedtabs.commands.SyncedTabsCommands
+@@ -77,7 +75,6 @@ private val DEFAULT_SYNCED_TABS_COMMANDS_EXTRA_FLUSH_DELAY = 5.seconds
  @Suppress("LongParameterList")
  class BackgroundServices(
      private val context: Context,
@@ -2806,15 +3440,15 @@ index fffd297..4e8d13c 100644
      settings: Settings,
      crashReporter: CrashReporter,
      historyStorage: Lazy<PlacesHistoryStorage>,
-@@ -88,7 +85,6 @@ class BackgroundServices(
+@@ -86,7 +83,6 @@ class BackgroundServices(
      remoteTabsStorage: Lazy<RemoteTabsStorage>,
      creditCardsStorage: Lazy<AutofillCreditCardsAddressesStorage>,
      strictMode: StrictModeManager,
 -    private val applicationScope: CoroutineScope,
-     isAndroidAutomotiveAvailable: Boolean = context.isAndroidAutomotiveAvailable(),
+     areCredentialsSyncable: Boolean = settings.isAutofillSupported,
  ) {
      // Allows executing tasks which depend on the account manager, but do not need to eagerly initialize it.
-@@ -259,17 +255,16 @@ class BackgroundServices(
+@@ -253,17 +249,16 @@ class BackgroundServices(
  
                  accountManager.register(AccountManagerReadyObserver(accountManagerAvailableQueue))
  
@@ -2843,7 +3477,7 @@ index fffd297..4e8d13c 100644
                  SendTabFeature(accountManager) { device, tabs ->
                      notificationManager.showReceivedTabs(context, device, tabs)
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-index 3512ec4..f9f5dd3 100644
+index 76671bc..3b87e4d 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 @@ -10,12 +10,11 @@ import androidx.compose.runtime.Composable
@@ -2869,43 +3503,43 @@ index 3512ec4..f9f5dd3 100644
  import mozilla.components.lib.llm.mlpa.MlpaTokenStorage
  import mozilla.components.lib.publicsuffixlist.PublicSuffixList
  import mozilla.components.service.fxrelay.eligibility.RelayEligibilityStore
-@@ -134,7 +131,6 @@ class Components(
-     val backgroundServices by lazyMonitored {
+@@ -139,7 +136,6 @@ class Components(
+     val backgroundServices by lazy {
          BackgroundServices(
              context,
 -            push,
              settings,
              analytics.crashReporter,
              core.lazyHistoryStorage,
-@@ -143,7 +139,6 @@ class Components(
+@@ -148,7 +144,6 @@ class Components(
              core.lazyRemoteTabsStorage,
              core.lazyAutofillStorage,
              strictMode,
 -            applicationScope,
          )
      }
-     val services by lazyMonitored { Services(context, core.store, backgroundServices.accountManager) }
-@@ -268,7 +263,6 @@ class Components(
-     val publicSuffixList by lazyMonitored { PublicSuffixList(context) }
-     val clipboardHandler by lazyMonitored { ClipboardHandler(context) }
-     val performance by lazyMonitored { PerformanceComponent() }
--    val push by lazyMonitored { Push(context, analytics.crashReporter) }
-     val wifiConnectionMonitor by lazyMonitored { WifiConnectionMonitor(context as Application) }
+     val services by lazy { Services(context, core.store, backgroundServices.accountManager) }
+@@ -276,7 +271,6 @@ class Components(
+     val clipboardHandler by lazy { ClipboardHandler(context) }
+     val buildMetadata by lazy { BuildMetadata.fromAssets(context.assets) }
+     val performance by lazy { PerformanceComponent() }
+-    val push by lazy { Push(context, analytics.crashReporter) }
+     val wifiConnectionMonitor by lazy { WifiConnectionMonitor(context as Application) }
  
-     val strictMode by lazyMonitored {
-@@ -283,7 +277,6 @@ class Components(
+     val strictMode by lazy {
+@@ -291,7 +285,6 @@ class Components(
  
-     val playStoreReviewPromptController by lazyMonitored {
+     val playStoreReviewPromptController by lazy {
          PlayStoreReviewPromptController(
 -            manager = ReviewManagerFactory.create(context),
              numberOfAppLaunches = { settings.numberOfAppLaunches },
          )
      }
-@@ -423,12 +416,25 @@ class Components(
+@@ -445,12 +438,25 @@ class Components(
          )
      }
  
--    val integrityClient by lazyMonitored {
+-    val integrityClient by lazy {
 -        GooglePlayIntegrityClient.create(
 -            context = context,
 -            projectNumberToken = BuildConfig.GPS_INTEGRITY_TOKEN,
@@ -2922,7 +3556,7 @@ index 3512ec4..f9f5dd3 100644
 +    // BuildConfig.GPS_INTEGRITY_TOKEN is empty in a LibreWolf tree (there is no
 +    // ${rootDir}/.gps_integrity_token) and TokenProviderFactory.create() then
 +    // returned a factory that fails with InvalidProjectNumber.
-+    val integrityClient: IntegrityClient by lazyMonitored {
++    val integrityClient: IntegrityClient by lazy {
 +        IntegrityClient {
 +            Result.failure(
 +                UnsupportedOperationException(
@@ -2932,8 +3566,8 @@ index 3512ec4..f9f5dd3 100644
 +        }
      }
  
-     val termsOfUsePromptRepository by lazyMonitored {
-@@ -537,7 +543,7 @@ class Components(
+     val termsOfUsePromptRepository by lazy {
+@@ -576,7 +582,7 @@ class Components(
              client = core.client,
              storage = MlpaTokenStorage.sharedPrefs(context),
              fxaTokenProvider = backgroundServices.accountManager.accessTokenProvider,
@@ -2942,7 +3576,7 @@ index 3512ec4..f9f5dd3 100644
              userIdProvider = clientUUID,
          )
      }
-@@ -552,7 +558,6 @@ class Components(
+@@ -591,7 +597,6 @@ class Components(
              authSources =
                  IPProtectionAuthSources(
                      fxaAccountManager = lazy { backgroundServices.accountManager },
@@ -3084,10 +3718,10 @@ index 7ec39a4..3787fc4 100644
  /** Records a [ReviewPrompt] with the required data. */
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Push.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Push.kt
 deleted file mode 100644
-index 640d6d3..0000000
+index cecafcd..0000000
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Push.kt
 +++ /dev/null
-@@ -1,68 +0,0 @@
+@@ -1,67 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -3104,7 +3738,6 @@ index 640d6d3..0000000
 -import mozilla.components.support.base.log.logger.Logger
 -import org.mozilla.fenix.R
 -import org.mozilla.fenix.ext.components
--import org.mozilla.fenix.perf.lazyMonitored
 -import org.mozilla.fenix.push.FirebasePushService
 -
 -/**
@@ -3112,7 +3745,7 @@ index 640d6d3..0000000
 - * WebPush, SendTab).
 - */
 -class Push(val context: Context, crashReporter: CrashReporter) {
--    val feature by lazyMonitored {
+-    val feature by lazy {
 -        pushConfig?.let { config ->
 -            AutoPushFeature(
 -                context = context,
@@ -3123,14 +3756,14 @@ index 640d6d3..0000000
 -        }
 -    }
 -
--    private val pushConfig: PushConfig? by lazyMonitored {
+-    private val pushConfig: PushConfig? by lazy {
 -        val logger = Logger("PushConfig")
 -        val projectIdKey = context.getString(R.string.pref_key_push_project_id)
 -        @SuppressLint("DiscouragedApi")
 -        val resId = context.resources.getIdentifier(projectIdKey, "string", context.packageName)
 -        if (resId == 0) {
 -            logger.warn("No firebase configuration found; cannot support push service.")
--            return@lazyMonitored null
+-            return@lazy null
 -        }
 -
 -        logger.debug("Creating push configuration for autopush.")
@@ -3154,10 +3787,10 @@ index 640d6d3..0000000
 -        }
 -    }
 -
--    private val pushService by lazyMonitored { FirebasePushService() }
+-    private val pushService by lazy { FirebasePushService() }
 -}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
-index d75d40a..905687d 100644
+index a710dde..cea2a4b 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
 @@ -9,12 +9,10 @@ import androidx.lifecycle.ProcessLifecycleOwner
@@ -3165,15 +3798,15 @@ index d75d40a..905687d 100644
  import mozilla.components.concept.engine.Engine
  import mozilla.components.feature.ipprotection.IPProtectionFeature
 -import mozilla.components.feature.ipprotection.auth.gpi.IPProtectionGpiProvider
+ import mozilla.components.feature.ipprotection.storage.DefaultIPProtectionLocationRepository
  import mozilla.components.feature.ipprotection.storage.IPProtectionStorageSynchronizer
- import mozilla.components.feature.ipprotection.store.DefaultIPProtectionLocationRepository
- import mozilla.components.feature.ipprotection.store.IPProtectionLocationMiddleware
  import mozilla.components.feature.ipprotection.store.IPProtectionStore
+ import mozilla.components.feature.ipprotection.store.middleware.IPProtectionLocationMiddleware
 -import mozilla.components.lib.integrity.googleplay.GooglePlayIntegrityClient
  import mozilla.components.service.fxa.manager.FxaAccountManager
  import mozilla.components.service.fxa.store.SyncStore
  import mozilla.components.support.base.log.logger.Logger
-@@ -33,10 +31,14 @@ import org.mozilla.fenix.utils.Settings
+@@ -34,10 +32,14 @@ import org.mozilla.fenix.utils.Settings
  /**
   * Auth sources for IP Protection. Bundles the providers that supply credentials to the underlying
   * [IPProtectionFeature].
@@ -3189,7 +3822,7 @@ index d75d40a..905687d 100644
  )
  
  /** Provides access to IP Protection related components. */
-@@ -79,15 +81,15 @@ class IPProtection(
+@@ -82,15 +84,15 @@ class IPProtection(
      }
  
      val feature by lazy {
@@ -3306,11 +3939,169 @@ index f4c2df1..0000000
 -        triggerPing()
 -    }
 -}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallationMetricsService.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallationMetricsService.kt
+deleted file mode 100644
+index 9b95be9..0000000
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallationMetricsService.kt
++++ /dev/null
+@@ -1,89 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import androidx.work.BackoffPolicy
+-import androidx.work.ExistingWorkPolicy
+-import androidx.work.OneTimeWorkRequestBuilder
+-import androidx.work.WorkManager
+-import java.util.concurrent.TimeUnit
+-import mozilla.components.support.base.log.logger.Logger
+-import mozilla.components.support.utils.RunWhenReadyQueue
+-import org.mozilla.fenix.nimbus.FxNimbus
+-
+-/**
+- * Metrics service that records an app open once per process and schedules the worker, after the app is visually
+- * complete. The worker is retried with exponential backoff.
+- *
+- * @param runWhenReadyQueue Schedules the worker once the app is visually complete.
+- * @param workManager Provides the [WorkManager] the worker is scheduled with.
+- * @param isEnabled Whether installation persistence is enabled.
+- */
+-class InstallationMetricsService(
+-    private val runWhenReadyQueue: RunWhenReadyQueue,
+-    private val workManager: () -> WorkManager,
+-    private val isEnabled: () -> Boolean = { FxNimbus.features.installation.value().enabled },
+-) : MetricsService {
+-    private val logger = Logger("InstallationMetricsService")
+-    override val type = MetricServiceType.Data
+-
+-    private var started = false
+-    private var stopped = false
+-
+-    override fun start() {
+-        if (started) {
+-            return
+-        }
+-
+-        started = true
+-        runWhenReadyQueue.runIfReadyOrQueue {
+-            if (stopped) {
+-                return@runIfReadyOrQueue
+-            }
+-
+-            if (!isEnabled()) {
+-                logger.debug("Installation persistence disabled, skipping")
+-                return@runIfReadyOrQueue
+-            }
+-
+-            scheduleWorker()
+-        }
+-    }
+-
+-    override fun stop() {
+-        stopped = true
+-        workManager().cancelUniqueWork(WORK_NAME)
+-    }
+-
+-    private fun scheduleWorker() {
+-        val workRequest =
+-            OneTimeWorkRequestBuilder<InstallationWorker>()
+-                .setInitialDelay(INITIAL_DELAY_SECONDS, TimeUnit.SECONDS)
+-                .setBackoffCriteria(
+-                    BackoffPolicy.EXPONENTIAL,
+-                    INITIAL_BACKOFF_DELAY_SECONDS,
+-                    TimeUnit.SECONDS,
+-                )
+-                .build()
+-
+-        workManager()
+-            .enqueueUniqueWork(
+-                WORK_NAME,
+-                ExistingWorkPolicy.KEEP,
+-                workRequest,
+-            )
+-    }
+-
+-    override fun track(event: Event) = Unit
+-
+-    override fun shouldTrack(event: Event): Boolean = false
+-
+-    companion object {
+-        internal const val MAX_RETRIES = 3
+-        private const val INITIAL_DELAY_SECONDS = 5L
+-        private const val INITIAL_BACKOFF_DELAY_SECONDS = 5L
+-        internal const val WORK_NAME = "org.mozilla.fenix.metrics.installation.work"
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallationWorker.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallationWorker.kt
+deleted file mode 100644
+index 112c7c7..0000000
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallationWorker.kt
++++ /dev/null
+@@ -1,57 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import android.content.Context
+-import androidx.work.CoroutineWorker
+-import androidx.work.WorkerParameters
+-import kotlinx.coroutines.CoroutineDispatcher
+-import kotlinx.coroutines.Dispatchers
+-import kotlinx.coroutines.withContext
+-import mozilla.components.lib.installation.blockstore.InstallBlockStore
+-import mozilla.components.lib.installation.blockstore.InstallState
+-import org.mozilla.fenix.GleanMetrics.Installation
+-import org.mozilla.fenix.GleanMetrics.Pings
+-
+-/**
+- * A Worker that records an app open and submits the installation ping on the first open after a fresh install.
+- *
+- * @param context The application context.
+- * @param workerParameters Setup parameters for a [CoroutineWorker].
+- * @param blockStore Records the app open, returning the [InstallState] on the first open after a fresh install.
+- * @param ioDispatcher The dispatcher the app open is recorded on.
+- */
+-class InstallationWorker
+-@JvmOverloads
+-constructor(
+-    context: Context,
+-    workerParameters: WorkerParameters,
+-    private val blockStore: InstallBlockStore = InstallBlockStore.create(context),
+-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+-) : CoroutineWorker(context, workerParameters) {
+-
+-    override suspend fun doWork(): Result =
+-        withContext(ioDispatcher) {
+-            blockStore
+-                .recordAppOpen()
+-                .fold(
+-                    onSuccess = { installState ->
+-                        installState?.let {
+-                            Installation.installCounter.set(it.installCount.toLong())
+-                            it.previousLastSeenDate?.let { date -> Installation.lastSeenDate.set(date) }
+-                            Pings.installation.submit()
+-                        }
+-                        Result.success()
+-                    },
+-                    onFailure = {
+-                        if (runAttemptCount < InstallationMetricsService.MAX_RETRIES) {
+-                            Result.retry()
+-                        } else {
+-                            Result.failure()
+-                        }
+-                    },
+-                )
+-        }
+-}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt
-index e3aa556..11c7b49 100644
+index 61351bd..07582a3 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt
-@@ -4,40 +4,26 @@
+@@ -4,42 +4,28 @@
  
  package org.mozilla.fenix.components.metrics
  
@@ -3325,7 +4116,9 @@ index e3aa556..11c7b49 100644
 -import javax.crypto.spec.PBEKeySpec
 -import kotlinx.coroutines.Dispatchers
 -import kotlinx.coroutines.withContext
+ import mozilla.components.browser.state.search.SearchAccessPoint
  import mozilla.components.browser.state.search.SearchEngine
+ import mozilla.components.browser.state.search.accessPoint
 -import mozilla.components.support.base.log.logger.Logger
  import org.mozilla.experiments.nimbus.NimbusEventStore
  import org.mozilla.fenix.GleanMetrics.Events
@@ -3357,7 +4150,7 @@ index e3aa556..11c7b49 100644
      /** Possible sources for a performed search. */
      enum class Source {
          ACTION,
-@@ -153,105 +139,6 @@ object MetricsUtils {
+@@ -158,105 +144,6 @@ object MetricsUtils {
  
      private fun BookmarkAction.Source.label() = name.lowercase()
  
@@ -3730,7 +4523,7 @@ index 25990df..0000000
 -        appServerKey = null,
 -    )
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index 21d1589..7e2e3d4 100644
+index 33f8779..6ef0261 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 @@ -368,7 +368,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
@@ -3789,10 +4582,10 @@ index f8580d7..5589a3b 100644
      )
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index c644a50..1d8e0aa 100644
+index 60db964..63d2096 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2133,12 +2133,6 @@ class Settings(
+@@ -2148,12 +2148,6 @@ class Settings(
              default = "",
          )
  
@@ -3806,10 +4599,10 @@ index c644a50..1d8e0aa 100644
          stringPreference(
              appContext.getPreferenceKey(R.string.pref_key_override_amo_user),
 diff --git a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
-index 6f95d22..c2d4a4a 100644
+index 2ad6520..23f6817 100644
 --- a/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/preference_keys.xml
-@@ -63,7 +63,6 @@
+@@ -64,7 +64,6 @@
      <string name="pref_key_override_fxa_server" translatable="false">pref_key_override_fxa_server</string>
      <string name="pref_key_use_react_fxa" translatable="false">pref_key_use_react_fxa</string>
      <string name="pref_key_override_sync_tokenserver" translatable="false">pref_key_override_sync_tokenserver</string>
@@ -3817,16 +4610,16 @@ index 6f95d22..c2d4a4a 100644
      <string name="pref_key_sync_debug_quit" translatable="false">pref_key_sync_debug_quit</string>
      <string name="pref_key_sync_debug_network_error" translatable="false">pref_key_sync_debug_network_error</string>
      <string name="pref_key_sync_debug_temporary_auth_error" translatable="false">pref_key_sync_debug_temporary_auth_error</string>
-@@ -157,7 +156,6 @@
+@@ -159,7 +158,6 @@
      <string name="pref_key_sync_tabs" translatable="false">pref_key_sync_tabs</string>
      <string name="pref_key_sign_out" translatable="false">pref_key_sign_out</string>
      <string name="pref_key_sync_sign_in" translatable="false">pref_key_sync_sign_in</string>
 -    <string name="pref_key_push_project_id" translatable="false">project_id</string>
      <string name="pref_key_search_widget_installed_2" translatable="false">pref_key_search_widget_installed_2</string>
-     <!-- Key for the app version code that last published the search bar widget previews -->
-     <string name="pref_key_search_bar_widget_previews_version" translatable="false">pref_key_search_bar_widget_previews_version</string>
+     <!-- Key for the IDs of the search widgets known to be on the home screen -->
+     <string name="pref_key_search_widget_ids" translatable="false">pref_key_search_widget_ids</string>
 diff --git a/mobile/android/fenix/app/src/main/res/values/static_strings.xml b/mobile/android/fenix/app/src/main/res/values/static_strings.xml
-index c589c97..2e9b0e1 100644
+index 5cd4313..6ef3055 100644
 --- a/mobile/android/fenix/app/src/main/res/values/static_strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/static_strings.xml
 @@ -75,7 +75,6 @@
@@ -3854,7 +4647,7 @@ index 82aeef1..0f6c306 100644
          android:key="@string/pref_key_sync_debug_quit"
          android:title="@string/preferences_sync_debug_quit_button_title"
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt
-index fe4a0d1..b18b434 100644
+index b317725..6a7823d 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt
 @@ -13,7 +13,6 @@ import io.mockk.impl.annotations.MockK
@@ -3866,7 +4659,7 @@ index fe4a0d1..b18b434 100644
  import mozilla.components.concept.sync.AuthType
  import mozilla.components.concept.sync.OAuthAccount
 @@ -175,7 +174,6 @@ class BackgroundServicesTest {
-     private fun createBackgroundServices(isAndroidAutomotiveAvailable: Boolean) =
+     private fun createBackgroundServices(areCredentialsSyncable: Boolean) =
          BackgroundServices(
              context = testContext,
 -            push = mockk(relaxed = true),
@@ -3878,7 +4671,7 @@ index fe4a0d1..b18b434 100644
              creditCardsStorage = mockk(relaxed = true),
              strictMode = TestStrictModeManager(),
 -            applicationScope = mockk<CoroutineScope>(relaxed = true),
-             isAndroidAutomotiveAvailable = isAndroidAutomotiveAvailable,
+             areCredentialsSyncable = areCredentialsSyncable,
          )
  }
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt
@@ -4154,6 +4947,295 @@ index 2b5d045..0000000
 -        mockAp.checkAndSend()
 -
 -        verify(exactly = 0) { mockAp.triggerPing() }
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallationMetricsServiceTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallationMetricsServiceTest.kt
+deleted file mode 100644
+index 4e83fcd..0000000
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallationMetricsServiceTest.kt
++++ /dev/null
+@@ -1,138 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import android.content.Context
+-import androidx.test.ext.junit.runners.AndroidJUnit4
+-import androidx.work.Configuration
+-import androidx.work.WorkInfo
+-import androidx.work.WorkManager
+-import androidx.work.WorkerFactory
+-import androidx.work.WorkerParameters
+-import androidx.work.testing.WorkManagerTestInitHelper
+-import kotlinx.coroutines.awaitCancellation
+-import kotlinx.coroutines.test.StandardTestDispatcher
+-import kotlinx.coroutines.test.TestScope
+-import mozilla.components.lib.installation.blockstore.InstallBlockStore
+-import mozilla.components.lib.installation.blockstore.InstallState
+-import mozilla.components.support.test.robolectric.testContext
+-import mozilla.components.support.utils.RunWhenReadyQueue
+-import org.junit.After
+-import org.junit.Assert.assertEquals
+-import org.junit.Assert.assertFalse
+-import org.junit.Assert.assertTrue
+-import org.junit.Before
+-import org.junit.Test
+-import org.junit.runner.RunWith
+-
+-@RunWith(AndroidJUnit4::class)
+-class InstallationMetricsServiceTest {
+-
+-    private val testDispatcher = StandardTestDispatcher()
+-    private val testScope = TestScope(testDispatcher)
+-    private val visualCompletenessQueue = RunWhenReadyQueue(testScope)
+-    private lateinit var workManager: WorkManager
+-
+-    @Before
+-    fun setup() {
+-        WorkManagerTestInitHelper.initializeTestWorkManager(
+-            testContext,
+-            Configuration.Builder().setWorkerFactory(PendingInstallationWorkerFactory()).build(),
+-        )
+-        workManager = WorkManager.getInstance(testContext)
+-    }
+-
+-    @After
+-    fun teardown() {
+-        workManager.cancelAllWork()
+-        WorkManagerTestInitHelper.closeWorkDatabase()
+-    }
+-
+-    private fun createService(isEnabled: () -> Boolean = { true }) =
+-        InstallationMetricsService(
+-            runWhenReadyQueue = visualCompletenessQueue,
+-            workManager = { workManager },
+-            isEnabled = isEnabled,
+-        )
+-
+-    private fun becomeVisuallyComplete() {
+-        visualCompletenessQueue.ready()
+-        testDispatcher.scheduler.advanceUntilIdle()
+-    }
+-
+-    private fun installationWork() = workManager.getWorkInfosForUniqueWork(InstallationMetricsService.WORK_NAME).get()
+-
+-    @Test
+-    fun `GIVEN the service is started WHEN the app becomes visually complete THEN the installation worker is enqueued`() {
+-        createService().start()
+-        becomeVisuallyComplete()
+-
+-        assertFalse(installationWork().single().state.isFinished)
+-    }
+-
+-    @Test
+-    fun `GIVEN installation metrics are disabled WHEN the app becomes visually complete THEN the installation worker is not enqueued`() {
+-        createService(isEnabled = { false }).start()
+-        becomeVisuallyComplete()
+-
+-        assertTrue(installationWork().isEmpty())
+-    }
+-
+-    @Test
+-    fun `GIVEN the service is started WHEN the app is not visually complete THEN the installation worker is not enqueued`() {
+-        createService().start()
+-        testDispatcher.scheduler.advanceUntilIdle()
+-
+-        assertTrue(installationWork().isEmpty())
+-    }
+-
+-    @Test
+-    fun `GIVEN the service was started twice WHEN the app becomes visually complete THEN the installation worker is enqueued once`() {
+-        val service = createService()
+-
+-        service.start()
+-        service.start()
+-        becomeVisuallyComplete()
+-
+-        assertEquals(1, installationWork().size)
+-    }
+-
+-    @Test
+-    fun `GIVEN the installation worker was enqueued WHEN the service is stopped and started again THEN the worker is cancelled and not enqueued again`() {
+-        val service = createService()
+-        service.start()
+-        becomeVisuallyComplete()
+-
+-        service.stop()
+-        service.start()
+-        testDispatcher.scheduler.advanceUntilIdle()
+-
+-        assertEquals(WorkInfo.State.CANCELLED, installationWork().single().state)
+-    }
+-
+-    @Test
+-    fun `GIVEN the service was stopped before the app is visually complete WHEN the app becomes visually complete THEN the installation worker is not enqueued`() {
+-        val service = createService()
+-
+-        service.start()
+-        service.stop()
+-        becomeVisuallyComplete()
+-
+-        assertTrue(installationWork().isEmpty())
+-    }
+-
+-    /** Creates [InstallationWorker]s that never finish, so the scheduled work stays observable. */
+-    private class PendingInstallationWorkerFactory : WorkerFactory() {
+-        override fun createWorker(
+-            appContext: Context,
+-            workerClassName: String,
+-            workerParameters: WorkerParameters,
+-        ) = InstallationWorker(appContext, workerParameters, PendingInstallBlockStore())
+-    }
+-
+-    private class PendingInstallBlockStore : InstallBlockStore {
+-        override suspend fun recordAppOpen(): Result<InstallState?> = awaitCancellation()
+-    }
+-}
+diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallationWorkerTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallationWorkerTest.kt
+deleted file mode 100644
+index 9014204..0000000
+--- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallationWorkerTest.kt
++++ /dev/null
+@@ -1,139 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import android.content.Context
+-import androidx.work.ListenableWorker
+-import androidx.work.WorkerFactory
+-import androidx.work.WorkerParameters
+-import androidx.work.testing.TestListenableWorkerBuilder
+-import java.text.SimpleDateFormat
+-import java.util.Date
+-import java.util.Locale
+-import kotlinx.coroutines.test.StandardTestDispatcher
+-import kotlinx.coroutines.test.TestScope
+-import kotlinx.coroutines.test.runTest
+-import mozilla.components.lib.installation.blockstore.InstallBlockStore
+-import mozilla.components.lib.installation.blockstore.InstallState
+-import mozilla.components.support.test.robolectric.testContext
+-import org.junit.Assert.assertEquals
+-import org.junit.Assert.assertFalse
+-import org.junit.Assert.assertNull
+-import org.junit.Rule
+-import org.junit.Test
+-import org.junit.runner.RunWith
+-import org.mozilla.fenix.GleanMetrics.Installation
+-import org.mozilla.fenix.GleanMetrics.Pings
+-import org.mozilla.fenix.helpers.FenixGleanTestRule
+-import org.robolectric.RobolectricTestRunner
+-
+-@RunWith(RobolectricTestRunner::class)
+-class InstallationWorkerTest {
+-
+-    @get:Rule val gleanTestRule = FenixGleanTestRule(testContext)
+-
+-    private suspend fun TestScope.runWorker(
+-        runAttemptCount: Int = 0,
+-        recordAppOpen: suspend () -> Result<InstallState?>,
+-    ): ListenableWorker.Result =
+-        TestListenableWorkerBuilder<InstallationWorker>(testContext)
+-            .setWorkerFactory(
+-                object : WorkerFactory() {
+-                    override fun createWorker(
+-                        appContext: Context,
+-                        workerClassName: String,
+-                        workerParameters: WorkerParameters,
+-                    ) =
+-                        InstallationWorker(
+-                            appContext,
+-                            workerParameters,
+-                            FakeInstallBlockStore(recordAppOpen),
+-                            StandardTestDispatcher(testScheduler),
+-                        )
+-                }
+-            )
+-            .setRunAttemptCount(runAttemptCount)
+-            .build()
+-            .doWork()
+-
+-    private fun date(date: String) = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(date)
+-
+-    private fun format(date: Date) = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(date)
+-
+-    @Test
+-    fun `GIVEN a first install WHEN the worker runs THEN the installation ping is submitted with the install counter and without the last seen date`() =
+-        runTest {
+-            val job =
+-                Pings.installation.testBeforeNextSubmit {
+-                    assertEquals(1L, Installation.installCounter.testGetValue())
+-                    assertNull(Installation.lastSeenDate.testGetValue())
+-                }
+-
+-            val result = runWorker { Result.success(InstallState(installCount = 1, previousLastSeenDate = null)) }
+-
+-            job.join()
+-            assertEquals(ListenableWorker.Result.success(), result)
+-        }
+-
+-    @Test
+-    fun `GIVEN a reinstall WHEN the worker runs THEN the installation ping is submitted with the install counter and last seen date`() =
+-        runTest {
+-            val job =
+-                Pings.installation.testBeforeNextSubmit {
+-                    assertEquals(3L, Installation.installCounter.testGetValue())
+-                    assertEquals("2026-09-01", format(Installation.lastSeenDate.testGetValue()!!))
+-                }
+-
+-            val result = runWorker {
+-                Result.success(InstallState(installCount = 3, previousLastSeenDate = date("2026-09-01")))
+-            }
+-
+-            job.join()
+-            assertEquals(ListenableWorker.Result.success(), result)
+-        }
+-
+-    @Test
+-    fun `GIVEN the install was already recorded WHEN the worker runs THEN nothing is set and the installation ping is not submitted`() =
+-        runTest {
+-            var submitted = false
+-            Pings.installation.testBeforeNextSubmit { submitted = true }
+-
+-            val result = runWorker { Result.success(null) }
+-
+-            assertEquals(ListenableWorker.Result.success(), result)
+-            assertFalse(submitted)
+-            assertNull(Installation.installCounter.testGetValue())
+-            assertNull(Installation.lastSeenDate.testGetValue())
+-        }
+-
+-    @Test
+-    fun `GIVEN recording fails WHEN the worker runs THEN nothing is set, the installation ping is not submitted and the work is retried`() =
+-        runTest {
+-            var submitted = false
+-            Pings.installation.testBeforeNextSubmit { submitted = true }
+-
+-            val result = runWorker { Result.failure(IllegalStateException()) }
+-
+-            assertEquals(ListenableWorker.Result.retry(), result)
+-            assertFalse(submitted)
+-            assertNull(Installation.installCounter.testGetValue())
+-            assertNull(Installation.lastSeenDate.testGetValue())
+-        }
+-
+-    @Test
+-    fun `GIVEN recording fails and the retries are exhausted WHEN the worker runs THEN the work fails`() = runTest {
+-        val result =
+-            runWorker(runAttemptCount = InstallationMetricsService.MAX_RETRIES) {
+-                Result.failure(IllegalStateException())
+-            }
+-
+-        assertEquals(ListenableWorker.Result.failure(), result)
+-    }
+-
+-    private class FakeInstallBlockStore(private val recordAppOpen: suspend () -> Result<InstallState?>) :
+-        InstallBlockStore {
+-        override suspend fun recordAppOpen() = recordAppOpen.invoke()
 -    }
 -}
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/MetricsUtilsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/MetricsUtilsTest.kt
@@ -4527,10 +5609,10 @@ index 004ca76..0000000
 -    }
 -}
 diff --git a/mobile/android/fenix/build.gradle b/mobile/android/fenix/build.gradle
-index bdae217..0cb22a3 100644
+index 7ff8ac9..4db4774 100644
 --- a/mobile/android/fenix/build.gradle
 +++ b/mobile/android/fenix/build.gradle
-@@ -11,7 +11,6 @@ buildscript {
+@@ -9,7 +9,6 @@ buildscript {
          classpath libs.androidx.benchmark.gradle
          classpath libs.androidx.navigation.safeargs
          classpath libs.mozilla.glean.gradle.plugin
@@ -4712,12 +5794,12 @@ index a09f494..de3273c 100644
      }
  
 diff --git a/mobile/android/focus-android/build.gradle b/mobile/android/focus-android/build.gradle
-index ae0ea90..11ccac3 100644
+index a3dd51f..21792b7 100644
 --- a/mobile/android/focus-android/build.gradle
 +++ b/mobile/android/focus-android/build.gradle
-@@ -9,7 +9,6 @@ buildscript {
-         classpath libs.android.gradle.plugin
-         classpath libs.kotlin.gradle.plugin
+@@ -7,7 +7,6 @@ buildscript {
+ 
+     dependencies {
          classpath libs.mozilla.glean.gradle.plugin
 -        classpath libs.osslicenses.plugin
  

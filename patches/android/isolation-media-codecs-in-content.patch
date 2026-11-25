@@ -99,6 +99,16 @@
 # RemoteVideoDecoderParent and RemoteAudioDecoderParent still create through
 # EnsurePDMFactory().CreateDecoder(). PDMFactory.cpp: context only.
 #
+#
+# 161 rebase (2026-11-25, Firefox 161.0): Supports()'s #ifdef ANDROID block
+# was restructured upstream: a CDM decoder must now be in the CDM's own process
+# (mCDM->GetLocation()), and a new branch strips HardwareDecode in RDD when
+# GPU-process decoding is available (media.gpu-process-decoder, Android
+# default @IS_NIGHTLY_BUILD@, so off on release). The Redoubt filter stays
+# inside the ANDROID block, after that if/else chain and before the MCSInfo
+# size/colour-depth filter, as on 160 (checked by hand: GNU patch needed fuzz 2
+# here). PDMFactory's refusal already covers XRE_IsGPUProcess().
+
 
 --- a/dom/media/ipc/RemoteDecoderModule.cpp
 +++ b/dom/media/ipc/RemoteDecoderModule.cpp
@@ -118,9 +128,9 @@
  
  namespace mozilla {
  
-@@ -77,6 +79,32 @@ media::DecodeSupportSet RemoteDecoderModule::Supports(
-        mLocation != RemoteMediaIn::UtilityProcess_Generic)) {
-     support = {};
+@@ -88,6 +90,32 @@ media::DecodeSupportSet RemoteDecoderModule::Supports(
+     // is not permitted in the GPU process.
+     support -= media::DecodeSupport::HardwareDecode;
    }
 +  // Redoubt (LW-M7-50, 158.0-2): when web content runs isolated
 +  // (media.redoubt-isolation-media.enabled, locked, set from GeckoView's process
@@ -225,7 +235,7 @@
           StaticPrefs::media_rdd_vorbis_enabled() &&
 --- a/modules/libpref/init/StaticPrefList.yaml
 +++ b/modules/libpref/init/StaticPrefList.yaml
-@@ -13056,6 +13056,34 @@
+@@ -13144,6 +13144,34 @@
  #endif
    mirror: always
  

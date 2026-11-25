@@ -78,9 +78,17 @@
 # which does the send. The blocking body now replaces _make_request(), the
 # function that performs the request; make_request() is left as upstream wrote
 # it, so every caller still gets the same Err. service.rs and sync() unchanged.
+# 161 rebase (2026-11-25, Firefox 161.0): same two choke points, same
+# replacements. 161 changed Error::response_error() to take the whole
+# viaduct::Response (it now parses Kinto's JSON error body); the deleted
+# upstream lines in _make_request() and SyncClient::fetch_changes() carry the
+# new call. Error::ResponseError { url, message } is unchanged, and grep finds
+# no other Request::get / send in components/remote_settings/src.
+#
+
 --- a/third_party/application-services/components/remote_settings/src/client.rs
 +++ b/third_party/application-services/components/remote_settings/src/client.rs
-@@ -379,25 +379,9 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
+@@ -380,25 +380,9 @@ impl<C: ApiClient> RemoteSettingsClient<C> {
      }
  
      pub fn sync(&self) -> Result<()> {
@@ -109,7 +117,7 @@
          Ok(())
      }
  
-@@ -652,21 +636,14 @@ impl ViaductApiClient {
+@@ -653,18 +637,14 @@ impl ViaductApiClient {
      }
  
      fn _make_request(&mut self, url: Url) -> Result<Response> {
@@ -123,10 +131,7 @@
 -        if resp.is_success() {
 -            Ok(resp)
 -        } else {
--            Err(Error::response_error(
--                &resp.url,
--                format!("status code: {}", resp.status),
--            ))
+-            Err(Error::response_error(&resp))
 -        }
 +        // LibreWolf: all network requests to the Remote Settings server are blocked.
 +        // This is the single choke point for all egress in this client
@@ -179,7 +184,7 @@
 -            telemetry.report_uptake_success(TELEMETRY_SOURCE_POLL, Some(duration));
 -            Ok(body)
 -        } else {
--            let e = Error::response_error(&resp.url, format!("status code: {}", resp.status));
+-            let e = Error::response_error(&resp);
 -            telemetry.report_uptake_error(&e, TELEMETRY_SOURCE_POLL);
 -            Err(e)
 -        }

@@ -1,0 +1,27 @@
+# Gates, rebase/161.0, 2026-11-25. LW_TREE = pristine firefox-161.0 (sha256 c649de11...6a5a)
+$ python3 docs/android/board.py --check
+ok: 138 tasks, 32 waves, 0 warning(s)
+exit 0
+$ python3 docs/android/board.py --check-scope
+ok: 116 listed patch files — 22 common, 44 desktop, 50 android, 0 straddlers parked; 1 overlay patch files (overlay-dev-app); PATCH-SCOPE.md agrees
+exit 0
+$ python3 docs/android/board.py --diff-mozconfig --strict
+ok: hardening parity holds (0 documented difference(s))
+exit 0
+$ python3 docs/android/board.py --check-policies
+# reading pref declarations from firefox-161.0
+ok: 132 prefs declared by GeckoView; 25 of them shipped by us, every unlocked one classified in must-not-lock.txt
+exit 0
+$ python3 docs/android/board.py --check-cfg-split
+ok: 185 common / 216 desktop / 17 android calls; librewolf.cfg regenerates exactly
+exit 0
+$ python3 scripts/lint-patch-scope.py
+lint-patch-scope: OK - 117 patch file(s), no scope violations, no hunk header without line numbers
+exit 0
+$ python3 scripts/check-patch-order.py
+patch order ok: 39/39 declared constraint(s) enforced across 3 target sequence(s); 187 shared-file pair(s) derived and classified.
+  (8 of those pair a list patch with an overlay patch, which the overlay sequence orders by construction)
+exit 0
+$ python3 scripts/gen-ubo-assets-android.py --check
+ok: uBOAssets.android.json enables fanboy-cookiemonster, ublock-cookies-easylist by default
+exit 0

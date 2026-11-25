@@ -26,6 +26,9 @@
 #       line, which is earlier in android.txt).
 #   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
 #       the Quit callback also calls DeleteOnQuitGuard.onSessionEnding("quit").
+#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuFragment.kt
+#       the same for the quitApplicationDelegate that QuitMenuItemProvider runs
+#       once clearBrowsingDataOnQuit() is done (161 rebase, see below).
 # New files
 #   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
 #   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddleware.kt
@@ -33,6 +36,15 @@
 #   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddlewareTest.kt
 # Fully qualified names are used instead of imports because the import blocks
 # differ between Firefox 157 and 158.
+#
+# 161 rebase (2026-11-25, Firefox 161.0): Settings.isMenuCustomizationEnabled is
+# a constant true, so every menu opens MenuFragment (HomeActivity,
+# BrowserToolbarMiddleware) and Quit runs QuitMenuItemProvider ->
+# clearBrowsingDataOnQuit(onDeletionComplete = quitApplicationDelegate). The
+# MenuDialogFragment hook still applies but is no longer reachable; without the
+# new MenuFragment hunk, Quit skipped the app-side deletion and the "clean"
+# marker (found in review: the patch applied at fuzz 0 regardless). The
+# MenuDialogFragment hunk is kept until upstream deletes the file.
 #
 # What upstream does
 # -------------------
@@ -232,6 +244,23 @@ diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components
                              activity.finishAndRemoveTask()
                          }
                      }
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuFragment.kt
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuFragment.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuFragment.kt
+@@ -381,7 +381,12 @@
+             summarizeEligibilityChecker = components.core.summarizationEligibilityChecker,
+             translationsSettings = TranslationsEnabledSettings.dataStore(context),
+             isAndroidAutomotiveAvailable = context.isAndroidAutomotiveAvailable(),
+-            quitApplicationDelegate = activity::finishAndRemoveTask,
++            quitApplicationDelegate = {
++                // Redoubt LW-M7-45: confirm the deletion, then record the clean quit
++                // (from 161 every menu is this one; MenuDialogFragment is unreachable).
++                org.mozilla.fenix.lw.DeleteOnQuitGuard.get(activity).onSessionEnding("quit")
++                activity.finishAndRemoveTask()
++            },
+             setAsDefaultBrowserDelegate = activity::openSetDefaultBrowserOption,
+             menuViewScope = viewLifecycleOwner.lifecycle.coroutineScope,
+             applicationScope = components.applicationScope,
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
 new file mode 100644
 --- /dev/null
@@ -245,7 +274,7 @@ new file mode 100644
 +// did not end through the Quit menu item.
 +//
 +// Upstream deletes the selected categories only when the user picks Quit
-+// (MenuDialogFragment -> DeleteBrowsingDataController.clearBrowsingDataOnQuit).
++// (MenuFragment / QuitMenuItemProvider -> DeleteBrowsingDataController.clearBrowsingDataOnQuit).
 +// Swiping the app away from recents, an OOM kill, a crash, a force-stop or a
 +// reboot skips the deletion, and the next start restores the tabs, cookies and
 +// history the user asked to have deleted. Owner decisions 2026-10-06: "lets

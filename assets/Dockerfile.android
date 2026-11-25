@@ -31,10 +31,10 @@
 #   SDK platform-tools        latest             python/mozboot/mozboot/android-packages.txt:2
 #   SDK emulator              latest             python/mozboot/mozboot/android-packages.txt:1
 #   bundletool                1.18.3             python/mozboot/mozboot/android.py:32-33
-#   Rust                      1.94.1             taskcluster/kinds/toolchain/rust.yml:218,224
+#   Rust (161)                1.95.0             taskcluster/kinds/toolchain/rust.yml:214-236
 #                                                (linux64-rust-android, consumed by
 #                                                 taskcluster/kinds/build/android.yml:58)
-#   Rust minimum (floor)      1.90.0             python/mozboot/mozboot/util.py:16, Cargo.toml:155
+#   Rust minimum (161)        1.95.0             python/mozboot/mozboot/util.py:18, Cargo.toml:160
 #   Rust Android targets      5, see below       taskcluster/kinds/toolchain/rust.yml:227-231
 #   Node.js                   22.16.0            taskcluster/kinds/fetch/toolchains.yml:645-649
 #   Node.js minimum (floor)   12.22.12           python/mozbuild/mozbuild/nodeutil.py:15
@@ -112,7 +112,7 @@ ENV LW_ANDROID_CMDLINE_TOOLS_BUILD=16111833
 ENV LW_ANDROID_BUILD_TOOLS_VERSION=37.0.0
 ENV LW_ANDROID_PLATFORM=android-37.2
 ENV LW_BUNDLETOOL_VERSION=1.18.3
-ENV LW_RUST_VERSION=1.94.1
+ENV LW_RUST_VERSION=1.95.0
 
 # Host toolchains (LW-M0-15). See the "Host toolchains" block near the bottom
 # of this file for why each one is here and how configure finds it.
@@ -125,9 +125,18 @@ ENV LW_CBINDGEN_VERSION=0.29.4
 ENV LW_WASI_LLVM_MAJOR=21
 ENV LW_TASKCLUSTER_INDEX=https://firefox-ci-tc.services.mozilla.com/api/index/v1/task
 ENV LW_WASI_SYSROOT_INDEX=gecko.cache.level-3.toolchains.v3.sysroot-wasm32-wasi-clang-21.hash.9331ced32259b7567fe6da30d2eac6c3963ebf5d974988bf4fd125a098a8308b
-ENV LW_WASI_SYSROOT_SHA256=9848ba23b27794ba61db6a6d3500614d9146dcf5831e9edd00d413c395e9c21e
+# Re-pinned 2026-11-25: Taskcluster rebuilt both cached toolchain tasks on
+# 2026-11-23 under the SAME input-hash index (the year-old tasks expired), so
+# the bytes changed and the old sha256 failed (CI run 45646362717). New tasks
+# BXmGCuhxTHKp4gOJb_tl9Q (sysroot) and YVF-ATf1RzyxeabvrLGqGw (compiler-rt),
+# gecko-level-3, decision group bGaYt9iGR2a9HxdUhHSUHw (mozilla-esr153); the
+# sha256 below equal each task's public/chain-of-trust.json, whose .sig verifies
+# with Mozilla's docker-worker key Kz/aZIVe... (scriptworker constants.py, "Dec
+# 2023 rotation - d2g"). Expect the same again around 2027-11-23, when these
+# expire; re-pin the same way (record: evidence/lw-m7-01/release-161.0).
+ENV LW_WASI_SYSROOT_SHA256=86c876ed2564f7a6b6aa4ca31db4c5dea364b51568f696968c0a574f2358ce29
 ENV LW_WASI_COMPILER_RT_INDEX=gecko.cache.level-3.toolchains.v3.wasm32-wasi-compiler-rt-21.hash.b6dd1a2707cd37635de25d004caed7460887e2114aa2167b4b60d4a278c54e78
-ENV LW_WASI_COMPILER_RT_SHA256=b1111c2a1c83a5a15ac7404513541605386b676bdabe786a15f4a596f82933aa
+ENV LW_WASI_COMPILER_RT_SHA256=824a460053ff9d18ecb6f5c2e3171cd8b7d1f72574c57ea999969012d3fbf175
 
 # The paths below are not free choices: configure looks for the toolchains at
 # exactly these locations under the mozbuild state dir and dies otherwise.
@@ -233,11 +242,13 @@ RUN wget -q -O ${ANDROID_BUNDLETOOL_PATH} \
  && test -s ${ANDROID_BUNDLETOOL_PATH}
 
 # ---------------------------------------------------------------------------
-# Rust 1.94.1 with the Android cross targets.
+# Rust 1.95.0 with the Android cross targets.
 #
-# 1.90.0 is only the floor (python/mozboot/mozboot/util.py:16, Cargo.toml:155);
+# 161 raised the floor to 1.95.0 (python/mozboot/mozboot/util.py:18,
+# Cargo.toml:160); 1.94.1, pinned since the 153 port, fails configure with
+# "Rust compiler 1.94.1 is too old" (CI run 45645657463). Even before that,
 # the version Mozilla actually ships Android builds with is the
-# linux64-rust-android toolchain, taskcluster/kinds/toolchain/rust.yml:218-236,
+# linux64-rust-android-1.95 toolchain, taskcluster/kinds/toolchain/rust.yml:214-236,
 # pulled in by taskcluster/kinds/build/android.yml:58. Pin to that, not to the
 # floor, so we are compiling with the compiler upstream tests against.
 #

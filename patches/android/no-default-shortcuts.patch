@@ -10,12 +10,54 @@
 # whose getPinnedSites() reads it and adds nothing for an empty list (it only
 # writes when the list is non-empty). The same emptying is applied to the
 # renamed file.
+#
+# 161 rebase (2026-11-25, Firefox 161.0): 161 moved Wikipedia and the four
+# JP-only sites out of default_pinned_shortcuts.json (which now seeds only
+# Google) into res/raw/default_shortcuts.json, the non-pinned default tiles that
+# FenixDefaultTopSitesProvider reads, and added 47 region-specific tiles there
+# (DE, US, IN, FR, BR, GB, PL, IT, ES, JP) shown only when the provider's
+# experiment set contains `regional-default-shortcuts`. Core.kt adds it when
+# Settings.enableRegionalDefaultShortcuts, i.e. the Nimbus feature of that name,
+# FML default TRUE (no-nimbus keeps FML defaults). The pinned seed is emptied as
+# before (one entry instead of six), and enableRegionalDefaultShortcuts is now a
+# constant false, so the regional sets never show. Not changed here, owner
+# decision: default_shortcuts.json itself was never emptied (159/160 shipped it
+# with Wikipedia + 4 JP tiles); on 161 its only experiment-independent entry is
+# the Wikipedia tile (all regions but CN/JP). The pinned-shortcuts maximum
+# dialog 161 removed (topSitesMaxLimit is now only the provider's target count)
+# does not touch the seed. Data is bundled; read from source, not run.
 
+
+diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+index 02c3efa..fdcab29 100644
+--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
++++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+@@ -2722,9 +2722,18 @@ class Settings(
+             default = { FxNimbus.features.showMoreShortcuts.value().enabled },
+         )
+ 
+-    /** Indicates if the regional default shortcuts are enabled. */
++    /**
++     * Indicates if the regional default shortcuts are enabled.
++     *
++     * LibreWolf (LW-M7-30, 161 rebase): constant false. Upstream 161 added 47 region-specific default shortcut
++     * tiles to res/raw/default_shortcuts.json (news, weather, rail, sport and recipe sites for DE, US, IN, FR, BR,
++     * GB, PL, IT, ES and JP), shown only to the `regional-default-shortcuts` experiment, which the Nimbus feature
++     * of the same name enables by default. They are not added to Redoubt's shortcut set: the experiment is never
++     * put into FenixDefaultTopSitesProvider's set, so only the experiment-independent entry remains (the
++     * Wikipedia tile, outside CN and JP).
++     */
+     val enableRegionalDefaultShortcuts: Boolean
+-        get() = FxNimbus.features.regionalDefaultShortcuts.value().enabled
++        get() = false
+ 
+     /** Indicates if the Homepage Weather Widget is enabled. */
+     var enableHomepageWeatherWidget by
 diff --git a/mobile/android/fenix/app/src/main/res/raw/default_pinned_shortcuts.json b/mobile/android/fenix/app/src/main/res/raw/default_pinned_shortcuts.json
-index e318e7c..268c73f 100644
+index 7a1bd16..268c73f 100644
 --- a/mobile/android/fenix/app/src/main/res/raw/default_pinned_shortcuts.json
 +++ b/mobile/android/fenix/app/src/main/res/raw/default_pinned_shortcuts.json
-@@ -1,105 +1,3 @@
+@@ -1,24 +1,3 @@
  {
 -  "data": [
 -    {
@@ -33,87 +75,6 @@ index e318e7c..268c73f 100644
 -      ],
 -      "include_locales": [],
 -      "include_regions": [],
--      "exclude_experiments": [],
--      "include_experiments": [],
--      "id": "",
--      "last_modified": 1
--    },
--    {
--      "url": "https://www.wikipedia.org/",
--      "order": 1,
--      "title": "Wikipedia",
--      "schema": 1,
--      "exclude_locales": [],
--      "exclude_regions": [
--        "CN",
--        "JP"
--      ],
--      "include_locales": [],
--      "include_regions": [],
--      "exclude_experiments": [],
--      "include_experiments": [],
--      "id": "",
--      "last_modified": 1
--    },
--    {
--      "url": "https://tenki.jp/",
--      "order": 1,
--      "title": "tenki.jp",
--      "schema": 1,
--      "exclude_locales": [],
--      "exclude_regions": [],
--      "include_locales": [],
--      "include_regions": [
--        "JP"
--      ],
--      "exclude_experiments": [],
--      "include_experiments": [],
--      "id": "",
--      "last_modified": 1
--    },
--    {
--      "url": "https://m.yahoo.co.jp/",
--      "order": 2,
--      "title": "Yahoo! JAPAN",
--      "schema": 1,
--      "exclude_locales": [],
--      "exclude_regions": [],
--      "include_locales": [],
--      "include_regions": [
--        "JP"
--      ],
--      "exclude_experiments": [],
--      "include_experiments": [],
--      "id": "",
--      "last_modified": 1
--    },
--    {
--      "url": "https://ameblo.jp/",
--      "order": 3,
--      "title": "Amebaブログ",
--      "schema": 1,
--      "exclude_locales": [],
--      "exclude_regions": [],
--      "include_locales": [],
--      "include_regions": [
--        "JP"
--      ],
--      "exclude_experiments": [],
--      "include_experiments": [],
--      "id": "",
--      "last_modified": 1
--    },
--    {
--      "url": "https://ja.wikipedia.org/wiki/%E3%83%A1%E3%82%A4%E3%83%B3%E3%83%9A%E3%83%BC%E3%82%B8",
--      "order": 4,
--      "title": "ウィキペディア",
--      "schema": 1,
--      "exclude_locales": [],
--      "exclude_regions": [],
--      "include_locales": [],
--      "include_regions": [
--        "JP"
--      ],
 -      "exclude_experiments": [],
 -      "include_experiments": [],
 -      "id": "",

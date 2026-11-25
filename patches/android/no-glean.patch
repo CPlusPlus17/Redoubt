@@ -435,12 +435,24 @@
 # imports are removed (lifecycleScope, launch, Pings, initializeGlean: each
 # checked unused afterwards). No new Glean.initialize() caller in
 # fenix/app/src/main (grep).
+# 161 rebase (2026-11-25, Firefox 161.0): same barriers, same files. Three of
+# the deleted files changed upstream: GleanHelper.kt and GleanMetricsService.kt
+# now also register Nimbus's nimbus-targeting-context ping
+# (NimbusPings.nimbusTargetingContext), GleanDebugToolsScreen.kt lost a
+# @Suppress; the deletions are regenerated. Analytics.kt: lazyMonitored became
+# lazy and 161's InstallationMetricsService now sits in the MetricController
+# list (removed by no-gms.patch, which deletes the Block Store library it uses);
+# the same two Glean services and three imports go. The only Glean ping 161
+# adds to fenix/app/src/main is `installation` (that service's worker). No new
+# Glean.initialize() / registerPings() caller in fenix/app/src/main (grep).
+#
+
 
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
-index cce1f17..fe15b1a 100644
+index f38a58a..62978c2 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -535,7 +535,6 @@ dependencies {
+@@ -537,7 +537,6 @@ dependencies {
      implementation project(':components:service-digitalassetlinks')
      implementation project(':components:service-firefox-accounts')
      implementation project(":components:service-firefox-relay")
@@ -449,7 +461,7 @@ index cce1f17..fe15b1a 100644
      implementation project(':components:service-mars')
      implementation project(':components:service-merino-manifest')
 diff --git a/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt b/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt
-index 3ae5982..70e1595 100644
+index 13dfee2..d034200 100644
 --- a/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt
 +++ b/mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt
 @@ -7,20 +7,14 @@
@@ -473,7 +485,7 @@ index 3ae5982..70e1595 100644
  import org.mozilla.fenix.helpers.Constants.TAG
  import org.mozilla.fenix.helpers.FeatureSettingsHelper.Companion.settings
  import org.mozilla.fenix.helpers.TestHelper.appContext
-@@ -412,17 +406,5 @@ private fun skipOnboardingBeforeLaunch() {
+@@ -405,17 +399,5 @@ private fun skipOnboardingBeforeLaunch() {
      // this API so it can be fragile.
      Log.i(TAG, "skipOnboardingBeforeLaunch: Trying to skip the onboarding before launching the app")
      FenixOnboarding(appContext).finish()
@@ -522,10 +534,10 @@ index 47dd12e..1a0eef3 100644
 -    FromGleanDebugToolsFragment(R.id.gleanDebugToolsFragment),
  }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index 804b35f..67e30ca 100644
+index 123f794..1635f80 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -116,7 +116,6 @@ import org.mozilla.fenix.autofill.AutofillService
+@@ -113,7 +113,6 @@ import org.mozilla.fenix.autofill.AutofillService
  import org.mozilla.fenix.components.Components
  import org.mozilla.fenix.components.Core
  import org.mozilla.fenix.components.appstate.AppAction
@@ -533,7 +545,7 @@ index 804b35f..67e30ca 100644
  import org.mozilla.fenix.components.metrics.MozillaProductDetector
  import org.mozilla.fenix.components.startMetricsIfEnabled
  import org.mozilla.fenix.experiments.maybeFetchExperiments
-@@ -310,17 +309,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -305,17 +304,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          }
      }
  
@@ -551,7 +563,7 @@ index 804b35f..67e30ca 100644
      /**
       * This phase of main-process initialization runs before application-services is fully setup so care must be taken.
       * This phases begins loading the Nimbus, Glean, Gecko libraries.
-@@ -364,11 +352,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -359,11 +347,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
          // construct the instance.
          components.core.engine
  
@@ -564,10 +576,10 @@ index 804b35f..67e30ca 100644
          // Note: This is a historical artifact and should be revisited.
          val store = components.core.store
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-index a3b34ef..c6ca4ba 100644
+index 67c479f..e336eb6 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -132,7 +132,6 @@ import org.mozilla.fenix.crashes.UnsubmittedCrashDialog
+@@ -136,7 +136,6 @@ import org.mozilla.fenix.crashes.UnsubmittedCrashDialog
  import org.mozilla.fenix.customtabs.ExternalAppBrowserActivity
  import org.mozilla.fenix.databinding.ActivityHomeBinding
  import org.mozilla.fenix.debugsettings.data.DefaultDebugSettingsRepository
@@ -575,7 +587,7 @@ index a3b34ef..c6ca4ba 100644
  import org.mozilla.fenix.debugsettings.ui.FenixOverlay
  import org.mozilla.fenix.downloads.DownloadSnackbar
  import org.mozilla.fenix.e2e.EdgeToEdgeFragmentLifecycleCallbacks
-@@ -507,9 +506,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -522,9 +521,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
  
          AutomatedLaunch.processIntentIfPerformanceTestOrAutomation(intent, this)
  
@@ -585,7 +597,7 @@ index a3b34ef..c6ca4ba 100644
          components.settings.seedOnboardingCompletedTimestampForDebugIfNeeded()
  
          val shouldShowOnboarding =
-@@ -1055,9 +1051,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1065,9 +1061,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
              return
          }
  
@@ -596,35 +608,35 @@ index a3b34ef..c6ca4ba 100644
              handleSendToDevicesActionIntent(intent)
              return
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
-index 14a1242..53decb7 100644
+index 08c1a8e..36c847e 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
-@@ -30,9 +30,6 @@ import org.mozilla.fenix.R
+@@ -32,9 +32,6 @@ import org.mozilla.fenix.R
  import org.mozilla.fenix.ReleaseChannel
  import org.mozilla.fenix.components.metrics.DefaultMetricsStorage
  import org.mozilla.fenix.components.metrics.FirstSessionMetricsService
 -import org.mozilla.fenix.components.metrics.GleanMetricsService
 -import org.mozilla.fenix.components.metrics.GleanProfileIdPreferenceStore
 -import org.mozilla.fenix.components.metrics.GleanUsageReportingMetricsService
+ import org.mozilla.fenix.components.metrics.InstallationMetricsService
  import org.mozilla.fenix.components.metrics.MetricController
  import org.mozilla.fenix.components.metrics.MetricsStorage
- import org.mozilla.fenix.crashes.CrashFactCollector
-@@ -174,9 +171,7 @@ class Analytics(
-     val metrics: MetricController by lazyMonitored {
+@@ -177,9 +174,7 @@ class Analytics(
+     val metrics: MetricController by lazy {
          MetricController.create(
              listOf(
 -                GleanMetricsService(context),
                  FirstSessionMetricsService(context),
 -                GleanUsageReportingMetricsService(gleanProfileIdStore = GleanProfileIdPreferenceStore(context)),
+                 InstallationMetricsService(runWhenReadyQueue, { WorkManager.getInstance(context) }),
              ),
              isDataTelemetryEnabled = { settings.isTelemetryEnabled },
-             isMarketingDataTelemetryEnabled = {
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/GleanHelper.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/GleanHelper.kt
 deleted file mode 100644
-index dbf8238..0000000
+index a9f8176..0000000
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/GleanHelper.kt
 +++ /dev/null
-@@ -1,73 +0,0 @@
+@@ -1,75 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -637,6 +649,7 @@ index dbf8238..0000000
 -import mozilla.components.support.base.log.logger.Logger
 -import mozilla.telemetry.glean.Glean
 -import mozilla.telemetry.glean.config.Configuration
+-import org.mozilla.experiments.nimbus.Nimbus.Pings as NimbusPings
 -import org.mozilla.fenix.BuildConfig
 -import org.mozilla.fenix.Config
 -import org.mozilla.fenix.GleanMetrics.GleanBuildInfo
@@ -684,6 +697,7 @@ index dbf8238..0000000
 -    // in order to ensure they are enabled and able to collect data.
 -    // See https://bugzilla.mozilla.org/1934931 for more information.
 -    Glean.registerPings(Pings)
+-    Glean.registerPings(NimbusPings.nimbusTargetingContext)
 -
 -    // Set the metric configuration from Nimbus.
 -    Glean.applyServerKnobsConfig(FxNimbus.features.glean.value().gleanMetricConfiguration.toJSONObject().toString())
@@ -700,10 +714,10 @@ index dbf8238..0000000
 -}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanMetricsService.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanMetricsService.kt
 deleted file mode 100644
-index 9fdb311..0000000
+index beaf3c6..0000000
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanMetricsService.kt
 +++ /dev/null
-@@ -1,102 +0,0 @@
+@@ -1,104 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -714,6 +728,7 @@ index 9fdb311..0000000
 -import mozilla.components.support.base.log.logger.Logger
 -import mozilla.components.support.utils.RunWhenReadyQueue
 -import mozilla.telemetry.glean.Glean
+-import org.mozilla.experiments.nimbus.Nimbus.Pings as NimbusPings
 -import org.mozilla.fenix.GleanMetrics.Pings
 -import org.mozilla.fenix.ext.components
 -
@@ -789,6 +804,7 @@ index 9fdb311..0000000
 -            // These two things actually happen in parallel, but that should be ok because Glean
 -            // can handle events being recorded before it's initialized.
 -            Glean.registerPings(Pings)
+-            Glean.registerPings(NimbusPings.nimbusTargetingContext)
 -
 -            activationPing.checkAndSend()
 -        }
@@ -1533,10 +1549,10 @@ index a774500..0000000
 -    )
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/ui/GleanDebugToolsScreen.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/ui/GleanDebugToolsScreen.kt
 deleted file mode 100644
-index fe21da4..0000000
+index 7a056cc..0000000
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/ui/GleanDebugToolsScreen.kt
 +++ /dev/null
-@@ -1,300 +0,0 @@
+@@ -1,299 +0,0 @@
 -/* This Source Code Form is subject to the terms of the Mozilla Public
 - * License, v. 2.0. If a copy of the MPL was not distributed with this
 - * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -1736,7 +1752,6 @@ index fe21da4..0000000
 -}
 -
 -@Composable
--@Suppress("Deprecation")
 -private fun GleanDebugSendPingsSection(
 -    isButtonEnabled: Boolean,
 -    curPing: String,
@@ -1838,10 +1853,10 @@ index fe21da4..0000000
 -    }
 -}
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/navigation/DebugDrawerRoute.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/navigation/DebugDrawerRoute.kt
-index 4a007fc..05e1972 100644
+index cf3c232..6dfa43a 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/navigation/DebugDrawerRoute.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/navigation/DebugDrawerRoute.kt
-@@ -26,8 +26,6 @@ import org.mozilla.fenix.debugsettings.cfrs.CfrToolsStore
+@@ -27,8 +27,6 @@ import org.mozilla.fenix.debugsettings.cfrs.CfrToolsStore
  import org.mozilla.fenix.debugsettings.crashtools.CrashTools
  import org.mozilla.fenix.debugsettings.creditcards.CreditCardsTools
  import org.mozilla.fenix.debugsettings.distributions.DistributionTools
@@ -1850,7 +1865,7 @@ index 4a007fc..05e1972 100644
  import org.mozilla.fenix.debugsettings.integrity.IntegrityTools
  import org.mozilla.fenix.debugsettings.ipprotection.IPProtectionLocationTools as IPProtectionLocationToolsScreen
  import org.mozilla.fenix.debugsettings.listentopage.ListenToPageTools
-@@ -75,10 +73,6 @@ enum class DebugDrawerRoute(
+@@ -76,10 +74,6 @@ enum class DebugDrawerRoute(
          route = "cfr_tools",
          title = R.string.debug_drawer_cfr_tools_title,
      ),
@@ -1861,7 +1876,7 @@ index 4a007fc..05e1972 100644
      RegionDebugTools(
          route = "region_debug_tools",
          title = R.string.debug_drawer_region_tools_title,
-@@ -123,7 +117,6 @@ enum class DebugDrawerRoute(
+@@ -124,7 +118,6 @@ enum class DebugDrawerRoute(
           * @param debugDrawerStore [DebugDrawerStore] used to dispatch navigation actions.
           * @param browserStore [BrowserStore] used to access [BrowserState].
           * @param cfrToolsStore [CfrToolsStore] used to access [CfrToolsState].
@@ -1869,7 +1884,7 @@ index 4a007fc..05e1972 100644
           * @param loginsStorage [LoginsStorage] used to access logins for [LoginsScreen].
           * @param addressesDebugRegionRepository used to control storage for [AddressesTools].
           * @param creditCardsAddressesStorage used to access addresses for [AddressesTools].
-@@ -140,7 +133,6 @@ enum class DebugDrawerRoute(
+@@ -142,7 +135,6 @@ enum class DebugDrawerRoute(
              debugDrawerStore: DebugDrawerStore,
              browserStore: BrowserStore,
              cfrToolsStore: CfrToolsStore,
@@ -1877,7 +1892,7 @@ index 4a007fc..05e1972 100644
              loginsStorage: LoginsStorage,
              addressesDebugRegionRepository: AddressesDebugRegionRepository,
              creditCardsAddressesStorage: CreditCardsAddressesStorage,
-@@ -220,15 +212,6 @@ enum class DebugDrawerRoute(
+@@ -223,15 +215,6 @@ enum class DebugDrawerRoute(
                      }
                  }
  
@@ -1941,7 +1956,7 @@ index e7e6e65..e598143 100644
              DebugDrawerAction.NavigateTo.IntegrityDebugTools,
              DebugDrawerAction.NavigateTo.TabGroupDebugTools,
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/ui/FenixOverlay.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/ui/FenixOverlay.kt
-index 92aa7c8..f734933 100644
+index e393b62..21d9fdf 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/ui/FenixOverlay.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/ui/FenixOverlay.kt
 @@ -4,9 +4,7 @@
@@ -1972,8 +1987,8 @@ index 92aa7c8..f734933 100644
 -import org.mozilla.fenix.R
  import org.mozilla.fenix.components.ClientUuid
  import org.mozilla.fenix.components.components
- import org.mozilla.fenix.debugsettings.addresses.AddressesDebugRegionRepository
-@@ -49,10 +43,6 @@ import org.mozilla.fenix.debugsettings.cfrs.CfrToolsPreferencesMiddleware
+ import org.mozilla.fenix.components.listentopage.ListenDebugController
+@@ -50,10 +44,6 @@ import org.mozilla.fenix.debugsettings.cfrs.CfrToolsPreferencesMiddleware
  import org.mozilla.fenix.debugsettings.cfrs.CfrToolsState
  import org.mozilla.fenix.debugsettings.cfrs.CfrToolsStore
  import org.mozilla.fenix.debugsettings.cfrs.DefaultCfrPreferencesRepository
@@ -1984,7 +1999,7 @@ index 92aa7c8..f734933 100644
  import org.mozilla.fenix.debugsettings.integrity.FakeClientUuid
  import org.mozilla.fenix.debugsettings.listentopage.ListenToPageTools
  import org.mozilla.fenix.debugsettings.logins.FakeLoginsStorage
-@@ -106,32 +96,6 @@ fun FenixOverlay(
+@@ -109,32 +99,6 @@ fun FenixOverlay(
                          )
                      )
              ),
@@ -2017,7 +2032,7 @@ index 92aa7c8..f734933 100644
          loginsStorage = loginsStorage,
          addressesDebugRegionRepository =
              context.components.strictMode.allowViolation(StrictMode::allowThreadDiskReads) {
-@@ -152,7 +116,6 @@ fun FenixOverlay(
+@@ -156,7 +120,6 @@ fun FenixOverlay(
   *
   * @param browserStore [BrowserStore] used to access [BrowserState].
   * @param cfrToolsStore [CfrToolsStore] used to access [CfrToolsState].
@@ -2025,7 +2040,7 @@ index 92aa7c8..f734933 100644
   * @param loginsStorage [LoginsStorage] used to access logins for [LoginsTools].
   * @param addressesDebugRegionRepository used to control storage for [AddressesTools].
   * @param creditCardsAddressesStorage used to access addresses for [AddressesTools].
-@@ -168,7 +131,6 @@ fun FenixOverlay(
+@@ -173,7 +136,6 @@ fun FenixOverlay(
  private fun FenixOverlay(
      browserStore: BrowserStore,
      cfrToolsStore: CfrToolsStore,
@@ -2033,7 +2048,7 @@ index 92aa7c8..f734933 100644
      loginsStorage: LoginsStorage,
      addressesDebugRegionRepository: AddressesDebugRegionRepository,
      creditCardsAddressesStorage: CreditCardsAddressesStorage,
-@@ -204,7 +166,6 @@ private fun FenixOverlay(
+@@ -210,7 +172,6 @@ private fun FenixOverlay(
              debugDrawerStore = debugDrawerStore,
              browserStore = browserStore,
              cfrToolsStore = cfrToolsStore,
@@ -2041,7 +2056,7 @@ index 92aa7c8..f734933 100644
              inactiveTabsEnabled = inactiveTabsEnabled,
              loginsStorage = loginsStorage,
              addressesDebugRegionRepository = addressesDebugRegionRepository,
-@@ -286,21 +247,6 @@ private fun FenixOverlayPreview() {
+@@ -293,21 +254,6 @@ private fun FenixOverlayPreview() {
      FenixOverlay(
          browserStore = BrowserStore(BrowserState(selectedTabId = selectedTab.id, tabs = listOf(selectedTab))),
          cfrToolsStore = CfrToolsStore(),
@@ -2171,10 +2186,10 @@ index 1c74d46..1ffcba5 100644
          // The marketing telemetry may be enabled after finishing onboarding.
          startMetricsIfEnabled(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt
-index 0766a1a..fa5dc10 100644
+index 665f1ef..970c2a2 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt
-@@ -232,10 +232,6 @@ class BrowserToolbarSearchMiddleware(
+@@ -233,10 +233,6 @@ class BrowserToolbarSearchMiddleware(
                  browserStore.dispatch(EngagementFinished(abandoned = false))
              }
  
@@ -2186,7 +2201,7 @@ index 0766a1a..fa5dc10 100644
                  openSearchOrUrl(
                      SupportUtils.getMozillaPageUrl(SupportUtils.MozillaPage.MANIFESTO),
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
-index 9d489d7..21d1589 100644
+index 9f40ffa..33f8779 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 @@ -23,7 +23,6 @@ import androidx.navigation.NavDirections
@@ -2238,7 +2253,7 @@ index 38ec545..11e6c82 100644
          // Reset experiment identifiers on both opt-in and opt-out; it's likely
          // that in future we will need to pass in the new telemetry client_id
 diff --git a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
-index ae5e7d1..e24c06f 100644
+index 05473c2..148e395 100644
 --- a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
 +++ b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
 @@ -119,9 +119,6 @@
@@ -2251,7 +2266,7 @@ index ae5e7d1..e24c06f 100644
  
      <action
          android:id="@+id/action_global_downloadsFragment"
-@@ -1357,10 +1354,6 @@
+@@ -1364,10 +1361,6 @@
              app:argType="mozilla.components.feature.addons.Addon" />
      </fragment>
  
@@ -2263,7 +2278,7 @@ index ae5e7d1..e24c06f 100644
          android:id="@+id/unlockPrivateTabsFragment"
          android:name="org.mozilla.fenix.pbmlock.UnlockPrivateTabsFragment">
 diff --git a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
-index 15a4d0c..198fab8 100644
+index a57edbb..9f527bd 100644
 --- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 @@ -362,12 +362,6 @@

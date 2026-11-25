@@ -496,6 +496,17 @@
 # submitted. With this patch Settings.crashReportOption() is always Never,
 # so those four tests now assert the Redoubt behaviour instead: a stored
 # Auto/Ask choice still hides the checkbox, and nothing is submitted.
+# 161 rebase (2026-11-25, Firefox 161.0): intent unchanged. 161 removed
+# org.mozilla.fenix.perf.lazyMonitored (every Components / Analytics val is now
+# `by lazy`) and gave Analytics a fifth constructor parameter, `val
+# buildMetadata: BuildMetadata` (read by nothing in fenix/app/src/main yet).
+# The same runWhenReadyQueue parameter goes (its only remaining user was the
+# Sentry init this patch deletes, now that no-gms.patch removed 161's
+# InstallationMetricsService); buildMetadata is kept, and Components.kt
+# constructs `Analytics(context, settings, nimbus, buildMetadata)` by lazy.
+# Import block: BuildMetadata stays, lazyMonitored is no longer there.
+#
+
 diff --git a/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt b/mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt
 deleted file mode 100644
 index bd45159..0000000
@@ -4695,10 +4706,10 @@ index 5587b2c..0000000
 -    }
 -}
 diff --git a/mobile/android/fenix/app/build.gradle b/mobile/android/fenix/app/build.gradle
-index 5f4bff7..064a647 100644
+index abcf056..a7d20a3 100644
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -318,15 +318,15 @@ androidComponents {
+@@ -347,15 +347,15 @@ androidComponents {
  // -------------------------------------------------------------------------------------------------
  
  android.defaultConfig.with {
@@ -4721,7 +4732,7 @@ index 5f4bff7..064a647 100644
  
      // Setting buildDate with every build ID changes the generated BuildConfig and slows down the
      // build, so debug builds (overridden below) use a fixed string instead.
-@@ -376,7 +376,6 @@ android.buildTypes.debug.with {
+@@ -405,7 +405,6 @@ android.buildTypes.debug.with {
      buildConfigField 'boolean', 'CRASH_REPORTING', 'false'
      buildConfigField 'boolean', 'TELEMETRY', 'false'
      buildConfigField 'String', 'BUILD_DATE', '"debug build"'
@@ -4729,7 +4740,7 @@ index 5f4bff7..064a647 100644
  
      if (gradle.hasProperty("localProperties.nimbus.remote-settings.url")) {
          def url = gradle.getProperty("localProperties.nimbus.remote-settings.url")
-@@ -526,7 +525,11 @@ dependencies {
+@@ -556,7 +555,11 @@ dependencies {
      implementation project(':components:lib-bookmark-parser-jsoup')
      implementation project(':components:lib-passwords-file')
      implementation project(':components:lib-crash')
@@ -4742,7 +4753,7 @@ index 5f4bff7..064a647 100644
      implementation project(':components:lib-dataprotect')
      implementation project(':components:lib-state')
      implementation project(':components:lib-accelerometer-sensormanager')
-@@ -587,7 +590,9 @@ dependencies {
+@@ -619,7 +622,9 @@ dependencies {
      implementation libs.kotlinx.serialization.json
      implementation libs.mozilla.glean
      implementation libs.protobuf.javalite
@@ -4754,10 +4765,10 @@ index 5f4bff7..064a647 100644
      implementation libs.zxing
  
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
-index 53decb7..80c661d 100644
+index 145f3a7..af86e64 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
-@@ -13,21 +13,9 @@ import mozilla.components.lib.crash.runtimetagproviders.BuildRuntimeTagProvider
+@@ -13,22 +13,10 @@ import mozilla.components.lib.crash.runtimetagproviders.BuildRuntimeTagProvider
  import mozilla.components.lib.crash.runtimetagproviders.EnvironmentRuntimeProvider
  import mozilla.components.lib.crash.runtimetagproviders.ExperimentDataRuntimeTagProvider
  import mozilla.components.lib.crash.runtimetagproviders.VersionInfoProvider
@@ -4769,6 +4780,7 @@ index 53decb7..80c661d 100644
 -import mozilla.components.lib.crash.store.CrashReportOption
 -import mozilla.components.support.ktx.android.content.isMainProcess
  import mozilla.components.support.utils.Browsers
+ import mozilla.components.support.utils.BuildMetadata
 -import mozilla.components.support.utils.RunWhenReadyQueue
  import mozilla.components.support.utils.ext.packageManagerCompatHelper
 -import org.mozilla.fenix.BuildConfig
@@ -4779,13 +4791,12 @@ index 53decb7..80c661d 100644
  import org.mozilla.fenix.components.metrics.DefaultMetricsStorage
  import org.mozilla.fenix.components.metrics.FirstSessionMetricsService
  import org.mozilla.fenix.components.metrics.MetricController
-@@ -35,66 +23,28 @@ import org.mozilla.fenix.components.metrics.MetricsStorage
+@@ -36,66 +24,28 @@ import org.mozilla.fenix.components.metrics.MetricsStorage
  import org.mozilla.fenix.crashes.CrashFactCollector
  import org.mozilla.fenix.crashes.NimbusExperimentDataProvider
  import org.mozilla.fenix.crashes.ReleaseRuntimeTagProvider
 -import org.mozilla.fenix.crashes.crashReportOption
 -import org.mozilla.fenix.ext.getCustomGleanServerUrlIfAvailable
- import org.mozilla.fenix.perf.lazyMonitored
  import org.mozilla.fenix.utils.Settings
 -import org.mozilla.geckoview.BuildConfig.MOZ_APP_BUILDID
 -import org.mozilla.geckoview.BuildConfig.MOZ_APP_VENDOR
@@ -4798,6 +4809,7 @@ index 53decb7..80c661d 100644
      private val settings: Settings,
      private val nimbusComponents: NimbusComponents,
 -    private val runWhenReadyQueue: RunWhenReadyQueue,
+     val buildMetadata: BuildMetadata,
  ) {
 +    /**
 +     * The crash reporter.
@@ -4811,7 +4823,7 @@ index 53decb7..80c661d 100644
 +     * shouldPrompt is NEVER and useLegacyReporting is false for the same reason: with no service to submit to, a prompt
 +     * or notification offering to send a report would be a lie.
 +     */
-     val crashReporter: CrashReporter by lazyMonitored {
+     val crashReporter: CrashReporter by lazy {
 -        val services = mutableListOf<CrashReporterService>()
 -        val distributionId = "Mozilla"
 -
@@ -4858,7 +4870,7 @@ index 53decb7..80c661d 100644
          val intent =
              Intent(context, HomeActivity::class.java).apply {
                  flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-@@ -113,37 +63,14 @@ class Analytics(
+@@ -114,37 +64,14 @@ class Analytics(
                  crashReportingIntentFlags,
              )
  
@@ -4900,7 +4912,7 @@ index 53decb7..80c661d 100644
              runtimeTagProviders =
                  listOf(
                      ReleaseRuntimeTagProvider(),
-@@ -183,18 +110,6 @@ class Analytics(
+@@ -184,18 +111,6 @@ class Analytics(
      }
  }
  
@@ -4920,17 +4932,19 @@ index 53decb7..80c661d 100644
      get() {
          val packageInfo =
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-index b8c0928..5e909ee 100644
+index 3b87e4d..9f23fff 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-@@ -237,7 +237,7 @@ class Components(
+@@ -242,9 +242,7 @@ class Components(
          AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
      }
  
--    val analytics by lazyMonitored { Analytics(context, settings, nimbus, performance.visualCompletenessQueue) }
-+    val analytics by lazyMonitored { Analytics(context, settings, nimbus) }
+-    val analytics by lazy {
+-        Analytics(context, settings, nimbus, performance.visualCompletenessQueue, buildMetadata)
+-    }
++    val analytics by lazy { Analytics(context, settings, nimbus, buildMetadata) }
  
-     val remoteSettingsService = lazyMonitored {
+     val remoteSettingsService = lazy {
          RemoteSettingsService(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt
 index 4dcb522..b095e23 100644
@@ -5021,7 +5035,7 @@ index 256b98f..53df7cf 100644
 + */
 +fun Settings.crashReportOption(): CrashReportOption = CrashReportOption.Never
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
-index e0edd5e..893cc16 100644
+index 990206e..5ef5709 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
 @@ -8,18 +8,15 @@ import android.content.Context
@@ -5118,7 +5132,7 @@ index a7e5877..8b2e788 100644
                  add(
                      buildSearchItem(
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashActivity.kt
-index a5c8df7..dad3ba6 100644
+index 3bad592..ca3d578 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashActivity.kt
 @@ -31,7 +31,12 @@ class StartupCrashActivity : AppCompatActivity() {
@@ -5184,10 +5198,10 @@ index fd94e64..ebc73e6 100644
      <com.google.android.material.button.MaterialButton
          style="@style/PositiveButton"
 diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/android/fenix/app/src/main/res/values/strings.xml
-index 912da64..97ffa11 100644
+index 7f39053..336288d 100644
 --- a/mobile/android/fenix/app/src/main/res/values/strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
-@@ -408,6 +408,12 @@
+@@ -409,6 +409,12 @@
      <string name="startup_crash_title">%s needs to restart</string>
      <!-- Body text for the startup crash page. %s is the name of the app (for example "Firefox") -->
      <string name="startup_crash_body">There was a problem opening %s.\n\nSending a crash report helps us diagnose and fix problems with the browser. Reports may include personal or sensitive data.</string>
@@ -5427,7 +5441,7 @@ index 997de24..507d3bc 100644
              message = "Expected the campaign measurement item once a marketing telemetry selection has been made",
          )
 diff --git a/mobile/android/focus-android/app/build.gradle b/mobile/android/focus-android/app/build.gradle
-index fb5fb3c..a1a5047 100644
+index 28d75ac..db3a9d4 100644
 --- a/mobile/android/focus-android/app/build.gradle
 +++ b/mobile/android/focus-android/app/build.gradle
 @@ -259,7 +259,10 @@ dependencies {
@@ -5453,7 +5467,7 @@ index fb5fb3c..a1a5047 100644
      debugImplementation libs.leakcanary
  
 diff --git a/mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Components.kt b/mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Components.kt
-index 167246d..64f402c 100644
+index e6e9a5f..c2e74e1 100644
 --- a/mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Components.kt
 +++ b/mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Components.kt
 @@ -12,7 +12,6 @@ import android.os.Environment
@@ -5464,7 +5478,7 @@ index 167246d..64f402c 100644
  import java.util.concurrent.TimeUnit
  import kotlinx.coroutines.CoroutineScope
  import mozilla.components.browser.engine.gecko.util.EngineDownloadDelegate
-@@ -56,10 +55,6 @@ import mozilla.components.feature.top.sites.TopSitesUseCases
+@@ -57,10 +56,6 @@ import mozilla.components.feature.top.sites.TopSitesUseCases
  import mozilla.components.feature.webcompat.WebCompatFeature
  import mozilla.components.feature.webcompat.reporter.WebCompatReporterFeature
  import mozilla.components.lib.crash.CrashReporter
@@ -5475,7 +5489,7 @@ index 167246d..64f402c 100644
  import mozilla.components.lib.publicsuffixlist.PublicSuffixList
  import mozilla.components.service.location.LocationService
  import mozilla.components.service.location.MozillaLocationService
-@@ -67,7 +62,6 @@ import mozilla.components.service.nimbus.NimbusApi
+@@ -68,7 +63,6 @@ import mozilla.components.service.nimbus.NimbusApi
  import mozilla.components.support.base.android.NotificationsDelegate
  import mozilla.components.support.base.worker.Frequency
  import mozilla.components.support.ktx.android.content.appVersionName
@@ -5483,7 +5497,7 @@ index 167246d..64f402c 100644
  import mozilla.components.support.remotesettings.DefaultRemoteSettingsSyncScheduler
  import mozilla.components.support.remotesettings.RemoteSettingsServer
  import mozilla.components.support.remotesettings.RemoteSettingsService
-@@ -320,39 +314,10 @@ class Components(
+@@ -336,39 +330,10 @@ class Components(
      val downloadEstimator: DownloadEstimator by lazy { DownloadEstimator(dateTimeProvider = dateTimeProvider) }
  }
  
@@ -5526,7 +5540,7 @@ index 167246d..64f402c 100644
      val intent =
          Intent(context, MainActivity::class.java).apply {
              flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-@@ -375,36 +340,16 @@ private fun createCrashReporter(context: Context): CrashReporter {
+@@ -391,36 +356,16 @@ private fun createCrashReporter(context: Context): CrashReporter {
  
      return CrashReporter(
          context = context,
@@ -5565,4 +5579,4 @@ index 167246d..64f402c 100644
 -
  /** Gets a [SearchEngineSelectorConfig] for the app and device. */
  private fun getSearchEngineSelectorConfig(context: Context): SearchEngineSelectorConfig? {
-     if (!context.settings.useRemoteSearchConfiguration) {
+     if (!context.settings.useRemoteSearchConfiguration && !context.settings.useSearchConfigV3) {

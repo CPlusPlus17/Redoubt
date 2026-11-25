@@ -479,25 +479,32 @@
 # authoritative signal (patch's exit status, LW-M0-11) is 0 for a deletion that
 # deleted nothing. The fix is to write `+++ /dev/null` for a deleted file, which
 # this patch does, and the check is `find` before/after: 33 files in, 18 out.
+# 161 rebase (2026-11-25, Firefox 161.0): intent unchanged. Adjust SDK
+# 5.8.0 -> 5.8.1 (the deleted version key); Analytics.kt gained
+# InstallationMetricsService in its import block and MetricController list,
+# both left in place here (that service is Play services Block Store, not
+# Adjust; no-gms.patch removes it). No new Adjust / install-referrer caller.
+#
+
 --- a/gradle/libs.versions.toml
 +++ b/gradle/libs.versions.toml
-@@ -57,7 +57,6 @@ work = "2.12.0"
+@@ -55,7 +55,6 @@ work = "2.12.0"
  # Google other
  accompanist = "0.37.3"
  firebase-messaging = "25.0.2"
 -installreferrer = "2.2"
  ksp = "2.3.12"
  material = "1.14.0"
- mlkit-prompt = "1.0.0-beta4"
-@@ -108,7 +107,6 @@ mockk = "1.14.11"
+ mlkit-prompt = "1.0.0-beta5"
+@@ -107,7 +106,6 @@ mockk = "1.14.11"
  robolectric = "4.17"
  
  # Third party libraries
--adjust = "5.8.0"
+-adjust = "5.8.1"
  androidsvg = "1.4"
  disklrucache = "2.0.2"
- jetbrains-markdown = "0.7.17"
-@@ -238,7 +236,6 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
+ jetbrains-markdown = "0.7.18"
+@@ -236,7 +234,6 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
  accompanist-drawablepainter = { module = "com.google.accompanist:accompanist-drawablepainter", version.ref = "accompanist" }
  firebase-messaging = { module = "com.google.firebase:firebase-messaging", version.ref = "firebase-messaging" }
  google-material = { module = "com.google.android.material:material", version.ref = "material" }
@@ -505,7 +512,7 @@
  ksp-symbol-processing-aa = { module = "com.google.devtools.ksp:symbol-processing-aa", version.ref = "ksp" }
  ksp-symbol-processing-aa-embeddable = { module = "com.google.devtools.ksp:symbol-processing-aa-embeddable", version.ref = "ksp" }
  ksp-symbol-processing-api = { module = "com.google.devtools.ksp:symbol-processing-api", version.ref = "ksp" }
-@@ -306,7 +303,6 @@ mockk-android = { module = "io.mockk:mockk-android", version.ref = "mockk" }
+@@ -305,7 +302,6 @@ mockk-android = { module = "io.mockk:mockk-android", version.ref = "mockk" }
  robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
  
  # Third party libraries
@@ -515,7 +522,7 @@
  jetbrains-markdown = { module = "org.jetbrains:markdown", version.ref = "jetbrains-markdown" }
 --- a/mobile/android/fenix/app/build.gradle
 +++ b/mobile/android/fenix/app/build.gradle
-@@ -360,13 +360,6 @@ android.defaultConfig.with {
+@@ -362,13 +362,6 @@ android.defaultConfig.with {
      def buildDate = LocalDateTime.parse(getBuildId(gradle.mozconfig.topobjdir, providers.environmentVariable("MOZ_BUILD_DATE").getOrNull()), DateTimeFormatter.ofPattern("yyyyMMddHHmmss")).toString()
      buildConfigField 'String', 'BUILD_DATE', '"' + buildDate + '"'
  
@@ -529,7 +536,7 @@
      try {
          def url = new File("${rootDir}/.nimbus").text.trim()
          buildConfigField 'String', 'NIMBUS_ENDPOINT', '"' + url + '"'
-@@ -418,7 +411,6 @@ android.buildTypes.debug.with {
+@@ -420,7 +413,6 @@ android.buildTypes.debug.with {
      buildConfigField 'boolean', 'TELEMETRY', 'false'
      buildConfigField 'String', 'BUILD_DATE', '"debug build"'
      buildConfigField 'String', 'SENTRY_TOKEN', 'null'
@@ -537,7 +544,7 @@
  
      if (gradle.hasProperty("localProperties.nimbus.remote-settings.url")) {
          def url = gradle.getProperty("localProperties.nimbus.remote-settings.url")
-@@ -583,7 +575,6 @@ dependencies {
+@@ -586,7 +578,6 @@ dependencies {
      implementation ComponentsDependencies.mozilla_appservices_syncmanager
  
      implementation libs.accompanist.drawablepainter
@@ -545,7 +552,7 @@
      implementation libs.androidx.activity
      implementation libs.androidx.annotation
      implementation libs.androidx.appcompat
-@@ -632,7 +623,6 @@ dependencies {
+@@ -635,7 +626,6 @@ dependencies {
      implementation libs.androidx.viewpager2
      implementation libs.androidx.work.runtime
      implementation libs.google.material
@@ -586,7 +593,7 @@
              <intent-filter>
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-@@ -429,10 +429,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+@@ -424,10 +424,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
                          components.settings.hasMadeMarketingTelemetrySelection,
                  isDailyUsagePingEnabled = components.settings.isDailyUsagePingEnabled,
              )
@@ -599,7 +606,7 @@
          setupPush()
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-@@ -122,7 +122,6 @@ import org.mozilla.fenix.components.menu.MenuAccessPoint
+@@ -126,7 +126,6 @@ import org.mozilla.fenix.components.menu.MenuAccessPoint
  import org.mozilla.fenix.components.menu.share.QRCodeDialogFragment
  import org.mozilla.fenix.components.metrics.BreadcrumbsRecorder
  import org.mozilla.fenix.components.metrics.GrowthDataWorker
@@ -607,7 +614,7 @@
  import org.mozilla.fenix.components.metrics.fonts.FontEnumerationWorker
  import org.mozilla.fenix.components.share.QR_CODE_URI_KEY
  import org.mozilla.fenix.components.share.SEND_TO_DEVICES_ACTION
-@@ -523,7 +522,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -538,7 +537,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
                  }
  
          SplashScreenManager(
@@ -616,7 +623,7 @@
                  scope = lifecycleScope,
                  splashScreenTimeout = FxNimbus.features.splashScreen.value().maximumDurationMs.toLong(),
                  storage = DefaultSplashScreenStorage(components.settings),
-@@ -1461,7 +1460,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1464,7 +1463,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          return false
      }
  
@@ -625,7 +632,7 @@
          val nimbusOperation =
              if (FxNimbus.features.splashScreen.value().offTrainOnboarding) {
                  ApplyExperimentsOperation(
-@@ -1475,10 +1474,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1478,10 +1477,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
                  )
              }
  
@@ -646,7 +653,7 @@
  import android.app.PendingIntent
  import android.content.Context
  import android.content.Intent
-@@ -29,13 +28,11 @@ import org.mozilla.fenix.Config
+@@ -31,13 +30,11 @@ import org.mozilla.fenix.Config
  import org.mozilla.fenix.HomeActivity
  import org.mozilla.fenix.R
  import org.mozilla.fenix.ReleaseChannel
@@ -657,10 +664,10 @@
  import org.mozilla.fenix.components.metrics.GleanProfileIdPreferenceStore
  import org.mozilla.fenix.components.metrics.GleanUsageReportingMetricsService
 -import org.mozilla.fenix.components.metrics.InstallReferrerMetricsService
+ import org.mozilla.fenix.components.metrics.InstallationMetricsService
  import org.mozilla.fenix.components.metrics.MetricController
  import org.mozilla.fenix.components.metrics.MetricsStorage
- import org.mozilla.fenix.crashes.CrashFactCollector
-@@ -178,13 +175,7 @@ class Analytics(
+@@ -181,13 +178,7 @@ class Analytics(
          MetricController.create(
              listOf(
                  GleanMetricsService(context),
@@ -672,11 +679,11 @@
                  FirstSessionMetricsService(context),
 -                InstallReferrerMetricsService(context, settings),
                  GleanUsageReportingMetricsService(gleanProfileIdStore = GleanProfileIdPreferenceStore(context)),
+                 InstallationMetricsService(runWhenReadyQueue, { WorkManager.getInstance(context) }),
              ),
-             isDataTelemetryEnabled = { settings.isTelemetryEnabled },
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-@@ -420,7 +420,6 @@ class Components(
+@@ -442,7 +442,6 @@ class Components(
              browserStoreProvider = DefaultDistributionBrowserStoreProvider(core.store),
              distributionProviderChecker = DefaultDistributionProviderChecker(context),
              distributionSettings = DefaultDistributionSettings(settings),
@@ -2497,7 +2504,7 @@
              logger = logger,
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
-@@ -46,7 +46,6 @@ import org.mozilla.fenix.GleanMetrics.Preferences
+@@ -49,7 +49,6 @@ import org.mozilla.fenix.GleanMetrics.Preferences
  import org.mozilla.fenix.GleanMetrics.SearchDefaultEngine
  import org.mozilla.fenix.GleanMetrics.TabStrip
  import org.mozilla.fenix.GleanMetrics.TopSites
@@ -2505,7 +2512,7 @@
  import org.mozilla.fenix.components.metrics.MozillaProductDetector
  import org.mozilla.fenix.components.toolbar.ToolbarPosition
  import org.mozilla.fenix.distributions.DefaultDistributionBrowserStoreProvider
-@@ -84,8 +83,6 @@ class FenixApplicationTest {
+@@ -87,8 +86,6 @@ class FenixApplicationTest {
              override fun getDistributionId(): String = ""
  
              override fun saveDistributionId(id: String) = Unit
@@ -2514,7 +2521,7 @@
          }
  
      @Before
-@@ -105,7 +102,6 @@ class FenixApplicationTest {
+@@ -108,7 +105,6 @@ class FenixApplicationTest {
                  browserStoreProvider = DefaultDistributionBrowserStoreProvider(browserStore),
                  distributionProviderChecker = testDistributionProviderChecker,
                  distributionSettings = testDistributionSettings,

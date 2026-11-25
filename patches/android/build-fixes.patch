@@ -245,9 +245,22 @@
 # hunk is dead weight and can go; if component-common.gradle's kotlin block
 # moves, it rejects.
 #
+# 161 rebase (2026-11-25, Firefox 161.0): section 2's hunk rejected because
+# 161 moved component-common.gradle's `kotlin { jvmToolchain(...) }` block into
+# `if (!gradle.hasProperty("mozconfig"))` (AGP 9 built-in Kotlin in a
+# mozilla-central build), so a mozilla-central build has no kotlin block to
+# extend. Ported as a separate mozconfig-only block after `android { }` that
+# looks the `kotlin` extension up and is a no-op if it is absent. NOTE (reduce
+# candidate): the generated bindings in 159.0.1, 160.0 and 161.0 all end
+# uniffiEnsureInitialized() with `UniffiLib.ensureInitialized()`, not a bare
+# `UniffiLib` (grep: 0 bare references, 22 files), so by this section's own
+# REBASE CHECK it is dead weight; kept only because it was not verified by a
+# build that nothing else in those files trips UNUSED_EXPRESSION.
+#
+
 --- a/build.gradle
 +++ b/build.gradle
-@@ -221,8 +221,23 @@
+@@ -184,8 +184,23 @@ allprojects {
  // Non-official versions are like "61.0a1" or "61.0b1", where "a1" and "b1"
  // are the milestone.
  // This simply strips that off, leaving "61.0" in this example.
@@ -270,27 +283,33 @@
 +            .replaceFirst(/esr$/, "")
 +            .replaceFirst(/[ab][0-9]/, "")
  }
-
+ 
  // This converts MOZ_APP_VERSION into an integer
 --- a/third_party/application-services/build-scripts/component-common.gradle
 +++ b/third_party/application-services/build-scripts/component-common.gradle
-@@ -101,6 +101,19 @@
+@@ -102,6 +102,25 @@ android {
  
- kotlin {
-     jvmToolchain(rootProject.config.jvmTargetCompatibility)
-+    // LibreWolf (patches/android/build-fixes.patch, section 2): in a
-+    // mozilla-central build the UniFFI bindings come pre-generated from
-+    // toolkit/components/uniffi-bindgen-gecko-js/android (see the srcDirs line
-+    // above), and every one of them ends uniffiEnsureInitialized() with a bare
-+    // `UniffiLib` reference. Kotlin 2.4 reports that as "Expression is unused",
-+    // and the conventions plugin turns every Kotlin warning into an error.
-+    // The files are generated and checked in upstream, so the fix belongs in
-+    // the build config, not in 21 generated files.
-+    if (gradle.hasProperty("mozconfig")) {
-+        compilerOptions {
-+            freeCompilerArgs.add("-Xwarning-level=UNUSED_EXPRESSION:disabled")
-+        }
-+    }
  }
  
++// LibreWolf (patches/android/build-fixes.patch, section 2): in a
++// mozilla-central build the UniFFI bindings come pre-generated from
++// toolkit/components/uniffi-bindgen-gecko-js/android (see the srcDirs line
++// below). Up to Firefox 157 every one of them ended uniffiEnsureInitialized()
++// with a bare `UniffiLib` reference, which Kotlin 2.4 reports as "Expression is
++// unused", and the conventions plugin turns every Kotlin warning into an error.
++// The files are generated and checked in upstream, so the fix belongs in the
++// build config, not in the generated files. From 161 this script configures no
++// `kotlin` block in a mozilla-central build (AGP 9 built-in Kotlin), so the
++// extension is looked up rather than assumed: if it is absent this is a no-op.
++if (gradle.hasProperty("mozconfig")) {
++    def lwKotlinExtension = project.extensions.findByName("kotlin")
++    if (lwKotlinExtension != null) {
++        // Property access, not a configure closure: works whether or not
++        // Gradle decorated the extension.
++        lwKotlinExtension.compilerOptions.freeCompilerArgs.add("-Xwarning-level=UNUSED_EXPRESSION:disabled")
++    }
++}
++
  dependencies {
+     testImplementation platform(libs.junit.bom)
+     testImplementation libs.junit4

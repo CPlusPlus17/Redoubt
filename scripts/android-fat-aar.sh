@@ -768,6 +768,10 @@ for abi in $abi_list; do
     t1=$(date +%s)
     if [ "$rc" != "0" ]; then
         record "$abi" $((t1 - t0)) "FAILED rc=$rc"
+        # The log stays on the runner; print what failed so a CI run shows it.
+        { grep -E 'error|Error|ERROR|FAILED|Traceback' "$OUTDIR/logs/$abi.log" | grep -v -- '-Werror' | head -40
+          echo "--- last 80 lines of $OUTDIR/logs/$abi.log ---"
+          tail -n 80 "$OUTDIR/logs/$abi.log"; } >&2
         die "$abi: mach build failed (exit $rc) after $((t1 - t0))s.
        Log: $OUTDIR/logs/$abi.log"
     fi
@@ -875,6 +879,10 @@ rc=$?
 t1=$(date +%s)
 if [ "$rc" != "0" ]; then
     record "fat" $((t1 - t0)) "FAILED rc=$rc"
+    # The log stays on the runner; print what failed so a CI run shows it.
+    { grep -E 'error|Error|ERROR|FAILED|Traceback' "$OUTDIR/logs/fat.log" | grep -v -- '-Werror' | head -40
+      echo "--- last 80 lines of $OUTDIR/logs/fat.log ---"
+      tail -n 80 "$OUTDIR/logs/fat.log"; } >&2
     die "merge: mach build failed (exit $rc) after $((t1 - t0))s. Log: $OUTDIR/logs/fat.log"
 fi
 record "fat" $((t1 - t0)) "ok"

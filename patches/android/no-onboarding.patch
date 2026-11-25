@@ -803,8 +803,21 @@
 # continuous-onboarding check to both); two more upstream SettingsTest cases
 # that expected the default-browser prompt are inverted.
 #
+# 161 rebase (2026-11-25, Firefox 161.0): intent unchanged. 161 removed
+# Settings.privateModeAndStoriesEntryPointEnabled (and the Nimbus
+# private-mode-and-stories-entry-point header experiment): PocketMiddleware's
+# showPocketRecommendationsFeature no longer ORs it in and the refresh
+# coroutine dropped Dispatchers.IO. Both overrides stay constant false and the
+# StartAction refresh calls stay deleted; the IO import is no longer there to
+# remove. PocketMiddlewareTest no longer mocks the removed setting (it would
+# not compile on 161). FeatureFlags gained onboardingHapticsEnabled after the
+# flag this patch replaces (haptics inside the onboarding UI only, left as is).
+# The 160-era measurements below that name privateModeAndStoriesEntryPointEnabled
+# describe the old tree.
+#
+
 diff --git a/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt b/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
-index a54fca3..a76460a 100644
+index a138fe4..55e0816 100644
 --- a/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
 +++ b/mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
 @@ -51,7 +51,6 @@ import mozilla.components.browser.icons.pipeline.IconResourceComparator
@@ -860,10 +873,10 @@ index a54fca3..a76460a 100644
              DiskIconPreparer(sharedDiskCache),
          ),
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FeatureFlags.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FeatureFlags.kt
-index dd13cf1..c506281 100644
+index dffadf4..f36c625 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FeatureFlags.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FeatureFlags.kt
-@@ -20,10 +20,21 @@ object FeatureFlags {
+@@ -20,12 +20,23 @@ object FeatureFlags {
      const val FX_SUGGEST = true
  
      /**
@@ -888,20 +901,14 @@ index dd13cf1..c506281 100644
       */
 -    val onboardingFeatureEnabled = !Config.channel.isDebug
 +    const val ONBOARDING_FEATURE_ENABLED = false
- }
+ 
+     /** Enables haptic feedback during onboarding. */
+     val onboardingHapticsEnabled = Config.channel.isNightlyOrDebug
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/PocketMiddleware.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/PocketMiddleware.kt
-index ffbc86d..5198411 100644
+index f61f910..5198411 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/PocketMiddleware.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/PocketMiddleware.kt
-@@ -8,7 +8,6 @@ import androidx.annotation.VisibleForTesting
- import androidx.datastore.core.DataStore
- import kotlinx.coroutines.CoroutineScope
- import kotlinx.coroutines.Dispatchers
--import kotlinx.coroutines.Dispatchers.IO
- import kotlinx.coroutines.flow.first
- import kotlinx.coroutines.launch
- import mozilla.components.lib.state.Action
-@@ -40,12 +39,13 @@ interface PocketSettings {
+@@ -39,12 +39,13 @@ interface PocketSettings {
   *
   * @param settings [Settings] used for fetching and storing pocket related settings.
   */
@@ -909,7 +916,7 @@ index ffbc86d..5198411 100644
 +@Suppress("UNUSED_PARAMETER")
 +class SettingsBackedPocketSettings(settings: Settings) : PocketSettings {
      override val showPocketRecommendationsFeature
--        get() = (settings.showPocketRecommendationsFeature || settings.privateModeAndStoriesEntryPointEnabled)
+-        get() = settings.showPocketRecommendationsFeature
 +        get() = false
  
      override val showPocketSponsoredStories
@@ -918,12 +925,12 @@ index ffbc86d..5198411 100644
  }
  
  /**
-@@ -74,17 +74,10 @@ class PocketMiddleware(
+@@ -73,17 +74,10 @@ class PocketMiddleware(
          // Pre process actions
          when (action) {
              is AppAction.AppLifecycleAction.StartAction -> {
 -                visualCompletenessQueue.runIfReadyOrQueue {
--                    coroutineScope.launch(IO) {
+-                    coroutineScope.launch {
 -                        if (settings.showPocketRecommendationsFeature) {
 -                            pocketStoriesService.value.startPeriodicContentRecommendationsRefresh()
 -                        }
@@ -973,7 +980,7 @@ index 5a16d18..b444ce3 100644
 +    fun isContentRecommendationsFeatureEnabled(context: Context): Boolean = false
  }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeature.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeature.kt
-index 7650c27..515a4cc 100644
+index 85e3bd8..2f2ef17 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeature.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeature.kt
 @@ -121,6 +121,8 @@ class ContinuousOnboardingFeature(
@@ -1087,10 +1094,10 @@ index 420b369..831813d 100644
          settings.hasAcceptedTermsOfService = true
          settings.termsOfUseAcceptedVersion = TOU_VERSION
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-index 8d94dc9..2add4db 100644
+index 5630e49..60db964 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2393,25 +2393,12 @@ class Settings(
+@@ -2416,25 +2416,12 @@ class Settings(
       *   benchmark builds onboarding is suppressed by default so generators don't spend emulator time dismissing it;
       *   ignored in every shipped build.
       */
@@ -1118,7 +1125,7 @@ index 8d94dc9..2add4db 100644
  
      /**
       * Secret setting preference that forces the onboarding flow to be shown every time `HomeActivity` is created. When
-@@ -2427,7 +2414,7 @@ class Settings(
+@@ -2450,7 +2437,7 @@ class Settings(
          )
  
      /** Indicates if the onboarding feature is enabled. */
@@ -1127,7 +1134,7 @@ index 8d94dc9..2add4db 100644
  
      /** The current onboarding page index. */
      var onboardingCurrentPageIndex by
-@@ -3008,33 +2995,17 @@ class Settings(
+@@ -3073,33 +3060,17 @@ class Settings(
              default = { FxNimbus.features.waybackMachine.value().enabled },
          )
  
@@ -1171,7 +1178,7 @@ index 8d94dc9..2add4db 100644
      /**
       * Updates the relevant settings when the "Set as Default Browser" prompt is shown.
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/PocketMiddlewareTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/PocketMiddlewareTest.kt
-index fd8d751..9c31a4f 100644
+index 5ddf5b1..d463a8c 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/PocketMiddlewareTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/PocketMiddlewareTest.kt
 @@ -6,6 +6,7 @@ package org.mozilla.fenix.home
@@ -1215,7 +1222,7 @@ index fd8d751..9c31a4f 100644
          val pocketService: PocketStoriesService = mockk(relaxed = true)
          val pocketMiddleware =
              PocketMiddleware(
-@@ -320,12 +330,32 @@ class PocketMiddlewareTest {
+@@ -320,12 +330,31 @@ class PocketMiddlewareTest {
          pocketMiddleware.invoke(mockk(relaxed = true), {}, AppAction.AppLifecycleAction.StartAction)
          testScheduler.advanceUntilIdle()
  
@@ -1227,18 +1234,17 @@ index fd8d751..9c31a4f 100644
      }
  
 +    // LibreWolf (LW-M4-14): upstream has no test for SettingsBackedPocketSettings, and
-+    // it is the second path into the same two fetches -- its
-+    // showPocketRecommendationsFeature used to OR in
-+    // settings.privateModeAndStoriesEntryPointEnabled, which the FML enables on the
-+    // developer and nightly channels, so the refreshes would have been scheduled with
-+    // both user-facing prefs off. Both overrides are now constant false; a mock that
-+    // answers true to all three backing settings is what pins that.
++    // it is the second path into the same two fetches. Up to 160 its
++    // showPocketRecommendationsFeature also OR-ed in
++    // settings.privateModeAndStoriesEntryPointEnabled (FML-enabled on developer and
++    // nightly), so the refreshes could be scheduled with both user-facing prefs off;
++    // 161 removed that setting. Both overrides are constant false; a mock that answers
++    // true to both backing settings is what pins that.
 +    @Test
 +    fun `GIVEN the backing settings are all true THEN SettingsBackedPocketSettings reports both features off`() {
 +        val settings = mockk<Settings>()
 +        every { settings.showPocketRecommendationsFeature } returns true
 +        every { settings.showPocketSponsoredStories } returns true
-+        every { settings.privateModeAndStoriesEntryPointEnabled } returns true
 +
 +        val pocketSettings = SettingsBackedPocketSettings(settings)
 +
@@ -1405,7 +1411,7 @@ index 874d89f..f0f8539 100644
      }
  }
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
-index 324a8bc..55c2651 100644
+index 3046665..fd3d734 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
 @@ -116,14 +116,20 @@ class ContinuousOnboardingFeatureTest {
@@ -1431,7 +1437,7 @@ index 324a8bc..55c2651 100644
      }
  
      // syncOnboardingPageState
-@@ -371,8 +377,12 @@ class ContinuousOnboardingFeatureTest {
+@@ -370,8 +376,12 @@ class ContinuousOnboardingFeatureTest {
  
      // IP Protection integration
  
@@ -1445,8 +1451,8 @@ index 324a8bc..55c2651 100644
          runTest(testDispatcher) {
              settings.continuousOnboardingFeatureEnabled = true
              var navigateToIpProtectionInvoked = false
-@@ -399,8 +409,8 @@ class ContinuousOnboardingFeatureTest {
-             ipProtectionStore.dispatch(IPProtectionAction.AccountStateChanged(AccountStatus.NoAccount))
+@@ -400,8 +410,8 @@ class ContinuousOnboardingFeatureTest {
+             ipProtectionStore.dispatch(IPProtectionAction.AccountAction.AccountStateChanged(AccountStatus.NoAccount))
              testDispatcher.scheduler.advanceUntilIdle()
  
 -            assertTrue(navigateToIpProtectionInvoked)
@@ -1456,7 +1462,7 @@ index 324a8bc..55c2651 100644
          }
  
      @Test
-@@ -543,8 +553,9 @@ class ContinuousOnboardingFeatureTest {
+@@ -552,8 +562,9 @@ class ContinuousOnboardingFeatureTest {
              assertFalse(navigateToIpProtectionInvoked)
          }
  
@@ -1467,8 +1473,8 @@ index 324a8bc..55c2651 100644
          runTest(testDispatcher) {
              settings.continuousOnboardingFeatureEnabled = true
              var navigateToIpProtectionInvoked = false
-@@ -575,8 +586,8 @@ class ContinuousOnboardingFeatureTest {
-             ipProtectionStore.dispatch(IPProtectionAction.AccountStateChanged(AccountStatus.NoAccount))
+@@ -586,8 +597,8 @@ class ContinuousOnboardingFeatureTest {
+             ipProtectionStore.dispatch(IPProtectionAction.AccountAction.AccountStateChanged(AccountStatus.NoAccount))
              testDispatcher.scheduler.advanceUntilIdle()
  
 -            assertTrue(navigateToIpProtectionInvoked)
@@ -1644,10 +1650,10 @@ index 373735a..d57cd69 100644
  
      @Test
 diff --git a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
-index a9cb61b..d1ce8a6 100644
+index c762698..ded0eeb 100644
 --- a/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
 +++ b/mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
-@@ -855,8 +855,14 @@ class SettingsTest {
+@@ -860,8 +860,14 @@ class SettingsTest {
          assertFalse(actual)
      }
  
@@ -1664,7 +1670,7 @@ index a9cb61b..d1ce8a6 100644
          val settings = spyk(settings)
  
          val actual =
-@@ -865,11 +871,24 @@ class SettingsTest {
+@@ -870,11 +876,24 @@ class SettingsTest {
                  hasUserBeenOnboarded = false,
              )
  
@@ -1691,7 +1697,7 @@ index a9cb61b..d1ce8a6 100644
          val settings = spyk(settings)
          every { settings.enablePersistentOnboarding } returns true
  
-@@ -879,7 +898,7 @@ class SettingsTest {
+@@ -884,7 +903,7 @@ class SettingsTest {
                  hasUserBeenOnboarded = true,
              )
  
@@ -1700,7 +1706,7 @@ index a9cb61b..d1ce8a6 100644
      }
  
      @Test
-@@ -895,11 +914,14 @@ class SettingsTest {
+@@ -900,11 +919,14 @@ class SettingsTest {
          )
      }
  
@@ -1717,7 +1723,7 @@ index a9cb61b..d1ce8a6 100644
              settings.shouldShowOnboarding(
                  featureEnabled = true,
                  hasUserBeenOnboarded = false,
-@@ -1233,14 +1255,19 @@ class SettingsTest {
+@@ -1238,14 +1260,19 @@ class SettingsTest {
          assertFalse(settings.shouldShowSetAsDefaultPrompt())
      }
  
@@ -1739,7 +1745,7 @@ index a9cb61b..d1ce8a6 100644
      }
  
      @Test
-@@ -1254,33 +1281,33 @@ class SettingsTest {
+@@ -1259,33 +1286,33 @@ class SettingsTest {
      }
  
      @Test
@@ -1779,7 +1785,7 @@ index a9cb61b..d1ce8a6 100644
      }
  
      @Test
-@@ -1295,14 +1322,14 @@ class SettingsTest {
+@@ -1300,14 +1327,14 @@ class SettingsTest {
      }
  
      @Test

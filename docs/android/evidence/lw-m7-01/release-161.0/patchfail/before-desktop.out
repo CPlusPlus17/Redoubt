@@ -1,0 +1,727 @@
+Targets: desktop (assets/patches/common.txt first)
+Firefox: firefox-161.0.source.tar.xz
+Patches: 65
+Using scratch directory '~/redoubt-artifacts/rebase-161.0/repo/tmpdir92.EtBBAx'...
+Extracting 'firefox-161.0.source.tar.xz'...
+
+Testing patches...
+
+==> patches/always-fetch-latest-toolchain-artifact.patch:
+
+patching file python/mozbuild/mozbuild/artifact_commands.py
+Hunk #2 succeeded at 466 (offset 17 lines).
+
+==> patches/autoconfig-setEnv.patch:
+
+patching file extensions/pref/autoconfig/src/prefcalls.js
+patch unexpectedly ends in middle of line
+Hunk #1 succeeded at 205 with fuzz 1 (offset 9 lines).
+
+==> patches/custom-ubo-assets-bootstrap-location.patch:
+
+patching file toolkit/components/extensions/parent/ext-storage.js
+patch unexpectedly ends in middle of line
+Hunk #1 succeeded at 411 with fuzz 1.
+
+==> patches/devtools-bypass.patch:
+
+patching file devtools/server/actors/thread.js
+patching file devtools/server/actors/webconsole/listeners/console-api.js
+patching file devtools/shared/flags.js
+Hunk #1 succeeded at 60 (offset -7 lines).
+
+==> patches/extensions-setUninstallURL.patch:
+
+patching file toolkit/components/extensions/parent/ext-runtime.js
+Hunk #1 succeeded at 354 (offset 1 line).
+
+==> patches/firefox-in-ua.patch:
+
+patching file toolkit/moz.configure
+
+==> patches/fpp-canvas-fix.patch:
+
+patching file dom/canvas/CanvasRenderingContext2D.cpp
+Hunk #1 succeeded at 2349 (offset 32 lines).
+Hunk #2 succeeded at 6923 (offset 50 lines).
+Hunk #3 succeeded at 6949 (offset 53 lines).
+patching file dom/canvas/ClientWebGLContext.cpp
+Hunk #1 succeeded at 1428 (offset 50 lines).
+Hunk #2 succeeded at 3766 (offset 50 lines).
+Hunk #3 succeeded at 5536 (offset 50 lines).
+patching file toolkit/components/resistfingerprinting/nsRFPService.cpp
+
+==> patches/limit-access.patch:
+
+patching file caps/nsScriptSecurityManager.cpp
+Hunk #1 succeeded at 1031 (offset -8 lines).
+
+==> patches/moz-configure.patch:
+
+patching file toolkit/moz.configure
+
+==> patches/mozilla_dirs.patch:
+
+patching file toolkit/components/extensions/NativeManifests.sys.mjs
+patching file toolkit/xre/nsXREDirProvider.cpp
+patching file xpcom/build/nsXULAppAPI.h
+
+==> patches/profile-directory.patch:
+
+patching file extensions/pref/autoconfig/src/prefcalls.js
+patch unexpectedly ends in middle of line
+Hunk #1 succeeded at 9 with fuzz 1.
+
+==> patches/remove-openai.patch:
+
+patching file toolkit/components/aboutinference/content/aboutInference.js
+Hunk #1 succeeded at 676 with fuzz 1 (offset 297 lines).
+Hunk #2 succeeded at 695 (offset 297 lines).
+patching file toolkit/components/ml/content/EngineProcess.sys.mjs
+patching file toolkit/components/ml/content/backends/Pipeline.mjs
+patching file toolkit/components/ml/jar.mn
+patching file toolkit/components/ml/moz.build
+
+==> patches/remove-pingsender-common.patch:
+
+patching file python/mozbuild/mozbuild/artifacts.py
+patching file toolkit/components/telemetry/app/TelemetrySend.sys.mjs
+patching file toolkit/components/telemetry/moz.build
+
+==> patches/rs-blocker.patch:
+
+patching file services/settings/RemoteSettings.worker.mjs
+patching file services/settings/RemoteSettingsClient.sys.mjs
+Hunk #2 succeeded at 606 (offset 5 lines).
+Hunk #3 succeeded at 678 (offset 5 lines).
+Hunk #4 succeeded at 1077 (offset 10 lines).
+patching file services/settings/RemoteSettingsWorker.sys.mjs
+patching file services/settings/SharedUtils.sys.mjs
+patching file services/settings/Utils.sys.mjs
+Hunk #4 succeeded at 598 (offset 10 lines).
+patching file services/settings/remote-settings.sys.mjs
+Hunk #1 succeeded at 16 with fuzz 1.
+patching file toolkit/components/search/ConfigSearchEngine.sys.mjs
+
+==> patches/rust-gentoo-musl.patch:
+
+patching file build/moz.configure/rust.configure
+
+==> patches/ui-patches/neterror-common.patch:
+
+patching file toolkit/content/errors/net-error-illustrations.mjs
+patching file toolkit/content/net-error-card.mjs
+Hunk #1 succeeded at 1428 (offset 3 lines).
+patching file toolkit/themes/shared/aboutNetError.css
+patching file toolkit/themes/shared/illustrations/warning.svg
+
+==> patches/vendor-name.patch:
+
+patching file toolkit/components/extensions/parent/ext-runtime.js
+patching file toolkit/xre/nsAppRunner.cpp
+Hunk #1 succeeded at 2266 (offset 21 lines).
+Hunk #2 succeeded at 2279 (offset 21 lines).
+
+==> patches/disable-data-reporting-common.patch:
+
+patching file python/mach/mach/telemetry.py
+patching file python/sites/mach.txt
+Hunk #1 FAILED at 58.
+1 out of 1 hunk FAILED -- saving rejects to file python/sites/mach.txt.rej
+patching file third_party/rust/glean-core/src/core/mod.rs
+patching file third_party/rust/glean-core/src/lib.rs
+patching file toolkit/components/telemetry/core/Telemetry.cpp
+Hunk #1 succeeded at 551 (offset -143 lines).
+Hunk #2 succeeded at 577 (offset -143 lines).
+Hunk #3 succeeded at 620 with fuzz 2 (offset -143 lines).
+patching file toolkit/library/rust/gkrust-features.mozbuild
+---> patch exited 1
+---[snip]---------- --> python/sites/mach.txt.rej:
+--- python/sites/mach.txt
++++ python/sites/mach.txt
+@@ -58,7 +58,7 @@ pth:xpcom/geckoprocesstypes_generator
+ pth:xpcom/idl-parser
+ # glean-sdk may not be installable if a wheel isn't available
+ # and it has to be built from source.
+-pypi-optional:glean-sdk==70.3.0:telemetry will not be collected
++# pypi-optional:glean-sdk==70.3.0:telemetry will not be collected
+ pypi-optional:orjson>=3.10:json operations will be slower in various tools
+ # Mach gracefully handles the case where `psutil` is unavailable.
+ # We aren't (yet) able to pin packages in automation, so we have to
+---[snip]----------
+
+==> patches/webgl-permission-common.patch:
+
+patching file dom/canvas/ClientWebGLContext.cpp
+Hunk #3 succeeded at 930 (offset 51 lines).
+Hunk #4 succeeded at 1170 (offset 51 lines).
+patching file dom/ipc/BrowserParent.cpp
+Hunk #1 succeeded at 4167 (offset 28 lines).
+patching file dom/ipc/BrowserParent.h
+patching file dom/ipc/PBrowser.ipdl
+Hunk #1 succeeded at 631 (offset 2 lines).
+patching file modules/libpref/init/StaticPrefList.yaml
+Hunk #1 succeeded at 12429 (offset 88 lines).
+patching file modules/libpref/moz.build
+
+==> patches/xmas-common.patch:
+
+patching file lw/moz.build
+patching file moz.build
+Hunk #1 succeeded at 365 (offset 2 lines).
+
+==> patches/eme-permission-common.patch:
+
+patching file dom/media/eme/MediaKeySystemAccessManager.cpp
+Hunk #1 succeeded at 365 (offset 1 line).
+Hunk #2 succeeded at 424 (offset 1 line).
+Hunk #3 succeeded at 434 (offset 1 line).
+
+==> patches/moz-official-common.patch:
+
+patching file dom/media/gmp/ChromiumCDMAdapter.cpp
+patching file media/gmp-clearkey/0.1/gmp-clearkey.cpp
+
+==> patches/add-mojeek.patch:
+
+patching file services/settings/dumps/main/moz.build
+
+==> patches/canvas-permission.patch:
+
+patching file browser/modules/SitePermissions.sys.mjs
+patching file toolkit/components/resistfingerprinting/RFPHelper.sys.mjs
+
+==> patches/clear-alt-svc.patch:
+
+patching file netwerk/protocol/http/nsHttpHandler.cpp
+Hunk #1 FAILED at 9.
+Hunk #2 succeeded at 2300 (offset -32 lines).
+1 out of 2 hunks FAILED -- saving rejects to file netwerk/protocol/http/nsHttpHandler.cpp.rej
+---> patch exited 1
+---[snip]---------- --> netwerk/protocol/http/nsHttpHandler.cpp.rej:
+--- netwerk/protocol/http/nsHttpHandler.cpp
++++ netwerk/protocol/http/nsHttpHandler.cpp
+@@ -9,6 +9,7 @@
+ 
+ #include "ASpdySession.h"
+ #include "AltServiceChild.h"
++#include "CacheObserver.h"
+ #include "EventTokenBucket.h"
+ #include "HttpLog.h"
+ #include "LoadContextInfo.h"
+---[snip]----------
+
+==> patches/dbus_name.patch:
+
+patching file toolkit/components/remote/nsDBusRemoteClient.cpp
+Hunk #1 succeeded at 74 (offset 1 line).
+Hunk #2 succeeded at 119 (offset 1 line).
+patching file toolkit/components/remote/nsDBusRemoteServer.cpp
+Hunk #3 succeeded at 182 (offset -17 lines).
+Hunk #4 succeeded at 190 (offset -17 lines).
+
+==> patches/delete-cookie-permission.patch:
+
+patching file browser/components/ProfileDataUpgrader.sys.mjs
+
+==> patches/disable-data-reporting-desktop.patch:
+
+patching file browser/moz.configure
+
+==> patches/display-version.patch:
+
+patching file toolkit/components/urlformatter/URLFormatter.sys.mjs
+patching file toolkit/mozapps/update/UpdateListener.sys.mjs
+
+==> patches/eme-migrator.patch:
+
+patching file browser/components/ProfileDataUpgrader.sys.mjs
+
+==> patches/eme-permission-desktop.patch:
+
+patching file browser/components/permissions/ContentPermissionPrompt.sys.mjs
+patching file browser/modules/EMEPermissionPrompt.sys.mjs
+
+==> patches/fullpage-translations-customization.patch:
+
+patching file browser/base/content/main-popupset.inc.xhtml
+Hunk #1 succeeded at 1145 (offset 114 lines).
+patching file browser/base/content/main-popupset.js
+patching file browser/components/preferences/config/languages.mjs
+patching file browser/components/preferences/main.inc.xhtml
+patching file browser/components/preferences/main.js
+Hunk #1 succeeded at 318 (offset -345 lines).
+Hunk #2 succeeded at 412 (offset -357 lines).
+patching file browser/components/translations/content/fullPageTranslationsPanel.js
+
+==> patches/include-policy-deletion.patch:
+
+patching file config/createprecomplete.py
+
+==> patches/languages.patch:
+
+patching file browser/locales/shipped-locales
+
+==> patches/link-preview.patch:
+
+patching file browser/components/preferences/config/tabs-browsing.mjs
+Hunk #1 succeeded at 447 (offset 1 line).
+
+==> patches/lw-permissions.patch:
+
+patching file browser/base/content/navigator-toolbox.inc.xhtml
+patching file browser/components/preferences/config/permissions-data.mjs
+patching file browser/components/preferences/config/privacy.mjs
+Hunk #1 succeeded at 342 (offset -2 lines).
+Hunk #2 succeeded at 4279 (offset -13 lines).
+patching file browser/components/preferences/dialogs/sitePermissions.js
+Hunk #1 succeeded at 49 (offset 2 lines).
+patching file browser/modules/SitePermissions.sys.mjs
+patching file browser/modules/moz.build
+patching file browser/themes/shared/preferences/privacy.css
+
+==> patches/moz-official-desktop.patch:
+
+patching file browser/base/content/browser-development-helpers.js
+patching file browser/base/content/browser-main.js
+patching file browser/base/jar.mn
+Hunk #1 succeeded at 42 (offset 1 line).
+patching file browser/components/BrowserComponents.manifest
+
+==> patches/msix.patch:
+
+patching file browser/installer/windows/msix/AppxManifest.xml.in
+patching file python/mozbuild/mozbuild/mach_commands.py
+Hunk #1 succeeded at 3432 (offset 11 lines).
+Hunk #2 succeeded at 3590 (offset 11 lines).
+patching file python/mozbuild/mozbuild/repackaging/msix.py
+
+==> patches/mullvad-dns-migration.patch:
+
+patching file browser/base/content/browser-main.js
+patching file browser/base/content/mullvadDoHNotification.js
+patching file browser/base/jar.mn
+Hunk #1 succeeded at 100 (offset 1 line).
+patching file browser/components/ProfileDataUpgrader.sys.mjs
+
+==> patches/pip-hide-ui.patch:
+
+patching file toolkit/components/pictureinpicture/content/player.js
+Hunk #2 succeeded at 922 (offset -11 lines).
+patching file toolkit/components/pictureinpicture/content/player.xhtml
+patching file toolkit/themes/shared/pictureinpicture/player.css
+Hunk #1 succeeded at 230 (offset 8 lines).
+Hunk #2 succeeded at 240 (offset 8 lines).
+Hunk #3 succeeded at 317 (offset 8 lines).
+Hunk #4 succeeded at 325 (offset 8 lines).
+
+==> patches/remote-debugging-package-name.patch:
+
+patching file devtools/client/shared/remote-debugging/adb/adb-runtime.js
+
+==> patches/remove-language-packs.patch:
+
+patching file browser/components/BrowserGlue.sys.mjs
+Hunk #1 succeeded at 412 (offset 9 lines).
+
+==> patches/remove-pingsender-desktop.patch:
+
+patching file browser/app/macbuild/Contents/MacOS-files.in
+patching file browser/installer/package-manifest.in
+patching file browser/installer/windows/nsis/shared.nsh
+
+==> patches/temp-macos-fix.patch:
+
+patching file browser/app/macbuild/Contents/Info.plist.in
+patching file browser/app/moz.build
+patching file browser/installer/package-manifest.in
+
+==> patches/ui-patches/add-translate-page-context-menu.patch:
+
+patching file browser/base/content/browser-context.inc.xhtml
+Hunk #1 FAILED at 392.
+1 out of 1 hunk FAILED -- saving rejects to file browser/base/content/browser-context.inc.xhtml.rej
+patching file browser/base/content/browser-context.js
+Hunk #1 succeeded at 221 (offset 3 lines).
+patching file browser/base/content/nsContextMenu.sys.mjs
+Hunk #1 FAILED at 925.
+Hunk #2 succeeded at 2681 (offset 14 lines).
+1 out of 2 hunks FAILED -- saving rejects to file browser/base/content/nsContextMenu.sys.mjs.rej
+---> patch exited 1
+---[snip]---------- --> browser/base/content/browser-context.inc.xhtml.rej:
+--- browser/base/content/browser-context.inc.xhtml
++++ browser/base/content/browser-context.inc.xhtml
+@@ -392,6 +392,8 @@
+       <menuitem id="context-searchselect-private"/>
+       <menuitem id="context-translate-selection"
+                 data-l10n-id="main-context-menu-translate-selection"/>
++      <menuitem id="context-translate-page"
++                data-l10n-id="main-context-menu-translate-page"/>
+       <menu id="context-ask-chat"/>
+       <menuitem id="context-create-aitab"
+                 data-l10n-id="main-context-menu-create-aitab"
+---[snip]----------
+---[snip]---------- --> browser/base/content/nsContextMenu.sys.mjs.rej:
+--- browser/base/content/nsContextMenu.sys.mjs
++++ browser/base/content/nsContextMenu.sys.mjs
+@@ -925,6 +925,7 @@ export class nsContextMenu {
+ 
+     this.showAndFormatSearchContextItem();
+     this.showTranslateSelectionItem();
++    this.showTranslatePageItem();
+     lazy.GenAI.buildAskChatMenu(document.getElementById("context-ask-chat"), {
+       browser: this.browser,
+       selectionInfo: this.selectionInfo,
+---[snip]----------
+
+==> patches/ui-patches/allow_cookies_for_site.patch:
+
+patching file browser/base/content/browser-siteIdentity.js
+patching file browser/base/content/browser-trustPanel.js
+Hunk #1 succeeded at 391 (offset 4 lines).
+Hunk #2 succeeded at 406 (offset 4 lines).
+Hunk #3 succeeded at 850 (offset 27 lines).
+Hunk #4 succeeded at 892 (offset 27 lines).
+patching file browser/components/controlcenter/content/identityPanel.inc.xhtml
+patching file browser/components/controlcenter/content/trustPanel.inc.xhtml
+
+==> patches/ui-patches/eme-enable.patch:
+
+patching file browser/actors/EncryptedMediaParent.sys.mjs
+
+==> patches/ui-patches/home-preferences.patch:
+
+patching file browser/themes/shared/preferences/preferences.css
+Hunk #1 succeeded at 1541 (offset -5 lines).
+
+==> patches/ui-patches/lw-logo-devtools.patch:
+
+patching file devtools/client/aboutdebugging/src/actions/runtimes.js
+patching file devtools/client/jar.mn
+patching file devtools/client/themes/images/aboutdebugging-firefox-librewolf.svg
+patching file devtools/client/themes/images/aboutdebugging-firefox-logo.svg
+
+==> patches/ui-patches/neterror-desktop.patch:
+
+patching file toolkit/themes/shared/desktop-jar.inc.mn
+
+==> patches/ui-patches/newtab-wordmark-css.patch:
+
+patching file browser/extensions/newtab/content-src/components/Logo/_Logo.scss
+patching file browser/themes/shared/privatebrowsing/aboutPrivateBrowsing.css
+
+==> patches/ui-patches/pref-naming.patch:
+
+patching file browser/locales/en-US/browser/preferences/preferences.ftl
+Hunk #1 succeeded at 743 (offset 3 lines).
+Hunk #2 succeeded at 764 (offset 3 lines).
+
+==> patches/ui-patches/privacy-preferences.patch:
+
+patching file browser/components/preferences/config/permissions-data.mjs
+patching file browser/components/preferences/config/privacy.mjs
+Hunk #1 succeeded at 902 (offset -2 lines).
+patching file browser/components/preferences/preferences.js
+patching file browser/components/preferences/privacy.inc.xhtml
+patching file browser/components/preferences/privacy.js
+patching file browser/locales/en-US/browser/preferences/preferences.ftl
+Hunk #1 succeeded at 1938 (offset 18 lines).
+patching file browser/themes/shared/preferences/privacy.css
+Hunk #1 FAILED at 233.
+Hunk #2 FAILED at 269.
+2 out of 2 hunks FAILED -- saving rejects to file browser/themes/shared/preferences/privacy.css.rej
+---> patch exited 1
+---[snip]---------- --> browser/themes/shared/preferences/privacy.css.rej:
+--- browser/themes/shared/preferences/privacy.css
++++ browser/themes/shared/preferences/privacy.css
+@@ -233,7 +233,7 @@
+ }
+ 
+ .extra-information-label {
+-  margin-top: 18px;
++  margin-top: 5px;
+ }
+ 
+ /* Apply display: block to the containers of all the category information, as
+@@ -269,9 +269,8 @@
+ }
+ 
+ .content-blocking-extra-blocking-desc {
+-  margin-inline-start: 0.5em;
+-  position: relative;
+-  top: 0.65em;
++  margin-top: 1em;
++  margin-bottom: 0.5em;
+ }
+ 
+ .content-blocking-label,
+---[snip]----------
+
+==> patches/ui-patches/remove-branding.patch:
+
+patching file browser/base/content/appmenu-viewcache.inc.xhtml
+patching file browser/components/aboutlogins/content/aboutLogins.html
+patching file browser/components/aboutlogins/content/components/login-intro.mjs
+
+==> patches/ui-patches/remove-cfrprefs.patch:
+
+patching file browser/components/preferences/config/tabs-browsing.mjs
+Hunk #1 succeeded at 643 (offset 16 lines).
+Hunk #2 succeeded at 875 (offset 21 lines).
+Hunk #3 succeeded at 906 (offset 21 lines).
+patching file browser/components/preferences/preferences.js
+
+==> patches/ui-patches/remove-organization-policy-banner.patch:
+
+patching file browser/components/preferences/preferences.js
+
+==> patches/ui-patches/settings-redesign.patch:
+
+patching file browser/components/backup/BackupService.sys.mjs
+patching file browser/components/controlcenter/content/trustPanel.inc.xhtml
+patching file browser/components/preferences/config/about-firefox.mjs
+patching file browser/components/preferences/config/account-sync.mjs
+Hunk #1 FAILED at 839.
+Hunk #2 succeeded at 858 (offset 1 line).
+Hunk #3 succeeded at 960 (offset 1 line).
+1 out of 3 hunks FAILED -- saving rejects to file browser/components/preferences/config/account-sync.mjs.rej
+patching file browser/components/preferences/config/appearance.mjs
+patching file browser/components/preferences/config/languages.mjs
+Hunk #2 succeeded at 972 (offset 1 line).
+patching file browser/components/preferences/config/privacy.mjs
+Hunk #1 succeeded at 542 (offset -2 lines).
+Hunk #2 succeeded at 694 (offset -2 lines).
+Hunk #3 succeeded at 743 (offset -2 lines).
+Hunk #4 succeeded at 919 (offset -2 lines).
+Hunk #5 succeeded at 1055 (offset -2 lines).
+Hunk #6 succeeded at 1258 (offset -2 lines).
+Hunk #7 succeeded at 1288 (offset -2 lines).
+Hunk #8 succeeded at 1303 (offset -2 lines).
+patching file browser/components/preferences/config/tabs-browsing.mjs
+Hunk #1 succeeded at 132 (offset 1 line).
+Hunk #2 succeeded at 638 (offset 16 lines).
+Hunk #3 succeeded at 652 (offset 16 lines).
+Hunk #4 succeeded at 901 (offset 21 lines).
+Hunk #5 succeeded at 933 (offset 21 lines).
+patching file browser/components/preferences/main.js
+Hunk #1 FAILED at 428.
+Hunk #2 FAILED at 452.
+2 out of 2 hunks FAILED -- saving rejects to file browser/components/preferences/main.js.rej
+patching file browser/components/preferences/preferences.js
+patching file browser/components/preferences/preferences.xhtml
+Hunk #1 succeeded at 221 (offset -2 lines).
+patching file browser/components/preferences/privacy.inc.xhtml
+patching file browser/components/preferences/privacy.js
+patching file browser/extensions/newtab/lib/AboutPreferences.sys.mjs
+patching file browser/themes/shared/jar.inc.mn
+Hunk #1 succeeded at 300 (offset -1 lines).
+patching file browser/themes/shared/sidebar/librewolf.svg
+---> patch exited 1
+---[snip]---------- --> browser/components/preferences/config/account-sync.mjs.rej:
+--- browser/components/preferences/config/account-sync.mjs
++++ browser/components/preferences/config/account-sync.mjs
+@@ -839,12 +839,27 @@ let perDeviceSyncEnabled = Services.prefs.getBoolPref(
+   false
+ );
+ 
++Preferences.addSetting({
++  id: "librewolfSync",
++  pref: "identity.fxaccounts.enabled",
++  onUserChange() {
++    confirmRestartPrompt(
++      Services.prefs.getBoolPref("identity.fxaccounts.enabled"),
++      1,
++      true,
++      false
++    ).then(buttonIndex => {
++      if (buttonIndex == CONFIRM_RESTART_PROMPT_RESTART_NOW) {
++          Services.startup.quit(
++            Ci.nsIAppStartup.eAttemptQuit | Ci.nsIAppStartup.eRestart
++          );
++          return
++        }
++    });
++  }
++});
++
+ SettingGroupManager.registerGroups({
+-  defaultBrowserSync: window.createDefaultBrowserConfig({
+-    includeIsDefaultPane: false,
+-    inProgress: true,
+-    hiddenFromSearch: true,
+-  }),
+   accountDisabled: {
+     inProgress: true,
+     hidden: accountsEnabled,
+---[snip]----------
+---[snip]---------- --> browser/components/preferences/main.js.rej:
+--- browser/components/preferences/main.js
++++ browser/components/preferences/main.js
+@@ -428,17 +428,13 @@ function createDefaultBrowserConfig({
+ } = {}) {
+   const isDefaultPane = {
+     id: "isDefaultPane",
+-    l10nId: "is-default-browser-2",
++    l10nId: "librewolf-is-default-browser-2",
+     control: "moz-promo",
+-    controlAttrs: {
+-      imagesrc: "chrome://global/skin/illustrations/kit-happy.svg",
+-      imagedisplay: "cover",
+-    },
+   };
+ 
+   const isNotDefaultPane = {
+     id: "isNotDefaultPane",
+-    l10nId: "is-not-default-browser-2",
++    l10nId: "librewolf-is-not-default-browser-2",
+     control: "moz-promo",
+     options: [
+       {
+@@ -452,10 +448,6 @@ function createDefaultBrowserConfig({
+         },
+       },
+     ],
+-    controlAttrs: {
+-      imagesrc: "chrome://global/skin/illustrations/kit-concerned.svg",
+-      imagedisplay: "cover",
+-    },
+   };
+ 
+   const items = includeIsDefaultPane
+---[snip]----------
+
+==> patches/ui-patches/trustpanel.patch:
+
+patching file browser/themes/shared/controlcenter/panel.css
+Hunk #1 succeeded at 903 with fuzz 2 (offset 108 lines).
+
+==> patches/ui-patches/wallpapers.patch:
+
+patching file browser/extensions/newtab/lib/Wallpapers/WallpaperFeed.sys.mjs
+Hunk #1 succeeded at 422 (offset 267 lines).
+
+==> patches/ui-patches/website-appearance-ui-rfp.patch:
+
+patching file browser/components/preferences/config/appearance.mjs
+Hunk #1 succeeded at 276 with fuzz 2 (offset 182 lines).
+Hunk #2 succeeded at 311 (offset 182 lines).
+
+==> patches/webgl-permission-desktop.patch:
+
+patching file browser/base/content/popup-notifications.inc.xhtml
+patching file browser/modules/ObserverForwarder.sys.mjs
+patching file browser/modules/WebGLPermissionPromptHelper.sys.mjs
+patching file browser/themes/shared/jar.inc.mn
+Hunk #1 succeeded at 219 (offset -1 lines).
+patching file browser/themes/shared/notification-icons.css
+
+==> patches/windows-theming-bug.patch:
+
+patching file browser/app/librewolf.exe.manifest (renamed from browser/app/firefox.exe.manifest)
+
+==> patches/xdg-dir.patch:
+
+patching file toolkit/xre/nsXREDirProvider.cpp
+
+==> patches/xmas-desktop.patch:
+
+patching file browser/installer/package-manifest.in
+Hunk #1 succeeded at 273 (offset 22 lines).
+
+==> patches/pref-pane/pref-pane-small.patch:
+
+patching file browser/components/preferences/jar.mn
+patching file browser/components/preferences/main.js
+Hunk #1 FAILED at 520.
+1 out of 1 hunk FAILED -- saving rejects to file browser/components/preferences/main.js.rej
+patching file browser/components/preferences/preferences.js
+patching file browser/components/preferences/preferences.xhtml
+Hunk #2 succeeded at 174 (offset -2 lines).
+Hunk #3 succeeded at 261 (offset -2 lines).
+patching file browser/themes/shared/jar.inc.mn
+---> patch exited 1
+---[snip]---------- --> browser/components/preferences/main.js.rej:
+--- browser/components/preferences/main.js
++++ browser/components/preferences/main.js
+@@ -520,6 +520,74 @@ SettingGroupManager.registerGroups({
+   startup: createStartupConfig(
+     Services.prefs.getBoolPref("browser.settings-redesign.enabled", false)
+   ),
++  librewolfBehavior: {
++    l10nId: "librewolf-general-heading2",
++    headingLevel: 2,
++    items: [
++      {
++        id: "librewolfExtensionUpdate",
++        l10nId: "librewolf-extension-update-checkbox2",
++      },
++      {
++        id: "librewolfSync",
++        l10nId: "librewolf-sync-checkbox2",
++      },
++      {
++        id: "librewolfMiddleClick",
++        l10nId: "librewolf-autocopy-checkbox2",
++      },
++      {
++        id: "librewolfNova",
++        l10nId: "librewolf-nova-checkbox2",
++      },
++      {
++        id: "librewolfUserChrome",
++        l10nId: "librewolf-styling-checkbox2",
++      },
++    ],
++  },
++  librewolfNetworking: {
++    l10nId: "librewolf-network-heading2",
++    headingLevel: 2,
++    items: [
++      {
++        id: "librewolfIPv6",
++        l10nId: "librewolf-ipv6-checkbox2",
++      }
++    ],
++  },
++  librewolfPrivacy: {
++    l10nId: "librewolf-privacy-heading2",
++    headingLevel: 2,
++    items: [
++      {
++        id: "librewolfCrossOrigin",
++        l10nId: "librewolf-xorigin-ref-checkbox2",
++      },
++    ],
++  },
++  librewolfFingerprinting: {
++    l10nId: "librewolf-broken-heading2",
++    headingLevel: 2,
++    items: [
++      {
++        id: "librewolfRFP",
++        l10nId: "librewolf-rfp-checkbox2",
++      },
++      {
++        id: "librewolfLetterboxing",
++        l10nId: "librewolf-letterboxing-checkbox2",
++      },
++      {
++        id: "librewolfWebGLPrompt",
++        l10nId: "librewolf-webgl-checkbox2",
++      },
++      {
++        id: "librewolfWebGLPromptHide",
++        l10nId: "librewolf-webgl-prompt-checkbox2",
++      },
++    ],
++  },
+ });
+ 
+ /**
+---[snip]----------
+
+Removing '~/redoubt-artifacts/rebase-161.0/repo/tmpdir92.EtBBAx'...
+
+[patches/disable-data-reporting-common.patch] [patches/clear-alt-svc.patch] [patches/ui-patches/add-translate-page-context-menu.patch] [patches/ui-patches/privacy-preferences.patch] [patches/ui-patches/settings-redesign.patch] [patches/pref-pane/pref-pane-small.patch]
+
+error: Some patches failed!

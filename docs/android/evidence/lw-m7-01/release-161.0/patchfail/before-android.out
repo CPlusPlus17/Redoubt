@@ -1,0 +1,2960 @@
+Targets: android (assets/patches/common.txt first)
+Firefox: firefox-161.0.source.tar.xz
+Patches: 72
+Using scratch directory '~/redoubt-artifacts/rebase-161.0/repo/tmpdir92.bGSYcY'...
+Extracting 'firefox-161.0.source.tar.xz'...
+
+Testing patches...
+
+==> patches/always-fetch-latest-toolchain-artifact.patch:
+
+patching file python/mozbuild/mozbuild/artifact_commands.py
+Hunk #2 succeeded at 466 (offset 17 lines).
+
+==> patches/autoconfig-setEnv.patch:
+
+patching file extensions/pref/autoconfig/src/prefcalls.js
+patch unexpectedly ends in middle of line
+Hunk #1 succeeded at 205 with fuzz 1 (offset 9 lines).
+
+==> patches/custom-ubo-assets-bootstrap-location.patch:
+
+patching file toolkit/components/extensions/parent/ext-storage.js
+patch unexpectedly ends in middle of line
+Hunk #1 succeeded at 411 with fuzz 1.
+
+==> patches/devtools-bypass.patch:
+
+patching file devtools/server/actors/thread.js
+patching file devtools/server/actors/webconsole/listeners/console-api.js
+patching file devtools/shared/flags.js
+Hunk #1 succeeded at 60 (offset -7 lines).
+
+==> patches/extensions-setUninstallURL.patch:
+
+patching file toolkit/components/extensions/parent/ext-runtime.js
+Hunk #1 succeeded at 354 (offset 1 line).
+
+==> patches/firefox-in-ua.patch:
+
+patching file toolkit/moz.configure
+
+==> patches/fpp-canvas-fix.patch:
+
+patching file dom/canvas/CanvasRenderingContext2D.cpp
+Hunk #1 succeeded at 2349 (offset 32 lines).
+Hunk #2 succeeded at 6923 (offset 50 lines).
+Hunk #3 succeeded at 6949 (offset 53 lines).
+patching file dom/canvas/ClientWebGLContext.cpp
+Hunk #1 succeeded at 1428 (offset 50 lines).
+Hunk #2 succeeded at 3766 (offset 50 lines).
+Hunk #3 succeeded at 5536 (offset 50 lines).
+patching file toolkit/components/resistfingerprinting/nsRFPService.cpp
+
+==> patches/limit-access.patch:
+
+patching file caps/nsScriptSecurityManager.cpp
+Hunk #1 succeeded at 1031 (offset -8 lines).
+
+==> patches/moz-configure.patch:
+
+patching file toolkit/moz.configure
+
+==> patches/mozilla_dirs.patch:
+
+patching file toolkit/components/extensions/NativeManifests.sys.mjs
+patching file toolkit/xre/nsXREDirProvider.cpp
+patching file xpcom/build/nsXULAppAPI.h
+
+==> patches/profile-directory.patch:
+
+patching file extensions/pref/autoconfig/src/prefcalls.js
+patch unexpectedly ends in middle of line
+Hunk #1 succeeded at 9 with fuzz 1.
+
+==> patches/remove-openai.patch:
+
+patching file toolkit/components/aboutinference/content/aboutInference.js
+Hunk #1 succeeded at 676 with fuzz 1 (offset 297 lines).
+Hunk #2 succeeded at 695 (offset 297 lines).
+patching file toolkit/components/ml/content/EngineProcess.sys.mjs
+patching file toolkit/components/ml/content/backends/Pipeline.mjs
+patching file toolkit/components/ml/jar.mn
+patching file toolkit/components/ml/moz.build
+
+==> patches/remove-pingsender-common.patch:
+
+patching file python/mozbuild/mozbuild/artifacts.py
+patching file toolkit/components/telemetry/app/TelemetrySend.sys.mjs
+patching file toolkit/components/telemetry/moz.build
+
+==> patches/rs-blocker.patch:
+
+patching file services/settings/RemoteSettings.worker.mjs
+patching file services/settings/RemoteSettingsClient.sys.mjs
+Hunk #2 succeeded at 606 (offset 5 lines).
+Hunk #3 succeeded at 678 (offset 5 lines).
+Hunk #4 succeeded at 1077 (offset 10 lines).
+patching file services/settings/RemoteSettingsWorker.sys.mjs
+patching file services/settings/SharedUtils.sys.mjs
+patching file services/settings/Utils.sys.mjs
+Hunk #4 succeeded at 598 (offset 10 lines).
+patching file services/settings/remote-settings.sys.mjs
+Hunk #1 succeeded at 16 with fuzz 1.
+patching file toolkit/components/search/ConfigSearchEngine.sys.mjs
+
+==> patches/rust-gentoo-musl.patch:
+
+patching file build/moz.configure/rust.configure
+
+==> patches/ui-patches/neterror-common.patch:
+
+patching file toolkit/content/errors/net-error-illustrations.mjs
+patching file toolkit/content/net-error-card.mjs
+Hunk #1 succeeded at 1428 (offset 3 lines).
+patching file toolkit/themes/shared/aboutNetError.css
+patching file toolkit/themes/shared/illustrations/warning.svg
+
+==> patches/vendor-name.patch:
+
+patching file toolkit/components/extensions/parent/ext-runtime.js
+patching file toolkit/xre/nsAppRunner.cpp
+Hunk #1 succeeded at 2266 (offset 21 lines).
+Hunk #2 succeeded at 2279 (offset 21 lines).
+
+==> patches/disable-data-reporting-common.patch:
+
+patching file python/mach/mach/telemetry.py
+patching file python/sites/mach.txt
+Hunk #1 FAILED at 58.
+1 out of 1 hunk FAILED -- saving rejects to file python/sites/mach.txt.rej
+patching file third_party/rust/glean-core/src/core/mod.rs
+patching file third_party/rust/glean-core/src/lib.rs
+patching file toolkit/components/telemetry/core/Telemetry.cpp
+Hunk #1 succeeded at 551 (offset -143 lines).
+Hunk #2 succeeded at 577 (offset -143 lines).
+Hunk #3 succeeded at 620 with fuzz 2 (offset -143 lines).
+patching file toolkit/library/rust/gkrust-features.mozbuild
+---> patch exited 1
+---[snip]---------- --> python/sites/mach.txt.rej:
+--- python/sites/mach.txt
++++ python/sites/mach.txt
+@@ -58,7 +58,7 @@ pth:xpcom/geckoprocesstypes_generator
+ pth:xpcom/idl-parser
+ # glean-sdk may not be installable if a wheel isn't available
+ # and it has to be built from source.
+-pypi-optional:glean-sdk==70.3.0:telemetry will not be collected
++# pypi-optional:glean-sdk==70.3.0:telemetry will not be collected
+ pypi-optional:orjson>=3.10:json operations will be slower in various tools
+ # Mach gracefully handles the case where `psutil` is unavailable.
+ # We aren't (yet) able to pin packages in automation, so we have to
+---[snip]----------
+
+==> patches/webgl-permission-common.patch:
+
+patching file dom/canvas/ClientWebGLContext.cpp
+Hunk #3 succeeded at 930 (offset 51 lines).
+Hunk #4 succeeded at 1170 (offset 51 lines).
+patching file dom/ipc/BrowserParent.cpp
+Hunk #1 succeeded at 4167 (offset 28 lines).
+patching file dom/ipc/BrowserParent.h
+patching file dom/ipc/PBrowser.ipdl
+Hunk #1 succeeded at 631 (offset 2 lines).
+patching file modules/libpref/init/StaticPrefList.yaml
+Hunk #1 succeeded at 12429 (offset 88 lines).
+patching file modules/libpref/moz.build
+
+==> patches/xmas-common.patch:
+
+patching file lw/moz.build
+patching file moz.build
+Hunk #1 succeeded at 365 (offset 2 lines).
+
+==> patches/eme-permission-common.patch:
+
+patching file dom/media/eme/MediaKeySystemAccessManager.cpp
+Hunk #1 succeeded at 365 (offset 1 line).
+Hunk #2 succeeded at 424 (offset 1 line).
+Hunk #3 succeeded at 434 (offset 1 line).
+
+==> patches/moz-official-common.patch:
+
+patching file dom/media/gmp/ChromiumCDMAdapter.cpp
+patching file media/gmp-clearkey/0.1/gmp-clearkey.cpp
+
+==> patches/android/disable-data-reporting-android.patch:
+
+patching file mobile/android/moz.configure
+Hunk #1 succeeded at 109 (offset -20 lines).
+
+==> patches/android/neterror-jar.patch:
+
+patching file toolkit/themes/mobile/global/jar.mn
+
+==> patches/android/webgl-prompt-default.patch:
+
+patching file modules/libpref/init/StaticPrefList.yaml
+Hunk #1 succeeded at 12433 (offset 609 lines).
+
+==> patches/android/autoconfig-resource-fallback.patch:
+
+patching file extensions/pref/autoconfig/src/nsReadConfig.cpp
+Hunk #1 succeeded at 232 (offset -9 lines).
+Hunk #2 succeeded at 308 (offset -9 lines).
+patching file lw/moz.build
+patching file mobile/android/installer/package-manifest.in
+Hunk #1 succeeded at 139 (offset 4 lines).
+
+==> patches/android/no-nimbus.patch:
+
+patching file mobile/android/fenix/app/nimbus.fml.yaml
+Hunk #1 succeeded at 445 (offset -17 lines).
+Hunk #2 succeeded at 471 (offset -17 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/experiments/NimbusSetup.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/experiments/QANimbusToolingReceiver.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/experiments/QANimbusToolingReceiverTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/nimbus/NimbusSystemTest.kt
+
+==> patches/android/fission-isolation.patch:
+
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+Hunk #1 succeeded at 196 (offset -3 lines).
+
+==> patches/android/no-nimbus-toolkit.patch:
+
+patching file toolkit/components/nimbus/ExperimentAPI.sys.mjs
+Hunk #1 succeeded at 255 (offset -5 lines).
+Hunk #2 succeeded at 502 (offset 23 lines).
+Hunk #3 succeeded at 543 (offset 23 lines).
+
+==> patches/android/isolated-process.patch:
+
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+
+==> patches/android/about-config.patch:
+
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+
+==> patches/android/no-adjust.patch:
+
+patching file gradle/libs.versions.toml
+Hunk #1 succeeded at 55 with fuzz 1 (offset -2 lines).
+Hunk #2 FAILED at 107.
+Hunk #3 succeeded at 235 (offset -2 lines).
+Hunk #4 succeeded at 303 (offset -1 lines).
+1 out of 4 hunks FAILED -- saving rejects to file gradle/libs.versions.toml.rej
+patching file mobile/android/fenix/app/build.gradle
+Hunk #1 succeeded at 362 (offset 2 lines).
+Hunk #2 succeeded at 413 (offset 2 lines).
+Hunk #3 succeeded at 578 (offset 3 lines).
+Hunk #4 succeeded at 626 (offset 3 lines).
+patching file mobile/android/fenix/app/src/main/AndroidManifest.xml
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+Hunk #1 succeeded at 424 (offset -5 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+Hunk #1 succeeded at 126 (offset 4 lines).
+Hunk #2 succeeded at 537 (offset 15 lines).
+Hunk #3 succeeded at 1463 (offset 3 lines).
+Hunk #4 succeeded at 1477 (offset 3 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+Hunk #2 FAILED at 28.
+Hunk #3 succeeded at 180 with fuzz 2 (offset 3 lines).
+1 out of 3 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+Hunk #1 succeeded at 442 (offset 22 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/AdjustMetricsService.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/AdjustSdkController.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/AdjustThirdPartySharingController.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/ConversionEventRecorder.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/DefaultInstallReferrerClient.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallReferrerClientWrapper.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallReferrerHandlingService.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallReferrerMetricsService.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/InstallReferrerWorker.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/ReferralAttribution.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/RtamoAttributionHandler.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/distributions/DistributionTools.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/distributions/DistributionIdManager.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/distributions/DistributionSettings.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/messaging/CustomAttributeProvider.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
+Hunk #1 succeeded at 49 (offset 3 lines).
+Hunk #2 succeeded at 86 (offset 3 lines).
+Hunk #3 succeeded at 105 (offset 3 lines).
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/AdjustMetricsServiceTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallReferrerHandlingServiceTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallReferrerMetricsServiceTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/InstallReferrerWorkerTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/ReferralAttributionTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/RtamoAttributionHandlerTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/distributions/DistributionIdManagerTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/distributions/DistributionSettingsTest.kt
+patching file mobile/android/fenix/config/detekt-baseline.xml
+patching file mobile/android/fenix/docs/adjust.md
+patching file mobile/android/fenix/docs/index.md
+---> patch exited 1
+---[snip]---------- --> gradle/libs.versions.toml.rej:
+--- gradle/libs.versions.toml
++++ gradle/libs.versions.toml
+@@ -107,7 +106,6 @@ mockk = "1.14.11"
+ robolectric = "4.17"
+ 
+ # Third party libraries
+-adjust = "5.8.0"
+ androidsvg = "1.4"
+ disklrucache = "2.0.2"
+ jetbrains-markdown = "0.7.17"
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+@@ -28,13 +27,11 @@ import org.mozilla.fenix.Config
+ import org.mozilla.fenix.HomeActivity
+ import org.mozilla.fenix.R
+ import org.mozilla.fenix.ReleaseChannel
+-import org.mozilla.fenix.components.metrics.AdjustMetricsService
+ import org.mozilla.fenix.components.metrics.DefaultMetricsStorage
+ import org.mozilla.fenix.components.metrics.FirstSessionMetricsService
+ import org.mozilla.fenix.components.metrics.GleanMetricsService
+ import org.mozilla.fenix.components.metrics.GleanProfileIdPreferenceStore
+ import org.mozilla.fenix.components.metrics.GleanUsageReportingMetricsService
+-import org.mozilla.fenix.components.metrics.InstallReferrerMetricsService
+ import org.mozilla.fenix.components.metrics.MetricController
+ import org.mozilla.fenix.components.metrics.MetricsStorage
+ import org.mozilla.fenix.crashes.CrashFactCollector
+---[snip]----------
+
+==> patches/android/no-onboarding.patch:
+
+patching file mobile/android/android-components/components/browser/icons/src/main/java/mozilla/components/browser/icons/BrowserIcons.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FeatureFlags.kt
+Hunk #1 FAILED at 20.
+1 out of 1 hunk FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FeatureFlags.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/PocketMiddleware.kt
+Reversed (or previously applied) patch detected!  Assume -R? [n] 
+Apply anyway? [n] 
+Skipping patch.
+3 out of 3 hunks ignored -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/PocketMiddleware.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelper.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeature.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddleware.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/termsofuse/store/TermsOfUsePromptRepository.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+Hunk #1 succeeded at 2416 (offset 23 lines).
+Hunk #2 succeeded at 2437 (offset 23 lines).
+Hunk #3 succeeded at 3060 (offset 65 lines).
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/PocketMiddlewareTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/pocket/ContentRecommendationsFeatureHelperTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
+Hunk #2 succeeded at 376 (offset -1 lines).
+Hunk #3 succeeded at 410 with fuzz 1 (offset 1 line).
+Hunk #4 succeeded at 562 (offset 9 lines).
+Hunk #5 succeeded at 597 with fuzz 1 (offset 11 lines).
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/reviewprompt/ReviewPromptMiddlewareTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/termsofuse/store/TermsOfUsePromptRepositoryTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+Hunk #1 succeeded at 860 (offset 5 lines).
+Hunk #2 succeeded at 876 (offset 5 lines).
+Hunk #3 succeeded at 903 (offset 5 lines).
+Hunk #4 succeeded at 919 (offset 5 lines).
+Hunk #5 succeeded at 1260 (offset 5 lines).
+Hunk #6 succeeded at 1286 (offset 5 lines).
+Hunk #7 succeeded at 1327 (offset 5 lines).
+---> patch exited 1
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FeatureFlags.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FeatureFlags.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FeatureFlags.kt
+@@ -20,10 +20,21 @@ object FeatureFlags {
+     const val FX_SUGGEST = true
+ 
+     /**
+-     * Disables the Onboarding feature for debug builds by default. Set this to `true` if you need to access the
+-     * Onboarding feature for development purposes.
++     * LibreWolf (LW-M4-10): the Fenix onboarding flow is REMOVED, not switched off for debug
++     * builds. Upstream computed this flag from `!Config.channel.isDebug`, i.e. the flow was
++     * live on release, beta and nightly and only absent from debug builds; it is now a
++     * compiled `false` on every channel.
+      *
+-     * ⚠️ DO NOT MODIFY THIS FLAG IN PRODUCTION.
++     * ⚠️ Setting this back to `true` does NOT bring the flow back, and is not a supported
++     * configuration: `Settings.shouldShowOnboarding()` ignores both of its arguments,
++     * `ContinuousOnboardingFeatureDefault.shouldShowContinuousOnboarding()` is false too, and
++     * with them go the six onboarding cards (terms-of-service, default-browser,
++     * add-search-widget, sync-sign-in, notification-permission, toolbar-placement) and the
++     * default-browser SYSTEM prompt, which is raised only from OnboardingFragment.
++     *
++     * Named in SCREAMING_SNAKE_CASE like its `const val` neighbours above: ktlint's
++     * standard:property-naming rule requires it, and the camelCase name upstream used was
++     * legal only because upstream's declaration was not `const`.
+      */
+-    val onboardingFeatureEnabled = !Config.channel.isDebug
++    const val ONBOARDING_FEATURE_ENABLED = false
+ }
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/PocketMiddleware.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/PocketMiddleware.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/PocketMiddleware.kt
+@@ -8,7 +8,6 @@ import androidx.annotation.VisibleForTesting
+ import androidx.datastore.core.DataStore
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Dispatchers
+-import kotlinx.coroutines.Dispatchers.IO
+ import kotlinx.coroutines.flow.first
+ import kotlinx.coroutines.launch
+ import mozilla.components.lib.state.Action
+@@ -40,12 +39,13 @@ interface PocketSettings {
+  *
+  * @param settings [Settings] used for fetching and storing pocket related settings.
+  */
+-class SettingsBackedPocketSettings(private val settings: Settings) : PocketSettings {
++@Suppress("UNUSED_PARAMETER")
++class SettingsBackedPocketSettings(settings: Settings) : PocketSettings {
+     override val showPocketRecommendationsFeature
+-        get() = (settings.showPocketRecommendationsFeature || settings.privateModeAndStoriesEntryPointEnabled)
++        get() = false
+ 
+     override val showPocketSponsoredStories
+-        get() = settings.showPocketSponsoredStories
++        get() = false
+ }
+ 
+ /**
+@@ -74,17 +74,10 @@ class PocketMiddleware(
+         // Pre process actions
+         when (action) {
+             is AppAction.AppLifecycleAction.StartAction -> {
+-                visualCompletenessQueue.runIfReadyOrQueue {
+-                    coroutineScope.launch(IO) {
+-                        if (settings.showPocketRecommendationsFeature) {
+-                            pocketStoriesService.value.startPeriodicContentRecommendationsRefresh()
+-                        }
+-
+-                        if (settings.showPocketSponsoredStories) {
+-                            pocketStoriesService.value.startPeriodicSponsoredContentsRefresh()
+-                        }
+-                    }
+-                }
++                // LibreWolf (LW-M4-10): the two periodic-refresh schedulers this branch used to
++                // start are the only thing that ever contacted merino.services.mozilla.com and
++                // the MARS ad server, and they did so on the very first launch. There is no
++                // condition under which we want them, so the calls are gone rather than gated.
+             }
+             is ContentRecommendationsAction.PocketStoriesCategoriesChange -> {
+                 // Intercept the original action which would only update categories and
+---[snip]----------
+
+==> patches/android/no-glean.patch:
+
+patching file mobile/android/fenix/app/build.gradle
+Hunk #1 succeeded at 537 (offset 2 lines).
+patching file mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/helpers/HomeActivityTestRule.kt
+Hunk #2 succeeded at 399 (offset -7 lines).
+patching file mobile/android/fenix/app/src/main/AndroidManifest.xml
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/BrowserDirection.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+Hunk #1 succeeded at 113 (offset -3 lines).
+Hunk #2 succeeded at 304 (offset -5 lines).
+Hunk #3 succeeded at 347 (offset -5 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+Hunk #1 succeeded at 136 (offset 4 lines).
+Hunk #2 succeeded at 521 (offset 15 lines).
+Hunk #3 succeeded at 1061 (offset 10 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+Hunk #1 FAILED at 30.
+Hunk #2 FAILED at 174.
+2 out of 2 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/GleanHelper.kt
+Reversed (or previously applied) patch detected!  Assume -R? [n] 
+Apply anyway? [n] 
+Skipping patch.
+1 out of 1 hunk ignored -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/GleanHelper.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanMetricsService.kt
+Reversed (or previously applied) patch detected!  Assume -R? [n] 
+Apply anyway? [n] 
+Skipping patch.
+1 out of 1 hunk ignored -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanMetricsService.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReporting.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingApi.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingLifecycleObserver.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanUsageReportingMetricsService.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsMiddleware.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsStorage.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/GleanDebugToolsStore.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/ui/GleanDebugToolsScreen.kt
+Reversed (or previously applied) patch detected!  Assume -R? [n] 
+Apply anyway? [n] 
+Skipping patch.
+1 out of 1 hunk ignored -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/ui/GleanDebugToolsScreen.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/navigation/DebugDrawerRoute.kt
+Hunk #1 succeeded at 27 (offset 1 line).
+Hunk #2 succeeded at 74 (offset 1 line).
+Hunk #3 succeeded at 118 (offset 1 line).
+Hunk #4 succeeded at 135 (offset 2 lines).
+Hunk #5 succeeded at 215 (offset 3 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerAction.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerNavigationMiddleware.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/store/DebugDrawerTelemetryMiddleware.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/ui/FenixOverlay.kt
+Hunk #3 succeeded at 32 with fuzz 1.
+Hunk #4 succeeded at 44 (offset 1 line).
+Hunk #5 succeeded at 99 (offset 3 lines).
+Hunk #6 succeeded at 120 (offset 4 lines).
+Hunk #7 succeeded at 136 (offset 5 lines).
+Hunk #8 succeeded at 172 (offset 6 lines).
+Hunk #9 succeeded at 254 (offset 7 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/ext/Activity.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/ext/Configuration.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/OnboardingFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddleware.kt
+Hunk #1 succeeded at 233 (offset 1 line).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/datachoices/DataChoicesMiddleware.kt
+patching file mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
+Hunk #2 succeeded at 1361 (offset 7 lines).
+patching file mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUsageReportingLifecycleObserverTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUsageReportingMetricsServiceTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/GleanUserProfileIdTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanProfileId.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanProfileIdStore.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/fake/FakeGleanUsageReporting.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/debugsettings/DebugDrawerNavigationMiddlewareTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/debugsettings/GleanDebugToolsStorageTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/debugsettings/GleanDebugToolsStoreTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ext/ConfigurationKtTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/search/BrowserToolbarSearchMiddlewareTest.kt
+---> patch exited 1
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+@@ -30,9 +30,6 @@ import org.mozilla.fenix.R
+ import org.mozilla.fenix.ReleaseChannel
+ import org.mozilla.fenix.components.metrics.DefaultMetricsStorage
+ import org.mozilla.fenix.components.metrics.FirstSessionMetricsService
+-import org.mozilla.fenix.components.metrics.GleanMetricsService
+-import org.mozilla.fenix.components.metrics.GleanProfileIdPreferenceStore
+-import org.mozilla.fenix.components.metrics.GleanUsageReportingMetricsService
+ import org.mozilla.fenix.components.metrics.MetricController
+ import org.mozilla.fenix.components.metrics.MetricsStorage
+ import org.mozilla.fenix.crashes.CrashFactCollector
+@@ -174,9 +171,7 @@ class Analytics(
+     val metrics: MetricController by lazyMonitored {
+         MetricController.create(
+             listOf(
+-                GleanMetricsService(context),
+                 FirstSessionMetricsService(context),
+-                GleanUsageReportingMetricsService(gleanProfileIdStore = GleanProfileIdPreferenceStore(context)),
+             ),
+             isDataTelemetryEnabled = { settings.isTelemetryEnabled },
+             isMarketingDataTelemetryEnabled = {
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/GleanHelper.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/GleanHelper.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/GleanHelper.kt
+@@ -1,73 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components
+-
+-import android.content.Context
+-import mozilla.components.concept.fetch.Client
+-import mozilla.components.service.glean.net.ConceptFetchHttpUploader
+-import mozilla.components.support.base.log.logger.Logger
+-import mozilla.telemetry.glean.Glean
+-import mozilla.telemetry.glean.config.Configuration
+-import org.mozilla.fenix.BuildConfig
+-import org.mozilla.fenix.Config
+-import org.mozilla.fenix.GleanMetrics.GleanBuildInfo
+-import org.mozilla.fenix.GleanMetrics.Pings
+-import org.mozilla.fenix.debugsettings.gleandebugtools.DefaultGleanDebugToolsStorage
+-import org.mozilla.fenix.ext.components
+-import org.mozilla.fenix.ext.getCustomGleanServerUrlIfAvailable
+-import org.mozilla.fenix.ext.setCustomEndpointIfAvailable
+-import org.mozilla.fenix.nimbus.FxNimbus
+-
+-/**
+- * Helper function to initialize Glean.
+- *
+- * [applicationContext] the application context required for glean initialization. [logger] the logger to send logs
+- * about initializing Glean. [isTelemetryUploadEnabled] indicate if telemetry should be enabled to be uploaded. [client]
+- * an instance of [Client] used to upload metrics.
+- */
+-fun initializeGlean(applicationContext: Context, logger: Logger, isTelemetryUploadEnabled: Boolean, client: Client) {
+-    logger.debug("Initializing Glean (uploadEnabled=$isTelemetryUploadEnabled})")
+-
+-    // for performance reasons, this is only available in Nightly or Debug builds
+-    val customEndpoint =
+-        if (Config.channel.isNightlyOrDebug) {
+-            // for testing, if custom glean server url is set in the secret menu, use it to initialize Glean
+-            getCustomGleanServerUrlIfAvailable(applicationContext)
+-        } else {
+-            null
+-        }
+-
+-    val configuration =
+-        Configuration(
+-            channel = BuildConfig.BUILD_TYPE,
+-            httpClient =
+-                ConceptFetchHttpUploader(
+-                    lazy(LazyThreadSafetyMode.NONE) { client },
+-                    supportsOhttp = true,
+-                ),
+-            enableEventTimestamps = FxNimbus.features.glean.value().enableEventTimestamps,
+-            delayPingLifetimeIo = FxNimbus.features.glean.value().delayPingLifetimeIo,
+-            pingLifetimeThreshold = FxNimbus.features.glean.value().pingLifetimeThreshold,
+-            pingLifetimeMaxTime = FxNimbus.features.glean.value().pingLifetimeMaxTime,
+-        )
+-
+-    // Since Glean v63.0.0, custom pings need to be registered prior to Glean init
+-    // in order to ensure they are enabled and able to collect data.
+-    // See https://bugzilla.mozilla.org/1934931 for more information.
+-    Glean.registerPings(Pings)
+-
+-    // Set the metric configuration from Nimbus.
+-    Glean.applyServerKnobsConfig(FxNimbus.features.glean.value().gleanMetricConfiguration.toJSONObject().toString())
+-
+-    Glean.initialize(
+-        applicationContext = applicationContext,
+-        configuration = configuration.setCustomEndpointIfAvailable(customEndpoint),
+-        uploadEnabled = isTelemetryUploadEnabled,
+-        buildInfo = GleanBuildInfo.buildInfo,
+-    )
+-
+-    // Re-apply any debug view tag persisted from a previous run so it survives the restart (Nightly/Debug only).
+-    DefaultGleanDebugToolsStorage.restorePersistedDebugViewTag(applicationContext.components.settings)
+-}
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanMetricsService.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanMetricsService.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/GleanMetricsService.kt
+@@ -1,102 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components.metrics
+-
+-import android.content.Context
+-import mozilla.components.support.base.log.logger.Logger
+-import mozilla.components.support.utils.RunWhenReadyQueue
+-import mozilla.telemetry.glean.Glean
+-import org.mozilla.fenix.GleanMetrics.Pings
+-import org.mozilla.fenix.ext.components
+-
+-private class EventWrapper<T : Enum<T>>(
+-    private val recorder: ((Map<T, String>?) -> Unit),
+-    private val keyMapper: ((String) -> T)? = null,
+-) {
+-
+-    /** Converts snake_case string to camelCase. */
+-    private fun String.asCamelCase(): String {
+-        val parts = split("_")
+-        val builder = StringBuilder()
+-
+-        for ((index, part) in parts.withIndex()) {
+-            if (index == 0) {
+-                builder.append(part)
+-            } else {
+-                builder.append(part[0].uppercase())
+-                builder.append(part.substring(1))
+-            }
+-        }
+-
+-        return builder.toString()
+-    }
+-
+-    fun track(event: Event) {
+-        val extras =
+-            if (keyMapper != null) {
+-                event.extras?.mapKeys { (key) ->
+-                    keyMapper.invoke(key.toString().asCamelCase())
+-                }
+-            } else {
+-                null
+-            }
+-
+-        @Suppress("DEPRECATION")
+-        // FIXME(#19967): Migrate to non-deprecated API.
+-        this.recorder(extras)
+-    }
+-}
+-
+-@Suppress("DEPRECATION")
+-// FIXME(#19967): Migrate to non-deprecated API.
+-private val Event.wrapper: EventWrapper<*>?
+-    get() = null
+-
+-/** Service responsible for sending the activation and installation pings. */
+-class GleanMetricsService(
+-    private val context: Context,
+-    private val runWhenReadyQueue: RunWhenReadyQueue = context.components.performance.visualCompletenessQueue,
+-) : MetricsService {
+-    override val type = MetricServiceType.Data
+-
+-    private val logger = Logger("GleanMetricsService")
+-    private var initialized = false
+-
+-    private val activationPing = ActivationPing(context)
+-
+-    override fun start() {
+-        logger.debug("Enabling Glean.")
+-        // Initialization of Glean already happened in FenixApplication.
+-        Glean.setCollectionEnabled(true)
+-
+-        if (initialized) return
+-        initialized = true
+-
+-        // The code below doesn't need to execute immediately, so we'll add them to the visual
+-        // completeness task queue to be run later.
+-        runWhenReadyQueue.runIfReadyOrQueue {
+-            // We have to initialize Glean *on* the main thread, because it registers lifecycle
+-            // observers. However, the activation ping must be sent *off* of the main thread,
+-            // because it calls Google ad APIs that must be called *off* of the main thread.
+-            // These two things actually happen in parallel, but that should be ok because Glean
+-            // can handle events being recorded before it's initialized.
+-            Glean.registerPings(Pings)
+-
+-            activationPing.checkAndSend()
+-        }
+-    }
+-
+-    override fun stop() {
+-        Glean.setCollectionEnabled(false)
+-    }
+-
+-    override fun track(event: Event) {
+-        event.wrapper?.track(event)
+-    }
+-
+-    override fun shouldTrack(event: Event): Boolean {
+-        return event.wrapper != null
+-    }
+-}
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/ui/GleanDebugToolsScreen.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/ui/GleanDebugToolsScreen.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/debugsettings/gleandebugtools/ui/GleanDebugToolsScreen.kt
+@@ -1,300 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.debugsettings.gleandebugtools.ui
+-
+-import androidx.compose.foundation.layout.Column
+-import androidx.compose.foundation.layout.Spacer
+-import androidx.compose.foundation.layout.fillMaxSize
+-import androidx.compose.foundation.layout.fillMaxWidth
+-import androidx.compose.foundation.layout.height
+-import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.rememberScrollState
+-import androidx.compose.foundation.text.KeyboardActions
+-import androidx.compose.foundation.text.KeyboardOptions
+-import androidx.compose.foundation.verticalScroll
+-import androidx.compose.material3.HorizontalDivider
+-import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.Surface
+-import androidx.compose.material3.Text
+-import androidx.compose.runtime.Composable
+-import androidx.compose.runtime.collectAsState
+-import androidx.compose.runtime.getValue
+-import androidx.compose.ui.Modifier
+-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+-import androidx.compose.ui.res.stringResource
+-import androidx.compose.ui.text.input.KeyboardType
+-import androidx.compose.ui.tooling.preview.PreviewParameter
+-import mozilla.components.compose.base.Dropdown
+-import mozilla.components.compose.base.annotation.FlexibleWindowPreview
+-import mozilla.components.compose.base.button.FilledButton
+-import mozilla.components.compose.base.menu.MenuItem
+-import mozilla.components.compose.base.text.Text
+-import mozilla.components.compose.base.textfield.TextField
+-import mozilla.components.compose.base.theme.PreviewThemeProvider
+-import mozilla.components.compose.base.theme.Theme
+-import org.mozilla.fenix.R
+-import org.mozilla.fenix.compose.list.SwitchListItem
+-import org.mozilla.fenix.compose.list.TextListItem
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsAction
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsState
+-import org.mozilla.fenix.debugsettings.gleandebugtools.GleanDebugToolsStore
+-import org.mozilla.fenix.theme.FirefoxTheme
+-
+-/**
+- * Glean Debug Tools UI that allows for glean test pings to be sent.
+- *
+- * @param gleanDebugToolsStore [GleanDebugToolsStore] used to access [GleanDebugToolsState].
+- * @param modifier [Modifier] to be applied to the screen.
+- */
+-@Composable
+-fun GleanDebugToolsScreen(
+-    gleanDebugToolsStore: GleanDebugToolsStore,
+-    modifier: Modifier = Modifier,
+-) {
+-    val gleanDebugToolsState by gleanDebugToolsStore.stateFlow.collectAsState()
+-
+-    Surface {
+-        Column(
+-            modifier =
+-                modifier
+-                    .fillMaxSize()
+-                    .verticalScroll(rememberScrollState())
+-                    .padding(top = FirefoxTheme.layout.space.dynamic400)
+-        ) {
+-            GleanDebugLoggingSection(logPingsToConsoleEnabled = gleanDebugToolsState.logPingsToConsoleEnabled) {
+-                gleanDebugToolsStore.dispatch(GleanDebugToolsAction.LogPingsToConsoleToggled)
+-            }
+-
+-            Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.dynamic150))
+-
+-            GleanDebugViewSection(
+-                buttonsEnabled = gleanDebugToolsState.isDebugTagButtonEnabled,
+-                debugViewTag = gleanDebugToolsState.debugViewTag,
+-                hasDebugViewTagError = gleanDebugToolsStore.state.hasDebugViewTagError,
+-                onOpenDebugView = { useDebugViewTag ->
+-                    gleanDebugToolsStore.dispatch(
+-                        GleanDebugToolsAction.OpenDebugView(useDebugViewTag = useDebugViewTag)
+-                    )
+-                },
+-                onCopyDebugViewLink = { useDebugViewTag ->
+-                    gleanDebugToolsStore.dispatch(
+-                        GleanDebugToolsAction.CopyDebugViewLink(useDebugViewTag = useDebugViewTag)
+-                    )
+-                },
+-            ) { newTag ->
+-                gleanDebugToolsStore.dispatch(GleanDebugToolsAction.DebugViewTagChanged(newTag))
+-            }
+-
+-            Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.dynamic150))
+-
+-            GleanDebugSendPingsSection(
+-                isButtonEnabled = gleanDebugToolsState.isDebugTagButtonEnabled,
+-                curPing = gleanDebugToolsState.pingType,
+-                pingTypes = gleanDebugToolsState.pingTypes,
+-                onPingItemClicked = {
+-                    gleanDebugToolsStore.dispatch(GleanDebugToolsAction.ChangePingType(it))
+-                },
+-                onSendPing = { gleanDebugToolsStore.dispatch(GleanDebugToolsAction.SendPing) },
+-            )
+-        }
+-    }
+-}
+-
+-@Composable
+-private fun GleanDebugLoggingSection(
+-    logPingsToConsoleEnabled: Boolean,
+-    onLogPingsToConsoleToggled: () -> Unit,
+-) {
+-    GleanDebugSectionTitle(text = stringResource(R.string.glean_debug_tools_logging_title))
+-
+-    SwitchListItem(
+-        label = stringResource(R.string.glean_debug_tools_log_pings_to_console),
+-        checked = logPingsToConsoleEnabled,
+-        modifier = Modifier.padding(horizontal = FirefoxTheme.layout.space.dynamic400),
+-        showSwitchAfter = true,
+-    ) {
+-        onLogPingsToConsoleToggled()
+-    }
+-}
+-
+-@Composable
+-@Suppress("LongMethod")
+-private fun GleanDebugViewSection(
+-    buttonsEnabled: Boolean,
+-    debugViewTag: String,
+-    hasDebugViewTagError: Boolean,
+-    onOpenDebugView: (Boolean) -> Unit,
+-    onCopyDebugViewLink: (Boolean) -> Unit,
+-    onDebugViewTagChanged: (String) -> Unit,
+-) {
+-    val keyboardController = LocalSoftwareKeyboardController.current
+-
+-    GleanDebugSectionTitle(text = stringResource(id = R.string.glean_debug_tools_debug_view_title))
+-
+-    Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.dynamic400))
+-
+-    TextField(
+-        value = debugViewTag,
+-        onValueChange = {
+-            if (it.all { char -> char.isLetterOrDigit() || char == '-' }) {
+-                onDebugViewTagChanged(it)
+-            }
+-        },
+-        placeholder = stringResource(R.string.glean_debug_tools_debug_view_tag_placeholder),
+-        errorText =
+-            stringResource(
+-                R.string.glean_debug_tools_debug_view_tag_error,
+-                GleanDebugToolsState.DEBUG_VIEW_TAG_MAX_LENGTH,
+-            ),
+-        modifier = Modifier.fillMaxWidth().padding(horizontal = FirefoxTheme.layout.space.dynamic400),
+-        isError = hasDebugViewTagError,
+-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+-        keyboardActions =
+-            KeyboardActions(
+-                onDone = {
+-                    keyboardController?.hide()
+-                }
+-            ),
+-    )
+-
+-    if (buttonsEnabled) {
+-        GleanDebugButton(
+-            text =
+-                stringResource(
+-                    R.string.glean_debug_tools_open_debug_view_debug_view_tag,
+-                    debugViewTag,
+-                )
+-        ) {
+-            onOpenDebugView(true)
+-        }
+-
+-        HorizontalDivider()
+-
+-        GleanDebugButton(
+-            text =
+-                stringResource(
+-                    R.string.glean_debug_tools_copy_debug_view_link_debug_view_tag,
+-                    debugViewTag,
+-                )
+-        ) {
+-            onCopyDebugViewLink(true)
+-        }
+-
+-        HorizontalDivider()
+-    }
+-
+-    GleanDebugButton(text = stringResource(R.string.glean_debug_tools_open_debug_view)) {
+-        onOpenDebugView(false)
+-    }
+-
+-    HorizontalDivider()
+-
+-    GleanDebugButton(text = stringResource(R.string.glean_debug_tools_copy_debug_view_link)) {
+-        onCopyDebugViewLink(false)
+-    }
+-}
+-
+-@Composable
+-@Suppress("Deprecation")
+-private fun GleanDebugSendPingsSection(
+-    isButtonEnabled: Boolean,
+-    curPing: String,
+-    pingTypes: List<String>,
+-    onPingItemClicked: (String) -> Unit,
+-    onSendPing: () -> Unit,
+-) {
+-    Column(modifier = Modifier.padding(horizontal = FirefoxTheme.layout.space.dynamic400)) {
+-        Dropdown(
+-            label = "Ping Type",
+-            placeholder = "",
+-            dropdownItems =
+-                getPingDropdownMenu(
+-                    curPing = curPing,
+-                    pings = pingTypes,
+-                    onClickItem = onPingItemClicked,
+-                ),
+-        )
+-
+-        Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.dynamic400))
+-
+-        FilledButton(
+-            text = stringResource(R.string.glean_debug_tools_send_ping_button_text),
+-            modifier = Modifier.fillMaxWidth().padding(horizontal = FirefoxTheme.layout.space.dynamic200),
+-            enabled = isButtonEnabled,
+-            onClick = onSendPing,
+-        )
+-    }
+-}
+-
+-/**
+- * The UI for a section title on the Glean Debug Tools page.
+- *
+- * @param text The text for a section of Glean Debug Tools page.
+- */
+-@Composable
+-private fun GleanDebugSectionTitle(text: String) {
+-    Text(
+-        text = text,
+-        modifier = Modifier.padding(horizontal = FirefoxTheme.layout.space.dynamic400),
+-        color = MaterialTheme.colorScheme.tertiary,
+-        style = FirefoxTheme.typography.subtitle1,
+-    )
+-}
+-
+-/**
+- * The UI for a button on the Glean Debug Tools page.
+- *
+- * @param text The text on the button.
+- * @param onClick Called when the user clicks on the button.
+- */
+-@Composable
+-private fun GleanDebugButton(
+-    text: String,
+-    onClick: () -> Unit,
+-) {
+-    TextListItem(
+-        label = text,
+-        modifier = Modifier.fillMaxWidth(),
+-        maxLabelLines = Int.MAX_VALUE,
+-        onClick = onClick,
+-    )
+-}
+-
+-private fun getPingDropdownMenu(
+-    curPing: String,
+-    pings: List<String>,
+-    onClickItem: (String) -> Unit,
+-) = pings.map {
+-    MenuItem.CheckableItem(
+-        text = Text.String(it),
+-        isChecked = it == curPing,
+-    ) {
+-        onClickItem(it)
+-    }
+-}
+-
+-@Composable
+-@FlexibleWindowPreview
+-private fun GleanDebugToolsPreview(@PreviewParameter(PreviewThemeProvider::class) theme: Theme) {
+-    FirefoxTheme(theme) {
+-        GleanDebugToolsScreen(
+-            gleanDebugToolsStore =
+-                GleanDebugToolsStore(
+-                    initialState =
+-                        GleanDebugToolsState(
+-                            logPingsToConsoleEnabled = false,
+-                            debugViewTag = "",
+-                            pingTypes =
+-                                listOf(
+-                                    "metrics",
+-                                    "baseline",
+-                                    "ping type 3",
+-                                    "ping type 4",
+-                                ),
+-                        )
+-                )
+-        )
+-    }
+-}
+---[snip]----------
+
+==> patches/android/no-gms.patch:
+
+patching file .prettierignore
+patching file build.gradle
+Hunk #1 succeeded at 17 (offset -2 lines).
+Hunk #2 succeeded at 41 (offset -3 lines).
+patching file gradle/libs.versions.toml
+Hunk #1 FAILED at 56.
+Hunk #3 FAILED at 233.
+2 out of 3 hunks FAILED -- saving rejects to file gradle/libs.versions.toml.rej
+patching file mobile/android/android-components/.buildconfig.yml
+Hunk #1 succeeded at 1183 (offset 1 line).
+Hunk #2 succeeded at 2118 with fuzz 2 (offset 11 lines).
+Hunk #3 succeeded at 2199 (offset 11 lines).
+patching file mobile/android/android-components/README.md
+patching file mobile/android/android-components/components/feature/ipprotection/build.gradle
+patching file mobile/android/android-components/components/feature/ipprotection/src/main/java/mozilla/components/feature/ipprotection/auth/gpi/IPProtectionGpiProvider.kt
+patching file mobile/android/android-components/components/feature/ipprotection/src/test/java/mozilla/components/feature/ipprotection/IPProtectionGpiProviderTest.kt
+patching file mobile/android/android-components/components/feature/push/README.md
+patching file mobile/android/android-components/components/lib/integrity-googleplay/README.md
+patching file mobile/android/android-components/components/lib/integrity-googleplay/build.gradle
+patching file mobile/android/android-components/components/lib/integrity-googleplay/lint-baseline.xml
+patching file mobile/android/android-components/components/lib/integrity-googleplay/metrics.yaml
+patching file mobile/android/android-components/components/lib/integrity-googleplay/proguard-rules.pro
+patching file mobile/android/android-components/components/lib/integrity-googleplay/src/main/AndroidManifest.xml
+patching file mobile/android/android-components/components/lib/integrity-googleplay/src/main/java/mozilla/components/lib/integrity/googleplay/GooglePlayIntegrityClient.kt
+patching file mobile/android/android-components/components/lib/integrity-googleplay/src/main/java/mozilla/components/lib/integrity/googleplay/ext/StandardIntegrityManager.kt
+patching file mobile/android/android-components/components/lib/integrity-googleplay/src/test/java/mozilla/components/lib/integrity/googleplay/GooglePlayIntegrityClientTest.kt
+patching file mobile/android/android-components/components/lib/integrity-googleplay/src/test/resources/robolectric.properties
+patching file mobile/android/android-components/components/lib/push-firebase/README.md
+patching file mobile/android/android-components/components/lib/push-firebase/build.gradle
+patching file mobile/android/android-components/components/lib/push-firebase/lint-baseline.xml
+patching file mobile/android/android-components/components/lib/push-firebase/proguard-rules.pro
+patching file mobile/android/android-components/components/lib/push-firebase/src/main/AndroidManifest.xml
+patching file mobile/android/android-components/components/lib/push-firebase/src/main/java/mozilla/components/lib/push/firebase/AbstractFirebasePushService.kt
+patching file mobile/android/android-components/components/lib/push-firebase/src/test/java/mozilla/components/lib/push/firebase/AbstractFirebasePushServiceTest.kt
+patching file mobile/android/android-components/components/lib/push-firebase/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker
+patching file mobile/android/android-components/components/lib/push-firebase/src/test/resources/robolectric.properties
+patching file mobile/android/fenix/.buildconfig.yml
+Hunk #1 FAILED at 89.
+1 out of 1 hunk FAILED -- saving rejects to file mobile/android/fenix/.buildconfig.yml.rej
+patching file mobile/android/fenix/app/build.gradle
+Hunk #2 succeeded at 379 (offset 2 lines).
+Hunk #3 FAILED at 556.
+Hunk #4 succeeded at 621 (offset 3 lines).
+1 out of 4 hunks FAILED -- saving rejects to file mobile/android/fenix/app/build.gradle.rej
+patching file mobile/android/fenix/app/src/main/AndroidManifest.xml
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+Hunk #1 FAILED at 55.
+Hunk #2 succeeded at 135 (offset -5 lines).
+Hunk #3 succeeded at 407 (offset -5 lines).
+Hunk #4 succeeded at 476 (offset -4 lines).
+Hunk #5 succeeded at 613 (offset -16 lines).
+Hunk #6 succeeded at 671 with fuzz 2 (offset -9 lines).
+1 out of 6 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
+Hunk #2 succeeded at 28 with fuzz 2.
+Hunk #3 succeeded at 75 (offset -2 lines).
+Hunk #4 FAILED at 85.
+Hunk #5 succeeded at 250 (offset -6 lines).
+1 out of 5 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+Hunk #3 succeeded at 136 with fuzz 1 (offset 5 lines).
+Hunk #4 succeeded at 144 with fuzz 1 (offset 5 lines).
+Hunk #5 FAILED at 263.
+Hunk #6 succeeded at 286 with fuzz 2 (offset 8 lines).
+Hunk #7 FAILED at 417.
+Hunk #8 succeeded at 570 (offset 39 lines).
+Hunk #9 succeeded at 585 (offset 39 lines).
+2 out of 9 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/PlayStoreReviewPromptController.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Push.kt
+Reversed (or previously applied) patch detected!  Assume -R? [n] 
+Apply anyway? [n] 
+Skipping patch.
+1 out of 1 hunk ignored -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Push.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
+Hunk #1 FAILED at 9.
+Hunk #2 succeeded at 34 (offset 1 line).
+Hunk #3 succeeded at 86 (offset 3 lines).
+1 out of 3 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/ActivationPing.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt
+Hunk #1 FAILED at 4.
+Hunk #2 succeeded at 158 (offset 5 lines).
+1 out of 2 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/push/FirebasePushService.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/push/PushFxaIntegration.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/push/WebPushEngineIntegration.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SyncDebugFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/share/ShareToAppsSafeExtras.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+Hunk #1 succeeded at 2148 (offset 15 lines).
+patching file mobile/android/fenix/app/src/main/res/values/preference_keys.xml
+Hunk #1 succeeded at 64 (offset 1 line).
+Hunk #2 succeeded at 158 with fuzz 2 (offset 2 lines).
+patching file mobile/android/fenix/app/src/main/res/values/static_strings.xml
+patching file mobile/android/fenix/app/src/main/res/xml/sync_debug_preferences.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt
+Hunk #2 succeeded at 174 with fuzz 1.
+Hunk #3 FAILED at 182.
+1 out of 3 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt.rej
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/PlayStoreReviewPromptControllerTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/ActivationPingTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/metrics/MetricsUtilsTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/push/WebPushEngineIntegrationTest.kt
+patching file mobile/android/fenix/build.gradle
+Hunk #1 succeeded at 9 (offset -2 lines).
+patching file mobile/android/fenix/config/detekt-baseline.xml
+patching file mobile/android/fenix/docs/Firebase-Cloud-Messaging-for-WebPush.md
+patching file mobile/android/fenix/docs/index.md
+patching file mobile/android/focus-android/app/build.gradle
+patching file mobile/android/focus-android/app/src/main/java/org/mozilla/focus/appreview/AppReviewUtils.kt
+patching file mobile/android/focus-android/build.gradle
+Hunk #1 succeeded at 7 with fuzz 2 (offset -2 lines).
+patching file mobile/android/geckoview/build.gradle
+patching file mobile/android/geckoview/src/main/java/org/mozilla/gecko/util/WebAuthnUtils.java
+patching file mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebAuthnTokenManager.java
+patching file mobile/android/geckoview/src/test/java/org/mozilla/gecko/util/WebAuthnUtilsTest.java
+patching file tools/rewriting/Generated.txt
+---> patch exited 1
+---[snip]---------- --> gradle/libs.versions.toml.rej:
+--- gradle/libs.versions.toml
++++ gradle/libs.versions.toml
+@@ -56,16 +56,9 @@ work = "2.12.0"
+ 
+ # Google other
+ accompanist = "0.37.3"
+-firebase-messaging = "25.0.2"
+ ksp = "2.3.12"
+ material = "1.14.0"
+ mlkit-prompt = "1.0.0-beta4"
+-osslicenses-plugin = "0.13.0"
+-play-integrity = "1.6.0"
+-play-review = "2.0.2"
+-play-services-ads-id = "18.3.0"
+-play-services-base = "18.10.1"
+-play-services-fido = "21.3.1"
+ protobuf = "4.36.1"
+ 
+ # Gradle plugins
+@@ -233,20 +225,12 @@ androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling
+ 
+ # Google other
+ accompanist-drawablepainter = { module = "com.google.accompanist:accompanist-drawablepainter", version.ref = "accompanist" }
+-firebase-messaging = { module = "com.google.firebase:firebase-messaging", version.ref = "firebase-messaging" }
+ google-material = { module = "com.google.android.material:material", version.ref = "material" }
+ ksp-symbol-processing-aa = { module = "com.google.devtools.ksp:symbol-processing-aa", version.ref = "ksp" }
+ ksp-symbol-processing-aa-embeddable = { module = "com.google.devtools.ksp:symbol-processing-aa-embeddable", version.ref = "ksp" }
+ ksp-symbol-processing-api = { module = "com.google.devtools.ksp:symbol-processing-api", version.ref = "ksp" }
+ ksp-symbol-processing-common-deps = { module = "com.google.devtools.ksp:symbol-processing-common-deps", version.ref = "ksp" }
+ mlkit-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "mlkit-prompt" }
+-osslicenses-plugin = { module = "com.google.android.gms:oss-licenses-plugin", version.ref = "osslicenses-plugin" }
+-play-integrity = { module = "com.google.android.play:integrity", version.ref = "play-integrity" }
+-play-review = { module = "com.google.android.play:review", version.ref = "play-review" }
+-play-review-ktx = { module = "com.google.android.play:review-ktx", version.ref = "play-review" }
+-play-services-ads-id = { module = "com.google.android.gms:play-services-ads-identifier", version.ref = "play-services-ads-id" }
+-play-services-base = { module = "com.google.android.gms:play-services-base", version.ref = "play-services-base" }
+-play-services-fido = { module = "com.google.android.gms:play-services-fido", version.ref = "play-services-fido" }
+ protobuf-compiler = { module = "com.google.protobuf:protoc", version.ref = "protobuf" }
+ protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
+ 
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/.buildconfig.yml.rej:
+--- mobile/android/fenix/.buildconfig.yml
++++ mobile/android/fenix/.buildconfig.yml
+@@ -89,12 +89,10 @@ projects:
+     - components:lib-crash
+     - components:lib-crash-sentry
+     - components:lib-dataprotect
+-    - components:lib-integrity-googleplay
+     - components:lib-llm-mlpa
+     - components:lib-password-parser-csv
+     - components:lib-passwords-file
+     - components:lib-publicsuffixlist
+-    - components:lib-push-firebase
+     - components:lib-shake
+     - components:lib-state
+     - components:service-digitalassetlinks
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/build.gradle.rej:
+--- mobile/android/fenix/app/build.gradle
++++ mobile/android/fenix/app/build.gradle
+@@ -556,10 +549,8 @@ dependencies {
+     implementation project(':components:lib-crash')
+     implementation project(':components:lib-crash-sentry')
+     implementation project(':components:lib-dataprotect')
+-    implementation project(':components:lib-push-firebase')
+     implementation project(':components:lib-state')
+     implementation project(':components:lib-accelerometer-sensormanager')
+-    implementation project(':components:lib-integrity-googleplay')
+     implementation project(':components:lib-llm-mlpa')
+     implementation project(':components:lib-shake')
+     implementation project(':components:lib-ai-controls')
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+@@ -55,7 +55,6 @@ import mozilla.components.concept.ai.controls.isEnabled
+ import mozilla.components.concept.base.crash.Breadcrumb
+ import mozilla.components.concept.engine.webextension.WebExtension
+ import mozilla.components.concept.engine.webextension.isUnsupported
+-import mozilla.components.concept.push.PushProcessor
+ import mozilla.components.concept.storage.FrecencyThresholdOption
+ import mozilla.components.feature.addons.migration.DefaultSupportedAddonsChecker
+ import mozilla.components.feature.addons.update.GlobalAddonDependencyProvider
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
+@@ -85,7 +82,6 @@ class BackgroundServices(
+     remoteTabsStorage: Lazy<RemoteTabsStorage>,
+     creditCardsStorage: Lazy<AutofillCreditCardsAddressesStorage>,
+     strictMode: StrictModeManager,
+-    private val applicationScope: CoroutineScope,
+     isAndroidAutomotiveAvailable: Boolean = context.isAndroidAutomotiveAvailable(),
+ ) {
+     // Allows executing tasks which depend on the account manager, but do not need to eagerly initialize it.
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+@@ -263,7 +258,6 @@ class Components(
+     val publicSuffixList by lazyMonitored { PublicSuffixList(context) }
+     val clipboardHandler by lazyMonitored { ClipboardHandler(context) }
+     val performance by lazyMonitored { PerformanceComponent() }
+-    val push by lazyMonitored { Push(context, analytics.crashReporter) }
+     val wifiConnectionMonitor by lazyMonitored { WifiConnectionMonitor(context as Application) }
+ 
+     val strictMode by lazyMonitored {
+@@ -417,12 +410,25 @@ class Components(
+         )
+     }
+ 
+-    val integrityClient by lazyMonitored {
+-        GooglePlayIntegrityClient.create(
+-            context = context,
+-            projectNumberToken = BuildConfig.GPS_INTEGRITY_TOKEN,
+-            requestHashProvider = RequestHashProvider { clientUUID.generateHash() },
+-        )
++    // LibreWolf (LW-M4-05): the only IntegrityClient implementation that shipped
++    // in this tree was mozilla.components.lib.integrity.googleplay.
++    // GooglePlayIntegrityClient, which requested a Play Integrity token through
++    // com.google.android.play:integrity and so through Google Play services.  It
++    // has been removed.  Every consumer of this client is written against the
++    // mozilla.components.concept.integrity.IntegrityClient interface and takes a
++    // Result, so failing the request is a supported outcome, not a crash; it is
++    // also exactly what the stock build already did here, because
++    // BuildConfig.GPS_INTEGRITY_TOKEN is empty in a LibreWolf tree (there is no
++    // ${rootDir}/.gps_integrity_token) and TokenProviderFactory.create() then
++    // returned a factory that fails with InvalidProjectNumber.
++    val integrityClient: IntegrityClient by lazyMonitored {
++        IntegrityClient {
++            Result.failure(
++                UnsupportedOperationException(
++                    "LibreWolf ships no attestation client: Play Integrity was removed (LW-M4-05).",
++                ),
++            )
++        }
+     }
+ 
+     val termsOfUsePromptRepository by lazyMonitored {
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Push.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Push.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Push.kt
+@@ -1,68 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.fenix.components
+-
+-import android.annotation.SuppressLint
+-import android.content.Context
+-import androidx.core.net.toUri
+-import mozilla.components.feature.push.AutoPushFeature
+-import mozilla.components.feature.push.Protocol
+-import mozilla.components.feature.push.PushConfig
+-import mozilla.components.lib.crash.CrashReporter
+-import mozilla.components.support.base.log.logger.Logger
+-import org.mozilla.fenix.R
+-import org.mozilla.fenix.ext.components
+-import org.mozilla.fenix.perf.lazyMonitored
+-import org.mozilla.fenix.push.FirebasePushService
+-
+-/**
+- * Component group for push services. These components use services that strongly depend on push messaging (e.g.
+- * WebPush, SendTab).
+- */
+-class Push(val context: Context, crashReporter: CrashReporter) {
+-    val feature by lazyMonitored {
+-        pushConfig?.let { config ->
+-            AutoPushFeature(
+-                context = context,
+-                service = pushService,
+-                config = config,
+-                crashReporter = crashReporter,
+-            )
+-        }
+-    }
+-
+-    private val pushConfig: PushConfig? by lazyMonitored {
+-        val logger = Logger("PushConfig")
+-        val projectIdKey = context.getString(R.string.pref_key_push_project_id)
+-        @SuppressLint("DiscouragedApi")
+-        val resId = context.resources.getIdentifier(projectIdKey, "string", context.packageName)
+-        if (resId == 0) {
+-            logger.warn("No firebase configuration found; cannot support push service.")
+-            return@lazyMonitored null
+-        }
+-
+-        logger.debug("Creating push configuration for autopush.")
+-        val projectId = context.resources.getString(resId)
+-        val serverOverride = context.components.settings.overridePushServer
+-        if (serverOverride.isEmpty()) {
+-            PushConfig(projectId)
+-        } else {
+-            val uri = serverOverride.toUri()
+-            PushConfig(
+-                projectId,
+-                serverHost = uri.getHost() ?: "",
+-                protocol =
+-                    if (uri.getScheme() == "http") {
+-                        Protocol.HTTP
+-                    } else {
+-                        // Treat any non "http" value as HTTPS, since those are the only 2 options.
+-                        Protocol.HTTPS
+-                    },
+-            )
+-        }
+-    }
+-
+-    private val pushService by lazyMonitored { FirebasePushService() }
+-}
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
+@@ -9,12 +9,10 @@ import androidx.lifecycle.ProcessLifecycleOwner
+ import mozilla.components.browser.state.store.BrowserStore
+ import mozilla.components.concept.engine.Engine
+ import mozilla.components.feature.ipprotection.IPProtectionFeature
+-import mozilla.components.feature.ipprotection.auth.gpi.IPProtectionGpiProvider
+ import mozilla.components.feature.ipprotection.storage.IPProtectionStorageSynchronizer
+ import mozilla.components.feature.ipprotection.store.DefaultIPProtectionLocationRepository
+ import mozilla.components.feature.ipprotection.store.IPProtectionLocationMiddleware
+ import mozilla.components.feature.ipprotection.store.IPProtectionStore
+-import mozilla.components.lib.integrity.googleplay.GooglePlayIntegrityClient
+ import mozilla.components.service.fxa.manager.FxaAccountManager
+ import mozilla.components.service.fxa.store.SyncStore
+ import mozilla.components.support.base.log.logger.Logger
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/metrics/MetricsUtils.kt
+@@ -4,40 +4,26 @@
+ 
+ package org.mozilla.fenix.components.metrics
+ 
+-import android.util.Base64
+-import androidx.annotation.VisibleForTesting
+-import com.google.android.gms.common.GooglePlayServicesNotAvailableException
+-import com.google.android.gms.common.GooglePlayServicesRepairableException
+-import java.io.IOException
+-import java.security.NoSuchAlgorithmException
+-import java.security.spec.InvalidKeySpecException
+-import javax.crypto.SecretKeyFactory
+-import javax.crypto.spec.PBEKeySpec
+-import kotlinx.coroutines.Dispatchers
+-import kotlinx.coroutines.withContext
+ import mozilla.components.browser.state.search.SearchEngine
+-import mozilla.components.support.base.log.logger.Logger
+ import org.mozilla.experiments.nimbus.NimbusEventStore
+ import org.mozilla.fenix.GleanMetrics.Events
+ import org.mozilla.fenix.GleanMetrics.Metrics
+ 
+ /**
+  * A utility object for recording various metrics related to user interactions within the application. This includes
+- * metrics for searches, bookmark actions, and generating hashed identifiers for advertising purposes.
++ * metrics for searches and bookmark actions.
+  *
+  * This object provides helper functions to:
+  * - Record search metrics, categorizing them by search engine, source, and whether the engine is the default.
+  * - Record bookmark action metrics, such as adding, editing, deleting, or opening bookmarks, along with the source of
+  *   the action.
+- * - Retrieve and hash the Google Advertising ID, allowing for a privacy-preserving way to track users across different
+- *   products while ensuring different identifiers for each product.
++ *
++ * LibreWolf (LW-M4-05): the Google Advertising ID helpers that used to live here (getAdvertisingID /
++ * getHashedIdentifier / getHashingSalt) are gone with com.google.android.gms:play-services-ads-identifier. Their only
++ * caller was ActivationPing, which LW-M4-01 had already left unreachable by deleting GleanMetricsService, and which is
++ * deleted here.
+  */
+ object MetricsUtils {
+-    // The number of iterations to compute the hash. RFC 2898 suggests
+-    // a minimum of 1000 iterations.
+-    private const val PBKDF2_ITERATIONS = 1000
+-    private const val PBKDF2_KEY_LEN_BITS = 256
+-
+     /** Possible sources for a performed search. */
+     enum class Source {
+         ACTION,
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt.rej:
+--- mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt
++++ mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/BackgroundServicesTest.kt
+@@ -182,7 +180,6 @@ class BackgroundServicesTest {
+             remoteTabsStorage = mockk(relaxed = true),
+             creditCardsStorage = mockk(relaxed = true),
+             strictMode = TestStrictModeManager(),
+-            applicationScope = mockk<CoroutineScope>(relaxed = true),
+             isAndroidAutomotiveAvailable = isAndroidAutomotiveAvailable,
+         )
+ }
+---[snip]----------
+
+==> patches/android/no-crashreporter.patch:
+
+patching file mobile/android/android-components/components/lib/crash/src/androidTest/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt
+patching file mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/CrashReporter.kt
+patching file mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/GleanCrashReporterService.kt
+patching file mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/MozillaSocorroService.kt
+patching file mobile/android/android-components/components/lib/crash/src/main/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroService.kt
+patching file mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/GleanCrashReporterServiceTest.kt
+patching file mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/MozillaSocorroServiceTest.kt
+patching file mobile/android/android-components/components/lib/crash/src/test/java/mozilla/components/lib/crash/service/socorro/MozillaSocorroServiceTest.kt
+patching file mobile/android/fenix/app/build.gradle
+Hunk #1 succeeded at 347 (offset 29 lines).
+Hunk #2 succeeded at 405 (offset 29 lines).
+Hunk #3 succeeded at 555 with fuzz 2 (offset 30 lines).
+Hunk #4 succeeded at 625 (offset 35 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+Hunk #1 FAILED at 13.
+Hunk #2 FAILED at 35.
+Hunk #3 succeeded at 121 (offset 8 lines).
+Hunk #4 succeeded at 171 (offset 11 lines).
+2 out of 4 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+Hunk #1 FAILED at 237.
+1 out of 1 hunk FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/CrashContentView.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/crashes/SettingsCrashReportCache.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/onboarding/store/PrivacyPreferencesRepository.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/datachoices/DataChoicesScreen.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashActivity.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/startupCrash/StartupCrashScreen.kt
+patching file mobile/android/fenix/app/src/main/res/layout/view_crash_reporter.xml
+patching file mobile/android/fenix/app/src/main/res/values/strings.xml
+Hunk #1 succeeded at 409 (offset 1 line).
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashContentViewTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/crashes/CrashReporterControllerTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/store/DefaultPrivacyPreferencesRepositoryTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/datachoices/DataChoicesSearchProviderTest.kt
+patching file mobile/android/focus-android/app/build.gradle
+patching file mobile/android/focus-android/app/src/main/java/org/mozilla/focus/Components.kt
+Hunk #2 succeeded at 56 (offset 1 line).
+Hunk #3 succeeded at 63 (offset 1 line).
+Hunk #4 succeeded at 330 (offset 16 lines).
+Hunk #5 succeeded at 356 with fuzz 1 (offset 16 lines).
+---> patch exited 1
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Analytics.kt
+@@ -13,21 +13,9 @@ import mozilla.components.lib.crash.runtimetagproviders.BuildRuntimeTagProvider
+ import mozilla.components.lib.crash.runtimetagproviders.EnvironmentRuntimeProvider
+ import mozilla.components.lib.crash.runtimetagproviders.ExperimentDataRuntimeTagProvider
+ import mozilla.components.lib.crash.runtimetagproviders.VersionInfoProvider
+-import mozilla.components.lib.crash.sentry.SentryService
+-import mozilla.components.lib.crash.sentry.eventprocessors.CrashMetadataEventProcessor
+-import mozilla.components.lib.crash.service.CrashReporterService
+-import mozilla.components.lib.crash.service.GleanCrashReporterService
+-import mozilla.components.lib.crash.service.socorro.MozillaSocorroService
+-import mozilla.components.lib.crash.store.CrashReportOption
+-import mozilla.components.support.ktx.android.content.isMainProcess
+ import mozilla.components.support.utils.Browsers
+-import mozilla.components.support.utils.RunWhenReadyQueue
+ import mozilla.components.support.utils.ext.packageManagerCompatHelper
+-import org.mozilla.fenix.BuildConfig
+-import org.mozilla.fenix.Config
+ import org.mozilla.fenix.HomeActivity
+-import org.mozilla.fenix.R
+-import org.mozilla.fenix.ReleaseChannel
+ import org.mozilla.fenix.components.metrics.DefaultMetricsStorage
+ import org.mozilla.fenix.components.metrics.FirstSessionMetricsService
+ import org.mozilla.fenix.components.metrics.MetricController
+@@ -35,66 +23,28 @@ import org.mozilla.fenix.components.metrics.MetricsStorage
+ import org.mozilla.fenix.crashes.CrashFactCollector
+ import org.mozilla.fenix.crashes.NimbusExperimentDataProvider
+ import org.mozilla.fenix.crashes.ReleaseRuntimeTagProvider
+-import org.mozilla.fenix.crashes.crashReportOption
+-import org.mozilla.fenix.ext.getCustomGleanServerUrlIfAvailable
+ import org.mozilla.fenix.perf.lazyMonitored
+ import org.mozilla.fenix.utils.Settings
+-import org.mozilla.geckoview.BuildConfig.MOZ_APP_BUILDID
+-import org.mozilla.geckoview.BuildConfig.MOZ_APP_VENDOR
+-import org.mozilla.geckoview.BuildConfig.MOZ_APP_VERSION
+-import org.mozilla.geckoview.BuildConfig.MOZ_UPDATE_CHANNEL
+ 
+ /** Component group for all functionality related to analytics e.g. crash reporting and telemetry. */
+ class Analytics(
+     private val context: Context,
+     private val settings: Settings,
+     private val nimbusComponents: NimbusComponents,
+-    private val runWhenReadyQueue: RunWhenReadyQueue,
+ ) {
++    /**
++     * The crash reporter.
++     *
++     * LibreWolf ships NO crash-reporting service at all: patches/android/no-crashreporter.patch deletes the Socorro
++     * upload, the Sentry integration and the Glean crash ping, so both service lists below are empty and nothing a
++     * crash produces ever leaves the device. What is kept is the *local* record -- CrashReporter.onCrash() still writes
++     * every crash it sees into the on-device Room database, which is what the crash list (Settings > About > Crashes,
++     * also reachable by typing "about:crashes") shows and lets the user share into a bug report.
++     *
++     * shouldPrompt is NEVER and useLegacyReporting is false for the same reason: with no service to submit to, a prompt
++     * or notification offering to send a report would be a lie.
++     */
+     val crashReporter: CrashReporter by lazyMonitored {
+-        val services = mutableListOf<CrashReporterService>()
+-        val distributionId = "Mozilla"
+-
+-        if (isSentryEnabled()) {
+-            val sentryService =
+-                SentryService(
+-                    context,
+-                    BuildConfig.SENTRY_TOKEN,
+-                    tags =
+-                        mapOf(
+-                            "geckoview" to "$MOZ_APP_VERSION-$MOZ_APP_BUILDID",
+-                            "fenix.git" to BuildConfig.VCS_HASH,
+-                        ),
+-                    environment = BuildConfig.BUILD_TYPE,
+-                    sendEventForNativeCrashes = false, // Do not send native crashes to Sentry
+-                    // Do not send diagnostic logs until we have a better way to toggle this from user settings.
+-                    sendCaughtExceptions = false,
+-                    sentryProjectUrl = getSentryProjectUrl(),
+-                    crashMetadataEventProcessor = CrashMetadataEventProcessor(),
+-                )
+-
+-            // We only want to initialize Sentry on startup on the main process.
+-            if (context.isMainProcess()) {
+-                runWhenReadyQueue.runIfReadyOrQueue {
+-                    sentryService.initIfNeeded()
+-                }
+-            }
+-
+-            services.add(sentryService)
+-        }
+-
+-        // The name "Fenix" here matches the product name on Socorro and is unrelated to the actual app name:
+-        // https://bugzilla.mozilla.org/show_bug.cgi?id=1523284
+-        val socorroService =
+-            MozillaSocorroService(
+-                context,
+-                appName = "Fenix",
+-                vendor = MOZ_APP_VENDOR,
+-                releaseChannel = MOZ_UPDATE_CHANNEL,
+-                distributionId = distributionId,
+-            )
+-        services.add(socorroService)
+-
+         val intent =
+             Intent(context, HomeActivity::class.java).apply {
+                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+@@ -237,7 +237,7 @@ class Components(
+         AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
+     }
+ 
+-    val analytics by lazyMonitored { Analytics(context, settings, nimbus, performance.visualCompletenessQueue) }
++    val analytics by lazyMonitored { Analytics(context, settings, nimbus) }
+ 
+     val remoteSettingsService = lazyMonitored {
+         RemoteSettingsService(
+---[snip]----------
+
+==> patches/android/build-fixes.patch:
+
+patching file build.gradle
+Hunk #1 succeeded at 184 (offset -37 lines).
+patching file third_party/application-services/build-scripts/component-common.gradle
+Hunk #1 FAILED at 101.
+1 out of 1 hunk FAILED -- saving rejects to file third_party/application-services/build-scripts/component-common.gradle.rej
+---> patch exited 1
+---[snip]---------- --> third_party/application-services/build-scripts/component-common.gradle.rej:
+--- third_party/application-services/build-scripts/component-common.gradle
++++ third_party/application-services/build-scripts/component-common.gradle
+@@ -101,6 +101,19 @@
+ 
+ kotlin {
+     jvmToolchain(rootProject.config.jvmTargetCompatibility)
++    // LibreWolf (patches/android/build-fixes.patch, section 2): in a
++    // mozilla-central build the UniFFI bindings come pre-generated from
++    // toolkit/components/uniffi-bindgen-gecko-js/android (see the srcDirs line
++    // above), and every one of them ends uniffiEnsureInitialized() with a bare
++    // `UniffiLib` reference. Kotlin 2.4 reports that as "Expression is unused",
++    // and the conventions plugin turns every Kotlin warning into an error.
++    // The files are generated and checked in upstream, so the fix belongs in
++    // the build config, not in 21 generated files.
++    if (gradle.hasProperty("mozconfig")) {
++        compilerOptions {
++            freeCompilerArgs.add("-Xwarning-level=UNUSED_EXPRESSION:disabled")
++        }
++    }
+ }
+ 
+ dependencies {
+---[snip]----------
+
+==> patches/android/fenix-abi-split.patch:
+
+patching file mobile/android/fenix/app/build.gradle
+Hunk #1 succeeded at 246 (offset 7 lines).
+
+==> patches/android/l10n-strings.patch:
+
+patching file mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/ui/AddonsManagerAdapterTest.kt
+Hunk #1 succeeded at 656 (offset 6 lines).
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/appstate/setup/checklist/SetupChecklistStateTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/exceptions/login/LoginExceptionsViewTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/onboarding/continuous/ContinuousOnboardingFeatureTest.kt
+Hunk #1 succeeded at 280 (offset -10 lines).
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/termsofuse/experimentation/TermsOfUsePromptContentTest.kt
+patching file mobile/android/lw-brand/android-l10n-pin.txt
+patching file mobile/android/lw-brand/brand-map.txt
+patching file mobile/android/lw-brand/brand-strings.gradle
+patching file mobile/android/lw-brand/lw_brand_strings.py
+patching file mobile/android/lw-brand/ui_brand_scan.py
+patching file mobile/android/shared-settings.gradle
+
+==> patches/android/branding.patch:
+
+patching file mobile/android/fenix/app/build.gradle
+Hunk #3 succeeded at 110 (offset 1 line).
+Hunk #4 succeeded at 125 (offset 1 line).
+Hunk #5 succeeded at 144 (offset 1 line).
+patching file mobile/android/fenix/app/src/beta/AndroidManifest.xml
+Hunk #1 FAILED at 10.
+1 out of 1 hunk FAILED -- saving rejects to file mobile/android/fenix/app/src/beta/AndroidManifest.xml.rej
+patching file mobile/android/fenix/app/src/beta/res/drawable/ic_launcher_foreground.xml
+patching file mobile/android/fenix/app/src/debug/res/drawable/ic_launcher_foreground.xml
+patching file mobile/android/fenix/app/src/main/res/drawable/ic_launcher_foreground.xml
+patching file mobile/android/fenix/app/src/main/res/drawable/ic_launcher_monochrome.xml
+patching file mobile/android/fenix/app/src/main/res/values/colors.xml
+Hunk #1 succeeded at 258 (offset -2 lines).
+patching file mobile/android/fenix/app/src/nightly/res/drawable/ic_launcher_foreground.xml
+patching file mobile/android/fenix/app/src/release/AndroidManifest.xml
+Hunk #1 FAILED at 10.
+1 out of 1 hunk FAILED -- saving rejects to file mobile/android/fenix/app/src/release/AndroidManifest.xml.rej
+patching file mobile/android/fenix/app/src/release/res/drawable/ic_launcher_foreground.xml
+---> patch exited 1
+---[snip]---------- --> mobile/android/fenix/app/src/beta/AndroidManifest.xml.rej:
+--- mobile/android/fenix/app/src/beta/AndroidManifest.xml
++++ mobile/android/fenix/app/src/beta/AndroidManifest.xml
+@@ -10,8 +10,5 @@
+                 - https://issuetracker.google.com/issues/36924841
+                 - https://issuetracker.google.com/issues/36905922
+ -->
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+-    xmlns:tools="http://schemas.android.com/tools"
+-    android:sharedUserId="${sharedUserId}"
+-    tools:ignore="Deprecated">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ </manifest>
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/release/AndroidManifest.xml.rej:
+--- mobile/android/fenix/app/src/release/AndroidManifest.xml
++++ mobile/android/fenix/app/src/release/AndroidManifest.xml
+@@ -10,8 +10,5 @@
+                 - https://issuetracker.google.com/issues/36924841
+                 - https://issuetracker.google.com/issues/36905922
+ -->
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+-    xmlns:tools="http://schemas.android.com/tools"
+-    android:sharedUserId="${sharedUserId}"
+-    tools:ignore="Deprecated">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ </manifest>
+---[snip]----------
+
+==> patches/android/gradle-no-config-cache.patch:
+
+patching file gradle.properties
+Hunk #1 succeeded at 11 with fuzz 2.
+
+==> patches/android/rs-blocker-android.patch:
+
+patching file third_party/application-services/components/remote_settings/src/client.rs
+Hunk #1 succeeded at 380 (offset 1 line).
+Hunk #2 FAILED at 636.
+1 out of 2 hunks FAILED -- saving rejects to file third_party/application-services/components/remote_settings/src/client.rs.rej
+patching file third_party/application-services/components/remote_settings/src/service.rs
+Hunk #1 FAILED at 253.
+1 out of 1 hunk FAILED -- saving rejects to file third_party/application-services/components/remote_settings/src/service.rs.rej
+---> patch exited 1
+---[snip]---------- --> third_party/application-services/components/remote_settings/src/client.rs.rej:
+--- third_party/application-services/components/remote_settings/src/client.rs
++++ third_party/application-services/components/remote_settings/src/client.rs
+@@ -636,21 +620,14 @@ impl ViaductApiClient {
+     }
+ 
+     fn _make_request(&mut self, url: Url) -> Result<Response> {
+-        self.remote_state.ensure_no_backoff()?;
+-
+-        let req = Request::get(url);
+-        let resp = req.send()?;
+-
+-        self.remote_state.handle_backoff_hint(&resp)?;
+-
+-        if resp.is_success() {
+-            Ok(resp)
+-        } else {
+-            Err(Error::response_error(
+-                &resp.url,
+-                format!("status code: {}", resp.status),
+-            ))
+-        }
++        // LibreWolf: all network requests to the Remote Settings server are blocked.
++        // This is the single choke point for all egress in this client
++        // (fetch_changeset, fetch_attachment, fetch_cert, and the server-info
++        // request that discovers the attachments base URL).
++        Err(Error::ResponseError {
++            url: url.to_string(),
++            message: "LibreWolf: Remote Settings network requests are disabled".to_string(),
++        })
+     }
+ }
+ 
+---[snip]----------
+---[snip]---------- --> third_party/application-services/components/remote_settings/src/service.rs.rej:
+--- third_party/application-services/components/remote_settings/src/service.rs
++++ third_party/application-services/components/remote_settings/src/service.rs
+@@ -253,42 +253,13 @@ impl RemoteSettingsService {}
+ impl SyncClient {
+     fn fetch_changes(
+         &mut self,
+-        mut url: BaseUrl,
+-        telemetry: &RemoteSettingsTelemetryWrapper,
++        _url: BaseUrl,
++        _telemetry: &RemoteSettingsTelemetryWrapper,
+     ) -> Result<Changes> {
+-        url.path_segments_mut()
+-            .push("buckets")
+-            .push("monitor")
+-            .push("collections")
+-            .push("changes")
+-            .push("changeset");
+-        // For now, always use `0` for the expected value.  This means we'll get updates based on
+-        // the default TTL of 1 hour.
+-        //
+-        // Eventually, we should add support for push notifications and use the timestamp from the
+-        // notification.
+-        url.query_pairs_mut().append_pair("_expected", "0");
+-        let url = url.into_inner();
+-        trace!("make_request: {url}");
+-        self.remote_state.ensure_no_backoff()?;
+-
+-        let start_time = std::time::Instant::now();
+-        let req = Request::get(url);
+-        let resp = self.client.send_sync(req)?;
+-
+-        self.remote_state.handle_backoff_hint(&resp)?;
+-
+-        const TELEMETRY_SOURCE_POLL: &str = "settings-changes-monitoring";
+-        if resp.is_success() {
+-            let body = resp.json()?;
+-            let duration: u64 = start_time.elapsed().as_millis().try_into().unwrap_or(0);
+-            telemetry.report_uptake_success(TELEMETRY_SOURCE_POLL, Some(duration));
+-            Ok(body)
+-        } else {
+-            let e = Error::response_error(&resp.url, format!("status code: {}", resp.status));
+-            telemetry.report_uptake_error(&e, TELEMETRY_SOURCE_POLL);
+-            Err(e)
+-        }
++        // LibreWolf: never fetch changes over the network.
++        // Return an empty changeset so sync() completes without any network I/O.
++        // Packaged data (get_records Case 1) and cached data (Case 2) remain available.
++        Ok(Changes { changes: Vec::new() })
+     }
+ }
+ 
+---[snip]----------
+
+==> patches/android/no-suggest.patch:
+
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+Hunk #1 succeeded at 651 (offset 18 lines).
+Hunk #2 succeeded at 701 (offset 12 lines).
+Hunk #3 succeeded at 1002 (offset 12 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/HomeSettingsFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+Hunk #1 succeeded at 1764 (offset -21 lines).
+Hunk #2 succeeded at 1810 (offset -6 lines).
+Hunk #3 succeeded at 2397 (offset 23 lines).
+patching file mobile/android/fenix/app/src/main/res/xml/home_preferences.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+Hunk #1 succeeded at 474 (offset 5 lines).
+
+==> patches/android/search-config.patch:
+
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+Hunk #1 succeeded at 2539 (offset 15 lines).
+patching file mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
+Hunk #1 succeeded at 61 (offset -5 lines).
+patching file third_party/application-services/components/remote_settings/src/client.rs
+
+==> patches/android/update-check.patch:
+
+patching file mobile/android/fenix/app/build.gradle
+Hunk #1 succeeded at 76 (offset 3 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+Hunk #1 succeeded at 873 (offset 11 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/UpdateCheck.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+Hunk #1 succeeded at 651 (offset 6 lines).
+patching file mobile/android/fenix/app/src/main/res/values/lw_update_check.xml
+patching file mobile/android/fenix/app/src/main/res/xml/preferences.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckSwitchTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/UpdateCheckerTest.kt
+
+==> patches/android/deterministic-version-code.patch:
+
+patching file mobile/android/android-components/plugins/config/src/main/java/ConfigPlugin.kt
+
+==> patches/android/ubo-readiness.patch:
+
+patching file mobile/android/geckoview/api.txt
+Hunk #1 succeeded at 3218 (offset 59 lines).
+patching file mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
+Hunk #1 succeeded at 907 (offset 1 line).
+patching file mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+Hunk #1 succeeded at 238 (offset 48 lines).
+patching file mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+patching file toolkit/components/extensions/parent/ext-webRequest.js
+
+==> patches/android/ubo-preinstall.patch:
+
+patching file mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
+Hunk #2 succeeded at 343 (offset 2 lines).
+patching file mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
+Hunk #1 succeeded at 538 (offset 1 line).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+Hunk #1 succeeded at 880 (offset 1 line).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+Hunk #2 succeeded at 42 with fuzz 1 (offset 1 line).
+Hunk #3 succeeded at 53 (offset 1 line).
+Hunk #4 succeeded at 121 (offset 4 lines).
+Hunk #5 succeeded at 501 (offset 15 lines).
+Hunk #6 succeeded at 1329 (offset 17 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+Hunk #1 FAILED at 233.
+1 out of 1 hunk FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+Hunk #1 succeeded at 357 (offset 13 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddleware.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/LibreWolfUboPreinstaller.kt
+patching file mobile/android/fenix/app/src/main/res/values/strings.xml
+Hunk #1 FAILED at 4250.
+1 out of 1 hunk FAILED -- saving rejects to file mobile/android/fenix/app/src/main/res/values/strings.xml.rej
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallMiddlewareTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/LibreWolfUboPreinstallerTest.kt
+---> patch exited 1
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
+@@ -233,6 +233,8 @@ class Components(
+         )
+     }
+ 
++    val uboPreinstaller by lazyMonitored { LibreWolfUboPreinstaller(context) }
++
+     val addonManager by lazyMonitored {
+         AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
+     }
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/res/values/strings.xml.rej:
+--- mobile/android/fenix/app/src/main/res/values/strings.xml
++++ mobile/android/fenix/app/src/main/res/values/strings.xml
+@@ -4250,4 +4250,9 @@
+     <string name="reader_mode_panel_listen_content_description">Read Aloud</string>
+     <!-- Content description for media player displayed in Reader Mode when the Listen to Page (Read Aloud) feature is selected -->
+     <string name="reader_mode_panel_media_player_content_description">Media Player</string>
++    <!-- First-run signed uBlock Origin provisioning. Browsing stays paused on failure. -->
++    <string name="librewolf_ubo_setup_failed_title">uBlock Origin setup failed</string>
++    <string name="librewolf_ubo_setup_failed_message">Browsing is paused because uBlock Origin could not be prepared. Retry setup or close Redoubt.</string>
++    <string name="librewolf_ubo_setup_retry">Retry</string>
++    <string name="librewolf_ubo_setup_close">Close Redoubt</string>
+ </resources>
+---[snip]----------
+
+==> patches/android/privacy-defaults.patch:
+
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/TrackingProtectionFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/logins/fragment/SavedLoginsSettingFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+Hunk #2 succeeded at 1276 (offset -21 lines).
+Hunk #3 succeeded at 1331 (offset -21 lines).
+Hunk #4 succeeded at 1544 (offset -21 lines).
+Hunk #5 succeeded at 1712 (offset -21 lines).
+Hunk #6 succeeded at 2019 (offset -4 lines).
+Hunk #7 succeeded at 2402 (offset 23 lines).
+Hunk #8 succeeded at 2413 (offset 23 lines).
+Hunk #9 succeeded at 3201 (offset 69 lines).
+patching file mobile/android/fenix/app/src/main/res/xml/autofill_preferences.xml
+patching file mobile/android/fenix/app/src/main/res/xml/delete_browsing_data_quit_preferences.xml
+patching file mobile/android/fenix/app/src/main/res/xml/logins_preferences.xml
+patching file mobile/android/fenix/app/src/main/res/xml/save_logins_preferences.xml
+patching file mobile/android/fenix/app/src/main/res/xml/tracking_protection_preferences.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/TrackingProtectionFragmentTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/deletebrowsingdata/DeleteBrowsingDataOnQuitFragmentTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/logins/fragment/SavedLoginsSettingFragmentTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+Hunk #1 FAILED at 12.
+Hunk #2 FAILED at 28.
+Hunk #3 succeeded at 70 (offset 2 lines).
+Hunk #4 succeeded at 244 (offset 2 lines).
+Hunk #5 succeeded at 263 (offset 2 lines).
+Hunk #6 succeeded at 460 (offset -10 lines).
+Hunk #7 succeeded at 606 (offset 5 lines).
+Hunk #8 succeeded at 1138 (offset 5 lines).
+2 out of 8 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt.rej
+---> patch exited 1
+---[snip]---------- --> mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt.rej:
+--- mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
++++ mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+@@ -12,9 +12,12 @@ import io.mockk.spyk
+ import io.mockk.verify
+ import java.io.File
+ import java.util.Calendar
++import mozilla.components.concept.engine.Engine
+ import mozilla.components.concept.engine.Engine.HttpsOnlyMode.DISABLED
+ import mozilla.components.concept.engine.Engine.HttpsOnlyMode.ENABLED
+ import mozilla.components.concept.engine.Engine.HttpsOnlyMode.ENABLED_PRIVATE_ONLY
++import mozilla.components.concept.engine.EngineSession.BounceTrackingProtectionMode
++import mozilla.components.concept.engine.EngineSession.TrackingProtectionPolicy
+ import mozilla.components.feature.sitepermissions.SitePermissionsRules
+ import mozilla.components.feature.sitepermissions.SitePermissionsRules.Action.ALLOWED
+ import mozilla.components.feature.sitepermissions.SitePermissionsRules.Action.ASK_TO_ALLOW
+@@ -28,8 +31,11 @@ import org.junit.Assert.fail
+ import org.junit.Before
+ import org.junit.Test
+ import org.junit.runner.RunWith
++import org.mozilla.fenix.R
+ import org.mozilla.fenix.browser.browsingmode.BrowsingMode
++import org.mozilla.fenix.components.TrackingProtectionPolicyFactory
+ import org.mozilla.fenix.components.toolbar.ToolbarPosition
++import org.mozilla.fenix.ext.getPreferenceKey
+ import org.mozilla.fenix.nimbus.DefaultBrowserPrompt
+ import org.mozilla.fenix.nimbus.FakeNimbusEventStore
+ import org.mozilla.fenix.nimbus.FxNimbus
+---[snip]----------
+
+==> patches/android/canvas-webgl-permissions.patch:
+
+patching file dom/canvas/CanvasUtils.cpp
+patching file dom/canvas/CanvasUtils.h
+patching file dom/canvas/ClientWebGLContext.cpp
+Hunk #2 succeeded at 931 (offset 51 lines).
+Hunk #3 succeeded at 1161 (offset 51 lines).
+Hunk #4 succeeded at 1174 (offset 51 lines).
+Hunk #5 succeeded at 1204 (offset 51 lines).
+patching file mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngineSession.kt
+patching file mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoPermissionRequest.kt
+patching file mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorage.kt
+patching file mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/GeckoSitePermissionsStorageTest.kt
+patching file mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionRequestTest.kt
+patching file mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/permission/OriginBoundPermissionsStorageTest.kt
+patching file mobile/android/android-components/components/browser/state/src/main/java/mozilla/components/browser/state/ext/PermissionRequest.kt
+patching file mobile/android/android-components/components/browser/state/src/test/java/mozilla/components/browser/state/ext/PermissionRequestTest.kt
+patching file mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/OriginBoundPermission.kt
+patching file mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/permission/PermissionRequest.kt
+patching file mobile/android/android-components/components/feature/sitepermissions/src/main/java/mozilla/components/feature/sitepermissions/SitePermissionsFeature.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
+Hunk #1 succeeded at 328 with fuzz 2 (offset 6 lines).
+Hunk #2 succeeded at 1372 (offset 38 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeature.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SiteSettingsFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/TrustPanelFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/trustpanel/ui/ProtectionPanel.kt
+patching file mobile/android/fenix/app/src/main/res/values/origin_bound_permissions_ids.xml
+patching file mobile/android/fenix/app/src/main/res/values/strings.xml
+Hunk #1 FAILED at 4208.
+1 out of 1 hunk FAILED -- saving rejects to file mobile/android/fenix/app/src/main/res/values/strings.xml.rej
+patching file mobile/android/fenix/app/src/main/res/xml/site_permissions_preferences.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsDialogFragmentTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/browser/permissions/OriginBoundPermissionsFeatureTest.kt
+patching file mobile/android/geckoview/api.txt
+patching file mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/CanvasPermissionTest.kt
+patching file mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+Hunk #3 succeeded at 7423 (offset 10 lines).
+Hunk #4 succeeded at 7494 (offset 10 lines).
+Hunk #5 succeeded at 7537 (offset 10 lines).
+Hunk #6 succeeded at 7553 (offset 10 lines).
+Hunk #7 succeeded at 7636 (offset 10 lines).
+Hunk #8 succeeded at 7670 (offset 10 lines).
+Hunk #9 succeeded at 7718 (offset 10 lines).
+Hunk #10 succeeded at 7761 (offset 10 lines).
+Hunk #11 succeeded at 7829 (offset 10 lines).
+Hunk #12 succeeded at 8027 (offset 10 lines).
+patching file mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
+Hunk #1 succeeded at 292 (offset 6 lines).
+patching file mobile/shared/actors/GeckoViewPermissionChild.sys.mjs
+patching file mobile/shared/actors/GeckoViewPermissionParent.sys.mjs
+patching file mobile/shared/components/geckoview/GeckoViewPermission.sys.mjs
+patching file mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+Hunk #1 succeeded at 65 (offset 1 line).
+Hunk #2 succeeded at 180 (offset 1 line).
+patching file mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+patching file modules/libpref/init/StaticPrefList.yaml
+Hunk #1 succeeded at 12433 (offset 88 lines).
+Hunk #2 succeeded at 12447 (offset 88 lines).
+---> patch exited 1
+---[snip]---------- --> mobile/android/fenix/app/src/main/res/values/strings.xml.rej:
+--- mobile/android/fenix/app/src/main/res/values/strings.xml
++++ mobile/android/fenix/app/src/main/res/values/strings.xml
+@@ -4208,4 +4208,34 @@
+     <string name="librewolf_ubo_setup_failed_message">Browsing is paused because uBlock Origin could not be prepared. Retry setup or close Redoubt.</string>
+     <string name="librewolf_ubo_setup_retry">Retry</string>
+     <string name="librewolf_ubo_setup_close">Close Redoubt</string>
++    <!-- Canvas/WebGL controls use the exact requesting origin and Gecko permission lifetime. -->
++    <string name="origin_permissions_title">Canvas and WebGL permissions</string>
++    <string name="origin_permissions_default">Ask for each site. WebGL and canvas readback stay protected until you allow an exception.</string>
++    <string name="origin_permissions_scope">Requests for this page and saved exceptions. Each exception applies only to the listed website address.</string>
++    <string name="origin_permissions_private_scope">Private requests and exceptions only. They are cleared when the last private tab closes.</string>
++    <string name="origin_permissions_empty">No pending requests or exceptions.</string>
++    <string name="origin_permissions_webgl">WebGL</string>
++    <string name="origin_permissions_canvas">Canvas readback</string>
++    <string name="origin_permissions_record">%1$s — %2$s\n%3$s · %4$s</string>
++    <string name="origin_permissions_blocked_attempt">%1$s blocked — %2$s\nReview request</string>
++    <string name="origin_permissions_origin">Requesting site: %1$s</string>
++    <string name="origin_permissions_frame">Requesting frame: %1$s\nOn page: %2$s\nYour choice applies to the requesting frame’s origin.</string>
++    <string name="origin_permissions_session_explanation">Without Remember, your choice lasts for this browser session, including page reloads. Allow or Block reloads the requesting page or frame.</string>
++    <string name="origin_permissions_private_explanation">Your choice lasts only for this private browsing session. Allow or Block reloads the requesting page or frame.</string>
++    <string name="origin_permissions_remember">Remember after restarting the browser</string>
++    <string name="origin_permissions_allow">Allow</string>
++    <string name="origin_permissions_block">Block</string>
++    <string name="origin_permissions_ask">Ask / reset</string>
++    <string name="origin_permissions_allowed">Allowed</string>
++    <string name="origin_permissions_blocked">Blocked</string>
++    <string name="origin_permissions_persistent_lifetime">Remembered</string>
++    <string name="origin_permissions_session_lifetime">This browser session</string>
++    <string name="origin_permissions_private_lifetime">This private session</string>
++    <string name="origin_permissions_close">Close</string>
++    <string name="origin_permissions_review">Review</string>
++    <string name="origin_permissions_quiet_notice">Canvas or WebGL was protected. Review in site permissions.</string>
++    <string name="origin_permissions_reload">Reload page</string>
++    <string name="origin_permissions_reload_explanation">Permission updated. Reload this tab to apply the change to existing content.</string>
++    <string name="origin_permissions_page_changed">This request or exception changed. Review the current permissions.</string>
++    <string name="origin_permissions_error">Could not update permissions. The site remains protected unless an existing exception allows it.</string>
+ </resources>
+---[snip]----------
+
+==> patches/android/translation-assets.patch:
+
+patching file mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/TranslationsTest.kt
+patching file mobile/android/geckoview/src/main/java/org/mozilla/geckoview/TranslationsController.java
+Hunk #2 succeeded at 36 (offset 3 lines).
+Hunk #3 succeeded at 172 (offset 5 lines).
+Hunk #4 succeeded at 796 (offset 8 lines).
+Hunk #5 succeeded at 832 (offset 8 lines).
+patching file mobile/shared/modules/geckoview/GeckoViewTranslations.sys.mjs
+patching file toolkit/components/translations/AndroidTranslationAssets.sys.mjs
+patching file toolkit/components/translations/TranslationsUtils.mjs
+patching file toolkit/components/translations/actors/TranslationsChild.sys.mjs
+patching file toolkit/components/translations/actors/TranslationsEngineChild.sys.mjs
+patching file toolkit/components/translations/actors/TranslationsParent.sys.mjs
+Hunk #10 succeeded at 4757 (offset 3 lines).
+Hunk #11 succeeded at 4772 (offset 3 lines).
+Hunk #12 succeeded at 5779 (offset 15 lines).
+patching file toolkit/components/translations/jar.mn
+patching file toolkit/components/translations/moz.build
+patching file toolkit/components/translations/tests/unit/test_android_translation_assets.js
+patching file toolkit/components/translations/tests/unit/xpcshell.toml
+patching file toolkit/components/translations/translations.d.ts
+
+==> patches/android/home-section-defaults.patch:
+
+patching file mobile/android/fenix/app/nimbus.fml.yaml
+Hunk #1 succeeded at 46 (offset 5 lines).
+Hunk #2 succeeded at 62 (offset 5 lines).
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/HomeSectionDefaultsTest.kt
+
+==> patches/android/addon-state-durability.patch:
+
+patching file toolkit/mozapps/extensions/internal/AddonTestUtils.sys.mjs
+patching file toolkit/mozapps/extensions/internal/AndroidAddonState.sys.mjs
+patching file toolkit/mozapps/extensions/internal/XPIDatabase.sys.mjs
+Hunk #2 succeeded at 696 (offset 1 line).
+Hunk #3 succeeded at 1321 (offset 1 line).
+Hunk #4 succeeded at 1348 (offset 1 line).
+Hunk #5 succeeded at 1482 (offset 1 line).
+Hunk #6 succeeded at 1819 (offset 1 line).
+Hunk #7 succeeded at 1845 (offset 1 line).
+Hunk #8 succeeded at 1872 (offset 1 line).
+Hunk #9 succeeded at 1888 (offset 1 line).
+Hunk #10 succeeded at 2185 (offset 1 line).
+Hunk #11 succeeded at 2197 (offset 1 line).
+Hunk #12 succeeded at 3034 (offset 1 line).
+Hunk #13 succeeded at 3103 (offset 1 line).
+Hunk #14 succeeded at 3172 (offset 1 line).
+Hunk #15 succeeded at 4032 (offset 1 line).
+patching file toolkit/mozapps/extensions/internal/XPIInstall.sys.mjs
+Hunk #1 succeeded at 1894 (offset 25 lines).
+Hunk #2 succeeded at 1943 (offset 25 lines).
+Hunk #3 succeeded at 2059 (offset 25 lines).
+Hunk #4 succeeded at 5015 (offset 47 lines).
+Hunk #5 succeeded at 5092 (offset 47 lines).
+Hunk #6 succeeded at 5124 (offset 47 lines).
+Hunk #7 succeeded at 5230 (offset 47 lines).
+Hunk #8 succeeded at 5292 (offset 47 lines).
+Hunk #9 succeeded at 5334 (offset 47 lines).
+patching file toolkit/mozapps/extensions/internal/XPIProvider.sys.mjs
+Hunk #2 succeeded at 671 (offset 1 line).
+Hunk #3 succeeded at 1658 (offset 1 line).
+Hunk #4 succeeded at 1684 (offset 1 line).
+Hunk #5 succeeded at 1856 (offset 1 line).
+Hunk #6 succeeded at 1931 (offset 1 line).
+Hunk #7 succeeded at 3394 (offset 1 line).
+Hunk #8 succeeded at 3487 (offset 1 line).
+Hunk #9 succeeded at 3503 (offset 1 line).
+patching file toolkit/mozapps/extensions/internal/moz.build
+patching file toolkit/mozapps/extensions/test/xpcshell/test_addonStartup_save_failures.js
+patching file toolkit/mozapps/extensions/test/xpcshell/test_android_addon_state.js
+patching file toolkit/mozapps/extensions/test/xpcshell/xpcshell.toml
+Hunk #1 succeeded at 495 (offset -12 lines).
+
+==> patches/android/sync-opt-in.patch:
+
+patching file mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushScheduler.kt
+patching file mobile/android/android-components/components/feature/syncedtabs/src/main/java/mozilla/components/feature/syncedtabs/commands/SyncedTabsCommandsFlushWorker.kt
+patching file mobile/android/android-components/components/feature/syncedtabs/src/test/java/mozilla/components/feature/syncedtabs/commands/AccountServicesFlushWorkerTest.kt
+patching file mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/AccountServices.kt
+patching file mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/manager/FxaAccountManager.kt
+patching file mobile/android/android-components/components/service/firefox-accounts/src/main/java/mozilla/components/service/fxa/sync/WorkManagerSyncManager.kt
+Hunk #1 succeeded at 54 (offset 1 line).
+Hunk #2 succeeded at 76 (offset 1 line).
+Hunk #3 succeeded at 325 (offset 1 line).
+Hunk #4 succeeded at 363 (offset 1 line).
+Hunk #5 succeeded at 377 (offset 1 line).
+Hunk #6 succeeded at 520 (offset 1 line).
+Hunk #7 succeeded at 667 (offset 1 line).
+patching file mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesDisabledTest.kt
+patching file mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/AccountServicesTest.kt
+patching file mobile/android/android-components/components/service/firefox-accounts/src/test/java/mozilla/components/service/fxa/sync/AccountServicesWorkerTest.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+Hunk #1 FAILED at 65.
+Hunk #2 succeeded at 198 (offset -4 lines).
+Hunk #3 succeeded at 561 (offset -15 lines).
+1 out of 3 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+Hunk #1 succeeded at 80 with fuzz 2 (offset 3 lines).
+Hunk #2 succeeded at 194 (offset 4 lines).
+Hunk #3 succeeded at 486 (offset 15 lines).
+Hunk #4 succeeded at 502 (offset 15 lines).
+Hunk #5 succeeded at 521 (offset 15 lines).
+Hunk #6 succeeded at 560 (offset 15 lines).
+Hunk #7 succeeded at 618 (offset 16 lines).
+Hunk #8 succeeded at 724 (offset 10 lines).
+Hunk #9 succeeded at 767 (offset 10 lines).
+Hunk #10 succeeded at 1088 (offset 10 lines).
+Hunk #11 succeeded at 1145 (offset 15 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/BaseBrowserFragment.kt
+Hunk #1 succeeded at 137 (offset 1 line).
+Hunk #2 succeeded at 1147 (offset 17 lines).
+Hunk #3 succeeded at 1157 (offset 17 lines).
+Hunk #4 succeeded at 1552 (offset 38 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/browser/relay/RelayFeatureIntegration.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/BackgroundServices.kt
+Hunk #1 succeeded at 36 (offset -1 lines).
+Hunk #2 succeeded at 242 (offset -5 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/accounts/FxaWebChannelIntegration.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/AccountServicesPreference.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/AuthCustomTabActivity.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/AuthIntentReceiverActivity.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/account/TurnOnSyncFragment.kt
+patching file mobile/android/fenix/app/src/main/res/values/account_services_strings.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/HomeActivityAccountSettingsTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/AccountServicesPreferenceTest.kt
+---> patch exited 1
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+@@ -65,10 +65,13 @@ import mozilla.components.feature.search.ext.buildSearchUrl
+ import mozilla.components.feature.search.ext.waitForSelectedOrDefaultSearchEngine
+ import mozilla.components.feature.summarize.settings.SummarizationSettings
+ import mozilla.components.feature.syncedtabs.commands.GlobalSyncedTabsCommandsProvider
++import mozilla.components.feature.syncedtabs.commands.SyncedTabsCommandsFlushScheduler
+ import mozilla.components.feature.top.sites.TopSitesFrecencyConfig
+ import mozilla.components.feature.top.sites.TopSitesProviderConfig
+ import mozilla.components.lib.crash.CrashReporter
++import mozilla.components.service.fxa.AccountServices
+ import mozilla.components.service.fxa.manager.SyncEnginesStorage
++import mozilla.components.service.fxa.sync.cancelAccountSyncWork
+ import mozilla.components.service.sync.autofill.GlobalAutofillDependencyProvider
+ import mozilla.components.service.sync.logins.GlobalLoginsDependencyProvider
+ import mozilla.components.service.sync.logins.LoginsApiException
+---[snip]----------
+
+==> patches/android/firefox-suggest-policy.patch:
+
+patching file mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestAdmission.kt
+patching file mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionScheduler.kt
+patching file mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestIngestionWorker.kt
+patching file mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
+patching file mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProvider.kt
+patching file mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/GlobalFxSuggestDependencyProvider.kt
+patching file mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/client/SuggestMerinoClient.kt
+patching file mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/datasource/CombinedOnlineSuggestionDataSource.kt
+patching file mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestAdmissionTest.kt
+patching file mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/FxSuggestSuggestionProviderTest.kt
+patching file mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/datasource/OnlineSuggestionAdmissionTest.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+Hunk #2 succeeded at 141 (offset -7 lines).
+Hunk #3 succeeded at 214 (offset -7 lines).
+Hunk #4 succeeded at 435 (offset -7 lines).
+Hunk #5 succeeded at 510 (offset -6 lines).
+Hunk #6 succeeded at 557 (offset -18 lines).
+Hunk #7 succeeded at 656 (offset -18 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/search/awesomebar/SearchSuggestionsProvidersBuilder.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicy.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+Hunk #1 succeeded at 2289 (offset 15 lines).
+Hunk #2 succeeded at 2790 (offset 33 lines).
+Hunk #3 succeeded at 2806 (offset 33 lines).
+patching file mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
+patching file mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/FenixApplicationTest.kt
+Hunk #1 succeeded at 178 (offset 3 lines).
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/helpers/FenixRobolectricTestApplication.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/FirefoxSuggestPolicyTest.kt
+
+==> patches/android/no-default-shortcuts.patch:
+
+patching file mobile/android/fenix/app/src/main/res/raw/default_pinned_shortcuts.json
+Hunk #1 FAILED at 1.
+1 out of 1 hunk FAILED -- saving rejects to file mobile/android/fenix/app/src/main/res/raw/default_pinned_shortcuts.json.rej
+---> patch exited 1
+---[snip]---------- --> mobile/android/fenix/app/src/main/res/raw/default_pinned_shortcuts.json.rej:
+--- mobile/android/fenix/app/src/main/res/raw/default_pinned_shortcuts.json
++++ mobile/android/fenix/app/src/main/res/raw/default_pinned_shortcuts.json
+@@ -1,105 +1,3 @@
+ {
+-  "data": [
+-    {
+-      "url": "https://www.google.com/",
+-      "order": 0,
+-      "title": "Google",
+-      "schema": 1,
+-      "exclude_locales": [],
+-      "exclude_regions": [
+-        "CN",
+-        "RU",
+-        "TR",
+-        "KZ",
+-        "BY"
+-      ],
+-      "include_locales": [],
+-      "include_regions": [],
+-      "exclude_experiments": [],
+-      "include_experiments": [],
+-      "id": "",
+-      "last_modified": 1
+-    },
+-    {
+-      "url": "https://www.wikipedia.org/",
+-      "order": 1,
+-      "title": "Wikipedia",
+-      "schema": 1,
+-      "exclude_locales": [],
+-      "exclude_regions": [
+-        "CN",
+-        "JP"
+-      ],
+-      "include_locales": [],
+-      "include_regions": [],
+-      "exclude_experiments": [],
+-      "include_experiments": [],
+-      "id": "",
+-      "last_modified": 1
+-    },
+-    {
+-      "url": "https://tenki.jp/",
+-      "order": 1,
+-      "title": "tenki.jp",
+-      "schema": 1,
+-      "exclude_locales": [],
+-      "exclude_regions": [],
+-      "include_locales": [],
+-      "include_regions": [
+-        "JP"
+-      ],
+-      "exclude_experiments": [],
+-      "include_experiments": [],
+-      "id": "",
+-      "last_modified": 1
+-    },
+-    {
+-      "url": "https://m.yahoo.co.jp/",
+-      "order": 2,
+-      "title": "Yahoo! JAPAN",
+-      "schema": 1,
+-      "exclude_locales": [],
+-      "exclude_regions": [],
+-      "include_locales": [],
+-      "include_regions": [
+-        "JP"
+-      ],
+-      "exclude_experiments": [],
+-      "include_experiments": [],
+-      "id": "",
+-      "last_modified": 1
+-    },
+-    {
+-      "url": "https://ameblo.jp/",
+-      "order": 3,
+-      "title": "Amebaブログ",
+-      "schema": 1,
+-      "exclude_locales": [],
+-      "exclude_regions": [],
+-      "include_locales": [],
+-      "include_regions": [
+-        "JP"
+-      ],
+-      "exclude_experiments": [],
+-      "include_experiments": [],
+-      "id": "",
+-      "last_modified": 1
+-    },
+-    {
+-      "url": "https://ja.wikipedia.org/wiki/%E3%83%A1%E3%82%A4%E3%83%B3%E3%83%9A%E3%83%BC%E3%82%B8",
+-      "order": 4,
+-      "title": "ウィキペディア",
+-      "schema": 1,
+-      "exclude_locales": [],
+-      "exclude_regions": [],
+-      "include_locales": [],
+-      "include_regions": [
+-        "JP"
+-      ],
+-      "exclude_experiments": [],
+-      "include_experiments": [],
+-      "id": "",
+-      "last_modified": 1
+-    }
+-  ]
++  "data": []
+ }
+---[snip]----------
+
+==> patches/android/extension-permission-durability.patch:
+
+patching file mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+patching file toolkit/components/extensions/ExtensionPermissions.sys.mjs
+patching file toolkit/components/extensions/test/xpcshell/test_ext_permissions_android_durability.js
+patching file toolkit/components/extensions/test/xpcshell/xpcshell.toml
+
+==> patches/android/firefox-suggest-data.patch:
+
+patching file mobile/android/android-components/components/feature/fxsuggest/src/main/java/mozilla/components/feature/fxsuggest/FxSuggestStorage.kt
+patching file mobile/android/android-components/components/feature/fxsuggest/src/test/java/mozilla/components/feature/fxsuggest/PinnedSuggestIngestionTest.kt
+patching file mobile/android/fenix/app/build.gradle
+Hunk #1 succeeded at 573 (offset 5 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/FxSuggest.kt
+Hunk #2 succeeded at 28 (offset -1 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SearchEngineFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataCatalog.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataInstaller.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/search/SuggestDataPreferences.kt
+patching file mobile/android/fenix/app/src/main/res/values/firefox_suggest_data_strings.xml
+patching file mobile/android/fenix/app/src/main/res/values/firefox_suggest_policy_strings.xml
+patching file mobile/android/fenix/app/src/main/res/xml/search_settings_preferences.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataCatalogTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/search/SuggestDataInstallerTest.kt
+patching file third_party/application-services/components/remote_settings/src/client.rs
+Hunk #7 succeeded at 2031 (offset 1 line).
+patching file third_party/application-services/components/remote_settings/src/lib.rs
+patching file third_party/application-services/components/remote_settings/src/pinned_suggest.rs
+patching file third_party/application-services/components/remote_settings/src/storage.rs
+patching file third_party/application-services/components/suggest/tests/pinned_suggest.rs
+patching file toolkit/components/uniffi-bindgen-gecko-js/android/components/remotesettings/android/src/main/java/mozilla/appservices/remotesettings/remote_settings.kt
+Hunk #9 succeeded at 3770 (offset 4 lines).
+
+==> patches/android/extension-update-controls.patch:
+
+patching file mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
+patching file mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/GeckoEngineTest.kt
+patching file mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/webextension/WebExtensionRuntime.kt
+patching file mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/AddonManager.kt
+Hunk #1 succeeded at 451 with fuzz 1 (offset 2 lines).
+Hunk #2 succeeded at 482 with fuzz 1 (offset 2 lines).
+patching file mobile/android/android-components/components/feature/addons/src/main/java/mozilla/components/feature/addons/update/AddonUpdater.kt
+Hunk #1 succeeded at 379 with fuzz 2 (offset -268 lines).
+Hunk #2 succeeded at 404 with fuzz 2 (offset -269 lines).
+patching file mobile/android/android-components/components/feature/addons/src/test/java/AddonManagerTest.kt
+patching file mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
+Reversed (or previously applied) patch detected!  Assume -R? [n] 
+Apply anyway? [n] 
+Skipping patch.
+9 out of 9 hunks ignored -- saving rejects to file mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreference.kt
+patching file mobile/android/fenix/app/src/main/res/values/extension_update_controls.xml
+patching file mobile/android/fenix/app/src/main/res/xml/preferences.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/addons/ExtensionUpdatePreferenceTest.kt
+patching file mobile/android/geckoview/api.txt
+patching file mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
+patching file mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
+patching file mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncShutdownTest.kt
+patching file mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/PrefSaveFileAsyncTest.kt
+patching file mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/WebExtensionUpdateSettingsTest.kt
+patching file mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebExtensionController.java
+Hunk #1 succeeded at 1078 (offset 4 lines).
+Hunk #2 succeeded at 1109 (offset 4 lines).
+patching file mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+Hunk #1 succeeded at 250 (offset 1 line).
+patching file mobile/shared/modules/geckoview/GeckoViewWebExtension.sys.mjs
+patching file modules/libpref/Preferences.cpp
+Hunk #1 succeeded at 2060 (offset 7 lines).
+Hunk #2 succeeded at 4158 (offset 7 lines).
+Hunk #3 succeeded at 4168 (offset 7 lines).
+Hunk #4 succeeded at 5010 (offset 7 lines).
+Hunk #5 succeeded at 5108 (offset 7 lines).
+Hunk #6 succeeded at 5144 (offset 7 lines).
+Hunk #7 succeeded at 5622 with fuzz 2 (offset 7 lines).
+Hunk #8 succeeded at 5632 (offset 7 lines).
+patching file modules/libpref/nsIPrefService.idl
+patching file modules/libpref/test/unit/test_savePrefFileAsync.js
+patching file modules/libpref/test/unit/xpcshell.toml
+patching file toolkit/components/extensions/test/xpcshell/test_ext_android_update_settings.js
+patching file toolkit/components/extensions/test/xpcshell/xpcshell.toml
+---> patch exited 1
+---[snip]---------- --> mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt.rej:
+--- mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
++++ mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/update/AddonUpdaterWorkerTest.kt
+@@ -22,6 +22,7 @@ import mozilla.components.concept.engine.webextension.WebExtensionException
+ import mozilla.components.feature.addons.AddonManager
+ import mozilla.components.support.test.any
+ import mozilla.components.support.test.argumentCaptor
++import mozilla.components.support.test.eq
+ import mozilla.components.support.test.mock
+ import mozilla.components.support.test.robolectric.testContext
+ import mozilla.components.support.test.whenever
+@@ -32,6 +33,7 @@ import org.junit.Test
+ import org.junit.runner.RunWith
+ import org.mockito.ArgumentMatchers.anyString
+ import org.mockito.Mockito.doReturn
++import org.mockito.Mockito.never
+ import org.mockito.Mockito.spy
+ import org.mockito.Mockito.verify
+ 
+@@ -59,9 +61,10 @@ class AddonUpdaterWorkerTest {
+         WebExtensionSupport.initialize(engine, store)
+     }
+ 
+-    private fun createWorker(addonId: String): AddonUpdaterWorker {
++    private fun createWorker(addonId: String, tags: List<String> = emptyList()): AddonUpdaterWorker {
+         return TestListenableWorkerBuilder<AddonUpdaterWorker>(testContext)
+             .setInputData(AddonUpdaterWorker.createWorkerData(addonId))
++            .setTags(tags)
+             .setWorkerFactory(
+                 object : WorkerFactory() {
+                     override fun createWorker(
+@@ -93,7 +96,7 @@ class AddonUpdaterWorkerTest {
+             doReturn(updateAttemptStorage).`when`(worker).updateAttemptStorage
+             GlobalAddonDependencyProvider.initialize(addonManager, mock())
+ 
+-            whenever(addonManager.updateAddon(anyString(), onFinishCaptor.capture())).then {
++            whenever(addonManager.updateAddonAutomatically(anyString(), onFinishCaptor.capture())).then {
+                 onFinishCaptor.value.invoke(AddonUpdater.Status.SuccessfullyUpdated)
+             }
+ 
+@@ -115,7 +118,7 @@ class AddonUpdaterWorkerTest {
+ 
+             GlobalAddonDependencyProvider.initialize(addonManager, mock())
+ 
+-            whenever(addonManager.updateAddon(anyString(), onFinishCaptor.capture())).then {
++            whenever(addonManager.updateAddonAutomatically(anyString(), onFinishCaptor.capture())).then {
+                 onFinishCaptor.value.invoke(AddonUpdater.Status.NoUpdateAvailable)
+             }
+ 
+@@ -134,7 +137,7 @@ class AddonUpdaterWorkerTest {
+ 
+             GlobalAddonDependencyProvider.initialize(addonManager, mock())
+ 
+-            whenever(addonManager.updateAddon(anyString(), onFinishCaptor.capture())).then {
++            whenever(addonManager.updateAddonAutomatically(anyString(), onFinishCaptor.capture())).then {
+                 onFinishCaptor.value.invoke(AddonUpdater.Status.NotInstalled)
+             }
+ 
+@@ -157,7 +160,7 @@ class AddonUpdaterWorkerTest {
+ 
+             GlobalAddonDependencyProvider.initialize(addonManager, mock())
+ 
+-            whenever(addonManager.updateAddon(anyString(), onFinishCaptor.capture())).then {
++            whenever(addonManager.updateAddonAutomatically(anyString(), onFinishCaptor.capture())).then {
+                 onFinishCaptor.value.invoke(AddonUpdater.Status.Error("error", exception))
+             }
+ 
+@@ -183,7 +186,7 @@ class AddonUpdaterWorkerTest {
+             GlobalAddonDependencyProvider.initialize(addonManager, mock(), crashReporter)
+             GlobalAddonDependencyProvider.addonManager = null
+ 
+-            whenever(addonManager.updateAddon(anyString(), onFinishCaptor.capture())).then {
++            whenever(addonManager.updateAddonAutomatically(anyString(), onFinishCaptor.capture())).then {
+                 onFinishCaptor.value.invoke(AddonUpdater.Status.Error("error", Exception()))
+             }
+ 
+@@ -192,4 +195,32 @@ class AddonUpdaterWorkerTest {
+             assertEquals(ListenableWorker.Result.failure(), result)
+             assertTrue(crashWasReported)
+         }
++
++    @Test
++    fun `restored periodic work uses automatic path and explicit work uses manual path`() =
++        runTest(testDispatcher) {
++            val manager = mock<AddonManager>()
++            val automatic = argumentCaptor<((AddonUpdater.Status) -> Unit)>()
++            val manual = argumentCaptor<((AddonUpdater.Status) -> Unit)>()
++            GlobalAddonDependencyProvider.initialize(manager, mock())
++            whenever(manager.updateAddonAutomatically(anyString(), automatic.capture())).then {
++                automatic.value(AddonUpdater.Status.NoUpdateAvailable)
++            }
++            whenever(manager.updateAddon(anyString(), manual.capture())).then {
++                manual.value(AddonUpdater.Status.NoUpdateAvailable)
++            }
++            val restored = createWorker("restored", listOf(DefaultAddonUpdater.WORK_TAG_PERIODIC))
++            doReturn(this).`when`(restored).attemptScope
++            restored.updateAttemptStorage = mock()
++            assertEquals(ListenableWorker.Result.success(), restored.startWork().await())
++            verify(manager).updateAddonAutomatically(eq("restored"), any())
++            verify(manager, never()).updateAddon(eq("restored"), any())
++
++            val explicit = createWorker("explicit", listOf(DefaultAddonUpdater.WORK_TAG_IMMEDIATE))
++            doReturn(this).`when`(explicit).attemptScope
++            explicit.updateAttemptStorage = mock()
++            assertEquals(ListenableWorker.Result.success(), explicit.startWork().await())
++            verify(manager).updateAddon(eq("explicit"), any())
++            verify(manager, never()).updateAddonAutomatically(eq("explicit"), any())
++        }
+ }
+---[snip]----------
+
+==> patches/android/global-privacy-controls.patch:
+
+patching file mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
+patching file mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyController.kt
+patching file mobile/android/android-components/components/browser/engine-gecko/src/test/java/mozilla/components/browser/engine/gecko/preferences/GeckoGlobalPrivacyControllerTest.kt
+patching file mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/Engine.kt
+patching file mobile/android/android-components/components/concept/engine/src/main/java/mozilla/components/concept/engine/preferences/GlobalPrivacyController.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModel.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SettingsFragment.kt
+patching file mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
+Hunk #1 succeeded at 600 (offset 18 lines).
+Hunk #2 succeeded at 2012 (offset 64 lines).
+patching file mobile/android/fenix/app/src/main/res/values/global_privacy_controls.xml
+patching file mobile/android/fenix/app/src/main/res/xml/global_privacy_settings.xml
+patching file mobile/android/fenix/app/src/main/res/xml/preferences.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/GlobalPrivacySettingsModelTest.kt
+patching file mobile/android/geckoview/api.txt
+Hunk #2 succeeded at 885 (offset 1 line).
+patching file mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/GlobalPrivacySettingsTest.kt
+patching file mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoGlobalPrivacyController.java
+patching file mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs
+patching file mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+Hunk #1 FAILED at 12.
+Hunk #2 succeeded at 292 (offset 1 line).
+1 out of 2 hunks FAILED -- saving rejects to file mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs.rej
+patching file mobile/shared/components/geckoview/moz.build
+Hunk #1 succeeded at 22 with fuzz 1.
+patching file mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js
+patching file mobile/shared/modules/geckoview/test/xpcshell/xpcshell.toml
+---> patch exited 1
+---[snip]---------- --> mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs.rej:
+--- mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
++++ mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+@@ -12,6 +12,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
+   DoHController: "moz-src:///toolkit/components/doh/DoHController.sys.mjs",
+   EventDispatcher: "resource://gre/modules/Messaging.sys.mjs",
+   PdfJs: "resource://pdf.js/PdfJs.sys.mjs",
++  GeckoViewGlobalPrivacy: "resource://gre/modules/GeckoViewGlobalPrivacy.sys.mjs",
+   GeckoViewPreferences: "resource://gre/modules/GeckoViewPreferences.sys.mjs",
+ });
+ 
+---[snip]----------
+
+==> patches/android/session-cleanup.patch:
+
+patching file dom/base/nsFrameLoader.cpp
+Hunk #2 FAILED at 149.
+Hunk #5 succeeded at 3182 (offset 2 lines).
+1 out of 5 hunks FAILED -- saving rejects to file dom/base/nsFrameLoader.cpp.rej
+patching file dom/base/nsFrameLoader.h
+Hunk #1 succeeded at 230 (offset 2 lines).
+Hunk #2 succeeded at 533 (offset 2 lines).
+patching file dom/chrome-webidl/FrameLoader.webidl
+patching file mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
+Hunk #1 succeeded at 270 (offset 3 lines).
+patching file mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
+patching file mobile/android/geckoview/src/androidTest/java/org/mozilla/geckoview/test/SessionCleanupTest.kt
+patching file netwerk/cookie/CookiePersistentStorage.cpp
+patching file netwerk/cookie/CookiePersistentStorage.h
+patching file netwerk/cookie/CookieService.cpp
+patching file netwerk/cookie/CookieService.h
+patching file netwerk/cookie/CookieStorage.cpp
+patching file netwerk/cookie/CookieStorage.h
+patching file netwerk/cookie/nsICookieManager.idl
+patching file netwerk/cookie/test/unit/test_cookie_session_cleanup.js
+patching file netwerk/cookie/test/unit/xpcshell.toml
+---> patch exited 1
+---[snip]---------- --> dom/base/nsFrameLoader.cpp.rej:
+--- dom/base/nsFrameLoader.cpp
++++ dom/base/nsFrameLoader.cpp
+@@ -149,7 +150,8 @@ using PrintPreviewResolver = std::function<void(const PrintPreviewResultInfo&)>;
+ 
+ NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(nsFrameLoader, mPendingBrowsingContext,
+                                       mMessageManager, mChildMessageManager,
+-                                      mRemoteBrowser, mSessionStoreChild)
++                                      mRemoteBrowser, mSessionStoreChild,
++                                      mDestroyedPromise)
+ NS_IMPL_CYCLE_COLLECTING_ADDREF(nsFrameLoader)
+ NS_IMPL_CYCLE_COLLECTING_RELEASE(nsFrameLoader)
+ 
+---[snip]----------
+
+==> patches/android/doh-mullvad-migration.patch:
+
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
+Hunk #1 succeeded at 864 (offset 14 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+Hunk #1 FAILED at 168.
+1 out of 1 hunk FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DohProviderMigration.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/doh/DohSettingsProvider.kt
+patching file mobile/android/fenix/app/src/main/res/values/lw_doh_migration.xml
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DohProviderMigrationTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/doh/DefaultDohSettingsProviderTest.kt
+---> patch exited 1
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+@@ -168,6 +168,10 @@ class Core(
+ ) {
+     /** The browser engine component initialized based on the build configuration (see build variants). */
+     val engine: Engine by lazyMonitored {
++        // Redoubt: replace a discontinued Mullvad DoH provider before the engine
++        // reads dohProviderUrl below. Runs once per profile.
++        org.mozilla.fenix.lw.DohProviderMigration.migrate(context, context.components.settings)
++
+         val defaultSettings =
+             DefaultSettings(
+                 requestInterceptor = requestInterceptor,
+---[snip]----------
+
+==> patches/android/disable-157-cloud-features.patch:
+
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+Hunk #1 succeeded at 433 (offset -7 lines).
+Hunk #2 FAILED at 712.
+1 out of 2 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
+Hunk #1 FAILED at 5.
+Hunk #2 succeeded at 24 with fuzz 2 (offset 3 lines).
+Hunk #3 succeeded at 75 (offset 5 lines).
+1 out of 3 hunks FAILED -- saving rejects to file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt.rej
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessor.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/TopSites.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/store/PopularSite.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/home/topsites/ui/ShortcutsScreen.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
+Hunk #2 succeeded at 291 with fuzz 2.
+Hunk #4 succeeded at 546 (offset 13 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+Hunk #1 succeeded at 2896 (offset 33 lines).
+Hunk #2 succeeded at 3025 (offset 44 lines).
+Hunk #3 succeeded at 3380 (offset -4 lines).
+patching file mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
+Hunk #2 succeeded at 229 (offset -11 lines).
+Hunk #3 succeeded at 266 (offset -10 lines).
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/LibreWolfCloudFeaturesTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/intent/HomeDeepLinkIntentProcessorTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/home/topsites/TopSitesExpandToggleTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/ipprotection/store/IPProtectionPromptRepositoryTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/summarization/onboarding/FenixSummarizationFeatureConfigurationTest.kt
+---> patch exited 1
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+@@ -712,11 +710,6 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
+         (LeakCanarySetup as LeakCanarySetupInterface).updateState(isEnabled = isEnabled, components = components)
+     }
+ 
+-    private fun maybeSetupIPProtection() {
+-        components.ipProtection.feature.initialize()
+-        components.ipProtection.storageSynchronizer.initialize()
+-    }
+-
+     /**
+      * Registers or unregisters [AutofillService] so the application is only offered as an Android autofill service on
+      * devices where autofill is supported. The component enabled state is persisted by the system across application
+---[snip]----------
+---[snip]---------- --> mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt.rej:
+--- mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
++++ mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/ipprotection/IPProtection.kt
+@@ -5,14 +5,17 @@
+ package org.mozilla.fenix.components.ipprotection
+ 
+ import android.content.Context
+-import androidx.lifecycle.ProcessLifecycleOwner
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.flowOf
+ import mozilla.components.browser.state.store.BrowserStore
+ import mozilla.components.concept.engine.Engine
+ import mozilla.components.feature.ipprotection.IPProtectionFeature
++import mozilla.components.feature.ipprotection.storage.IPProtectionEligibilityStorage
+ import mozilla.components.feature.ipprotection.storage.IPProtectionStorageSynchronizer
+ import mozilla.components.feature.ipprotection.store.DefaultIPProtectionLocationRepository
+ import mozilla.components.feature.ipprotection.store.IPProtectionLocationMiddleware
+ import mozilla.components.feature.ipprotection.store.IPProtectionStore
++import mozilla.components.feature.ipprotection.store.state.EligibilityStatus
+ import mozilla.components.service.fxa.manager.FxaAccountManager
+ import mozilla.components.service.fxa.store.SyncStore
+ import mozilla.components.support.base.log.logger.Logger
+---[snip]----------
+
+==> patches/android/ubo-cookie-lists-migration.patch:
+
+patching file toolkit/components/extensions/Extension.sys.mjs
+Hunk #1 succeeded at 4241 (offset 18 lines).
+patching file toolkit/components/extensions/ExtensionStorageIDB.sys.mjs
+
+==> patches/android/autofill-shadow-dom.patch:
+
+patching file mobile/shared/actors/GeckoViewAutoFillChild.sys.mjs
+
+==> patches/android/delete-on-quit-swipe.patch:
+
+patching file mobile/android/fenix/app/src/main/AndroidManifest.xml
+Hunk #1 succeeded at 755 (offset 23 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
+Hunk #1 succeeded at 402 (offset 4 lines).
+Hunk #2 succeeded at 482 (offset 13 lines).
+Hunk #3 succeeded at 497 (offset 13 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
+Hunk #1 succeeded at 357 (offset 8 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
+Hunk #1 succeeded at 1002 (offset 26 lines).
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddleware.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddlewareTest.kt
+
+==> patches/android/isolation-media-process.patch:
+
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/gecko/GeckoProvider.kt
+
+==> patches/android/isolation-media-prefs.patch:
+
+patching file mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
+Hunk #1 succeeded at 719 (offset -90 lines).
+patching file mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoRuntime.java
+patching file modules/libpref/Preferences.cpp
+Hunk #1 succeeded at 4576 (offset 7 lines).
+Hunk #2 succeeded at 4703 (offset 7 lines).
+
+==> patches/android/isolation-media-codecs-in-content.patch:
+
+patching file dom/media/ipc/RemoteDecoderModule.cpp
+Hunk #3 succeeded at 90 with fuzz 2 (offset 11 lines).
+patching file dom/media/platforms/PDMFactory.cpp
+patching file modules/libpref/init/StaticPrefList.yaml
+Hunk #1 succeeded at 13144 (offset 88 lines).
+
+==> patches/android/isolation-eme.patch:
+
+patching file dom/media/eme/KeySystemConfig.cpp
+patching file dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp
+Hunk #2 succeeded at 88 (offset 12 lines).
+Hunk #3 succeeded at 339 (offset 12 lines).
+Hunk #4 FAILED at 372.
+Hunk #5 succeeded at 642 (offset 32 lines).
+Hunk #6 succeeded at 657 (offset 32 lines).
+Hunk #7 succeeded at 880 (offset 40 lines).
+1 out of 7 hunks FAILED -- saving rejects to file dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp.rej
+patching file dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.h
+Hunk #1 succeeded at 157 (offset 6 lines).
+---> patch exited 1
+---[snip]---------- --> dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp.rej:
+--- dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp
++++ dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.cpp
+@@ -372,7 +417,16 @@ MediaDrmRemoteCDMParent::EnsureHasAMediaCrypto() {
+   if (status == AMEDIA_DRM_NOT_PROVISIONED) {
+     return EnsureProvisioned()->Then(
+         GetCurrentSerialEventTarget(), __func__,
+-        [self = RefPtr{this}](const InternalPromise::ResolveOrRejectValue&) {
++        [self = RefPtr{this}](const InternalPromise::ResolveOrRejectValue&
++                                  aValue) -> RefPtr<InternalPromise> {
++          // Redoubt (LW-M7-39): a failed provisioning is sticky
++          // (mProvisionError), so retrying here would open a session, find it
++          // still unprovisioned and come back at once, forever. Pass the
++          // failure on instead (RecvInit now waits for this promise).
++          if (aValue.IsReject()) {
++            return InternalPromise::CreateAndReject(aValue.RejectValue(),
++                                                    __func__);
++          }
+           return self->EnsureHasAMediaCrypto();
+         });
+   }
+---[snip]----------
+
+==> patches/android/no-webcompat-reporter.patch:
+
+can't find file to patch at input line 60
+Perhaps you used the wrong -p or --strip option?
+The text leading up to this was:
+--------------------------
+|# Redoubt no-webcompat-reporter.patch (Android, LW-M7-38): no "Report broken
+|# site" menu entry.
+|#
+|# Upstream files touched
+|# -----------------------
+|#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
+|#   mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/BrowserMenuBuilder.kt
+|#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/BrowserMenuBuilderTest.kt
+|#   mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
+|#
+|# Line numbers are from the Firefox 158.0 tree; no other listed patch edits
+|# these files.
+|#
+|# Why
+|# ---
+|# LibreWolf's policies.json sets DisableFeedbackCommands, which removes the
+|# product feedback commands, "Report broken site" among them. Fenix 158 has the
+|# entry in the main menu's "More" submenu. What it does in Redoubt:
+|#   * with Settings.isTelemetryEnabled true (Fenix's default; Redoubt does not
+|#     change it), it opens the WebCompatReporter form, whose Send submits
+|#     Gecko's broken-site-report Glean ping. Redoubt has no Glean upload path
+|#     (no-glean.patch, disable-data-reporting-common.patch), so the report is
+|#     silently discarded while the UI says it was sent;
+|#   * with it false, MenuNavigationMiddleware skips the form and opens
+|#     https://webcompat.com/issues/new?url=<page address> in a new tab,
+|#     handing the page address and the page's web-compat details to a third
+|#     party.
+|#
+|# What it does
+|# ------------
+|# Removes the entry from both menus that offer it:
+|#   * MoreSettingsSubmenu (the menu every user sees,
+|#     MenuDialogFragment): the WebCompatReporterMenuItem call and the private
+|#     composable. The isWebCompatEnabled / onWebCompatReporterClick parameters
+|#     stay, so MenuDialogFragment.kt (also edited by delete-on-quit-swipe.patch)
+|#     is not touched; they are now unused.
+|#   * BrowserMenuBuilder's default configuration (the customizable menu
+|#     behind Settings.isMenuCustomizationEnabled, off by default): the
+|#     ReportBrokenSite item of "More".
+|# Unchanged: the reporter code, its navigation targets (unreachable without
+|# the entry), and android-components' WebCompatFeature, which installs the
+|# webcompat@mozilla.org site interventions that keep broken sites working and
+|# reports nothing.
+|#
+|# Tests: BrowserMenuBuilderTest asserts no default layout (toolbar top/bottom,
+|# expanded or not) contains ReportBrokenSite; MoreSettingsSubmenuTest asserts
+|# the entry does not render even with isWebCompatEnabled = true. The
+|# instrumented ThreeDotMenuMainRobot / MainMenuTest still look for the entry;
+|# they are not part of the unit gate.
+|#
+|# 159 rebase (2026-11-06, Firefox 159.0.1): 159 replaced BrowserMenuBuilder's
+|# default configuration with MenuConfigurations.browser(); the entry is removed
+|# from its "More" list instead, and the test moved to MenuBuilderTest (every
+|# toolbar position and expansion, plus the home menu).
+|#
+|diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt
+|index 1eaaf5b..db3f1d2 100644
+|--- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt
+|+++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuConfigurations.kt
+--------------------------
+File to patch: 
+Skip this patch? [y] 
+Skipping patch.
+2 out of 2 hunks ignored
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenu.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/MenuBuilderTest.kt
+Hunk #1 succeeded at 83 with fuzz 1 (offset 5 lines).
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/components/menu/compose/MoreSettingsSubmenuTest.kt
+---> patch exited 1
+
+==> patches/android/drm-permission-default.patch:
+
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/PhoneFeature.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/sitepermissions/SitePermissionsManagePhoneFeatureFragment.kt
+patching file mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
+Hunk #1 succeeded at 1956 (offset 20 lines).
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/settings/PhoneFeatureTest.kt
+patching file mobile/android/fenix/app/src/test/java/org/mozilla/fenix/utils/SettingsTest.kt
+Hunk #1 succeeded at 59 (offset -2 lines).
+Hunk #2 succeeded at 845 (offset 13 lines).
+
+Removing '~/redoubt-artifacts/rebase-161.0/repo/tmpdir92.bGSYcY'...
+
+[patches/disable-data-reporting-common.patch] [patches/android/no-adjust.patch] [patches/android/no-onboarding.patch] [patches/android/no-glean.patch] [patches/android/no-gms.patch] [patches/android/no-crashreporter.patch] [patches/android/build-fixes.patch] [patches/android/branding.patch] [patches/android/rs-blocker-android.patch] [patches/android/ubo-preinstall.patch] [patches/android/privacy-defaults.patch] [patches/android/canvas-webgl-permissions.patch] [patches/android/sync-opt-in.patch] [patches/android/no-default-shortcuts.patch] [patches/android/extension-update-controls.patch] [patches/android/global-privacy-controls.patch] [patches/android/session-cleanup.patch] [patches/android/doh-mullvad-migration.patch] [patches/android/disable-157-cloud-features.patch] [patches/android/isolation-eme.patch] [patches/android/no-webcompat-reporter.patch]
+
+error: Some patches failed!

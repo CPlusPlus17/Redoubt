@@ -37,8 +37,14 @@
 # cleanup-scope functions and their declarations sit before GetSessionCookies
 # instead. No change of intent.
 #
+#
+# 161 rebase (2026-11-25, Firefox 161.0): nsFrameLoader's cycle-collection
+# declaration became NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_WEAK_PTR (161 made
+# it support weak pointers); mDestroyedPromise is added to the same traversed
+# member list as before. Other hunks unchanged. Not compiled.
+
 diff --git a/dom/base/nsFrameLoader.cpp b/dom/base/nsFrameLoader.cpp
-index d053fbe..b1a6919 100644
+index 3515f61..02b0425 100644
 --- a/dom/base/nsFrameLoader.cpp
 +++ b/dom/base/nsFrameLoader.cpp
 @@ -7,6 +7,7 @@
@@ -51,11 +57,11 @@ index d053fbe..b1a6919 100644
  #include "BrowserParent.h"
 @@ -148,7 +149,8 @@ using PrintPreviewResolver = std::function<void(const PrintPreviewResultInfo&)>;
  
- NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(nsFrameLoader, mPendingBrowsingContext,
-                                       mMessageManager, mChildMessageManager,
--                                      mRemoteBrowser, mSessionStoreChild)
-+                                      mRemoteBrowser, mSessionStoreChild,
-+                                      mDestroyedPromise)
+ NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_WEAK_PTR(
+     nsFrameLoader, mPendingBrowsingContext, mMessageManager,
+-    mChildMessageManager, mRemoteBrowser, mSessionStoreChild)
++    mChildMessageManager, mRemoteBrowser, mSessionStoreChild,
++    mDestroyedPromise)
  NS_IMPL_CYCLE_COLLECTING_ADDREF(nsFrameLoader)
  NS_IMPL_CYCLE_COLLECTING_RELEASE(nsFrameLoader)
  
@@ -82,7 +88,7 @@ index d053fbe..b1a6919 100644
  }
  
  void nsFrameLoader::SetOwnerContent(Element* aContent) {
-@@ -3170,6 +3181,22 @@ SessionStoreParent* nsFrameLoader::GetSessionStoreParent() {
+@@ -3172,6 +3183,22 @@ SessionStoreParent* nsFrameLoader::GetSessionStoreParent() {
    return nullptr;
  }
  
@@ -106,10 +112,10 @@ index d053fbe..b1a6919 100644
      ErrorResult& aRv) {
    MOZ_DIAGNOSTIC_ASSERT(XRE_IsParentProcess());
 diff --git a/dom/base/nsFrameLoader.h b/dom/base/nsFrameLoader.h
-index b2db03b..7d0d258 100644
+index ccdc0db..9bb6bb3 100644
 --- a/dom/base/nsFrameLoader.h
 +++ b/dom/base/nsFrameLoader.h
-@@ -228,6 +228,8 @@ class nsFrameLoader final : public nsStubMutationObserver,
+@@ -230,6 +230,8 @@ class nsFrameLoader final : public nsStubMutationObserver,
  
    void RequestUpdatePosition(mozilla::ErrorResult& aRv);
  
@@ -118,7 +124,7 @@ index b2db03b..7d0d258 100644
    already_AddRefed<Promise> RequestTabStateFlush(mozilla::ErrorResult& aRv);
  
    void RequestEpochUpdate(uint32_t aEpoch);
-@@ -529,12 +531,15 @@ class nsFrameLoader final : public nsStubMutationObserver,
+@@ -531,12 +533,15 @@ class nsFrameLoader final : public nsStubMutationObserver,
    // refcounted cycles early.
    RefPtr<mozilla::dom::SessionStoreChild> mSessionStoreChild;
  
@@ -155,10 +161,10 @@ index 4bc469d..bf0df7c 100644
    readonly attribute MessageSender? messageManager;
  
 diff --git a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
-index 71c860b..145b087 100644
+index 0fa1964..ab58f6d 100644
 --- a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
 +++ b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-api.js
-@@ -267,8 +267,112 @@ this.test = class extends ExtensionAPI {
+@@ -270,8 +270,112 @@ this.test = class extends ExtensionAPI {
        return browsingContext.currentWindowGlobal.getActor(actorName);
      }
  
@@ -272,7 +278,7 @@ index 71c860b..145b087 100644
            return runPrefSaveFileAsyncIOTest(scenario, allowProfileShutdown);
          },
 diff --git a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
-index d5924b0..66ad24f 100644
+index d77c964..898fb18 100644
 --- a/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
 +++ b/mobile/android/geckoview/src/androidTest/assets/web_extensions/test-support/test-schema.json
 @@ -3,6 +3,46 @@
@@ -447,7 +453,7 @@ index 0000000..9a86062
 +    fun firstPromiseCanBeCreatedAfterOwnerDetachment() = inProcess(true)
 +}
 diff --git a/netwerk/cookie/CookiePersistentStorage.cpp b/netwerk/cookie/CookiePersistentStorage.cpp
-index 4ad483f..285b1cf 100644
+index 545a462..38c3413 100644
 --- a/netwerk/cookie/CookiePersistentStorage.cpp
 +++ b/netwerk/cookie/CookiePersistentStorage.cpp
 @@ -15,6 +15,8 @@
