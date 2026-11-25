@@ -132,7 +132,7 @@ page with no privacy value; it edits shared docshell/toolkit files and has a
 | `ubo-preinstall` | `lazyMonitored` gone | `by lazy` |
 | `branding` | release/beta manifests gained `android:sharedUserMaxSdkVersion` beside `sharedUserId` | both attributes removed |
 | `rs-blocker-android` | `Error::response_error()` takes the whole `viaduct::Response` | same two network block points |
-| `extension-update-controls` | add-on update permission flow rewritten (pending updates in memory, worker rewritten) | automatic/manual split re-placed; tests rewritten in upstream's style, 161's two new tests covered |
+| `extension-update-controls` | add-on update permission flow rewritten (pending updates in memory, worker rewritten); `mozilla::MakeUnique` removed (`UniquePtr` is `std::unique_ptr`) | automatic/manual split re-placed; tests rewritten in upstream's style, 161's two new tests covered. `Preferences::SavePrefFileAsync` uses `std::make_unique`: the first 161 compile (CI 45647640735) stopped on `MakeUnique` in `Preferences.cpp`, which both reviews missed. No other patch adds `MakeUnique` |
 | `session-cleanup` | nsFrameLoader cycle-collection macro changed | `mDestroyedPromise` added to the same member list |
 | `disable-157-cloud-features` | IP Protection starts from one `IPProtection.initialize()` | that call stays deleted |
 | `isolation-media-codecs-in-content` | `Supports()`' Android block restructured | filter still inside the Android block (checked by hand) |

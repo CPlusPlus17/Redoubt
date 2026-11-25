@@ -33,7 +33,10 @@
 # already imports eq/never and stubs a spied AddonManager with doAnswer; the
 # untagged workers' stubs (including 161's two new pending-update tests) now
 # stub updateAddonAutomatically, and the restored/explicit routing test uses
-# the same spy + doAnswer style. Not compiled or run.
+# the same spy + doAnswer style. Preferences::SavePrefFileAsync uses
+# std::make_unique: 161 removed mozilla::MakeUnique (UniquePtr is now an alias
+# of std::unique_ptr, mfbt/UniquePtr.h:18), and the first 161 build stopped with
+# "use of undeclared identifier 'MakeUnique'" (CI run 45647640735).
 
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
 index 5e621c9..3e62feb 100644
@@ -1808,7 +1811,7 @@ index 540c694..671208d 100644
 +  nsMainThreadPtrHandle<Promise> domPromise(new nsMainThreadPtrHolder<Promise>(
 +      "Preferences::SavePrefFileAsync", promise));
 +  using WritePrefFilePromise = PreferencesImpl::WritePrefFilePromise;
-+  auto holder = MakeUnique<MozPromiseHolder<WritePrefFilePromise>>();
++  auto holder = std::make_unique<MozPromiseHolder<WritePrefFilePromise>>();
 +  RefPtr<WritePrefFilePromise> write = holder->Ensure(__func__);
 +  // Force a current snapshot even when mDirty is false. Preserve the legacy
 +  // save API's dirty timing; any outstanding autosave remains valid.
