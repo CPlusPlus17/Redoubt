@@ -485,7 +485,8 @@ CFG_KINDS = ("defaultPref", "lockPref", "clearPref", "setEnv", "pref")
 # Firefox 157 merge (settings c0f8fe66): was 178/60/26/2/1 and 12 at the split.
 # Firefox 160 rebase: 272/80 -> 283/83 (upstream's 160 delta, plus Redoubt's
 # network.http.akamai_waf_telemetry.enabled lock and browser.smartwindow.aitab.enabled).
-CFG_EXPECTED = {"defaultPref": 283, "lockPref": 83, "pref": 25,
+# Firefox 161 rebase: 283 -> 289 defaultPref (upstream's 161 delta, all desktop.cfg).
+CFG_EXPECTED = {"defaultPref": 289, "lockPref": 83, "pref": 25,
                 "clearPref": 2, "setEnv": 2}
 CFG_EXPECTED_LW_PREFS = 13
 

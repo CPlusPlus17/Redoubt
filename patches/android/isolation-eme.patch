@@ -34,9 +34,10 @@
 #    decoder created in that window could not attach the CDM, fell back to a
 #    software decoder ffvpx does not have and failed ("unable to find codec";
 #    measured: 2 of 9 first plays on a fresh profile). Init now resolves once
-#    the crypto exists, or rejects with its error. And a failed provisioning,
-#    which is sticky, no longer makes EnsureHasAMediaCrypto() retry forever.
-#    Upstream main has the same code.
+#    the crypto exists, or rejects with its error. (Until 160 a fourth hunk
+#    also stopped EnsureHasAMediaCrypto() retrying a sticky failed
+#    provisioning forever; 161 fixed that upstream and the hunk is dropped,
+#    see the 161 note below.)
 # 7. MediaDrmRemoteCDMParent::RecvUpdateSession (RDD, Android 12 and 13
 #    only, runtime check): Widevine in privacy mode first asks the page for
 #    its service certificate (message 0804). After the page's response
@@ -77,6 +78,20 @@
 # Line numbers are from the Firefox 159.0.1 tree AFTER the patches listed before
 # this one in assets/patches/android.txt.
 #
+#
+# 161 rebase (2026-11-25, Firefox 161.0): REDUCED by one hunk, upstreamed.
+# Item 6's second half (EnsureHasAMediaCrypto() passing a failed provisioning on
+# instead of retrying) is gone: 161 rewrote MediaDrmRemoteCDMParent's
+# provisioning (no sticky mProvisionError / mCryptoError any more;
+# EnsureHasAMediaCrypto(bool aProvisioned) retries openSession once after
+# EnsureProvisioned() whatever its outcome and then rejects with "not
+# provisioned after provisioning"; a failed provisioning IPC now rejects
+# mProvisionPromise instead of leaving it pending). So the promise RecvInit
+# waits on still settles and there is no retry loop. The rest of item 6 (Init
+# resolves only once the crypto exists) and items 1-5, 7 apply unchanged at new
+# offsets. Not compiled or run; the API 31-34 DRM device checks of the 158.0-3
+# work were not repeated.
+
 --- a/dom/media/eme/KeySystemConfig.cpp
 +++ b/dom/media/eme/KeySystemConfig.cpp
 @@ -160,7 +160,20 @@ bool KeySystemConfig::Supports(const nsAString& aKeySystem) {
@@ -139,7 +154,7 @@
  /* static */
  void MediaDrmRemoteCDMParent::InitializeStatics() {
    if (sCbMap) {
-@@ -52,6 +76,11 @@ void MediaDrmRemoteCDMParent::HandleEventCb(
+@@ -64,6 +88,11 @@ void MediaDrmRemoteCDMParent::HandleEventCb(
            return;
          }
  
@@ -151,7 +166,7 @@
          i->second->HandleEvent(std::move(sessionIdStr), aEventType, aExtra,
                                 std::move(data));
        }));
-@@ -298,9 +327,25 @@ mozilla::ipc::IPCResult MediaDrmRemoteCDMParent::RecvInit(
+@@ -310,9 +339,25 @@ mozilla::ipc::IPCResult MediaDrmRemoteCDMParent::RecvInit(
            fmt::ptr(mDrm));
    InitializeStatics();
    sCbMap->insert(std::pair{mDrm, this});
@@ -179,25 +194,7 @@
    return IPC_OK();
  }
  
-@@ -327,7 +372,16 @@ MediaDrmRemoteCDMParent::EnsureHasAMediaCrypto() {
-   if (status == AMEDIA_DRM_NOT_PROVISIONED) {
-     return EnsureProvisioned()->Then(
-         GetCurrentSerialEventTarget(), __func__,
--        [self = RefPtr{this}](const InternalPromise::ResolveOrRejectValue&) {
-+        [self = RefPtr{this}](const InternalPromise::ResolveOrRejectValue&
-+                                  aValue) -> RefPtr<InternalPromise> {
-+          // Redoubt (LW-M7-39): a failed provisioning is sticky
-+          // (mProvisionError), so retrying here would open a session, find it
-+          // still unprovisioned and come back at once, forever. Pass the
-+          // failure on instead (RecvInit now waits for this promise).
-+          if (aValue.IsReject()) {
-+            return InternalPromise::CreateAndReject(aValue.RejectValue(),
-+                                                    __func__);
-+          }
-           return self->EnsureHasAMediaCrypto();
-         });
-   }
-@@ -565,6 +619,9 @@ mozilla::ipc::IPCResult MediaDrmRemoteCDMParent::RecvUpdateSession(
+@@ -597,6 +642,9 @@ mozilla::ipc::IPCResult MediaDrmRemoteCDMParent::RecvUpdateSession(
    MOZ_ASSERT(mDrm);
    MOZ_ASSERT(HasCrypto());
  
@@ -207,7 +204,7 @@
    AMediaDrmKeySetId keySetId{};
    media_status_t status = AMediaDrm_provideKeyResponse(
        mDrm, &i->second.id, aRequest.response().Elements(),
-@@ -577,9 +634,42 @@ mozilla::ipc::IPCResult MediaDrmRemoteCDMParent::RecvUpdateSession(
+@@ -609,9 +657,42 @@ mozilla::ipc::IPCResult MediaDrmRemoteCDMParent::RecvUpdateSession(
    }
  
    aResolver(MediaResult(NS_OK));
@@ -250,7 +247,7 @@
  mozilla::ipc::IPCResult MediaDrmRemoteCDMParent::RecvRemoveSession(
      const nsString& aSessionId, RemoveSessionResolver&& aResolver) {
    EME_LOG("[{}] MediaDrmRemoteCDMParent::RecvRemoveSession", fmt::ptr(this));
-@@ -759,8 +849,16 @@ void MediaDrmRemoteCDMParent::HandleExpirationUpdate(nsString&& aSessionId,
+@@ -799,8 +880,16 @@ void MediaDrmRemoteCDMParent::HandleExpirationUpdate(nsString&& aSessionId,
  
    EME_LOG("[{}] MediaDrmRemoteCDMParent::HandleExpirationUpdate",
            fmt::ptr(this));
@@ -271,7 +268,7 @@
  void MediaDrmRemoteCDMParent::HandleKeysChange(
 --- a/dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.h
 +++ b/dom/media/eme/mediadrm/MediaDrmRemoteCDMParent.h
-@@ -151,8 +151,13 @@ class MediaDrmRemoteCDMParent final : public RemoteCDMParent {
+@@ -157,8 +157,13 @@ class MediaDrmRemoteCDMParent final : public RemoteCDMParent {
    struct SessionEntry {
      AMediaDrmSessionId id;
      nsAutoCString mimeType;

@@ -50,6 +50,13 @@
 # lint suppression exists only for sharedUserId); all three go, leaving the
 # same bare <manifest> as before. The fenix/app/src/**/*launcher* file set is
 # identical in 159.0.1 and 160.0 (104 files).
+# 161 rebase (2026-11-25, Firefox 161.0): same change. The beta and release
+# AndroidManifest.xml dropped 160's xmlns:tools / tools:ignore="Deprecated" and
+# now declare android:sharedUserMaxSdkVersion="32" next to
+# android:sharedUserId; that attribute only qualifies sharedUserId, so both go,
+# leaving the same bare <manifest> as before.
+#
+
 
 
 --- a/mobile/android/fenix/app/build.gradle
@@ -72,7 +79,7 @@
          buildConfigField "String", "DEEP_LINK_SCHEME", "\"$deepLinkSchemeValue\""
  
          manifestPlaceholders = [
-@@ -109,14 +109,14 @@ android {
+@@ -110,14 +110,14 @@ android {
          debug {
              shrinkResources = false
              minifyEnabled = false
@@ -90,7 +97,7 @@
              buildConfigField "String", "DEEP_LINK_SCHEME", "\"$deepLinkSchemeValue\""
              manifestPlaceholders.putAll([
                      "deepLinkScheme": deepLinkSchemeValue
-@@ -124,35 +124,18 @@ android {
+@@ -125,35 +125,18 @@ android {
          }
          beta releaseTemplate >> {
              buildConfigField "boolean", "USE_RELEASE_VERSIONING", "true"
@@ -129,7 +136,7 @@
                      "deepLinkScheme": deepLinkSchemeValue,
              ])
          }
-@@ -160,7 +143,7 @@ android {
+@@ -161,7 +144,7 @@ android {
              initWith buildTypes.nightly
              shrinkResources = false
              minifyEnabled = false
@@ -140,14 +147,13 @@
              buildConfigField "boolean", "IS_BENCHMARK_BUILD", "true"
 --- a/mobile/android/fenix/app/src/beta/AndroidManifest.xml
 +++ b/mobile/android/fenix/app/src/beta/AndroidManifest.xml
-@@ -10,8 +10,5 @@
+@@ -10,7 +10,5 @@
                  - https://issuetracker.google.com/issues/36924841
                  - https://issuetracker.google.com/issues/36905922
  -->
 -<manifest xmlns:android="http://schemas.android.com/apk/res/android"
--    xmlns:tools="http://schemas.android.com/tools"
 -    android:sharedUserId="${sharedUserId}"
--    tools:ignore="Deprecated">
+-    android:sharedUserMaxSdkVersion="32">
 +<manifest xmlns:android="http://schemas.android.com/apk/res/android">
  </manifest>
 --- a/mobile/android/fenix/app/src/beta/res/drawable/ic_launcher_foreground.xml
@@ -572,7 +578,7 @@
  </vector>
 --- a/mobile/android/fenix/app/src/main/res/values/colors.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/colors.xml
-@@ -260,7 +260,7 @@
+@@ -258,7 +258,7 @@
      <color name="device_foreground">@color/photonInk80</color>
  
      <!-- Launcher Icon colors -->
@@ -795,14 +801,13 @@
  </vector>
 --- a/mobile/android/fenix/app/src/release/AndroidManifest.xml
 +++ b/mobile/android/fenix/app/src/release/AndroidManifest.xml
-@@ -10,8 +10,5 @@
+@@ -10,7 +10,5 @@
                  - https://issuetracker.google.com/issues/36924841
                  - https://issuetracker.google.com/issues/36905922
  -->
 -<manifest xmlns:android="http://schemas.android.com/apk/res/android"
--    xmlns:tools="http://schemas.android.com/tools"
 -    android:sharedUserId="${sharedUserId}"
--    tools:ignore="Deprecated">
+-    android:sharedUserMaxSdkVersion="32">
 +<manifest xmlns:android="http://schemas.android.com/apk/res/android">
  </manifest>
 --- a/mobile/android/fenix/app/src/release/res/drawable/ic_launcher_foreground.xml

@@ -166,6 +166,18 @@
 # referenced it; nothing assigns the property, tests included). Its two string
 # resources stay, as the remote-search-configuration ones do. If a later
 # release starts reading v3, the v3 collection needs the same treatment as v2.
+#
+# 161 rebase (2026-11-25, Firefox 161.0): same edits plus one. 161 now READS
+# Settings.useSearchConfigV3: Core.kt passes it into a-c's
+# SearchEngineSelectorConfig, and SearchEngineSelectorRepository switches to
+# the search-config-v3 collection when it is true. The 160 review's constant
+# `false` is therefore what keeps Redoubt on its own v2 list (KDoc updated).
+# 161 also added a requirePreference(pref_key_use_search_config_v3) block to
+# SecretSettingsFragment for the debug row this patch removes from
+# secret_settings_preferences.xml; it would throw when Secret Settings opens,
+# so that block is removed too (same comment style as the remote-search-config
+# row). Found by the 161 feature scan; this hunk applied cleanly without it.
+
 
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/settings/SecretSettingsFragment.kt
@@ -194,9 +206,24 @@
  
          requirePreference<SwitchPreferenceCompat>(R.string.pref_key_microsurvey_feature_enabled).apply {
              isVisible = true
+@@ -381,11 +369,9 @@ class SecretSettingsFragment : PreferenceFragmentCompat(), SystemInsetsPaddedFra
+             onPreferenceChangeListener = SharedPreferenceUpdater()
+         }
+ 
+-        requirePreference<SwitchPreferenceCompat>(R.string.pref_key_use_search_config_v3).apply {
+-            isVisible = Config.channel.isNightlyOrDebug
+-            isChecked = settings.useSearchConfigV3
+-            onPreferenceChangeListener = SharedPreferenceUpdater()
+-        }
++        // LibreWolf (LW-M4-06, 161 rebase): the "Use search-config-v3" debug switch is gone
++        // with its row in secret_settings_preferences.xml -- Settings.useSearchConfigV3 is a
++        // constant `false` (requirePreference() on the removed row would throw).
+ 
+         requirePreference<SwitchPreferenceCompat>(R.string.pref_key_enable_uninstall_survey).apply {
+             isVisible = true
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/utils/Settings.kt
-@@ -2524,22 +2524,38 @@ class Settings(
+@@ -2539,22 +2539,40 @@ class Settings(
              default = { FxNimbus.features.minimalAddressbar.value().atBottomWhileEnteringText },
          )
  
@@ -238,9 +265,11 @@
 +     * LibreWolf (LW-M4-06): pinned to `false`, for the same reason as
 +     * [useRemoteSearchConfiguration]. scripts/librewolf-patches.py replaces only the
 +     * search-config-v2 dump; the search-config-v3 dump that app-services also packages
-+     * is Mozilla's unmodified set (Google default). Nothing reads this on Firefox 160,
-+     * but a later Fenix that wires v3 up must not be able to reach that dump through
-+     * an FML default or the hidden debug switch, which is removed as well.
++     * is Mozilla's unmodified set (Google default). Firefox 161 reads this
++     * (Core.kt passes it to SearchEngineSelectorConfig, and
++     * SearchEngineSelectorRepository then reads search-config-v3 instead of v2), so
++     * this constant is what keeps Redoubt on its own v2 engine list. Neither an FML
++     * default nor the hidden debug switch, which is removed as well, may reach it.
 +     */
 +    val useSearchConfigV3: Boolean
 +        get() = false
@@ -249,7 +278,7 @@
      fun getHttpsOnlyMode(): HttpsOnlyMode {
 --- a/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
 +++ b/mobile/android/fenix/app/src/main/res/xml/secret_settings_preferences.xml
-@@ -66,15 +66,10 @@
+@@ -61,15 +61,10 @@
        android:key="@string/pref_key_enable_fxsuggest"
        android:title="@string/preferences_debug_settings_fxsuggest"
        app:iconSpaceReserved="false" />

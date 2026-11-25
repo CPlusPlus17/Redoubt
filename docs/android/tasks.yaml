@@ -1547,9 +1547,9 @@ tasks:
     what: |
       settings/librewolf.cfg is 763 lines: 178 defaultPref, 60 lockPref, 26 bare
       pref, 2 clearPref, 1 setEnv, and 12 librewolf.* prefs. Split it three ways.
-      (Since the Firefox 160 rebase common.cfg + desktop.cfg carry 283 defaultPref,
+      (Since the Firefox 161 rebase common.cfg + desktop.cfg carry 289 defaultPref,
       83 lockPref, 25 bare pref, 2 clearPref, 2 setEnv and 13 librewolf.* prefs
-      (272 and 80 after the Firefox 157 merge); board.py CFG_EXPECTED records the
+      (283 and 83 after the 160 rebase, 272 and 80 after the Firefox 157 merge); board.py CFG_EXPECTED records the
       current totals.)
       Known desktop-only sections: lines 73-79 (sanitize-on-shutdown —
       Sanitizer.sys.mjs is desktop-only) and lines 253-254
@@ -1569,7 +1569,7 @@ tasks:
     acceptance:
       - "common.cfg + desktop.cfg reproduces today's librewolf.cfg semantically (same effective prefs on desktop)"
       - "every pref in desktop.cfg has a stated reason it cannot apply on Android"
-      - "counts recorded and matching: 283 defaultPref, 83 lockPref, 13 librewolf.* prefs (272 and 80 after the Firefox 157 merge; 178, 60 and 12 before it)"
+      - "counts recorded and matching: 289 defaultPref, 83 lockPref, 13 librewolf.* prefs (283 and 83 after the 160 rebase, 272 and 80 after the Firefox 157 merge; 178, 60 and 12 before it)"
     verify: "python3 docs/android/board.py --check-cfg-split && python3 docs/android/board.py --check"
     effort_h: "8-14"
     skills: [js, python]
@@ -5616,6 +5616,7 @@ tasks:
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuDialogFragment.kt
+      - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/menu/MenuFragment.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitGuard.kt
       - mobile/android/fenix/app/src/main/java/org/mozilla/fenix/lw/DeleteOnQuitStartGateMiddleware.kt
       - mobile/android/fenix/app/src/test/java/org/mozilla/fenix/lw/DeleteOnQuitGuardTest.kt

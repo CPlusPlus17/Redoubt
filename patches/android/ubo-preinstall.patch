@@ -55,8 +55,15 @@
 # the end of Fenix's strings.xml, and 158 appended its own reader-mode strings
 # there, so the trailing context changed. Same strings, same place (last
 # before </resources>). Everything else is unchanged.
+# 161 rebase (2026-11-25, Firefox 161.0): same code. 161 removed
+# org.mozilla.fenix.perf.lazyMonitored, so Components.uboPreinstaller is
+# `by lazy` (still declared right before addonManager). strings.xml: the four
+# LibreWolf strings are appended at the new end of the file (161 added
+# browser_menu_read_or_listen after the reader-mode strings).
+#
+
 diff --git a/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt b/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
-index 3d53e69..149635c 100644
+index a501f19..2bd0c7b 100644
 --- a/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
 +++ b/mobile/android/android-components/components/support/webextensions/src/main/java/mozilla/components/support/webextensions/WebExtensionSupport.kt
 @@ -167,6 +167,13 @@ object WebExtensionSupport {
@@ -73,7 +80,7 @@ index 3d53e69..149635c 100644
      ) {
          this.onUpdatePermissionRequest = onUpdatePermissionRequest
          this.onExtensionsLoaded = onExtensionsLoaded
-@@ -334,6 +341,18 @@ object WebExtensionSupport {
+@@ -336,6 +343,18 @@ object WebExtensionSupport {
                      dataCollectionPermissions: List<String>,
                      onConfirm: (PermissionPromptResponse) -> Unit,
                  ) {
@@ -93,10 +100,10 @@ index 3d53e69..149635c 100644
                          WebExtensionAction.UpdatePromptRequestWebExtensionAction(
                              WebExtensionPromptRequest.AfterInstallation.Permissions.Required(
 diff --git a/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt b/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
-index dc24f54..11bf851 100644
+index 1be1c67..77fda90 100644
 --- a/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
 +++ b/mobile/android/android-components/components/support/webextensions/src/test/java/mozilla/components/support/webextensions/WebExtensionSupportTest.kt
-@@ -537,6 +537,73 @@ class WebExtensionSupportTest {
+@@ -538,6 +538,73 @@ class WebExtensionSupportTest {
          verify(engineSession).loadUrl("url")
      }
  
@@ -171,7 +178,7 @@ index dc24f54..11bf851 100644
      fun `reacts to install permission request`() {
          val store = BrowserStore(middleware = listOf(captureMiddleware))
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
-index 1efac36..d5b3929 100644
+index a7bd3e3..84f51fe 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt
 @@ -879,10 +879,12 @@ open class FenixApplication : Application(), Provider, ThemeProvider {
@@ -188,7 +195,7 @@ index 1efac36..d5b3929 100644
  
      @VisibleForTesting
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
-index cd4b8ca..922e481 100644
+index 2ce7f6e..1773c4a 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/HomeActivity.kt
 @@ -31,6 +31,7 @@ import androidx.annotation.CallSuper
@@ -199,15 +206,15 @@ index cd4b8ca..922e481 100644
  import androidx.appcompat.widget.Toolbar
  import androidx.core.app.NotificationManagerCompat
  import androidx.core.net.toUri
-@@ -40,6 +41,7 @@ import androidx.core.text.layoutDirection
- import androidx.core.view.doOnLayout
+@@ -41,6 +42,7 @@ import androidx.core.view.doOnLayout
+ import androidx.fragment.app.Fragment
  import androidx.lifecycle.Lifecycle
  import androidx.lifecycle.lifecycleScope
 +import androidx.lifecycle.repeatOnLifecycle
  import androidx.navigation.NavController
  import androidx.navigation.NavDirections
  import androidx.navigation.fragment.NavHostFragment
-@@ -50,6 +52,7 @@ import kotlinx.coroutines.Dispatchers.IO
+@@ -51,6 +53,7 @@ import kotlinx.coroutines.Dispatchers.IO
  import kotlinx.coroutines.Dispatchers.Main
  import kotlinx.coroutines.Job
  import kotlinx.coroutines.delay
@@ -215,7 +222,7 @@ index cd4b8ca..922e481 100644
  import kotlinx.coroutines.flow.distinctUntilChanged
  import kotlinx.coroutines.launch
  import kotlinx.parcelize.Parcelize
-@@ -114,6 +117,7 @@ import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
+@@ -118,6 +121,7 @@ import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
  import org.mozilla.fenix.browser.browsingmode.DefaultBrowsingModeManager
  import org.mozilla.fenix.components.DefaultHomepageAsANewTabPreferenceRepository
  import org.mozilla.fenix.components.DefaultShortcutManagerCompatWrapper
@@ -223,7 +230,7 @@ index cd4b8ca..922e481 100644
  import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
  import org.mozilla.fenix.components.appstate.AppAction
  import org.mozilla.fenix.components.appstate.AppAction.ShareAction
-@@ -482,6 +486,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -497,6 +501,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          // the `setContent` starts attaching fragments.
          EdgeToEdgeFragmentLifecycleCallbacks.register(supportFragmentManager, window)
  
@@ -232,7 +239,7 @@ index cd4b8ca..922e481 100644
          // Checks if Activity is currently in PiP mode if launched from external intents, then exits it
          checkAndExitPiP()
  
-@@ -1306,6 +1312,35 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
+@@ -1323,6 +1329,35 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity, Crash
          return false
      }
  
@@ -269,23 +276,23 @@ index cd4b8ca..922e481 100644
          supportFragmentManager.primaryNavigationFragment?.childFragmentManager?.fragments?.forEach {
              if (it is OnLongPressedListener && it.onForwardLongPressed()) {
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-index c66cc72..05d5d80 100644
+index 9f23fff..ad992b0 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Components.kt
-@@ -233,6 +233,8 @@ class Components(
+@@ -238,6 +238,8 @@ class Components(
          )
      }
  
-+    val uboPreinstaller by lazyMonitored { LibreWolfUboPreinstaller(context) }
++    val uboPreinstaller by lazy { LibreWolfUboPreinstaller(context) }
 +
-     val addonManager by lazyMonitored {
+     val addonManager by lazy {
          AddonManager(core.store, core.engine, addonsProvider, addonUpdater)
      }
 diff --git a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
-index b356623..a03a3e4 100644
+index 3abb584..24a695a 100644
 --- a/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
 +++ b/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/components/Core.kt
-@@ -344,6 +344,7 @@ class Core(
+@@ -357,6 +357,7 @@ class Core(
  
          val middlewareList =
              listOf(
@@ -852,13 +859,13 @@ index 0000000..bed2144
 +    }
 +}
 diff --git a/mobile/android/fenix/app/src/main/res/values/strings.xml b/mobile/android/fenix/app/src/main/res/values/strings.xml
-index 478e6e4..fc35e3e 100644
+index 336288d..cf45942 100644
 --- a/mobile/android/fenix/app/src/main/res/values/strings.xml
 +++ b/mobile/android/fenix/app/src/main/res/values/strings.xml
-@@ -4250,4 +4250,9 @@
-     <string name="reader_mode_panel_listen_content_description">Read Aloud</string>
-     <!-- Content description for media player displayed in Reader Mode when the Listen to Page (Read Aloud) feature is selected -->
+@@ -4308,4 +4308,9 @@
      <string name="reader_mode_panel_media_player_content_description">Media Player</string>
+     <!-- Content description for the reader view button Reader view facilitates readability and has a Listen to Page feature. Button icon is a document with headphones, and is displayed next to the page URL when the feature is available. -->
+     <string name="browser_menu_read_or_listen">Reader view, read or listen to page</string>
 +    <!-- First-run signed uBlock Origin provisioning. Browsing stays paused on failure. -->
 +    <string name="librewolf_ubo_setup_failed_title">uBlock Origin setup failed</string>
 +    <string name="librewolf_ubo_setup_failed_message">Browsing is paused because uBlock Origin could not be prepared. Retry setup or close Redoubt.</string>

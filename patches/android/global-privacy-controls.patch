@@ -15,6 +15,19 @@
 # an offset in a res/ file, and GNU patch then leaves a .orig backup there that
 # packageReleaseResources rejects; so it is regenerated at its exact in-order
 # line numbers (git diff of its own step in the in-order 158 replay).
+#
+# 161 rebase (2026-11-25, Firefox 161.0): 161 moved
+# mobile/shared/components/geckoview/moz.build's module list from
+# EXTRA_JS_MODULES (served as resource://gre/modules/NAME) to MOZ_SRC_FILES
+# (served as moz-src:///mobile/shared/components/geckoview/NAME), and
+# GeckoViewStartup now imports GeckoViewPreferences from its moz-src URL. The
+# new module is listed in MOZ_SRC_FILES as before, and both importers move
+# with it: GeckoViewStartup's lazy getter and the xpcshell test now use
+# moz-src:///mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs.
+# (The moz.build hunk alone applies at fuzz 1 into the new list; with only that
+# and the old resource:// import the module would not load at runtime.) Read
+# from source; not built or run.
+
 diff --git a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt b/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
 index 3e62feb..00af08e 100644
 --- a/mobile/android/android-components/components/browser/engine-gecko/src/main/java/mozilla/components/browser/engine/gecko/GeckoEngine.kt
@@ -667,10 +680,10 @@ index e2d9195..697ada9 100644
  
      override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
 diff --git a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
-index 2cb0e02..8fc1800 100644
+index 148e395..cf94566 100644
 --- a/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
 +++ b/mobile/android/fenix/app/src/main/res/navigation/nav_graph.xml
-@@ -582,6 +582,9 @@
+@@ -600,6 +600,9 @@
              android:name="search_in_progress"
              android:defaultValue="false"
              app:argType="boolean" />
@@ -680,7 +693,7 @@ index 2cb0e02..8fc1800 100644
          <action
              android:id="@+id/action_settingsFragment_to_settingsSearchFragment"
              app:destination="@id/settingsSearchFragment"
-@@ -1945,4 +1948,8 @@
+@@ -2009,4 +2012,8 @@
              app:argType="string"
              app:nullable="true" />
      </dialog>
@@ -954,7 +967,7 @@ index 0000000..9116453
 +
 +}
 diff --git a/mobile/android/geckoview/api.txt b/mobile/android/geckoview/api.txt
-index 0589399..ff59ceb 100644
+index 859678f..4fed912 100644
 --- a/mobile/android/geckoview/api.txt
 +++ b/mobile/android/geckoview/api.txt
 @@ -94,6 +94,7 @@ import org.mozilla.geckoview.CrashHandler;
@@ -965,7 +978,7 @@ index 0589399..ff59ceb 100644
  import org.mozilla.geckoview.GeckoPreferenceController;
  import org.mozilla.geckoview.GeckoResult;
  import org.mozilla.geckoview.GeckoRuntime;
-@@ -883,6 +884,56 @@ package org.mozilla.geckoview {
+@@ -884,6 +885,56 @@ package org.mozilla.geckoview {
      method @NonNull @UiThread public GeckoDisplay.SurfaceInfo.Builder surfaceControl(@Nullable SurfaceControl);
    }
  
@@ -1509,18 +1522,19 @@ index 0000000..092a419
 +  },
 +};
 diff --git a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
-index 9710099..bdd2d4b 100644
+index ee244ad..81bab71 100644
 --- a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
 +++ b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
-@@ -12,6 +12,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
+@@ -12,6 +12,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
    DoHController: "moz-src:///toolkit/components/doh/DoHController.sys.mjs",
    EventDispatcher: "resource://gre/modules/Messaging.sys.mjs",
    PdfJs: "resource://pdf.js/PdfJs.sys.mjs",
-+  GeckoViewGlobalPrivacy: "resource://gre/modules/GeckoViewGlobalPrivacy.sys.mjs",
-   GeckoViewPreferences: "resource://gre/modules/GeckoViewPreferences.sys.mjs",
++  GeckoViewGlobalPrivacy:
++    "moz-src:///mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs",
+   GeckoViewPreferences:
+     "moz-src:///mobile/shared/components/geckoview/GeckoViewPreferences.sys.mjs",
  });
- 
-@@ -291,6 +292,14 @@ export class GeckoViewStartup {
+@@ -292,6 +294,14 @@ export class GeckoViewStartup {
              "GeckoView:CrashPullController.Delegate:Attached",
            ]);
  
@@ -1536,11 +1550,11 @@ index 9710099..bdd2d4b 100644
            // ready before the first call to the listener is received. The global
            // EventDispatcher instance is only available in the parent process, so
 diff --git a/mobile/shared/components/geckoview/moz.build b/mobile/shared/components/geckoview/moz.build
-index 88778c5..926bb12 100644
+index 6c91d71..50ecd78 100644
 --- a/mobile/shared/components/geckoview/moz.build
 +++ b/mobile/shared/components/geckoview/moz.build
 @@ -22,6 +22,7 @@ EXTRA_COMPONENTS += [
- EXTRA_JS_MODULES += [
+ MOZ_SRC_FILES += [
      "ColorPickerDelegate.sys.mjs",
      "FilePickerDelegate.sys.mjs",
 +    "GeckoViewGlobalPrivacy.sys.mjs",
@@ -1549,14 +1563,14 @@ index 88778c5..926bb12 100644
      "GeckoViewPrompt.sys.mjs",
 diff --git a/mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js b/mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js
 new file mode 100644
-index 0000000..45ba0b7
+index 0000000..027227e
 --- /dev/null
 +++ b/mobile/shared/modules/geckoview/test/xpcshell/test_global_privacy_settings.js
 @@ -0,0 +1,89 @@
 +/* Any copyright is dedicated to the Public Domain.
 +   http://creativecommons.org/publicdomain/zero/1.0/ */
 +
-+const { GlobalPrivacySettings } = ChromeUtils.importESModule("resource://gre/modules/GeckoViewGlobalPrivacy.sys.mjs");
++const { GlobalPrivacySettings } = ChromeUtils.importESModule("moz-src:///mobile/shared/components/geckoview/GeckoViewGlobalPrivacy.sys.mjs");
 +const RFP = "privacy.resistFingerprinting";
 +const POLICY = "network.http.referer.XOriginPolicy";
 +const WEBGL = "librewolf.webgl.prompt";

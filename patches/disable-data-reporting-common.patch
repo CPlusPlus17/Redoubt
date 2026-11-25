@@ -80,6 +80,12 @@ telemetry.py and gkrust-features.mozbuild are unchanged.
 upstream and its pair in GLEAN_CORE_HASH_FIXUPS moved with it, src/lib.rs is
 byte-identical to 159's. Hunks unchanged apart from position.
 
+161 rebase (2026-11-25, Firefox 161.0): mach.txt pins glean-sdk 71.0.0;
+glean-core is vendored as 71.0.0, but src/core/mod.rs and src/lib.rs are
+byte-identical to 160.0's (pristine sha256 e2bc0630... and 8b28662a...), so
+GLEAN_CORE_HASH_FIXUPS is unchanged. The CreateTelemetryInstance() hunk's
+context drops XRE_IsSocketProcess() (161 removed the socket process).
+
 diff --git a/python/mach/mach/telemetry.py b/python/mach/mach/telemetry.py
 index a867365..e5c51d9 100644
 --- a/python/mach/mach/telemetry.py
@@ -104,8 +110,8 @@ index 815e1c7..24f79df 100644
  pth:xpcom/idl-parser
  # glean-sdk may not be installable if a wheel isn't available
  # and it has to be built from source.
--pypi-optional:glean-sdk==70.3.0:telemetry will not be collected
-+# pypi-optional:glean-sdk==70.3.0:telemetry will not be collected
+-pypi-optional:glean-sdk==71.0.0:telemetry will not be collected
++# pypi-optional:glean-sdk==71.0.0:telemetry will not be collected
  pypi-optional:orjson>=3.10:json operations will be slower in various tools
  # Mach gracefully handles the case where `psutil` is unavailable.
  # We aren't (yet) able to pin packages in automation, so we have to
@@ -173,7 +179,7 @@ index 9bfd2ed..797bcbf 100644
 -#ifndef FUZZING
 +#if false
    if (XRE_IsParentProcess() || XRE_IsContentProcess() || XRE_IsGPUProcess() ||
-       XRE_IsRDDProcess() || XRE_IsSocketProcess() || XRE_IsUtilityProcess()) {
+       XRE_IsRDDProcess() || XRE_IsUtilityProcess()) {
      useTelemetry = true;
 diff --git a/toolkit/library/rust/gkrust-features.mozbuild b/toolkit/library/rust/gkrust-features.mozbuild
 index 44206cc..333379b 100644

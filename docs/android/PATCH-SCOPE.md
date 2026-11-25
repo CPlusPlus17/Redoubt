@@ -15,7 +15,7 @@ read in full, every file it touches was traced to the `moz.build` / `jar.mn` /
 preprocessor guard that decides whether that file is built on Android, and the
 decision below follows from that guard rather than from the path.
 
-Current classification: **22 common / 50 android / 43 desktop-only / 0 straddlers = 115
+Current classification: **22 common / 50 android / 44 desktop-only / 0 straddlers = 116
 patch files.** `python3 docs/android/board.py --check-scope` re-derives all five
 numbers from the lists and the files on disk and fails on any drift, including the
 arithmetic — so these are checked, not asserted.
@@ -263,6 +263,22 @@ the common `disable-data-reporting-common` (glean-sdk 70.2.1). Notes per patch:
 
 So: android 52 − 2 = 50; desktop-only 44 − 1 = 43; total 118 − 3 = 115.
 
+## Firefox 161.0 rebase (2026-11-25)
+
+Both targets move from 160.0 to Firefox 161.0 (issues #16, #17, #18: Firefox
+160.0.1 / MFSA 2026-130, Firefox 161.0 / MFSA 2026-131; every 160.0.1 code fix
+is in 161.0). One desktop-only patch is added: **`window-round`** (upstream
+LibreWolf 161.0-1, RFP window rounding on GTK; see the table below). Nothing is
+retired; `isolation-eme` is reduced (its provisioning-retry hunk is dropped: 161
+fixes the endless retries upstream). The android patches were rewritten for 161's code with the same intent
+(no-gms also drops the new Block Store `installation` feature, no-default-shortcuts
+pins the new regional shortcut sets off, search-config removes the Secret
+Settings v3 row, no-webcompat-reporter follows the menu to `menu/configuration/`);
+the common/desktop side follows upstream LibreWolf 161.0-1. Notes per patch:
+`docs/android/evidence/lw-m7-01/release-161.0/`.
+
+So: desktop-only 43 + 1 = 44; total 115 + 1 = 116.
+
 ## Firefox 160.0 rebase (2026-11-11)
 
 Both targets move from 159.0.1 to Firefox 160.0 (issues #14, #15: MFSA
@@ -282,7 +298,8 @@ patch: `docs/android/evidence/lw-m7-01/release-160.0/`.
   the next start restored it. Owner decision, verbatim: "lets build both as
   fallback". Fenix-only: `AndroidManifest.xml`, `FenixApplication.kt`,
   `MenuDialogFragment.kt`, `Core.kt` (one BrowserStore middleware, added by
-  the follow-up), and the new `lw/DeleteOnQuitGuard.kt` and
+  the follow-up), `MenuFragment.kt` (from the 161 rebase: every menu is
+  `MenuFragment` there, so Quit needs the hook in its quit delegate), and the new `lw/DeleteOnQuitGuard.kt` and
   `lw/DeleteOnQuitStartGateMiddleware.kt` with their JVM tests. It shares
   `AndroidManifest.xml` and `FenixApplication.kt` with seven earlier Android
   patches; those hunks are in disjoint regions and every pair is
@@ -736,6 +753,7 @@ an Android counterpart each); until it lands they stay desktop-only.
 | `include-policy-deletion` | `config/createprecomplete.py` | Build tooling (installer precomplete list). |
 | `pip-hide-ui` | `toolkit/components/pictureinpicture/content/player.{js,xhtml}`, `toolkit/themes/shared/pictureinpicture/player.css` | |
 | `remote-debugging-package-name` | `devtools/client/shared/remote-debugging/adb/adb-runtime.js` | `devtools/client/` is not built on Android (`MOZ_DEVTOOLS` = `server`, see `ui-patches/lw-logo-devtools` above). |
+| `window-round` | `xpfe/appshell/AppWindow.cpp` | Firefox 161 rebase, upstream LibreWolf 161.0-1. `xpfe/appshell` is built on Android, but the only hunk is inside `#ifdef MOZ_WIDGET_GTK` (`AppWindow::ForceRoundedDimensions()`), so it compiles to nothing there. Kept desktop-only because it has no Android effect, not because a guard keeps the file out. |
 
 Two of the `browser/`-only rows have a note worth keeping:
 
