@@ -1,10 +1,17 @@
 # Android APK build reproducibility (LW-M6-02)
 
-> **Scope today (2026-10-14).** What is verified: two same-machine builds of the APK stage
-> (from shared prebuilt Gecko/AAR inputs) produce byte-identical unsigned APKs, last run on
-> the ESR 153 beta candidate on 2026-09-08. It has not been repeated on the Firefox 157/158
-> releases. Not verified: cross-machine reproducibility and a reproducible Gecko/AAR build.
-> Redoubt therefore does not claim reproducible builds.
+> **Scope today (2026-11-26).** Verified:
+> - **Full build, same builder (161.0-1).** A complete second CI build gave four
+>   unsigned APKs byte-identical to the published 161.0-1 release. It covered the
+>   Gecko pass, the AARs and the APK stage. It used the same commit and build
+>   date, a cleaned tree and fresh containers, on the same builder VM with the
+>   same cached build image.
+>   See [evidence](evidence/lw-m6-02/gecko-same-host-161.0-1/README.md).
+> - **APK stage, same machine (ESR 153 beta, 2026-09-08).** Two builds from shared
+>   prebuilt Gecko/AAR inputs gave byte-identical APKs.
+>
+> Not verified: cross-machine reproducibility, and a rebuild with a freshly built
+> image. Redoubt therefore does not claim reproducible builds yet.
 
 This document records how the unsigned release APK is built reproducibly,
 what was measured, what is known to be nondeterministic (and why), and what
@@ -243,10 +250,20 @@ all nondeterminism. The items below describe additional limits of the test.
 
    R8's determinism is therefore measured, not assumed. What is still not claimed
    is cross-machine byte-identity (item 1) — this remains a same-machine result.
-3. **Gecko pass and per-ABI AAR inputs — out of scope.** The AARs
-   (`target.maven.zip`) and the gecko build that produced them are shared
-   prebuilt inputs here (LW-M2-03). Their reproducibility is a separate
-   question and is not asserted by this test.
+3. **Gecko pass and per-ABI AAR inputs.** This test script still treats the
+   AARs (`target.maven.zip`) as shared prebuilt inputs (LW-M2-03). **Measured
+   separately on 2026-11-26, same builder:**
+   - **Inputs:** Actions run 45780592911 rebuilt 161.0-1 end to end with the
+     release's commit `683c8915` and `MOZ_BUILD_DATE=20261125160740`.
+   - **Conditions:** a `git clean -ffdx` tree, the tarball downloaded again,
+     fresh containers and Gradle home, and no compiler cache.
+   - **Result:** all four APKs, including every `libxul.so` and `omni.ja`, are
+     byte-identical to release run 45650986628.
+   - **Same as the release build:** the host, VM, workspace path and podman
+     image. Only the cross-machine leg (item 1), with a freshly built image,
+     remains open.
+
+   See the [evidence](evidence/lw-m6-02/gecko-same-host-161.0-1/README.md).
 4. **Four `PARITY.md` measured rows still PENDING** (no GPU/device available)
    and **LW-M4-08 / LW-M4-11** are explicitly out of scope for this task.
    These affect feature parity, not build byte-identity, and are listed for
