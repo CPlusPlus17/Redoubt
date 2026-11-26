@@ -1,6 +1,6 @@
 # Android APK build reproducibility (LW-M6-02)
 
-> **Scope today (2026-11-26).** Verified:
+> **Scope today (2026-11-27).** Verified:
 > - **Full build, same builder (161.0-1).** A complete second CI build gave four
 >   unsigned APKs byte-identical to the published 161.0-1 release. It covered the
 >   Gecko pass, the AARs and the APK stage. It used the same commit and build
@@ -10,8 +10,17 @@
 > - **APK stage, same machine (ESR 153 beta, 2026-09-08).** Two builds from shared
 >   prebuilt Gecko/AAR inputs gave byte-identical APKs.
 >
-> Not verified: cross-machine reproducibility, and a rebuild with a freshly built
-> image. Redoubt therefore does not claim reproducible builds yet.
+> - **Second machine, fresh image (161.0-1, 2026-11-26): one entry short.** A
+>   rebuild on a different host, CPU and filesystem, with a newly built image,
+>   matched the release in every APK entry except
+>   `assets/build-metadata.properties`. That asset carries the hash of R8's
+>   mapping file, which R8 writes in a run-dependent order.
+>   `no-build-metadata.patch` removes the asset.
+>   See [evidence](evidence/lw-m6-02/cross-machine-161.0-1/README.md).
+>
+> Not verified: a cross-machine pair of builds that both carry
+> `no-build-metadata.patch`. Redoubt therefore does not claim reproducible builds
+> yet.
 
 This document records how the unsigned release APK is built reproducibly,
 what was measured, what is known to be nondeterministic (and why), and what
@@ -95,9 +104,10 @@ not cover.
 
 ### Cross-machine claim
 
-**Cross-machine reproducibility is NOT claimed.** This is a same-machine test
-(one machine exists in this environment). The residual cross-machine sources
-that a second, independent machine could surface are enumerated in section 4.
+**Cross-machine reproducibility is NOT claimed.** This script is a same-machine
+test. A separate second-machine rebuild of 161.0-1 found one residual, which
+`no-build-metadata.patch` addresses; a pair of builds with that patch is still
+outstanding (section 4, item 1).
 
 ---
 
@@ -220,9 +230,27 @@ tested in the old runs, the Glean pin removed the observed differences within
 one hour. The 2026-09-08 audit above supersedes the broader claim that this fixed
 all nondeterminism. The items below describe additional limits of the test.
 
-1. **Cross-machine reproducibility — UNVERIFIED.** Only one machine exists in
-   this environment, so the "two builds on different machines" criterion cannot
-   be executed here. Surfaces a second machine could surface include:
+1. **Cross-machine reproducibility — one residual found and patched, pair with
+   the patch not yet built.** On 2026-11-26, 161.0-1 was rebuilt on a second
+   machine: a different physical host and CPU (Intel instead of AMD), xfs instead
+   of btrfs, and a freshly built image. Every APK entry matched the release
+   except `assets/build-metadata.properties`.
+   - **Cause:** that asset holds the `pg_map_hash` of R8's `mapping.txt`, and R8
+     writes the `$$compose` section of the mapping in a run-dependent order. The
+     two mappings are identical once sorted.
+   - **R8's inputs were identical:** every class, dex and dependency jar hashed
+     the same on both machines.
+   - **Image:** the two images differed in five toolchain bookkeeping files and
+     three security-patched jammy packages, none of which reached the APKs.
+   - **Fix:** `patches/android/no-build-metadata.patch` stops the asset being
+     written. Nothing in Redoubt reads it.
+   - **Still open:** a cross-machine pair of builds with the patch. Neither
+     build varied the in-container path (`/work/src`).
+
+   See the [evidence](evidence/lw-m6-02/cross-machine-161.0-1/README.md). The
+   list below is the original pre-measurement analysis. The filesystem and
+   toolchain items did not show up; the R8 ordering was not on it.
+   Surfaces a second machine could surface include:
    - Different filesystem / inode / directory-enumeration ordering fed into any
      step that is order-sensitive (none observed in this pass, but not provable
      without a second host).
@@ -260,8 +288,7 @@ all nondeterminism. The items below describe additional limits of the test.
    - **Result:** all four APKs, including every `libxul.so` and `omni.ja`, are
      byte-identical to release run 45650986628.
    - **Same as the release build:** the host, VM, workspace path and podman
-     image. Only the cross-machine leg (item 1), with a freshly built image,
-     remains open.
+     image. The cross-machine leg is item 1.
 
    See the [evidence](evidence/lw-m6-02/gecko-same-host-161.0-1/README.md).
 4. **Four `PARITY.md` measured rows still PENDING** (no GPU/device available)

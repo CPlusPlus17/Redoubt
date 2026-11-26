@@ -1,0 +1,53 @@
+R8 mapping (fenix/app/outputs/mapping/release). "release" = the tree that rebuild run 45780592911 left on runner 24 (its APKs are byte-identical to release run 45650986628); "second VM" = build A.
+
+== sha256 and size
+2c75c40f1bb4fea81f451a4844d5433ed2688f464d907f7ceb6ca35683c6c769  216733283  release: librewolf-161.0-1/obj-x86_64/gradle/build/mobile/android/fenix/app/outputs/mapping/release/mapping.txt
+8c2fecc5018f50a2788bc6763683cf88f3a2205af16cf228eb4a5cc6bbf83f6c  216733283  second VM: librewolf-161.0-1/obj-x86_64/gradle/build/mobile/android/fenix/app/outputs/mapping/release/mapping.txt
+
+== headers
+-- release
+# compiler: R8
+# compiler_version: 9.4.24
+# min_api: 26
+# common_typos_disable
+# {"id":"com.android.tools.r8.mapping","version":"2.2"}
+# pg_map_id: c85e1565b422244f248f4535de8d7b06292c915862a5c4d3e0314a36d5ce1f0a
+# pg_map_hash: SHA-256 1566d07b2c66eca200939b1281d8046154a08400983379b7613d73d32dcacf3d
+_COROUTINE.ArtificialStackFrames -> R8$$REMOVED$$CLASS$$0:
+-- second VM
+# compiler: R8
+# compiler_version: 9.4.24
+# min_api: 26
+# common_typos_disable
+# {"id":"com.android.tools.r8.mapping","version":"2.2"}
+# pg_map_id: c85e1565b422244f248f4535de8d7b06292c915862a5c4d3e0314a36d5ce1f0a
+# pg_map_hash: SHA-256 98b55b31ef78803e95e23f48d44a4a620f31356b2ccf40c1ad5a949ab346f336
+_COROUTINE.ArtificialStackFrames -> R8$$REMOVED$$CLASS$$0:
+
+== same lines in a different order?
+cmp <(grep -v pg_map_hash A | LC_ALL=C sort) <(grep -v pg_map_hash B | LC_ALL=C sort)
+-> identical: the files differ only in line order (and the hash line)
+
+== where the order differs
+last section of mapping.txt starts at line 1496207 of 1505581:
+ComposeStackTrace -> $$compose:
+diff hunks (7c7 is the pg_map_hash header line; every other hunk is inside that last section):
+7c7
+1500798a1500799,1500863
+1500933,1500997d1500997
+1501014,1501015d1501013
+1501026a1501025,1501026
+1504207a1504208,1504211
+1504243,1504246d1504246
+1504671a1504672,1504704
+1504708,1504740d1504740
+
+== other files in the mapping directory
+identical  configanalyzer.html
+identical  configanalyzer.pb
+identical  configuration.txt
+differs  mapping.prt (binary, same size: 26147157 bytes; a packed form of mapping.txt)
+differs  mapping.txt (210 changed lines)
+differs  resources.txt (50 changed lines)
+same lines, different order  seeds.txt
+identical  usage.txt

@@ -3327,7 +3327,10 @@ tasks:
     title: Make the Android build reproducible and verify it
     milestone: M6
     depends_on: [LW-M2-08]
-    owns: [scripts/android-verify-repro.sh, docs/android/REPRODUCIBLE.md]
+    owns: [scripts/android-verify-repro.sh, docs/android/REPRODUCIBLE.md, patches/android/no-build-metadata.patch, docs/android/evidence/lw-m6-02/]
+    shared_edit: [assets/patches/android.txt]
+    tree_paths:
+      - mobile/android/gradle/plugins/conventions/src/main/java/org/mozilla/conventions/ProjectPlugin.kt
     what: |
       Two independent builds of the same source must produce identical unsigned
       APKs. Eliminate the usual sources of nondeterminism: build timestamps, paths,
