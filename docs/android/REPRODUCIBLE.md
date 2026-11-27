@@ -10,17 +10,22 @@
 > - **APK stage, same machine (ESR 153 beta, 2026-09-08).** Two builds from shared
 >   prebuilt Gecko/AAR inputs gave byte-identical APKs.
 >
-> - **Second machine, fresh image (161.0-1, 2026-11-26): one entry short.** A
->   rebuild on a different host, CPU and filesystem, with a newly built image,
->   matched the release in every APK entry except
->   `assets/build-metadata.properties`. That asset carries the hash of R8's
->   mapping file, which R8 writes in a run-dependent order.
->   `no-build-metadata.patch` removes the asset.
+> - **Two machines, two images (161.0-1 + `no-build-metadata.patch`,
+>   2026-11-27).** CI run 45953992693 on runner 24 and a build on a second
+>   machine gave four byte-identical unsigned APKs. The second machine had a
+>   different host, CPU vendor (Intel vs AMD), filesystem (xfs vs btrfs) and a
+>   freshly built image. Without the patch the two machines differed in one
+>   entry, `assets/build-metadata.properties`, which carries the hash of R8's
+>   mapping file. R8 orders that file differently per machine.
 >   See [evidence](evidence/lw-m6-02/cross-machine-161.0-1/README.md).
 >
-> Not verified: a cross-machine pair of builds that both carry
-> `no-build-metadata.patch`. Redoubt therefore does not claim reproducible builds
-> yet.
+> Not verified:
+> - a build at a different path or outside the container (F-Droid's shape);
+> - the `update_check=false` variant;
+> - a published release built with the patch (the next release would be the first).
+>
+> Redoubt does not publicly claim reproducible builds until the owner decides
+> to.
 
 This document records how the unsigned release APK is built reproducibly,
 what was measured, what is known to be nondeterministic (and why), and what
@@ -106,8 +111,9 @@ not cover.
 
 **Cross-machine reproducibility is NOT claimed.** This script is a same-machine
 test. A separate second-machine rebuild of 161.0-1 found one residual, which
-`no-build-metadata.patch` addresses; a pair of builds with that patch is still
-outstanding (section 4, item 1).
+`no-build-metadata.patch` removes; with the patch, a CI build and a
+second-machine build were byte-identical (section 4, item 1). That is one pair
+of builds of one commit, not yet a published release.
 
 ---
 
@@ -230,26 +236,34 @@ tested in the old runs, the Glean pin removed the observed differences within
 one hour. The 2026-09-08 audit above supersedes the broader claim that this fixed
 all nondeterminism. The items below describe additional limits of the test.
 
-1. **Cross-machine reproducibility — one residual found and patched, pair with
-   the patch not yet built.** On 2026-11-26, 161.0-1 was rebuilt on a second
+1. **Cross-machine reproducibility — VERIFIED with `no-build-metadata.patch`
+   (2026-11-27), within the limits below.** On 2026-11-26, 161.0-1 was rebuilt on a second
    machine: a different physical host and CPU (Intel instead of AMD), xfs instead
    of btrfs, and a freshly built image. Every APK entry matched the release
    except `assets/build-metadata.properties`.
    - **Cause:** that asset holds the `pg_map_hash` of R8's `mapping.txt`, and R8
-     writes the `$$compose` section of the mapping in a run-dependent order. The
-     two mappings are identical once sorted.
+     writes the `$$compose` section of the mapping in a different order on the
+     two machines. The order is stable across builds on each machine. The two
+     mappings are identical once sorted. Which machine property decides the
+     order was not determined.
    - **R8's inputs were identical:** every class, dex and dependency jar hashed
      the same on both machines.
    - **Image:** the two images differed in five toolchain bookkeeping files and
      three security-patched jammy packages, none of which reached the APKs.
    - **Fix:** `patches/android/no-build-metadata.patch` stops the asset being
      written. Nothing in Redoubt reads it.
-   - **Still open:** a cross-machine pair of builds with the patch. Neither
-     build varied the in-container path (`/work/src`).
+   - **Patched pair:** commit `ba2a9c3b` built by CI run 45953992693 and on the
+     second machine gave byte-identical APKs: same SHA-256, and every zip entry
+     identical.
+   - **Still open:** every build here used the in-container path `/work/src`
+     and the same build date; F-Droid builds at its own path without the
+     container. The `update_check=false` variant has not been built as a
+     pair.
 
    See the [evidence](evidence/lw-m6-02/cross-machine-161.0-1/README.md). The
-   list below is the original pre-measurement analysis. The filesystem and
-   toolchain items did not show up; the R8 ordering was not on it.
+   list below is the original pre-measurement analysis. The toolchain item did
+   not show up. The R8 ordering was not on the list; the filesystem item is
+   one candidate for its cause.
    Surfaces a second machine could surface include:
    - Different filesystem / inode / directory-enumeration ordering fed into any
      step that is order-sensitive (none observed in this pass, but not provable

@@ -1,12 +1,16 @@
-# 161.0-1 rebuilt on a second machine (2026-11-26)
+# 161.0-1 rebuilt on a second machine (2026-11-26/27)
 
-**Result: every APK entry matches the release except one,
-`assets/build-metadata.properties`.** That asset holds a hash of R8's mapping
-file. R8 writes one section of the mapping in an order that varies between
-runs. The dex code, resources, native libraries and `omni.ja` are all
-byte-identical. `patches/android/no-build-metadata.patch` stops the asset being
-written. A cross-machine pair of builds with that patch has not been run yet,
-so the full claim is still unmeasured (see "Open").
+**Result: with `no-build-metadata.patch`, two builds on different machines give
+byte-identical unsigned APKs.** All four APKs from CI run 45953992693 (runner
+24) and from build C on a second machine have the same SHA-256, and every zip
+entry matches (see "The patched pair").
+
+Without the patch (release 45650986628 vs build A), every entry matched except
+`assets/build-metadata.properties`. That asset holds a hash of R8's mapping
+file. One section of the mapping comes out in a different order on the two
+machines, though two builds on the same machine give the same order. The dex
+code, resources, native libraries and `omni.ja` were all byte-identical. The
+patch stops the asset being written.
 
 ## What was built
 
@@ -80,10 +84,15 @@ exported from both machines:
 - Both Gradle dependency caches (APK pass and AAR pass) are identical.
 
 So R8 got identical inputs and wrote identical code, and only the order of its
-`$$compose` mapping section changed. That order most likely depends on which
-worker thread finishes first. This was not measured directly. It would explain
-why two builds on runner 24 matched (rebuild 45780592911) while a different
-CPU did not.
+`$$compose` mapping section changed. The order is stable on each machine:
+- runner 24: release 45650986628 and rebuild 45780592911 have the same
+  `pg_map_hash`;
+- second machine: build A and build C have byte-identical `mapping.txt`
+  files (`mapping-compare.txt`, last section).
+
+So it is not a per-run race. Something about the machine decides it, and which
+property was not determined. Candidates are the filesystem (btrfs vs xfs),
+which some input listing would pass on, or CPU-dependent scheduling.
 
 `image-compare.txt` shows the build image was not the cause:
 - Of the 29,187 files in `/root/.mozbuild`, five differ: sdkmanager
@@ -93,6 +102,40 @@ CPU did not.
 - Three jammy packages differ by a security update: libexpat, krb5 and libtiff.
 - The HEAD of the image's unpinned `/source` clone differs. The build does not
   read that clone.
+
+## The patched pair
+
+Commit `ba2a9c3b` (branch `fix/repro-no-build-metadata`) is `683c8915` plus
+`no-build-metadata.patch` and documentation. It was built twice:
+
+| | CI | Second machine, build C |
+|---|---|---|
+| Build | Actions run [45953992693](https://github.com/CPlusPlus17/Redoubt/actions/runs/45953992693), mode=full, update_check=true, build_date=20261125160740 | `run-c.sh`: `make android-package`, same flags, 2026-11-27 07:05-08:41 UTC |
+| Machine | runner 24, as above | the second machine, as above |
+| Image | `ac5bb9c0b7b5…` (CI's) | `73901ba826f0…`, build A's fresh image |
+
+`SHA256SUMS.ci-45953992693` and `SHA256SUMS.second-vm-c` are the same file:
+
+    6ec0bc82c7c25c6b2f40edb2ff657665a55ad74981f376916cd750ebb7634104  fenix-arm64-v8a-release-unsigned.apk
+    e65e0270d4f03e1ab1e2822549838ad5cd4b7ac823e10327bace3942838f9b6c  fenix-armeabi-v7a-release-unsigned.apk
+    43756334b08fb935fc6cf952983981afe56b9eee03efc18cf2c9ad3c2eadfd19  fenix-universal-release-unsigned.apk
+    32759ff69c13078d1368bf8610d81992e3900f68c0d3b08322d53bf30f6dedaf  fenix-x86_64-release-unsigned.apk
+
+How this was checked:
+- the CI artifact was downloaded, and the hashes were recomputed on the
+  workstation for both sets;
+- `cmp` of each pair;
+- `entry-compare-patched.txt`: 3831/3831 entries identical per ABI and
+  3865/3865 universal, same order;
+- `patched-vs-release.txt`: against the published release, the only change is
+  the missing asset; every other entry is identical.
+
+Both builds passed the release job's checks: unsigned, update-check key
+present. Both used the same settings submodule `3982f7e6` and no overlay. The
+CI build is also the compile check for the patch.
+
+The two builds still differed in host, CPU vendor, filesystem, image build and
+network path. They shared the in-container paths, user and build date.
 
 ## The fix
 
@@ -104,17 +147,20 @@ the conventions plugin, so no build writes the asset.
   is missing, as it does for non-minified builds.
 - Redoubt does not upload mappings.
 
-The R8 mapping itself stays order-dependent. That does not matter for
-F-Droid, which compares APKs, but it means two published mapping files can
-differ even when the APKs are identical.
+The R8 mapping itself still differs between machines (the patched pair's
+mappings were not compared; build C's equals build A's). That does not matter
+for F-Droid, which compares APKs, but it means two mapping files can differ
+even when the APKs are identical.
 
 ## Open
 
-- A cross-machine pair of builds with the patch, compared the same way: one
-  on runner 24 and one on the second machine. Until that is done, cross-machine
-  byte identity is expected, not measured.
-- That pair should also vary the in-container build path, which neither build
-  here did.
+- The in-container build path (`/work/src`), user and build date were the
+  same in every build here. An F-Droid-style build without a container, at
+  its own path, is not covered.
+- The `update_check=false` (F-Droid-shaped) variant has not been built as a
+  pair.
+- Which machine property decides R8's `$$compose` order is unknown. It no
+  longer reaches the APK.
 - The image's `/source` clone (Dockerfile.android:572) is unpinned. It is not
   a build input, but it makes the image itself differ between builds.
 
@@ -123,10 +169,14 @@ differ even when the APKs are identical.
 | File | What |
 |---|---|
 | `SHA256SUMS.release-45650986628` | release APK hashes (copy of the same-host evidence) |
-| `SHA256SUMS.second-vm-a` | second-machine APK hashes |
-| `entry-compare.txt` | `cmp_apk.py` output, four APK pairs |
+| `SHA256SUMS.second-vm-a` | second-machine build A APK hashes (unpatched) |
+| `entry-compare.txt` | `cmp_apk.py` output, release vs build A |
+| `SHA256SUMS.ci-45953992693` | patched CI build APK hashes |
+| `SHA256SUMS.second-vm-c` | patched second-machine build C APK hashes |
+| `entry-compare-patched.txt` | `cmp_apk.py` output, CI 45953992693 vs build C |
+| `patched-vs-release.txt` | `cmp_apk.py` output, release vs CI 45953992693 |
 | `build-metadata.properties.txt` | the differing asset from both builds |
-| `mapping-compare.txt` | mapping sizes, hashes, headers, sorted comparison, diff hunks |
+| `mapping-compare.txt` | mapping sizes, hashes, headers, sorted comparison, diff hunks; build C vs build A |
 | `r8-inputs-compare.txt` | build-tree and Gradle-cache manifest comparison |
 | `image-compare.txt` | build-image toolchain, dpkg and version comparison |
 
