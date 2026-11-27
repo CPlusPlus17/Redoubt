@@ -1,10 +1,31 @@
 # Android APK build reproducibility (LW-M6-02)
 
-> **Scope today (2026-10-14).** What is verified: two same-machine builds of the APK stage
-> (from shared prebuilt Gecko/AAR inputs) produce byte-identical unsigned APKs, last run on
-> the ESR 153 beta candidate on 2026-09-08. It has not been repeated on the Firefox 157/158
-> releases. Not verified: cross-machine reproducibility and a reproducible Gecko/AAR build.
-> Redoubt therefore does not claim reproducible builds.
+> **Scope today (2026-11-27).** Verified:
+> - **Full build, same builder (161.0-1).** A complete second CI build gave four
+>   unsigned APKs byte-identical to the published 161.0-1 release. It covered the
+>   Gecko pass, the AARs and the APK stage. It used the same commit and build
+>   date, a cleaned tree and fresh containers, on the same builder VM with the
+>   same cached build image.
+>   See [evidence](evidence/lw-m6-02/gecko-same-host-161.0-1/README.md).
+> - **APK stage, same machine (ESR 153 beta, 2026-09-08).** Two builds from shared
+>   prebuilt Gecko/AAR inputs gave byte-identical APKs.
+>
+> - **Two machines, two images (161.0-1 + `no-build-metadata.patch`,
+>   2026-11-27).** CI run 45953992693 on runner 24 and a build on a second
+>   machine gave four byte-identical unsigned APKs. The second machine had a
+>   different host, CPU vendor (Intel vs AMD), filesystem (xfs vs btrfs) and a
+>   freshly built image. Without the patch the two machines differed in one
+>   entry, `assets/build-metadata.properties`, which carries the hash of R8's
+>   mapping file. R8 orders that file differently per machine.
+>   See [evidence](evidence/lw-m6-02/cross-machine-161.0-1/README.md).
+>
+> Not verified:
+> - a build at a different path or outside the container (F-Droid's shape);
+> - the `update_check=false` variant;
+> - a published release built with the patch (the next release would be the first).
+>
+> Redoubt does not publicly claim reproducible builds until the owner decides
+> to.
 
 This document records how the unsigned release APK is built reproducibly,
 what was measured, what is known to be nondeterministic (and why), and what
@@ -88,9 +109,11 @@ not cover.
 
 ### Cross-machine claim
 
-**Cross-machine reproducibility is NOT claimed.** This is a same-machine test
-(one machine exists in this environment). The residual cross-machine sources
-that a second, independent machine could surface are enumerated in section 4.
+**Cross-machine reproducibility is NOT claimed.** This script is a same-machine
+test. A separate second-machine rebuild of 161.0-1 found one residual, which
+`no-build-metadata.patch` removes; with the patch, a CI build and a
+second-machine build were byte-identical (section 4, item 1). That is one pair
+of builds of one commit, not yet a published release.
 
 ---
 
@@ -213,9 +236,35 @@ tested in the old runs, the Glean pin removed the observed differences within
 one hour. The 2026-09-08 audit above supersedes the broader claim that this fixed
 all nondeterminism. The items below describe additional limits of the test.
 
-1. **Cross-machine reproducibility — UNVERIFIED.** Only one machine exists in
-   this environment, so the "two builds on different machines" criterion cannot
-   be executed here. Surfaces a second machine could surface include:
+1. **Cross-machine reproducibility — VERIFIED with `no-build-metadata.patch`
+   (2026-11-27), within the limits below.** On 2026-11-26, 161.0-1 was rebuilt on a second
+   machine: a different physical host and CPU (Intel instead of AMD), xfs instead
+   of btrfs, and a freshly built image. Every APK entry matched the release
+   except `assets/build-metadata.properties`.
+   - **Cause:** that asset holds the `pg_map_hash` of R8's `mapping.txt`, and R8
+     writes the `$$compose` section of the mapping in a different order on the
+     two machines. The order is stable across builds on each machine. The two
+     mappings are identical once sorted. Which machine property decides the
+     order was not determined.
+   - **R8's inputs were identical:** every class, dex and dependency jar hashed
+     the same on both machines.
+   - **Image:** the two images differed in five toolchain bookkeeping files and
+     three security-patched jammy packages, none of which reached the APKs.
+   - **Fix:** `patches/android/no-build-metadata.patch` stops the asset being
+     written. Nothing in Redoubt reads it.
+   - **Patched pair:** commit `ba2a9c3b` built by CI run 45953992693 and on the
+     second machine gave byte-identical APKs: same SHA-256, and every zip entry
+     identical.
+   - **Still open:** every build here used the in-container path `/work/src`
+     and the same build date; F-Droid builds at its own path without the
+     container. The `update_check=false` variant has not been built as a
+     pair.
+
+   See the [evidence](evidence/lw-m6-02/cross-machine-161.0-1/README.md). The
+   list below is the original pre-measurement analysis. The toolchain item did
+   not show up. The R8 ordering was not on the list; the filesystem item is
+   one candidate for its cause.
+   Surfaces a second machine could surface include:
    - Different filesystem / inode / directory-enumeration ordering fed into any
      step that is order-sensitive (none observed in this pass, but not provable
      without a second host).
@@ -243,10 +292,19 @@ all nondeterminism. The items below describe additional limits of the test.
 
    R8's determinism is therefore measured, not assumed. What is still not claimed
    is cross-machine byte-identity (item 1) — this remains a same-machine result.
-3. **Gecko pass and per-ABI AAR inputs — out of scope.** The AARs
-   (`target.maven.zip`) and the gecko build that produced them are shared
-   prebuilt inputs here (LW-M2-03). Their reproducibility is a separate
-   question and is not asserted by this test.
+3. **Gecko pass and per-ABI AAR inputs.** This test script still treats the
+   AARs (`target.maven.zip`) as shared prebuilt inputs (LW-M2-03). **Measured
+   separately on 2026-11-26, same builder:**
+   - **Inputs:** Actions run 45780592911 rebuilt 161.0-1 end to end with the
+     release's commit `683c8915` and `MOZ_BUILD_DATE=20261125160740`.
+   - **Conditions:** a `git clean -ffdx` tree, the tarball downloaded again,
+     fresh containers and Gradle home, and no compiler cache.
+   - **Result:** all four APKs, including every `libxul.so` and `omni.ja`, are
+     byte-identical to release run 45650986628.
+   - **Same as the release build:** the host, VM, workspace path and podman
+     image. The cross-machine leg is item 1.
+
+   See the [evidence](evidence/lw-m6-02/gecko-same-host-161.0-1/README.md).
 4. **Four `PARITY.md` measured rows still PENDING** (no GPU/device available)
    and **LW-M4-08 / LW-M4-11** are explicitly out of scope for this task.
    These affect feature parity, not build byte-identity, and are listed for

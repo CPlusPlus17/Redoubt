@@ -1,0 +1,83 @@
+Build image: runner 24's image ac5bb9c0b7b5cb359f25f27d27f53ce6ceadaebfe3ed07f3c6b118316d8ff58c (built 2026-11-25 15:43 UTC, run 45647640735)
+vs the second VM's image, built fresh from the same assets/Dockerfile.android (label org.redoubt.dockerfile-sha256 c7afbc26...10728a8 on both).
+
+== /root/.mozbuild (JDK, Android SDK/NDK, Rust, node, cbindgen, nasm, ...)
+files: 29187 on both; differing or present on one side only:
+  < f9b97df2463f73e82d5c6c8e28f3f38f117cfd3265ec2673f5f9c22602d638d2  /root/.mozbuild/android-sdk-linux/.sdk/objects/ce5908d8e95c83789dd058defa28c48ec7e56a41
+  > ae4c7e8b029ea51f6890d555b287ac71cd2cd6824ab4403dbb84bb008c8a280c  /root/.mozbuild/android-sdk-linux/.sdk/objects/01ffe7756c55a5759b9b6a2aa28d921b0860d901
+  < d54db9a423366cdb3ef49f310ec977307a4a182bce3fb06cfa695aead3013faf  /root/.mozbuild/android-sdk-linux/.sdk/refs/remote
+  > 7ebfeb8d6fba6d8b4f3ebbb99c132d0ee78030e6428c45ce641db8069465fcf8  /root/.mozbuild/android-sdk-linux/.sdk/refs/remote
+  < d5e99c95c0c84825de19b58e5b2374413e0bf2ec2d2604749c92539587b7b083  /root/.mozbuild/cargo/.global-cache
+  > dfc35674c54bed3fce16782e8f3e3f1ce3891ed35d36113939b671af4c87405c  /root/.mozbuild/cargo/.global-cache
+  < 89c9b5aec79540f0726de68900038b9ca826e366f76f8f297ca8fc2e7295cb32  /root/.mozbuild/nasm/nasm
+  > 216deadfffbaf04e11d657383e729be76e2a465f5a808a12cdfa10c3139a6bac  /root/.mozbuild/nasm/nasm
+  < d54756488bc7ecd24c452b5cd04b1593faca25dcd12701904e8048e4ee46329c  /root/.mozbuild/rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/lib/rustlib/components
+  > c2df487961cd887d080fffa145ee368cd8433adfb69c7a0d9ca03be3a7c0c0b8  /root/.mozbuild/rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/lib/rustlib/components
+  (sdkmanager bookkeeping, cargo's cache index, rustup's component list, and nasm, which the image compiles from source; nasm assembles only native media code, not Java/Kotlin)
+
+== dpkg (image-dpkg.txt)
+  92,93c92,93
+  < libexpat1-dev:amd64	2.4.7-1ubuntu0.9
+  < libexpat1:amd64	2.4.7-1ubuntu0.9
+  ---
+  > libexpat1-dev:amd64	2.4.7-1ubuntu0.10
+  > libexpat1:amd64	2.4.7-1ubuntu0.10
+  111c111
+  < libgssapi-krb5-2:amd64	1.19.2-2ubuntu0.10
+  ---
+  > libgssapi-krb5-2:amd64	1.19.2-2ubuntu0.12
+  124c124
+  < libk5crypto3:amd64	1.19.2-2ubuntu0.10
+  ---
+  > libk5crypto3:amd64	1.19.2-2ubuntu0.12
+  126,127c126,127
+  < libkrb5-3:amd64	1.19.2-2ubuntu0.10
+  < libkrb5support0:amd64	1.19.2-2ubuntu0.10
+  ---
+  > libkrb5-3:amd64	1.19.2-2ubuntu0.12
+  > libkrb5support0:amd64	1.19.2-2ubuntu0.12
+  185c185
+  < libtiff5:amd64	4.3.0-6ubuntu0.13
+  ---
+  > libtiff5:amd64	4.3.0-6ubuntu0.14
+  (jammy security updates between the two image builds; none is used by javac, kotlinc or R8)
+
+== image-versions.txt
+  32c32
+  < e2baf3254fc7e0a0c5e283596c1ece62ce641716
+  ---
+  > ed92167b4c56aa9f10dd4f1a493bebd69e79b43f
+  (HEAD of the image's /source clone of upstream LibreWolf, unpinned in Dockerfile.android:572. The Redoubt build does not use it: it bind-mounts its own tree at /work/src.)
+
+Everything else in image-versions.txt (JDK, NDK, platform android-37.2, rustc, Python, node, cbindgen) is identical:
+  Pkg.Desc=Android SDK Platform ${PLATFORM_VERSION}
+  Pkg.UserSrc=false
+  Platform.Version=${PLATFORM_VERSION}
+  Platform.CodeName=
+  Pkg.Revision=2
+  AndroidVersion.ApiLevel=37.2
+  AndroidVersion.CodeName=
+  AndroidVersion.ExtensionLevel=24
+  AndroidVersion.IsBaseSdk=true
+  AndroidVersion.PreviewSdkInt=0
+  AndroidVersion.BetaVersion=
+  Layoutlib.Api=15
+  Layoutlib.Revision=1
+  Platform.MinToolsRev=22
+  Pkg.Desc = Android NDK
+  Pkg.Revision = 30.0.16248370
+  Pkg.BaseRevision = 30.0.16248370
+  Pkg.ReleaseName = r30
+  openjdk version "17.0.20.1" 2026-08-18
+  OpenJDK Runtime Environment Temurin-17.0.20.1+1 (build 17.0.20.1+1)
+  OpenJDK 64-Bit Server VM Temurin-17.0.20.1+1 (build 17.0.20.1+1, mixed mode, sharing)
+  rustc 1.95.0 (59807616e 2026-04-14)
+  binary: rustc
+  commit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860
+  commit-date: 2026-04-14
+  host: x86_64-unknown-linux-gnu
+  release: 1.95.0
+  LLVM version: 22.1.2
+  Python 3.10.12 (main, Aug 31 2026, 10:18:17) [GCC 11.4.0]
+  v22.16.0
+  cbindgen 0.29.4

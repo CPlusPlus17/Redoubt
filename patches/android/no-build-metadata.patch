@@ -1,0 +1,88 @@
+# Redoubt no-build-metadata.patch (LW-M6-02)
+#
+# Upstream file: mobile/android/gradle/plugins/conventions/src/main/java/
+#                org/mozilla/conventions/ProjectPlugin.kt
+#
+# WHAT UPSTREAM DOES
+# ------------------
+# configureBuildMetadata() registers WriteBuildMetadata for every minified
+# application variant. That task reads the `# pg_map_hash: SHA-256 ...` line
+# from the R8 mapping header and packages it, plus a UUID derived from it, as
+# assets/build-metadata.properties. Mozilla uses it to match crash reports and
+# profiles to the right mapping file.
+#
+# WHY REDOUBT DROPS IT
+# --------------------
+# It is the only thing that kept the 161.0-1 APKs from being byte-identical
+# across machines. Measured 2026-11-26 (release run 45650986628 on runner 24
+# vs a fresh-image build on a second VM, both commit 683c8915): every APK entry
+# matched except this asset. The two mapping.txt files have the same size and
+# are identical once sorted line by line; only the order of the per-file blocks
+# in R8's `ComposeStackTrace -> $$compose:` section differs. Every R8 input
+# (49,938 class/jar/dex/source files, both Gradle module caches) hashed the
+# same. So the dex code is deterministic, but R8's mapping order depends on
+# the machine (it is stable across builds on each of the two machines; the
+# deciding property is unknown), and this task copies the hash of that order
+# into the APK. With this patch, CI run 45953992693 and a second-machine build
+# of ba2a9c3b gave byte-identical APKs (2026-11-27).
+# Evidence: docs/android/evidence/lw-m6-02/cross-machine-161.0-1/.
+#
+# Nothing in Redoubt reads the asset: no-crashreporter.patch removes the only
+# consumers (Sentry/Socorro) and keeps Analytics.buildMetadata unread, and
+# android-components' BuildMetadata.fromAssets() returns empty metadata when
+# the asset is missing (IOException path), as it already does for non-minified
+# builds. Redoubt does not upload mappings.
+#
+# The whole function goes, not just the call: the conventions plugin compiles
+# with allWarningsAsErrors. Its SingleArtifact import had no other user.
+# WriteBuildMetadata.kt is left in place, unreferenced. No other listed patch
+# touches this file.
+#
+# Rebase check: if upstream starts hashing a sorted mapping, or R8 writes the
+# $$compose section in a machine-independent order, this patch can be dropped; build twice on
+# different machines and compare assets/build-metadata.properties.
+
+--- a/mobile/android/gradle/plugins/conventions/src/main/java/org/mozilla/conventions/ProjectPlugin.kt
++++ b/mobile/android/gradle/plugins/conventions/src/main/java/org/mozilla/conventions/ProjectPlugin.kt
+@@ -4,7 +4,6 @@
+ 
+ package org.mozilla.conventions
+ 
+-import com.android.build.api.artifact.SingleArtifact
+ import com.android.build.api.dsl.ApplicationExtension
+ import com.android.build.api.dsl.CommonExtension
+ import com.android.build.api.variant.ApplicationAndroidComponentsExtension
+@@ -87,7 +86,7 @@
+         configureAndroidComponentsLint(project, mozilla, topsrcdir)
+         configureUnitTests(project)
+         configurePackagingResourcesExcludes(project)
+-        configureBuildMetadata(project)
++        // Redoubt: no configureBuildMetadata(project); see patches/android/no-build-metadata.patch.
+         registerPrintVariantsTask(project)
+         configureNativeLibsForTests(project, substs)
+     }
+@@ -593,24 +592,6 @@
+         project.pluginManager.withPlugin("com.android.application", action)
+     }
+ 
+-    /**
+-     * Adds the `build-metadata.properties` asset to minified application variants.
+-     */
+-    private fun configureBuildMetadata(project: Project) {
+-        project.pluginManager.withPlugin("com.android.application") {
+-            val androidComponents = project.extensions.getByType<ApplicationAndroidComponentsExtension>()
+-            androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+-                if (!variant.isMinifyEnabled) return@onVariants
+-                val task = project.tasks.register<WriteBuildMetadata>(
+-                    "writeBuildMetadata${variant.name.replaceFirstChar { it.uppercase() }}",
+-                ) {
+-                    mappingFile.set(variant.artifacts.get(SingleArtifact.OBFUSCATION_MAPPING_FILE))
+-                }
+-                variant.sources.assets?.addGeneratedSourceDirectory(task, WriteBuildMetadata::outputDir)
+-            }
+-        }
+-    }
+-
+     private fun registerPrintVariantsTask(project: Project) {
+         project.pluginManager.withPlugin("com.android.application") {
+             val outputFile = project.file("build/printVariants.json")
