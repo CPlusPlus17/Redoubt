@@ -18,10 +18,15 @@
 >   entry, `assets/build-metadata.properties`, which carries the hash of R8's
 >   mapping file. R8 orders that file differently per machine.
 >   See [evidence](evidence/lw-m6-02/cross-machine-161.0-1/README.md).
+> - **Two machines, `update_check=false` (161.0-1, 2026-11-27).** The same two
+>   machines built main `7ee28fff` with the flag F-Droid would use (CI run
+>   46003883919, build D): four byte-identical unsigned APKs with no update-check
+>   key. Against the update_check=true pair only the dex, the baseline profile and
+>   four notification strings in `resources.arsc` differ.
+>   See [evidence](evidence/lw-m6-02/cross-machine-161.0-1-no-update-check/README.md).
 >
 > Not verified:
 > - a build at a different path or outside the container (F-Droid's shape);
-> - the `update_check=false` variant;
 > - a published release built with the patch (the next release would be the first).
 >
 > Redoubt does not publicly claim reproducible builds until the owner decides
@@ -112,8 +117,10 @@ not cover.
 **Cross-machine reproducibility is NOT claimed.** This script is a same-machine
 test. A separate second-machine rebuild of 161.0-1 found one residual, which
 `no-build-metadata.patch` removes; with the patch, a CI build and a
-second-machine build were byte-identical (section 4, item 1). That is one pair
-of builds of one commit, not yet a published release.
+second-machine build were byte-identical (section 4, item 1). The same holds
+for an `update_check=false` pair of the same machines. These are two pairs of
+builds of one release, not yet a published release, and all used the same
+in-container path.
 
 ---
 
@@ -257,8 +264,11 @@ all nondeterminism. The items below describe additional limits of the test.
      identical.
    - **Still open:** every build here used the in-container path `/work/src`
      and the same build date; F-Droid builds at its own path without the
-     container. The `update_check=false` variant has not been built as a
-     pair.
+     container.
+   - **update_check=false pair:** main `7ee28fff` built the same way with
+     `update_check=false` (CI run 46003883919 and the second machine) also
+     gave byte-identical APKs, with no update-check key in any dex. See the
+     [evidence](evidence/lw-m6-02/cross-machine-161.0-1-no-update-check/README.md).
 
    See the [evidence](evidence/lw-m6-02/cross-machine-161.0-1/README.md). The
    list below is the original pre-measurement analysis. The toolchain item did
