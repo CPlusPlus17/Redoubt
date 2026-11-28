@@ -157,8 +157,9 @@ even when the APKs are identical.
 - The in-container build path (`/work/src`), user and build date were the
   same in every build here. An F-Droid-style build without a container, at
   its own path, is not covered.
-- The `update_check=false` (F-Droid-shaped) variant has not been built as a
-  pair.
+- The `update_check=false` (F-Droid-shaped) variant was built as a pair
+  afterwards and is byte-identical too: see
+  [cross-machine-161.0-1-no-update-check](../cross-machine-161.0-1-no-update-check/README.md).
 - Which machine property decides R8's `$$compose` order is unknown. It no
   longer reaches the APK.
 - The image's `/source` clone (Dockerfile.android:572) is unpinned. It is not

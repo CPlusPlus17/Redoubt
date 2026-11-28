@@ -1,0 +1,33 @@
+# Update-check key search, hits in classes*.dex (unzip -p APK 'classes*.dex' | grep -c -aF STRING)
+# committed = assets/update-check.android.pubkey at 7ee28fff; p256 = MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE (header of any P-256 SPKI)
+# ci-c = CI 45953992693 (update_check=true), ci-d = CI 46003883919, vm-d = second machine run-d
+ci-c fenix-arm64-v8a-release-unsigned.apk dex_files=3 committed=1 p256=1
+ci-c fenix-armeabi-v7a-release-unsigned.apk dex_files=3 committed=1 p256=1
+ci-c fenix-universal-release-unsigned.apk dex_files=3 committed=1 p256=1
+ci-c fenix-x86_64-release-unsigned.apk dex_files=3 committed=1 p256=1
+ci-d fenix-arm64-v8a-release-unsigned.apk dex_files=3 committed=0 p256=0
+ci-d fenix-armeabi-v7a-release-unsigned.apk dex_files=3 committed=0 p256=0
+ci-d fenix-universal-release-unsigned.apk dex_files=3 committed=0 p256=0
+ci-d fenix-x86_64-release-unsigned.apk dex_files=3 committed=0 p256=0
+vm-d fenix-arm64-v8a-release-unsigned.apk dex_files=3 committed=0 p256=0
+vm-d fenix-armeabi-v7a-release-unsigned.apk dex_files=3 committed=0 p256=0
+vm-d fenix-universal-release-unsigned.apk dex_files=3 committed=0 p256=0
+vm-d fenix-x86_64-release-unsigned.apk dex_files=3 committed=0 p256=0
+
+# String hits, arm64-v8a APK
+ci-c dex https://redoubtbrowser.org/update/android/latest.json   1
+ci-c dex Redoubt-UpdateCheck/1                                   1
+ci-c dex org.fdroid.fdroid                                       1
+ci-c dex lw_update_check                                         2
+ci-c resources.arsc Check for updates                            1
+ci-c resources.arsc lw_update_check                              3
+ci-d dex https://redoubtbrowser.org/update/android/latest.json   0
+ci-d dex Redoubt-UpdateCheck/1                                   0
+ci-d dex org.fdroid.fdroid                                       1
+ci-d dex lw_update_check                                         2
+ci-d resources.arsc Check for updates                            1
+ci-d resources.arsc lw_update_check                              3
+
+# output-metadata.json (versionName, versionCode, ABI filter)
+ci-c [('161.0-1-default', 2016198400, ['armeabi-v7a']), ('161.0-1-default', 2016198402, ['arm64-v8a']), ('161.0-1-default', 2016198406, ['x86_64']), ('161.0-1-default', 2016198407, [])]
+ci-d [('161.0-1-default', 2016198400, ['armeabi-v7a']), ('161.0-1-default', 2016198402, ['arm64-v8a']), ('161.0-1-default', 2016198406, ['x86_64']), ('161.0-1-default', 2016198407, [])]
